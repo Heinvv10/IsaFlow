@@ -14,7 +14,8 @@
 -- Which rows (breaker #1468): the accept routes match the GoTrue identity, not users.email, and
 -- the two drift (POPIA erasure rewrites users.email and leaves GoTrue alone; change-email's
 -- documented partial failures). So a row goes when EITHER
---   gotrue_user_id is the deleted user's id (an invitation pinned to that GoTrue account), OR
+--   gotrue_user_id is the deleted user's id, when that id is canonical lower-case (an invitation
+--   pinned to the GoTrue account that row owned), OR
 --   its email, with JavaScript trim's whitespace set stripped and lower-cased, is one of p_emails:
 --   the caller passes the deleted users row's email AND
 --   the GoTrue account's current login email (looked up before any row lock is taken).
@@ -22,7 +23,7 @@
 -- Safety. It deletes only pending invitations: it can insert, update, re-open, re-point or
 -- accept none, and touches no company_users row, so it only removes a not-yet-used way into a
 -- company (930's rule: DELETE stays where it only removes access). It refuses (RC012) while the
--- users row p_user_id exists, and its pinned arm is off while any case variant of that id lives, so it
+-- users row p_user_id exists, and its pinned arm runs only for a canonical lower-case id, so it
 -- cannot be pointed at a live user's GoTrue-pinned invitations; the one caller, deleteUser, calls
 -- it after its `DELETE FROM users`, in the same transaction. The email arm takes any address: the portal can already delete the user, every
 -- membership and a whole company, and a re-invite restores what it cancels.
@@ -60,14 +61,13 @@ BEGIN
     RAISE EXCEPTION 'admin_cancel_user_invitations: user % still exists; cancel only after deleting it', p_user_id
       USING ERRCODE = 'RC012';
   END IF;
-  -- The pinned arm compares lower(p_user_id), so it runs only when NO users row names that id in any
-  -- letter case: a case variant that survives (two stored rows, one GoTrue account; admin .claude.md,
-  -- "users rows are different") is that account's live profile, and its pinned invitations stay
-  -- (re-break F2: `upper(<live id>)` passed the exact check above and deleted a live user's).
+  -- The pinned arm runs only for a canonical lower-case id: GoTrue ids are lower-case UUIDs and every
+  -- session resolves its sub to the users row with exactly that id, so only that row owns the account;
+  -- any other spelling owns none. `upper(<live id>)` passes the exact check above (re-break F2) but
+  -- not this one, so it cannot reach the live user's pinned invitations.
   DELETE FROM public.company_invitations ci
    WHERE ci.accepted_at IS NULL
-     AND ((ci.gotrue_user_id::text = pg_catalog.lower(p_user_id)
-           AND NOT EXISTS (SELECT 1 FROM public.users v WHERE pg_catalog.lower(v.id) = pg_catalog.lower(p_user_id)))
+     AND ((p_user_id = pg_catalog.lower(p_user_id) AND ci.gotrue_user_id::text = p_user_id)
           OR pg_catalog.lower(pg_catalog.regexp_replace(ci.email, v_trim, '', 'g')) IN (
                SELECT pg_catalog.lower(pg_catalog.regexp_replace(e, v_trim, '', 'g'))
                  FROM pg_catalog.unnest(COALESCE(p_emails, '{}'::text[])) AS e

@@ -12,8 +12,10 @@
  *   - GoTrue cannot answer: the delete is a 5xx and writes nothing (never a partial cancel);
  *   - the definer refuses while the user's row still exists (it serves a delete, never a live user), and a case
  *     variant of a live id cannot reach that user's pinned invitations;
- *   - deleting the upper-case variant row of a live lower-case user leaves the live user's pinned AND addressed
- *     invitations (round-4 review HIGH: GoTrue answers any letter case with the live account's email).
+ *   - a canonical lower-case UUID id owns its GoTrue account, any other spelling owns none: deleting the upper-case
+ *     variant of a live lower-case user leaves the live user's pinned AND addressed invitations (round-4 review HIGH),
+ *     and deleting the lower-case row while an upper-case variant survives still cancels by its GoTrue id and login
+ *     address (round-5 review MEDIUM).
  * GoTrue is the helpers' fetch stub. Disposable fixture only.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -139,21 +141,26 @@ describe('a case-variant delete leaves the surviving user alone', () => {
     }
   });
 
-  it('deleting the lower-case row while UPPER(<id>) survives: only the deleted row\'s own address goes', async () => {
+  it('deleting the lower-case row while UPPER(<id>) survives: its GoTrue account is still the deleted one\'s', async () => {
+    // Sessions resolve GoTrue's (lower-case) sub by exact id, so the account belongs to the canonical lower-case row;
+    // an upper-case variant owns none (round-5 review MEDIUM). Its drifted login address must still be cancelled.
     const gone = await seedUser({ memberOf: [A] });
     const survivorId = gone.id.toUpperCase();
-    const survivorEmail = `survivor-${gone.id}@test.local`;
-    await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [survivorId, survivorEmail]);
-    setGotrueEmail(gone.id, survivorEmail); // one GoTrue account; its login is the surviving profile's address
-    const pinned = await invite(B, survivorEmail, { gotrueUserId: gone.id });
-    const addressed = await invite(C, survivorEmail);
-    const own = await invite(D, gone.email);
+    await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`,
+      [survivorId, `survivor-${gone.id}@test.local`]);
+    const drifted = `drifted-${gone.id}@test.local`; // held by no users row
+    setGotrueEmail(gone.id, drifted);
+    const pinned = await invite(B, `pinned-${gone.id}@test.local`, { gotrueUserId: gone.id });
+    const addressed = await invite(C, drifted);
     try {
       const del = await adminDelete(gone.id);
       expect(del.status, JSON.stringify(del.body)).toBe(200);
-      expect({ pinned: await invitationRow(pinned), addressed: await invitationRow(addressed), own: await invitationRow(own) })
-        .toEqual({ pinned: { accepted_at: null }, addressed: { accepted_at: null }, own: undefined });
-      expect(await deleteAudit(gone.id)).toEqual([expect.objectContaining({ invitations_cancelled: 1 })]);
+      expect({ pinned: await invitationRow(pinned), addressed: await invitationRow(addressed) })
+        .toEqual({ pinned: undefined, addressed: undefined });
+      const r = await legacyAccept(gone.id, addressed);
+      expect(r.status, JSON.stringify(r.body)).toBe(404);
+      expect(await usersRows(gone.id)).toBe(0);
+      expect((await pool.query('SELECT count(*)::int n FROM company_users WHERE user_id = $1', [gone.id])).rows[0].n).toBe(0);
     } finally {
       await pool.query('DELETE FROM users WHERE id = $1', [survivorId]);
     }

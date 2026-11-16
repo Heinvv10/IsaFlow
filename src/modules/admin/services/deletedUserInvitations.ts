@@ -13,38 +13,38 @@ import { UUID_RE } from '@/lib/validation';
 import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 
 /**
- * The GoTrue account's login email, or null when there is none: an id that is not a canonical lower-case UUID (GoTrue
- * ids are lower-case UUIDs; any other spelling is a legacy, hand-seeded or case-variant profile, and GoTrue, which
- * parses the id, would answer with the account of the lower-case spelling: someone else's row; round-4 review HIGH),
- * GoTrue's 404, or an account with no email (GoTrue answers '' for a phone-only account). Any other failure throws
- * (an outage is AuthUpstreamUnavailableError), so the delete fails closed as a 5xx that writes nothing, never a
- * partial cancel. deleteUser calls it BEFORE any row lock: no lock is held across the HTTP call.
+ * Which users row owns a GoTrue account: a canonical lower-case UUID id owns the account with that id, and any other
+ * spelling owns none. GoTrue ids are lower-case UUIDs and every session resolves its sub to the users row with exactly
+ * that id (withUserAuth, companyMembership), so an upper-case or otherwise non-canonical row (legacy, hand-seeded, a
+ * case variant) is never the row a GoTrue sign-in reaches. GoTrue itself parses the id in any case, so asking it about
+ * a variant would answer with the canonical row's account: someone else's (round-4 review HIGH).
+ */
+const ownsGotrueAccount = (userId: string): boolean => userId === userId.toLowerCase() && UUID_RE.test(userId);
+
+/**
+ * The login email of the GoTrue account `userId` owns (above), or null: a row that owns none, GoTrue's 404, or an
+ * account with no email (GoTrue answers '' for a phone-only account). Any other failure throws (an outage is
+ * AuthUpstreamUnavailableError), so the delete fails closed as a 5xx that writes nothing, never a partial cancel.
+ * deleteUser calls it BEFORE any row lock: no lock is held across the HTTP call.
  */
 export async function gotrueLoginEmail(userId: string): Promise<string | null> {
-  if (userId !== userId.toLowerCase() || !UUID_RE.test(userId)) return null;
+  if (!ownsGotrueAccount(userId)) return null;
   const account = await adminGetUser(userId);
   return account?.email || null;
 }
 
 /**
- * Deletes every invitation still pending (expired included) pinned to `userId`'s GoTrue account or addressed,
- * trimmed (JavaScript trim's whitespace set, as the legacy accept compares) and lower-cased, to the deleted row's email
- * or the GoTrue login email; returns how many. Accepted invitations stay.
- * Call LAST in the delete's own transaction, after `DELETE FROM users` (migration 997b's definer refuses while the
- * users row exists): the invitation rows are the last lock of every writer of a user's rows, as both accept routes
- * take them.
- *
- * When a users row naming the same id in another letter case survives the delete (two stored rows, one GoTrue
- * account: admin .claude.md, "users rows are different"), the GoTrue account and its login email are that live
- * user's, so the GoTrue email is not used (round-4 review HIGH) and 997b's pinned arm is off as well.
+ * Deletes every invitation still pending (expired included) pinned to the GoTrue account the deleted row owned (997b
+ * runs that arm only for a canonical lower-case id, the same rule as above) or addressed, trimmed (JavaScript trim's
+ * whitespace set, as the legacy accept compares) and lower-cased, to the deleted row's email or the GoTrue login email;
+ * returns how many. Accepted invitations stay. Call LAST in the delete's own transaction, after `DELETE FROM users`
+ * (997b's definer refuses while the users row exists): the invitation rows are the last lock of every writer of a
+ * user's rows, as both accept routes take them.
  */
 export async function cancelPendingInvitations(
   userId: string, rowEmail: string | null, gotrueEmail: string | null,
 ): Promise<number> {
-  const survivor = gotrueEmail === null ? []
-    : await sql`SELECT 1 FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
-  const emails = survivor.length > 0 ? [rowEmail] : [rowEmail, gotrueEmail];
-  const addresses = [...new Set(emails.filter((e): e is string => typeof e === 'string' && e.trim() !== ''))];
+  const addresses = [...new Set([rowEmail, gotrueEmail].filter((e): e is string => typeof e === 'string' && e.trim() !== ''))];
   const rows = await sql<{ n: number }>`SELECT public.admin_cancel_user_invitations(${userId}, ${addresses}::text[]) AS n`;
   return Number(rows[0]?.n ?? 0);
 }

@@ -48,13 +48,14 @@ describe('cancelPendingInvitations', () => {
     expect(cancelArgs()).toEqual([ID, ['row@test.local', 'login@test.local']]);
   });
 
-  it('drops the GoTrue email while a case variant of the id survives (its account is that live user\'s)', async () => {
+  it('passes the GoTrue email whatever other rows exist: a canonical id owns its account (round-5 review)', async () => {
     sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
       const q = strings.join('?');
-      if (q.includes('lower(id) = lower(')) return [{ '?column?': 1 }];
+      if (/FROM users/i.test(q)) return [{ '?column?': 1 }]; // a case variant would be found, were it asked
       return q.includes('admin_cancel_user_invitations') ? [{ n: 1 }] : [];
     });
     expect(await cancelPendingInvitations(ID, 'row@test.local', 'login@test.local')).toBe(1);
-    expect(cancelArgs()).toEqual([ID, ['row@test.local']]);
+    expect(cancelArgs()).toEqual([ID, ['row@test.local', 'login@test.local']]);
+    expect(sqlMock.mock.calls.map(text).filter((q) => /FROM users/i.test(q))).toEqual([]);
   });
 });
