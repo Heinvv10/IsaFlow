@@ -138,21 +138,22 @@ describe('MCP allocate_bank_transaction: typed refusals, nothing written', () =>
   });
 });
 
-describe('a posted journal of ANY source already moving the amount between the two banks (brk-1494 LOW 1)', () => {
-  it.each(['manual', 'auto_recurring'] as const)('%s DR bank2 / CR bank: the line onto bank2 is refused naming it, nothing posted', async (source) => {
+describe('a manual or recurring journal already moving the amount between the two banks: the stated residual', () => {
+  // brk-1494 LOW 1 vs brk-nrfa round 15 L1. The lead (2026-11-16): count such a journal only with a confirm override
+  // (428 naming it, then a resend) — the allocate route and its screen carry none, so round 15 L1 stands and this is a
+  // stated residual (bank/.claude.md): the line allocated as a transfer posts a second journal. Pinned so a fix flips it.
+  it.each(['manual', 'auto_recurring'] as const)('%s DR bank2 / CR bank, then the line onto bank2: still posts (residual)', async (source) => {
     const f = await bankCompany(pool, [[a, 'admin']], companies);
-    const je = await asToken(pool, a, f.c, async () => {
+    await asToken(pool, a, f.c, async () => {
       const draft = await createJournalEntry(f.c, { entryDate: '2026-09-01', description: 'BCT2 bank to bank', source, lines: [
         { glAccountId: f.bank2, debit: 500, credit: 0, description: 'in' }, { glAccountId: f.bank, debit: 0, credit: 500, description: 'out' }] } as never, a);
       await postJournalEntry(f.c, draft.id, a);
-      return draft;
     }, { session: true });
     const line = await lineOn(f, f.bank, -500, '2026-09-02');
     const before = await journals(f);
     const res = await act(a, f.c, { action: 'allocate', bankTransactionId: line, allocationType: 'account', contraAccountId: f.bank2 });
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-    expect(JSON.stringify(res.state.body)).toContain(`A matching transfer journal ${je.entryNumber} already exists`);
-    expect({ line: await status(line), journals: await journals(f) }).toEqual({ line: 'imported', journals: before });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect({ line: await status(line), journals: await journals(f) }).toEqual({ line: 'allocated', journals: before + 1 });
   });
 });
 

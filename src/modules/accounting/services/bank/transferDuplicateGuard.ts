@@ -10,13 +10,14 @@
  *      CR the other), dated within TEN days (a Friday transfer clears on Monday or later; brk-nrfa round 10 L2: as wide
  *      as pairing), that no live line on THIS bank is MATCHED to. Without (2) a transfer typed on the Transfers page and
  *      then allocated from the statement posted twice (brk-nrfa M1). A statement-created journal is arm 1's business.
- *      Since WP2 row 5 round 2 (brk-1494 LOW 1, which reverses brk-nrfa round 15 L1's "Transfers-page journals only"):
- *      a POSTED journal of ANY other source (manual, recurring, …) moving the amount between the two banks counts too,
- *      named in the refusal — a manual DR bank2 / CR bank1 followed by the statement line allocated as a transfer
- *      posted the movement twice. The cost, accepted: a real second transfer of the amount within the window of an
- *      unrelated manual bank-to-bank journal (a correction, a reclass, part of a compound entry) is refused until it is
- *      matched — that journal is named, so the person can judge. A Transfers-page transfer HELD for approval (a draft)
- *      counts too (heldTransferDraft). Residual, stated: an unapproved manual draft or a split journal is not seen.
+ *      Only Transfers-page journals, deliberately: a manual journal of the amount between the two banks may be a
+ *      correction, a reclass or part of a compound entry, and refusing on it blocked real transfers with a remedy that
+ *      left the ledger short (brk-nrfa round 15 L1). A Transfers-page transfer HELD for approval (a draft) counts too
+ *      (heldTransferDraft). Residual, stated: a transfer recorded as a manual, recurring, still unapproved or split
+ *      journal is not seen, so its statement line allocated as a transfer posts it again — match the
+ *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14). Re-raised
+ *      by brk-1494 LOW 1 (2026-11-16): the lead kept r15 unless a confirm override (428 + resend) could ship with it; the
+ *      allocate route and its screen carry no such confirm today, so the residual stands (stated in bank/.claude.md).
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its
  * amount; a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5
  * L1). Only an imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line
@@ -175,15 +176,10 @@ export async function assertNoDuplicateTransfer(
                                                      AND (bank_transactions.transaction_date + INTERVAL '10 days'))
     LIMIT 1
   `) as DbRow[];
-  // Arm 2: a posted journal that already moves this amount between these two banks. A typed transfer (Banking >
-  // Transfers: auto_bank_transfer WITH a reference), and — brk-1494 LOW 1 — a journal of ANY other source (a manual
-  // DR bank2 / CR bank1 posted through Journal Entries or MCP, a recurring journal): allocated as a transfer beside it,
-  // the line posted the movement a second time. A statement-created transfer (auto_bank_transfer, no reference) is arm
-  // 1's, judged by its lines. Same window, legs, amount and pairing test as before.
   const journals = lines.length > 0 ? [] : (await sql`
-    SELECT je.id, je.entry_number, je.source FROM gl_journal_entries je
-    WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND (je.reference IS NOT NULL OR je.source <> 'auto_bank_transfer')
+    SELECT je.id FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID
+      AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NOT NULL
       AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
@@ -211,13 +207,7 @@ export async function assertNoDuplicateTransfer(
                         AND bt.transaction_date BETWEEN (je.entry_date - INTERVAL '10 days') AND (je.entry_date + INTERVAL '10 days'))
     LIMIT 1
   `) as DbRow[];
-  if (lines.length > 0) throw new DuplicateTransferError();
-  const existing = journals[0];
-  if (existing && existing.source !== 'auto_bank_transfer') {
-    throw new DuplicateTransferError(`A matching transfer journal ${String(existing.entry_number)} already exists (it moves `
-      + 'this amount between these two bank accounts) — match the line to it instead.');
-  }
-  if (existing) throw new DuplicateTransferError();
+  if (lines.length > 0 || journals.length > 0) throw new DuplicateTransferError();
   const draft = await heldTransferDraft(companyId, bankAccountId, counterpartyAccountId, amount, into, txDate);
   if (draft) {
     throw new DuplicateTransferError(`This transfer was typed on the Transfers page as ${draft}, a draft journal awaiting `

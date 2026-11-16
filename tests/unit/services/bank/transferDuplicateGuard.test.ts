@@ -51,14 +51,8 @@ describe('assertNoDuplicateTransfer', () => {
   });
 
   it('refuses when a typed transfer journal holds it', async () => {
-    sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'je', entry_number: 'JE-7', source: 'auto_bank_transfer' }]);
+    sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'je' }]);
     await expect(assertNoDuplicateTransfer(CO, A, B, 1000, '2026-04-20', true)).rejects.toThrow(/Match the existing journal/);
-  });
-
-  it('refuses when a posted journal of another source (manual) moves it, naming that journal (brk-1494 LOW 1)', async () => {
-    sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'je', entry_number: 'JE-8', source: 'manual' }]);
-    await expect(assertNoDuplicateTransfer(CO, A, B, 1000, '2026-04-20', true))
-      .rejects.toThrow(/A matching transfer journal JE-8 already exists .* match the line to it instead/);
   });
 
   it.each([[-1000, false], [1000, true]])('a line of %d asks for the journal in its own direction (into this bank: %j)',
@@ -70,12 +64,17 @@ describe('assertNoDuplicateTransfer', () => {
       expect(values(1)).toContain(1000);
     });
 
-  // brk-nrfa round 3: a TYPED journal (reference set) counts, within ten days (round 10 L2), and a journal an ordinary match
-  // already tied to a line on this bank is linked. brk-1494 LOW 1 (reversing brk-nrfa round 15 L1): so does a posted
-  // journal of any OTHER source; only a statement-created transfer (no reference) is left to arm 1.
-  it('asks for typed or other-source posted journals within ten days, and treats an ordinary match as linked', async () => {
+  // brk-nrfa round 3: only a TYPED journal (reference set) counts, within ten days (round 10 L2), and a journal an ordinary match
+  // already tied to a line on this bank is linked.
+  it('asks only for typed journals within ten days, and treats an ordinary match as linked', async () => {
     await assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20', true);
-    expect(text(1)).toMatch(/je\.status = 'posted'\s+AND \(je\.reference IS NOT NULL OR je\.source <> 'auto_bank_transfer'\)/);
+    expect(text(1)).toMatch(/je\.reference IS NOT NULL/);
+    // Only Transfers-page journals: a manual journal of the amount between the banks may be a correction or a
+    // reclass, and refusing on it blocked real transfers (brk-nrfa round 15 L1 — a stated residual instead). brk-1494
+    // LOW 1 (2026-11-16) asked to count manual and recurring journals; the lead's ruling: only with a confirm override
+    // (428 + resend), which the allocate route and screen do not carry, so round 15 L1 stands.
+    expect(text(1)).toMatch(/je\.source = 'auto_bank_transfer' AND je\.status = 'posted' AND je\.reference IS NOT NULL/);
+    expect(text(1)).not.toMatch(/source = 'manual'/);
     expect(text(1)).toMatch(/je\.entry_date BETWEEN \(\?::DATE - INTERVAL '10 days'\)/);
     expect(text(1)).toMatch(/ml\.id = bt\.matched_journal_line_id/);
   });
