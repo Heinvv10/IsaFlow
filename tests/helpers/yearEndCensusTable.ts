@@ -58,7 +58,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['bank/bankAutoMatchService.ts', 'BANK'],
   ['bank/bankCoverageDirections.ts', 'CASH'],
   ['bank/bankMatchDbQueries.ts', 'BANK'],
-  ['bank/bankReconciliationBalance.ts', 'BANK'],
+  ['bank/bankTxStatusMutations.ts', 'BANK', 'je.status AS journal_status'], // audit row 4: the one journal line a match names, its debit/credit compared to that bank line
   ['bank/bankReallocationFacts.ts', 'BANK'], // reallocate_bank_transaction: the lines of the one journal a reconciled bank line is allocated by
   ['bank/bankReallocationWrites.ts', 'BANK'], // reallocate_bank_transaction: the bank leg the reallocated line is matched to now
   ['bank/cashBalanceService.ts', 'CASH'],

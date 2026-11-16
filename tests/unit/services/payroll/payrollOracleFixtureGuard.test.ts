@@ -81,10 +81,10 @@ describe('oracle fixture guard: shape and tolerance', () => {
 
 describe('oracle gap list rules', () => {
   const c = (id: string, source = 'sage'): OracleCase => ({ ...(base() as unknown as OracleCase), id, source });
-  const gap = (id: string, engineActual: KnownGap['engineActual']): KnownGap => ({ case: id, engineActual, reason: 'a reason long enough to count', closedBy: 'W3 item' });
+  const gap = (id: string, engineActual: KnownGap['engineActual']): KnownGap => ({ case: id, engineActual, reason: 'a reason long enough to count', closedBy: 'UF (test closer)' });
 
   it('refuses an UNVERIFIED case that is not on the gap list', () => {
-    expect(gapListProblems([c('a', 'UNVERIFIED')], [])).toEqual(['a: source UNVERIFIED is allowed only on a known gap']);
+    expect(gapListProblems([c('a', 'UNVERIFIED')], [])).toEqual(['a: source UNVERIFIED must be on knownGaps.json (engine differs) or unverified.json (engine matches)']);
     expect(gapListProblems([c('a', 'UNVERIFIED')], [gap('a', { paye: 1 })])).toEqual([]);
   });
 
@@ -92,5 +92,83 @@ describe('oracle gap list rules', () => {
     expect(gapListProblems([c('a')], [gap('b', { paye: 1 })])).toContain('b: on knownGaps but has no fixture');
     expect(gapListProblems([c('a')], [gap('a', { paye: 1 }), gap('a', { net: 1 })])).toContain('a: listed twice');
     expect(gapListProblems([c('a')], [gap('a', {})])).toContain('a: engineActual is empty');
+  });
+});
+
+describe('oracle fixture guard: wave-6 period and prior-period schema (O3)', () => {
+  const STARTER = 'weekly-starter-fourth-week-averaged.json';
+  const starter = (): Record<string, unknown> => JSON.parse(readFileSync(join(ORACLE_DIR, STARTER), 'utf8')) as Record<string, unknown>;
+  const period = (c: Record<string, unknown>) => input(c).period as Record<string, unknown>;
+  const prior0 = (c: Record<string, unknown>) => (input(c).priorPeriods as Record<string, unknown>[])[0]!;
+
+  it('a real fixture with a frequency, period dates, a run kind and priors passes', () => {
+    expect(() => validateCase(starter(), STARTER)).not.toThrow();
+  });
+
+  it('refuses an unknown frequency or run kind, a lone period date, dates out of order, outside the tax year or off the pay month', () => {
+    const bad = (edit: (p: Record<string, unknown>) => void, msg: RegExp) => {
+      const c = starter(); edit(period(c)); expect(() => validateCase(c, STARTER)).toThrow(msg);
+    };
+    bad(p => { p.frequency = 'daily'; }, /frequency must be one of/);
+    bad(p => { p.runKind = 'advance'; }, /runKind must be one of/);
+    bad(p => { delete p.periodEnd; }, /periodStart and periodEnd together/);
+    bad(p => { p.periodEnd = '2026-07-19'; }, /in order and inside tax year/);
+    bad(p => { p.periodStart = '2027-03-01'; p.periodEnd = '2027-03-07'; }, /inside tax year/);
+    bad(p => { p.periodStart = '2026-02-30'; }, /real YYYY-MM-DD/);
+    bad(p => { p.month = 9; }, /overlap its pay month/);
+    bad(p => { p.payDay = 'Friday'; }, /unknown key/);
+  });
+
+  it('refuses an empty prior list, an unknown or missing prior key, a prior after this period and a personal-data key in one', () => {
+    const c = starter(); input(c).priorPeriods = [];
+    expect(() => validateCase(c, STARTER)).toThrow(/non-empty array/);
+    const bad = (edit: (p: Record<string, unknown>) => void, msg: RegExp) => {
+      const x = starter(); edit(prior0(x)); expect(() => validateCase(x, STARTER)).toThrow(msg);
+    };
+    bad(p => { delete p.etiHours; }, /priorPeriods\[0\]\.etiHours must be a number/);
+    bad(p => { p.sdl = 1; }, /priorPeriods\[0\] has unknown key/);
+    bad(p => { p.periodStart = '2026-07-27'; }, /periodStart must be a real date from/);
+    bad(p => { p.frequency = 'annual'; }, /frequency must be one of/);
+    bad(p => { p.employeeTaxRef = 'x'; }, /looks like personal data/);
+  });
+
+  it('refuses priors out of order or duplicated, and an unmodelled key that is not on the allow-list', () => {
+    const swapped = starter();
+    (input(swapped).priorPeriods as unknown[]).reverse();
+    expect(() => validateCase(swapped, STARTER)).toThrow(/oldest first, no duplicates/);
+    const dup = starter();
+    const ps = input(dup).priorPeriods as Record<string, unknown>[];
+    ps[1]!.periodStart = ps[0]!.periodStart;
+    expect(() => validateCase(dup, STARTER)).toThrow(/oldest first, no duplicates/);
+    const typo = starter();
+    input(typo).unmodelled = { periodFractoin: 0.5 };
+    expect(() => validateCase(typo, STARTER)).toThrow(/input\.unmodelled has unknown key\(s\) periodFractoin/);
+  });
+});
+
+describe('oracle list rules: unverified.json (O3)', () => {
+  const c = (id: string, source = 'UNVERIFIED'): OracleCase => ({ ...(base() as unknown as OracleCase), id, source });
+  const gap = (id: string): KnownGap => ({ case: id, engineActual: { paye: 1 }, reason: 'a reason long enough to count', closedBy: 'UF (test closer)' });
+  const un = (id: string, reason = 'a reason long enough to count', wouldVerify = 'what would verify it, long enough') => ({ case: id, reason, wouldVerify });
+
+  it('an UNVERIFIED case on unverified.json alone is fine; on both lists or with a cited source it is refused', () => {
+    expect(gapListProblems([c('a')], [], [un('a')])).toEqual([]);
+    expect(gapListProblems([c('a')], [gap('a')], [un('a')])).toContain('a: on both knownGaps.json and unverified.json');
+    expect(gapListProblems([c('a', 'sage')], [], [un('a')])).toContain('a: on unverified.json but its source is sage');
+  });
+
+  it('a gap\'s closedBy names its closing PR (UF, FQc, OC, PSP, DBF, RI, GA or #n), unless the gap is parity', () => {
+    const g = (closedBy: string, parity?: true): KnownGap => ({ ...gap('a'), closedBy, ...(parity ? { parity } : {}) });
+    expect(gapListProblems([c('a')], [g('FQc (wave 6): weekly')])).toEqual([]);
+    expect(gapListProblems([c('a')], [g('#1480 follow-up')])).toEqual([]);
+    expect(gapListProblems([c('a')], [g('Someday, maybe')])).toEqual([expect.stringMatching(/closedBy must start with a closing PR/)]);
+    expect(gapListProblems([c('a')], [g('Never by a status label', true)])).toEqual([]);
+  });
+
+  it('refuses an entry with no fixture, a duplicate, and a missing reason or wouldVerify', () => {
+    expect(gapListProblems([c('a')], [gap('a')], [un('b')])).toContain('b: on unverified.json but has no fixture');
+    expect(gapListProblems([c('a')], [], [un('a'), un('a')])).toContain('a: listed twice on unverified.json');
+    expect(gapListProblems([c('a')], [], [un('a', 'short')])).toContain('a: unverified reason missing');
+    expect(gapListProblems([c('a')], [], [un('a', undefined, '')])).toContain('a: unverified wouldVerify missing');
   });
 });

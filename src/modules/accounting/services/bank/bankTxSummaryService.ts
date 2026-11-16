@@ -2,9 +2,9 @@
  * Totals and groups for `list_bank_transactions` `detail: "summary"` / `group_by`. The FROM and WHERE are the
  * list's own (./bankTxScopeWhere), so the counts and sums describe exactly the rows the list would page through.
  *
- * `allocation` groups use the tool's four states (allocationStateOf in lib/mcp/tools/bank.ts): a posted journal line
- * wins, then `excluded`, then any suggestion or allocation type (HAS_CATEGORY, the definition allocation_filter
- * uses), else `unallocated`.
+ * `allocation` groups are the line buckets (./bankLineBucket LINE_BUCKET_SQL; the tool's compact rows use its mirror
+ * lineBucketOf, and allocation_filter selects one bucket): pending, excluded, allocated, suggested, unallocated —
+ * the bank card's definition (WP1, 2026-11-15).
  */
 import { sql } from '@/lib/neon';
 import {
@@ -14,7 +14,7 @@ import {
   type SummaryMeasure,
 } from '../shared/groupedSummary';
 import type { BankTxFilters } from './bankTxFilters';
-import { HAS_CATEGORY } from './bankTxQueryFragments';
+import { LINE_BUCKET_SQL } from './bankLineBucket';
 import { bankTxScopeWhere } from './bankTxScopeWhere';
 
 export const BANK_TX_GROUP_BY = ['account', 'month', 'allocation'] as const;
@@ -39,10 +39,7 @@ const DIMENSIONS: Record<BankTxGroupBy, SummaryDimension> = {
     order: 'k DESC',
   },
   allocation: {
-    keyExpr: `CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN 'allocated'
-      WHEN bt.status = 'excluded' THEN 'excluded'
-      WHEN ${HAS_CATEGORY} THEN 'suggested'
-      ELSE 'unallocated' END`,
+    keyExpr: LINE_BUCKET_SQL,
     labelExpr: null,
     order: 'k',
   },

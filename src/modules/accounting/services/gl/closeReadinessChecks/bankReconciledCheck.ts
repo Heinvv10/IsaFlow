@@ -9,12 +9,12 @@
  * Until 2026-11-15 this counted only `imported` and `matched`, so a period whose lines were all allocated but never
  * reconciled passed. Hein, 2026-11-15: such a period must not close.
  *
- * Where a `fail` blocks, today: only MCP `close_fiscal_period` (fiscalPeriodCloseService.closePeriodWithReadiness)
- * refuses on it. `period_close_checklist`, the close-readiness route behind the Fiscal Periods tab's checklist
- * (CloseReadinessChecklist) and the close run (closeRunService) report it. The app's Close, Bulk Close and Close Year (fiscal-periods-action -> fiscalPeriodService
- * closePeriod / closeYear) and the year-end close (yearEndCloseService.closeFiscalYear: MCP `year_end_close`,
- * /api/accounting/year-end) do not run readiness at all yet; making the app close refuse on every failing check is a
- * separate follow-up PR (Hein, 2026-11-15).
+ * Where a `fail` blocks: every close, lock and year-end path refuses on it through the shared gate
+ * (periodCloseGate): the app's Close, Bulk Close, Close Year, Lock and Bulk Lock (fiscal-periods-action), MCP
+ * `close_fiscal_period` (dry run included), and the year-end close (yearEndCloseService.closeFiscalYear: MCP
+ * `year_end_close` and /api/accounting/year-end, preview included), which judges every period it locks (Hein,
+ * 2026-11-15). `period_close_checklist`, the close-readiness route behind the Fiscal Periods tab's checklist
+ * (CloseReadinessChecklist) and the close run (closeRunService) only report it.
  */
 
 import { sql } from '@/lib/neon';
@@ -24,7 +24,8 @@ import { UNRECONCILED_LINE_SQL } from '../../bank/unreconciledLineSql';
 
 type Row = DbRow;
 
-const FIX_HREF = '/accounting/bank-reconciliation';
+/** Where every bank_reconciled row links (pass, fail, busy, could not compute): the reconciliation screen. */
+export const BANK_RECONCILED_FIX_HREF = '/accounting/bank-reconciliation';
 
 export async function bankReconciledCheck(
   companyId: string,
@@ -46,7 +47,7 @@ export async function bankReconciledCheck(
       label: 'Bank reconciled',
       status: 'pass',
       reason: 'Every bank transaction in this period is reconciled or excluded.',
-      fixHref: FIX_HREF,
+      fixHref: BANK_RECONCILED_FIX_HREF,
     };
   }
 
@@ -58,6 +59,6 @@ export async function bankReconciledCheck(
     reason: `${count} unreconciled bank transaction${one ? ' remains' : 's remain'} in this period. Allocating or `
       + `reviewing a line does not reconcile it: complete a bank reconciliation that covers ${one ? 'it' : 'them'}, `
       + `or exclude ${one ? 'it' : 'them'}.`,
-    fixHref: FIX_HREF,
+    fixHref: BANK_RECONCILED_FIX_HREF,
   };
 }

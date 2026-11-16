@@ -40,25 +40,23 @@ const LISTS = 'Could not load some lists - reload the page';
 
 describe('useBankTxRefData', () => {
   const setters = () => ({
-    setBankAccounts: vi.fn(), setGlAccounts: vi.fn(), setSuppliers: vi.fn(), setCustomers: vi.fn(), setCc1Options: vi.fn(),
-    setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSelectedBank: vi.fn(), setRefDataLoaded: vi.fn(), setSuppliersStatus: vi.fn(),
+    setGlAccounts: vi.fn(), setSuppliers: vi.fn(), setCustomers: vi.fn(), setCc1Options: vi.fn(),
+    setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSuppliersStatus: vi.fn(),
   });
-  it('every list loads: no error is shown and the page is marked loaded', async () => {
+  it('every list loads: no error is shown', async () => {
     const s = setters();
-    serve(on('GET', 'bank-accounts', () => ok([{ id: 'b1' }])));
+    serve(on('GET', 'chart-of-accounts', () => ok([])));
     renderHook(() => useBankTxRefData(s));
-    await waitFor(() => expect(s.setRefDataLoaded).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(s.setGlAccounts).toHaveBeenCalledWith([]));
     expect(toastError).not.toHaveBeenCalled();
-    expect(s.setBankAccounts).toHaveBeenCalledWith([{ id: 'b1' }]);
   });
   for (const [what, fail] of [['empty 500', empty500], ['400', () => refuse()]] as const) {
     it(`${what} on one list: the person is told, and the other lists still load`, async () => {
       const s = setters();
-      serve(on('GET', 'chart-of-accounts', fail), on('GET', 'bank-accounts', () => ok([{ id: 'b1' }])));
+      serve(on('GET', 'chart-of-accounts', fail), on('GET', 'customers', () => ok([])));
       renderHook(() => useBankTxRefData(s));
       await waitFor(() => expect(toastError).toHaveBeenCalledWith(LISTS));
-      expect(s.setBankAccounts).toHaveBeenCalledWith([{ id: 'b1' }]);
-      expect(s.setRefDataLoaded).toHaveBeenCalledWith(true);
+      expect(s.setCustomers).toHaveBeenCalledWith([]);
       expect(toastError).toHaveBeenCalledTimes(1);
     });
   }

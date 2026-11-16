@@ -15,6 +15,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP, PHONE_TAP_ICON } from '@/components/accounting/formActionBar';
 
 interface Client { id: string; name: string }
 interface OutstandingInvoice {
@@ -22,7 +23,7 @@ interface OutstandingInvoice {
 }
 interface Allocation { key: string; invoiceId: string; amount: number }
 
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
+const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors max-lg:min-h-11';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 const fmt = (n: number) => formatMoney(n);
@@ -156,8 +157,8 @@ export default function NewCustomerPaymentPage() {
           actions={<ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />}
         />
 
-        <form onSubmit={handleSubmit} className="p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
+        <form onSubmit={handleSubmit} className={`p-6 xl:p-8 ${FORM_PHONE_ACTION_PAD}`}>
+          <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
             <div className="flex-1 min-w-0 space-y-5">
               {scanBanner && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-sm flex items-center gap-2">
@@ -172,22 +173,22 @@ export default function NewCustomerPaymentPage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">1</span>
                   Payment Details
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className={lbl}>Client *</label>
-                    <select name="clientId" aria-label="Client" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
+                    <label htmlFor="customer-payments-new-client" className={lbl}>Client *</label>
+                    <select id="customer-payments-new-client" name="clientId" aria-label="Client" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
                       <option value="">Select client…</option>
                       {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
                     <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
-                      resetKey={dates.resetKey('paymentDate')}
+                      resetKey={dates.resetKey('paymentDate')} className={PHONE_TAP}
                       onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Payment method</label>
-                    <select name="paymentMethod" aria-label="Payment Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
+                    <label htmlFor="customer-payments-new-method" className={lbl}>Payment method</label>
+                    <select id="customer-payments-new-method" name="paymentMethod" aria-label="Payment Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
                       <option value="cash">Cash</option>
@@ -195,13 +196,13 @@ export default function NewCustomerPaymentPage() {
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Bank reference</label>
-                    <input type="text" name="bankReference" value={form.bankReference} onChange={e => setForm(f => ({ ...f, bankReference: e.target.value }))} placeholder="e.g. REF123456" className={inp} />
+                    <label htmlFor="customer-payments-new-reference" className={lbl}>Bank reference</label>
+                    <input id="customer-payments-new-reference" type="text" name="bankReference" value={form.bankReference} onChange={e => setForm(f => ({ ...f, bankReference: e.target.value }))} placeholder="e.g. REF123456" className={inp} />
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className={lbl}>Description</label>
-                  <input type="text" name="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional payment description" className={inp} />
+                  <label htmlFor="customer-payments-new-description" className={lbl}>Description</label>
+                  <input id="customer-payments-new-description" type="text" name="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional payment description" className={inp} />
                 </div>
               </div>
 
@@ -211,25 +212,25 @@ export default function NewCustomerPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
+                  <button type="button" onClick={addAllocation} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 ${PHONE_TAP} rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors`}><Plus className="h-3 w-3" />Add Line</button>
                 </div>
                 <div className="p-5 space-y-3">
                   {!form.clientId && <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">Select a client to see outstanding invoices</p>}
                   {form.clientId && invoices.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">No outstanding invoices for this client</p>}
-                  {allocations.map(alloc => {
+                  {allocations.map((alloc, idx) => {
                     const inv = invoices.find(i => i.id === alloc.invoiceId);
                     const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
                     return (
-                      <div key={alloc.key} className="flex items-center gap-3">
-                        <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={`${inp} flex-1`}>
+                      <div key={alloc.key} className="flex flex-wrap sm:flex-nowrap items-center gap-3">
+                        <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={`${inp} basis-full sm:basis-0 flex-1`}>
                           <option value="">Select invoice…</option>
                           {invoices.map(i => (
                             <option key={i.id} value={i.id}>{i.invoice_number} — Balance: {fmt(Number(i.total_amount) - Number(i.amount_paid))}</option>
                           ))}
                         </select>
-                        <input type="number" name="amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} w-36`} />
+                        <input type="number" name="amount" aria-label="Amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} flex-1 sm:flex-none sm:w-36`} />
                         {allocations.length > 1 && (
-                          <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-4 w-4" /></button>
+                          <button type="button" aria-label={`Remove allocation ${idx + 1}`} onClick={() => removeAllocation(alloc.key)} className={`p-1.5 ${PHONE_TAP_ICON} rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors`}><Trash2 className="h-4 w-4" /></button>
                         )}
                       </div>
                     );
@@ -238,8 +239,8 @@ export default function NewCustomerPaymentPage() {
               </div>
             </div>
 
-            <div className="w-72 shrink-0">
-              <div className="sticky top-6">
+            <div className="w-full lg:w-72 shrink-0">
+              <div className="lg:sticky lg:top-6">
                 <div className={`${card} p-5`}>
                   <div className="flex items-center gap-2 mb-5">
                     <Receipt className="w-4 h-4 text-amber-500" />
@@ -256,10 +257,12 @@ export default function NewCustomerPaymentPage() {
                       <span className="tabular-nums font-bold text-lg text-amber-500">{fmt(totalAllocated)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || totalAllocated <= 0} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <div className={FORM_PHONE_ACTION_BAR}>
+                  <button type="submit" disabled={isSubmitting || totalAllocated <= 0} className={`w-full mt-6 py-3 ${FORM_PHONE_SUBMIT} bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm`}>
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><CreditCard className="h-4 w-4" />Create Payment</>}
                   </button>
-                  <Link href="/accounting/customer-payments" className="block w-full mt-2 py-2.5 text-center text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">Cancel</Link>
+                  <Link href="/accounting/customer-payments" className="block w-full mt-2 py-2.5 max-lg:mt-0 max-lg:w-auto max-lg:min-h-11 max-lg:px-4 max-lg:inline-flex max-lg:items-center max-lg:justify-center text-center text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">Cancel</Link>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2 mt-3">Payment will be recorded and allocations applied to the selected invoices.</p>
               </div>

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { buildCaseInput, loadCases, oracleTaxStatus } from '../../../fixtures/payroll-oracle/oracle';
 import { runHoursOf } from '@/modules/accounting/services/payroll/payrollRunHours';
 import { ordinaryWageCents } from '@/modules/accounting/services/payroll/etiHours';
+import { UNMODELLED_KEYS } from '../../../fixtures/payroll-oracle/validate';
 
 const cases = loadCases();
 
@@ -19,9 +20,15 @@ const NOT_YET: Record<string, string> = {
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
   daysWorked: 'context only: the case notes use it to reach the day rate', employmentBasis: 'context only: the classifier works it out from the hours',
   writtenDeclarationHeld: 'not recorded by IsaFlow yet (employmentTerms.ts, the PAYE_OUTSIDE_TABLES warning)',
+  periodFraction: 'FQc', dbMemberCategoryFactor: 'DBF', businessKm: 'RI', reimbursiveRatePerKm: 'RI', overtimeHours: 'RI',
+  overtimeMultiplier: 'RI', garnisheeOrders: 'GA', ordinarilyWorksSunday: 'RI (BCEA s16(1): double pay only for a non-Sunday worker)',
 };
 
 describe('every fixture input reaches the calculator, or has a named owner', () => {
+  it('validate.ts UNMODELLED_KEYS is exactly the passed and owned keys', () => {
+    expect([...PASSED, ...Object.keys(NOT_YET)].sort()).toEqual([...UNMODELLED_KEYS].sort());
+  });
+
   it('every unmodelled key is passed or owned', () => {
     const keys = new Set(cases.flatMap(c => Object.keys(c.input.unmodelled ?? {})));
     const unowned = [...keys].filter(k => !PASSED.includes(k) && !(k in NOT_YET));

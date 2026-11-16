@@ -7,14 +7,11 @@
 import { describe, it, expect } from 'vitest';
 import { findUngroupedHints, namePrefix } from '@/components/accounting/bank-transactions/ungroupedBankHint';
 import { groupBankAccounts } from '@/components/accounting/bank-transactions/groupBankAccounts';
-import type { BankAcct } from '@/components/accounting/bank-transactions/BankTxBankCards';
+import { summaryAcct } from '../helpers/bankSummaryFixture';
+import type { BankAccountSummary as BankAcct } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 
 function acct(id: string, accountName: string, group?: string): BankAcct {
-  return {
-    id, accountCode: id, accountName, balance: 0, reconciledBalance: 0, unreconciledBalance: 0,
-    unreconciledCount: 0, allocatedCount: 0, unallocatedCount: 0,
-    ...(group ? { groupId: group, groupName: `Group ${group}` } : {}),
-  };
+  return summaryAcct(id, { accountName, ...(group ? { groupId: group, groupName: `Group ${group}` } : {}) });
 }
 
 const hints = (accounts: BankAcct[]) => {

@@ -153,6 +153,10 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '997_company_users_user_fk_validate.sql': ['alters'],
   // A platform_admin-only definer that deletes pending invitations for one address (read above).
   '997b_admin_delete_user_cancels_invitations.sql': ['writes'],
+  // invited_by nullable and its FK ON DELETE SET NULL (a deleted sender): no trigger, guard or grant is touched.
+  // Its one write sets invited_by NULL only where no users row matches (orphans the old NOT VALID FK let in): it
+  // changes no role, company, invitee, token or acceptance, so it grants nothing.
+  '997c_company_invitations_invited_by_set_null.sql': ['alters', 'writes'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

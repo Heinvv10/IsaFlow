@@ -3,11 +3,11 @@
  * one filter chip, and a sort. Pure, so the order a bookkeeper works through
  * 45 paycards in is unit-tested rather than read off a screenshot.
  *
- * "Needs attention" first: most unallocated transactions, then the account
+ * "Needs attention" first: most lines to code, then the account
  * whose statements are oldest (never imported first), then name.
  */
 
-import type { BankAcct } from './BankTxBankCards';
+import type { BankAccountSummary } from './useBankTxSummary';
 
 export type WorklistSort = 'attention' | 'name' | 'balance';
 export type WorklistFilter = 'all' | 'open' | 'stale' | 'none';
@@ -24,7 +24,7 @@ export interface WorklistQuery {
 }
 
 export interface WorklistView {
-  rows: BankAcct[];
+  rows: BankAccountSummary[];
   /** Per chip, over the accounts the search matches. */
   counts: Record<WorklistFilter, number>;
 }
@@ -37,17 +37,17 @@ export function isStale(lastDate: string | null | undefined, today: string): boo
   return dayNumber(today) - dayNumber(lastDate) > STALE_DAYS;
 }
 
-function matches(a: BankAcct, filter: WorklistFilter, today: string): boolean {
-  if (filter === 'open') return a.unallocatedCount > 0;
+function matches(a: BankAccountSummary, filter: WorklistFilter, today: string): boolean {
+  if (filter === 'open') return a.counts.toCode > 0;
   if (filter === 'stale') return isStale(a.lastDate, today);
   if (filter === 'none') return !a.lastDate;
   return true;
 }
 
-const byName = (a: BankAcct, b: BankAcct) => a.accountName.localeCompare(b.accountName, undefined, { sensitivity: 'base' });
+const byName = (a: BankAccountSummary, b: BankAccountSummary) => a.accountName.localeCompare(b.accountName, undefined, { sensitivity: 'base' });
 
-function byAttention(a: BankAcct, b: BankAcct): number {
-  if (a.unallocatedCount !== b.unallocatedCount) return b.unallocatedCount - a.unallocatedCount;
+function byAttention(a: BankAccountSummary, b: BankAccountSummary): number {
+  if (a.counts.toCode !== b.counts.toCode) return b.counts.toCode - a.counts.toCode;
   if (a.lastDate !== b.lastDate) {
     if (!a.lastDate) return -1;
     if (!b.lastDate) return 1;
@@ -56,13 +56,13 @@ function byAttention(a: BankAcct, b: BankAcct): number {
   return byName(a, b);
 }
 
-const COMPARE: Record<WorklistSort, (a: BankAcct, b: BankAcct) => number> = {
+const COMPARE: Record<WorklistSort, (a: BankAccountSummary, b: BankAccountSummary) => number> = {
   attention: byAttention,
   name: byName,
-  balance: (a, b) => b.balance - a.balance || byName(a, b),
+  balance: (a, b) => b.ledgerCents - a.ledgerCents || byName(a, b),
 };
 
-export function worklistView(accounts: BankAcct[], q: WorklistQuery): WorklistView {
+export function worklistView(accounts: BankAccountSummary[], q: WorklistQuery): WorklistView {
   const term = q.search.trim().toLowerCase();
   const searched = term
     ? accounts.filter(a => a.accountName.toLowerCase().includes(term) || a.accountCode.toLowerCase().includes(term))
@@ -74,11 +74,11 @@ export function worklistView(accounts: BankAcct[], q: WorklistQuery): WorklistVi
   };
 }
 
-/** The worklist header: group balance, open transactions, stale accounts. */
-export function worklistSummary(accounts: BankAcct[], today: string): { balance: number; open: number; stale: number } {
+/** The worklist header: group ledger (integer cents), lines to code, stale accounts. */
+export function worklistSummary(accounts: BankAccountSummary[], today: string): { ledgerCents: number; open: number; stale: number } {
   return {
-    balance: accounts.reduce((s, a) => s + a.balance, 0),
-    open: accounts.reduce((s, a) => s + a.unallocatedCount, 0),
+    ledgerCents: accounts.reduce((s, a) => s + a.ledgerCents, 0),
+    open: accounts.reduce((s, a) => s + a.counts.toCode, 0),
     stale: accounts.filter(a => isStale(a.lastDate, today)).length,
   };
 }

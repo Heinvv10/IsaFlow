@@ -16,6 +16,7 @@ import {
   balanceSheetTable, incomeStatementTable, longDate, type StatementColumn,
 } from './managementPackStatements';
 import type { KpiResult, NoteContent, NoteContentBlock } from './afsTypes';
+import { forecastBlocks, forecastSnapshot, type PackForecast } from './managementPackForecast';
 
 /** A report for the pack month and, as the comparison mode asks, for the month before and the same month a year earlier. */
 export interface Periodic<R> { current: R; prior: R | null; yearAgo: R | null }
@@ -39,6 +40,8 @@ export interface PackData {
   budget: PackBudget | null;
   /** The approved variance notes: under the budget_variance table, else under income_vs_budget (budgets P5). */
   varianceNotes: NoteContentBlock[];
+  /** The three-way budget's cash projection (null when the section is not enabled). */
+  forecast: PackForecast | null;
   enabledSections: string[];
 }
 
@@ -97,6 +100,8 @@ export function renderSection(sectionType: string, data: PackData): NoteContent 
       return { title, blocks: data.budget ? budgetBandBlocks(data.budget, data.enabledSections.includes('budget_variance') ? [] : data.varianceNotes) : [] };
     case 'budget_variance':
       return { title, blocks: data.budget ? budgetLineBlocks(data.budget, data.varianceNotes) : [] };
+    case 'cash_flow_forecast':
+      return { title, blocks: data.forecast ? forecastBlocks(data.forecast) : [] };
     default:
       // No generator yet (cover, executive summary, revenue and expense analysis, ...): the viewers print a sentence for an empty section.
       return { title, blocks: [] };
@@ -134,6 +139,7 @@ export function renderSnapshot(sectionType: string, data: PackData): Record<stri
     case 'debtors_ageing': return ageingFigures(data.debtorsAging ?? undefined);
     case 'creditors_ageing': return ageingFigures(data.creditorsAging ?? undefined);
     case 'bank_reconciliation': return bankReconciliationFigures(data.reconciliations ?? undefined, data.periodEnd);
+    case 'cash_flow_forecast': return data.forecast ? forecastSnapshot(data.forecast) : {};
     default: return {};
   }
 }
