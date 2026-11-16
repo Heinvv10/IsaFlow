@@ -44,11 +44,14 @@ export function weakestKind(subs: FiledSubmission[]): FilingKind {
 
 export interface FilingLine { reference: string | null; submittedAt: string | null; by: string | null }
 
-/** The filings to show: in period order, a row identical in period and reference to an earlier one shown once. */
+/**
+ * The filings to show, from `subs` in period order (as coveringSubmissions returns them): a row
+ * identical in period and reference to an earlier one shown once.
+ */
 export function filingLines(subs: FiledSubmission[]): FilingLine[] {
   const seen = new Set<string>();
   const out: FilingLine[] = [];
-  for (const s of [...subs].sort((a, b) => a.periodStart.localeCompare(b.periodStart) || a.periodEnd.localeCompare(b.periodEnd))) {
+  for (const s of subs) {
     const key = `${s.periodStart}|${s.periodEnd}|${s.reference ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);

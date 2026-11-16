@@ -128,6 +128,11 @@ describe('the submissions read', () => {
     await expect(get()).rejects.toBeInstanceOf(TypeError);
   });
 
+  it('a Node error with a non-SQLSTATE code (a code bug) propagates', async () => {
+    serve(Object.assign(new TypeError('bad arg'), { code: 'ERR_INVALID_ARG_TYPE' }));
+    await expect(get()).rejects.toBeInstanceOf(TypeError);
+  });
+
   it('a code bug in the marks read propagates too; a database error there is "unavailable"', async () => {
     serve([], new TypeError('boom'));
     await expect(get()).rejects.toBeInstanceOf(TypeError);
