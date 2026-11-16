@@ -1,4 +1,4 @@
--- 999f: salary bank files (wave 6 BF). A record of each ACB salary file generated for a pay run.
+-- 999h: salary bank files (wave 6 BF). A record of each ACB salary file generated for a pay run.
 --
 -- WHAT.
 --   payroll_bank_files  one row per file generated for a final pay run: the layout it was written to, the sha256 of
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_bank_files (
 );
 
 COMMENT ON TABLE public.payroll_bank_files IS
-  'Salary bank (ACB) files generated for a pay run (999f, wave 6 BF). confirmed = the bank accepted it; the run header is never written from here.';
+  'Salary bank (ACB) files generated for a pay run (999h, wave 6 BF). confirmed = the bank accepted it; the run header is never written from here.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS payroll_bank_files_one_live_per_run
   ON public.payroll_bank_files (run_id) WHERE status IN ('generated', 'confirmed');

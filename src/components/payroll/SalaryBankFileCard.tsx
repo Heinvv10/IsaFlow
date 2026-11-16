@@ -132,6 +132,11 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
         </ul>
       )}
       {canGenerate && (
+        <p className="text-xs text-[var(--ff-text-secondary)]">
+          The file follows FNB&apos;s Bankserv (ACB) import layout (February 2023). It is meant for FNB Online Banking; other banks are not tested.
+        </p>
+      )}
+      {canGenerate && (
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-56">
             <DateField label="Action date" value={actionDate} minDate={todayInSast()} onChange={(iso) => setActionDate(iso)} />
