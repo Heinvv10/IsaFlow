@@ -14,6 +14,7 @@ import itemsRoute from '../../pages/api/accounting/cash-forecast-13/items';
 import overridesRoute from '../../pages/api/accounting/cash-forecast-13/overrides';
 import payDayRoute from '../../pages/api/accounting/cash-forecast-13/pay-day';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { clearRateLimitCache } from '@/lib/rateLimit';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { horizonStart, toEngineOverrides } from '@/modules/accounting/services/cashForecast13/engineAdapter';
@@ -210,6 +211,35 @@ describe("an override on a manual item's line (L8)", () => {
     expect((await items.call(a, 'DELETE', undefined, { id })).status).toBe(200);
     expect((await pool.query('SELECT COUNT(*)::int n FROM cash_forecast_overrides WHERE company_id = $1', [co()])).rows[0].n).toBe(0);
     await clear();
+  });
+});
+
+describe('write rate limit (security LOW)', () => {
+  it('with the user\'s bucket full (120 a minute, shared by the three routes), every write is 429 and writes nothing; reads still pass', async () => {
+    const id = String((await items.call(a, 'POST', ITEM)).body.data!.id);
+    const key = `cash13-write:${a.userId}`;
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 120, now())
+                      ON CONFLICT (key) DO UPDATE SET count = 120, window_start = now()`, [key]);
+    clearRateLimitCache();
+    try {
+      const before = (await audit('cash_forecast_item')).length;
+      const writes = [
+        await items.call(a, 'POST', ITEM), await items.call(a, 'PUT', { ...ITEM, id, amount: 7 }), await items.call(a, 'DELETE', undefined, { id }),
+        await overrides.call(a, 'PUT', { lineKey: 'payroll:net', weekStart: monday(1), mode: 'set', amount: 1 }),
+        await overrides.call(a, 'DELETE', undefined, { id: crypto.randomUUID() }),
+        await payDay.call(a, 'PUT', { kind: 'day_of_month', day: 3 }),
+      ];
+      expect(writes.map((w) => [w.status, (w.body.error as { code?: string } | undefined)?.code])).toEqual(Array(6).fill([429, 'RATE_LIMIT']));
+      expect((await pool.query('SELECT amount::float a FROM cash_forecast_items WHERE id = $1', [id])).rows).toEqual([{ a: 100 }]);
+      expect(await audit('cash_forecast_item')).toHaveLength(before);
+      expect((await pool.query('SELECT COUNT(*)::int n FROM cash_forecast_overrides WHERE company_id = $1', [co()])).rows[0].n).toBe(0);
+      expect((await pool.query('SELECT COUNT(*)::int n FROM payroll_company_settings WHERE company_id = $1', [co()])).rows[0].n).toBe(0);
+      expect((await items.call(a, 'GET')).status).toBe(200);
+    } finally {
+      await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
+      clearRateLimitCache();
+      await clear();
+    }
   });
 });
 
