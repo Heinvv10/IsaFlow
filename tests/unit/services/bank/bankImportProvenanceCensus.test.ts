@@ -51,7 +51,7 @@ describe('1. every import path records the importer', () => {
       [`${B}bankImportService.ts`]: /\$\{options\.importChannel \?\? null\}/, // upload (bulk-commit) and mcp (agent import)
       [`${B}feed/bankIngestionPersistence.ts`]: /'extension'\)/,
       [CLASSIFIED]: /'classified'\)/,
-      [`${B}bankStatementOcrService.ts`]: /'statement_ocr',/,
+      [`${B}bankStatementOcrCommit.ts`]: /'statement_ocr',/, // commitImport (re-exported by bankStatementOcrService)
     };
     expect(filesMatching(/INSERT INTO bank_import_batches/)).toEqual(Object.keys(channels).sort());
     for (const [file, channel] of Object.entries(channels)) expect(textOf(file), file).toMatch(channel);
@@ -70,7 +70,7 @@ describe('1. every import path records the importer', () => {
     expect(filesMatching(/INSERT INTO bank_transactions\s*\([^)]*\bimport_batch_id\b/)).toEqual([
       CLASSIFIED,
       `${B}bankImportService.ts`, // importParsedTransactions, with its batch row (the legacy importBankStatement is deleted)
-      `${B}bankStatementOcrService.ts`,
+      `${B}bankStatementOcrCommit.ts`,
       `${B}feed/bankIngestionPersistence.ts`,
     ].sort());
     expect(filesMatching(/\bimportBankStatement\b/)).toEqual([]); // the legacy importer (no batch row) is gone

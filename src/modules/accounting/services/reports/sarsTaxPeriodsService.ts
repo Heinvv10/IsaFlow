@@ -3,6 +3,7 @@
  * Pure computations — no DB calls. Returns SA VAT and PAYE periods,
  * and a static compliance event calendar.
  */
+import { backToFriday, lastDayOf, vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
 
 export interface TaxPeriod {
   type: 'VAT' | 'PAYE';
@@ -34,39 +35,42 @@ function getDeadlineStatus(dueDate: string): ComplianceEvent['status'] {
   return 'pending';
 }
 
+interface VatFilingPeriod { start: string; end: string; dueDate: string; label: string }
+
 /**
- * Return SA tax periods for the current tax year.
- * VAT: Bi-monthly periods — Category A (odd: Jan/Feb...) or Category B (even: Feb/Mar...)
+ * VAT periods that END in `year`, derived from vatPeriodHelper (the single
+ * source of truth for SARS categories): 'odd' = Category A (ends Jan/Mar/...),
+ * 'even' = Category B (ends Feb/Apr/...), 'monthly' = Category C.
+ * A non-vendor ('none') has none. Due on the 25th of the month after the end,
+ * moved back to the Friday when that is a weekend. Public holidays are not
+ * shifted (no holiday calendar); eFiling's later deadline is not shown.
+ */
+function vatFilingPeriods(year: number, alignment: VatAlignment, setting: VatSetting): VatFilingPeriod[] {
+  if (setting === 'none') return [];
+  return vatQuickPeriods(year, setting, alignment).map((q) => {
+    const endYear = Number(q.to.slice(0, 4));
+    const endMonth = Number(q.to.slice(5, 7));
+    const dueYear = endMonth === 12 ? endYear + 1 : endYear;
+    const dueMonth = endMonth === 12 ? 1 : endMonth + 1;
+    return { start: q.from, end: q.to, dueDate: backToFriday(dueYear, dueMonth, 25), label: q.label };
+  });
+}
+
+/**
+ * Return SA tax periods for `year`.
+ * VAT: the periods ending in `year` for the company's category (see vatFilingPeriods).
  * PAYE: Monthly periods
  */
-export function getTaxPeriods(year?: number, alignment: 'odd' | 'even' = 'odd'): TaxPeriod[] {
+export function getTaxPeriods(year?: number, alignment: VatAlignment = 'odd', setting: VatSetting = 'bi-monthly'): TaxPeriod[] {
   const y = year || new Date().getFullYear();
   const periods: TaxPeriod[] = [];
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const payeMonthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
-  const startMonths = alignment === 'even' ? [2, 4, 6, 8, 10, 12] : [1, 3, 5, 7, 9, 11];
-
-  for (const sm of startMonths) {
-    const endMonth = sm + 1;
-    const startYear = y;
-    const endYear = endMonth > 12 ? y + 1 : y;
-    const em = endMonth > 12 ? 1 : endMonth;
-    const lastDay = new Date(endYear, em, 0).getDate();
-    const vp = {
-      start: `${startYear}-${pad(sm)}-01`,
-      end: `${endYear}-${pad(em)}-${pad(lastDay)}`,
-      label: `${monthNames[sm - 1]}–${monthNames[em - 1]} ${endYear !== startYear ? startYear + '/' + endYear : startYear}`,
-    };
-    const endDate = new Date(vp.end);
-    const dueMonth = endDate.getMonth() + 2;
-    const dueYear = dueMonth > 12 ? endDate.getFullYear() + 1 : endDate.getFullYear();
-    const dueM = dueMonth > 12 ? dueMonth - 12 : dueMonth;
-
-    periods.push({ type: 'VAT', periodStart: vp.start, periodEnd: vp.end, dueDate: `${dueYear}-${pad(dueM)}-25`, label: `VAT201 — ${vp.label}` });
+  for (const vp of vatFilingPeriods(y, alignment, setting)) {
+    periods.push({ type: 'VAT', periodStart: vp.start, periodEnd: vp.end, dueDate: vp.dueDate, label: `VAT201 — ${vp.label}` });
   }
 
   for (let m = 1; m <= 12; m++) {
@@ -79,7 +83,7 @@ export function getTaxPeriods(year?: number, alignment: 'odd' | 'even' = 'odd'):
       type: 'PAYE',
       periodStart: `${y}-${pad(m)}-01`,
       periodEnd: `${y}-${pad(m)}-${pad(lastDay)}`,
-      dueDate: `${dueYear}-${pad(dueM)}-07`,
+      dueDate: backToFriday(dueYear, dueM, 7),
       label: `EMP201 — ${payeMonthNames[m - 1]} ${y}`,
     });
   }
@@ -91,25 +95,16 @@ export function getTaxPeriods(year?: number, alignment: 'odd' | 'even' = 'odd'):
  * Build a static compliance event calendar with upcoming SARS deadlines.
  * Includes VAT201, EMP201, EMP501, and Provisional Tax (IRP6).
  */
-export function getComplianceCalendar(year?: number, alignment: 'odd' | 'even' = 'odd'): ComplianceEvent[] {
+export function getComplianceCalendar(year?: number, alignment: VatAlignment = 'odd', setting: VatSetting = 'bi-monthly'): ComplianceEvent[] {
   const y = year || new Date().getFullYear();
   const events: ComplianceEvent[] = [];
 
-  const vatEndMonths = alignment === 'even' ? [3, 5, 7, 9, 11, 1] : [2, 4, 6, 8, 10, 12];
-  const vatLabels = alignment === 'even'
-    ? ['Feb–Mar', 'Apr–May', 'Jun–Jul', 'Aug–Sep', 'Oct–Nov', 'Dec–Jan']
-    : ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug', 'Sep–Oct', 'Nov–Dec'];
-
-  for (let i = 0; i < vatEndMonths.length; i++) {
-    const endMonth = vatEndMonths[i] as number;
-    const dueMonth = endMonth + 1;
-    const dueYear = dueMonth > 12 ? y + 1 : y;
-    const dueM = dueMonth > 12 ? 1 : dueMonth;
+  for (const vp of vatFilingPeriods(y, alignment, setting)) {
     events.push({
       eventType: 'VAT201_DUE',
-      dueDate: `${dueYear}-${pad(dueM)}-25`,
-      description: `VAT201 return for ${vatLabels[i]} ${y}`,
-      status: getDeadlineStatus(`${dueYear}-${pad(dueM)}-25`),
+      dueDate: vp.dueDate,
+      description: `VAT201 return for ${vp.label}`,
+      status: getDeadlineStatus(vp.dueDate),
     });
   }
 
@@ -122,18 +117,23 @@ export function getComplianceCalendar(year?: number, alignment: 'odd' | 'even' =
     const dueMonth = m + 1;
     const dueYear = dueMonth > 12 ? y + 1 : y;
     const dueM = dueMonth > 12 ? 1 : dueMonth;
+    const dueDate = backToFriday(dueYear, dueM, 7);
     events.push({
       eventType: 'EMP201_DUE',
-      dueDate: `${dueYear}-${pad(dueM)}-07`,
+      dueDate,
       description: `EMP201 (PAYE/UIF/SDL) for ${calMonthNames[m - 1]} ${y}`,
-      status: getDeadlineStatus(`${dueYear}-${pad(dueM)}-07`),
+      status: getDeadlineStatus(dueDate),
     });
   }
 
-  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-05-31`, description: `EMP501 Interim Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(`${y}-05-31`) });
-  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-10-31`, description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(`${y}-10-31`) });
-  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: `${y}-08-31`, description: `IRP6 First Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(`${y}-08-31`) });
-  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: `${y + 1}-02-28`, description: `IRP6 Second Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(`${y + 1}-02-28`) });
+  const emp501Annual = backToFriday(y, 5, 31);
+  const emp501Interim = backToFriday(y, 10, 31);
+  events.push({ eventType: 'EMP501_DUE', dueDate: emp501Annual, description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(emp501Annual) });
+  events.push({ eventType: 'EMP501_DUE', dueDate: emp501Interim, description: `EMP501 Interim Reconciliation (Mar–Aug ${y}) — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(emp501Interim) });
+  const irp6First = backToFriday(y, 8, 31);
+  const irp6Second = backToFriday(y + 1, 2, lastDayOf(y + 1, 2));
+  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6First, description: `IRP6 First Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6First) });
+  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6Second, description: `IRP6 Second Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6Second) });
 
   events.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   return events;

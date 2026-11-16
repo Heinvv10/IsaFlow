@@ -1,29 +1,17 @@
 /**
  * Bank Import Batches API
  * GET /api/accounting/bank-import-batches?bankAccountId=<uuid>
- * Returns the most recent import batches for a bank account, used by the
- * Statement Balance Widget to display opening/closing balances per statement.
+ * The bank account's import batches, newest STATEMENT first (listImportBatches, order 'statement_date'), for the
+ * Statement Balance Widget: opening/closing balances, why a batch has none (balanceSource), and the live line count.
+ * A bankAccountId that is not a UUID is a 400; a failed read throws, so it is a 500 rather than an empty list.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
-
-// 🟢 WORKING: Import batch row shape returned from DB
-type ImportBatchRow = {
-  id: string;
-  bank_account_id: string;
-  statement_date: string | Date;
-  bank_format: string | null;
-  opening_balance: string | null;
-  closing_balance: string | null;
-  transaction_count: string | number;
-  created_at: string | Date;
-};
+import { UUID } from '@/lib/schemas/common';
+import { listImportBatches } from '@/modules/accounting/services/bank/bankImportBatchQueryService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -32,48 +20,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { bankAccountId } = req.query;
-
-  if (!bankAccountId || typeof bankAccountId !== 'string' || bankAccountId.trim() === '') {
-    return apiResponse.badRequest(res, 'bankAccountId query parameter is required');
+  const bankAccountId = UUID.safeParse(req.query.bankAccountId);
+  if (!bankAccountId.success) {
+    return apiResponse.badRequest(res, 'bankAccountId must be a valid UUID');
   }
 
-  try {
-    const rows = (await sql`
-      SELECT
-        id,
-        bank_account_id,
-        statement_date,
-        bank_format,
-        opening_balance,
-        closing_balance,
-        transaction_count,
-        created_at
-      FROM bank_import_batches
-      WHERE bank_account_id = ${bankAccountId}::UUID
-        AND company_id = ${companyId}::UUID
-      ORDER BY created_at DESC
-      LIMIT 20
-    `) as ImportBatchRow[];
-
-    const batches = rows.map(r => ({
-      id: r.id,
-      statementDate: fmtDate(r.statement_date),
-      bankFormat: r.bank_format ?? null,
-      openingBalance: r.opening_balance !== null ? Number(r.opening_balance) : null,
-      closingBalance: r.closing_balance !== null ? Number(r.closing_balance) : null,
-      transactionCount: Number(r.transaction_count),
-      createdAt: r.created_at instanceof Date
-        ? r.created_at.toISOString()
-        : String(r.created_at),
-    }));
-
-    return apiResponse.success(res, { batches });
-  } catch (err) {
-    log.error('Failed to get bank import batches', { error: err }, 'accounting-api');
-    return apiResponse.success(res, { batches: [] });
-  }
+  const batches = await listImportBatches(companyId, { bankAccountId: bankAccountId.data, order: 'statement_date' });
+  return apiResponse.success(res, { batches });
 }
 
- 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));
