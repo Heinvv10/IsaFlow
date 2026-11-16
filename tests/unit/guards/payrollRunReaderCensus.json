@@ -318,14 +318,14 @@
   ],
   "src/modules/accounting/services/payroll/payrollRunRecalcGate.ts": [
    {"line":38,"text":"SELECT calculation_version FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":52,"text":"SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"by run id; the population listed for the run's month: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
-   {"line":62,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":65,"text":"LEFT JOIN payroll_employee_components pec ON pec.id = a.entity_id","class":"S","owner":"FQb1","why":"assignments named by audit rows"},
-   {"line":77,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":89,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":125,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":142,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":161,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":55,"text":"SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"by run id; the population listed for the run's month: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
+   {"line":65,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":68,"text":"LEFT JOIN payroll_employee_components pec ON pec.id = a.entity_id","class":"S","owner":"FQb1","why":"assignments named by audit rows"},
+   {"line":80,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":128,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":145,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":164,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRegularDirective.ts": [
    {"line":57,"text":"COALESCE((SELECT h.run_date FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid), b.last_day) AS judge","class":"S","owner":"FQb1","why":"by run id (run_date)"},
@@ -342,8 +342,8 @@
    {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)","class":"R","owner":"FQc","why":"a run input written as a once-off over the month (F2: inputs keyed by run): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
   ],
   "src/modules/accounting/services/payroll/payrollSdlMonthGate.ts": [
-   {"line":18,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"this run, by id"},
-   {"line":24,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year","class":"S","owner":"FQb1","why":"every other calculated/approved/paid run of the month (one SDL decision per month, review #1507 B4b)"}
+   {"line":30,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"this run, by id"},
+   {"line":31,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month","class":"S","owner":"FQb1","why":"every non-cancelled run of the month with its stored SDL decision, re-judged against the month estimated now (one decision per month, review #1507)"}
   ],
   "src/modules/accounting/services/payroll/payrollSeveranceDirective.ts": [
    {"line":176,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"another run that paid 3901 (any)"}
@@ -387,7 +387,7 @@
    {"line":74,"text":"SELECT period_month, period_year FROM payroll_run_headers","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"}
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
-   {"line":111,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
+   {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
   ],
   "src/modules/accounting/services/payroll/taxDirectiveLeaverUndo.ts": [
    {"line":147,"text":"SELECT h.period_year, h.period_month FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"months with a declarable run; labels"}

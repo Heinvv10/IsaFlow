@@ -46,7 +46,10 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
   };
 }
 
-/** Component dates changed after calculation, or a leaver with no termination base. Null when neither. */
+/**
+ * Component dates changed after calculation, a leaver with no termination base, a blocking terms or fringe-benefit
+ * line, or a run of the month costed on a stale SDL decision (payrollSdlMonthGate, wave 6 FQb1). Null when none.
+ */
 export async function runLinesRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const head = ((await sql`
     SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
@@ -171,6 +174,6 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
         + 'or is not taxable, so PAYE is understated. Fix the component or the vehicle record (see the line\'s validation message) and recalculate.',
     };
   }
-  // Another run of the month decided SDL leviability the other way (one decision per month, wave 6 FQb1).
+  // A run of the month costed on an SDL decision the month, judged now, no longer gives (payrollSdlMonthGate, wave 6 FQb1).
   return sdlMonthSplitRefusal(companyId, runId);
 }
