@@ -88,6 +88,7 @@ export default function NewSupplierPage() {
           <div className="px-6 py-4 flex items-center gap-3">
             <Link
               href="/accounting/suppliers"
+              aria-label="Back to suppliers"
               className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />

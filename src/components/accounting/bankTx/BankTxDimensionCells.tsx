@@ -84,7 +84,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
 
   return (
     <>
-      <td className="py-1 px-2">
+      <td data-label="VAT" className="py-1 px-2">
         {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
           <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
         ) : isNew ? (
@@ -132,7 +132,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       </td>
       {/* CC1 */}
       {showCC && (
-      <td className="py-1 px-2">
+      <td data-label="CC1" className="py-1 px-2">
         {isNew ? (
           <Select
             label={`Cost centre 1, ${label}`} labelClassName="sr-only" size={selectSize} searchable
@@ -147,7 +147,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       )}
       {/* CC2 */}
       {showCC && (
-      <td className="py-1 px-2">
+      <td data-label="CC2" className="py-1 px-2">
         {isNew ? (
           <Select
             label={`Cost centre 2, ${label}`} labelClassName="sr-only" size={selectSize} searchable
@@ -162,7 +162,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       )}
       {/* BU */}
       {showBU && (
-      <td className="py-1 px-2">
+      <td data-label="BU" className="py-1 px-2">
         {isNew ? (
           <Select
             label={`Business unit, ${label}`} labelClassName="sr-only" size={selectSize} searchable

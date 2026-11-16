@@ -8,7 +8,8 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, Loader2, Save } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
-import { INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
+import { Select } from '@/components/ui';
+import { LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
 interface Obligations {
   vatEnabled: boolean;
@@ -32,6 +33,8 @@ const DEFAULTS: Obligations = {
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
+
+const MONTH_OPTIONS = MONTH_NAMES.map((name, i) => ({ value: String(i + 1), label: name }));
 
 const TOGGLES: { key: keyof Obligations; label: string; desc: string }[] = [
   { key: 'vatEnabled', label: 'VAT returns (VAT201)', desc: 'Adds upcoming VAT deadlines — cycle follows the VAT Settings tab (monthly / bi-monthly, Category A/B). The just-ended period’s filing status is tracked automatically either way.' },
@@ -129,30 +132,16 @@ export function ComplianceTab() {
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Key Dates</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="compliance-tab-financial-year-end-month" className={LABEL_CLS}>Financial Year-End Month</label>
-            <select id="compliance-tab-financial-year-end-month"
-              className={INPUT_CLS}
-              value={config.yearEndMonth}
-              onChange={e => setConfig(prev => ({ ...prev, yearEndMonth: Number(e.target.value) }))}
-            >
-              {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-            </select>
+            <Select id="compliance-tab-financial-year-end-month" label="Financial Year-End Month" labelClassName={LABEL_CLS} options={MONTH_OPTIONS}
+              value={String(config.yearEndMonth)} onChange={v => { if (v) setConfig(prev => ({ ...prev, yearEndMonth: Number(v) })); }} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Drives the IRP6 provisional tax payment dates</p>
           </div>
           {config.cipcEnabled && (
             <div>
-              <label htmlFor="compliance-tab-cipc-anniversary-month" className={LABEL_CLS}>CIPC Anniversary Month</label>
-              <select id="compliance-tab-cipc-anniversary-month"
-                className={INPUT_CLS}
-                value={config.cipcAnniversaryMonth ?? ''}
-                onChange={e => setConfig(prev => ({
-                  ...prev,
-                  cipcAnniversaryMonth: e.target.value === '' ? null : Number(e.target.value),
-                }))}
-              >
-                <option value="">Select month…</option>
-                {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-              </select>
+              <Select id="compliance-tab-cipc-anniversary-month" label="CIPC Anniversary Month" labelClassName={LABEL_CLS} options={MONTH_OPTIONS}
+                placeholder="Select month…" clearable
+                value={config.cipcAnniversaryMonth === null ? null : String(config.cipcAnniversaryMonth)}
+                onChange={v => setConfig(prev => ({ ...prev, cipcAnniversaryMonth: v ? Number(v) : null }))} />
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Month the company was registered with CIPC</p>
             </div>
           )}

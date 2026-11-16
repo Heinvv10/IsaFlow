@@ -5,6 +5,7 @@
 // Output conforms to BankCsvParseResult, same as the OFX/CSV/QIF parsers.
 import { describe, it, expect } from 'vitest';
 import { parseMt940Statement } from '@/modules/accounting/utils/bankMt940Parser';
+import { deriveStatementBalances } from '@/modules/accounting/services/bank/bankStatementBalances';
 
 const SAMPLE = [
   ':20:STMT260131',
@@ -90,6 +91,78 @@ describe('parseMt940Statement', () => {
     expect(r.transactions).toHaveLength(1);
     expect(r.transactions[0]!.amount).toBe(50);
     expect(r.errors.length).toBe(1);
+  });
+
+  it('reads the opening :60F: and closing :62F: balances, signed by their D/C mark (WP1 PR-A)', () => {
+    const r = parseMt940Statement(SAMPLE);
+    expect(r.openingBalance).toBe(10000);
+    expect(r.closingBalance).toBe(33299.5);
+    const overdrawn = [':20:S', ':25:9999', ':60F:D260101ZAR1500,25', ':61:260102C100,00NTRFa//1', ':86:in',
+      ':62F:D260131ZAR1400,25'].join('\n');
+    const o = parseMt940Statement(overdrawn);
+    expect(o.openingBalance).toBe(-1500.25);
+    expect(o.closingBalance).toBe(-1400.25);
+  });
+
+  it('a multi-statement file opens at the FIRST :60F: and closes at the LAST :62F:; :60M:/:62M: page balances are not used', () => {
+    const multi = [
+      ':20:S1', ':25:9999', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a', ':62M:C260102ZAR110,00',
+      ':20:S2', ':25:9999', ':60M:C260102ZAR110,00', ':61:260103C5,00NTRFb//2', ':86:b', ':62F:C260103ZAR115,00',
+      ':20:S3', ':25:9999', ':60F:C260104ZAR115,00', ':61:260105D15,00NTRFc//3', ':86:c', ':62F:C260105ZAR100,00',
+    ].join('\n');
+    const r = parseMt940Statement(multi);
+    expect(r.openingBalance).toBe(100);
+    expect(r.closingBalance).toBe(100);
+  });
+
+  it('leaves both balances undefined when the file states none, or states one it cannot read', () => {
+    const none = parseMt940Statement([':25:9999', ':61:260101C100,00NTRFa//1', ':86:x'].join('\n'));
+    expect(none.openingBalance).toBeUndefined();
+    expect(none.closingBalance).toBeUndefined();
+    const bad = parseMt940Statement([':25:9999', ':60F:X260101ZAR1,00', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C26013ZAR1,00'].join('\n'));
+    expect(bad.openingBalance).toBeUndefined();
+    expect(bad.closingBalance).toBeUndefined();
+    // A readable :62F: followed by an unreadable last one: the file's closing is unknown, not the earlier figure.
+    const lastBad = parseMt940Statement([':25:9999', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C260101ZAR100,00',
+      ':61:260102C1,00NTRFb//2', ':86:y', ':62F:C2601ZAR101,00'].join('\n'));
+    expect(lastBad.closingBalance).toBeUndefined();
+  });
+
+  it('two different :25: accounts in one file: the balances are doubted (round 2)', () => {
+    const two = [':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a', ':62F:C260102ZAR110,00',
+      ':20:S2', ':25:2222', ':60F:C260101ZAR500,00', ':61:260102C5,00NTRFb//2', ':86:b', ':62F:C260102ZAR505,00'].join('\n');
+    expect(parseMt940Statement(two).balancesUnverifiable).toMatch(/2 accounts/);
+  });
+
+  it('chained statements of one account must join: each closing equals the next opening (round 2)', () => {
+    const chain = (secondOpening: string) => [':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a',
+      ':62F:C260102ZAR110,00', ':20:S2', ':25:1111', `:60F:C260102ZAR${secondOpening}`, ':61:260103C5,00NTRFb//2', ':86:b',
+      ':62F:C260103ZAR115,00'].join('\n');
+    expect(parseMt940Statement(chain('110,00')).balancesUnverifiable).toBeUndefined();
+    expect(parseMt940Statement(chain('111,00')).balancesUnverifiable).toMatch(/does not join/);
+  });
+
+  it('an unreadable balance field is doubted, not silently dropped (round 2)', () => {
+    const r = parseMt940Statement([':25:9999', ':60F:C260101ZAR1,00', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C2601ZAR101,00'].join('\n'));
+    expect(r.closingBalance).toBeUndefined();
+    expect(r.balancesUnverifiable).toMatch(/:62F:/);
+  });
+
+  it(':62M: only (no final :62F:): no closing balance, and the statement is unverified (round 3)', () => {
+    const r = parseMt940Statement([':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a',
+      ':62M:C260102ZAR110,00'].join('\n'));
+    expect(r.openingBalance).toBe(100);
+    expect(r.closingBalance).toBeUndefined();
+    expect(deriveStatementBalances(r)).toMatchObject({ source: 'unverified', openingCents: null, closingCents: null });
+  });
+
+  it('a truncated last statement whose lines do not net to zero: unverified (round 3)', () => {
+    // S1 opens 100, +10, closes 110; S2 opens 110 and its +5 line is there but its :62F: is cut off. The last :62F: is
+    // S1's 110, and 100 + 10 + 5 is not 110.
+    const r = parseMt940Statement([':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a',
+      ':62F:C260102ZAR110,00', ':20:S2', ':25:1111', ':60F:C260102ZAR110,00', ':61:260103C5,00NTRFb//2', ':86:b'].join('\n'));
+    expect(r.balancesUnverifiable).toBeUndefined();
+    expect(deriveStatementBalances(r)).toMatchObject({ source: 'unverified', openingCents: null, closingCents: null });
   });
 
   it('does not throw on empty or non-MT940 input', () => {

@@ -1,9 +1,37 @@
 import { useEffect } from 'react';
 import { Lock } from 'lucide-react';
-import { DateField } from '@/components/ui';
+import { DateField, Select } from '@/components/ui';
 import { Company, Toggle, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 import { FinancialYearStartField } from './FinancialYearStartField';
 import { YearEndChangeEntry } from './YearEndChangeEntry';
+
+const CURRENCIES = [
+  { value: 'ZAR', label: 'ZAR - South African Rand' },
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'EUR', label: 'EUR - Euro' },
+  { value: 'GBP', label: 'GBP - British Pound' },
+];
+const IDLE_TIMEOUTS = [
+  { value: '240', label: '4 hours' },
+  { value: '480', label: '8 hours (default)' },
+  { value: '720', label: '12 hours' },
+  { value: '43200', label: 'Never (30 days)' },
+];
+const DATE_FORMATS = [
+  { value: 'dd/mm/yyyy', label: 'dd/mm/yyyy' },
+  { value: 'mm/dd/yyyy', label: 'mm/dd/yyyy' },
+  { value: 'yyyy-mm-dd', label: 'yyyy-mm-dd' },
+];
+const ROUNDING_TYPES = [
+  { value: 'none', label: 'No Rounding' },
+  { value: 'up', label: 'Round Up' },
+  { value: 'down', label: 'Round Down' },
+  { value: 'nearest', label: 'Round to Nearest' },
+];
+const AGEING_BASES = [
+  { value: 'invoice_date', label: 'Invoice Date' },
+  { value: 'due_date', label: 'Due Date' },
+];
 
 interface Props {
   company: Company;
@@ -26,13 +54,8 @@ export function GeneralTab({ company, onChange, onLockdownInvalid }: Props) {
           <FinancialYearStartField company={company} onChange={onChange} />
           <YearEndChangeEntry />
           <div>
-            <label htmlFor="general-tab-default-currency" className={LABEL_CLS}>Default Currency</label>
-            <select id="general-tab-default-currency" className={INPUT_CLS} value={company.defaultCurrency || 'ZAR'} onChange={e => onChange('defaultCurrency', e.target.value)}>
-              <option value="ZAR">ZAR - South African Rand</option>
-              <option value="USD">USD - US Dollar</option>
-              <option value="EUR">EUR - Euro</option>
-              <option value="GBP">GBP - British Pound</option>
-            </select>
+            <Select id="general-tab-default-currency" label="Default Currency" labelClassName={LABEL_CLS} options={CURRENCIES}
+              value={company.defaultCurrency || 'ZAR'} onChange={v => onChange('defaultCurrency', v ?? 'ZAR')} />
           </div>
         </div>
         <div className="border-t border-[var(--ff-border-primary)] pt-4">
@@ -54,17 +77,8 @@ export function GeneralTab({ company, onChange, onLockdownInvalid }: Props) {
           Active sessions stay logged in for the work day regardless.
         </p>
         <div className="max-w-xs">
-          <label htmlFor="general-tab-idle-timeout" className={LABEL_CLS}>Idle Timeout</label>
-          <select id="general-tab-idle-timeout"
-            className={INPUT_CLS}
-            value={company.idleTimeoutMinutes}
-            onChange={e => onChange('idleTimeoutMinutes', Number(e.target.value))}
-          >
-            <option value={240}>4 hours</option>
-            <option value={480}>8 hours (default)</option>
-            <option value={720}>12 hours</option>
-            <option value={43200}>Never (30 days)</option>
-          </select>
+          <Select id="general-tab-idle-timeout" label="Idle Timeout" labelClassName={LABEL_CLS} options={IDLE_TIMEOUTS}
+            value={String(company.idleTimeoutMinutes)} onChange={v => { if (v) onChange('idleTimeoutMinutes', Number(v)); }} />
         </div>
       </section>
 
@@ -74,12 +88,8 @@ export function GeneralTab({ company, onChange, onLockdownInvalid }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div><label htmlFor="general-tab-currency-symbol" className={LABEL_CLS}>Currency Symbol</label><input id="general-tab-currency-symbol" className={INPUT_CLS} value={company.currencySymbol} onChange={e => onChange('currencySymbol', e.target.value)} /></div>
           <div>
-            <label htmlFor="general-tab-date-format" className={LABEL_CLS}>Date Format</label>
-            <select id="general-tab-date-format" className={INPUT_CLS} value={company.dateFormat} onChange={e => onChange('dateFormat', e.target.value)}>
-              <option value="dd/mm/yyyy">dd/mm/yyyy</option>
-              <option value="mm/dd/yyyy">mm/dd/yyyy</option>
-              <option value="yyyy-mm-dd">yyyy-mm-dd</option>
-            </select>
+            <Select id="general-tab-date-format" label="Date Format" labelClassName={LABEL_CLS} options={DATE_FORMATS}
+              value={company.dateFormat} onChange={v => { if (v) onChange('dateFormat', v); }} />
           </div>
           <div><label htmlFor="general-tab-quantity-decimal-places" className={LABEL_CLS}>Quantity Decimal Places</label><input id="general-tab-quantity-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.qtyDecimalPlaces} onChange={e => onChange('qtyDecimalPlaces', Number(e.target.value))} /></div>
           <div><label htmlFor="general-tab-value-decimal-places" className={LABEL_CLS}>Value Decimal Places</label><input id="general-tab-value-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.valueDecimalPlaces} onChange={e => onChange('valueDecimalPlaces', Number(e.target.value))} /></div>
@@ -95,13 +105,8 @@ export function GeneralTab({ company, onChange, onLockdownInvalid }: Props) {
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Set Accounting to round customer document values.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="general-tab-rounding-type" className={LABEL_CLS}>Rounding Type</label>
-            <select id="general-tab-rounding-type" className={INPUT_CLS} value={company.roundingType} onChange={e => onChange('roundingType', e.target.value)}>
-              <option value="none">No Rounding</option>
-              <option value="up">Round Up</option>
-              <option value="down">Round Down</option>
-              <option value="nearest">Round to Nearest</option>
-            </select>
+            <Select id="general-tab-rounding-type" label="Rounding Type" labelClassName={LABEL_CLS} options={ROUNDING_TYPES}
+              value={company.roundingType} onChange={v => { if (v) onChange('roundingType', v); }} />
           </div>
           {company.roundingType !== 'none' && (
             <div><label htmlFor="general-tab-round-to-nearest" className={LABEL_CLS}>Round To Nearest</label><input id="general-tab-round-to-nearest" type="number" step="0.01" className={INPUT_CLS} value={company.roundToNearest} onChange={e => onChange('roundToNearest', Number(e.target.value))} /></div>
@@ -146,11 +151,8 @@ export function GeneralTab({ company, onChange, onLockdownInvalid }: Props) {
         <div className="space-y-3">
           <Toggle checked={company.ageingMonthly} onChange={v => onChange('ageingMonthly', v)} label="Use Monthly ageing (display unpaid invoices by calendar month)" />
           <div className="max-w-xs">
-            <label htmlFor="general-tab-run-ageing-based-on" className={LABEL_CLS}>Run Ageing Based On</label>
-            <select id="general-tab-run-ageing-based-on" className={INPUT_CLS} value={company.ageingBasedOn} onChange={e => onChange('ageingBasedOn', e.target.value)}>
-              <option value="invoice_date">Invoice Date</option>
-              <option value="due_date">Due Date</option>
-            </select>
+            <Select id="general-tab-run-ageing-based-on" label="Run Ageing Based On" labelClassName={LABEL_CLS} options={AGEING_BASES}
+              value={company.ageingBasedOn} onChange={v => { if (v) onChange('ageingBasedOn', v); }} />
           </div>
         </div>
       </section>

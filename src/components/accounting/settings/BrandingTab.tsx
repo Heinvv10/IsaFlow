@@ -1,4 +1,5 @@
 import { Upload, Trash2, Building2 } from 'lucide-react';
+import { Select } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { Company, Toggle, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
@@ -53,6 +54,12 @@ function LayoutPicker({ label, value, onChange }: LayoutPickerProps) {
     </div>
   );
 }
+
+const LOGO_POSITIONS = [
+  { value: 'top-left', label: 'Top Left' },
+  { value: 'top-center', label: 'Top Center' },
+  { value: 'top-right', label: 'Top Right' },
+];
 
 export function BrandingTab({ company, onChange, onCompanyChange, onError }: Props) {
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,12 +137,8 @@ export function BrandingTab({ company, onChange, onCompanyChange, onError }: Pro
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="branding-tab-position-of-logo-on-invoices-and" className={LABEL_CLS}>Position of Logo on Invoices and Statements</label>
-            <select id="branding-tab-position-of-logo-on-invoices-and" className={INPUT_CLS} value={company.logoPosition} onChange={e => onChange('logoPosition', e.target.value)}>
-              <option value="top-left">Top Left</option>
-              <option value="top-center">Top Center</option>
-              <option value="top-right">Top Right</option>
-            </select>
+            <Select id="branding-tab-position-of-logo-on-invoices-and" label="Position of Logo on Invoices and Statements" labelClassName={LABEL_CLS} options={LOGO_POSITIONS}
+              value={company.logoPosition} onChange={v => { if (v) onChange('logoPosition', v); }} />
           </div>
         </div>
 
