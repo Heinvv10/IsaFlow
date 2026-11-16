@@ -178,7 +178,7 @@ export async function claimRunSeveranceDirectives(companyId: string, runId: stri
         )
         SELECT ${companyId}::uuid, ${l.directiveId}::uuid,
                (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date,
-               ${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}::uuid
+               ${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}
         FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
         ON CONFLICT (company_id, tax_directive_id) DO UPDATE
           SET payment_date = EXCLUDED.payment_date, gross_amount = EXCLUDED.gross_amount,
