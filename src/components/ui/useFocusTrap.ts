@@ -42,7 +42,7 @@ export function useFocusTrap(
         // the draft must not go with the overlay. The attribute must be present ONLY while the field holds content:
         // an empty one lets Escape close the overlay as before.
         if (a?.closest('[data-keeps-escape="true"]')) return;
-        if (a?.closest('[data-select-listbox="true"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
+        if (a?.closest('[data-select-panel="true"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
         e.stopPropagation();
         escape.current();
         return;

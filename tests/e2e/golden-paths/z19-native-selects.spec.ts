@@ -50,11 +50,7 @@ async function snap(page: Page, slug: string, theme: string, width: number): Pro
   if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/${slug}-${theme}-${width}.png`, fullPage: true });
 }
 
-/**
- * Native selects on the page. The shared payment-terms picker (#payment-terms-kind, on the General tab) is the one known
- * residue outside UXS's list of 20: it is shared by the contact forms and has its own tests, so it is a follow-up.
- */
-const nativeSelects = (page: Page): Promise<number> => page.evaluate(() => document.querySelectorAll('select:not(#payment-terms-kind)').length);
+const nativeSelects = (page: Page): Promise<number> => page.evaluate(() => document.querySelectorAll('select').length);
 const overflowX = (page: Page): Promise<number> => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 async function expectAxeClean(page: Page): Promise<void> {
