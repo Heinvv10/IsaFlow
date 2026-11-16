@@ -27,8 +27,9 @@ export async function gotrueLoginEmail(userId: string): Promise<string | null> {
 }
 
 /**
- * Deletes every invitation still pending (expired included) pinned to `userId`'s GoTrue account or addressed, as
- * lower(btrim()), to the deleted row's email or the GoTrue login email; returns how many. Accepted invitations stay.
+ * Deletes every invitation still pending (expired included) pinned to `userId`'s GoTrue account or addressed,
+ * trimmed (JavaScript trim's whitespace set, as the legacy accept compares) and lower-cased, to the deleted row's email
+ * or the GoTrue login email; returns how many. Accepted invitations stay.
  * Call LAST in the delete's own transaction, after `DELETE FROM users` (migration 997b's definer refuses while the
  * users row exists): the invitation rows are the last lock of every writer of a user's rows, as both accept routes
  * take them.

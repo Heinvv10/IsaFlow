@@ -119,7 +119,7 @@ const KNOWN_WRITERS = [
  * 997b (follow-up A, 2026-11-16) adds admin_cancel_user_invitations(text, text[]), a SECURITY DEFINER owned
  * by migration_admin that DELETEs company_invitations rows, executable by platform_admin only. Read and
  * pinned because it is safe for the portal to call: it deletes only PENDING rows (accepted_at IS NULL)
- * pinned to the given user id (gotrue_user_id) or addressed (lower(btrim())) to the given emails, and can
+ * pinned to the given user id (gotrue_user_id) or addressed (trimmed as JS trim, lower-cased) to the given emails, and can
  * insert, update, re-open, re-point or accept no invitation and touches no company_users row, so it can only
  * take away a not-yet-used way into a company, never grant a membership or a role (930's rule: DELETE stays
  * where it only removes access). It refuses (RC012) while the users row with that id exists, and its pinned

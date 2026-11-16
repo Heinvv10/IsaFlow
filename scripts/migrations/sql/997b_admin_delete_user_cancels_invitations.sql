@@ -49,7 +49,7 @@ DECLARE
   -- inv.email.trim().toLowerCase(); btrim strips the ASCII space only, so an invitation padded with a tab,
   -- newline, NBSP or BOM survived the cancel and was still accepted (round-4 breaker L1). Stripping the same
   -- set here keeps the cancel at least as broad as what the route accepts.
-  -- An E'' literal (backslashes doubled), so the regex escapes do not depend on standard_conforming_strings.
+  -- An E'' literal (backslashes doubled), so the regex escapes do not depend on how plain literals read backslashes.
   v_pad CONSTANT text := E'[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]';
   v_trim CONSTANT text := '^' || v_pad || '+|' || v_pad || '+$';
 BEGIN
