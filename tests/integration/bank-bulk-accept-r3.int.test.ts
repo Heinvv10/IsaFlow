@@ -29,6 +29,8 @@ afterAll(async () => {
   await pool.query('UPDATE bank_transactions SET auto_post_run_id = NULL WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM bank_import_batches WHERE company_id = ANY($1)', [companies]);
+  await pool.query('UPDATE gl_journal_lines SET cc1_id = NULL WHERE company_id = ANY($1) AND cc1_id IS NOT NULL', [companies]);
+  await pool.query('DELETE FROM cost_centres WHERE company_id = ANY($1)', [companies]);
   await cleanupBankControlsA(pool, companies, [a, b]); // ends the pool
 });
 
@@ -239,6 +241,41 @@ describe('N6: the run\'s journal id goes with its tag', () => {
     expect((await pool.query('SELECT auto_post_run_id AS r, auto_post_journal_id AS j FROM bank_transactions WHERE id = $1', [id])).rows[0]).toEqual({ r: null, j: null });
     await pool.query('UPDATE bank_transactions SET reconciliation_id = NULL WHERE id = $1', [id]);
     await pool.query('DELETE FROM bank_reconciliations WHERE id = $1', [rec]);
+  });
+});
+
+describe('R2-1: a refusal the person can fix reads as itself, not as an internal error', () => {
+  const refusalAfterPreview = async (change: (f: BankCompany, id: string) => Promise<void>, o: { dims?: boolean } = {}) => {
+    const f = await fixture();
+    const dims: Record<string, string> = {};
+    if (o.dims) {
+      dims.cc1_id = (await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'R21-CC','Retirable','cc1') RETURNING id", [f.c])).rows[0].id;
+    }
+    const cols = ['company_id', 'bank_account_id', 'transaction_date', 'amount', 'description', 'status', 'suggested_gl_account_id', 'suggested_confidence', 'suggested_strategy', ...Object.keys(dims)];
+    const vals = [f.c, f.bank, '2026-09-01', -100, 'R21 line', 'imported', f.expA, 0.97, 'history', ...Object.values(dims)];
+    const id = (await pool.query(`INSERT INTO bank_transactions(${cols.join(',')}) VALUES(${cols.map((_, i) => `$${i + 1}`).join(',')}) RETURNING id`, vals)).rows[0].id as string;
+    const token = (await previewOf(f)).previewToken;
+    await change(f, id);
+    const out = await confirmed(f, token);
+    expect(out.posted).toHaveLength(0);
+    expect(out.refused).toHaveLength(1);
+    expect(out.refused[0]!.reason).not.toMatch(/internal error/);
+    return out.refused[0]!.reason;
+  };
+
+  it('a period closed after the preview says the period is closed', async () => {
+    const reason = await refusalAfterPreview(async (f) => { await pool.query("UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1", [f.c]); });
+    expect(reason).toMatch(/clos|period/i);
+  });
+
+  it('a target account deactivated after the preview names the account', async () => {
+    const reason = await refusalAfterPreview(async (f) => { await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [f.expA]); });
+    expect(reason).toMatch(/inactive|deactivated/i);
+  });
+
+  it('an inactive cost centre on the line says which one cannot be used', async () => {
+    const reason = await refusalAfterPreview(async (f) => { await pool.query("UPDATE cost_centres SET is_active = false WHERE company_id = $1", [f.c]); }, { dims: true });
+    expect(reason).toMatch(/CC1 must name an active CC1 cost centre/);
   });
 });
 
