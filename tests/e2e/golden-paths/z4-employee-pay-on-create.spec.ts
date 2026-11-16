@@ -73,7 +73,15 @@ test.beforeAll(async ({ baseURL }) => {
   expect(u.hostname === 'localhost' && u.port !== '3101', `z4 runs only on a dev/CI localhost port, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
-    sandboxId = await findOrCreateSandbox(api, SANDBOX);
+    if (AS_W6_QA) {
+      // Provisioned by scripts/ci/golden/provision-w6-qa.ts, never created here: a missing one is a setup fault to name.
+      const mine = await api.get<{ items: Array<{ companyId: string; companyName: string }> }>('/api/accounting/companies?action=user-companies');
+      const found = mine.items.find((c) => c.companyName === SANDBOX.name)?.companyId;
+      expect(found, `"${SANDBOX.name}" does not exist for this user: run bun scripts/ci/golden/provision-w6-qa.ts`).toBeTruthy();
+      sandboxId = found!;
+    } else {
+      sandboxId = await findOrCreateSandbox(api, SANDBOX);
+    }
     await switchApiCompany(api, sandboxId);
     const components = await api.get<Array<{ id: string; name: string; sarsSourceCode: string }>>('/api/payroll/components');
     const basic = components.find((c) => c.sarsSourceCode === '3601')
