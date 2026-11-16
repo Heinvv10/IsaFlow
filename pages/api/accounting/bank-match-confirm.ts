@@ -27,10 +27,8 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { classifyBankMatchRefusal } from '@/modules/accounting/services/bank/bankMatchRefusalStatus';
 import { sql } from '@/lib/neon';
-import {
-  allocateTransaction,
-  matchTransaction,
-} from '@/modules/accounting/services/bank/bankReconciliationService';
+import { matchTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { confirmPurchaseOrderMatch } from '@/modules/accounting/services/bank/confirmPurchaseOrderMatch';
 import {
   confirmSupplierInvoiceMatch,
 } from '@/modules/accounting/services/bank/confirmSupplierMatch';
@@ -87,9 +85,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so a 400 raised after
     // a write commits it. `bank_transfer` and `journal_line` are absent from
     // this map deliberately — they tie a line to a journal that already exists
-    // and settle no document. (The picker offers them only this bank's lines in this
-    // line's direction — bankMatchDbQueries — but this route does not re-check a
-    // hand-crafted id: a stated residual in bank/.claude.md.)
+    // and settle no document. `matchTransaction` refuses (400, pre-write) a line
+    // that is not this statement line's own bank movement — its bank account,
+    // direction and exact amount, on a posted journal (bankMatchTargetFit, audit row 4).
     const signedAmount = Number(txRows[0]!.amount);
     const settles: Partial<Record<typeof candidateType, SettlementKind>> = {
       supplier_invoice: 'supplier',
@@ -159,35 +157,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       };
 
     } else if (candidateType === 'purchase_order') {
-      const poRows = (await sql`
-        SELECT id, supplier_id, total FROM purchase_orders WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
-      `) as Row[];
-      if (poRows.length === 0) {
-        return apiResponse.notFound(res, 'Purchase order', candidateId);
+      // `confirmPurchaseOrderMatch` (audit row 8): links the line to the order through `linked_po_id` — the PO's own
+      // status is never written ('paid' is not one of its statuses) — and refuses, from READS before the first write,
+      // an order that is not approved or a line larger than what is still outstanding on it, to the cent.
+      const outcome = await withJournalDateRefusal(res, () => confirmPurchaseOrderMatch(
+        companyId, bankTransactionId, candidateId, userId, paymentAmount,
+      ));
+      if (outcome === JOURNAL_DATE_REFUSED) return;
+      if (!outcome.ok) {
+        if (outcome.kind === 'not_found') {
+          return apiResponse.notFound(res, outcome.resource,
+            outcome.resource === 'Bank transaction' ? bankTransactionId : candidateId);
+        }
+        return apiResponse.badRequest(res, outcome.message);
       }
-      const supplierId = String(poRows[0]!.supplier_id);
-
-      // Create GL entry: DR Accounts Payable, CR Bank.
-      //
-      // `autoApply: false`: the user confirmed this line against a PURCHASE
-      // ORDER, and a purchase order is not a bill. The payment document is
-      // created — the cash left the bank and needs one — but the supplier's
-      // auto-allocate strategy is NOT run, because settling some unrelated
-      // open bill with money the user just told us was for this PO would
-      // contradict the match they confirmed. The cash stays unapplied and
-      // `list_unapplied_payments` reports it against the bill it eventually
-      // belongs to.
-      if (await withJournalDateRefusal(res, () => allocateTransaction(
-        companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
-        undefined, undefined, undefined, undefined, undefined, { autoApply: 'none' },
-      )) === JOURNAL_DATE_REFUSED) return;
-
-      await sql`
-        UPDATE purchase_orders SET status = 'paid', updated_at = NOW()
-        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
-      `;
-
-      log.info('Confirmed match: purchase order', { bankTransactionId, candidateId }, 'accounting-api');
 
     } else if (candidateType === 'bank_transfer') {
       // Opposite leg of an inter-account transfer. The transfer JE was posted

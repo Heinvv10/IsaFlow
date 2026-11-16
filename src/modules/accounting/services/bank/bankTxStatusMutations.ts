@@ -31,6 +31,7 @@ import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './prov
 import { findJournalChainRoot, shareLockChainHeadOf } from '../shared/journalChainHead';
 import { postingRefOf, recordAutoPostUndone, recordExcluded, recordMatchDecision } from './codingDecisionLog';
 import { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError } from './bankTxStatusErrors';
+import { matchTargetMisfit } from './bankMatchTargetFit';
 export { BankMatchUnavailableError } from './bankTxLock';
 export { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError, type BankMatchTargetCode } from './bankTxStatusErrors';
 
@@ -100,14 +101,21 @@ async function lockForStatusWrite(
  * The `bank_transfer` arm of `bank-match-confirm.ts` already looks its line up
  * company-scoped before calling; the `journal_line` arm did not.
  */
-async function assertMatchTargets(companyId: string, bankTxId: string, journalLineId: string): Promise<void> {
+async function assertMatchTargets(companyId: string, bankRow: Row, journalLineId: string): Promise<void> {
+  const bankTxId = String(bankRow.id);
   const line = (await sql`
-    SELECT id, journal_entry_id FROM gl_journal_lines
-    WHERE id = ${journalLineId}::UUID AND company_id = ${companyId}::UUID
+    SELECT jl.id, jl.journal_entry_id, jl.gl_account_id, jl.debit, jl.credit, je.status AS journal_status
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}::UUID
+    WHERE jl.id = ${journalLineId}::UUID AND jl.company_id = ${companyId}::UUID
     LIMIT 1`) as Row[];
   if (line.length === 0) {
     throw new BankMatchTargetError('LINE_NOT_FOUND', `Journal line ${journalLineId} not found`);
   }
+  // Audit row 4: only this statement line's own bank movement (account, direction, exact amount, posted) — read from
+  // the LOCKED bank row, before any lock on the journal and before the write.
+  const misfit = matchTargetMisfit(bankRow, line[0]!, journalLineId);
+  if (misfit) throw misfit;
   // A reversed journal's cash is off the books: a statement line matched to it
   // reads as paid for money the GL no longer shows. FOR SHARE on the entry, AFTER
   // the bank row (the shared order): a reversal in flight holds it FOR UPDATE
@@ -179,8 +187,7 @@ export async function matchTransaction(
       }
       refuseCompletedSession(session);
     }
-    await lockForStatusWrite(companyId, bankTxId, 'match');
-    await assertMatchTargets(companyId, bankTxId, journalLineId);
+    await assertMatchTargets(companyId, await lockForStatusWrite(companyId, bankTxId, 'match'), journalLineId);
     // The claim check above cannot hold under concurrency: the two racing
     // requests lock two DIFFERENT bank rows, so they never contend, and at READ
     // COMMITTED neither claim SELECT sees the peer's uncommitted UPDATE. Both

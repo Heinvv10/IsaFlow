@@ -3,8 +3,8 @@
  */
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { inTx, seedBankTx, type Fixture } from './l1FifoFixture';
+import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { inTx, type Fixture } from './l1FifoFixture';
 
 export async function contraCount(fx: Fixture, journalEntryId: string): Promise<number> {
   const rows = (await sql`
@@ -38,12 +38,23 @@ export async function journalLineOn(fx: Fixture, journalEntryId: string, glAccou
   return rows[0]!.id;
 }
 
-/** A posted journal line no bank line claims: the contra of an allocation on a line of its own. */
-export async function unclaimedLine(fx: Fixture): Promise<string> {
+/**
+ * A posted journal's bank leg no statement line claims, which a statement line of `amount` on the fixture bank may
+ * match: on that bank, in its direction, for its amount (PR #1458 row 4 — a match binds only the line's own bank
+ * movement; this used to hand back an allocation's EXPENSE leg, which the match now refuses).
+ */
+export async function unclaimedLine(fx: Fixture, amount: number): Promise<string> {
   const contra = await expenseAccount(fx);
-  const tx = await seedBankTx(fx, { date: '2026-03-06', amount: -10, description: 'SOURCE LINE' });
-  const { journalEntryId } = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
-  return journalLineOn(fx, journalEntryId, contra);
+  const value = Math.abs(amount);
+  const bankLeg = { glAccountId: fx.bankAccountId, debit: amount > 0 ? value : 0, credit: amount < 0 ? value : 0, description: 'bank' };
+  const contraLeg = { glAccountId: contra, debit: amount < 0 ? value : 0, credit: amount > 0 ? value : 0, description: 'contra' };
+  const journalEntryId = await inTx(fx, async () => {
+    const je = await createJournalEntry(fx.companyId, { entryDate: '2026-03-06', description: 'Unclaimed journal',
+      source: 'manual', lines: [bankLeg, contraLeg] } as never, fx.userId);
+    await postJournalEntry(fx.companyId, je.id, fx.userId);
+    return String(je.id);
+  });
+  return journalLineOn(fx, journalEntryId, fx.bankAccountId);
 }
 
 /** A second bank GL account: what a transfer's other leg sits on. */
