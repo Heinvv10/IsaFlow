@@ -175,7 +175,10 @@ export async function assertNoDuplicateTransfer(
   const journals = lines.length > 0 ? [] : (await sql`
     SELECT je.id FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NOT NULL
+      AND je.source = 'auto_bank_transfer' AND je.status = 'posted'
+      -- A typed transfer; or a STATEMENT transfer reversed and put back in force by a re-reversal (the chain test below):
+      -- its bank Reverse freed both legs (WP2 row 10), so arm 1 no longer sees it by its lines.
+      AND (je.reference IS NOT NULL OR je.reversed_at IS NOT NULL)
       AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
