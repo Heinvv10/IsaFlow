@@ -16,6 +16,12 @@ describe('buildApplyToast', () => {
     expect(r.message).toBe("7 categorised · 3 skipped (the rule's account is a header with sub-accounts — point the rule at one of them)");
   });
 
+  it('a rule with an unknown VAT code is reported and warns even when other lines applied (it recurs until edited)', () => {
+    const r = buildApplyToast({ applied: 5, autoPostSkippedUnknownVatCode: 2 });
+    expect(r.message).toBe("5 categorised · 2 skipped (the rule's VAT code is not one IsaFlow knows — edit the rule's VAT code)");
+    expect(r.kind).toBe('warn');
+  });
+
   it('a refund larger than the contact\'s credit is reported (it recurs until someone allocates it), and turns the toast amber when nothing applied', () => {
     const r = buildApplyToast({ applied: 0, autoPostSkippedRefundCeiling: 2 });
     expect(r.message).toMatch(/2 skipped \(a refund larger than the contact's credit — allocate it by hand\)/);
