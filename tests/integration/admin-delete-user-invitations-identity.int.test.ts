@@ -150,18 +150,18 @@ describe('a case-variant delete leaves the surviving user alone', () => {
       [survivorId, `survivor-${gone.id}@test.local`]);
     const drifted = `drifted-${gone.id}@test.local`; // held by no users row
     setGotrueEmail(gone.id, drifted);
-    const pinned = await invite(B, `pinned-${gone.id}@test.local`, { gotrueUserId: gone.id });
+    const pinned = await invite(B, drifted, { gotrueUserId: gone.id }); // what the anonymous route signs in through
     const addressed = await invite(C, drifted);
     try {
       const del = await adminDelete(gone.id);
       expect(del.status, JSON.stringify(del.body)).toBe(200);
       expect({ pinned: await invitationRow(pinned), addressed: await invitationRow(addressed) })
         .toEqual({ pinned: undefined, addressed: undefined });
-      const r = await legacyAccept(gone.id, addressed);
-      expect(r.status, JSON.stringify(r.body)).toBe(404);
       const anon = await newAccept(pinned); // the anonymous route, through the account pinned on the invitation
       expect(anon.status, JSON.stringify(anon.body)).toBe(410);
       expect(passwordSets).not.toContain(gone.id);
+      const r = await legacyAccept(gone.id, addressed);
+      expect(r.status, JSON.stringify(r.body)).toBe(404);
       expect(await usersRows(gone.id)).toBe(0);
       expect((await pool.query('SELECT count(*)::int n FROM company_users WHERE user_id = $1', [gone.id])).rows[0].n).toBe(0);
     } finally {
