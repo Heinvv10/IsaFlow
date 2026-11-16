@@ -89,6 +89,17 @@ describe('snapshot and restore', () => {
     expect((await reads.snapshots(v))[0]!.restored_at).toBeNull();
   });
 
+  it('a cell changed by a writer that does not move the token (the same token) still refuses the restore: content is compared', async () => {
+    const v = await fx.version(w);
+    await write(v, [cell('BR-5000', w.months[0]!, '5.00'), cell('BR-5000', w.months[1]!, '6.00')]);
+    const token = await fx.token(v);
+    await pool.query(`UPDATE budget_month_amounts SET amount = 8 WHERE version_id = $1 AND month = $2::DATE`, [v, `${w.months[1]}-01`]);
+    expect(await fx.token(v)).toBe(token);
+    const r = await mcp(pool, w.u, 'restore_budget_version', { version_id: v, dry_run: true, idempotency_key: key() });
+    expect(text(r)).toMatch(/1 of its 2 cells differ now/);
+    expect((await reads.snapshots(v))[0]!.restored_at).toBeNull();
+  });
+
   it('after two MCP writes, the older snapshot named explicitly is refused; the newer restores', async () => {
     const v = await fx.version(w);
     await write(v, [cell('BR-5000', w.months[0]!, '1.00'), cell('BR-5000', w.months[1]!, '1.00')]);
