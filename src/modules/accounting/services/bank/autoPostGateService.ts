@@ -22,6 +22,8 @@ import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
 import type { AutoPostSource, SweepResult, SweepWarning } from './autoPostGate';
 import { recordAutoPosted, type AutoPosting } from './codingDecisionLog';
 import { sourceFromStrategy } from './codingDecisionOutcome';
+import { bankAccountsAmong } from './bankContraTransfer';
+import { preLockTransferPairs, transferPairKey } from './transferPairLock';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -54,6 +56,7 @@ interface SweepRow {
   id: string;
   status: string;
   amount: string | number;
+  bank_account_id: string;
   suggested_gl_account_id: string | null;
   suggested_confidence: string | number | null;
   suggested_vat_code: string | null;
@@ -87,10 +90,11 @@ export async function sweep(
   }
 
   const rows = (await sql`
-    SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
+    SELECT id, status, amount, bank_account_id::TEXT AS bank_account_id, suggested_gl_account_id, suggested_confidence,
            suggested_vat_code, suggested_strategy, description, transaction_date, feed_state
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
+    ORDER BY id -- one lock order for every sweep (the rule sweep's, bankRulesMatchingService): rows, then pairs
   `) as unknown as SweepRow[];
 
   const skipped: Array<{ txId: string; reason: string }> = [];
@@ -126,8 +130,27 @@ export async function sweep(
   }
 
   const isImport = source === 'import';
+  // WP2 row 5: a suggestion onto a BANK account posts as a transfer (allocateTransaction), which takes the pair lock.
+  // Every pair the sweep needs is taken first, sorted, before its first journal; a row whose pair another request
+  // holds is skipped, never attempted (it would wait on the pair holding the number lock — transferPairLock).
+  const pairOf = new Map<string, [string, string]>();
+  if (!isImport) {
+    const banks = await bankAccountsAmong(companyId, postable.map((r) => r.suggested_gl_account_id ?? ''));
+    for (const r of postable) {
+      const contra = r.suggested_gl_account_id;
+      if (contra && banks.has(contra.toLowerCase()) && contra.toLowerCase() !== r.bank_account_id.toLowerCase()) {
+        pairOf.set(r.id, [r.bank_account_id, contra]);
+      }
+    }
+  }
+  const heldPairs = await preLockTransferPairs(companyId, pairOf.values());
 
   for (const row of postable) {
+    const pair = pairOf.get(row.id);
+    if (pair && heldPairs.has(transferPairKey(companyId, pair[0], pair[1]))) {
+      skipped.push({ txId: row.id, reason: 'locked by another request — retry' });
+      continue;
+    }
     const confidence = isImport
       ? null
       : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);

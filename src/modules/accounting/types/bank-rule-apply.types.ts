@@ -103,4 +103,14 @@ export interface RuleApplyResult {
    * table for a number nobody acts on. Non-zero means "re-run to continue".
    */
   autoPostTruncatedRules?: number;
+  /**
+   * WP2 row 5: lines of a rule whose account is the swept bank ITSELF — a transfer to itself, a journal that moves
+   * nothing. Remedy: point the rule at the other bank account (or the account the money went to).
+   */
+  autoPostSkippedOwnBankContra?: number;
+  /**
+   * WP2 row 5: lines of a rule onto another bank account (a transfer) whose movement is already in the ledger — the
+   * other bank's leg, or a transfer typed on the Transfers page. Remedy: match the line to that journal.
+   */
+  autoPostSkippedDuplicateTransfer?: number;
 }

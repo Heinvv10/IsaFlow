@@ -12,6 +12,7 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
+import { isBankContra } from '../bank/bankContraTransfer';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
 type Row = DbRow;
@@ -92,6 +93,11 @@ export async function postProvisional(
   let expenseAccountId = prediction.glAccountId;
   if (!expenseAccountId) {
     expenseAccountId = await getSystemAccountId('default_expense', companyId);
+  }
+  // WP2 row 5: a BANK account is a transfer — the duplicate guard, the pair lock and the leg pairing live in the
+  // transfer arm, and a provisional journal is not one. Left for a person (or the rule sweep's transfer line).
+  if (await isBankContra(companyId, expenseAccountId)) {
+    return { journalEntryId: null, prediction, skipped: 'bank account: a transfer is allocated, not posted provisionally' };
   }
 
   // THE THIRD UNATTENDED POSTER. This one predicts its own vat code, from the
