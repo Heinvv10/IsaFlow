@@ -93,7 +93,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'DELETE') {
     try {
-      const { stranded, invitationsCancelled } = await deleteUser(userId);
+      const { stranded, invitationsCancelled, sentInvitationsUnattributed } = await deleteUser(userId);
 
       await logAdminAction(
         req.user.id,
@@ -103,6 +103,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         {
           // Pending invitations to the user's address the delete cancelled (always recorded, 0 included).
           invitations_cancelled: invitationsCancelled,
+          // The invitations the user sent, which the delete kept with no sender (997c; always recorded, [] included).
+          sent_invitations_unattributed: sentInvitationsUnattributed,
           // Pending pay-run approvals this left without another approver (the deletion is never refused for them).
           ...(stranded.length > 0 ? { stranded_pay_run_requests: stranded } : {}),
         },

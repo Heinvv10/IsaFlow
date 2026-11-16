@@ -6,6 +6,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { isAllocationVatCode } from '../bank/bankVatCodes';
 
 type Row = DbRow;
 
@@ -22,6 +23,8 @@ export interface CodingPrediction {
   projectId: string | null;
   confidence: number;
   basis: string;
+  /** The history held non-null VAT codes and none was valid (so vatCode is null by rejection, not by absence). */
+  vatHistoryAllInvalid?: boolean;
 }
 
 // ── Tokeniser ────────────────────────────────────────────────────────────────
@@ -115,11 +118,17 @@ export async function predictFromHistory(
   // Mode of gl_account_id
   const glFreq = new Map<string, number>();
   const vatFreq = new Map<string, number>();
+  let sawCode = false;
   for (const r of historyRows) {
     const gl = r.gl_account_id ? String(r.gl_account_id) : '';
     const vat = r.vat_code ? String(r.vat_code) : '';
     if (gl) glFreq.set(gl, (glFreq.get(gl) ?? 0) + 1);
-    if (vat) vatFreq.set(vat, (vatFreq.get(vat) ?? 0) + 1);
+    // The mode over VALID codes only: capture records a supplier's VAT NUMBER as the code when no default exists,
+    // and a mode over everything skipped that supplier forever (postProvisional refuses an unknown code).
+    // Normalised (trim + lowercase) so 'Standard' counts as 'standard'; user input elsewhere stays strict.
+    const norm = vat.trim().toLowerCase();
+    if (vat) sawCode = true;
+    if (norm && isAllocationVatCode(norm)) vatFreq.set(norm, (vatFreq.get(norm) ?? 0) + 1);
   }
 
   const topGl = [...glFreq.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -143,5 +152,6 @@ export async function predictFromHistory(
     projectId: topProj ? String(topProj.project_id) : null,
     confidence,
     basis,
+    vatHistoryAllInvalid: sawCode && !topVat,
   };
 }

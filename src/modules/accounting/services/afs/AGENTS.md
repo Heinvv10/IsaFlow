@@ -37,6 +37,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/afs/*` and 
 - Magic-link tokens are single-use and consumed atomically inside `verifyMagicLink` (UPDATE…RETURNING with `used_at IS NULL` guard).
 - Portal contacts are a separate auth path — magic link only, no password; tenant scope enforced by joining `portal_contacts.company_id`.
 - WeasyPrint runs out-of-process — handle timeouts; large packs may hit connection reset.
+- Management pack `cash_flow_forecast` (`managementPackForecast.ts`): the P6 three-way's month-end cash (`getThreeWay`, primary version of the fiscal year holding the pack month end), pack month to year end, stored as blocks + snapshot at generation (never recomputed on view). Flag `budgets_three_way` off: stored exactly as before (no blocks, the "not yet available" sentence). No primary version: one sentence. A three-way refusal prints `FORECAST_UNAVAILABLE`; a fault does too and holds the pack for review. No AI commentary (budget figures).
 - Version history: every generation snapshots the rendered output so earlier drafts are recoverable; callers NEVER overwrite in place.
 
 ## Related files

@@ -5,7 +5,9 @@
  * showing whether the period is ready to close. Each item shows pass / fail / warn
  * status with a "Fix" link to the relevant page when not passing.
  *
- * The checklist is ADVISORY only — it does not block the period close action.
+ * Since 2026-11-15 the close itself refuses on a failing check (or one that
+ * could not be computed); warnings do not block. This panel shows the same
+ * checks before the close is tried (gl/periodCloseGate.ts).
  */
 
 import { useEffect, useState } from 'react';
