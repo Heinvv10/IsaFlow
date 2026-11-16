@@ -18,6 +18,8 @@ vi.mock('@/lib/neon', () => ({
   sql: sqlMock, withTransaction: withTransactionMock, withSavepoint: (_n: string, fn: () => unknown) => fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// bank/bankAccountGuard reads Postgres; a mocked sql would answer it. Proven in tests/integration/bank-account-guard-*.
+vi.mock('@/modules/accounting/services/bank/bankAccountGuard', async () => (await import('../helpers/bankControlGateMocks')).bankAccountGuardOpen());
 vi.mock('@/lib/documentStorage', () => ({
   fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4'), hash: 'x', size: 8, fileType: 'pdf' })),
 }));

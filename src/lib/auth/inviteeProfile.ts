@@ -10,6 +10,7 @@
  * user's rows keeps (admin .claude.md, "Lock order for a user's rows").
  */
 import type { PoolClient } from 'pg';
+import { isUsersEmailTaken } from './usersEmailUnique';
 
 /** What the routes answer for EMAIL_IN_USE (409). */
 export const EMAIL_IN_USE_MESSAGE =
@@ -26,38 +27,25 @@ export interface InviteeProfile {
 /**
  * Creates the users row, or fills an existing row's missing names. Returns
  * 'email_in_use', having created nothing, when the row would be new and another
- * users row holds this address under a different id, in any letter case. The caller
- * must roll back before anything else runs on `client` (a 23505 has aborted the
- * transaction). Any other error is thrown.
+ * users row holds this address under a different id, in any letter case or
+ * padding. The caller must roll back before anything else runs on `client` (the
+ * 23505 has aborted the transaction). Any other error is thrown.
  *
- * Letter case (brk-1440): users_email_key is UNIQUE (email), case-sensitive, so an
- * address held as `A@x` let a new row take `a@x`, a second profile for one mailbox.
- * The SELECT below refuses that first. It runs only when this id has no row yet: an
- * existing profile's email is never written here, so it accepts as before. Two NEW
- * invitees whose addresses differ only in case, accepting at the same instant, can
- * still both pass it; a unique index on lower(email) would close that (production
- * held no mixed-case or case-duplicate address on 2026-11-15).
+ * The address is stored lower(btrim(email)), the form users_email_lower_key
+ * (migration 999) holds unique. That index is the guarantee, not a read before
+ * the write: a read cannot see another transaction's uncommitted row, so two new
+ * invitees whose addresses differed only in case both passed the lower() SELECT
+ * this helper used to run (brk-1440). Now the second INSERT waits on the first
+ * and fails when it commits. A row stored in mixed case before 999 is never
+ * rewritten; the index still compares its normal form.
  *
- * `users` carries users_email_key UNIQUE (email) as well as its primary key, and the
- * INSERT arbitrates only on `id`. Another row holding this address under a different
- * id (a pre-GoTrue-cutover profile, a deleted-and-recreated GoTrue identity) raised
- * 23505, which escaped as an opaque 500 the invitee could do nothing about. The
- * exact-case conflict is still answered from the violation itself, not only from the
- * SELECT: a read cannot close the window before the write, and a concurrent row would
- * otherwise turn the same condition into an opaque 500. The unique index is the
- * authority for exact case.
+ * The INSERT arbitrates only on `id`, so a conflict on either email key raises
+ * 23505 (`isUsersEmailTaken`) rather than taking the DO UPDATE branch, and an
+ * existing profile (same id) never reaches those keys: its email is not written.
  */
 export async function upsertInviteeProfile(
   client: PoolClient, p: InviteeProfile,
 ): Promise<'ok' | 'email_in_use'> {
-  const held = await client.query(
-    `SELECT 1 FROM users o
-      WHERE lower(o.email) = lower($2) AND o.id <> $1
-        AND NOT EXISTS (SELECT 1 FROM users s WHERE s.id = $1)
-      LIMIT 1`,
-    [p.userId, p.email],
-  );
-  if ((held.rowCount ?? 0) > 0) return 'email_in_use';
   try {
     await client.query(
       // No `email = EXCLUDED.email` on the conflict branch: that reverted the
@@ -65,7 +53,7 @@ export async function upsertInviteeProfile(
       // accepted an invitation. The row's own email stays its own.
       // onboarding_completed: no new-company wizard for a member (an admin's reset to false is kept).
       `INSERT INTO users (id, email, first_name, last_name, is_active, onboarding_completed)
-       VALUES ($1, $2, $3, $4, true, true)
+       VALUES ($1, lower(btrim($2)), $3, $4, true, true)
        ON CONFLICT (id) DO UPDATE SET
          first_name = COALESCE(EXCLUDED.first_name, users.first_name),
          last_name  = COALESCE(EXCLUDED.last_name,  users.last_name),
@@ -74,8 +62,7 @@ export async function upsertInviteeProfile(
     );
     return 'ok';
   } catch (err) {
-    const pgErr = err as { code?: string; constraint?: string };
-    if (pgErr.code === '23505' && pgErr.constraint === 'users_email_key') return 'email_in_use';
+    if (isUsersEmailTaken(err)) return 'email_in_use';
     throw err;
   }
 }

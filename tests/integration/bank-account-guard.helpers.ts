@@ -67,12 +67,45 @@ export async function writtenRows(pool: Pool, x: GuardFixture): Promise<Record<s
   return r as Record<string, number>;
 }
 
+/**
+ * An account stored with `subtype` spelled as it was before trg_gl_accounts_normalise_subtype existed (the trigger
+ * rewrites it on every write, so only a legacy row can still hold e.g. 'Bank Account'). Triggers off for the insert.
+ */
+export async function legacySpelledAccount(pool: Pool, c: string, subtype: string, tag = 'LG'): Promise<string> {
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await db.query('SET LOCAL session_replication_role = replica');
+    const id = (await db.query(
+      `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
+       VALUES ($1,$2,'BAG legacy spelling','asset','debit',true,$3) RETURNING id`, [c, `${tag}${c.slice(0, 6)}`, subtype],
+    )).rows[0].id as string;
+    await db.query('COMMIT');
+    return id;
+  } finally { db.release(); }
+}
+
+/** A read statement import (status `extracted`, one row) on `bankAccountId`, as an upload made before the guard left it. */
+export async function seedStatementImport(pool: Pool, x: GuardFixture, bankAccountId: string, tag: string): Promise<string> {
+  const doc = (await pool.query(
+    `INSERT INTO captured_documents(company_id, file_name, file_type, document_type, uploaded_by)
+     VALUES($1,$2,'pdf','statement',$3) RETURNING id`, [x.f.c, `${tag}.pdf`, x.user])).rows[0].id as string;
+  const rows = [{ date: '2026-09-07', description: `BAG OCR ${tag}`, reference: null, amount: -55, runningBalance: null,
+    isDuplicate: false, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }];
+  return (await pool.query(
+    `INSERT INTO bank_statement_imports(company_id, bank_account_id, source_document_id, period_start, period_end, row_count,
+       status, extraction_summary, created_by)
+     VALUES($1,$2,$3,DATE '2026-09-01',DATE '2026-09-30',1,'extracted',$4::jsonb,$5) RETURNING id`,
+    [x.f.c, bankAccountId, doc, JSON.stringify({ rows }), x.user])).rows[0].id as string;
+}
+
 export const messageOf = (res: { state: { body: unknown } }) =>
   (res.state.body as { error?: { message?: string } }).error?.message ?? '';
 
 export async function cleanupGuardFixture(pool: Pool, x: GuardFixture | undefined): Promise<void> {
   if (!x) { await pool.end(); return; }
   await pool.query('UPDATE bank_transactions SET reconciliation_id = NULL WHERE company_id = ANY($1)', [x.companies]);
+  await pool.query('DELETE FROM bank_feed_sync_logs WHERE company_id = ANY($1)', [x.companies]);
   await pool.query('DELETE FROM bank_reconciliations WHERE company_id = ANY($1)', [x.companies]);
   await cleanupBankControlsA(pool, x.companies, [x.user]);
 }

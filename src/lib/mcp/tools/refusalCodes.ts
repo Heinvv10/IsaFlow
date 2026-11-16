@@ -55,6 +55,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names
   // only the caller's own key, window and counts.
   'BANK_DIMENSION_SYNC_REFUSED',
+  // WP2-2 (bank/bankIngestLock): another import into the same bank account held its ingest lock past 5 s. Retryable,
+  // nothing written; the message says "retry in a moment" (import_bank_statement).
+  'BANK_IMPORT_LOCK_TIMEOUT',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',

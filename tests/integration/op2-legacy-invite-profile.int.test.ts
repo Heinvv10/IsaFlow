@@ -17,6 +17,10 @@
 //   · a session whose email is not the invitation's is still a 403 that
 //     writes nothing, no users row included.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import type { NextApiRequest, NextApiResponse } from 'next';
 import invitationsRoute from '../../pages/api/accounting/company-invitations';
 import inviteRoute from '../../pages/api/invite/[token]';
@@ -132,14 +136,14 @@ describe('OP-2: POST /api/invite/<token> writes the invitee\'s users row', () =>
     expect(await acceptedAt(u.email)).toBeNull();
   });
 
-  it('an existing profile accepts as before even when another row holds its address in a different case', async () => {
+  // 999: a second row in another case can no longer exist (users_email_lower_key). What remains is a
+  // profile stored in mixed case before 999, which is never rewritten: it accepts and keeps its spelling.
+  it('an existing profile stored in a different case accepts as before, and its stored email is not rewritten', async () => {
     const u = await newIdentity({ firstName: 'Mine' });
-    const legacy = crypto.randomUUID();
-    created.push(legacy);
-    await fixture.query(`INSERT INTO users (id, email, is_active) VALUES ($1, $2, true)`, [legacy, u.email.toUpperCase()]);
+    await fixture.query('UPDATE users SET email = $2 WHERE id = $1', [u.id, u.email.toUpperCase()]);
     const r = await accept(u.id, await invitedToken(u.email, 'viewer'));
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect((await profile(u.id))[0]).toMatchObject({ email: u.email, first_name: 'Mine' });
+    expect((await profile(u.id))[0]).toMatchObject({ email: u.email.toUpperCase(), first_name: 'Mine' });
     expect(await memberships(u.id)).toEqual([{ role: 'viewer' }]);
   });
 

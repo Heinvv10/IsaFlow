@@ -28,6 +28,8 @@ interface SelectBaseProps {
   label?: string;
   error?: string;
   disabled?: boolean;
+  /** The value is required: an asterisk after the label (hidden from readers) and aria-required on the trigger. */
+  required?: boolean;
   clearable?: boolean;
   className?: string;
   id?: string;
@@ -80,7 +82,7 @@ export type SelectProps = SingleSelectProps | MultiSelectProps;
 
 // WORKING: Select component (single and multi-select)
 export function Select(props: SelectProps) {
-  const { options, placeholder = 'Select…', label, error, disabled = false, clearable = false, className, id: externalId } = props;
+  const { options, placeholder = 'Select…', label, error, disabled = false, required = false, clearable = false, className, id: externalId } = props;
   const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName, describedBy, size = 'md' } = props;
   const searchable = props.searchable === true || onSearch !== undefined;
 
@@ -195,13 +197,14 @@ export function Select(props: SelectProps) {
   const selectedLabels = selectedValues
     .map((v) => options.find((o) => o.value === v)?.label ?? (valueOption?.value === v ? valueOption.label : undefined))
     .filter(Boolean) as string[];
-  const hasClear = clearable && selectedValues.length > 0;
+  const hasClear = clearable && !disabled && selectedValues.length > 0;
 
   return (
     <div className={cn('w-full', className)}>
       {label && (
         <label id={labelId} htmlFor={inputId} onClick={() => triggerRef.current?.focus()} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
           {label}
+          {required && <span aria-hidden="true" className="ml-1 text-red-400">*</span>}
         </label>
       )}
       <div
@@ -215,6 +218,7 @@ export function Select(props: SelectProps) {
         aria-activedescendant={open && !searchable && filteredOptions[activeIndex] ? selectOptionId(inputId, activeIndex) : undefined}
         aria-describedby={describedBy}
         aria-disabled={disabled}
+        aria-required={required || undefined}
         tabIndex={disabled ? -1 : 0}
         onClick={() => (open ? closeDropdown() : openDropdown())}
         onKeyDown={onTriggerKeyDown}

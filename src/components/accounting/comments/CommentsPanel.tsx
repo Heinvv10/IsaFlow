@@ -65,7 +65,7 @@ export function CommentsPanel({ recordType, recordId }: { recordType: CommentRec
   const people = read?.mentionable ?? [];
   return (
     <section aria-labelledby={`comments-${recordId}`} className="space-y-3" data-testid="comments-panel">
-      <h3 id={`comments-${recordId}`} className="text-sm font-semibold text-[var(--ff-text-primary)]">Comments</h3>
+      <h2 id={`comments-${recordId}`} className="text-sm font-semibold text-[var(--ff-text-primary)]">Comments</h2>
       {loadError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{loadError}</p>}
       {!read && !loadError && <p className="text-sm text-[var(--ff-text-secondary)]">Loading comments…</p>}
       {read && read.olderHidden > 0 && (

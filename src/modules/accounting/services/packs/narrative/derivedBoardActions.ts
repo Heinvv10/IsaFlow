@@ -89,7 +89,7 @@ function actionsThatFit(matters: PackMatter[]): PackMatter[] {
 /**
  * AN EM DASH JOINS A PHRASE TO A CLAUSE. IT DOES NOT FOLLOW A FULL STOP.
  *
- * Most matters state their issue as a noun phrase — "29 unreconciled bank
+ * Most matters state their issue as a noun phrase — "29 unallocated bank
  * items across 3 bank accounts" — and `issue — decision` reads as one line.
  * The credit-month matter is three sentences of prose and ends in a full
  * stop, so the panel printed "…the month's revenue and other income of 39. —

@@ -119,7 +119,7 @@ describe('two concurrent DELETEs: one deletes and is audited, the other is a 404
   it('users/[id]', async () => {
     const id = `${TAG}-user`;
     await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [id, `${id}@test.local`]);
-    setBarrier(/^SELECT role FROM users WHERE id/i);
+    setBarrier(/^SELECT role, email FROM users WHERE id/i); // deleteUser's first read (role; email for the invitation cancel)
     const rs = await Promise.all([call(userRoute, 'DELETE', { id }), call(userRoute, 'DELETE', { id })]);
     expect(probe.barrier!.arrived).toBe(2);
     expect(rs.map((r) => r.status).sort()).toEqual([200, 404]);

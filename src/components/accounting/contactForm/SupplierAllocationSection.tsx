@@ -27,6 +27,7 @@ export function SupplierAllocationSection({ form, set, mode, dates }: SectionPro
         <button
           type="button"
           role="switch"
+          aria-label="Auto allocate payments"
           aria-checked={autoAllocateOn}
           onClick={() => set('auto_allocate_strategy', autoAllocateOn ? 'off' : lastOrder)}
           className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${

@@ -12,6 +12,8 @@ vi.mock('@/lib/auth/gotrue', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/gotrue')>()),
   adminRevokeAllUserSessions: vi.fn(async () => undefined),
 }));
+// Nor a GoTrue account for deleteUser to read the login email of (its invitation cancel): GoTrue's 404.
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: vi.fn(async () => null) }));
 
 import roleRoute from '../../pages/api/admin/users/[id]/company-role';
 import removeRoute from '../../pages/api/admin/users/[id]/remove-from-company';

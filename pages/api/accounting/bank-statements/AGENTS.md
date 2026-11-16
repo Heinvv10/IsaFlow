@@ -11,7 +11,7 @@ Delegates to `bankStatementOcrService` (wraps pre-existing `vlmBankService.extra
 - `GET /api/accounting/bank-statements/[id]` — full import including `rows` (from `extraction_summary` JSONB) + warnings, `extractionError`, `retryable`, `pagesDone/pagesTotal`; the page polls it every 3 s while `extracting`. A stale `extracting` row (no heartbeat 5 min) reads as `failed`, `retryable`
 - `POST /api/accounting/bank-statements/[id]/retry` — failed (or stale) → `extracting` and re-queued; 409 for `too_many_pages` or a row that is not failed
 - `DELETE /api/accounting/bank-statements/[id]` — deletes a failed/stale import only
-- `POST /api/accounting/bank-statements/[id]/commit` — INSERTs non-duplicate rows into `bank_transactions` (`status='imported'`), flips import → `committed`
+- `POST /api/accounting/bank-statements/[id]/commit` — INSERTs non-duplicate rows into `bank_transactions` (`status='imported'`), flips import → `committed`. Its `bank_import_batches` row stores the read's `closing_balance` (with its `opening_balance`) as `balance_source='ai_read'` only under `ocrBalanceColumns` (period_start ≤ period_end both read, every line dated inside it, a read opening that adds up over the lines, a figure the column holds), else `'unverified'` with NULL figures; `'not_in_file'` when the read found no closing (mig 998; `bankStatementOcrCommit.commitImport`); the import's stored `bankAccountId` must still be an active bank account of the company (`bank/bankAccountGuard`, checked in `commitImport` before the ingest lock, else 400, nothing written — 2026-11-15)
 - `POST /api/accounting/bank-statements/[id]/rollback` — flips → `rolled_back`; no GL side-effects
 
 ## Auth
@@ -23,14 +23,15 @@ Delegates to `bankStatementOcrService` (wraps pre-existing `vlmBankService.extra
 `BankStatementRow`: `{date, description, reference, amount (signed), runningBalance, isDuplicate, duplicateOfBankTxId, duplicateMatchConfidence}`
 
 ## Business rules
-- Dedup fingerprint: `lower(date|amount|desc[:30])`. Exact → confidence 1.0 + `isDuplicate=true`. Fuzzy: date ±1d + exact amount + description dice ≥ 0.7 → 0.9. Else not duplicate.
+- Dedup fingerprint: `lower(date|amount|desc[:30])`, the amount rounded as NUMERIC(15,2) stores it (`round2`). Exact → confidence 1.0 + `isDuplicate=true`. Fuzzy: date ±1d + same rounded amount + description dice ≥ 0.7 → 0.9. Else not duplicate.
+- **Commit re-runs the dedup under the account's ingest lock (WP2-2, 2026-11-15).** The pass ran when the statement was read, possibly long before; a second upload of the same statement, a CSV of it or the feed may have landed the lines since. `rowsToCommit` (`bankStatementDedupHelpers`) takes `lockBankAccountIngest` after the import row's `FOR UPDATE`, re-runs the pass and inserts only what is still new (`skipped` counts the rest, and each row the commit dropped is stored flagged `isDuplicate` with the line it duplicates, `duplicate_count` updated, in the same UPDATE that marks the import committed). A lock held past 5 s → 503 + Retry-After.
 - Commit is all-or-nothing at SAVEPOINT level — individual row failures skip (`ON CONFLICT DO NOTHING` + null-date guard) without poisoning status flip
 - Calling `/commit` twice → 400 `'Import already committed'` (test contract)
 - `rolled_back` is terminal — no re-commit
 - `commit`/`rollback` on an `extracting` or `failed` import → 409 (`ImportNotReadyError`)
 
 ## Related files
-- `src/modules/accounting/services/bank/bankStatementOcrService.ts`
+- `src/modules/accounting/services/bank/bankStatementOcrService.ts` (+ `bankStatementOcrRead.ts`: row shape, `getImport`, `notReadyError`; `bankStatementOcrCommit.ts`: `commitImport`; both re-exported)
 - `src/modules/accounting/services/bank/bankStatementDedupHelpers.ts` — fingerprint + dice
 - `src/modules/accounting/services/bank/vlmBankService.ts`
 - `scripts/migrations/sql/417_statement_reconciliation.sql`

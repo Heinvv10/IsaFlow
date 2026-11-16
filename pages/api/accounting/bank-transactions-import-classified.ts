@@ -17,6 +17,10 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { existingStatementHashes, statementLineHash } from '@/modules/accounting/services/bank/bankStatementDedupe';
+import { dateRangeOf } from '@/modules/accounting/services/bank/bankStatementDateRange';
+import { lockBankAccountIngest } from '@/modules/accounting/services/bank/bankIngestLock';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 type Row = Record<string, unknown>;
 
@@ -103,22 +107,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (day !== null) n.txDate = day;
     }
 
-    // Fetch all existing fingerprints for this bank account in one query
-    const existingRows = (await sql`
-      SELECT transaction_date::text AS transaction_date, amount::text AS amount, description
-      FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID AND company_id = ${companyId}
-        AND feed_state <> 'removed' -- a removed feed row never posted; it claims no hash
-    `) as Row[];
-
-    const existingSet = new Set<string>(
-      existingRows.map((r: Row) => `${String(r.transaction_date)}|${String(r.amount)}|${String(r.description)}`)
-    );
-
-    // Filter dupes in JS
-    const toInsert = normTxs.filter(({ txDate, amount, desc }) => {
-      const key = `${txDate}|${amount}|${desc}`;
-      if (existingSet.has(key)) { skippedDuplicates++; return false; }
+    // Dedupe against the account, under its ingest lock taken BEFORE the read (WP2-2): a concurrent import of the same
+    // worksheet waits here for this one to commit, then reads its lines. The hash is the statement imports' own
+    // (bankStatementDedupe): the old text key compared the amount's JS spelling with NUMERIC::text and never matched.
+    await lockBankAccountIngest(companyId, bankAccountId);
+    const lines = normTxs.map((n) => ({ transactionDate: n.txDate, amount: n.amount, description: n.desc }));
+    const range = dateRangeOf(lines);
+    const seen = range ? await existingStatementHashes(companyId, bankAccountId, range) : new Set<string>();
+    const toInsert = normTxs.filter((_, i) => {
+      if (seen.has(statementLineHash(lines[i]!))) { skippedDuplicates++; return false; }
       return true;
     });
 
@@ -159,9 +156,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await transaction((txSql) => [
         txSql`
           INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, transaction_count,
-            imported_by, import_channel)
+            imported_by, balance_source, import_channel)
           VALUES (${batchId}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID, ${statementDate}::DATE,
-            ${insertRows.length}, ${(req as CompanyAuthedRequest).user.id}, 'classified')
+            ${insertRows.length}, ${(req as CompanyAuthedRequest).user.id}, 'not_in_file', 'classified')
         `,
         ...insertRows.map((r) =>
           txSql`
@@ -197,6 +194,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       unresolvedCategories: unresolvedCategories.length > 0 ? unresolvedCategories : undefined,
     });
   } catch (err) {
+    // A held ingest lock (or any lock wait) aborted the transaction: 503 + Retry-After rolls it back; a 400 would COMMIT it.
+    if (respondIfLockTimeout(res, err)) return;
     if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
     const message = err instanceof Error ? err.message : 'Failed to import classified transactions';
     log.error('Failed to import classified bank transactions', { error: err }, 'accounting-api');

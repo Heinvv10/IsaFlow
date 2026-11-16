@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui';
 import { Company, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 import { normalizeVatBasis, normalizeVatSetting } from '@/modules/bureau/services/vatPeriodHelper';
 import { vatSystemSelectionUpdates } from './vatSystemSelection';
@@ -11,6 +12,15 @@ const VAT_OPTIONS = [
   { value: 'invoice', label: 'Invoice Based', desc: 'VAT is accounted for when invoices are issued/received' },
   { value: 'payment', label: 'Payment Based', desc: 'VAT is accounted for when payments are made/received' },
   { value: 'none', label: 'No VAT', desc: 'Company is not registered for VAT' },
+];
+
+const VAT_FREQUENCIES = [
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'bi-monthly', label: 'Bi-Monthly' },
+];
+const VAT_ALIGNMENTS = [
+  { value: 'odd', label: 'Category A (Dec-Jan, Feb-Mar, Apr-May...)' },
+  { value: 'even', label: 'Category B (Jan-Feb, Mar-Apr, May-Jun...)' },
 ];
 
 export function VatTab({ company, onChange }: Props) {
@@ -61,19 +71,13 @@ export function VatTab({ company, onChange }: Props) {
               <input id="vat-tab-vat-number" className={INPUT_CLS} value={company.vatNumber || ''} onChange={e => onChange('vatNumber', e.target.value)} placeholder="e.g. 4123456789" />
             </div>
             <div>
-              <label htmlFor="vat-tab-vat-reporting-frequency" className={LABEL_CLS}>VAT Reporting Frequency</label>
-              <select id="vat-tab-vat-reporting-frequency" className={INPUT_CLS} value={normalizeVatSetting(company.vatPeriod)} onChange={e => onChange('vatPeriod', e.target.value)}>
-                <option value="monthly">Monthly</option>
-                <option value="bi-monthly">Bi-Monthly</option>
-              </select>
+              <Select id="vat-tab-vat-reporting-frequency" label="VAT Reporting Frequency" labelClassName={LABEL_CLS} options={VAT_FREQUENCIES}
+                value={normalizeVatSetting(company.vatPeriod)} onChange={v => { if (v) onChange('vatPeriod', v); }} />
             </div>
             {normalizeVatSetting(company.vatPeriod) === 'bi-monthly' && (
               <div>
-                <label htmlFor="vat-tab-bi-monthly-period-alignment" className={LABEL_CLS}>Bi-Monthly Period Alignment</label>
-                <select id="vat-tab-bi-monthly-period-alignment" className={INPUT_CLS} value={company.vatPeriodAlignment || 'odd'} onChange={e => onChange('vatPeriodAlignment', e.target.value)}>
-                  <option value="odd">Category A (Dec-Jan, Feb-Mar, Apr-May...)</option>
-                  <option value="even">Category B (Jan-Feb, Mar-Apr, May-Jun...)</option>
-                </select>
+                <Select id="vat-tab-bi-monthly-period-alignment" label="Bi-Monthly Period Alignment" labelClassName={LABEL_CLS} options={VAT_ALIGNMENTS}
+                  value={company.vatPeriodAlignment || 'odd'} onChange={v => { if (v) onChange('vatPeriodAlignment', v); }} />
                 <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
                   {company.vatPeriodAlignment === 'even'
                     ? 'Category B: periods end in even months (Feb, Apr, Jun, Aug, Oct, Dec)'

@@ -5,6 +5,23 @@
 import type { VatDecisionKind } from './vatGuardRules';
 
 /**
+ * Files that BUILD the journal lines a poster in another file posts, mapped to
+ * that poster. The rule is file-scoped (vatGuardRules KNOWN LIMITS: a split
+ * between the file carrying `vatType` and the file that posts puts neither in
+ * scope), so a builder split out of a poster is declared here and its VAT
+ * fields are judged as the poster's were. The check fails when a builder is
+ * gone, carries no VAT field any more, or is no longer imported by its poster.
+ */
+export const LINE_BUILDERS: Record<string, string> = {
+  // allocateTransaction's arms, split out of bankAllocationService (2026-11-15, line cap).
+  'src/modules/accounting/services/bank/bankAllocationArms.ts':
+    'src/modules/accounting/services/bank/bankAllocationService.ts',
+  // splitAllocateTransaction's lines, split out of bankAllocationService (PR #711): its view restored 2026-11-15.
+  'src/modules/accounting/services/bank/bankSplitJournal.ts':
+    'src/modules/accounting/services/bank/bankSplitAllocate.ts',
+};
+
+/**
  * Paths that decide or forward a VAT claim and are ALLOWED not to guard.
  *
  * Every entry carries the reason, because the reason is the only thing that
@@ -83,17 +100,30 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     + 'it picks no account and posts nothing.',
   },
   'src/modules/accounting/services/bank/bankSplitJournal.ts': {
-    kinds: ['vat_inclusive_split'],
+    kinds: ['vat_field_on_a_posting_path', 'vat_inclusive_split'],
     reason: 'The journal lines of splitAllocateTransaction, moved out of bankAllocationService (line cap, PR #711): '
     + 'the same attended path. The split modal warns and the user\'s vat code stands; the MCP split refuses a code '
     + 'its guard would change before the service runs (writeBankSplit). Decides no claim of its own.',
   },
   'src/modules/accounting/services/bank/bankAllocationService.ts': {
-    kinds: ['vat_field_on_a_posting_path', 'allocate_call', 'vat_inclusive_split'],
+    kinds: ['allocate_call'],
     reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
     + 'warnings and the user\'s choice stands. Its unattended callers guard '
     + 'BEFORE calling it; moving a coercion in here would turn every attended '
-    + 'override into a no-op.',
+    + 'override into a no-op. Its VAT split (bankAllocationPlan) and journal lines '
+    + '(bankAllocationArms) moved verbatim into their own files (line cap); it still posts them.',
+  },
+  'src/modules/accounting/services/bank/bankAllocationArms.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'allocateTransaction\'s journal lines (a declared LINE_BUILDER), moved verbatim out of '
+    + 'bankAllocationService (line cap): the same attended path. The VAT legs carry the code the user chose '
+    + '(mapVatType from bankAllocationPlan); its unattended callers guard before calling allocateTransaction.',
+  },
+  'src/modules/accounting/services/bank/bankAllocationPlan.ts': {
+    kinds: ['vat_inclusive_split'],
+    reason: 'allocateTransaction\'s posting plan, moved verbatim out of bankAllocationService (line cap): '
+    + 'the same attended path. It splits the gross by the code the user chose and changes no code; it picks '
+    + 'no account and posts nothing.',
   },
   'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
