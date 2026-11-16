@@ -7,64 +7,13 @@ import { log } from '@/lib/logger';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 import { deletedDocumentChainLinkFragment } from '../shared/softDeleteLedgerPresence';
 
+import type { VatReconciliation, VatReconIssue, VatReconMonth } from './vatReconciliationTypes';
+import { fmtNum, r2, toNum } from './vatReconNumbers';
+
+export type { VatReconciliation, VatReconIssue, VatReconMonth } from './vatReconciliationTypes';
+export { getVatMultiYearSummary, type VatYearSummary } from './vatMultiYearSummary';
+
 type DbRow = Record<string, unknown>;
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-export interface VatReconMonth {
-  month: string;                // YYYY-MM
-  // GL-based
-  glRevenue: number;            // Total revenue from GL (account_type = 'revenue')
-  glOutputVat: number;          // VAT Output balance from GL journals
-  glInputVat: number;           // VAT Input balance from GL journals
-  glNetVat: number;             // Output - Input
-  // Invoice-based
-  invoiceRevenue: number;       // Customer invoice totals
-  invoiceOutputVat: number;     // Customer invoice VAT
-  invoiceInputVat: number;      // Supplier invoice VAT
-  // Submitted returns
-  returnOutputVat: number | null; // From vat_returns (null = not submitted)
-  returnInputVat: number | null;
-  returnNetVat: number | null;
-  returnStatus: string | null;  // 'submitted' | 'draft' | null
-  // Capital goods split
-  capitalGoodsOutput: number;
-  capitalGoodsInput: number;
-  otherGoodsOutput: number;
-  otherGoodsInput: number;
-  // Variances
-  revenueVariance: number;      // GL revenue - Invoice revenue
-  outputVatVariance: number;    // GL output VAT - Return output VAT
-  inputVatVariance: number;     // GL input VAT - Return input VAT
-  effectiveVatRate: number;     // GL output VAT / GL revenue (should be ~15%)
-}
-
-export interface VatReconciliation {
-  companyId: string;
-  periodStart: string;
-  periodEnd: string;
-  months: VatReconMonth[];
-  totals: {
-    glRevenue: number;
-    glOutputVat: number;
-    glInputVat: number;
-    glNetVat: number;
-    invoiceRevenue: number;
-    returnNetVat: number;
-    capitalGoodsOutput: number;
-    capitalGoodsInput: number;
-    revenueVariance: number;
-    outputVatVariance: number;
-    inputVatVariance: number;
-  };
-  issues: VatReconIssue[];
-}
-
-export interface VatReconIssue {
-  month: string;
-  severity: 'warning' | 'error';
-  message: string;
-}
 
 // ── Service ─────────────────────────────────────────────────────────────────
 
@@ -321,105 +270,4 @@ export async function getVatReconciliation(
   }
 
   return { companyId, periodStart, periodEnd, months, totals, issues };
-}
-
-// ── Multi-year VAT summary ──────────────────────────────────────────────────
-
-export interface VatYearSummary {
-  year: number;
-  totalOutputVat: number;
-  totalInputVat: number;
-  netVat: number;
-  totalRevenue: number;
-  effectiveRate: number;
-  returnsSubmitted: number;
-  returnsExpected: number;
-}
-
-export async function getVatMultiYearSummary(
-  companyId: string,
-  years: number = 3,
-): Promise<VatYearSummary[]> {
-  const currentYear = new Date().getFullYear();
-  const startYear = currentYear - years + 1;
-
-  const [glRows, returnRows] = await Promise.all([
-    sql`
-      SELECT
-        EXTRACT(YEAR FROM gje.entry_date)::INT AS year,
-        -- Net, per gl_revenue above: same per-line ABS, same fix.
-        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
-          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS revenue,
-        COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
-          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS output_vat,
-        COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
-          THEN gjl.debit - gjl.credit ELSE 0 END), 0) AS input_vat
-      FROM gl_journal_lines gjl
-      JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
-      WHERE gjl.company_id = ${companyId}
-        AND gje.status = 'posted'
-        AND EXTRACT(YEAR FROM gje.entry_date) >= ${startYear}
-        -- V-05, same predicate and same reason as the monthly query above: the
-        -- clearing journal for every filed period falls inside the years this
-        -- summary spans, so without it each year's output and input tax netted
-        -- itself away and the multi-year trend was the settlement schedule, not
-        -- the trade. Revenue is unaffected — the clearing journal posts no
-        -- revenue line. IS DISTINCT FROM, not <>: source is nullable.
-        AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
-        -- Ledger basis throughout: nothing here is compared with documents, and
-        -- the rate divides VAT by revenue on ONE basis (D7 round 3).
-        AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
-      GROUP BY EXTRACT(YEAR FROM gje.entry_date)
-      ORDER BY year
-    ` as Promise<DbRow[]>,
-    sql`
-      SELECT
-        EXTRACT(YEAR FROM vr.period_start)::INT AS year,
-        COUNT(*)::INT AS returns_submitted
-      FROM vat_returns vr
-      WHERE vr.company_id = ${companyId}
-        AND EXTRACT(YEAR FROM vr.period_start) >= ${startYear}
-        AND vr.status = 'submitted'
-      GROUP BY EXTRACT(YEAR FROM vr.period_start)
-      ORDER BY year
-    ` as Promise<DbRow[]>,
-  ]);
-
-  const retMap = new Map(returnRows.map((r) => [Number(r.year), Number(r.returns_submitted)]));
-
-  return glRows.map((r) => {
-    const year = Number(r.year);
-    const totalRevenue = toNum(r.revenue);
-    const totalOutputVat = toNum(r.output_vat);
-    const totalInputVat = toNum(r.input_vat);
-    const netVat = r2(totalOutputVat - totalInputVat);
-    const effectiveRate = totalRevenue > 0 ? r2((totalOutputVat / totalRevenue) * 100) : 0;
-    const returnsSubmitted = retMap.get(year) ?? 0;
-    // VAT returns are typically bimonthly (6 per year) but can be monthly (12)
-    const returnsExpected = year === currentYear
-      ? new Date().getMonth() + 1 // months elapsed
-      : 12;
-
-    return {
-      year, totalOutputVat, totalInputVat, netVat,
-      totalRevenue, effectiveRate, returnsSubmitted,
-      returnsExpected: Math.ceil(returnsExpected / 2), // bimonthly default
-    };
-  });
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
-
-function r2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-function fmtNum(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
 }
