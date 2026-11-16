@@ -1,11 +1,11 @@
 /**
  * The salary bank file: a BankservAfrica ACB payments file in the layout a bank publishes (wave 6 BF, grill F6).
- * Pure: no database, no clock. `eftService.generateStandardBankACB` is NOT used: it writes a homegrown H/T/Z layout.
+ * Pure: no database, no clock. eftService's Standard Bank generator is NOT used: it writes a homegrown H/T/Z layout.
  *
  * SOURCE (the only one this file follows): First National Bank, "Payments – Bankserv (ACB) File Format", South Africa,
  * February 2023 (16 pages; public PDF at
  * https://www.online.fnb.co.za/rhelp_0_15/OBE_SA_Downloads/assets/docs/Payment_Bankserv_File_Format_SA.pdf,
- * sha256 985b71719b3165472809bbae97163b045700e6e342238bb3ca5339f13e95a31a, read 2026-11-16; not committed).
+ * SHA-256 985b71719b3165472809bbae97163b045700e6e342238bb3ca5339f13e95a31a, read 2026-11-16; not committed).
  * Page references below are to it.
  * It is FNB's Online Banking Enterprise import profile of the ACB standard, so the file is claimed importable at FNB
  * only; other banks' import profiles are not claimed. Nothing is paid from it until a bank has accepted a test import
