@@ -116,7 +116,7 @@ export async function markReturnFiled(
           WHERE id = ${l.id}::UUID AND company_id = ${companyId}::UUID`;
       }
     }
-    const submission = await markSubmitted(companyId, draft.id, ref, { lifecycle: true });
+    const submission = await markSubmitted(companyId, draft.id, ref, actor.userId, { lifecycle: true });
     await sql`SELECT set_config('app.return_lifecycle', 'off', true)`;
     const version = await markVersionFiled(companyId, v.id, submission.id, ref, actor.userId);
     await logAuditOrThrow({

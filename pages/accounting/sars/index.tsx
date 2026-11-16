@@ -13,7 +13,7 @@ import {
 import { formatDate } from '@/utils/formatters';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { ComplianceCalendarTable } from '@/components/accounting/sars/ComplianceCalendarTable';
-import { statusBadge } from '@/components/accounting/sars/sarsStatusBadge';
+import { submissionStatusBadge } from '@/components/accounting/sars/sarsStatusBadge';
 import { useSarsOverview, calendarCounts } from '@/components/accounting/sars/useSarsOverview';
 
 export default function SARSDashboard() {
@@ -153,7 +153,7 @@ export default function SARSDashboard() {
                           <td className="px-4 py-3 text-[var(--ff-text-primary)]">
                             {formatDate(sub.periodStart)} — {formatDate(sub.periodEnd)}
                           </td>
-                          <td className="px-4 py-3">{statusBadge(sub.status)}</td>
+                          <td className="px-4 py-3">{submissionStatusBadge(sub.status, sub.efilingChannel)}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">
                             {sub.submissionReference || '—'}
                           </td>

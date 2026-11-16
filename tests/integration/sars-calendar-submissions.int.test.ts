@@ -16,6 +16,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import calendarRoute from '../../pages/api/accounting/sars/sars-compliance';
 import filedRoute from '../../pages/api/accounting/sars/compliance-filed';
+import submissionsRoute from '../../pages/api/accounting/sars/sars-submissions';
+import { signSession } from './r-032-fake-gotrue.helpers';
 import { als } from '@/lib/als';
 import { getComplianceCalendarWithMarks } from '@/modules/accounting/services/reports/sarsComplianceCalendarDb';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -26,6 +28,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 const calendar = budgetsRouteFixture(pool, calendarRoute, '/api/accounting/sars/sars-compliance');
 const filed = budgetsRouteFixture(pool, filedRoute, '/api/accounting/sars/compliance-filed');
+const submissions = budgetsRouteFixture(pool, submissionsRoute, '/api/accounting/sars/sars-submissions');
 const Y = new Date().getFullYear();
 let a: SetupUser, b: SetupUser;
 
@@ -134,6 +137,30 @@ describe('a filing and a manual mark on one item', () => {
     const after = await item(a, 'EMP201_DUE', end);
     expect(after?.id).toBeUndefined();
     expect(after?.efiling).toBeTruthy();
+  });
+});
+
+describe('who recorded it', () => {
+  it('user A saves the draft, user B marks it submitted: the calendar says by B', async () => {
+    const bea = crypto.randomUUID();
+    await pool.query(`INSERT INTO users (id, email, role, is_active, onboarding_completed, first_name, last_name)
+                      VALUES ($1, $2, 'admin', true, true, 'Bea', 'Second')`, [bea, `${bea}@test.local`]);
+    await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'admin', true)`, [a.homeCompanyId, bea]);
+    await pool.query(`UPDATE users SET first_name = 'Ann', last_name = 'First' WHERE id = $1`, [a.userId]);
+    try {
+      const end = `${Y}-07-31`;
+      const draft = String((await pool.query(
+        `INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, submitted_by)
+         VALUES ($1, 'EMP201', $2, $3, 'draft', $4::UUID) RETURNING id`, [a.homeCompanyId, `${Y}-07-01`, end, a.userId])).rows[0].id);
+      const asBea = { userId: bea, homeCompanyId: a.homeCompanyId, token: await signSession(bea, undefined, 'aal2') };
+      const out = await submissions.call(asBea, 'POST', { action: 'mark_submitted', id: draft, reference: 'B-REF' });
+      expect(out.status, JSON.stringify(out.body)).toBe(200);
+      const e = await item(a, 'EMP201_DUE', end);
+      expect(e?.efiling).toMatchObject({ kind: 'recorded', filings: [{ reference: 'B-REF', by: 'Bea Second' }] });
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE user_id = $1', [bea]);
+      await pool.query('DELETE FROM users WHERE id = $1', [bea]);
+    }
   });
 });
 

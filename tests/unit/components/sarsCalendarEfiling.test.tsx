@@ -62,6 +62,13 @@ describe('how it was filed', () => {
     expect(screen.getByText('2 filings: Ref A; (no ref)')).toBeTruthy();
   });
 
+  it('several filings with one reference: the reference once', () => {
+    const e: CalendarItem = { ...base, efiling: { kind: 'efiled', filings: [
+      { reference: 'X', submittedAt: null, by: null }, { reference: 'X', submittedAt: null, by: null }] } };
+    render(<ComplianceCalendarTable events={[e]} onChanged={vi.fn()} />);
+    expect(screen.getByText('2 filings: Ref X')).toBeTruthy();
+  });
+
   it('has no Mark filed and, without a manual mark, no Undo', () => {
     render(<ComplianceCalendarTable events={[one('efiled')]} onChanged={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /undo/i })).toBeNull();

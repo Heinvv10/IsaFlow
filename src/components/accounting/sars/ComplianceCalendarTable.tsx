@@ -24,7 +24,7 @@ export interface CalendarItem {
   filedBy?: string | null;
   filedAt?: string;
   sarsReference?: string | null;
-  /** IsaFlow's own filed submissions cover the item: shown as "Filed on eFiling", never undone here. */
+  /** The company's filed submissions cover the item: how it was filed (sarsFilingKind) and every filing. */
   efiling?: Efiling;
 }
 

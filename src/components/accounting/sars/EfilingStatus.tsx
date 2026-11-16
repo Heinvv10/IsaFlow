@@ -1,14 +1,13 @@
 /**
  * The status cell of a calendar item the company's own filings cover (sars_submissions): how it was
  * filed, the filings, and a manual mark on the same item with its Undo.
- *   efiled      sent through IsaFlow, accepted by SARS        "Filed on eFiling"
- *   processing  sent through IsaFlow, SARS not final           "Sent to SARS (processing)"
- *   recorded    a user recorded the filing (IsaFlow did not send it): never claims eFiling, "Marked submitted"
+ * The kinds and their labels are sarsFilingKind's (one rule with the Filings list).
  */
 import { CheckCircle2, Clock, Undo2 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
+import { FILING_KIND_LABEL, type FilingKind } from '@/modules/accounting/services/reports/sarsFilingKind';
 
-export type FilingKind = 'efiled' | 'processing' | 'recorded';
+export type { FilingKind };
 export interface Efiling {
   kind: FilingKind;
   filings: Array<{ reference: string | null; submittedAt: string | null; by: string | null }>;
@@ -18,11 +17,11 @@ const PILL = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs fo
 
 function KindBadge({ kind }: { kind: FilingKind }) {
   if (kind === 'processing') {
-    return <span className={`${PILL} bg-amber-500/10 text-amber-400`}><Clock className="h-3 w-3" /> Sent to SARS (processing)</span>;
+    return <span className={`${PILL} bg-amber-500/10 text-amber-400`}><Clock className="h-3 w-3" /> {FILING_KIND_LABEL.processing}</span>;
   }
   return (
     <span className={`${PILL} bg-emerald-500/10 text-emerald-400`}>
-      <CheckCircle2 className="h-3 w-3" /> {kind === 'efiled' ? 'Filed on eFiling' : 'Marked submitted'}
+      <CheckCircle2 className="h-3 w-3" /> {FILING_KIND_LABEL[kind]}
     </span>
   );
 }

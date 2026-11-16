@@ -16,6 +16,8 @@ export interface SarsSubmissionRow {
   status: string;
   submissionReference: string | null;
   submittedAt: string | null;
+  /** 'isv' when IsaFlow sent it to SARS (submissionStatusBadge). */
+  efilingChannel?: string | null;
   createdAt: string;
 }
 

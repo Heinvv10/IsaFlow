@@ -102,8 +102,9 @@ describe('SARS submissions view detail', () => {
   }
   it('shows the server message on a 400 and still opens the local copy', async () => {
     open(refused);
-    expect(await screen.findByText('Filed on eFiling')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Filed on eFiling' })).toBeTruthy();
+    // No ISV channel: a filing a user recorded, never "Filed on eFiling" (sarsFilingKind).
+    expect(await screen.findByText('Marked submitted')).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Filed / recorded' })).toBeTruthy();
     fireEvent.click(await screen.findByText('View'));
     await waitFor(() => expect(bodyText()).toContain(MSG)); expect(bodyText()).toContain('MODAL local copy');
   });

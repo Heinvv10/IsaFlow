@@ -5,7 +5,7 @@
  * type, or an unfiled status never completes it.
  */
 import { describe, it, expect } from 'vitest';
-import { coveringSubmissions, filingKind, type FiledSubmission } from '@/modules/accounting/services/reports/sarsSubmissionCoverage';
+import { coveringSubmissions, filingKind, weakestKind, type FiledSubmission } from '@/modules/accounting/services/reports/sarsSubmissionCoverage';
 
 const sub = (formType: string, periodStart: string, periodEnd: string, extra: Partial<FiledSubmission> = {}): FiledSubmission =>
   ({ formType, periodStart, periodEnd, reference: null, submittedAt: null, status: 'submitted', channel: null, submittedBy: null, ...extra });
@@ -73,5 +73,19 @@ describe('filingKind', () => {
   });
   it('a row with no channel (a user recorded the filing) is recorded, never eFiling', () => {
     expect(filingKind(sub('EMP201', '2026-01-01', '2026-01-31', { channel: null, status: 'submitted' }))).toBe('recorded');
+  });
+});
+
+describe('weakestKind', () => {
+  const processing = sub('VAT201', '2026-01-01', '2026-01-31', { channel: 'isv', status: 'submitted' });
+  const recorded = sub('VAT201', '2026-02-01', '2026-02-28');
+  const efiled = sub('VAT201', '2026-02-01', '2026-02-28', { channel: 'isv', status: 'accepted' });
+  it('an ISV month SARS has not ruled on and a recorded month: processing, in either order', () => {
+    expect(weakestKind([processing, recorded])).toBe('processing');
+    expect(weakestKind([recorded, processing])).toBe('processing');
+  });
+  it('a recorded month and an accepted ISV month: recorded, in either order', () => {
+    expect(weakestKind([efiled, recorded])).toBe('recorded');
+    expect(weakestKind([recorded, efiled])).toBe('recorded');
   });
 });

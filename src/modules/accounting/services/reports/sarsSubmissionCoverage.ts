@@ -3,17 +3,12 @@
  * status ('submitted' or 'accepted'); drafts, rejected and superseded rows never count. Only VAT201
  * and EMP201 are ever written there; EMP501 and IRP6 are manual-mark only.
  *
- * How it was filed (`filingKind`), from who wrote the row:
- *   - efiling_channel 'isv' is set only by IsaFlow's own send to SARS (sarsEfilingRepo
- *     markSubmissionSubmitted / applyPollResult). 'accepted' is SARS's final verdict: `efiled`.
- *     'submitted' means SARS received it and has not ruled (it may still turn 'rejected'): `processing`.
- *   - No channel: markSubmitted wrote it (the legacy "mark submitted" with a typed reference, or the
- *     return lifecycle's "file" with one). A user recorded that they filed; IsaFlow did not send it,
- *     so it never claims eFiling: `recorded`.
+ * How it was filed: `filingKindOf` (sarsFilingKind.ts).
  */
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/types/db';
+import { filingKindOf, type FilingKind } from './sarsFilingKind';
 
 export interface FiledSubmission {
   formType: string;
@@ -28,12 +23,11 @@ export interface FiledSubmission {
   submittedBy: string | null;
 }
 
-export type FilingKind = 'efiled' | 'processing' | 'recorded';
+export type { FilingKind };
 
-/** How the submission was filed (see the header). */
+/** How a filed submission was filed (readFiledSubmissions returns filed statuses only). */
 export function filingKind(s: FiledSubmission): FilingKind {
-  if (s.channel !== 'isv') return 'recorded';
-  return s.status === 'accepted' ? 'efiled' : 'processing';
+  return filingKindOf(s.status, s.channel) ?? 'recorded';
 }
 
 /** The least certain kind among several filings: processing, then recorded, then efiled. */

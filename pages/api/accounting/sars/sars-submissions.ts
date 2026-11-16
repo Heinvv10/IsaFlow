@@ -67,16 +67,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // savepoint: if markSubmitted then fails, the override row rolls
         // back with it — an override must never stand for a submission that
         // was never actually marked submitted.
+        const userId = (req as AuthenticatedNextApiRequest).user.id;
         const submission = await withSavepoint('vat_gate_mark_submitted', async () => {
           if (existing.formType === 'VAT201') {
-            const userId = (req as AuthenticatedNextApiRequest).user.id;
             const companyRole = (req as CompanyAuthedRequest).companyRole;
             await assertVatGateClear(
               companyId, existing.periodStart, existing.periodEnd, 'sars_submission', id,
               { userId, role: companyRole }, overrideReason,
             );
           }
-          return markSubmitted(companyId, id, reference);
+          return markSubmitted(companyId, id, reference, userId);
         });
         return apiResponse.success(res, submission, 'Submission marked as submitted');
       } catch (err) {
