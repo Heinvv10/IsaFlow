@@ -23,7 +23,13 @@ import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { retryDropped } from '../helpers/droppedConnection';
 
-const SANDBOX = { name: '0GP Golden Employee Sandbox', onboardingId: '67a6e8ca-634d-4bd2-bd93-dbfe73b22ff9' };
+// Signed in as the wave-6 QA user (E2E_ADMIN_* = its login, see helpers/w6QaUser.ts) the spec works in that user's one
+// company. On the shared reporting-qa user it kept its own sandbox, and a peer's company switch moved that user off it
+// mid-run: the drawer's employee read then answered 404 in the other company ("Could not load the employee").
+const AS_W6_QA = !!process.env.GOLDEN_QA_W6_EMAIL && process.env.E2E_ADMIN_EMAIL === process.env.GOLDEN_QA_W6_EMAIL;
+const SANDBOX = AS_W6_QA
+  ? { name: '0W6 Golden Sandbox', onboardingId: '0c6f7a1e-6b1d-4a52-9a43-3c5f0b7e0a06' }
+  : { name: '0GP Golden Employee Sandbox', onboardingId: '67a6e8ca-634d-4bd2-bd93-dbfe73b22ff9' };
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const NEW = '/payroll/employees/new';
 const LIST = '/payroll/employees';
