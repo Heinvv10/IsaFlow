@@ -139,6 +139,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankTransactionLookupService.ts': "filtered (round 2: reference resolution excludes feed_state = 'removed' so a removed row cannot make a posted replacement look ambiguous; still a writer (Task 3) plan-phase lookup otherwise)",
   'src/modules/accounting/services/bank/bankTransactionQueryService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankTransferAutoLink.ts': 'exempt: writer (Task 3)',
+  'src/modules/accounting/services/bank/purchaseOrderOutstanding.ts': 'exempt: sums only lines carrying `linked_po_id`, set by confirmPurchaseOrderMatch after allocateTransaction\'s feed gate (allocated/reconciled rows only)',
   'src/modules/accounting/services/bank/bankTransferLinkService.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTxAnnotations.ts': 'exempt: writer of one line\'s notes and dimensions (mig 980 lock), not a financial total',
   'src/modules/accounting/services/bank/bankTransferLinkUndo.ts': "exempt: writer (migration 978): the undo's UPDATE self-joins bank_transactions by id only to read the line as the link left it for the audit row; it restores lines the link wrote, which were posted rows",

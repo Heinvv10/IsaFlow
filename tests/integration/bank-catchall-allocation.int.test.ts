@@ -55,7 +55,7 @@ describe('split_allocate: a split that does not foot is a 400', () => {
   it('R50 on a R120 line: 400 naming both totals, nothing written', async () => {
     const line = await plantLine(pool, f, null, -120);
     const answer = await refused({ action: 'split_allocate', bankTransactionId: line, lines: [{ contraAccountId: f.expA, amount: 50 }] }, line);
-    expect(answer).toMatchObject({ status: 400, message: expect.stringMatching(/Split lines total R50\.00 does not equal transaction amount R120\.00/) });
+    expect(answer).toMatchObject({ status: 400, message: expect.stringMatching(/Split lines total .*50\.00.* does not equal the transaction amount .*120\.00/) });
   });
 });
 

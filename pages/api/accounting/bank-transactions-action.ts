@@ -29,6 +29,7 @@ import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAlloc
 import { assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { saveBankTxDimensions, updateBankTxNotes } from '@/modules/accounting/services/bank/bankTxAnnotations';
 import { respondIfBankRefusal } from '@/modules/accounting/services/bank/bankRouteRefusal';
+import { ALLOCATION_VAT_CODES } from '@/modules/accounting/services/bank/bankVatCodes';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -102,7 +103,8 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
     bankTransactionId: UUID,
     selectionType: z.string().max(50).optional(),
     selectionEntityId: UUID.optional(),
-    vatCode: z.string().max(20).optional(),
+    // The four allocation codes only: this lands in suggested_vat_code, which the screen pre-fills and the gate posts.
+    vatCode: z.enum(ALLOCATION_VAT_CODES).optional(),
   }),
   z.object({
     action: z.literal('save_dimensions'),

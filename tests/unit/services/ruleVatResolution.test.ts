@@ -17,6 +17,7 @@ vi.mock('@/lib/logger', () => ({
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { resolveRuleVatCode } from '@/modules/accounting/services/gl/ruleVatResolution';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 
 const BASE = {
   allocType: 'account',
@@ -150,13 +151,27 @@ describe('a contra account that IS a bank account', () => {
     expect(r.nonSupplyCoerced).toBe(true);
   });
 
-  it.each(['exempt', 'no_vat'])('leaves %s alone — it claims nothing', async (code) => {
+  it.each(['exempt'])('leaves %s alone — it claims nothing', async (code) => {
     const r = await resolveRuleVatCode({
       ...BASE, requestedVatCode: code, ruleGlAccountIsBank: true,
       ruleGlAccountVatDenied: false, ruleGlAccountName: 'FNB Cheque Account',
     });
     expect(r.vatCode).toBe(code);
     expect(r.nonSupplyCoerced).toBe(false);
+  });
+
+  // WP2 row 13 (round 2): 'no_vat' is the journal-line VatType, not a bank code, and any code outside the four is
+  // refused BEFORE a guard can rewrite it to 'none' — the confidence gate posted 'STD' on a salary account that way.
+  it.each([
+    ['no_vat', 'FNB Cheque Account', true], ['STD', 'Salaries and Wages', false], ['STD', 'FNB Cheque Account', true],
+  ])('refuses the unknown code %s before any guard runs (%s)', async (code, name, isBank) => {
+    const err = await resolveRuleVatCode({
+      ...BASE, requestedVatCode: code, ruleGlAccountIsBank: isBank, ruleGlAccountVatDenied: false, ruleGlAccountName: name,
+    }).catch((e: unknown) => e);
+    expect(isBankAllocationRefusal(err)).toBe(true);
+    expect((err as Error).message).toBe(
+      `This allocation: unknown VAT code "${code}" — use one of none, standard, zero_rated, exempt. Nothing was posted.`);
+    expect(vi.mocked(log.info)).not.toHaveBeenCalled();
   });
 
   it('yields to a statutory guard that already dropped the code', async () => {

@@ -71,7 +71,7 @@ export async function getReconciliationById(
       SELECT br.*, ga.account_name AS bank_account_name,
         ${sessionCounts(companyId)}
       FROM bank_reconciliations br
-      LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
+      LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = br.company_id
       WHERE br.id = ${id}::UUID AND br.company_id = ${companyId}`) as DbRow[];
     return rows.length > 0 ? mapReconRow(rows[0]!) : null;
   } catch (err) {

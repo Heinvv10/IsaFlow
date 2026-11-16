@@ -59,6 +59,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['bank/bankCoverageDirections.ts', 'CASH'],
   ['bank/bankMatchDbQueries.ts', 'BANK'],
   ['bank/bankReconciliationBalance.ts', 'BANK'],
+  ['bank/bankTxStatusMutations.ts', 'BANK', 'je.status AS journal_status'], // audit row 4: the one journal line a match names, its debit/credit compared to that bank line
   ['bank/bankReallocationFacts.ts', 'BANK'], // reallocate_bank_transaction: the lines of the one journal a reconciled bank line is allocated by
   ['bank/bankReallocationWrites.ts', 'BANK'], // reallocate_bank_transaction: the bank leg the reallocated line is matched to now
   ['bank/cashBalanceService.ts', 'CASH'],
@@ -156,7 +157,7 @@ export const COMPOSED: Array<[string, Category]> = [
 
 /** Quoted strings (not sql/tx templates) that name the journal tables: the cheap census for SQL that is not a tagged statement. */
 export const STRINGS: Array<[string, Category]> = [
-  ['pages/api/accounting/nl-query.ts', 'RAW'],
+  ['core/nlQuerySchemaTables.ts', 'RAW'],
   ['lib/mcp/tools/reclassificationPropose.ts', 'PROSE'],
   ['lib/mcp/tools/writeDimensionTags.ts', 'PROSE'],
   ['ar/portalChatbotService.ts', 'TABLE_NAME'],

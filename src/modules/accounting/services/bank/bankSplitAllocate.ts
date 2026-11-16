@@ -25,6 +25,9 @@ import { buildSplitJournalLines, splitParts } from './bankSplitJournal';
 import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
 import { recordAllocationDecision } from './codingDecisionLog';
 import type { SplitLine } from './bankAllocationTypes';
+import { assertAllocationVatCode } from './bankVatCodes';
+import { hasWholeCents } from '@/lib/money/wholeCents';
+import { splitTotalMismatch } from './bankSplitTotal';
 
 type Row = DbRow;
 
@@ -58,10 +61,21 @@ export async function splitAllocateTransaction(
   if (!lines || lines.length === 0) throw new BankAllocationRefusal('At least one split line is required'); // 400, pre-write
 
   const totalAmount = Math.abs(Number(tx.amount));
-  const linesTotal = lines.reduce((sum, l) => sum + Number(l.amount), 0);
-  if (Math.abs(linesTotal - totalAmount) > 0.01) {
-    throw new BankAllocationRefusal(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
+  // WP2 row 11: the lines must equal the line in INTEGER CENTS, exactly. The float tolerance this replaces (`> 0.01`)
+  // let R5.01 of lines through for an R5.00 line (5.01 - 5.00 is 0.00999… in IEEE-754). Row 13: a VAT code outside
+  // the known four would post the part gross, silently. Both refused from the request, before any write.
+  for (const [i, l] of lines.entries()) {
+    // Round 2: a zero or negative part reached the journal validator, whose generic Error answers 500.
+    if (!(Number(l.amount) > 0)) {
+      throw new BankAllocationRefusal(`Split line ${i + 1}: the amount must be more than zero. Nothing was posted.`);
+    }
+    if (!hasWholeCents(Number(l.amount))) {
+      throw new BankAllocationRefusal(`Split line ${i + 1}: ${String(l.amount)} is not an amount in whole cents. Nothing was posted.`);
+    }
+    assertAllocationVatCode(l.vatCode, `Split line ${i + 1}`);
   }
+  const mismatch = splitTotalMismatch(lines.map((l) => Number(l.amount)), totalAmount); // the MCP split asks the same
+  if (mismatch) throw new BankAllocationRefusal(mismatch);
   // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
   const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
   const parts = splitParts(lines, contactPlan);
@@ -117,7 +131,7 @@ export async function splitAllocateTransaction(
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
             allocation_type = 'account', allocated_entity_name = ${SPLIT_ALLOCATION_NAME}, updated_at = NOW(),
             allocation_rule_id = NULL, allocation_rule_name = NULL,
-            allocation_batch_id = NULL
+            allocation_batch_id = NULL, linked_po_id = NULL -- a split pays no purchase order
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     });
   }

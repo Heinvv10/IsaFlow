@@ -127,7 +127,7 @@ export async function cancelReconciliation(
     const reverted = (await tx`
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
-          updated_at = NOW()
+          linked_po_id = NULL, updated_at = NOW()
       WHERE reconciliation_id = ${id}::UUID AND company_id = ${companyId}::UUID
         AND status = 'matched' AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)
       RETURNING id`) as DbRow[];

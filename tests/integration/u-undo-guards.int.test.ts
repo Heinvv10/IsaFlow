@@ -30,7 +30,7 @@ describeIfDb('U: what an Undo may not overwrite', () => {
     const match = (tx: string, line: string) => inTx(fx, () => matchTransaction(fx.companyId, tx, line, undefined, fx.userId));
 
     it('stale grid: the line someone matched reports it was matched, and a restore leaves the match', async () => {
-      const line = await unclaimedLine(fx);
+      const line = await unclaimedLine(fx, -71);
       const tx = await seedBankTx(fx, { date: '2026-04-01', amount: -71, description: 'STALE GRID' });
       await match(tx, line);
 
@@ -41,7 +41,7 @@ describeIfDb('U: what an Undo may not overwrite', () => {
     }, 60000);
 
     it('ABA: restored, matched and excluded again, the first toast finds `excluded` and still may not wipe the match', async () => {
-      const line = await unclaimedLine(fx);
+      const line = await unclaimedLine(fx, -72);
       const tx = await seedBankTx(fx, { date: '2026-04-02', amount: -72, description: 'ABA' });
       expect((await exclude(tx)).priorStatus).toBe('imported'); // the toast
       await inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId)); // someone else restores it...
