@@ -26,6 +26,7 @@ vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/orphanPeriodJourn
 import { orphanPeriodJournalsCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/orphanPeriodJournalsCheck';
 import { bankReconciledCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck';
 import { getCloseReadiness, type CloseCheckMemo } from '@/modules/accounting/services/gl/periodCloseReadinessService';
+import { runInPeriodLockBudget } from '@/modules/accounting/services/gl/periodLockBudgetScope';
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -40,10 +41,18 @@ describe('getCloseReadiness with a CloseCheckMemo', () => {
     expect(b!.items.map((i) => i.key)).toContain('orphan_period_journals');
   });
 
-  it.each([['55P03'], ['40P01']])('3b: a check that hit a busy row (%s) is rethrown, not degraded to "Could not compute"', async (code) => {
+  it.each([['55P03'], ['40P01']])('3b, inside a lock budget (a close): a check that hit a busy row (%s) is rethrown', async (code) => {
     const busy = Object.assign(new Error('lock timeout'), { code });
     vi.mocked(bankReconciledCheck).mockRejectedValueOnce(busy);
-    await expect(getCloseReadiness('co', 'p1')).rejects.toBe(busy);
+    await expect(runInPeriodLockBudget(() => getCloseReadiness('co', 'p1'))).rejects.toBe(busy);
+  });
+
+  it.each([['55P03'], ['40P01']])('F, advisory (no lock budget: the panel, MCP checklist, close run): a busy check (%s) is ONE busy row, the rest still come back', async (code) => {
+    vi.mocked(bankReconciledCheck).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code }));
+    const r = await getCloseReadiness('co', 'p1');
+    expect(r!.items).toHaveLength(8);
+    expect(r!.items[0]).toMatchObject({ key: 'bank_reconciled', status: 'warn', reason: expect.stringMatching(/^Could not compute — busy: .*retry/) });
+    expect(r!.items.slice(1).every((i) => i.status === 'pass')).toBe(true);
   });
 
   it('a check that failed for any other reason still degrades to "Could not compute" (which blocks a close)', async () => {

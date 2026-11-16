@@ -20,6 +20,8 @@ import { gateFixture } from './helpers/periodCloseGateFixture';
 import { als, type RequestContext } from '../../src/lib/als';
 import { closePeriod, closeYear, reopenPeriod } from '../../src/modules/accounting/services/gl/fiscalPeriodService';
 import { runBulkPeriodAction } from '../../src/modules/accounting/services/gl/fiscalPeriodBulk';
+import { getCloseReadiness } from '../../src/modules/accounting/services/gl/periodCloseReadinessService';
+import { runInPeriodLockBudget } from '../../src/modules/accounting/services/gl/periodLockBudgetScope';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -142,5 +144,36 @@ describe('B2: a period reopened while the year-end close runs', () => {
       reopener.release();
     }
     expect(await fx.statuses(b.c)).not.toContain('locked');
+  }, 30_000);
+});
+
+describe('F: a readiness check that waits on a held lock', () => {
+  /** getCloseReadiness for January on its own request, with a short lock_timeout, optionally inside a period lock budget. */
+  async function readiness(c: string, period: string, inBudget: boolean) {
+    const r = await request(c);
+    try {
+      return await r.run(async () => {
+        await als.getStore()!.client.query("SET LOCAL lock_timeout = '300ms'");
+        const run = () => getCloseReadiness(c, period);
+        return await (inBudget ? runInPeriodLockBudget(run) : run()).then((x) => x!.items, (e) => (e as { code?: string }).code);
+      });
+    } finally { await r.end('ROLLBACK'); }
+  }
+
+  it('advisory (no lock budget): one busy row and the rest of the checklist; inside a close\'s budget: rethrown (55P03)', async () => {
+    const b = await fx.books();
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE bank_transactions IN ACCESS EXCLUSIVE MODE');
+      const advisory = await readiness(b.c, b.periods[0]!, false);
+      expect(Array.isArray(advisory) && advisory.length).toBe(8);
+      expect((advisory as Array<Record<string, string>>)[0]).toMatchObject({
+        key: 'bank_reconciled', status: 'warn', reason: expect.stringMatching(/^Could not compute — busy/) });
+      expect(await readiness(b.c, b.periods[0]!, true)).toBe('55P03');
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
   }, 30_000);
 });

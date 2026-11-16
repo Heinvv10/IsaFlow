@@ -145,3 +145,27 @@ describe('B5 / B6: MCP period controls', () => {
     }
   });
 });
+
+describe('N3: the year-end dry run waits no longer than the live close', () => {
+  it('with bank_transactions held, the preview and the MCP dry run answer busy within the 5 s budget, not after the holder lets go', async () => {
+    const b = await fx.books();
+    await fx.retainedEarnings(b.c);
+    await closeAll(b.periods);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE bank_transactions IN ACCESS EXCLUSIVE MODE');
+      const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<'hung'>((r) => setTimeout(() => r('hung'), 9000))]);
+      const preview = await within(callRoute(yearEnd, tokens[fx.owner]!, b.c, 'GET', undefined, '/api/accounting/year-end', { preview: '2026' }));
+      expect(preview).not.toBe('hung');
+      expect((preview as { state: { statusCode: number } }).state.statusCode).toBe(503);
+      const dry = await within(mcpRun(pool, [yearEndCloseTool], fx.owner, b.c, 'owner', 'year_end_close', { fiscal_year: 2026, dry_run: true }, MCP_SCOPES));
+      expect(dry).not.toBe('hung');
+      expect((dry as { isError?: boolean }).isError).toBe(true);
+      expect((dry as { content: { text: string }[] }).content[0]!.text).toMatch(/Another request is holding a lock the year-end close needs/);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+  }, 60_000);
+});
