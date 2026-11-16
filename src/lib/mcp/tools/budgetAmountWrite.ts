@@ -131,6 +131,6 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
     ...(saved.frozenDriverCells ? { frozen_driver_cells: saved.frozenDriverCells.cells } : {}),
     cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated,
     next_step: 'Saved as a draft edit of this version (audited as you). restore_budget_version undoes this write while nobody has changed the version since. '
-      + (model.version!.status === 'draft' ? 'A person approves the version in ISAFlow when it is ready.' : ''),
+      + (model.version!.status === 'draft' ? 'A person approves the version in IsaFlow when it is ready.' : ''),
   });
 }

@@ -133,7 +133,7 @@ describe('who may call', () => {
     const v = await fx.version(w, { status: tool === 'unlock_budget_version' ? 'locked' : tool === 'lock_budget_version' ? 'approved' : 'draft' });
     const before = await reads.status(v);
     const r = await mcp(pool, admin, tool, { version_id: v, reason: 'r', idempotency_key: key() }, { role: 'admin' });
-    expect(text(r)).toBe('A person must approve this budget in ISAFlow');
+    expect(text(r)).toBe('A person must approve this budget in IsaFlow');
     expect(await reads.status(v)).toBe(before);
   });
 

@@ -42,8 +42,8 @@ export const setBudgetAmountsTool: McpTool = {
     + 'WORKFLOW: 1) dry_run true: answers counts (added, changed, removed, unchanged, refused), the changed and refused cells (paged: list_offset), section totals per month before and after, and version_token; '
     + '2) the same call with dry_run false and that version_token (required when more than one cell is listed). If anyone saved meanwhile the call is refused ("budget changed since your dry run"): dry-run again. '
     + 'MODES: merge (default) sets the listed cells, amount null clears that cell; add adds amount to what the cell holds now; replace makes each listed ACCOUNT hold exactly the listed cells, clearing every other cell of that account in the version (any month or dimension; the way to move an account to another level); a reforecast\'s closed months are never cleared. '
-    + `At most ${MAX_SAVE_CELLS} changed cells per call (split larger writes). A budget holder writes only their own slices; a slice under review is refused. `
-    + 'The save is a person\'s grid save as you (audited as you); restore_budget_version undoes the latest write while nobody has changed the version since. Amounts appear only with read:reports. A person approves the version in ISAFlow.',
+    + `At most ${MAX_SAVE_CELLS} changed cells per call (split larger writes; a call carries at most 100 000 argument values, so about 19 000 cells that each name a dimension). A budget holder writes only their own slices; a slice under review is refused. `
+    + 'The save is a person\'s grid save as you (audited as you); restore_budget_version undoes the latest write while nobody has changed the version since. Amounts appear only with read:reports. A person approves the version in IsaFlow.',
   scope: BUDGET_WRITE_SCOPE,
   write: true,
   inputSchema: {

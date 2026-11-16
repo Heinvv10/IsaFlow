@@ -15,7 +15,7 @@ import { mayReadBudgetFigures } from './budgetFigures';
 import { NOT_FOUND, toolError } from './toolHelpers';
 
 /** Hein's ruling 2 (2026-11-16): an agent approves, locks, unlocks or sets primary only on an owner's token. */
-export const PERSON_MUST_APPROVE = 'A person must approve this budget in ISAFlow';
+export const PERSON_MUST_APPROVE = 'A person must approve this budget in IsaFlow';
 
 export const BUDGET_WRITE_SCOPE = 'write:budgets';
 export const BUDGET_READ_SCOPE = 'read:reports';

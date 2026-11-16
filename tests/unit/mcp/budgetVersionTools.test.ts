@@ -47,7 +47,7 @@ describe('the owner gate (ruling 2)', () => {
   it.each(BUDGET_GATE_TOOLS.map((t) => [t.name, t] as const))('%s: admin, manager, viewer and no role are refused before any service', async (_n, tool) => {
     for (const role of ['admin', 'manager', 'viewer', null]) {
       const r = await tool.handler(args, ctx(role));
-      expect(text(r)).toBe('A person must approve this budget in ISAFlow');
+      expect(text(r)).toBe('A person must approve this budget in IsaFlow');
     }
     expect(getVersion).not.toHaveBeenCalled();
     expect(transitionVersion).not.toHaveBeenCalled();

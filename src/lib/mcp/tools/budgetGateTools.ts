@@ -2,7 +2,7 @@
  * MCP write tools for the four human-gated budget moves (Hein's ruling 2, 2026-11-16): approve, lock,
  * unlock and set primary. Only a token whose user is the company's OWNER may make them; every other role
  * (admin and manager included, though an admin may approve or lock in the app) is refused "A person must
- * approve this budget in ISAFlow" BEFORE any service is called. An owner's move runs the app's own services
+ * approve this budget in IsaFlow" BEFORE any service is called. An owner's move runs the app's own services
  * (`transitionVersion`, `setPrimary`) with every rule the app applies: slices pending refuse an approve
  * unless the owner forces it with a reason, unlock needs a reason (1-500), a stale version_token is refused.
  * The database audits status moves; setPrimary writes its own audit row; both as the token user.
@@ -13,7 +13,7 @@ import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { BUDGET_WRITE_SCOPE, figuresAllowed, isResult, ownerGate, ownVersion, versionTokenArg, versionView } from './budgetToolArgs';
 import { ok, toolError } from './toolHelpers';
 
-const GATE_NOTE = 'Only a token whose user is the company owner may do this; any other role is told "A person must approve this budget in ISAFlow".';
+const GATE_NOTE = 'Only a token whose user is the company owner may do this; any other role is told "A person must approve this budget in IsaFlow".';
 
 const base = {
   version_id: { type: 'string', format: 'uuid' },

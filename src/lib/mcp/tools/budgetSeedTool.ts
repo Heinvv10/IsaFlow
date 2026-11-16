@@ -85,7 +85,7 @@ export const seedBudgetTool: McpTool = {
     'Create a NEW draft budget version and fill it, as the app\'s create wizard does: from prior_year_actuals (the same calendar months a year earlier, leaf accounts only) or from another version (months by position), times (1 + uplift_pct/100). '
     + 'TRAPS FIRST: it always creates a new version (to change an existing one use set_budget_amounts); kind original is refused when the year has one; at a dimension grain an account with untagged prior-year activity is budgeted at company level (unassigned company, default) or keeps only its tagged rows (drop); headers and inactive accounts are skipped (counted). '
     + 'Adjustments: section_uplifts (turnover, cost_of_sales, other_income, operating_expense, other_expense) and account_uplifts override uplift_pct (account first); fixed_annual sets an account\'s annual total instead (shared over its dimension rows by the source\'s share); seasonality actuals (the source\'s monthly shape, default) or flat. '
-    + 'Rounding (rounding_unit 1, 100 or 1000, default 1): months rounded, the LAST month takes the residue. WORKFLOW: dry_run true answers the cells and section totals it would create; then call with dry_run false. Not primary: an owner sets that, and a person approves it in ISAFlow.',
+    + 'Rounding (rounding_unit 1, 100 or 1000, default 1): months rounded, the LAST month takes the residue. WORKFLOW: dry_run true answers the cells and section totals it would create; then call with dry_run false. Not primary: an owner sets that, and a person approves it in IsaFlow.',
   scope: BUDGET_WRITE_SCOPE,
   write: true,
   inputSchema: {
@@ -167,7 +167,7 @@ export const seedBudgetTool: McpTool = {
     }
     return ok({
       version_id: r.versionId, version_token: r.updatedAt, cells: r.cells, skipped_accounts: r.skippedAccounts,
-      next_step: 'A new draft version (not primary). Review it with get_budget; adjust with set_budget_amounts; a person approves it in ISAFlow.',
+      next_step: 'A new draft version (not primary). Review it with get_budget; adjust with set_budget_amounts; a person approves it in IsaFlow.',
     });
   },
 };

@@ -28,7 +28,7 @@ export const createBudgetVersionTool: McpTool = {
   description:
     'Create a new DRAFT budget version for a financial year (fiscal_year is the year\'s label, e.g. 2027). kind: original (at most one per year), reforecast or scenario; name unique in the year (1-120 characters). '
     + 'Without copy_from_version_id it is empty; with it, every amount of that version is copied exactly (it must be of the SAME year: to copy into another year, or with an uplift, use seed_budget). '
-    + 'Next: set amounts (set_budget_amounts / set_budget_annual / seed_budget into a new version). The new version is not primary; a person approves it in ISAFlow.',
+    + 'Next: set amounts (set_budget_amounts / set_budget_annual / seed_budget into a new version). The new version is not primary; a person approves it in IsaFlow.',
   scope: BUDGET_WRITE_SCOPE,
   write: true,
   inputSchema: {
