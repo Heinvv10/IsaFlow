@@ -14,6 +14,7 @@ import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import type { DbRow } from '@/lib/neon';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
 import { rebookEtiAfterEvent } from './etiRebook';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -43,6 +44,8 @@ export async function reopenPayrollRun(opts: {
   await lockCompanyPayrollApprovals(opts.runId, opts.companyId);
   const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
+  // Wave 6 FQa: an off-cycle or non-monthly run, or one carrying garnishee deductions, is not reopened by this release.
+  await assertRunKindSupported(opts.companyId, opts.runId, 'reopen');
 
   const previousStatus = String(run.status);
   if (!REOPENABLE_STATUSES.has(previousStatus)) {
