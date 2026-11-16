@@ -9,6 +9,7 @@ import { Pool } from 'pg';
 import bulkAccept from '../../pages/api/accounting/bank-bulk-accept';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
 import autoPost from '../../pages/api/accounting/bank-auto-post';
+import { restoreReconciled } from '../../src/modules/accounting/services/bank/bankReallocationWrites';
 import { sweep } from '../../src/modules/accounting/services/bank/autoPostGateService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -222,6 +223,23 @@ describe('round 3 review', () => {
     await pool.query('UPDATE bank_transactions SET reconciliation_id = NULL WHERE id = $1', [id]);
     await pool.query('DELETE FROM bank_reconciliations WHERE id = $1', [rec]);
   }, 20_000);
+});
+
+describe('N6: the run\'s journal id goes with its tag', () => {
+  it('restoreReconciled (a reallocation of a reconciled line) clears both', async () => {
+    const f = await fixture();
+    const id = await suggested(f);
+    const out = await confirmed(f, (await previewOf(f)).previewToken);
+    const lineId = (await pool.query('SELECT matched_journal_line_id AS l FROM bank_transactions WHERE id = $1', [id])).rows[0].l as string;
+    const rec = (await pool.query(`INSERT INTO bank_reconciliations(company_id, bank_account_id, statement_date, started_by) VALUES($1,$2,DATE '2026-09-30',$3) RETURNING id`, [f.c, f.bank, a])).rows[0].id;
+    await pool.query('UPDATE bank_transactions SET reconciliation_id = $2 WHERE id = $1', [id, rec]);
+    expect((await pool.query('SELECT auto_post_run_id::TEXT AS r, auto_post_journal_id::TEXT AS j FROM bank_transactions WHERE id = $1', [id])).rows[0])
+      .toEqual({ r: out.runId, j: out.posted[0]!.journalEntryId });
+    await asToken(pool, a, f.c, () => restoreReconciled(f.c, id, rec, lineId, { at: null, by: a }));
+    expect((await pool.query('SELECT auto_post_run_id AS r, auto_post_journal_id AS j FROM bank_transactions WHERE id = $1', [id])).rows[0]).toEqual({ r: null, j: null });
+    await pool.query('UPDATE bank_transactions SET reconciliation_id = NULL WHERE id = $1', [id]);
+    await pool.query('DELETE FROM bank_reconciliations WHERE id = $1', [rec]);
+  });
 });
 
 describe('warnings', () => {
