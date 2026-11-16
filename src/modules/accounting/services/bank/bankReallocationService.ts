@@ -148,8 +148,7 @@ async function reallocateInner(
       { ...actor, autoApply: opts.autoApply, reallocation: { reconciliationId: plan.reconciliationId } },
     );
     // The line is on the new journal now, so the old one carries no reconciled cash: its reversal is a plain one.
-    const reversal = await reverseJournalEntry(companyId, plan.journalId, userId,
-      { ...actor, reversalDate: plan.entryDate, bankLinesHandled: true }); // the line was re-linked above
+    const reversal = await reverseJournalEntry(companyId, plan.journalId, userId, { ...actor, reversalDate: plan.entryDate });
     if (fmtDate(reversal.entryDate) !== plan.entryDate) {
       throw new BankReallocationRefusal('The reversal could not keep the original date; nothing was written.');
     }
