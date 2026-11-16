@@ -13,7 +13,10 @@
  * The admin pool runs as platform_admin (not the fixture's superuser).
  * Disposable schema fixture only (assertDisposable).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// The fixture has no GoTrue: deleteUser reads the user's login email there (its invitation cancel); GoTrue's 404.
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: vi.fn(async () => null) }));
 import { Pool } from 'pg';
 import userRoute from '../../pages/api/admin/users/[id]';
 import resetRoute from '../../pages/api/admin/users/[id]/reset-onboarding';
