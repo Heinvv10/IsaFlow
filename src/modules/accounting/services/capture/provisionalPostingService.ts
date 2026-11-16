@@ -12,6 +12,10 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { isAllocationVatCode } from '../bank/bankVatCodes';
+import { allocationPeriodFor } from '../bank/bankAllocationPeriod';
+import { isBankAllocationRefusal } from '../bank/bankAllocationRefusal';
+import { ClosedFiscalPeriodError } from '../gl/journalEntryPostingGuards';
+import { JournalDateRefusedError } from '../../utils/journalDateWindow';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
@@ -98,6 +102,19 @@ export async function postProvisional(
   const txDate = fmtDate(tx.transaction_date);
   const description = String(tx.description ?? 'Provisional bank allocation');
 
+  // WP2 row 12: the open period this journal posts on, resolved before anything is written. Without it a date no
+  // period covers or can cover (the statement's, 2001 or 2040) posted with fiscal_period_id NULL, past the closed-period
+  // check, and a closed period left a draft journal behind. A skip with the reason, like every other here.
+  let fiscalPeriodId: string;
+  try {
+    fiscalPeriodId = await allocationPeriodFor(companyId, txDate);
+  } catch (err) {
+    if (isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError || err instanceof JournalDateRefusedError) {
+      return { journalEntryId: null, prediction, skipped: err.message };
+    }
+    throw err;
+  }
+
   // Resolve GL account — use predicted or fall back to default_expense
   let expenseAccountId = prediction.glAccountId;
   if (!expenseAccountId) {
@@ -149,7 +166,7 @@ export async function postProvisional(
   const placed = await placeCostCentres(companyId, lines);
   const je = await createJournalEntry(
     companyId,
-    { entryDate: txDate, description, source: 'auto_bank_recon', lines: placed.lines },
+    { entryDate: txDate, description, source: 'auto_bank_recon', lines: placed.lines, fiscalPeriodId },
     userId,
     { postingAgent: 'ai-provisional:v1', extractionConfidence: prediction.confidence, sourceDocumentId: undefined },
   );

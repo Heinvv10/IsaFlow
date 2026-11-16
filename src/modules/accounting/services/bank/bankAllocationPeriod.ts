@@ -18,6 +18,8 @@ import {
   AUTO_CREATE_YEARS_BACK, AUTO_CREATE_YEARS_FORWARD, ensureFiscalPeriodForDate, isOutsideWindowByCalendarYear,
 } from '../gl/fiscalPeriodAutoCreate';
 import { fiscalYearForDate } from '../gl/fiscalYearRegistry';
+import { ledgerEntryDay } from '../gl/journalDateGuard';
+import { JournalDateRefusedError } from '../../utils/journalDateWindow';
 import { ClosedFiscalPeriodError } from '../gl/journalEntryPostingGuards';
 import { BankAllocationRefusal, isBankAllocationRefusal } from './bankAllocationRefusal';
 
@@ -46,10 +48,11 @@ async function noPeriodRefusal(companyId: string, entryDate: string): Promise<Ba
  *   subclass, when the year cannot be filled beside closed periods).
  */
 export async function allocationPeriodFor(companyId: string, entryDate: string): Promise<string> {
+  await ledgerEntryDay(entryDate); // the ledger-date window first, as createJournalEntry asks it: its message wins
   const periodId = await ensureFiscalPeriodForDate(companyId, entryDate);
   if (!periodId) throw await noPeriodRefusal(companyId, entryDate);
   const rows = (await sql`
-    SELECT status FROM fiscal_periods WHERE id = ${periodId}::UUID AND company_id = ${companyId}::UUID
+    SELECT status FROM fiscal_periods WHERE id = ${periodId}::UUID AND company_id = ${companyId}::UUID FOR SHARE
   `) as DbRow[];
   const status = String(rows[0]?.status ?? 'closed');
   if (status !== 'open') throw new ClosedFiscalPeriodError(status);
@@ -73,7 +76,7 @@ export async function allocationPeriodProbe(companyId: string, entryDate: string
     return null;
   } catch (err) {
     if (err instanceof ProbeDone) return null;
-    if (isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError) return err.message;
+    if (isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError || err instanceof JournalDateRefusedError) return err.message;
     throw err;
   }
 }
