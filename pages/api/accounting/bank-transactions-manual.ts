@@ -16,6 +16,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withHttpIdempotency } from '@/lib/idempotency/withHttpIdempotency';
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
@@ -27,6 +28,7 @@ import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules
 import { isSupplierRefundRefusal } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
+import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -97,6 +99,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // So does `bankAccountId` (audit 2026-11-15 WP2-1): any GL account id became the line's bank.
   try {
     await assertBankAccountInCompany(companyId, bankAccountId);
+    // The contra account too: another company's (or none) reached createJournalEntry's plain Error, a 500 after the line was inserted.
+    if (contraAccountId && !(await accountsBelongToCompany(companyId, [contraAccountId]))) {
+      return apiResponse.badRequest(res, 'The GL account is not in this company');
+    }
     if (allocationType === 'supplier') await assertSupplierInCompany(companyId, entityId);
     if (allocationType === 'customer') await assertCustomerInCompany(companyId, entityId);
   } catch (err) {
@@ -218,4 +224,5 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Idempotency-Key: a double-click or retry replays the first answer, no second journal (withHttpIdempotency).
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-transactions-manual', handler)))));

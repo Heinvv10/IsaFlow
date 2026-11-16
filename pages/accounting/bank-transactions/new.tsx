@@ -3,7 +3,8 @@
  * Equivalent to Sage "Create Transaction" in Process Bank.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useIdempotencyKey } from '@/hooks/useIdempotencyKey';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -141,23 +142,30 @@ export default function NewBankTransactionPage() {
     return null;
   };
 
+  const idempotency = useIdempotencyKey();
+  const inFlight = useRef(false);
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (inFlight.current) return; // state alone lets a second click in before the re-render that disables the button
     const err = validate();
     if (err) { notify.error(err); return; }
+    inFlight.current = true;
     setIsSubmitting(true);
     try {
+      const body = JSON.stringify({
+        type: txType, bankAccountId: form.bankAccountId, date: form.date, amount: Number(form.amount),
+        reference: form.reference || undefined, description: form.description || undefined,
+        allocationType: form.allocationType, contraAccountId: form.contraAccountId || undefined,
+        entityId: form.entityId || undefined, vatCode: form.vatCode,
+      });
       const res = await apiFetch('/api/accounting/bank-transactions-manual', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({
-          type: txType, bankAccountId: form.bankAccountId, date: form.date, amount: Number(form.amount),
-          reference: form.reference || undefined, description: form.description || undefined,
-          allocationType: form.allocationType, contraAccountId: form.contraAccountId || undefined,
-          entityId: form.entityId || undefined, vatCode: form.vatCode,
-        }),
+        method: 'POST', credentials: 'include', body,
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotency.keyFor(body) },
       });
       await assertOk(res, 'Could not record the transaction - try again');
       const json = await res.json();
+      idempotency.done(); // only once the answer has parsed: a body that did not arrive keeps the key for the retry
       if (json.success === false) { notify.error(json.error?.message ?? json.message ?? 'Could not record the transaction - try again'); return; }
       notify.success('Transaction recorded successfully');
       notifyLateClaims(json); // VAT claimed in a later period (s16(3))
@@ -165,6 +173,7 @@ export default function NewBankTransactionPage() {
     } catch (error) {
       notify.error(apiErrorMessage(error, 'Could not record the transaction - try again'));
     } finally {
+      inFlight.current = false;
       setIsSubmitting(false);
     }
   };
