@@ -73,7 +73,12 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(r.code).toBe(0);
     expect(r.skipA11y).toBe('1');
     const tests = listTests({ GOLDEN_SKIP_A11Y: r.skipA11y }, r.args); // throws if the spec were loaded
-    expect(EXCLUDED.length).toBe(41); // master's 33 (z8-budget-tracking, #1114; z2, z2b, z5; wave 4 B's z9; NS1's z11; PV's z13; DG's z15-density; PS's z10) + NS2's z12 + wave 5 L2's z16 + L3u's z17 + EX-core's z18 + UXN's z19 + budgets P6 PR D's z20 + M14's z20-comments + M11's z21
+    // Counted from the files themselves, not pinned: a pinned number made every PR that adds a dev-only golden edit this
+    // line, and a PR whose base moved failed with "expected 42 to be 41" (#1472, run 133037499855) without being wrong.
+    const marked = execFileSync('grep', ['-rlx', '--include=*.spec.ts', '// golden:dev-only', '--', GOLDEN_DIR], { encoding: 'utf8' })
+      .split('\n').filter(Boolean).map((f) => path.relative(GOLDEN_DIR, f).replace('.spec.ts', ''));
+    expect(EXCLUDED.length).toBeGreaterThan(0);
+    expect([...EXCLUDED].sort()).toEqual(marked.map((f) => f.replace('.spec.ts', '')).sort());
     expect(tests.filter((l) => EXCLUDED.some((n) => l.includes(`${n}.spec.ts`)))).toEqual([]);
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     for (const p of PREFIX) expect(tests.some((l) => l.includes(p))).toBe(true);
