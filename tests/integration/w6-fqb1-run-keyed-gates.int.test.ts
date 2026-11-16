@@ -211,14 +211,14 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     expect(got.regular).toBe(840000);
   });
 
-  it('when the stale run is the approved other one, the refusal names it: reopen and recalculate, or cancel; runs that agree pass', async () => {
+  it('when the stale run is the approved other one, the refusal names it: reopen and recalculate; runs that agree pass', async () => {
     let bonus = '';
     let regular = '';
     const split = await twoRunsInMonth(pool, A, async (c) => {
       regular = await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: true });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
     }, () => sdlMonthSplitRefusal(A.company, bonus));
-    expect(split?.detail).toContain(`To approve: reopen and recalculate the regular run ${regular} (approved), or cancel it if it will not be paid.`);
+    expect(split?.detail).toContain(`To approve: reopen and recalculate the regular run ${regular} (approved).`);
     const agree = await twoRunsInMonth(pool, A, async (c) => {
       await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: false });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
@@ -240,7 +240,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
       await sql`UPDATE payroll_run_lines SET sdl_exempt = false WHERE run_id = ${bonus}::uuid`; // the bonus, recalculated
       return { before, after: await sdlMonthSplitRefusal(A.company, regular) };
     });
-    expect(got.before?.detail).toContain(`To approve: recalculate the off_cycle run ${bonus} (calculated), or cancel it if it will not be paid.`);
+    expect(got.before?.detail).toContain(`To approve: recalculate the off_cycle run ${bonus} (calculated).`);
     expect(got.before?.detail).not.toContain('this run');
     expect(got.after).toBeNull();
   });

@@ -7,8 +7,9 @@
  * At approval the month is re-judged ONCE, now, on the stored runs (the same estimate, this run's own stored figure).
  * Every calculated or approved run of the month whose stored decision differs from that fresh one is stale, and the
  * approval is refused, before any write, naming each stale run and what clears it: recalculate it (this run, or a
- * calculated one), reopen and recalculate it (approved), or cancel it if it will not be paid. Recalculating converges:
- * a recalculation costs on the same month total the gate judged.
+ * calculated one), or reopen and recalculate it (approved). Recalculating converges: a recalculation costs on the same
+ * month total the gate judged. This release has no run-cancel path; whoever adds one must re-judge the month (a
+ * cancelled run leaves the month's other runs costed on a total that no longer holds; this gate then refuses them).
  *
  * A PAID run is final (legacy only: no code writes 'paid'): it is never named as stale and never blocks; if its stored
  * decision differs, its SDL is corrected outside IsaFlow (an EMP201 correction), as for any paid month.
@@ -43,7 +44,7 @@ export async function sdlMonthSplitRefusal(companyId: string, runId: string): Pr
   const steps = stale.map((r) => (r.is_this === true
     ? 'recalculate this run'
     : `${r.status === 'approved' ? 'reopen and recalculate' : 'recalculate'} the ${String(r.run_kind)} run ${String(r.id)} `
-      + `(${String(r.status)}), or cancel it if it will not be paid`));
+      + `(${String(r.status)})`));
   return {
     code: 'sdl_month_split',
     detail: `SDL is decided for the month as a whole (SDLA s4(b)): ${month}, judged now on its runs, is ${side(fresh)}, `
