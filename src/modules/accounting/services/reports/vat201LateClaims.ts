@@ -147,7 +147,14 @@ export function buildLateClaimsSection(
   return { periodStart, periodEnd, rows, total: totalCents / 100, lateClaimInputTax: cents(lateClaimInputTax) / 100 };
 }
 
-/** Display metadata for the given late-claim journals, by id: original, supplier invoice, filed periods. */
+/**
+ * Display metadata for the given late-claim journals, by id: original, supplier invoice, filed periods.
+ *
+ * The two period lookups differ on purpose. `filedPeriod` (the document's) prefers an active lock but falls back
+ * to an unlocked one: the claim was split late because that period WAS filed, and an unlock since does not change
+ * where the document sat. `filedIn` (the reversed claim's) counts active locks only: it answers whether the claim
+ * is in a return that stands now, and "not yet filed" is the honest answer once its period is unlocked.
+ */
 export async function loadLateClaimMetadata(companyId: string, ids: readonly string[]): Promise<Map<string, DbRow>> {
   if (ids.length === 0) return new Map();
   const rows = (await sql`
@@ -195,6 +202,8 @@ export async function getVat201LateClaims(
   const { lines } = await getVatPeriodLines(companyId, periodStart, periodEnd);
   const { lateClaimInputTax } = deriveVatBoxesWithLateClaims(lines);
   const ledger = lateClaimLedgerRows(lines);
+  // Runs after the snapshot and is keyed by its ids; it feeds display fields only (never the VAT or which rows
+  // exist), so a write committed between the two reads cannot cause a mismatch.
   const meta = await loadLateClaimMetadata(companyId, ledger.map((l) => l.journalEntryId));
   const rows = ledger.map((l) => toLateClaimRow(l, meta.get(l.journalEntryId)));
   return buildLateClaimsSection(periodStart, periodEnd, rows, lateClaimInputTax);
