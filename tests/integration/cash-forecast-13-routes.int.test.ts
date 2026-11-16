@@ -186,6 +186,13 @@ describe('overrides', () => {
     expect(await count('cash_forecast_overrides', a.homeCompanyId)).toBe(0);
     expect((await audit(a.homeCompanyId, 'cash_forecast_override')).map((r) => r.action)).toEqual(['create', 'update', 'delete']);
   });
+  it('GET lists in the order the engine applies them (created_at, id), not by week or key', async () => {
+    for (const [lineKey, weekStart] of [['zz:later', '2026-11-30'], ['aa:earlier', '2026-11-23']]) {
+      expect((await overrides.call(a, 'PUT', { ...OVR, lineKey, weekStart })).status).toBe(200);
+    }
+    const listed = (await overrides.call(a, 'GET')).body.data!.overrides as Array<{ lineKey: string }>;
+    expect(listed.map((o) => o.lineKey)).toEqual(['zz:later', 'aa:earlier']);
+  });
 });
 
 describe('pay day', () => {
