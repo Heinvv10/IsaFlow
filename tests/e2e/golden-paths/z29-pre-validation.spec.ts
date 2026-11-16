@@ -92,7 +92,8 @@ async function openCompliance(page: Page): Promise<void> {
 }
 
 test('run approval lists the IRP5 warning without blocking; once final, the card links to the field', async ({ page, context, baseURL }) => {
-  test.setTimeout(240_000);
+  // Approve, the card, the fix link, then axe in two themes at two widths: one test, so it carries its own budget.
+  test.setTimeout(360_000);
   const { api, sandboxId, runId, employeeId } = await sandbox(context, baseURL!);
   let approved = false;
   try {
@@ -122,7 +123,11 @@ test('run approval lists the IRP5 warning without blocking; once final, the card
     await snap(page, 'compliance-card', 'session-theme');
     await item.getByRole('link', { name: 'Fix: ID number' }).click();
     await page.waitForURL(new RegExp(`/payroll/employees/${employeeId}#employee-id-number$`), { timeout: 60_000 });
-    await expect(page.locator('#employee-id-number')).toBeFocused({ timeout: 60_000 });
+    // The profile draws its fields once the employee loads (seconds under load): wait for the field, then the focus.
+    const idField = page.locator('#employee-id-number');
+    await expect(idField).toBeVisible({ timeout: 60_000 });
+    await expect(idField).toBeEnabled();
+    await expect(idField).toBeFocused({ timeout: 15_000 });
     await expect(page.getByTestId('pre-validation-line')).toContainText(MISSING_ID, { timeout: 60_000 });
     await snap(page, 'profile-line', 'session-theme');
 
