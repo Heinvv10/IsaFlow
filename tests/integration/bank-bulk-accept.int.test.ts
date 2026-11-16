@@ -124,6 +124,7 @@ describe('confirm', () => {
     expect(out.posted.map((p) => p.txId)).toEqual([untouched]);
     expect(out.refused.map((r) => r.txId).sort()).toEqual([suggestionChanged, statusChanged, edited].sort());
     for (const r of out.refused) expect(r.reason).toMatch(/changed since the preview/);
+    expect(out.refused.find((r) => r.txId === statusChanged)!.reason).toMatch(/it is now excluded/);
     expect(await journals(f.c)).toBe(1);
   });
 
@@ -152,6 +153,25 @@ describe('confirm', () => {
     expect([x.state.statusCode, y.state.statusCode].sort()).toContain(200);
     expect(Date.now() - started).toBeLessThan(15_000); // the loser is turned away at once, not queued behind row locks
   }, 30_000);
+});
+
+describe('one confirm at a time per bank account', () => {
+  it('while another confirm holds the account\'s lock, a confirm is turned away 409 at once and posts nothing; afterwards it posts', async () => {
+    const f = await fixture();
+    for (let i = 0; i < 3; i += 1) await suggested(f, { amount: -10 - i });
+    const token = tokenOf(await preview(f));
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`bulk-accept:${f.c}:${f.bank}`]);
+      const t0 = Date.now();
+      const res = await confirm(f, token);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(Date.now() - t0).toBeLessThan(3_000);
+      expect(await journals(f.c)).toBe(0);
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(dataOf<Confirmed>(await confirm(f, token)).posted).toHaveLength(3);
+  });
 });
 
 describe('undo batch', () => {
