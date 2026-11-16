@@ -79,9 +79,9 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
     // the invitations, last (follow-up A), for the address the users DELETE returned.
     expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM users', 'DELETE FROM user_sessions', 'DELETE FROM company_users',
       'SELECT public.admin_cancel_user_invitations(?, ?::text[])']);
-    // The user's GoTrue id, the deleted row's email and GoTrue's login email (read once, before any write).
+    // The user's GoTrue id and its GoTrue login email (read once, before any write); not the row's email.
     const cancel = sqlMock.mock.calls.find((c) => text(c).includes('admin_cancel_user_invitations'))!;
-    expect(cancel.slice(1)).toEqual([USER, ['gone@test.local', 'login@test.local']]);
+    expect(cancel.slice(1)).toEqual([USER, ['login@test.local']]);
     expect(gotrueUser.mock.calls).toEqual([[USER]]);
     expect(gotrueUser.mock.invocationCallOrder[0]!).toBeLessThan(
       sqlMock.mock.invocationCallOrder[sqlMock.mock.calls.findIndex((c) => /^\s*DELETE\b/i.test(text(c)))]!);

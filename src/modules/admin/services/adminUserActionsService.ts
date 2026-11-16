@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
-import { cancelPendingInvitations, gotrueLoginEmail } from './deletedUserInvitations';
+import { cancelPendingInvitations, ownedGotrueAccount } from './deletedUserInvitations';
 import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
@@ -244,8 +244,8 @@ export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
   if (users[0]!.role === 'super_admin') {
     throw new AdminRequestError(403, 'Cannot delete a super_admin user');
   }
-  // GoTrue's login email, read BEFORE any row lock (an outage throws: a 5xx that writes nothing). deletedUserInvitations.
-  const gotrueEmail = await gotrueLoginEmail(userId);
+  // The GoTrue account this row owns, read BEFORE any row lock (an outage throws: a 5xx that writes nothing).
+  const gotrue = await ownedGotrueAccount(userId);
 
   // Never refused for a pending pay-run approval (see suspendUser): reported instead.
   const stranded = await strandedOrNone(userId);
@@ -259,10 +259,11 @@ export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
   // A membership an add-to-company committed while this request waited above would outlive the user (breaker #1405
   // round 4, E1), and company_users_user_id_fkey (996, checked at COMMIT) would then refuse the whole delete. Sweep it.
   await deleteMemberships(userId);
-  // LAST, after every refusal above (a committed 4xx cancels nothing): pending invitations pinned to this GoTrue id or
-  // addressed to the deleted row's email or GoTrue's; migration 997b's definer (RC008 refuses the portal any invitation
-  // write). An accept that read the invitation before this commits finds no row to mark and rolls back whole.
-  const invitationsCancelled = await cancelPendingInvitations(userId, deleted[0]!.email, gotrueEmail);
+  // LAST, after every refusal above (a committed 4xx cancels nothing): pending invitations pinned to the GoTrue account
+  // or addressed to its login email (the row's own email when it owns none; deletedUserInvitations); migration 997b's
+  // definer (RC008 refuses the portal any invitation write). An accept that read the invitation before this commits
+  // finds no row to mark and rolls back whole.
+  const invitationsCancelled = await cancelPendingInvitations(userId, deleted[0]!.email, gotrue);
 
   reportStranded('deleteUser', userId, stranded);
   log.info('deleteUser', { userId, invitationsCancelled }, 'AdminUserActionsService');

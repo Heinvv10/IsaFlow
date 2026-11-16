@@ -159,11 +159,29 @@ describe('a case-variant delete leaves the surviving user alone', () => {
         .toEqual({ pinned: undefined, addressed: undefined });
       const r = await legacyAccept(gone.id, addressed);
       expect(r.status, JSON.stringify(r.body)).toBe(404);
+      const anon = await newAccept(pinned); // the anonymous route, through the account pinned on the invitation
+      expect(anon.status, JSON.stringify(anon.body)).toBe(410);
+      expect(passwordSets).not.toContain(gone.id);
       expect(await usersRows(gone.id)).toBe(0);
       expect((await pool.query('SELECT count(*)::int n FROM company_users WHERE user_id = $1', [gone.id])).rows[0].n).toBe(0);
     } finally {
       await pool.query('DELETE FROM users WHERE id = $1', [survivorId]);
     }
+  });
+});
+
+describe("a GoTrue-backed user's stale users.email is not theirs to cancel", () => {
+  it('the deleted row still holds X, but GoTrue moved it away and gave X to n: n\'s invitation to X stays', async () => {
+    // Re-entry needs GoTrue's current email (the legacy route compares it; the anonymous route signs in as inv.email),
+    // so for a canonical id with a GoTrue account only that email is cancelled, never the row's (round-5 breaker R5-2).
+    const d = await seedUser({ memberOf: [A] });
+    setGotrueEmail(d.id, `moved-${d.id}@test.local`);
+    const n = await seedUser();
+    setGotrueEmail(n.id, d.email);
+    const forN = await invite(B, d.email);
+    expect((await adminDelete(d.id)).status).toBe(200);
+    expect(await invitationRow(forN)).toEqual({ accepted_at: null });
+    expect(await deleteAudit(d.id)).toEqual([expect.objectContaining({ invitations_cancelled: 0 })]);
   });
 });
 

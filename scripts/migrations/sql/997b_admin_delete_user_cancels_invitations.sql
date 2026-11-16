@@ -17,8 +17,9 @@
 --   gotrue_user_id is the deleted user's id, when that id is canonical lower-case (an invitation
 --   pinned to the GoTrue account that row owned), OR
 --   its email, with JavaScript trim's whitespace set stripped and lower-cased, is one of p_emails:
---   the caller passes the deleted users row's email AND
---   the GoTrue account's current login email (looked up before any row lock is taken).
+--   the caller passes the GoTrue account's current login email when the row owns an account (looked
+--   up before any row lock is taken), else the deleted row's own email (round-5 breaker R5-2: a stale
+--   users.email can be another person's GoTrue address).
 --
 -- Safety. It deletes only pending invitations: it can insert, update, re-open, re-point or
 -- accept none, and touches no company_users row, so it only removes a not-yet-used way into a
