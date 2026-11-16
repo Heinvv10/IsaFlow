@@ -47,6 +47,7 @@ export const SEVERITY_TEXT: Record<PreValidationIssue['severity'], string> = {
 
 export const SEVERITY_LABEL: Record<PreValidationIssue['severity'], string> = { error: 'Error', warning: 'Warning', info: 'Note' };
 
+/** No `sars_source_codes` row for the year, or none at all: every component code then reads as unknown. */
 export function noReleaseNotice(taxYear: number): string {
-  return `No SARS source-code list is loaded for the ${taxYear} tax year, so every pay component reads as an unknown code. Treat the code errors below as unconfirmed.`;
+  return `No SARS source-code release is loaded for tax year ${taxYear}; the code checks for this year are not reliable.`;
 }

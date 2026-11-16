@@ -11,6 +11,7 @@ import { rig } from './brkr.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { outsideRls } from './k1-employee-bank-details.helpers';
 import { preValidateTaxYear } from '../../src/modules/accounting/services/payroll/preValidationService';
+import { refreshCache } from '../../src/modules/accounting/services/payroll/sarsCodesService';
 
 let r: Awaited<ReturnType<typeof rig>>;
 let otherCompany = '', viewer = '';
@@ -18,6 +19,8 @@ const ids: Record<string, string> = {};
 const runs: Record<string, string> = {};
 // Tax year 2027 = March 2026 to February 2027: a later-dated window than the other payroll suites use.
 const TAX_YEAR = 2027;
+// A year no other suite or seed loads codes for: the release notice's own rows.
+const RELEASE_YEAR = 2089;
 
 async function employee(company: string, number: string, taxNumber: string | null, idNumber: string | null): Promise<string> {
   return (await r.pool.query(
@@ -39,7 +42,7 @@ const GRANDFATHERED = ', approval_grandfathered_at = clock_timestamp()';
 const GOOD_TAX = '0123456789';
 const GOOD_ID = '8001015009087';
 
-type Body = { data: { taxYear: number; employeesChecked: number; errors: number; warnings: number;
+type Body = { data: { taxYear: number; employeesChecked: number; errors: number; warnings: number; codeReleaseLoaded: boolean;
   employees: Array<{ employeeId: string; issues: Array<{ code: string; severity: string; field: string | null; fixHref: string }> }> } };
 const ask = (query: Record<string, string>, opts: { token?: string; company?: string; headers?: Record<string, string> } = {}) => {
   const qs = new URLSearchParams(query).toString();
@@ -78,7 +81,11 @@ beforeAll(async () => {
   runs.other = await runFor(otherCompany, ids.other, 4, 2026, 'approved', STAMPED);
 }, 240000);
 
-afterAll(async () => { await r.teardown([otherCompany]); });
+afterAll(async () => {
+  await r.pool.query('DELETE FROM sars_source_codes WHERE effective_year = $1', [RELEASE_YEAR]);
+  refreshCache();
+  await r.teardown([otherCompany]);
+});
 
 describe('GET pre-validation (tax year)', () => {
   it('names the employee missing a tax number (error, field tax_number, fix link to the profile field)', async () => {
@@ -132,6 +139,23 @@ describe('GET pre-validation (one employee, one run)', () => {
     expect(data!.employees.map((e) => e.employeeId)).not.toContain(ids.other);
     expect(data!.employeesChecked).toBe(3);
     expect(await outsideRls(r.pool, r.company, () => preValidateTaxYear(r.company, { runId: runs.other! }))).toBeNull();
+  });
+});
+
+describe('the SARS code-release flag (the notice)', () => {
+  it('no release at all (an empty catalogue, as production had): false', async () => {
+    const rows = (await r.pool.query('SELECT count(*)::int AS n FROM sars_source_codes')).rows[0]!.n;
+    expect(rows, 'premise: the schema-only fixture loads no SARS codes').toBe(0);
+    refreshCache();
+    expect((await answer({ taxYear: String(TAX_YEAR) })).codeReleaseLoaded).toBe(false);
+  });
+  it('a release for another year only: false for this year, true for that one', async () => {
+    await r.pool.query(
+      `INSERT INTO sars_source_codes (code, effective_year, category, description, status) VALUES ('3601', $1, 'income', 'Income', 'active')`,
+      [RELEASE_YEAR]);
+    refreshCache();
+    expect((await answer({ taxYear: String(RELEASE_YEAR + 1) })).codeReleaseLoaded).toBe(false);
+    expect((await answer({ taxYear: String(RELEASE_YEAR) })).codeReleaseLoaded).toBe(true);
   });
 });
 

@@ -49,12 +49,12 @@ describe('PreValidationCard (compliance hub)', () => {
     expect(fix.getAttribute('href')).toBe('/payroll/employees/e1#employee-tax-number');
     expect(within(fix.closest('li')!).getByText('Error:')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Fix: ID number' }).getAttribute('href')).toBe('/payroll/employees/e2#employee-id-number');
-    expect(screen.queryByText(/No SARS source-code list/)).toBeNull();
+    expect(screen.queryByText(/No SARS source-code release/)).toBeNull();
   });
   it('says the code checks are unconfirmed when no SARS code list is loaded for the year', async () => {
     st.pv = result({ codeReleaseLoaded: false });
     render(<PreValidationCard />);
-    expect(await screen.findByText(/No SARS source-code list is loaded for the 2027 tax year/)).toBeTruthy();
+    expect(await screen.findByText('No SARS source-code release is loaded for tax year 2027; the code checks for this year are not reliable.')).toBeTruthy();
   });
   it('a clean year says so', async () => {
     st.pv = result({ errors: 0, warnings: 0, employees: [] });
