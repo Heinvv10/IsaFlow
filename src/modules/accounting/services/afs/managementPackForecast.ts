@@ -14,11 +14,12 @@ import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { warningText } from '@/components/accounting/budgets/threeWay/warningText';
 import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import {
-  AssumptionChainError, AssumptionsDocError, CompareInputError, EngineInputError, OpeningUnbalancedError,
+  AssumptionChainError, AssumptionsDocError, EngineInputError, OpeningUnbalancedError,
 } from '../budgets/threeWay/errors';
 import { THREE_WAY_FEATURE } from '../budgets/threeWay/routeSchemas';
 import { ThreeWayServiceError } from '../budgets/threeWay/serviceErrors';
 import { getThreeWay, type ThreeWayView } from '../budgets/threeWay/threeWayViews';
+import type { AnyWarning } from '@/components/accounting/budgets/threeWay/warningText';
 import { fiscalYearForDate } from '../gl/fiscalYearRegistry';
 import type { NoteContentBlock } from './afsTypes';
 import { capturePackFault } from './managementPackComparison';
@@ -35,12 +36,16 @@ export interface ForecastFigures {
   asAt: string;
   provisional: boolean;
   minimumCash: number;
+  /** The pack month: the first month shown. */
+  fromMonth: string;
   /** The version's months from the pack month to the year end. */
   months: ForecastMonth[];
   /** The lowest closing cash of `months` (the first such month on a tie). */
   lowest: { month: string; closingCash: number } | null;
+  /** Over the shown months only. */
   balanced: boolean;
   unbalancedMonths: string[];
+  /** In words, scoped to the shown months, money in the pack's format. */
   warnings: string[];
   warningCodes: string[];
 }
@@ -63,10 +68,36 @@ export const noVersionSentence = (fiscalYear: number): string =>
 /** "2026-12" -> "December 2026". */
 const monthLabel = (month: string): string => longDate(`${month}-01`).replace(/^1 /, '');
 
-/** A refusal the three-way answers a request with (P6's 4xx): the month has no projection, the engine is fine. */
+/**
+ * A refusal over the company's own data (P6's 4xx): the month has no projection, the engine is fine. An
+ * EngineInputError is a caller bug (a fault) except figures beyond range and a loan schedule the user set up.
+ */
 function isRefusal(err: unknown): boolean {
-  return [BudgetVersionError, ThreeWayServiceError, AssumptionChainError, AssumptionsDocError, OpeningUnbalancedError, EngineInputError, CompareInputError]
+  if (err instanceof EngineInputError) return err.code === 'RANGE' || err.code === 'LOAN_SCHEDULE';
+  return [BudgetVersionError, ThreeWayServiceError, AssumptionChainError, AssumptionsDocError, OpeningUnbalancedError]
     .some((cls) => err instanceof cls);
+}
+
+/** Months in words in a warning's text (outside-months details carry 'YYYY-MM'); a full date is left as written. */
+const monthsInWords = (text: string): string => text.replace(/\b(\d{4}-\d{2})(?!-\d)\b/g, (mm: string) => monthLabel(mm));
+
+/**
+ * The warnings a board reads under the table: within the shown months, in words, money as formatCents prints it.
+ * opening_provisional is dropped: the intro already says provisional, and its "(today)" goes stale in a stored pack.
+ */
+function packWarnings(warnings: readonly AnyWarning[], period: string): AnyWarning[] {
+  const out: AnyWarning[] = [];
+  for (const w of warnings) {
+    if (w.code === 'opening_provisional') continue;
+    if (w.code === 'negative_flow' && w.month < period) continue;
+    if (w.code === 'negative_cash') {
+      const months = w.months.filter((mm) => mm >= period);
+      if (months.length > 0) out.push({ ...w, months });
+      continue;
+    }
+    out.push(w);
+  }
+  return out;
 }
 
 /** The section's figures from one three-way view: the months from `period` on. Pure. */
@@ -75,13 +106,15 @@ export function forecastFiguresOf(view: ThreeWayView, period: string): ForecastF
   const months = view.cashFlow.direct
     .filter((d) => d.month >= period)
     .map((d) => ({ month: d.month, closingCash: d.closingCash, belowMinimum: d.closingCash < minimumCash }));
+  const unbalancedMonths = view.checks.unbalancedMonths.filter((mm) => mm >= period);
+  const warnings = packWarnings(view.warnings, period);
   const lowest = months.reduce<ForecastMonth | null>((low, r) => (low === null || r.closingCash < low.closingCash ? r : low), null);
   return {
     versionId: view.version.id, versionName: view.version.name, versionStatus: view.version.status, fiscalYear: view.version.fiscalYear,
-    asAt: view.opening.asAt, provisional: view.opening.provisional, minimumCash, months,
+    asAt: view.opening.asAt, provisional: view.opening.provisional, minimumCash, fromMonth: period, months,
     lowest: lowest ? { month: lowest.month, closingCash: lowest.closingCash } : null,
-    balanced: view.checks.balanced, unbalancedMonths: view.checks.unbalancedMonths,
-    warnings: view.warnings.map(warningText), warningCodes: view.warnings.map((w) => w.code),
+    balanced: unbalancedMonths.length === 0, unbalancedMonths,
+    warnings: warnings.map((w) => monthsInWords(warningText(w, (cents) => formatCents(cents)))), warningCodes: warnings.map((w) => w.code),
   };
 }
 
@@ -123,12 +156,18 @@ export function forecastBlocks(f: PackForecast): NoteContentBlock[] {
   if (f.kind === 'unavailable') return [{ type: 'paragraph', text: FORECAST_UNAVAILABLE }];
   const x = f.figures;
   const min = formatCents(x.minimumCash);
-  const blocks: NoteContentBlock[] = [
+  const intro: NoteContentBlock[] = [
     { type: 'heading', level: 3, text: 'Budgeted month-end cash' },
     {
       type: 'paragraph',
       text: `From the ${x.versionName} budget (${x.versionStatus}), FY${x.fiscalYear}, on opening balances as at ${longDate(x.asAt)}${x.provisional ? ' (provisional)' : ''}.`,
     },
+  ];
+  if (x.months.length === 0) {
+    return [...intro, { type: 'paragraph', text: `The ${x.versionName} budget has no months from ${monthLabel(x.fromMonth)} to the year end.` }];
+  }
+  const blocks: NoteContentBlock[] = [
+    ...intro,
     {
       type: 'table',
       headers: ['Month', 'Closing cash', 'Minimum cash', 'Below minimum'],
@@ -151,7 +190,7 @@ export function forecastSnapshot(f: PackForecast): Record<string, unknown> {
   switch (f.kind) {
     case 'off': return {};
     case 'none': return { kind: 'none', fiscalYear: f.fiscalYear };
-    case 'unavailable': return { kind: 'unavailable' };
+    case 'unavailable': return { kind: 'unavailable', fault: f.fault };
     case 'forecast': return { kind: 'forecast', ...f.figures };
   }
 }

@@ -33,6 +33,7 @@ vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ delive
 
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { generateSectionCommentary } from '@/modules/accounting/services/afs/packAiSummaryService';
+import { OpeningUnbalancedError } from '@/modules/accounting/services/budgets/threeWay/errors';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { config } from './managementPackFixtures';
 import { threeWayView } from './managementPackForecastFixtures';
@@ -84,6 +85,14 @@ describe('generator: cash flow forecast section', () => {
     const { status } = await generate(false);
     expect(status).toBe('draft');
     expect(m.deliverPack).not.toHaveBeenCalled();
+  });
+
+  it('a refused forecast (a sentence) does not hold a review-free pack', async () => {
+    m.getThreeWay.mockRejectedValue(new OpeningUnbalancedError(5));
+    const { status, patch } = await generate(false);
+    expect(status).toBe('signed_off');
+    expect(m.deliverPack).toHaveBeenCalledTimes(1);
+    expect(patch.dataSnapshot).toEqual({ kind: 'unavailable', fault: false });
   });
 
   it('a review-free pack with a forecast is signed off and sent as before', async () => {
