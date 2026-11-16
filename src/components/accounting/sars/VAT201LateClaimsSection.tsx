@@ -58,7 +58,7 @@ function Rows({ data }: { data: Vat201LateClaims }) {
               <th scope="col" className="py-1 pr-2 font-medium">Claim journal</th>
               <th scope="col" className="py-1 pr-2 font-medium">Claim date</th>
               <th scope="col" className="py-1 pr-2 font-medium">Original document</th>
-              <th scope="col" className="py-1 pr-2 font-medium">Document's filed period</th>
+              <th scope="col" className="py-1 pr-2 font-medium">Document&rsquo;s filed period</th>
               <th scope="col" className="py-1 pr-2 font-medium">Field</th>
               <th scope="col" className="py-1 text-right font-medium">VAT</th>
             </tr>
