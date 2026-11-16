@@ -24,6 +24,7 @@ import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAlloc
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { respondIfBankRefusal } from '@/modules/accounting/services/bank/bankRouteRefusal';
 
 const BankRulesActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('delete'), id: UUID }),
@@ -103,8 +104,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError || isBankAllocationRefusal(err)) {
       return apiResponse.badRequest(res, err.message);
     }
+    // Audit WP2 row 9: a rule that is not there (404) and the other typed refusals keep their 4xx; anything else is a
+    // fault — rethrown (500, rolled back). badRequestFromError here COMMITTED a delete or update a crash interrupted.
+    if (respondIfBankRefusal(res, err)) return;
     log.error('Bank rules action failed', { action: body.action, error: err }, 'accounting-api');
-    return apiResponse.badRequestFromError(res, err, 'Action failed');
+    throw err;
   }
 }
 
