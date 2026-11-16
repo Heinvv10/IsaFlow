@@ -14,6 +14,7 @@
  * carries the period and the two totals only.
  */
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { getVatPeriodLines } from './vatBoxBasisQuery';
 import { classifyVatJournalLine } from './vatBoxBasis';
@@ -58,8 +59,8 @@ export interface Vat201LateClaims {
 /** The message carries the period and the two totals only: no ids, no SQL. */
 export class Vat201LateClaimsMismatchError extends Error {
   constructor(periodStart: string, periodEnd: string, total: number, boxes: number) {
-    super(`VAT201 ${periodStart} to ${periodEnd}: the late claims listed total R${total.toFixed(2)}, `
-      + `but the input-tax boxes carry R${boxes.toFixed(2)} of late claims.`);
+    super(`VAT201 ${periodStart} to ${periodEnd}: the late claims listed total ${formatMoney(total)}, `
+      + `but the input-tax boxes carry ${formatMoney(boxes)} of late claims.`);
     this.name = 'Vat201LateClaimsMismatchError';
   }
 }

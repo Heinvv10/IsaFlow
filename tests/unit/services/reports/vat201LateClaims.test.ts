@@ -66,7 +66,7 @@ describe('buildLateClaimsSection', () => {
     try { buildLateClaimsSection('2026-11-01', '2026-12-31', rows, 15000.01); } catch (e) { err = e; }
     expect(err).toBeInstanceOf(Vat201LateClaimsMismatchError);
     expect((err as Error).message).toBe(
-      'VAT201 2026-11-01 to 2026-12-31: the late claims listed total R15000.00, but the input-tax boxes carry R15000.01 of late claims.');
+      'VAT201 2026-11-01 to 2026-12-31: the late claims listed total R\u00A015\u00A0000.00, but the input-tax boxes carry R\u00A015\u00A0000.01 of late claims.');
     expect((err as Error).message).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}|SELECT|gl_journal/i);
   });
 });
