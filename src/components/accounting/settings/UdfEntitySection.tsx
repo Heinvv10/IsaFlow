@@ -152,7 +152,7 @@ export function EntitySection({ entityType, label }: { entityType: UdfEntityType
                 const isEmpty = slot.fieldLabel.trim().length === 0;
                 return (
                   <div key={n} className="grid grid-cols-12 gap-2 items-center px-1 py-1.5 rounded-lg">
-                    <div className="col-span-1 text-xs text-[var(--ff-text-tertiary)] font-mono">{n}</div>
+                    <div className="col-span-1 text-xs text-[var(--ff-text-tertiary)] font-id">{n}</div>
                     <div className="col-span-4">
                       <input aria-label={`${label} field ${n} label`}
                         type="text"
