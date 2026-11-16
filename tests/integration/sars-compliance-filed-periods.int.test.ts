@@ -6,7 +6,8 @@
  *   - a VAT mark made under one cadence does not mark the other cadence's period ending the same
  *     day, which can be marked on its own, and shows again when the cadence returns;
  *   - a pre-999c row (no period) shows as a mark and Undo removes it;
- *   - a period end outside the year before to the year after this one is 404.
+ *   - a mark's period end must be within a year of this one (404 otherwise); an undo takes any period
+ *     the calendar can draw (a mark three years back can be undone).
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -108,6 +109,31 @@ describe('a pre-999c row (no period)', () => {
 });
 
 describe('the year window', () => {
+  it('a drawn mark three years back can be undone (200)', async () => {
+    const y = Y - 3;
+    const old = (await calendar.call(o, 'GET', undefined, { year: String(y) })).body.data?.events as Ev[];
+    const mar = old.find((e) => e.eventType === 'EMP201_DUE' && e.periodEnd === `${y}-03-31`)!;
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: o.userId })]);
+      await c.query(`INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description, status)
+                     VALUES ($1, 'EMP201_DUE', $2, $3, $4, 'old', 'completed')`, [o.homeCompanyId, mar.dueDate, mar.periodStart, mar.periodEnd]);
+      await c.query('COMMIT');
+    } finally { c.release(); }
+    expect((await filed.call(o, 'DELETE', { eventType: 'EMP201_DUE', periodEnd: `${y}-03-31` })).status).toBe(200);
+    expect((await pool.query('SELECT COUNT(*)::int n FROM sars_compliance_events WHERE company_id = $1 AND period_end = $2',
+      [o.homeCompanyId, `${y}-03-31`])).rows[0].n).toBe(0);
+  });
+
+  it('a mark three years back is 404', async () => {
+    expect((await filed.call(o, 'POST', { eventType: 'EMP201_DUE', periodEnd: `${Y - 3}-04-30` })).status).toBe(404);
+  });
+
+  it('an undo outside every drawable year is 404', async () => {
+    expect((await filed.call(o, 'DELETE', { eventType: 'EMP201_DUE', periodEnd: '1990-03-31' })).status).toBe(404);
+  });
+
   it.each([[Y + 2], [Y - 2]])('a period end in %i is 404 and writes nothing', async (year) => {
     const before = (await pool.query('SELECT COUNT(*)::int n FROM sars_compliance_events WHERE company_id = $1', [o.homeCompanyId])).rows[0].n;
     expect((await filed.call(o, 'POST', { eventType: 'EMP201_DUE', periodEnd: `${year}-01-31` })).status).toBe(404);

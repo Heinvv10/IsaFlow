@@ -8,6 +8,8 @@
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -235,6 +237,26 @@ describe('999c: no role rewrites a mark', () => {
       await c.query('BEGIN');
       await c.query('SET LOCAL ROLE app_service');
       expect(await codeOf(c, "UPDATE sars_compliance_events SET status = 'pending' WHERE id = $1", [rowB])).toBe('42501');
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+});
+
+describe('999c: re-run', () => {
+  const MIGRATION = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999c_sars_compliance_events_filed.sql'), 'utf8');
+  const indexDef = async (q: PoolClient) => String((await q.query(
+    "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_sars_compliance_events_period'")).rows[0]?.indexdef);
+
+  it('a DB that ran the 3-column key gets the 4-column key; a second run keeps it', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('DROP INDEX uq_sars_compliance_events_period');
+      await c.query(`CREATE UNIQUE INDEX uq_sars_compliance_events_period
+                       ON sars_compliance_events (company_id, event_type, period_end) WHERE period_end IS NOT NULL`);
+      await c.query(MIGRATION);
+      expect(await indexDef(c)).toContain('(company_id, event_type, period_start, period_end)');
+      await c.query(MIGRATION);
+      expect(await indexDef(c)).toContain('(company_id, event_type, period_start, period_end)');
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
 });

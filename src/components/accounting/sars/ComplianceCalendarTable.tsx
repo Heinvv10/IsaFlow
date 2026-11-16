@@ -3,7 +3,7 @@
  * filed (POST/DELETE /api/accounting/sars/compliance-filed). A mark is the user's record that the
  * return was filed with SARS, not a check against SARS: it reads "Marked filed", never "Submitted".
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Calendar, CheckCircle2, Undo2 } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -39,6 +39,8 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [reference, setReference] = useState('');
   // One request at a time: every action is disabled while one is in flight.
+  // The ref is the guard (a second click in the same tick sees it at once); the state disables the buttons.
+  const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -47,7 +49,8 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
   const keyOf = (e: CalendarItem) => `${e.eventType}_${e.periodEnd}`;
 
   const send = async (e: CalendarItem, method: 'POST' | 'DELETE') => {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError('');
     try {
@@ -65,6 +68,7 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
       log.warn('ComplianceCalendarTable: mark change failed', { error: err, method }, 'ComplianceCalendarTable');
       setError(apiErrorMessage(err, method === 'POST' ? 'Could not mark this return filed' : 'Could not undo the mark'));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };

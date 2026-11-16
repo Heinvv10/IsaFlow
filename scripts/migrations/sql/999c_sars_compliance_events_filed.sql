@@ -19,6 +19,9 @@
 --     values from defaults and the trigger (a writable stamp gets forged). No UPDATE: a mark is
 --     never edited, only deleted.
 --   - A mark with no session user is refused: there is no one to stamp.
+--   - A mark's company, type, period and stamps never change (BEFORE UPDATE trigger, every role).
+--     That includes NULL -> value on period_start/period_end: a future backfill of the pre-999c
+--     rows must disable trg_sars_compliance_events_frozen inside its own migration.
 --   - The service pool reaches the table through 915's USING (true) mirrors (no code does today).
 --
 -- The trigger functions are SECURITY INVOKER: no app_definer_reviews row (930).
@@ -36,6 +39,8 @@ ALTER TABLE sars_compliance_events ADD COLUMN IF NOT EXISTS sars_reference TEXT
 ALTER TABLE sars_compliance_events ADD COLUMN IF NOT EXISTS filed_by VARCHAR(255);
 ALTER TABLE sars_compliance_events ADD COLUMN IF NOT EXISTS filed_at TIMESTAMPTZ;
 
+-- Dropped first so a DB that ran an earlier, 3-column version of this file gets the 4-column key.
+DROP INDEX IF EXISTS uq_sars_compliance_events_period;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sars_compliance_events_period
   ON sars_compliance_events (company_id, event_type, period_start, period_end) WHERE period_end IS NOT NULL;
 

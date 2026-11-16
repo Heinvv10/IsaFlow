@@ -3,7 +3,7 @@
  * type, period end and the optional reference) and undoes a mark (DELETE); a marked item reads
  * "Marked filed" with who, when and the reference, never "Submitted"; a viewer gets no actions.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const role = { companyRole: 'owner' as string | null };
@@ -91,6 +91,15 @@ describe('ComplianceCalendarTable', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1);
     finish({ ok: true, status: 200 });
     await waitFor(() => expect((undos[1] as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('two synchronous clicks send one request', async () => {
+    apiFetch.mockReturnValue(new Promise(() => {}));
+    render(<ComplianceCalendarTable events={[marked]} onChanged={vi.fn()} />);
+    const undo = screen.getByRole('button', { name: /undo/i });
+    act(() => { undo.click(); undo.click(); });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    expect(apiFetch).toHaveBeenCalledTimes(1);
   });
 
   it('says so when the marks could not be loaded', () => {

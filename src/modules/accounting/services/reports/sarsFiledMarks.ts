@@ -34,15 +34,17 @@ export class NotMarkedFiledError extends Error {
 }
 
 /**
- * The company's calendar item of that type and period end, under its current VAT cycle. Only
- * period ends from the year before to the year after this one (the page's window) are accepted. An
- * item whose period ends in year y is due by 31 Mar y+1 (Dec periods are due in Jan/Feb), so the
- * window for y holds it.
+ * The company's calendar item of that type and period end, under its current VAT cycle. A mark
+ * takes period ends from the year before to the year after this one (`near`); an undo takes any
+ * period the calendar route can draw (years 2000-2100, so period ends from 1999 to 2101). An item
+ * whose period ends in year y is due by 31 Mar y+1 (Dec periods are due in Jan/Feb), so the window
+ * for y holds it.
  */
-async function findItem(companyId: string, eventType: string, periodEnd: string): Promise<ComplianceEvent> {
+async function findItem(companyId: string, eventType: string, periodEnd: string, range: 'near' | 'drawable'): Promise<ComplianceEvent> {
   const y = Number(periodEnd.slice(0, 4));
   const thisYear = new Date().getFullYear();
-  const item = Math.abs(y - thisYear) > 1 ? undefined
+  const inRange = range === 'near' ? Math.abs(y - thisYear) <= 1 : y >= 1999 && y <= 2101;
+  const item = !inRange ? undefined
     : calendarWindow(y, await companyVatCycle(companyId)).find((e) => e.eventType === eventType && e.periodEnd === periodEnd);
   if (!item) throw new CalendarItemNotFoundError(`No ${eventType} item with period end ${periodEnd}`);
   return item;
@@ -52,7 +54,7 @@ export interface FiledMark { id: string; filedAt: string; sarsReference: string 
 
 export async function markFiled(companyId: string, userId: string, input: FiledMarkInput): Promise<FiledMark> {
   await assertNotImpersonating();
-  const item = await findItem(companyId, input.eventType, input.periodEnd);
+  const item = await findItem(companyId, input.eventType, input.periodEnd, 'near');
   const reference = input.sarsReference?.trim() || null;
 
   let rows: DbRow[];
@@ -89,7 +91,7 @@ export async function markFiled(companyId: string, userId: string, input: FiledM
  */
 export async function unmarkFiled(companyId: string, userId: string, input: { eventType: MarkableEventType; periodEnd: string }): Promise<void> {
   await assertNotImpersonating();
-  const item = await findItem(companyId, input.eventType, input.periodEnd);
+  const item = await findItem(companyId, input.eventType, input.periodEnd, 'drawable');
   const rows = (await sql`
     DELETE FROM sars_compliance_events
     WHERE company_id = ${companyId}::UUID AND event_type = ${item.eventType}
