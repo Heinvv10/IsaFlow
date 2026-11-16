@@ -13,7 +13,6 @@ import type { ForecastLine } from '@/modules/accounting/services/cashForecast13/
 import { createItem, deleteItem, deleteOverride, saveOverride, savePayDay, type StoredOverride } from './cash13Client';
 import { useCash13 } from './useCash13';
 import { ForecastGrid, overrideKey } from './ForecastGrid';
-import { inForceLine } from './forecastRows';
 import { Cash13Header, Cash13Runway, OverdueArPanel, WarningsList } from './Cash13Summary';
 import { CellEditor } from './CellEditor';
 import { AddItemForm } from './AddItemForm';
@@ -74,7 +73,7 @@ export function Cash13Tab() {
             )}
           </div>
           {editing && (
-            <CellEditor line={inForceLine(editing.line, forecast.data.lines)} week={editing.week} weeks={forecast.data.weeks}
+            <CellEditor line={editing.line} stored={data.overrides} week={editing.week} weeks={forecast.data.weeks}
               existing={overrides.get(overrideKey(editing.line.key, forecast.data.weeks[editing.week]?.start ?? ''))}
               onClose={() => setEditing(null)}
               onSave={(body) => write(() => saveOverride(body))}

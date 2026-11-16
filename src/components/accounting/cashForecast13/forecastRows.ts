@@ -73,14 +73,3 @@ export function weekLabel(week: Pick<ForecastWeek, 'index' | 'start'>): string {
 export function lowestWeek<W extends Pick<ForecastWeek, 'closingCents'>>(weeks: readonly W[]): W | undefined {
   return weeks.reduce<W | undefined>((low, w) => (low === undefined || w.closingCents < low.closingCents ? w : low), undefined);
 }
-
-/**
- * A source line AS IN FORCE: its weeks plus the deltas of its `override:<key>` line (the engine keeps the
- * source figure and puts every change on that line). What the editor shows as "this week" and moves from.
- */
-export function inForceLine(line: ForecastLine, lines: readonly ForecastLine[]): ForecastLine {
-  const delta = lines.find((l) => l.kind === 'override' && l.key === `override:${line.key}`);
-  if (!delta) return line;
-  const weekly = line.weekly.map((v, w) => v + (delta.weekly[w] ?? 0));
-  return { ...line, weekly, totalCents: weekly.reduce((a, b) => a + b, 0) };
-}

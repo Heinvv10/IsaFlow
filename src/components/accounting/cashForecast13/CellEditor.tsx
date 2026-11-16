@@ -1,25 +1,29 @@
 /**
  * The editor for one cell of the 13-week grid (writers only): Set to / Add / Move to another week, Money in or
- * Money out, an amount typed as a positive figure, and a note. `line` is the line AS IN FORCE (source + earlier
- * changes), so "This week" and what can be moved are what the grid adds up to. The preview states the result
- * before Save. One override per cell: an existing one pre-fills the editor and a save replaces it ("Remove this
- * change" deletes it). One submit at a time; a refusal shows the server's message and keeps the dialog open.
+ * Money out, an amount typed as a positive figure, and a note. One override per cell (the PUT upserts), so a save
+ * REPLACES the cell's stored change: the editor works on the BASE (editorBase.ts: the source line with every
+ * stored change but this cell's own, through the engine's applyOverrides), and the preview is the engine's result
+ * of the draft on that base. A stored change pre-fills the editor ("Remove this change" deletes it). One submit at a time; a refusal shows the server's message and keeps the dialog open.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button, Input, Modal, MoneyField } from '@/components/ui';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 import { formatCents } from '@/lib/money/formatMoney';
+import { editorBase, previewOf, toEngineOverrides, withOverrides } from './editorBase';
 import type { ForecastLine, ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
 import { PHONE_TAP } from '@/components/accounting/formActionBar';
 import {
-  buildOverrideBody, cellSign, draftFromOverride, previewText,
+  buildOverrideBody, cellSign, draftFromOverride,
   type ExistingOverride, type OverrideBody, type OverrideDraft, type OverrideMode,
 } from './overridePayload';
 import { weekLabel } from './forecastRows';
 import { useGuardedSubmit } from './useGuardedSubmit';
 
 export interface CellEditorProps {
+  /** The SOURCE line as the forecast has it (its override deltas are on a separate line). */
   line: ForecastLine;
+  /** Every stored override of the company, in application order. */
+  stored: readonly ExistingOverride[];
   week: number;
   weeks: readonly ForecastWeek[];
   existing: ExistingOverride | undefined;
@@ -38,7 +42,9 @@ const MODES: ReadonlyArray<{ id: OverrideMode; label: string }> = [
 export const EDITOR_FOOTER = 'flex-wrap max-sm:[&>button]:flex-1';
 const RADIO = `flex items-center gap-2 text-sm text-[var(--ff-text-primary)] ${PHONE_TAP}`;
 
-export function CellEditor({ line, week, weeks, existing, onClose, onSave, onRemove }: CellEditorProps) {
+export function CellEditor({ line: source, stored, week, weeks, existing, onClose, onSave, onRemove }: CellEditorProps) {
+  const line = useMemo(() => editorBase(source, stored, week, weeks), [source, stored, week, weeks]);
+  const shownNow = useMemo(() => withOverrides(source, toEngineOverrides(stored, weeks)).weekly[week] ?? 0, [source, stored, week, weeks]);
   const cell = line.weekly[week] ?? 0;
   const [draft, setDraft] = useState<OverrideDraft>(() => (existing
     ? draftFromOverride(existing, line, week, weeks)
@@ -62,14 +68,19 @@ export function CellEditor({ line, week, weeks, existing, onClose, onSave, onRem
   };
 
   const shown = localError ?? error;
-  const preview = previewText(draft, line, week, weeks);
+  const built = buildOverrideBody(draft, line, week, weeks);
+  const preview = built.ok ? previewOf(built.body, line, week, draft.mode === 'move_to' ? draft.targetWeek : null, weeks) : null; // incomplete: nothing to state yet
   const onAmount = (c: number | null, v: { valid: boolean }) => { patch({ amountCents: c }); setAmountValid(v.valid); };
 
   return (
     <Modal open onClose={onClose} title={`${line.label} · ${weekLabel(weeks[week] as ForecastWeek)}`} size="md">
       <Modal.Body className="space-y-4">
-        <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="cell-in-force">This week: {formatCents(cell)}</p>
-        {existing && <p className="text-sm text-[var(--ff-text-primary)]" data-testid="replaces-note">This replaces your earlier change to this week.</p>}
+        <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="cell-in-force">This week: {formatCents(shownNow)}</p>
+        {existing && (
+          <p className="text-sm text-[var(--ff-text-primary)]" data-testid="replaces-note">
+            This replaces your earlier change to this week. Without it the week is {formatCents(cell)}.
+          </p>
+        )}
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-[var(--ff-text-primary)]">Change</legend>
           <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">

@@ -2,11 +2,11 @@
  * The override editor's PUT body (data layer #1509 storeSchemas.OverrideInput). The person types a positive
  * MAGNITUDE and chooses Money in / Money out (default from `cellSign`: the cell, else the line total, else the
  * first non-zero week, else the category); set/add go out SIGNED by that choice. move_to sends a MAGNITUDE (> 0)
- * or null for the whole cell, with a target Monday other than the cell's week. The preview states the result.
+ * or null for the whole cell, with a target Monday other than the cell's week. (The preview: editorBase.test.ts.)
  * A stored override pre-fills the draft (one override per cell: a re-save replaces it).
  */
 import { describe, expect, it } from 'vitest';
-import { buildOverrideBody, cellSign, draftFromOverride, previewText, type OverrideDraft } from '@/components/accounting/cashForecast13/overridePayload';
+import { buildOverrideBody, cellSign, draftFromOverride, type OverrideDraft } from '@/components/accounting/cashForecast13/overridePayload';
 import type { ForecastLine } from '@/modules/accounting/services/cashForecast13/types';
 import { forecastFixture } from './fixture';
 
@@ -93,23 +93,6 @@ describe('buildOverrideBody', () => {
     expect(buildOverrideBody(draft({ ...base, targetWeek: 1 }), ap, 1, f.weeks).ok).toBe(false);
     expect(buildOverrideBody(draft({ ...base, amountCents: 0, targetWeek: 2 }), ap, 1, f.weeks).ok).toBe(false);
     expect(buildOverrideBody(draft({ ...base, targetWeek: 2 }), ap, 6, f.weeks).ok).toBe(false);
-  });
-});
-
-describe('previewText', () => {
-  const sp = (t: string | null) => t?.replace(/\u00a0/g, ' ') ?? null;
-  const sars = custom('sars', { 0: 50_000_00 });
-  it('set: "Week 8 will be −R 20 000.00"', () => {
-    expect(sp(previewText(draft({ direction: -1, amountCents: 20_000_00 }), sars, 7, f.weeks))).toBe('Week 8 will be −R 20 000.00.');
-  });
-  it('add: the figure in force plus the change', () => {
-    expect(sp(previewText(draft({ mode: 'add', direction: 1, amountCents: 1_000_00 }), sars, 0, f.weeks))).toBe('Week 1 will be R 51 000.00.');
-  });
-  it('move: both weeks', () => {
-    expect(sp(previewText(draft({ mode: 'move_to', wholeCell: true, targetWeek: 2 }), sars, 0, f.weeks))).toBe('Week 1 will be R 0.00 and week 3 will be R 50 000.00.');
-  });
-  it('nothing to say until the draft is complete', () => {
-    expect(previewText(draft({ amountCents: null }), sars, 0, f.weeks)).toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 /**
- * Review round 1 of the 13-week page: the editor works on the figure IN FORCE (source + earlier changes), a cell
+ * Review rounds 1-2 of the 13-week page: a re-save previews the engine's own result (the base leaves out the
+ * cell's own stored change, which the save replaces), a cell
  * with a stored change opens on it (a re-save replaces it), a failed items read is said (to viewers too), the
  * pay-day form keeps a half-edit across reloads, notes are a tooltip for everyone, the footer wraps on a phone,
  * and the AI tab keeps its generated forecast across tab switches.
@@ -24,29 +25,66 @@ import { PayDayControl } from '@/components/accounting/cashForecast13/Cash13Inpu
 import { apiFetch } from '@/lib/apiFetch';
 import { answerDefaults, client, ok, role, router } from './setup';
 import { forecastFixture } from './fixture';
+import { toEngineOverrides } from '@/components/accounting/cashForecast13/editorBase';
 
 const f = forecastFixture({ overrides: [] });
 beforeEach(() => { answerDefaults(); vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { cleanup(); });
 const sp = (t: string | null | undefined) => (t ?? '').replace(/ /g, ' ');
 
-describe('the figure in force', () => {
-  beforeEach(() => {
-    client.fetchForecast.mockResolvedValue(ok(forecastFixture({ overrides: [{ lineKey: 'ap:s1', weekIndex: 1, mode: 'move_to', amountCents: null, targetWeek: 4 }] })));
+describe('re-saving a changed week (forecast and store agree, as the route sends them)', () => {
+  const W = (i: number) => f.weeks[i]!.start;
+  type St = { id: string; lineKey: string; weekStart: string; mode: 'set' | 'add' | 'move_to'; amount: number | null; targetWeekStart?: string; note: string | null };
+  function agree(stored: St[]) {
+    client.fetchForecast.mockResolvedValue(ok(forecastFixture({ overrides: toEngineOverrides(stored, f.weeks) })));
+    client.fetchOverrides.mockResolvedValue(ok(stored));
+  }
+  async function open(week: number) {
+    render(<Cash13Tab />);
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^Change Steel Supplies, Week ${week} `) }));
+    return screen.findByRole('dialog');
+  }
+  const preview = () => sp(screen.getByTestId('override-preview').textContent);
+
+  it('a stored add +250.50 previews the engine\'s -7 749.50 and re-saves the same body', async () => {
+    agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'add', amount: 250.5, note: null }]);
+    await open(2);
+    expect(sp(screen.getByTestId('cell-in-force').textContent)).toBe('This week: −R 7 749.50');
+    expect(preview()).toBe('Week 2 will be −R 7 749.50.');
+    fireEvent.click(screen.getByRole('button', { name: 'Save change' }));
+    await waitFor(() => expect(client.saveOverride).toHaveBeenCalledWith({ lineKey: 'ap:s1', weekStart: W(1), mode: 'add', amount: 250.5, note: null }));
   });
 
-  it('a moved-in amount shows in "This week" and can be moved on', async () => {
-    render(<Cash13Tab />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Change Steel Supplies, Week 5/ }));
+  it('a stored partial move of 2 000 previews -6 000 / -2 000', async () => {
+    agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: 2000, targetWeekStart: W(4), note: null }]);
+    await open(2);
+    expect(preview()).toBe('Week 2 will be −R 6 000.00 and week 5 will be −R 2 000.00.');
+  });
+
+  it('a stored whole-week move can be edited: Move is enabled and the save goes through', async () => {
+    agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: null, targetWeekStart: W(4), note: null }]);
+    await open(2);
+    expect(sp(screen.getByTestId('cell-in-force').textContent)).toBe('This week: R 0.00');
+    expect(sp(screen.getByTestId('replaces-note').textContent)).toContain('Without it the week is −R 8 000.00');
+    expect((screen.getByLabelText('Move to another week') as HTMLInputElement).disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText('Move to'), { target: { value: '6' } });
+    expect(preview()).toBe('Week 2 will be R 0.00 and week 7 will be −R 8 000.00.');
+    fireEvent.click(screen.getByRole('button', { name: 'Save change' }));
+    await waitFor(() => expect(client.saveOverride).toHaveBeenCalledWith(expect.objectContaining({ mode: 'move_to', amount: null, targetWeekStart: W(6) })));
+  });
+
+  it('a stored set -6 000 previews -6 000', async () => {
+    agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'set', amount: -6000, note: null }]);
+    await open(2);
+    expect(preview()).toBe('Week 2 will be −R 6 000.00.');
+  });
+
+  it('money moved in by another cell\'s change is in this week and can be moved on', async () => {
+    agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: null, targetWeekStart: W(4), note: null }]);
+    await open(5);
     expect(sp(screen.getByTestId('cell-in-force').textContent)).toBe('This week: −R 8 000.00');
     expect((screen.getByLabelText('Move to another week') as HTMLInputElement).disabled).toBe(false);
-  });
-
-  it('a cell moved out reads 0 and has nothing to move', async () => {
-    render(<Cash13Tab />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Change Steel Supplies, Week 2/ }));
-    expect(sp(screen.getByTestId('cell-in-force').textContent)).toBe('This week: R 0.00');
-    expect((screen.getByLabelText('Move to another week') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByTestId('replaces-note')).toBeNull();
   });
 });
 

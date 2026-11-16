@@ -5,11 +5,12 @@
  * The person types a positive MAGNITUDE and chooses Money in or Money out; set/add go out SIGNED by that choice
  * (the data layer stores them signed). The choice defaults to `cellSign`: the cell's sign when it holds money,
  * else the line total's, else the first non-zero week's, else the category's (receipts in, the rest out). The
- * preview says what the week will be before Save, so a payment can never quietly become a receipt.
+ * editor previews the result before Save (editorBase.ts, the engine's arithmetic), so a payment can never quietly
+ * become a receipt.
  * move_to sends a MAGNITUDE (> 0), or null for the whole cell, and the target Monday; the engine moves it in the
- * cell's sign and never past what the cell holds. `line` is the line AS IN FORCE (source + earlier changes).
+ * cell's sign and never past what the cell holds. `line` is the editor's BASE (editorBase.ts): the source with
+ * every stored change except this cell's own, which a save replaces.
  */
-import { formatCents } from '@/lib/money/formatMoney';
 import type { ForecastLine, ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
 
 export type OverrideMode = 'set' | 'add' | 'move_to';
@@ -84,24 +85,6 @@ export function buildOverrideBody(draft: OverrideDraft, line: ForecastLine, week
   if (draft.amountCents === null) return { ok: false, message: 'Enter an amount.' };
   if (draft.mode === 'add' && draft.amountCents === 0) return { ok: false, message: 'Enter an amount to add, other than 0.' };
   return { ok: true, body: { ...base, mode: draft.mode, amount: toRand(draft.direction * draft.amountCents) } };
-}
-
-/** "Week 8 will be −R 20 000.00." for a complete draft (what the engine will do), else null. */
-export function previewText(draft: OverrideDraft, line: ForecastLine, week: number, weeks: readonly ForecastWeek[]): string | null {
-  const built = buildOverrideBody(draft, line, week, weeks);
-  return built.ok ? describe(draft, built.body, line, week) : null; // an incomplete draft has nothing to state yet
-}
-
-function describe(draft: OverrideDraft, body: OverrideBody, line: ForecastLine, week: number): string {
-  const cell = line.weekly[week] ?? 0;
-  const amountCents = body.amount === null ? null : Math.round(body.amount * 100);
-  if (draft.mode === 'move_to') {
-    const t = draft.targetWeek as number;
-    const moved = amountCents === null ? cell : Math.sign(cell) * Math.min(amountCents, Math.abs(cell));
-    return `Week ${week + 1} will be ${formatCents(cell - moved)} and week ${t + 1} will be ${formatCents((line.weekly[t] ?? 0) + moved)}.`;
-  }
-  const result = draft.mode === 'set' ? (amountCents as number) : cell + (amountCents as number);
-  return `Week ${week + 1} will be ${formatCents(result)}.`;
 }
 
 /** The stored override as a draft, so a re-save (which replaces it) starts from what is stored. */
