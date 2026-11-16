@@ -202,7 +202,7 @@ export async function markSubmitted(companyId: string,
         submission_reference = ${reference},
         submitted_at = NOW(),
         -- Who recorded the filing (the calendar names them), not whoever last saved the draft.
-        submitted_by = ${actorUserId}::UUID,
+        submitted_by = ${actorUserId},
         updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     RETURNING *

@@ -53,7 +53,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}core/payRunApproverGuard.ts`]: {
     78: 'id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];',
     82: '`SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,',
-    83: "array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], '{}'::TEXT[]), NULL) AS authors",
+    83: 'array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], \'{}\'::TEXT[]), NULL) AS authors',
     109: 'const requester = request.requested_by.toLowerCase();',
   },
   [`${S}gl/approvalDocuments.ts`]: { 167: 'AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL' },
@@ -64,14 +64,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollApprovalService.ts`]: { 149: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
-  [`${S}payroll/payrollRunDirectiveClaim.ts`]: {
-    177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by',
-  },
+  [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 91: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
   [`${S}payroll/payrollRunLock.ts`]: { 223: 'prepared_by     = ${preparedBy},' },
   [`${S}payroll/payrollRunReopen.ts`]: { 76: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
-  [`${S}payroll/payrollRunHeaders.ts`]: {
-    91: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end',
-  },
   [`${S}payroll/taxDirectiveApprover.ts`]: {
     32: 'SELECT requested_by::text AS requested_by, approvers_at_create FROM tax_directives WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid',
     34: 'const creator = row?.requested_by == null ? null : String(row.requested_by).toLowerCase();',
@@ -90,9 +86,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     264: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
-    44: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
-    116: 'submitted_by = ${userId}, updated_at = NOW()',
-    120: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    47: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
+    121: 'submitted_by = ${userId}, updated_at = NOW()',
+    125: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    205: 'submitted_by = ${actorUserId},',
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     81: 'submitted_by = ${userId},',
@@ -100,10 +97,14 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     217: '(company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)',
     253: '(company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)',
   },
-  [`${S}reports/taxDirectiveReportsService.ts`]: { 33: 'requested_by: string | null;', 34: 'approved_by: string | null;' },
+  [`${S}reports/sarsSubmissionCoverage.ts`]: { 93: 'public.approval_company_member_name(company_id, submitted_by::TEXT) AS submitted_by_name' },
+  [`${S}reports/taxDirectiveReportsService.ts`]: {
+    33: 'requested_by: string | null;',
+    34: 'approved_by: string | null;',
+  },
   [`${S}reports/vatSubmissionService.ts`]: {
-    149: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
-    330: 'sars_reference, submitted_by, journal_entry_id',
+    150: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
+    331: 'sars_reference, submitted_by, journal_entry_id',
   },
 };
 
@@ -116,18 +117,18 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 229: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
-    121: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
+    126: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 340: '${safeUserId}::UUID,' },
+  [`${S}reports/vatSubmissionService.ts`]: { 341: '${safeUserId}::UUID,' },
 };
 
 /** file:line -> why an actor value is still cast to uuid there. */
 const UUID_CAST_EXEMPT: Readonly<Record<string, string>> = {
-  [`${S}reports/vatSubmissionService.ts:340`]:
+  [`${S}reports/vatSubmissionService.ts:341`]:
     'vat_returns.submitted_by takes resolveUserUuid(userId), always UUID-shaped, so the cast cannot fail; after HYb a uuid '
     + 'value assigns to the TEXT column. The file is VR\'s (wave-6 spec section 3); VR binds the user id as text.',
 };
