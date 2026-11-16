@@ -20,8 +20,13 @@ import { getAutoPostSettings, type AutoPostSettings } from './autoPostSettingsSe
 import { feedStateOf } from './bankFeedStateGuard';
 import { screenCandidates, type ExcludedCounts, type NeedsAttention } from './bankBulkAcceptEligibility';
 
-/** The most lines one confirm posts. A request is one transaction; this keeps it (and its locks) short. */
-export const BULK_ACCEPT_MAX_LINES = 100;
+/**
+ * The most lines one confirm posts. A request is one transaction and holds the company's journal-number lock from its first
+ * post to its commit, so every other poster waits for it: measured on a loaded box, 25 lines hold it ~0.9 s, 50 ~1.2 s,
+ * 100 ~3.1-3.5 s (superlinear), and three 100-line confirms on one company took 3.2 / 7.3 / 14.1 s. 25 keeps the hold
+ * short; the preview lists the first page and the person confirms again for the rest.
+ */
+export const BULK_ACCEPT_MAX_LINES = 25;
 /** A person may ask for more caution than the company's auto-post floor, never less than this. */
 export const BULK_ACCEPT_MIN_CONFIDENCE_FLOOR = 0.8;
 /** The preview reads candidates PAGE at a time (by id) until it has enough postable lines or has read SCAN_CAP rows. */
@@ -58,6 +63,8 @@ export interface BulkAcceptPreview {
   truncated: boolean;
   /** How many postable lines were found: a LOWER BOUND when `truncated` or `scanTruncated` (the scan stops early). */
   totalEligibleAtLeast: number;
+  /** Pass as `scanAfter` to a new preview to read on past the rows this one scanned; null when the scan reached the end. */
+  nextScanAfter: string | null;
   /** The scan stopped at its row cap with candidates unread: there may be more postable lines than shown or counted. */
   scanTruncated: boolean;
   /** Lines that would be held, not posted: another member must allocate them, or a manual-journal rule needs approval. */
@@ -106,14 +113,14 @@ export function resolveMinConfidence(base: AutoPostSettings, requested: number |
 
 const money = (n: number) => Math.round(n * 100) / 100;
 
-export async function previewBulkAccept(companyId: string, userId: string, bankAccountId: string, requested?: number): Promise<BulkAcceptPreview> {
+export async function previewBulkAccept(companyId: string, userId: string, bankAccountId: string, requested?: number, scanAfter?: string): Promise<BulkAcceptPreview> {
   const base = await getAutoPostSettings(companyId);
   const minConfidence = resolveMinConfidence(base, requested);
   const settings = bulkAcceptSettings(base, minConfidence);
   const postable: Awaited<ReturnType<typeof screenCandidates>>['postable'] = [];
   const needsAttention: NeedsAttention[] = [];
   const excluded: ExcludedCounts = { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, noPeriod: 0, vatLocked: 0, vatCode: 0 };
-  let after = '00000000-0000-0000-0000-000000000000';
+  let after = scanAfter ?? '00000000-0000-0000-0000-000000000000';
   let scanned = 0;
   let exhausted = false;
   // Every predicate that can be written in SQL is, so a run of ineligible rows cannot hide eligible ones behind a LIMIT;
@@ -161,6 +168,7 @@ export async function previewBulkAccept(companyId: string, userId: string, bankA
   return {
     bankAccountId, minConfidence, lines, totalIn, totalOut, byAccount: [...groups.values()],
     truncated: eligible.length > chosen.length, totalEligibleAtLeast: eligible.length, scanTruncated,
+    nextScanAfter: scanTruncated ? after : null,
     needsAttention: needsAttention.slice(0, BULK_ACCEPT_HELD_CAP), needsAttentionCount: needsAttention.length, excluded, previewToken: writePreviewToken(token),
   };
 }

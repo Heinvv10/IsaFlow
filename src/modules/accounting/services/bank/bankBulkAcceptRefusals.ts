@@ -20,6 +20,8 @@ import { RowLockTimeoutError } from '../core/rowLockBudget';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '../gl/journalEntryPostingGuards';
 import { VatPeriodLockedError, VatLockTimeoutError } from '../gl/journalVatLockGuard';
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
+import { JournalDimensionValidationError } from '../gl/journalCostCentreValidation';
+import { DocumentNumberLockTimeoutError } from '../core/companySettingsService';
 import { ApprovalRequiredError } from '../gl/approvalGate';
 
 /** A line refused by the bulk accept's own checks (changed since the preview, no longer eligible, ...). */
@@ -27,12 +29,15 @@ export class LineRefused extends Error {}
 
 export const GENERIC_REFUSAL = 'could not post (internal error)';
 
+/** The company's journal-number sequence is held by another request (a long batch): not this line's lock. */
+export const LEDGER_BUSY = 'the ledger is busy posting another batch - retry in a moment';
+
 type Ctor = abstract new (...args: never[]) => Error;
 
 /** Typed refusals whose message was written for the person, each raised before the line's first write. Subclasses are covered. */
 export const PASS_THROUGH: readonly Ctor[] = [
   BankAllocationRefusal, BankTransactionNotPostedError, ReconciledCashError, ReconciliationCompletedError,
-  ClosedFiscalPeriodError, InactiveAccountError, VatPeriodLockedError, DimensionRefusal,
+  ClosedFiscalPeriodError, InactiveAccountError, VatPeriodLockedError, DimensionRefusal, JournalDimensionValidationError,
 ];
 /** Held rows: the line is busy, retry. */
 export const BUSY: readonly Ctor[] = [BankTransactionLockTimeoutError, RowLockTimeoutError, VatLockTimeoutError];
@@ -45,12 +50,15 @@ export const NOT_REFUSALS: readonly string[] = ['LateClaimCompanionReversalError
 const isA = (err: unknown, list: readonly Ctor[]): boolean => list.some((C) => err instanceof C);
 
 /** Whether `refusalReason` reads this as a typed refusal (so the caller logs it below error level). */
-export const isTypedRefusal = (err: unknown): boolean => err instanceof LineRefused || isA(err, BUSY) || isLockContention(err)
+export const isTypedRefusal = (err: unknown): boolean => err instanceof LineRefused || err instanceof DocumentNumberLockTimeoutError || isA(err, BUSY) || isLockContention(err)
   || isA(err, PASS_THROUGH) || isA(err, LABELLED);
 
 export function refusalReason(err: unknown): string {
   if (err instanceof LineRefused) return err.message;
-  if (isLockContention(err) || isA(err, BUSY)) return 'busy - retry (another request holds this line)';
+  // The lines are all locked up front, so a held-row timeout (the typed ones) is a line or VAT row, and a raw lock timeout
+  // out of the post is the journal-number sequence (the trigger's 5 s advisory wait) or a deadlock: the ledger is busy.
+  if (isA(err, BUSY)) return 'busy - retry (another request holds this line)';
+  if (err instanceof DocumentNumberLockTimeoutError || isLockContention(err)) return LEDGER_BUSY;
   if (!(err instanceof Error)) return GENERIC_REFUSAL;
   const code = (err as { code?: unknown }).code;
   if (code === 'IMPORTER_MAY_NOT_ALLOCATE') return `needs a colleague: ${err.message}`;

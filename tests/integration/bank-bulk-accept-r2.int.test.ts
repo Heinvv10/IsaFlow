@@ -93,6 +93,21 @@ describe('H1: the line\'s saved dimensions post', () => {
   });
 });
 
+describe('R2-1: a database error under the dimension check is not echoed', () => {
+  it('a non-validation failure reads as the generic text, with none of its message', async () => {
+    const f = await fixture();
+    const cc1 = (await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'ERR-CC','Err','cc1') RETURNING id", [f.c])).rows[0].id;
+    await suggested(f, { dims: { cc1_id: cc1 } });
+    const token = (await previewOf(f)).previewToken;
+    faults.afterSql = /FROM cost_centres[\s\S]*FOR SHARE/;
+    const out = dataOf<Confirmed>(await confirm(f, token));
+    expect(faults.fired).toHaveLength(1);
+    expect(out.posted).toHaveLength(0);
+    expect(out.refused).toEqual([{ txId: expect.any(String), reason: 'could not post (internal error)' }]);
+    expect(JSON.stringify(out)).not.toMatch(/injected fault/);
+  });
+});
+
 describe('M1: the floor is the server\'s', () => {
   it('a forged t=0 does not post a 0.5-confidence line; t=1e999 is a 400; the run stores the resolved floor', async () => {
     const f = await fixture();

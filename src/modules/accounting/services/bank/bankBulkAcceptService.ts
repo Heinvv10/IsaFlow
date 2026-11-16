@@ -32,7 +32,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { refusalReason, isTypedRefusal, LineRefused } from './bankBulkAcceptRefusals';
+import { refusalReason, isTypedRefusal, LineRefused, LEDGER_BUSY } from './bankBulkAcceptRefusals';
 import { accountsBelongToCompany } from '../gl/chartOfAccountsService';
 import { assertJournalAnalysisDimensions } from '../gl/journalCostCentreValidation';
 import { allocateTransaction } from './bankAllocationService';
@@ -78,10 +78,15 @@ export async function confirmBulkAccept(
   const result: BulkAcceptResult = { runId: null, posted: [], refused: [], totalPosted: 0 };
   let runId: string | null = null;
   let totalCents = 0;
+  let ledgerBusy = false; // the journal-number sequence timed out once: the rest would wait just as long
   const { busy, stamped } = await lockLinesUpFront(companyId, lines.map((l) => l.i));
 
   for (const line of lines) {
     const runBefore: string | null = runId;
+    if (ledgerBusy) {
+      result.refused.push({ txId: line.i, reason: LEDGER_BUSY });
+      continue;
+    }
     if (stamped.has(line.i.toLowerCase())) {
       // A reconciliation session took the line after the preview: refused without taking its lock (no wait).
       result.refused.push({ txId: line.i, reason: 'the line changed since the preview (a reconciliation now holds it)' });
@@ -110,9 +115,9 @@ export async function confirmBulkAccept(
         // createJournalEntry's plain Errors for "your data" (an inactive cost centre, an account of another company) are
         // asked first, with the writer's own checks, so they read as the refusals they are.
         if (!(await accountsBelongToCompany(companyId, [line.g]))) throw new LineRefused('One or more journal lines name a GL account outside this company');
-        try {
-          await assertJournalAnalysisDimensions(companyId, [{ cc1Id: dim(row!.cc1_id), cc2Id: dim(row!.cc2_id), buId: dim(row!.bu_id) }]);
-        } catch (e) { throw new LineRefused(e instanceof Error ? e.message : 'A cost centre or business unit on the line cannot be used'); }
+        // A validation failure is a typed JournalDimensionValidationError (passed through as its own text); a database error
+        // is not, and reads as the generic fault with an error-level log.
+        await assertJournalAnalysisDimensions(companyId, [{ cc1Id: dim(row!.cc1_id), cc2Id: dim(row!.cc2_id), buId: dim(row!.bu_id) }]);
         const allocated = await allocateTransaction(companyId, line.i, line.g, userId,
           row!.description == null ? undefined : String(row!.description), 'account', undefined, vat,
           dim(row!.cc1_id), dim(row!.cc2_id), dim(row!.bu_id));
@@ -129,6 +134,7 @@ export async function confirmBulkAccept(
       totalCents += posted.cents;
       result.posted.push({ txId: line.i, journalEntryId: posted.journalEntryId });
     } catch (err) {
+      if (refusalReason(err) === LEDGER_BUSY) ledgerBusy = true;
       runId = runBefore; // the savepoint took the run row back if this line minted it
       const reason = refusalReason(err);
       // A typed refusal is the caller's to fix (info); only an untyped error is a fault worth an error line.

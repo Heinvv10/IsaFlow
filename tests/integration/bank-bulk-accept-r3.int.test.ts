@@ -279,6 +279,52 @@ describe('R2-1: a refusal the person can fix reads as itself, not as an internal
   });
 });
 
+describe('journal-number lock and the scan cursor', () => {
+  it('a long batch holding the journal-number sequence reads as "the ledger is busy", not as a held line, and the confirm gives up after one wait', async () => {
+    const f = await fixture();
+    for (let i = 0; i < 3; i += 1) await suggested(f, { amount: -10 - i });
+    const token = (await previewOf(f)).previewToken;
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || 2026, 857))", [f.c]); // the trigger's number lock
+      const t0 = Date.now();
+      const out = await confirmed(f, token);
+      expect(Date.now() - t0).toBeLessThan(9_000); // one 5 s wait, not three
+      expect(out.posted).toHaveLength(0);
+      expect(out.refused.map((r) => r.reason)).toEqual(Array(3).fill('the ledger is busy posting another batch - retry in a moment'));
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(await journals(f.c)).toBe(0);
+  }, 30_000);
+
+  it('a confirm posts at most 25 lines, so the number lock is held briefly', async () => {
+    const f = await fixture();
+    for (let i = 0; i < 30; i += 1) await suggested(f, { amount: -10 - i });
+    const p = await previewOf(f);
+    expect(p.lines).toHaveLength(25);
+    expect(p.truncated).toBe(true);
+    expect((await confirmed(f, p.previewToken)).posted).toHaveLength(25);
+    expect((await previewOf(f)).lines).toHaveLength(5); // the rest, on the next preview
+  });
+
+  it('F5: past a scan cap, the cursor reads on: 2 100 unpostable lines at the lowest ids, then 3 eligible', async () => {
+    const f = await fixture();
+    await pool.query(
+      `INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy)
+       SELECT ('33333333-3333-4333-8333-' || lpad(g::TEXT, 12, '0'))::UUID, $1, $2, DATE '2005-05-01', -1, 'BULK3 filler', 'imported', $3, 0.97, 'history' FROM generate_series(1, 2100) g`, [f.c, f.bank, f.expA]);
+    for (let i = 1; i <= 3; i += 1) await suggested(f, { id: `fdfdfdfd-fdfd-4dfd-8dfd-00000000000${i}`, amount: -10 - i });
+    const first = dataOf<Prev & { nextScanAfter: string | null }>(await get(f, {}));
+    expect(first.lines).toHaveLength(0);
+    expect(first.scanTruncated).toBe(true);
+    expect(first.nextScanAfter).not.toBeNull();
+    const second = dataOf<Prev & { nextScanAfter: string | null }>(await get(f, { scanAfter: first.nextScanAfter! }));
+    expect(second.lines).toHaveLength(3);
+    expect(second.scanTruncated).toBe(false);
+    expect(second.nextScanAfter).toBeNull();
+    expect((await get(f, { scanAfter: 'nope' })).state.statusCode).toBe(400);
+  }, 60_000);
+});
+
 describe('warnings', () => {
   it('W2: the token pins the amount and the date: a token whose amount no longer matches is refused', async () => {
     const f = await fixture();

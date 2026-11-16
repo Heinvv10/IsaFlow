@@ -2,6 +2,18 @@ import { sql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import type { JournalLineInput } from '../../types/gl.types';
 
+/**
+ * A CC1 / CC2 / business-unit assignment the writer refuses (inactive, wrong slot, not this company's, not a UUID): a
+ * typed validation error, so a caller can show its message and treat every OTHER failure (a database error) as a fault.
+ * Still an `Error` with the same message as before for every existing caller.
+ */
+export class JournalDimensionValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JournalDimensionValidationError';
+  }
+}
+
 export type DimensionAssignmentMode = 'new-assignment' | 'historical-copy';
 
 type AnalysisDimensions = Pick<JournalLineInput, 'cc1Id' | 'cc2Id' | 'buId'>;
@@ -15,7 +27,7 @@ const suppliedIds = (
   const ids: string[] = [];
   for (const value of values) {
     if (value === undefined || value === null || value === '') continue;
-    if (typeof value !== 'string' || !UUID_RE.test(value)) throw new Error(message);
+    if (typeof value !== 'string' || !UUID_RE.test(value)) throw new JournalDimensionValidationError(message);
     ids.push(value.toLowerCase());
   }
   return [...new Set(ids)];
@@ -53,8 +65,8 @@ export async function assertJournalAnalysisDimensions(
     const row = costCentres.get(id);
     return row?.cc_type === type && (mode === 'historical-copy' || row.is_active === true);
   };
-  if (cc1Ids.some((id) => !assignable(id, 'cc1'))) throw new Error(cc1Message);
-  if (cc2Ids.some((id) => !assignable(id, 'cc2'))) throw new Error(cc2Message);
+  if (cc1Ids.some((id) => !assignable(id, 'cc1'))) throw new JournalDimensionValidationError(cc1Message);
+  if (cc2Ids.some((id) => !assignable(id, 'cc2'))) throw new JournalDimensionValidationError(cc2Message);
 
   if (buIds.length > 0) {
     const rows = (await sql`
@@ -66,6 +78,6 @@ export async function assertJournalAnalysisDimensions(
     if (buIds.some((id) => {
       const row = businessUnits.get(id);
       return row === undefined || (mode === 'new-assignment' && row.is_active !== true);
-    })) throw new Error(buMessage);
+    })) throw new JournalDimensionValidationError(buMessage);
   }
 }

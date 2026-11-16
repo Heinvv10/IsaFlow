@@ -16,7 +16,7 @@ const ALLOCATION_PATH = [
   'bank/bankAllocationService.ts', 'bank/bankAllocationArms.ts', 'bank/bankAllocationPlan.ts', 'bank/bankAllocationDocuments.ts',
   'bank/bankAllocationDimensions.ts', 'bank/bankFeedStateGuard.ts', 'bank/reconciledCash.ts', 'bank/bankLineJournalGate.ts',
   'bank/bankLineImporterGate.ts', 'bank/contactControlGuard.ts', 'bank/bankTxLock.ts', 'bank/reconciliationSessionLock.ts',
-  'gl/journalEntryCrudService.ts', 'gl/journalEntryPostService.ts', 'gl/journalEntryPostingGuards.ts',
+  'gl/journalEntryCrudService.ts', 'gl/journalCostCentreValidation.ts', 'core/companySettingsService.ts', 'gl/journalEntryPostService.ts', 'gl/journalEntryPostingGuards.ts',
   'gl/journalVatLockGuard.ts', 'gl/vatLateClaimPlan.ts', 'gl/vatLateClaimSplit.ts', 'gl/approvalGate.ts', 'gl/manualJournalApproval.ts',
   'gl/dimensions/costCentrePick.ts', 'gl/dimensions/dimensionPolicy.ts', 'gl/dimensions/dimensionDefaultsService.ts',
   'core/rowLockBudget.ts', 'gl/fiscalPeriodAutoCreate.ts',

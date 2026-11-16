@@ -65,7 +65,7 @@ describe('preview', () => {
     expect(data.byAccount.map((g) => [g.glAccountId, g.count]).sort()).toEqual([[f.expA, 2], [f.expB, 1]].sort());
   });
 
-  it('refuses another company\'s bank account, a missing one, and a viewer; caps a preview at 100 lines', async () => {
+  it('refuses another company\'s bank account, a missing one, and a viewer; caps a preview at 25 lines', async () => {
     const f = await fixture();
     const g = await fixture();
     expect((await preview(f, { bankAccountId: g.bank })).state.statusCode).toBe(400);
@@ -73,9 +73,9 @@ describe('preview', () => {
     expect((await post(f, { action: 'confirm', previewToken: tokenOf(await preview(f)) }, viewer)).state.statusCode).toBe(403);
     await pool.query(
       `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy)
-       SELECT $1,$2,DATE '2026-09-01',-1,'BULK many','imported',$3,0.97,'history' FROM generate_series(1,101)`, [f.c, f.bank, f.expA]);
+       SELECT $1,$2,DATE '2026-09-01',-1,'BULK many','imported',$3,0.97,'history' FROM generate_series(1,26)`, [f.c, f.bank, f.expA]);
     const data = dataOf<{ lines: unknown[]; truncated: boolean; totalEligibleAtLeast: number }>(await preview(f));
-    expect({ n: data.lines.length, truncated: data.truncated, eligible: data.totalEligibleAtLeast }).toEqual({ n: 100, truncated: true, eligible: 101 });
+    expect({ n: data.lines.length, truncated: data.truncated, eligible: data.totalEligibleAtLeast }).toEqual({ n: 25, truncated: true, eligible: 26 });
   });
 });
 
@@ -139,7 +139,7 @@ describe('confirm', () => {
     const res = await confirm(f, forged); // names a line that does not exist: refused as a row, nothing posted
     expect(dataOf<Confirmed>(res).posted).toHaveLength(0);
     const many = Buffer.from(JSON.stringify({ v: 1, a: f.bank, t: 0.9,
-      l: Array.from({ length: 101 }, () => ({ i: crypto.randomUUID(), g: f.expA, x: null, s: 'x', m: -1, d: '2026-09-01' })) })).toString('base64url');
+      l: Array.from({ length: 26 }, () => ({ i: crypto.randomUUID(), g: f.expA, x: null, s: 'x', m: -1, d: '2026-09-01' })) })).toString('base64url');
     expect((await confirm(f, many)).state.statusCode).toBe(400);
     expect(await journals(f.c)).toBe(0);
   });
