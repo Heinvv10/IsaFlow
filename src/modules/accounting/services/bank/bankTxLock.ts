@@ -86,6 +86,8 @@ export function isBankTransactionLockTimeout(err: unknown): err is BankTransacti
 export async function lockBankTransactionForUpdate(
   companyId: string,
   bankTxId: string,
+  /** A TIGHTER wait than the 5 s default, in ms (≥ 1): a multi-line pre-lock spending one total budget (transferSweepPrelock). */
+  opts: { lockTimeoutMs?: number } = {},
 ): Promise<DbRow | null> {
   const client = als.getStore()?.client;
   if (!client) {
@@ -106,7 +108,8 @@ export async function lockBankTransactionForUpdate(
   // reached, handing the caller the opaque error the check exists to replace.
   assertTxUsable();
   const previousLockTimeout = await currentLockTimeout(client);
-  await client.query("SET LOCAL lock_timeout = '5s'");
+  if (opts.lockTimeoutMs === undefined) await client.query("SET LOCAL lock_timeout = '5s'");
+  else await client.query("SELECT set_config('lock_timeout', $1, true)", [`${Math.min(5000, Math.max(1, Math.floor(opts.lockTimeoutMs)))}ms`]);
   let failure: unknown = null;
   try {
     // D12: the session the line is stamped with, FOR SHARE, BEFORE the line — session row -> bank line is the lock

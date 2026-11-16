@@ -14,7 +14,9 @@ import { Pool } from 'pg';
 import { bulkAllocateBankTransactionsTool } from '../../src/lib/mcp/tools/writeBankBulkAllocate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
-import { actionRoute, bankCompany, cleanupBankControlsA, mcpCaller, plantLine, type BankCompany } from './bank-controls-a.helpers';
+import { actionRoute, asToken, bankCompany, cleanupBankControlsA, mcpCaller, plantLine, type BankCompany } from './bank-controls-a.helpers';
+import { applyRules } from '../../src/modules/accounting/services/bank/bankRulesMatchingService';
+import { transferPairKey } from '../../src/modules/accounting/services/bank/transferPairLock';
 import { callRoute } from './r035-approval.helpers';
 import bankRulesAction from '../../pages/api/accounting/bank-rules-action';
 import type { NextApiResponse } from 'next';
@@ -166,5 +168,47 @@ describe('the rule sweep and the confidence gate take every pair lock before the
     expect((xRes.state.body as { data: { posted: number; skipped: unknown[] } }).data).toMatchObject({ posted: 2, skipped: [] });
     expect(await transferJournals()).toBe(before + 3);
     expect(await deadlocks() - dl0, 'the database broke a deadlock (40P01)').toBe(0);
+  }, 60000);
+});
+
+/** From ANOTHER connection: is the pair free right now? (try-lock in its own transaction, released at once). */
+const pairFree = async (x: string, y: string) => (await pool.query(
+  'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS free', [transferPairKey(f.c, x, y)])).rows[0].free as boolean;
+
+describe('a sweep pre-locks only the transfers it will attempt (round 2, M4)', () => {
+  it('a transfer rule that matches no line takes no pair: a person\'s transfer on that pair is not held up', async () => {
+    await pool.query('UPDATE bank_categorisation_rules SET is_active = false WHERE company_id = $1', [f.c]);
+    await pool.query(`INSERT INTO bank_categorisation_rules(company_id, rule_name, match_field, match_type, match_pattern,
+       gl_account_id, auto_create_entry, created_by, priority) VALUES
+       ($1,'M4 expense','description','contains','M4 EXPENSE',$2,true,$4,0),
+       ($1,'M4 to C, matches nothing','description','contains','M4 NOTHING MATCHES',$3,true,$4,1)`, [f.c, f.expA, bankC, user]);
+    await lineOn(crypto.randomUUID(), -611, 'M4 EXPENSE');
+    const seen = await asToken(pool, user, f.c, async () => {
+      const r = await applyRules(f.c, f.bank, user);
+      return { applied: r.applied, acFree: await pairFree(f.bank, bankC) }; // X still open, its locks held
+    }, { session: true });
+    expect(seen).toEqual({ applied: 1, acFree: true });
+    await pool.query('UPDATE bank_categorisation_rules SET is_active = false WHERE company_id = $1', [f.c]);
+  }, 60000);
+
+  it('a transfer rule that matches a line holds its pair until the sweep ends (the control)', async () => {
+    await pool.query(`INSERT INTO bank_categorisation_rules(company_id, rule_name, match_field, match_type, match_pattern,
+       gl_account_id, auto_create_entry, created_by, priority) VALUES ($1,'M4 to C','description','contains','M4 TO C',$2,true,$3,0)`,
+    [f.c, bankC, user]);
+    await lineOn(crypto.randomUUID(), -612, 'M4 TO C');
+    const acFree = await asToken(pool, user, f.c, async () => { await applyRules(f.c, f.bank, user); return pairFree(f.bank, bankC); },
+      { session: true });
+    expect(acFree).toBe(false);
+    await pool.query('UPDATE bank_categorisation_rules SET is_active = false WHERE company_id = $1', [f.c]);
+  }, 60000);
+
+  it('the gate takes no pair for a row evaluate() skips (below the confidence floor)', async () => {
+    const low = await lineOn(crypto.randomUUID(), -613, 'M4 GATE LOW');
+    await pool.query('UPDATE bank_transactions SET suggested_gl_account_id = $2, suggested_confidence = 0.10 WHERE id = $1', [low, bankC]);
+    const seen = await asToken(pool, user, f.c, async () => {
+      const r = await sweep(f.c, [low], 'categorization', user, user);
+      return { posted: r.posted, acFree: await pairFree(f.bank, bankC) };
+    }, { session: true });
+    expect(seen).toEqual({ posted: 0, acFree: true });
   }, 60000);
 });

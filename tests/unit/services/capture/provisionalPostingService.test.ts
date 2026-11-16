@@ -19,6 +19,9 @@ const { sqlMock } = vi.hoisted(() => {
 
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ handKeyedLineJournalRefusal: vi.fn(async () => null) })); // R-035 PR6: proven in r035-pr6-banksweep.int
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, fmtDate: (x: unknown) => String(x) }));
+// WP2 row 5: whether the predicted account is a bank account — mocked by outcome, so no test depends on where the
+// subtype read falls in the SQL order. Not a bank unless a test says so.
+vi.mock('@/modules/accounting/services/bank/bankContraTransfer', () => ({ isBankContra: vi.fn(async () => false) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -38,6 +41,7 @@ import {
   postProvisional,
 } from '@/modules/accounting/services/capture/provisionalPostingService';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { isBankContra } from '@/modules/accounting/services/bank/bankContraTransfer';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -265,13 +269,16 @@ describe('postProvisional', () => {
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never); // valid codes (#1474)
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_subtype: 'bank' }] as never); // the predicted account is a bank
+    vi.mocked(isBankContra).mockResolvedValueOnce(true); // the predicted account is a bank
 
     const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
 
+    // The outcome, not the mock order: asked about the PREDICTED account, skipped, nothing written.
+    expect(vi.mocked(isBankContra)).toHaveBeenCalledWith(COMPANY_ID, GL_ACC_ID);
     expect(result.journalEntryId).toBeNull();
     expect(result.skipped).toMatch(/bank account: a transfer/);
     expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+    expect(vi.mocked(sqlMock).mock.calls.some(([q]) => /UPDATE|INSERT/i.test(String((q as unknown as string[]).join?.('') ?? q)))).toBe(false);
   });
 
   it('creates a journal entry and returns its id on the happy path', async () => {
@@ -283,7 +290,6 @@ describe('postProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     // History → 4 rows → confidence 0.9
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // WP2 row 5: the predicted account is not a bank account
     // UPDATE gl_journal_entries (needs_evidence=true)
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     // UPDATE bank_transactions (status=provisional)
@@ -302,7 +308,6 @@ describe('postProvisional', () => {
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // WP2 row 5: the predicted account is not a bank account
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // UPDATE gl_journal_entries
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // UPDATE bank_transactions
 
@@ -318,7 +323,6 @@ describe('postProvisional', () => {
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // WP2 row 5: the predicted account is not a bank account
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
 
@@ -372,7 +376,6 @@ describe('postProvisional', () => {
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Payroll Services' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // WP2 row 5: the predicted account is not a bank account
     vi.mocked(sqlMock).mockResolvedValueOnce(
       [{ vat_input_denied: false, account_code: '49784360', account_name: 'Salaries & Wages - EX4000' }] as never,
     );
@@ -410,7 +413,6 @@ describe('postProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     // vat_code 'standard' → hasVat path; 4 consistent rows → confidence 0.9
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // WP2 row 5: the predicted account is not a bank account
     // The unattended VAT guard reads the predicted account before the lines
     // are built — twice, once per statute. A real supply name, so it passes
     // the claim through unchanged and the vat_input lookup below still runs.

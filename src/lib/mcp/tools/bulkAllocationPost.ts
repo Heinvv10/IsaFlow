@@ -6,7 +6,7 @@
  * here must reach the registry's savepoint (the only thing that unwinds the
  * journals already posted), so it is RETHROWN rather than returned.
  */
-import { sql, withSavepoint } from '@/lib/neon';
+import { withSavepoint } from '@/lib/neon';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
@@ -14,8 +14,9 @@ import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocation
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
-import { preLockTransferPairs, transferPairKey } from '@/modules/accounting/services/bank/transferPairLock';
+import { preLockSweepTransfers } from '@/modules/accounting/services/bank/transferSweepPrelock';
 import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -173,15 +174,14 @@ export async function postPreparedLines(
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
   // lines is exactly the thing a caller reading only the summary would miss.
   const vatCoerced: CoercedVatLine[] = [];
-  // WP2 row 5: an account line onto a bank account posts as a TRANSFER (allocateTransaction), which takes the pair
-  // lock. Every pair the batch needs is taken here, sorted, before its first journal (transferPairLock); a line whose
-  // pair another request holds is skipped, never attempted — it would wait on the pair holding the number lock.
-  const pairOf = await batchTransferPairs(ctx.companyId, ordered, vatFacts.isBank);
-  const heldPairs = await preLockTransferPairs(ctx.companyId, pairOf.values());
+  // WP2 row 5: an account line onto another bank account posts as a TRANSFER (allocateTransaction). The batch's
+  // transfer lines (id order), then their pairs (sorted), are taken before its first journal — the single path's
+  // line -> pair -> number order (transferSweepPrelock); a line whose line or pair another request holds is skipped.
+  const { transfers, contended } = await preLockSweepTransfers(ctx.companyId, ordered
+    .filter(({ line }) => line.allocType === 'account').map(({ txId, line }) => ({ id: txId, contra: line.contraAccountId })));
 
   for (const { index, txId, line } of ordered) {
-    const pair = pairOf.get(txId);
-    if (pair && heldPairs.has(transferPairKey(ctx.companyId, pair[0], pair[1]))) {
+    if (contended.has(txId)) {
       raced.push({ index, transaction_id: txId, reason: 'locked by another request — retry' });
       continue;
     }
@@ -218,7 +218,13 @@ export async function postPreparedLines(
       // The movement is already in the ledger (the other bank's leg, or a typed transfer): a state of this line,
       // write-free, reported — match it to the existing journal.
       if (err instanceof DuplicateTransferError) {
-        raced.push({ index, transaction_id: txId, reason: 'a matching transfer already exists — match the existing journal' });
+        raced.push({ index, transaction_id: txId, reason: err.message });
+        continue;
+      }
+      // The transfer arm's own pre-write refusals (a bank contra rerouted there): a fact of this line, its savepoint
+      // rolled back — skipped and named, never the whole batch.
+      if (err instanceof BankAllocationRefusal && (transfers.has(txId) || vatFacts.isBank.get(line.contraAccountId) === true)) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }
       const status = racedStatus(err);
@@ -242,26 +248,4 @@ export async function postPreparedLines(
   }
 
   return { lines, raced, vatCoerced };
-}
-
-/**
- * txId -> [the line's bank, the bank contra] for every account line onto a bank account. `isBank` is the VAT
- * prefetch's own subtype read; the lines' banks are one more read, only when a bank contra is in the batch.
- */
-async function batchTransferPairs(
-  companyId: string, ordered: readonly ResolvedLine[], isBank: ReadonlyMap<string, boolean>,
-): Promise<Map<string, [string, string]>> {
-  const out = new Map<string, [string, string]>();
-  const banks = new Set([...isBank].filter(([, bank]) => bank).map(([id]) => id.toLowerCase()));
-  const candidates = ordered.filter(({ line }) => line.allocType === 'account' && line.contraAccountId
-    && banks.has(line.contraAccountId.toLowerCase()));
-  if (candidates.length === 0) return out;
-  const rows = (await sql`SELECT id::TEXT AS id, bank_account_id::TEXT AS bank FROM bank_transactions
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${candidates.map((c) => c.txId)}::UUID[])`) as Array<{ id: string; bank: string }>;
-  const bankOf = new Map(rows.map((r) => [r.id.toLowerCase(), r.bank]));
-  for (const { txId, line } of candidates) {
-    const bank = bankOf.get(txId.toLowerCase());
-    if (bank && bank.toLowerCase() !== line.contraAccountId!.toLowerCase()) out.set(txId, [bank, line.contraAccountId!]);
-  }
-  return out;
 }

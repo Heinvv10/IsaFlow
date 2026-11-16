@@ -19,8 +19,9 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-import { isLockNotAvailable } from '../core/lockContention';
-import { RowLockTimeoutError, restoreLockTimeout } from '../core/rowLockBudget';
+import { isLockContention, isLockNotAvailable } from '../core/lockContention';
+import { isHeldRowError } from '@/lib/lockTimeout';
+import { RowLockTimeoutError, currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 
 /** The key both legs (and the typed transfer) take: company + the two accounts in sorted order. */
 export function transferPairKey(companyId: string, accountA: string, accountB: string): string {
@@ -48,26 +49,48 @@ export async function lockTransferPair(companyId: string, accountA: string, acco
   }
 }
 
+/** A lock wait that ran out (ours, or a raw 55P03), a held row, or a deadlock victim: contended, decided by outcome. */
+export function isContendedLock(err: unknown): boolean {
+  return err instanceof RowLockTimeoutError || isLockContention(err) || isHeldRowError(err);
+}
+
+/** The wait left before `deadline`, ms, never below 1 — past it every lock is tried as good as NOWAIT. */
+export const remainingWaitMs = (deadline: number): number => Math.max(1, deadline - Date.now());
+
 /**
  * Every pair a multi-journal request will post, taken in SORTED key order before its first journal (see the header).
- * Each in its own savepoint, so a pair another request holds past the 5 s budget leaves this request usable: its key
- * comes back in the returned set, and the caller must SKIP every line of that pair (counted as held) — attempting one
- * would wait on the pair while holding the number lock, the cycle this exists to prevent.
+ * ONE total budget for all of them (`deadline`, default 5 s from now — brk-1494 LOW 2: 5 s per held pair, serially,
+ * cost 10 s for two): each waits only what is left, and once it is spent the rest are tried at 1 ms. Each in its own
+ * savepoint, so a pair another request holds (or a deadlock that picks this request as its victim, 40P01) leaves the
+ * request usable: its key comes back in the returned set, and the caller must SKIP every line of that pair (counted
+ * as held) — attempting one would wait on the pair while holding the number lock, the cycle this exists to prevent.
+ * The request's own `lock_timeout` is put back afterwards.
  */
 export async function preLockTransferPairs(
-  companyId: string, pairs: Iterable<readonly [string, string]>,
+  companyId: string, pairs: Iterable<readonly [string, string]>, deadline = Date.now() + 5000,
 ): Promise<Set<string>> {
   const keyed = new Map<string, readonly [string, string]>();
   for (const [a, b] of pairs) if (a.toLowerCase() !== b.toLowerCase()) keyed.set(transferPairKey(companyId, a, b), [a, b]);
   const held = new Set<string>();
-  for (const key of [...keyed.keys()].sort()) {
-    const [a, b] = keyed.get(key)!;
-    try {
-      await withSavepoint('transfer_pair_prelock', () => lockTransferPair(companyId, a, b));
-    } catch (err) {
-      if (!(err instanceof RowLockTimeoutError)) throw err;
-      held.add(key);
+  if (keyed.size === 0) return held;
+  const client = als.getStore()?.client;
+  const previous = client ? await currentLockTimeout(client) : null;
+  try {
+    for (const key of [...keyed.keys()].sort()) {
+      const [a, b] = keyed.get(key)!;
+      try {
+        await withSavepoint('transfer_pair_prelock', async () => {
+          // lockTransferPair keeps a TIGHTER caller value (tighten-only), so this is the wait it gets.
+          if (client) await client.query("SELECT set_config('lock_timeout', $1, true)", [`${remainingWaitMs(deadline)}ms`]);
+          await lockTransferPair(companyId, a, b);
+        });
+      } catch (err) {
+        if (!isContendedLock(err)) throw err; // a 40P01 victim too: the savepoint rolled back, the request goes on
+        held.add(key);
+      }
     }
+  } finally {
+    if (client && previous !== null) await restoreLockTimeout(client, previous);
   }
   return held;
 }

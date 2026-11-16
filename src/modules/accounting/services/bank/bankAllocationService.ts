@@ -44,7 +44,7 @@ type Row = DbRow;
 // The allocation shapes live in bankAllocationTypes.ts; re-exported for every existing import site.
 export type { AllocationType, AllocationApplicationResult, SplitLine } from './bankAllocationTypes';
 import type { AllocationType, AllocationApplicationResult } from './bankAllocationTypes';
-import { isBankContraPlan, refuseOwnBankContra } from './bankContraTransfer';
+import { isBankContra, isBankContraPlan, postsToContraAccount, refuseOwnBankContra } from './bankContraTransfer';
 
 // ── Allocate ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ export async function allocateTransaction(
 
   // WP2 row 5 (Hein): the line's own bank as an account contra posts nothing — refused from the locked row
   // (bankContraTransfer). An account contra that IS a bank account is rerouted below, once the plan has read it.
-  refuseOwnBankContra(requestedAllocType, contraAccountId, String(tx.bank_account_id));
+  refuseOwnBankContra(requestedAllocType, entityId, contraAccountId, String(tx.bank_account_id));
   let allocType = requestedAllocType;
 
   // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
@@ -149,7 +149,10 @@ export async function allocateTransaction(
   let plan = await planFor(allocType);
   // WP2 row 5: an account contra that is a BANK account is a transfer — the duplicate guard, the pair lock and the leg
   // pairing apply (bankContraTransfer). Decided from the contra row the plan just read; a transfer re-plans with no SQL.
-  if (isBankContraPlan(allocType, plan.contraRows)) { allocType = 'transfer'; plan = await planFor(allocType); }
+  // A supplier/customer call naming no contact posts to the contra too (postsToContraAccount); its plan reads no contra
+  // row, so that rare shape asks the subtype itself.
+  if (isBankContraPlan(allocType, plan.contraRows) || (allocType !== 'account' && postsToContraAccount(allocType, entityId)
+    && await isBankContra(companyId, contraAccountId))) { allocType = 'transfer'; plan = await planFor(allocType); }
   const { allocationDims } = plan;
 
   // The journal lines of each arm, with the arm's own pre-write refusals (bankAllocationArms).

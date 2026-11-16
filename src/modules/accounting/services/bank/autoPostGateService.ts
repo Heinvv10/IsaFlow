@@ -22,8 +22,8 @@ import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
 import type { AutoPostSource, SweepResult, SweepWarning } from './autoPostGate';
 import { recordAutoPosted, type AutoPosting } from './codingDecisionLog';
 import { sourceFromStrategy } from './codingDecisionOutcome';
-import { bankAccountsAmong } from './bankContraTransfer';
-import { preLockTransferPairs, transferPairKey } from './transferPairLock';
+import { preLockSweepTransfers } from './transferSweepPrelock';
+import { pairedTransferSkip } from './bankContraTransfer';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -56,7 +56,6 @@ interface SweepRow {
   id: string;
   status: string;
   amount: string | number;
-  bank_account_id: string;
   suggested_gl_account_id: string | null;
   suggested_confidence: string | number | null;
   suggested_vat_code: string | null;
@@ -90,11 +89,11 @@ export async function sweep(
   }
 
   const rows = (await sql`
-    SELECT id, status, amount, bank_account_id::TEXT AS bank_account_id, suggested_gl_account_id, suggested_confidence,
+    SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
            suggested_vat_code, suggested_strategy, description, transaction_date, feed_state
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
-    ORDER BY id -- one lock order for every sweep (the rule sweep's, bankRulesMatchingService): rows, then pairs
+    ORDER BY id -- one lock order for every sweep: its transfer lines and their pairs first (transferSweepPrelock), then rows
   `) as unknown as SweepRow[];
 
   const skipped: Array<{ txId: string; reason: string }> = [];
@@ -130,41 +129,31 @@ export async function sweep(
   }
 
   const isImport = source === 'import';
-  // WP2 row 5: a suggestion onto a BANK account posts as a transfer (allocateTransaction), which takes the pair lock.
-  // Every pair the sweep needs is taken first, sorted, before its first journal; a row whose pair another request
-  // holds is skipped, never attempted (it would wait on the pair holding the number lock — transferPairLock).
-  const pairOf = new Map<string, [string, string]>();
-  if (!isImport) {
-    const banks = await bankAccountsAmong(companyId, postable.map((r) => r.suggested_gl_account_id ?? ''));
-    for (const r of postable) {
-      const contra = r.suggested_gl_account_id;
-      if (contra && banks.has(contra.toLowerCase()) && contra.toLowerCase() !== r.bank_account_id.toLowerCase()) {
-        pairOf.set(r.id, [r.bank_account_id, contra]);
-      }
-    }
-  }
-  const heldPairs = await preLockTransferPairs(companyId, pairOf.values());
+  const decisions = new Map(postable.map((row) => [row.id, evaluate(
+    { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
+    isImport ? null : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null),
+    settings,
+    isImport ? null : (row.suggested_strategy ?? null),
+  )]));
+  // WP2 row 5: a suggestion onto ANOTHER bank account posts as a transfer (allocateTransaction). The rows that will be
+  // attempted take their lines (id order), then their pairs (sorted), before the first journal — the single path's
+  // line -> pair -> number order (transferSweepPrelock); a row whose line or pair another request holds is skipped.
+  const { contended } = isImport ? { contended: new Set<string>() } : await preLockSweepTransfers(companyId,
+    postable.filter((r) => decisions.get(r.id)!.outcome !== 'skip').map((r) => ({ id: r.id, contra: r.suggested_gl_account_id })));
 
   for (const row of postable) {
-    const pair = pairOf.get(row.id);
-    if (pair && heldPairs.has(transferPairKey(companyId, pair[0], pair[1]))) {
+    const decision = decisions.get(row.id)!;
+    if (decision.outcome === 'skip') {
+      skipped.push({ txId: row.id, reason: decision.reason });
+      continue;
+    }
+    if (contended.has(row.id)) {
       skipped.push({ txId: row.id, reason: 'locked by another request — retry' });
       continue;
     }
     const confidence = isImport
       ? null
       : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);
-
-    const decision = evaluate(
-      { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
-      confidence,
-      settings,
-      isImport ? null : (row.suggested_strategy ?? null),
-    );
-    if (decision.outcome === 'skip') {
-      skipped.push({ txId: row.id, reason: decision.reason });
-      continue;
-    }
 
     // One row per savepoint, exactly as the rule sweep does
     // (bankRulesMatchingService). Every request is ONE PostgreSQL transaction
@@ -266,7 +255,9 @@ export async function sweep(
       // orphaned-JE case this used to report can no longer arise. It also took
       // back the `bank_auto_post_runs` row if THIS row minted it.
       runId = runIdBeforeRow;
-      const reason = err instanceof BankControlError ? `approval_required: ${err.message}` : err instanceof Error ? err.message : String(err);
+      // WP2 row 5: the second leg of a transfer this run posted was taken by its auto-link — say which transfer.
+      const reason = err instanceof BankControlError ? `approval_required: ${err.message}`
+        : (await pairedTransferSkip(companyId, row.id, err)) ?? (err instanceof Error ? err.message : String(err));
       log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
       skipped.push({ txId: row.id, reason });
     }

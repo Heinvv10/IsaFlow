@@ -23,6 +23,7 @@ export interface ApplyResultParts {
   autoPostTruncatedRules?: number;
   autoPostSkippedOwnBankContra?: number;
   autoPostSkippedDuplicateTransfer?: number;
+  autoPostSkippedApprovalRequired?: number;
 }
 
 export interface ApplyToast {
@@ -55,6 +56,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const truncated = parts.autoPostTruncatedRules ?? 0;
   const ownBank = parts.autoPostSkippedOwnBankContra ?? 0;
   const duplicate = parts.autoPostSkippedDuplicateTransfer ?? 0;
+  const approval = parts.autoPostSkippedApprovalRequired ?? 0;
   const bits: string[] = [`${applied} categorised`];
   if (skippedClosed > 0) bits.push(`${skippedClosed} skipped (closed period)`);
   if (skippedNoPeriod > 0) bits.push(`${skippedNoPeriod} skipped (no fiscal period)`);
@@ -69,6 +71,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   if (locked > 0) bits.push(`${locked} skipped — locked by another request, retry`);
   if (ownBank > 0) bits.push(`${ownBank} skipped (the rule's account is this bank account itself — point it at the other bank)`);
   if (duplicate > 0) bits.push(`${duplicate} skipped (the transfer is already in the ledger — match the line to it)`);
+  if (approval > 0) bits.push(`${approval} skipped (an approval rule holds it, or you imported the statement — allocate it by hand or have another member run the rules)`);
   if (truncated > 0) bits.push(`${truncated} rule${truncated > 1 ? 's' : ''} hit the 500-transaction cap — run again`);
   const message = bits.join(' · ');
   // Warn when something silently dropped: bank-not-GL-linked is always silent;
@@ -78,9 +81,10 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // which simply means someone else got to the transaction first.
   const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || skippedRefund > 0 || skippedControl > 0 || skippedVatCode > 0
     || noBankGl > 0 || foreign > 0
-    || raced > 0 || locked > 0 || truncated > 0 || ownBank > 0 || duplicate > 0;
-  // A header, control-account, VAT-code, own-bank or foreign-contact skip recurs on every run until the rule is fixed: never a quiet success.
-  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || skippedVatCode > 0 || foreign > 0 || ownBank > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
+    || raced > 0 || locked > 0 || truncated > 0 || ownBank > 0 || duplicate > 0 || approval > 0;
+  // A header, control-account, VAT-code, own-bank, foreign-contact or approval-held skip recurs on every run until it is dealt with: never a quiet success.
+  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || skippedVatCode > 0 || foreign > 0 || ownBank > 0 || approval > 0
+    || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };
 }
 
@@ -123,6 +127,7 @@ export function reportCreated(headline: string, data: Record<string, unknown> | 
     autoPostRulesSkippedForeignContact: n('autoPostRulesSkippedForeignContact'),
     autoPostSkippedOwnBankContra: n('autoPostSkippedOwnBankContra'),
     autoPostSkippedDuplicateTransfer: n('autoPostSkippedDuplicateTransfer'),
+    autoPostSkippedApprovalRequired: n('autoPostSkippedApprovalRequired'),
   };
   const anythingToReport = Object.values(parts).reduce((sum, v) => sum + v, 0);
   if (anythingToReport > 0) emitApplyToast(headline, parts);

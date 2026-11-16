@@ -15,7 +15,7 @@ import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { autoPostRuleTransferLine } from './bankRuleTransferLine';
 import { sweepLineSkip } from './bankRuleSweepSkips';
-import { preLockTransferPairs, transferPairKey } from './transferPairLock';
+import { preLockRuleTransfers } from './bankRuleTransferPrelock';
 import { recordAutoPosted } from './codingDecisionLog';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { fetchRuleAccountFacts } from './bankRuleAccountFacts';
@@ -119,11 +119,9 @@ export async function applyRules(
     const { ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank, ruleAccountIsControl } =
       await fetchRuleAccountFacts(companyId, autoCreateRules);
 
-    // WP2 row 5: every transfer rule's pair, sorted, before the sweep's first journal (transferPairLock).
-    const heldPairs = await preLockTransferPairs(companyId, bankGlAccountId ? autoCreateRules.flatMap((r) => {
-      const acct = r.gl_account_id ? String(r.gl_account_id) : '';
-      return acct && !r.supplier_id && !r.client_id && ruleAccountIsBank.get(acct) ? [[bankGlAccountId, acct] as const] : [];
-    }) : []);
+    // WP2 row 5: the transfer rules' matched lines, then their pairs, before the sweep's first journal (bankRuleTransferPrelock).
+    const transferLocks = bankGlAccountId ? await preLockRuleTransfers(companyId, bankAccountId, bankGlAccountId, autoCreateRules,
+      ruleAccountIsBank, ruleAccountIsControl) : { matches: new Map<string, Record<string, unknown>[]>(), contended: new Set<string>() };
     let autoPostSkippedOwnBankContra = 0, autoPostSkippedDuplicateTransfer = 0; // onto the swept bank itself; already in the ledger
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
@@ -174,7 +172,7 @@ export async function applyRules(
         continue;
       }
 
-      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
+      const matchingTxs = transferLocks.matches.get(String(rule.id)) ?? await findMatchingTxs(companyId, bankAccountId, field, pattern);
       if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
         autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
         continue;
@@ -182,7 +180,6 @@ export async function applyRules(
       // WP2 row 5: a rule onto ANOTHER bank account posts a transfer (bankRuleTransferLine); onto this one, nothing.
       const transferTo = allocType === 'account' && ruleGlAccountId && ruleAccountIsBank.get(ruleGlAccountId) ? ruleGlAccountId : null;
       if (transferTo === bankGlAccountId) { autoPostSkippedOwnBankContra += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES); continue; }
-      if (transferTo && heldPairs.has(transferPairKey(companyId, bankGlAccountId!, transferTo))) { autoPostSkippedLocked += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES); continue; }
       // A transfer rule carries no VAT (the transfer arm posts none), so its vat_code cannot make it post gross: only an
       // account/contact rule is skipped for a code outside the four (#1474). Empty means none, as autoPostRuleLine reads it.
       if (!transferTo && !isAllocationVatCode(String(rule.vat_code || 'none'))) {
@@ -205,6 +202,7 @@ export async function applyRules(
       });
 
       for (const tx of orderedTxs) {
+        if (transferTo && transferLocks.contended.has(String(tx.id))) { autoPostSkippedLocked++; continue; } // line or pair held
         let outcome;
         try {
           // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
@@ -240,6 +238,7 @@ export async function applyRules(
           else if (skip === 'refund_ceiling') autoPostSkippedRefundCeiling++;
           else if (skip === 'duplicate_transfer') autoPostSkippedDuplicateTransfer++;
           else if (skip === 'approval_required') autoPostSkippedApprovalRequired++;
+          else if (skip === 'closed_period') autoPostSkippedClosedPeriod++; // a period closed under a transfer line
           else autoPostSkippedLocked++;
           continue;
         }

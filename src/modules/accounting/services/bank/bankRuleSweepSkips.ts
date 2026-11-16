@@ -11,7 +11,8 @@ import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
 import { transferRuleSkip } from './bankRuleTransferLine';
 
 export type SweepLineSkip =
-  | 'vat_locked' | 'header_account' | 'refund_ceiling' | 'locked' | 'duplicate_transfer' | 'approval_required';
+  | 'vat_locked' | 'header_account' | 'refund_ceiling' | 'locked' | 'duplicate_transfer' | 'approval_required'
+  | 'closed_period';
 
 export function sweepLineSkip(lineErr: unknown): SweepLineSkip | null {
   // createJournalEntry refuses a VAT-moving line dated in a locked VAT period before its draft exists; the line's

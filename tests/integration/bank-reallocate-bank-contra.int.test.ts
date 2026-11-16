@@ -4,6 +4,10 @@
  * reconciliation — outside what a reallocation may change (one line, its completed reconciliation untouched). So the
  * reallocation keeps refusing a bank target, another bank's or the line's own, BEFORE any write (bankReallocationGuards);
  * allocateTransaction's own-bank refusal (bankContraTransfer) stands behind it. Nothing is reversed, nothing posted.
+ *
+ * A PIN of pre-existing behaviour (bankReallocationGuards' bank-target refusal predates row 5), not new code. The own-bank
+ * case does not isolate the reallocation guard: with it removed, allocateTransaction's own-bank refusal still answers —
+ * defence in depth, stated (brk-1494 LOW 5).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';

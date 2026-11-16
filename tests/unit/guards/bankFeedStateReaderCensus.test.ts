@@ -139,7 +139,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankTransactionLookupService.ts': "filtered (round 2: reference resolution excludes feed_state = 'removed' so a removed row cannot make a posted replacement look ambiguous; still a writer (Task 3) plan-phase lookup otherwise)",
   'src/modules/accounting/services/bank/bankTransactionQueryService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankTransferAutoLink.ts': 'exempt: writer (Task 3)',
-  'src/lib/mcp/tools/bulkAllocationPost.ts': 'exempt: reads only the bank account of lines the batch is about to allocate (WP2 row 5 transfer pairs) — not a total; allocateTransaction refuses a non-posted line',
+  'src/modules/accounting/services/bank/bankContraTransfer.ts': 'exempt: pairedTransferSkip reads ONE allocated line\'s transfer journal number for a sweep skip message (WP2 row 5) — not a total; the line was allocated by allocateTransaction\'s feed gate',
   'src/modules/accounting/services/bank/purchaseOrderOutstanding.ts': 'exempt: sums only lines carrying `linked_po_id`, set by confirmPurchaseOrderMatch after allocateTransaction\'s feed gate (allocated/reconciled rows only)',
   'src/modules/accounting/services/bank/bankTransferLinkService.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTxAnnotations.ts': 'exempt: writer of one line\'s notes and dimensions (mig 980 lock), not a financial total',

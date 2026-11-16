@@ -51,6 +51,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Another company's account reads as "not found", else names only the company's own account. No MCP tool calls it.
   'BANK_ACCOUNT_GUARD_REFUSED',
   'BANK_ALLOCATION_REFUSED',
+  // bank/transferDuplicateGuard (WP2 row 5): the transfer's movement is already in the ledger (the other bank's leg, a
+  // typed transfer, or its held draft — named by its own entry number). Raised before any write, after the pair lock.
+  'DUPLICATE_TRANSFER',
   // sync_bank_dimensions / the tag write-through (gl/dimensions/dimensionBankSync): a window over the row cap, a bank row
   // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names
   // only the caller's own key, window and counts.

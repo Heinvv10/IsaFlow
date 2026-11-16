@@ -17,6 +17,7 @@ import { getPeriodStatusForDate } from './bankRulesMatchingHelpers';
 import { DuplicateTransferError } from './transferDuplicateGuard';
 import { BankControlError } from './bankControlRefusal';
 import { ApprovalRequiredError } from '../gl/approvalGate';
+import { ClosedFiscalPeriodError } from '../gl/journalEntryPostingGuards';
 import type { AutoPostOutcome } from './bankRuleAutoPostLine';
 
 export interface RuleTransferLineInput {
@@ -58,8 +59,11 @@ export async function autoPostRuleTransferLine(input: RuleTransferLineInput): Pr
  * back): the movement already in the ledger, or a line an enforced rule or the importer control holds. Null: not a
  * transfer refusal — the sweep's own classification decides.
  */
-export function transferRuleSkip(err: unknown): 'duplicate_transfer' | 'approval_required' | null {
+export function transferRuleSkip(err: unknown): 'duplicate_transfer' | 'approval_required' | 'closed_period' | null {
   if (err instanceof DuplicateTransferError) return 'duplicate_transfer';
+  // The period closed between the pre-flight above and the post (an admin closing it mid-sweep): the line's savepoint
+  // unwinds the draft — the same counted skip autoPostRuleLine makes of it.
+  if (err instanceof ClosedFiscalPeriodError) return 'closed_period';
   if (err instanceof ApprovalRequiredError || err instanceof BankControlError) return 'approval_required';
   return null;
 }
