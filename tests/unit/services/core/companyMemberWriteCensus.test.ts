@@ -93,7 +93,7 @@ const KNOWN_WRITERS = [
   'src/modules/accounting/services/core/userInvitationService.ts: locks', // assertCanInvite: the inviter's membership, FOR SHARE — migration_admin pool (S-07c)
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — migration_admin pool since S-07c (930), no auto-add; the cancel DELETE — app_user
   // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b). Delete-user also
-  // cancels the user's pending invitations, last, through 997b's definer (admin_cancel_user_invitations), not a direct write.
+  // cancels the user's pending invitations, last, through 997b's definer (deletedUserInvitations.ts), not a direct write.
   'src/modules/admin/services/adminUserActionsService.ts: writes',
   'src/modules/admin/services/companyMembershipService.ts: locks', // the membership row, FOR UPDATE — platform_admin
   'src/modules/admin/services/companyMembershipService.ts: writes', // W11–W12 link, re-role, remove — platform_admin, last-owner rule
@@ -115,12 +115,14 @@ const KNOWN_WRITERS = [
  * grants back only UPDATE (role) on company_users; 937 (S-07d) revokes that
  * and DELETE on company_users too. 996 (OP-2) adds company_users_user_id_fkey
  * (NOT VALID, deferred) and 997 validates it: no trigger, guard or grant is touched.
- * 997b (follow-up A, 2026-11-16) adds admin_cancel_user_invitations(text), a SECURITY DEFINER owned by
- * migration_admin that DELETEs company_invitations rows, executable by platform_admin only. Read and pinned
- * because it is safe for the portal to call: it deletes only PENDING rows (accepted_at IS NULL) addressed to
- * one email (lower(btrim())), and can insert, update, re-open, re-point or accept no invitation and touches
- * no company_users row, so it can only take away a not-yet-used way into a company, never grant a
- * membership or a role (930's rule: DELETE stays where it only removes access). The portal can already
+ * 997b (follow-up A, 2026-11-16) adds admin_cancel_user_invitations(text, text[]), a SECURITY DEFINER owned
+ * by migration_admin that DELETEs company_invitations rows, executable by platform_admin only. Read and
+ * pinned because it is safe for the portal to call: it deletes only PENDING rows (accepted_at IS NULL)
+ * pinned to the given user id (gotrue_user_id) or addressed (lower(btrim())) to the given emails, and can
+ * insert, update, re-open, re-point or accept no invitation and touches no company_users row, so it can only
+ * take away a not-yet-used way into a company, never grant a membership or a role (930's rule: DELETE stays
+ * where it only removes access). It refuses (RC012) while a users row with that id exists, so a live user's
+ * GoTrue-pinned invitations are out of its reach. The email arm takes any address: the portal can already
  * delete the user, every membership and a whole company; at worst a platform admin cancels the pending
  * invitations of an address, which a re-invite restores and entity_change_capture records. RC008 still
  * refuses every direct portal write to the table; the one caller is deleteUser, after its users DELETE,
