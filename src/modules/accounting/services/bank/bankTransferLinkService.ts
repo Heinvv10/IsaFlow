@@ -25,6 +25,7 @@ import { applyTransferLinks, runLinkPasses, type TransferLinkPair, type Transfer
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { lineHasUndoneLinkFragment, pairNotUndoneFragment, type TransferLinkTrigger } from './bankTransferLinkLog';
 import { lineFitsBankLineFragment } from './bankMatchTargetFit';
+import { extensionLinkHoldReader, notHeldExtensionLineFragment } from './bankTransferLinkImporterHold';
 
 export type { TransferLinkResult };
 
@@ -32,18 +33,22 @@ export type { TransferLinkResult };
  * Link the `imported` rows of one import batch to the JE of an existing
  * `transfer` allocation on another bank account, matching on opposite amount
  * and date (±2 days).
+ *
+ * Importer != allocator: extension lines the request user pushed are held (bankTransferLinkImporterHold). That hold
+ * FAILS OPEN when there is no request user (no auth.uid), so a background caller of this pass is not held.
  */
 export async function autoLinkImportedBatchTransfers(
   companyId: string,
   batchId: string,
   trigger: TransferLinkTrigger,
 ): Promise<TransferLinkResult> {
+  const hold = extensionLinkHoldReader(companyId);
   return runLinkPasses(
     'Auto-linked transfer counterparts for import batch',
     'bank_import_autolink',
     { batchId },
     trigger,
-    async () => applyTransferLinks(companyId, (await sql`
+    async () => { const holdUser = await hold(); return applyTransferLinks(companyId, (await sql`
       WITH new_txs AS (
         SELECT id, amount, transaction_date, bank_account_id
         FROM bank_transactions
@@ -92,6 +97,8 @@ export async function autoLinkImportedBatchTransfers(
           WHERE bt_used.company_id              = ${companyId}::UUID
             AND bt_used.matched_journal_line_id = jl.id
         )
+          -- Importer != allocator: a feed line its own request user brought in is left for a colleague.
+          AND ${notHeldExtensionLineFragment('n.id', companyId, holdUser)}
           -- Migration 978: a pair the user undid is never offered again, here and not only in the apply, or a vetoed
           -- pair could win the ranking, link nothing, end the loop and starve a valid runner-up.
           AND ${pairNotUndoneFragment('n.id', 'jl.id', companyId)}
@@ -114,7 +121,7 @@ export async function autoLinkImportedBatchTransfers(
         ORDER BY new_tx_id, date_distance, je_line_id
       )
       SELECT new_tx_id, je_id, je_line_id, counterparty_bank_id, entity_name FROM winners
-    `) as TransferLinkPair[], trigger),
+    `) as TransferLinkPair[], trigger); },
   );
 }
 
@@ -133,12 +140,13 @@ export async function relinkTransferCounterparts(
   bankAccountId: string,
   trigger: TransferLinkTrigger,
 ): Promise<TransferLinkResult> {
+  const hold = extensionLinkHoldReader(companyId);
   return runLinkPasses(
     'Re-linked transfer counterpart transactions',
     'relink_transfer_counterparts',
     { bankAccountId },
     trigger,
-    async () => applyTransferLinks(companyId, (await sql`
+    async () => { const holdUser = await hold(); return applyTransferLinks(companyId, (await sql`
       WITH source_allocs AS (
         -- Allocated transactions on OTHER bank accounts whose JE has a line
         -- for the current bank's GL account (bankAccountId).
@@ -204,6 +212,7 @@ export async function relinkTransferCounterparts(
           AND bt_new.company_id      = ${companyId}::UUID
           AND bt_new.status          = 'imported'
           AND bt_new.feed_state      = 'posted'
+          AND ${notHeldExtensionLineFragment('bt_new.id', companyId, holdUser)}
           -- Migration 978: never offer a pair the user undid (see the first pass).
           AND ${pairNotUndoneFragment('bt_new.id', 'sa.target_je_line_id', companyId)}
       ),
@@ -234,6 +243,6 @@ export async function relinkTransferCounterparts(
       )
       SELECT new_tx_id, target_je_id AS je_id, target_je_line_id AS je_line_id, counterparty_bank_id,
         allocated_entity_name AS entity_name FROM winners
-    `) as TransferLinkPair[], trigger),
+    `) as TransferLinkPair[], trigger); },
   );
 }
