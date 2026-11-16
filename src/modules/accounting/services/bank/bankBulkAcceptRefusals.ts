@@ -41,6 +41,8 @@ export const PASS_THROUGH: readonly Ctor[] = [
 ];
 /** Held rows: the line is busy, retry. */
 export const BUSY: readonly Ctor[] = [BankTransactionLockTimeoutError, RowLockTimeoutError, VatLockTimeoutError];
+/** The journal-number sequence is held by another request: the ledger is busy (below). */
+export const LEDGER_LOCKS: readonly Ctor[] = [DocumentNumberLockTimeoutError];
 /** The labelled ones (below). */
 export const LABELLED: readonly Ctor[] = [BankControlError, ApprovalRequiredError];
 

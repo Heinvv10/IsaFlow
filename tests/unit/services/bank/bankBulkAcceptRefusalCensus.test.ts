@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PASS_THROUGH, BUSY, LABELLED, NOT_REFUSALS, refusalReason, GENERIC_REFUSAL } from '@/modules/accounting/services/bank/bankBulkAcceptRefusals';
+import { PASS_THROUGH, BUSY, LABELLED, LEDGER_LOCKS, NOT_REFUSALS, refusalReason, GENERIC_REFUSAL } from '@/modules/accounting/services/bank/bankBulkAcceptRefusals';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { FiscalPeriodNotGeneratedError } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
 
@@ -21,7 +21,7 @@ const ALLOCATION_PATH = [
   'gl/dimensions/costCentrePick.ts', 'gl/dimensions/dimensionPolicy.ts', 'gl/dimensions/dimensionDefaultsService.ts',
   'core/rowLockBudget.ts', 'gl/fiscalPeriodAutoCreate.ts',
 ];
-const decided = new Set([...PASS_THROUGH, ...BUSY, ...LABELLED].map((C) => C.name).concat(NOT_REFUSALS));
+const decided = new Set([...PASS_THROUGH, ...BUSY, ...LABELLED, ...LEDGER_LOCKS].map((C) => C.name).concat(NOT_REFUSALS));
 // A subclass is covered through its parent: these are named here only so the scan below can see them.
 const SUBCLASSES = ['FiscalPeriodNotGeneratedError', 'VatLateClaimRefusal', 'PreWriteDimensionRefusal', 'CostCentrePickRefusal', 'SageReconciledLineError'];
 
