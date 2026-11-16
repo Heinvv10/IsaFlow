@@ -8,7 +8,11 @@
  *  - F8: a reopen and re-approve that skips the clear (an older colour) leaves a snapshot of an earlier approval,
  *    which is never used: the slip reads live details and says "as at download";
  *  - a final run from before PS3 (no snapshot) reads live and says "as at download";
- *  - tenancy: the freeze writes only the named company's run.
+ *  - tenancy: the freeze writes only the named company's run;
+ *  - review B1: the year to date is frozen too: reopening an earlier month does not move a later final slip's;
+ *  - review B3: re-approving an approved, unposted run (to post it) neither moves approved_at nor freezes details
+ *    edited since: a pre-PS3 one stays live, "as at download";
+ *  - a malformed snapshot approvedAt reads as not frozen, never a 500.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import payslips from '../../pages/api/payroll/runs/[id]/payslips';
@@ -108,6 +112,10 @@ describe('approve freezes the details; edits after approval do not reach the fin
     expect(text).toContain('PS3 Before (Pty) Ltd');
     expect(text).not.toContain('Thandiwe');
     expect(text).not.toContain('as at download');
+    expect(text).toContain('0123456789');
+    expect(text).not.toContain('9876543210');
+    expect(text).toContain('FNB');
+    expect(text).not.toContain('Capitec');
 
     // The snapshot holds the last four digits only, never the account number.
     expect(JSON.stringify(await snapshots(id))).not.toContain('62000111111');
@@ -194,5 +202,56 @@ describe('tenancy', () => {
     expect(await outsideRls(b.pool, b.company, () => freezePayslipDetails(b.company, theirs))).toBe(1);
     expect((await b.pool.query('SELECT payslip_snapshot FROM payroll_run_lines WHERE run_id = $1', [theirs])).rows)
       .toEqual([{ payslip_snapshot: null }]);
+  });
+});
+
+describe('review B1: the year to date as issued', () => {
+  it("reopening an earlier month does not change a later final slip's year to date", async () => {
+    await resetDetails();
+    const sep = await approved(9);
+    const oct = await approved(10);
+    const before = (await model(r.company, oct)).payslips[0]!.yearToDate;
+    expect((await r.api.reopen(sep)).statusCode).toBe(200);
+    const after = await model(r.company, oct);
+    expect(after.detailsAsAt).toBe('approval');
+    expect(after.payslips[0]!.yearToDate).toEqual(before);
+    // The live year to date has moved: the frozen one is what the slip printed at approval.
+    await r.pool.query('UPDATE payroll_run_lines SET payslip_snapshot = NULL WHERE run_id = $1', [oct]);
+    expect((await model(r.company, oct)).payslips[0]!.yearToDate.grossPay).toBeLessThan(before.grossPay);
+  });
+});
+
+describe('review B3: re-approving an approved, unposted run', () => {
+  it('keeps approved_at and freezes nothing: a pre-PS3 run edited since approval stays live, "as at download"', async () => {
+    await resetDetails();
+    const id = await r.calculatedRun(11);
+    await r.pool.query(
+      `UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() - interval '20 days',
+              lines_confirmed_at = clock_timestamp() WHERE id = $1`, [id]);
+    const first = (await r.pool.query('SELECT approved_at FROM payroll_run_headers WHERE id = $1', [id])).rows[0]!.approved_at as Date;
+    await editDetails();
+    const res = await r.api.approve(id);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    const h = (await r.pool.query('SELECT approved_at, journal_entry_id FROM payroll_run_headers WHERE id = $1', [id])).rows[0]!;
+    expect(h.journal_entry_id).not.toBeNull();
+    expect((h.approved_at as Date).getTime()).toBe(first.getTime());
+    expect(await snapshots(id)).toEqual([null]);
+    const run = await model(r.company, id);
+    expect(run.final).toBe(true);
+    expect(run.detailsAsAt).toBe('download');
+    expect(run.payslips[0]).toMatchObject(AFTER);
+  });
+});
+
+describe('a malformed snapshot', () => {
+  it('an approvedAt that is not a timestamp reads as not frozen, never a cast error', async () => {
+    await resetDetails();
+    const id = await approved(12);
+    await r.pool.query(
+      `UPDATE payroll_run_lines SET payslip_snapshot = jsonb_set(payslip_snapshot, '{approvedAt}', '"not a time"') WHERE run_id = $1`, [id]);
+    await editDetails();
+    const run = await model(r.company, id);
+    expect(run.detailsAsAt).toBe('download');
+    expect(run.payslips[0]).toMatchObject(AFTER);
   });
 });

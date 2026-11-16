@@ -17,6 +17,7 @@ const live = {
 const snapshot: PayslipSnapshot = {
   ...live, first_name: 'Frozen', occupation: 'Then', bank_last_four: '1111', bank_name: 'FNB',
   approvedAt: '2026-11-16T10:00:00.123456+02:00', employer: { name: 'Then Ltd', address: '1 Old Road' },
+  yearToDate: { grossPay: 60000, taxableIncome: 60000, paye: 9000, uifEmployee: 354.24, netPay: 50645.76 },
 };
 const liveEmployer = { name: 'Now Ltd', address: '9 New Street' };
 const row = (frozen: boolean, snap: unknown = snapshot): DetailsRow => ({ ...live, payslip_snapshot: snap, details_frozen: frozen });
@@ -26,12 +27,14 @@ describe('detailsOf', () => {
     const shown = detailsOf(row(true), liveEmployer);
     expect(shown.details).toMatchObject({ first_name: 'Frozen', occupation: 'Then', bank_last_four: '1111', bank_name: 'FNB' });
     expect(shown.employer).toEqual({ name: 'Then Ltd', address: '1 Old Road' });
+    expect(shown.yearToDate?.grossPay).toBe(60000);
   });
 
   it('not frozen (another approval, or not final): live, even with a snapshot present', () => {
     const shown = detailsOf(row(false), liveEmployer);
     expect(shown.details).toMatchObject({ first_name: 'Live', occupation: 'Now', bank_last_four: '9999' });
     expect(shown.employer).toBe(liveEmployer);
+    expect(shown.yearToDate).toBeNull();
   });
 
   it('frozen but no snapshot object: live', () => {

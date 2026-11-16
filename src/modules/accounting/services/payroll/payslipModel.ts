@@ -104,8 +104,11 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
            (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final,
            prl.payslip_snapshot,
            -- PS3 (F8): the snapshot is this approval's only while its approvedAt is the header's current approved_at.
-           COALESCE(prh.status IN ('approved', 'paid')
-             AND (prl.payslip_snapshot->>'approvedAt')::timestamptz = prh.approved_at, false) AS details_frozen
+           -- A malformed approvedAt is not frozen, never a cast error (CASE fixes the evaluation order).
+           CASE WHEN prh.status IN ('approved', 'paid')
+                 AND prl.payslip_snapshot->>'approvedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+([+-][0-9:]+|Z)$'
+                THEN COALESCE((prl.payslip_snapshot->>'approvedAt')::timestamptz = prh.approved_at, false)
+                ELSE false END AS details_frozen
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees pe ON pe.id = prl.employee_id AND pe.company_id = prh.company_id
@@ -157,7 +160,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
     runId, periodMonth: run.periodMonth, periodYear: run.periodYear, runDate: dateOnly(header.run_date), final,
     detailsAsAt: frozen ? 'approval' : 'download',
     employer: shown[0]!.employer,
-    payslips: shown.map(({ l, details: d }): Payslip => ({
+    payslips: shown.map(({ l, details: d, yearToDate: frozenYtd }): Payslip => ({
       ...itemisePayslip({
         grossPay: Number(l.gross_pay), paye: Number(l.paye), uifEmployee: Number(l.uif_employee),
         uifEmployer: Number(l.uif_employer), sdl: Number(l.sdl), netPay: Number(l.net_pay), breakdown: l.component_breakdown,
@@ -178,7 +181,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       hoursPerDay: numOrNull(d.hours_per_day),
       hourlyRate: numOrNull(d.hourly_rate),
       dailyRate: numOrNull(d.daily_rate),
-      yearToDate: ytd.get(l.employee_id)!,
+      yearToDate: frozenYtd ?? ytd.get(l.employee_id)!, // PS3 (B1): the year to date as issued at approval
     })),
   };
 }

@@ -33,6 +33,8 @@ const RUN = { month: 11, year: 2026 };
 const EMPLOYEE = { employeeNumber: 'Z10-1', firstName: 'Zola', lastName: 'Slip', salary: 30000 };
 const ACCOUNT = '62000123456';
 const LATER_ACCOUNT = '62000999888';
+/** The whole "Paid by" text operator as jsPDF writes it (latin-1 dump): each bullet is WinAnsi 0x95. */
+const paidTo = (lastFour: string): string => `(EFT to FNB ${'\x95'.repeat(4)} ${lastFour}) Tj`;
 const NAME = `${EMPLOYEE.firstName} ${EMPLOYEE.lastName}`;
 const NEEDS_APPROVER = 'needs a second approver: set E2E_APPROVER_EMAIL / E2E_APPROVER_PASSWORD (an admin of '
   + `"${SANDBOX_NAME}" other than the suite user); without them this company refuses the suite user's self-approval`;
@@ -135,7 +137,7 @@ test('calculated run: the Payslip drawer opens and the PDF is DRAFT, with the st
     expect(draft).toContain('DRAFT: this run is not approved');
     expect(hasMoney(draft, netText)).toBe(true);
     expect(draft).toContain('EFT to FNB');
-    expect(draft).toContain('3456');
+    expect(draft).toContain(paidTo('3456'));
     expect(draft).not.toContain('account ending');
     expect(draft).toContain('Occupation');
     expect(draft).not.toContain(ACCOUNT);
@@ -174,8 +176,11 @@ test('cleared through R-035 and approved: the payslip is final and the page says
     });
     moved = true;
     const frozen = await slipText(page, runId, employeeId);
-    expect(frozen).toContain('3456');
-    expect(frozen).not.toContain('9888');
+    expect(frozen).toContain(paidTo('3456'));
+    expect(frozen).not.toContain(paidTo('9888'));
+    // Control: the new account is on file, so a live (unfrozen) read would print it.
+    const onFile = await api.get<unknown>(`/api/payroll/employees/${employeeId}/bank-details?view=masked`);
+    expect(JSON.stringify(onFile)).toContain('9888');
     expect(frozen).not.toContain('as at download');
   } finally {
     if (approved) await api.post(`/api/payroll/runs/${runId}/reopen`, { reason: 'z10 golden sandbox reset' });
