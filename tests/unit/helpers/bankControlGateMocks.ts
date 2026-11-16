@@ -29,6 +29,14 @@ export function importerGateOpen() {
   };
 }
 
+/**
+ * WP2 row 10's other-legs reset (transferLegReset) with no second live line on the journal: its peeks read Postgres.
+ * Proven against real Postgres in tests/integration/bank-reversed-journal-line.int.test.ts.
+ */
+export function transferLegResetNone() {
+  return { lockOtherLegs: vi.fn(async () => new Map()), takeOtherLegs: vi.fn(async () => [] as string[]) };
+}
+
 export function reversalGateOpen() {
   return {
     assertMayReverse: vi.fn(async () => null),
