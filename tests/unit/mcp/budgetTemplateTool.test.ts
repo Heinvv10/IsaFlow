@@ -18,6 +18,7 @@ vi.mock('@/modules/accounting/services/budgets/priorActuals', async (orig) => ({
 
 import { checkRateLimit } from '@/lib/rateLimit';
 import { BUDGET_SPREADSHEET_SLOT, CpuSlotBusyError } from '@/lib/withCpuSlot';
+import { MCP_SLOT_WAIT_MS } from '@/lib/mcp/tools/budgetToolArgs';
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
@@ -25,6 +26,7 @@ import { loadPriorActuals } from '@/modules/accounting/services/budgets/priorAct
 import { parseMeta, readBudgetWorkbook } from '@/modules/accounting/services/budgets/budgetImportParse';
 import { getBudgetTemplateTool as tool, TEMPLATE_LIMIT_DEFAULT, XLSX_MAX_BASE64 } from '@/lib/mcp/tools/budgetTemplateTool';
 import { NOT_FOUND } from '@/lib/mcp/tools/toolHelpers';
+import { decodeRowBase } from '@/modules/accounting/services/budgets/budgetTemplateSignature';
 import { CC1, MONTHS, RENT, SALES, TOKEN, VERSION, ctx, json, model, text, version } from './budgetToolsFixture';
 
 vi.stubEnv('JWT_SECRET', 'k'.repeat(40)); // the template signature's key (any value)
@@ -52,6 +54,8 @@ describe('get_budget_template, format json (the default)', () => {
     expect(rows.map((r) => r.account)).toEqual(['4000', '6000', '7100']);
     const rent = rows.find((r) => r.account === '6000')!;
     expect(rent).toMatchObject({ account_id: RENT, section: 'operating_expense', fy_total: '100.00', py_actual: '90.50' });
+    expect(decodeRowBase({ versionId: VERSION, fiscalYear: 2027, grain: 'company' }, String((rent as Record<string, unknown>).base), 12))
+      .toEqual({ accountId: RENT, memberId: null, cents: [10000, ...Array(11).fill(null)] });
     expect(rent.months).toEqual(Object.fromEntries(MONTHS.map((m) => [m, m === '2026-03' ? '100.00' : null])));
     expect(rows.find((r) => r.account === '4000')).toMatchObject({ account_id: SALES, fy_total: '0.00', py_actual: null });
     expect((out.totals as Record<string, { year: string }>).operatingExpenses.year).toBe('100.00');
@@ -102,7 +106,7 @@ describe('get_budget_template, format xlsx', () => {
     const excel = new ExcelJS.Workbook();
     await excel.xlsx.load(file as unknown as ArrayBuffer);
     expect(excel.worksheets.map((s) => s.name)).toEqual(['Budget', 'Instructions', '_base', '_meta']);
-    expect(checkRateLimit).toHaveBeenCalledWith('budget-template:u-1', { max: 60, windowSecs: 900 });
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-xlsx:u-1', { max: 60, windowSecs: 900 });
     expect(loadGridReadModel).toHaveBeenCalledWith(expect.any(String), { versionId: VERSION }, 'totals', 'u-1'); // a holder's file is their slices
   });
 
@@ -116,12 +120,27 @@ describe('get_budget_template, format xlsx', () => {
     expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(new RegExp(`over the ${Math.round(XLSX_MAX_BASE64 / 1000)} KB one reply can carry.*format json`))]);
   });
 
-  it('shares the template route\'s rate bucket and CPU slot', async () => {
+  it('xlsx: its own mcp- bucket, charged only once the CPU slot is granted (a short MCP wait), before the model is read', async () => {
+    const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run');
+    run.mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'queue-full'));
+    expect(text(await tool.handler({ version_id: VERSION, format: 'xlsx' }, ctx()))).toMatch(/busy reading or building other spreadsheets/);
+    expect(run).toHaveBeenCalledWith(expect.any(Function), 'u-1', MCP_SLOT_WAIT_MS);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    run.mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'owner-limit'));
+    expect(text(await tool.handler({ version_id: VERSION, format: 'xlsx' }, ctx()))).toMatch(/already have two spreadsheets being read or built/);
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
     expect(text(await tool.handler({ version_id: VERSION, format: 'xlsx' }, ctx()))).toMatch(/Too many template downloads/);
-    const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run').mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'queue-full'));
-    expect(text(await tool.handler({ version_id: VERSION, format: 'xlsx' }, ctx()))).toMatch(/busy building other spreadsheets/);
-    expect(run).toHaveBeenCalledWith(expect.any(Function), 'u-1');
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-xlsx:u-1', { max: 60, windowSecs: 900 });
+    expect(loadGridReadModel).not.toHaveBeenCalled();
+    run.mockRestore();
+  });
+
+  it('json: its own mcp- bucket (pages are many), before the model is read; no slot', async () => {
+    const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run');
+    vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
+    expect(text(await tool.handler({ version_id: VERSION }, ctx()))).toMatch(/Too many template reads/);
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-json:u-1', { max: 600, windowSecs: 900 });
+    expect([loadGridReadModel, run].map((f) => vi.mocked(f).mock.calls.length)).toEqual([0, 0]);
     run.mockRestore();
   });
 });

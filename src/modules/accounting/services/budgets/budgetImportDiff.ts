@@ -82,14 +82,13 @@ const NO_BASE = 'This file has no record of what you downloaded; every differenc
 /** What the shared half of the import diffs: lines read from a template (an .xlsx, or the MCP JSON grid). */
 export interface ImportSource {
   grain: TemplateGrain;
-  /** The version token the lines were read against (the template's `_meta` token, or the JSON grid's). */
-  readAt: string;
   /**
-   * The amounts as downloaded, per row key: a signed `_base`; null when the file has none (Q3b: every change
-   * `possibleRevert`, with a warning); 'current' when the version must still be what the lines were read from
-   * (refused unless `readAt` is the version's token now), so the version IS the base.
+   * The version token the lines were read against: the template's `_meta` token; null for the MCP JSON grid, whose
+   * rows may come from pages read at different tokens (each row carries its own signed base instead).
    */
-  base: Map<string, ReadonlyArray<number | null>> | null | 'current';
+  readAt: string | null;
+  /** The amounts as read, per row key (a signed `_base`, or the JSON rows' signed bases); null when the file has none (Q3b). */
+  base: Map<string, ReadonlyArray<number | null>> | null;
   lines: ImportLine[];
 }
 
@@ -121,9 +120,6 @@ export interface ImportDiff { preview: ImportPreview; rowOf: Map<string, number>
 /** The shared half: resolve the lines, diff them 3-way against the version, total the result. Pure. */
 export function diffImportLines(model: GridReadModel, src: ImportSource): ImportDiff {
   if (!model.version || model.updatedAt === null) return refuse('Budget version not found');
-  if (src.base === 'current' && src.readAt !== model.updatedAt) {
-    return refuse('This budget was saved after the grid you are importing was read (its version token moved), so your grid could undo those changes. Read a fresh template and make your changes in it.');
-  }
   const months = model.year.monthKeys;
   const { lines, base } = src;
   const current = cellsInCents(model);
@@ -136,21 +132,26 @@ export function diffImportLines(model: GridReadModel, src: ImportSource): Import
   const asNow = (rowKey: string) => months.map((m) => current.get(`${rowKey}|${m}`) ?? null);
   const diff = threeWay(rows.map((r) => ({
     rowKey: r.rowKey,
-    // No _base (or the version itself): the version now stands in for what was downloaded, so every difference is a change.
-    base: base === null || base === 'current' ? asNow(r.rowKey) : base.get(r.rowKey) ?? null,
+    // No _base: the version now stands in for what was downloaded, so every difference is a change.
+    base: base === null ? asNow(r.rowKey) : base.get(r.rowKey) ?? null,
     file: r.line.amounts.map((a) => (a.cell.kind === 'value' ? a.cell.cents : null)),
   })), months, current);
+  const n = diff.moved, k = diff.conflicts.length;
+  const cells = (x: number) => `${x} ${x === 1 ? 'cell' : 'cells'}`;
+  const kept = `${k === 1 ? 'is' : 'are'} listed as conflicts and take your amount.`;
   if (base === null) {
     warnings.unshift({ row: 0, column: '', message: NO_BASE });
-  } else if (base === 'current') {
-    // Proved above: nothing was saved since the lines were read.
   } else if (src.readAt === model.updatedAt) {
     if (diff.moved > 0) return tampered(); // nothing was saved since the download, so _base must be the version
-  } else {
-    const n = diff.moved, k = diff.conflicts.length;
+  } else if (src.readAt !== null) {
     warnings.unshift({
-      row: 0, column: '', message: `This budget was saved after you downloaded this file: ${n} ${n === 1 ? 'cell' : 'cells'} in it changed since you downloaded it. `
-        + `Cells you left as downloaded keep the newer amounts; ${k} ${k === 1 ? 'cell' : 'cells'} you changed that also changed in IsaFlow ${k === 1 ? 'is' : 'are'} listed as conflicts and take your amount.`,
+      row: 0, column: '', message: `This budget was saved after you downloaded this file: ${cells(n)} in it changed since you downloaded it. `
+        + `Cells you left as downloaded keep the newer amounts; ${cells(k)} you changed that also changed in IsaFlow ${kept}`,
+    });
+  } else if (n > 0) {
+    warnings.unshift({
+      row: 0, column: '', message: `This budget was saved after some of these rows were read: ${cells(n)} in them changed since these rows were read. `
+        + `Cells you left as read keep the newer amounts; ${cells(k)} you changed that also changed in IsaFlow ${kept}`,
     });
   }
 

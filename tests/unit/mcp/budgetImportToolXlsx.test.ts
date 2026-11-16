@@ -23,6 +23,7 @@ vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRol
 
 import { checkRateLimit } from '@/lib/rateLimit';
 import { BUDGET_SPREADSHEET_SLOT, CpuSlotBusyError } from '@/lib/withCpuSlot';
+import { MCP_SLOT_WAIT_MS } from '@/lib/mcp/tools/budgetToolArgs';
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { loadGridCells, loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
 import { saveCells } from '@/modules/accounting/services/budgets/gridSave';
@@ -115,25 +116,33 @@ describe('import_budget_workbook (xlsx): a file refused whole writes nothing', (
     ['a forged signature', async () => b64(await edited(forgeSignature)), /_base or _meta sheet was changed/],
     ['another version\'s file', async () => b64(await edited(() => undefined, model({ version: version({ id: '10000000-0000-4000-8000-0000000000ff' }) as never }))), /downloaded for another budget version/],
     ['not a workbook', async () => b64(Buffer.from('hello, this is not a spreadsheet')), /not an Excel workbook/],
-    ['an old .xls file', async () => b64(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])), /Old-style Excel .xls/],
+    ['an old .xls file (by its bytes, named .xlsx)', async () => b64(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])), /Old-style Excel .xls/, 'budget.xlsx'],
+    ['a file named .xls', async () => b64(await edited(threeEdits)), /Old-style Excel .xls/, 'budget.XLS'],
     ['not base64', async () => 'not base64!', /file_base64 must be the .xlsx file as standard base64/],
+    ['base64 of a length no encoder writes', async () => 'QUJD' + 'A', /file_base64 must be the .xlsx file as standard base64/],
+    ['base64 with a character outside the alphabet', async () => 'QU*D', /file_base64 must be the .xlsx file as standard base64/],
     ['past the size bound (before decoding)', async () => 'A'.repeat(MAX_WORKBOOK_BASE64 + 4), /larger than one MCP request can carry/],
-  ])('%s', async (_n, file, why) => {
+  ])('%s', async (_n, file, why, fileName?: string) => {
     for (const dry of [true, false]) {
-      const r = await tool.handler({ ...KEY, file_base64: await file(), dry_run: dry, plan_hash: 'a'.repeat(64) }, ctx());
+      const r = await tool.handler({ ...KEY, file_base64: await file(), dry_run: dry, plan_hash: 'a'.repeat(64), ...(fileName ? { file_name: fileName } : {}) }, ctx());
       expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(why)]);
     }
     expect(saveCells).not.toHaveBeenCalled();
   });
 
-  it('shares the import preview\'s rate bucket and CPU slot', async () => {
+  it('its own mcp- bucket, charged only once the CPU slot is granted and before the model is read', async () => {
     const file = b64(await edited(threeEdits));
+    const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run');
+    run.mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'timeout'));
+    expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/busy reading or building other spreadsheets/);
+    expect(run).toHaveBeenCalledWith(expect.any(Function), 'u-1', MCP_SLOT_WAIT_MS);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    run.mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'owner-limit'));
+    expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/already have two spreadsheets being read or built/);
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
     expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/Too many imports/);
-    expect(checkRateLimit).toHaveBeenCalledWith('budget-import:u-1', { max: 60, windowSecs: 900 });
-    const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run').mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'timeout'));
-    expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/busy reading other spreadsheets/);
-    expect(run).toHaveBeenCalledWith(expect.any(Function), 'u-1');
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-import-xlsx:u-1', { max: 60, windowSecs: 900 });
+    expect(loadGridReadModel).not.toHaveBeenCalled();
     run.mockRestore();
     expect(saveCells).not.toHaveBeenCalled();
   });
