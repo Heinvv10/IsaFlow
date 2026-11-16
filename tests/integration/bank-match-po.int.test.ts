@@ -137,20 +137,8 @@ describe('the PO picker offers what the confirm accepts, at what is outstanding'
 });
 
 describe('round 2: what counts against the order, and which refusal wins', () => {
-  it('a line still linked to the order but no longer a supplier payment (reallocated) does not use up the order', async () => {
-    const f = await bankCompany(pool, [[a, 'admin']], companies);
-    const po = await plantPo(f, 500);
-    // What reallocate_bank_transaction leaves today: reconciled, re-pointed to an account, the PO link not cleared.
-    await pool.query(
-      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status,
-         allocation_type, linked_po_id)
-       VALUES($1,$2,DATE '2026-09-01',-400,'MT reallocated','reconciled','account',$3)`, [f.c, f.bank, po]);
-    const offered = await asToken(pool, a, f.c, () => fetchPurchaseOrderCandidates(f.c, 500, -500, '2026-09-01', '', '', []));
-    expect(offered.find((x) => x.id === po)?.amount).toBe(500);
-    const line = await plantBankLine(pool, f.c, f.bank, -500);
-    const res = await matchPo(f, line, po);
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-  });
+  // The reallocated-line case runs the real flow (confirm, reconcile, reallocate_bank_transaction) in
+  // bank-match-po-reallocate.int.test.ts.
 
   it('a pending feed line is refused as pending (409), not as over the order, nothing written', async () => {
     const f = await bankCompany(pool, [[a, 'admin']], companies);
