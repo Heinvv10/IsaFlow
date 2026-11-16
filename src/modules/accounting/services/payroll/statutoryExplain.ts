@@ -22,7 +22,7 @@ const r = (n: number) => formatMoney(n);
  */
 function leviableStep(leviable: number, pay: number): ExplainStep {
   const step = { key: 'uif.leviable', label: 'Pay the contribution is on', amount: leviable, formula: 'the lesser of the pay and the ceiling, never below nil' };
-  return leviable > pay ? footed(step, [{ key: 'uif.leviable.pay', label: 'Pay that UIF applies to this period', amount: pay }]) : step;
+  return leviable > pay ? footed(step, [{ key: 'uif.leviable.pay', label: 'Pay before the floor', amount: pay }]) : step;
 }
 
 export function explainUif(input: {

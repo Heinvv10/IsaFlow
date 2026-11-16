@@ -125,8 +125,10 @@ export function uifLineBase(
       exact: true,
     };
   }
-  // Floored as the engine floors: a clawback line (including one stored negative before UF) shows nil, not a negative base.
-  if (employeeContribution <= 0) return { leviableSalary: Math.max(0, grossPay), isCapped: false, exact: false };
+  // A contribution stored below nil (costed before UF floored it) says nothing reliable about the base: show nil.
+  if (employeeContribution < 0) return { leviableSalary: 0, isCapped: false, exact: false };
+  // Floored as the engine floors: a clawback line shows nil, not a negative base.
+  if (employeeContribution === 0) return { leviableSalary: Math.max(0, grossPay), isCapped: false, exact: false };
   // Capped = the contribution reached the ceiling's and gross is above the ceiling. Leviable pay in
   // (R17 711.50, R17 712] on a line above the ceiling through non-UIF earnings reads as capped here.
   if (employeeContribution >= UIF_CEILING_CONTRIBUTION && grossPay > UIF_MONTHLY_CEILING) {

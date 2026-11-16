@@ -5,7 +5,8 @@
  * Source: Unemployment Insurance Contributions Act 4 of 2002, s6(1)(a) and (b) (Government Gazette 23289,
  * 28 March 2002, p. 7): each contribution "must be one per cent of the remuneration paid or payable ... during any
  * month"; s6(2) (p. 8): s6(1) "does not apply to so much of the remuneration ... as exceeds" the Minister's ceiling.
- * The Act provides a contribution on remuneration paid, and no negative contribution or refund through it.
+ * s5(1) makes the contribution monthly, so nothing carries a negative month forward; an earlier month over-declared is
+ * refunded through that month (s8(3) to the employer, s7(5) the employee's share), which the UIF_CLAWBACK warning names.
  */
 import { describe, expect, it } from 'vitest';
 import { uifWithLeviable } from '@/modules/accounting/services/payroll/uifEngine';
@@ -82,6 +83,14 @@ describe('the UI-19 line view gets the same floor (uifLineBase)', () => {
 
   it('a line stored negative before UF (contribution -R30) is not trusted, and its leviable salary is not shown below nil', () => {
     expect(uifLineBase(-3_000, -30, -3_000)).toEqual({ leviableSalary: 0, isCapped: false, exact: false });
+  });
+
+  it('a pre-UF negative contribution on a positive gross (UIF pay netted below nil, other pay above it) shows nil, not the gross', () => {
+    expect(uifLineBase(7_000, -30, null)).toEqual({ leviableSalary: 0, isCapped: false, exact: false });
+  });
+
+  it('a nil contribution with no rebuild (a UIF-excluded line) still shows the gross, as before', () => {
+    expect(uifLineBase(7_000, 0, null)).toEqual({ leviableSalary: 7_000, isCapped: false, exact: false });
   });
 
   it('the ceiling and ceiling + 1 are unchanged', () => {
