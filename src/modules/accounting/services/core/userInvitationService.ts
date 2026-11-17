@@ -8,6 +8,7 @@ import { hashInviteToken, mintInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { findUserByEmail } from '@/lib/auth/gotrue';
 import { OwnerProtectedError, OWNER_GRANT_REFUSED, ownerLockKey } from './ownerLock';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
@@ -56,6 +57,16 @@ function mapInvitation(r: DbRow): PendingInvitation {
  * no app role may write the table (migration 930). company_invitations_role_guard
  * does not judge this role, so its rules are checked here, against the
  * inviter's membership as it stands: `invitedBy` must be the verified caller.
+ *
+ * Pins the GoTrue account that holds the address NOW (`gotrue_user_id`), as
+ * POST /api/invitations does (R7-1): both accept routes then accept only as
+ * that account, so an address that changes hands before the accept (a deleted
+ * user's, a change-email) cannot be taken up by a new identity. NULL when no
+ * account holds it: the accept creates that address's own account, as before.
+ * Never creates an account. Looked up before the transaction (no lock or
+ * connection held across the call) and fail closed: a GoTrue failure throws
+ * (an outage is AuthUpstreamUnavailableError) and nothing is written. A
+ * re-invite (ON CONFLICT) takes this lookup's pin or NULL, never the old row's.
  */
 export async function createInvitation(
   companyId: string,
@@ -69,24 +80,29 @@ export async function createInvitation(
   const rawToken = mintInviteToken();
   const tokenHash = hashInviteToken(rawToken);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Before assertCanInvite (#1517 review R3, kept on purpose): that check must run inside the transaction, under
+  // its lock, and GoTrue must not be called holding one. The route has already refused a caller whose session role
+  // is not owner/admin, so only a member demoted since can reach a lookup that then writes nothing.
+  const account = await findUserByEmail(email);
 
   const inv = await migrationAdminTx('create invitation', async (client) => {
     await assertCanInvite(client, companyId, invitedBy, role);
     await assertNotMember(client, companyId, email);
     const rows = await client.query(
-      `INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
-       VALUES ($1::UUID, $2, $3, $4, $5, $6::TIMESTAMPTZ)
+      `INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at, gotrue_user_id)
+       VALUES ($1::UUID, $2, $3, $4, $5, $6::TIMESTAMPTZ, $7::UUID)
        ON CONFLICT (company_id, email) DO UPDATE SET
          role = EXCLUDED.role,
          invited_by = EXCLUDED.invited_by,
          token = EXCLUDED.token,
          expires_at = EXCLUDED.expires_at,
+         gotrue_user_id = EXCLUDED.gotrue_user_id,
          accepted_at = NULL,
          email_sent_at = NULL,
          email_error = NULL,
          created_at = NOW()
        RETURNING *`,
-      [companyId, email, role, invitedBy, tokenHash, expiresAt],
+      [companyId, email, role, invitedBy, tokenHash, expiresAt, account?.id ?? null],
     );
     return rows.rows[0] as DbRow;
   });
