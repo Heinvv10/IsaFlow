@@ -87,7 +87,8 @@ const CODE_MAPPING: CodeMapping[] = [
   { code: '3605', amount: field('bonus') },
   { code: '3701', amount: field('travelAllowance') },
   { code: '4001', amount: field('pensionContribEmployee') },
-  { code: '4005', amount: field('medicalAidEmployee') },
+  // Labelled here, not from the catalogue: the legacy 2024/2025 seed's 4005 row says "Donations" (wave 6 EF, review B2).
+  { code: '4005', amount: field('medicalAidEmployee'), description: 'Medical scheme fees (contributions)' },
   { code: '4006', amount: field('retirementAnnuity') },
   { code: '4102', amount: field('paye') },
   {

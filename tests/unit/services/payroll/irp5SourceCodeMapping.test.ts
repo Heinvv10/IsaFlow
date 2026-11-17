@@ -97,3 +97,12 @@ describe('IRP5 income and deduction codes follow the PAYE BRS V25.3.0', () => {
     for (const wrong of ['3801', '3702', '4003', '4004']) expect(codes).not.toContain(wrong);
   });
 });
+
+describe('4005 is labelled medical whatever the year\'s catalogue says (review B2)', () => {
+  it('the legacy 2024/2025 row "Donations" does not label a medical aid line', async () => {
+    const { getSarsCodeNearest } = await import('@/modules/accounting/services/payroll/sarsCodesService');
+    vi.mocked(getSarsCodeNearest).mockResolvedValueOnce({ description: 'Donations (Section 18A)', category: 'deduction' } as never);
+    const codes = await calculateIRP5SourceCodes({ ...data, grossSalary: 0, paye: 0, uifEmployee: 0, uifEmployer: 0, sdl: 0, medicalAidEmployee: 1_000 }, 2025);
+    expect(codes.find((c) => c.code === '4005')!.description).toBe('Medical scheme fees (contributions)');
+  });
+});
