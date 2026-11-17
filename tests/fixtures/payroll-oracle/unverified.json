@@ -8,5 +8,15 @@
     "case": "db-fund-12d-category-factor",
     "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page; under the s11F cap the fringe and its deemed contribution cancel, so the engine already gives the hand figure.",
     "wouldVerify": "The Seventh Schedule para 12D text or a SARS 2027 guide page on defined benefit fund fringe benefits, or a Sage payslip with a category factor."
+  },
+  {
+    "case": "ga-emolument-attachment-capped-25pct",
+    "reason": "The 25% limit is the Magistrates' Courts Act s65J(1A)(a) (read 2026-11-17, Juta consolidation of the Act as substituted by Act 7 of 2017); there is no SARS guide page or vendor payslip for a garnishee, so the oracle rules leave it UNVERIFIED. The engine gives the hand figure.",
+    "wouldVerify": "A Sage or SimplePay payslip for an employee with an emoluments attachment order above 25% of basic salary."
+  },
+  {
+    "case": "ga-maintenance-outside-cap",
+    "reason": "Maintenance Act s28(1) sets no percentage limit and s29(3) gives a maintenance order priority over any other court order (read 2026-11-17); with no SARS guide page or vendor payslip the case stays UNVERIFIED. The engine gives the hand figure.",
+    "wouldVerify": "A Sage or SimplePay payslip carrying a maintenance order beside an emoluments attachment order at the 25% limit."
   }
 ]

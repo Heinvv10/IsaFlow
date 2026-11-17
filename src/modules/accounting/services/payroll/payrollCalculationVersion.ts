@@ -18,5 +18,7 @@
  *    assignment stays cash, migration 975); percent_of_rfi rows are costed on RFI (RF). Master's value + 1 at RF's rebase (DR may take it).
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
+ * 13: garnishee orders come off net pay after tax: emoluments attachments within 25% of basic salary (Magistrates' Courts Act
+ *    s65J(1A)(a)), maintenance outside it and first (Maintenance Act s28, s29(3)); recorded per run (GA). Master's value + 1 at GA's rebase.
  */
-export const PAYROLL_CALCULATION_VERSION = 12;
+export const PAYROLL_CALCULATION_VERSION = 13;

@@ -16,7 +16,6 @@ import { mapPayrollEmployeeRow } from '@/modules/accounting/services/payroll/pay
 const ALL: RunKindAction[] = ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'irp5', 'bank_file'];
 const OK = {
   pay_frequency: 'monthly', run_kind: 'regular', unknown_status: null, other_frequency: null, odd_assignments: null,
-  garnishee_orders: 0, garnishee_deductions: 0,
 };
 const refusedBy = (row: Record<string, unknown>) =>
   ALL.filter((a) => judgeRunKind({ ...OK, ...row }, a).length > 0);
@@ -33,8 +32,8 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(judgeRunKind({ ...OK, run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle run');
   });
 
-  it('refuses garnishee deductions on the run for every action, reopen included (grill F8)', () => {
-    expect(refusedBy({ garnishee_deductions: 1 })).toEqual(ALL);
+  it('GA lifted the garnishee clauses: orders and deductions refuse nothing (this release costs and reopens them)', () => {
+    expect(refusedBy({ garnishee_orders: 2, garnishee_deductions: 1 })).toEqual([]);
   });
 
   it('refuses an unknown tax status for everything but reopen, naming the employees', () => {
@@ -46,9 +45,8 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({ other_frequency: ['E1'] })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
   });
 
-  it('refuses odd assignments and active garnishee orders only where the run is costed', () => {
+  it('refuses odd assignments only where the run is costed', () => {
     expect(refusedBy({ odd_assignments: ['E1'] })).toEqual(['calculate', 'approve', 'post']);
-    expect(refusedBy({ garnishee_orders: 2 })).toEqual(['calculate', 'approve', 'post']);
   });
 
   it('reports every clause that holds, in order', () => {

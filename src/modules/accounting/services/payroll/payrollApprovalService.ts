@@ -23,6 +23,7 @@ import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { freezePayslipDetails } from './payslipSnapshot';
+import { applyRunGarnishees, judgeGarnisheeBalances } from './payrollGarnisheeRun';
 
 
 type Row = DbRow;
@@ -114,6 +115,8 @@ export async function approvePayrollRun(
   // No request to read (enforcement off) leaves the executor as the only approver there is.
   const decision = await readPayRunDecision(companyId, runId, gate.planHash);
   const approvedBy = decision?.decidedBy ?? userId;
+  // GA: still a read (with the orders locked): a deduction above what its order now owes refuses before any write.
+  await judgeGarnisheeBalances(companyId, runId);
 
   // The two writes a refusal may still follow, in ONE savepoint, so a refusal
   // from either leaves neither behind, whoever catches it (the MCP tool catches
@@ -160,6 +163,8 @@ export async function approvePayrollRun(
   // Wave 6 PS3: the slip's details at this approval (not in the plan hash). A run already approved (re-approved to post
   // its journal) keeps its approval time above and its snapshot, or reads live without one (review B3).
   if (String(locked.status) !== 'approved') await freezePayslipDetails(companyId, runId);
+  // GA: the approval moves the garnishee balances (only deductions not applied yet: a re-approval to post is a no-op).
+  await applyRunGarnishees(companyId, runId);
 
   // The plan the gate judged and the hash described is the plan that posts —
   // the poster does not build its own (breaker D). Its blockers were judged

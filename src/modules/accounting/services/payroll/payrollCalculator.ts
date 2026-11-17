@@ -15,6 +15,7 @@ import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './t
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
+import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
 import type {
@@ -199,6 +200,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     });
   }
 
+  // GA: garnishee orders come off the net pay above, after tax, never below nil (payrollGarnishee; s65J(1A)(a)).
+  const garnishee = applyGarnishees({ orders: input.garnisheeOrders ?? [], components, netPayBefore: netPay });
+  warnings.push(...garnishee.warnings);
+
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.
   const explanations = explainPayrollLine({
     taxYear, periodDate,
@@ -248,7 +253,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     donationBase: donation.base,
     donationDeduction: donation.deduction,
     eti,
-    netPay: Math.max(0, netPay),
+    netPay: round2(Math.max(0, netPay) - garnishee.total),
+    garnishees: garnishee.deductions,
     componentBreakdown: breakdown,
     validationResults: [...warnings, ...(input.notEmployedInPeriod ? [] : hoursValidation(employee, components))],
     hours,

@@ -1,8 +1,8 @@
 {
   "id": "ga-maintenance-outside-cap",
   "source": "UNVERIFIED",
-  "sourceRef": "Maintenance Act 99 of 1998 s28; Magistrates' Courts Act 32 of 1944 s65J(2)(b)",
-  "notes": "Basic salary R20 000; an emolument attachment order of R5 000 (at the 25% cap) and a maintenance order of R4 000 (Maintenance Act s28, outside the s65J cap). PAYE 2 115.00; net 20 000 - 2 115 - 177.12 - 5 000 - 4 000 = 8 707.88. UNVERIFIED: neither Act was read.",
+  "sourceRef": "Maintenance Act 99 of 1998 s28(1), s29(3); Magistrates' Courts Act 32 of 1944 s65J(1A)(a) as substituted by Act 7 of 2017; Juta consolidations on justice.gov.za, read 2026-11-17",
+  "notes": "Basic salary R20 000; an emolument attachment order of R5 000 (at the 25% cap) and a maintenance order of R4 000 (Maintenance Act s28, outside the s65J cap). PAYE 2 115.00; net 20 000 - 2 115 - 177.12 - 5 000 - 4 000 = 8 707.88. UNVERIFIED as an oracle source (statutes, read by GA 2026-11-17: s28 sets no percentage limit and s29(3) gives maintenance priority; not a SARS guide or vendor figure).",
   "input": {
     "period": {
       "year": 2026,

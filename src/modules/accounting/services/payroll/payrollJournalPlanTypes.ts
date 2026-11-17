@@ -58,7 +58,10 @@ export interface PayrollJournalPlan {
     etiUsed: number;
     net: number;
     employerUif: number;
+    /** What 2175 is credited: gross − PAYE − employee UIF − net, less the garnishee deductions. */
     otherDeductions: number;
+    /** The run's garnishee deductions (GA), credited to the garnishee payable. */
+    garnishee: number;
   };
   blockers: PayrollJournalNote[];
   advisories: PayrollJournalNote[];

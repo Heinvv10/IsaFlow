@@ -43,6 +43,10 @@ vi.mock('@/lib/neon', () => ({
       return Promise.resolve([]);
     })),
 }));
+// GA: the run's garnishee orders are read and recorded by payrollGarnisheeRun (proven in w6-garnishee.int.test.ts).
+vi.mock('@/modules/accounting/services/payroll/payrollGarnisheeRun', () => ({
+  loadRunGarnisheeOrders: vi.fn(async () => new Map()), replaceRunGarnisheeDeductions: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   isPayrollRunLocked: () => false,

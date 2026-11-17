@@ -9,22 +9,6 @@
     "closedBy": "DBF (wave 6): defined-benefit fund fringe (para 12D) inside the s11F cap."
   },
   {
-    "case": "ga-emolument-attachment-capped-25pct",
-    "engineActual": {
-      "net": 17707.88
-    },
-    "reason": "Garnishee orders do not reach the calculator: net pay is before any order. PAYE is unaffected and matches.",
-    "closedBy": "GA (wave 6): garnishee orders."
-  },
-  {
-    "case": "ga-maintenance-outside-cap",
-    "engineActual": {
-      "net": 17707.88
-    },
-    "reason": "Garnishee orders do not reach the calculator: net pay is before any order. PAYE is unaffected and matches.",
-    "closedBy": "GA (wave 6): garnishee orders."
-  },
-  {
     "case": "offcycle-bonus-after-regular-g21",
     "engineActual": {
       "uifEmployee": 148,

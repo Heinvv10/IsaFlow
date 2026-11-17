@@ -25,6 +25,8 @@
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
  *   CR 2175 deductions + employer medical (scheme payable), or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
+ *   CR garnishee payable (GA): the run's garnishee deductions, on their own line per payable account the orders name, out of
+ *     what would otherwise be 2175's (gross − PAYE − employee UIF − net already includes them)
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
@@ -54,6 +56,7 @@ import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
 import { etiAdvisories, etiForRun, etiRefundLines } from './payrollJournalEti';
+import { runGarnisheeCredits } from './payrollGarnisheeRun';
 
 type Row = DbRow;
 
@@ -98,7 +101,12 @@ export async function buildPayrollJournalPlan(
   const net = Number(hdr.total_net) || 0;
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
-  const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
+  const split = splitRunTotals({ gross, paye, uif, net });
+  const { employerUif } = split;
+  // GA: the garnishee deductions are part of gross − PAYE − UIF − net; they are credited to their payable, not 2175.
+  const garnishees = await runGarnisheeCredits(companyId, runId);
+  const garnishee = round2(garnishees.reduce((s, g) => s + g.amount, 0));
+  const otherDeductions = round2(split.otherDeductions - garnishee);
   const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti }, runId);
   const etiUsed = round2(runEti.etiUsed);
   // The employer's medical (non-cash 3810) and fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid over.
@@ -204,6 +212,10 @@ export async function buildPayrollJournalPlan(
   }
   if (medical > 0.005) built.push(line('2175', 0, medical, "Employer medical scheme contributions (non-cash 3810), payable to the scheme"));
   else if (medical < -0.005) built.push(line('2175', -medical, 0, 'Employer medical scheme contributions reversal — claw-back of a non-cash 3810'));
+  for (const g of garnishees) {
+    built.push({ glAccountId: g.accountId, accountCode: g.code, accountName: g.name, debit: 0, credit: round2(g.amount),
+      description: 'Garnishee orders: deducted from pay, owed to the creditors', inactiveAccount: !g.isActive, cc1Id: null });
+  }
   if (Math.abs(retirement) > 0.005) built.push(retirement > 0 ? line('2175', 0, retirement, 'Employer retirement fund contributions (non-cash 3817/3825/3828), payable to the fund') : line('2175', -retirement, 0, 'Employer retirement fund contributions reversal (non-cash 3817/3825/3828)'));
   const refund = etiRefundLines(runEti, accounts.get('5200')); // R-C: the Aug/Feb refund (payrollJournalEti)
   built.push(...refund.lines);
@@ -236,7 +248,7 @@ export async function buildPayrollJournalPlan(
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, employerMedical: medical, employerRetirement: retirement },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, garnishee, employerMedical: medical, employerRetirement: retirement },
     blockers,
     advisories,
     labourBySourceCentre,
