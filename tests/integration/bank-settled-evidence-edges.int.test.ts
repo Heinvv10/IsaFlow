@@ -116,6 +116,12 @@ describeIfDb('bank line settled evidence: edges', () => {
     expect((await listSettledDocuments(co, l.id)).length).toBe(0);
   });
 
+  it('a refund-shaped (negative) payment on a money-out line yields no evidence either', async () => {
+    const l = await line(-260); const b = await bill('R6B-A', 260); const p = await pay(l.je, 'R6BP', -260, 'refund'); await alloc(p, b, 260);
+    await doc(uuid(), b, 'r6b.pdf');
+    expect((await listSettledDocuments(co, l.id)).length).toBe(0);
+  });
+
   it('an unprocessed payment yields no evidence', async () => {
     const l = await line(-90); const b = await bill('R7-A', 90); const p = await pay(l.je, 'R7P', 90); await alloc(p, b, 90);
     await q("UPDATE supplier_payments SET status='draft' WHERE id=$1", [p]);
