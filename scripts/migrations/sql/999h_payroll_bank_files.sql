@@ -94,7 +94,8 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.status = 'confirmed' THEN
-    IF NOT (NEW.run_approved_at = h.final_at OR COALESCE(h.approval_history @> NEW.run_approved_at, false)) THEN
+    -- NULL-safe both ways: a NULL final_at, history or run_approved_at must refuse, never pass as an unknown.
+    IF NOT (COALESCE(NEW.run_approved_at = h.final_at, false) OR COALESCE(h.approval_history @> NEW.run_approved_at, false)) THEN
       RAISE EXCEPTION 'payroll_bank_files: the file pays an approval this run never had' USING ERRCODE = 'check_violation';
     END IF;
     NEW.confirmed_by := uid;

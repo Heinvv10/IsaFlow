@@ -126,6 +126,30 @@ describe('salary bank file money controls (review #1524)', () => {
     expect(made.rows[0]!.created_by).toBe(a.admin);
   }, 180_000);
 
+  it('BRK-5: the confirm check is NULL-safe: a NULL final_at with no history, or a NULL run_approved_at, is refused', async () => {
+    const run = await approvedRun(a, 9);
+    const made = await generate(a, run);
+    expect(made.statusCode).toBe(200);
+    const fileId = String(made.body.data!.id);
+    const asSession = async (text: string) => {
+      const c = await a.pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin })]);
+        await c.query(text, [fileId]);
+        await c.query('COMMIT');
+      } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
+    };
+    await expect(asSession("UPDATE payroll_bank_files SET status = 'confirmed', run_approved_at = NULL WHERE id = $1"))
+      .rejects.toThrow(/only a generated file|null value/);
+    // A header whose approval is gone with no history (NULL final_at, NULL approval_history): unknown is refused.
+    await a.pool.query(
+      `UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL, approval_grandfathered_at = NULL, approval_history = NULL
+        WHERE id = $1`, [run]);
+    await expect(asSession("UPDATE payroll_bank_files SET status = 'confirmed' WHERE id = $1")).rejects.toThrow(/an approval this run never had/);
+    expect((await files(a)).find((f) => f.id === fileId)!.status).toBe('generated');
+  }, 180_000);
+
   it('nil net pay is left out of the file and named; the run is not refused', async () => {
     const zero = (await a.employee(0)).employee;
     const run = await approvedRun(a, 8);
