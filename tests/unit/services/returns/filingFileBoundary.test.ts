@@ -32,7 +32,8 @@ function resolve(from: string, spec: string): string | null {
   return null;
 }
 
-const IMPORT = /(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+/** `import … from 'x'`, `export … from 'x'`, a bare `import 'x'`, and `import('x')`. */
+const IMPORT = /(?:import|export)\s[^'";]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 /** Every repo module reachable from the entry files (type-only imports included: stricter, never looser). */
 function closure(entries: string[]): Set<string> {
@@ -43,7 +44,7 @@ function closure(entries: string[]): Set<string> {
     if (seen.has(file)) continue;
     seen.add(file);
     for (const m of readFileSync(file, 'utf8').matchAll(IMPORT)) {
-      const next = resolve(file, m[1] ?? m[2]!);
+      const next = resolve(file, m[1] ?? m[2] ?? m[3]!);
       if (next && !seen.has(next)) todo.push(next);
     }
   }
