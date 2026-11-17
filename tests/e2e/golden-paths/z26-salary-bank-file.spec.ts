@@ -79,7 +79,7 @@ const ok = (data: unknown) => ({ status: 200, contentType: 'application/json', b
 const file = (status: string) => ({
   id: FILE_ID, status, layout: 'fnb_obe_2023_02', sha256: SHA, lineCount: 1, totalCents: 2_345_678, actionDate: '2099-01-15',
   createdAt: '2026-11-16T10:00:00.000Z', confirmedAt: status === 'confirmed' ? '2026-11-16T11:00:00.000Z' : null,
-  voidedAt: status === 'voided' ? '2026-11-16T11:00:00.000Z' : null, stale: false,
+  voidedAt: status === 'voided' ? '2026-11-16T11:00:00.000Z' : null, stale: false, differenceCents: null,
 });
 
 /** Intercept the run's bank-file routes; the state moves generate -> confirm as the card calls them. */

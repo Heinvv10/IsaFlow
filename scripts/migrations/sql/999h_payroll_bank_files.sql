@@ -17,13 +17,27 @@
 --             the bank did pay must still be recordable); void needs void_not_sent.
 --     stamps  created_by / confirmed_by / voided_by are the session user (auth.uid(), as 999c), never what the caller
 --             wrote; no session user is refused. Times are the trigger's clock. The column grants stop the rest.
+--   payroll_bank_details.activated_at  when the row last became active (review #1524 D-2). A BEFORE trigger stamps it
+--     with the trigger's clock on an active INSERT and on an is_active false -> true UPDATE, and keeps it otherwise, so
+--     the caller cannot choose it (app_user may INSERT any column and UPDATE is_active only; a written created_at can
+--     be backdated, activated_at cannot). The bank file refuses details whose COALESCE(activated_at, created_at) is
+--     after the run's approval: a re-activated old account counts as changed, and the check no longer relies on
+--     changes being written as new rows.
 --   feature_flags  payroll_salary_bank_file, OFF (rule 20). 999a creates it too; ON CONFLICT DO NOTHING here.
 --
--- OLD COLOUR: a new table that the previous release never reads or writes. Its reopen does not read it (the new
+-- RESIDUAL (review #1524 D-4): the actor restamp below reads auth.uid(), i.e. request.jwt.claims, which a session as
+--   app_user can set itself. It records who withAuth says acted; it is not a SQL-level control against a caller that
+--   already holds app_user. The control against that caller is the column grants and the transition rules.
+--
+-- OLD COLOUR: payroll_bank_details gains a nullable column the old code never names; its INSERTs and is_active
+--   UPDATEs are stamped by the trigger and otherwise unchanged. A new table that the previous release never reads or writes. Its reopen does not read it (the new
 --   release only warns from it), and a reopen by old code still makes a generated file stale, because staleness is
 --   judged from the header's approval time, not from a write at reopen.
 --
 -- Rollback (down SQL; roll the code back first):
+--   DROP TRIGGER IF EXISTS payroll_bank_details_activated ON public.payroll_bank_details;
+--   DROP FUNCTION IF EXISTS public.payroll_bank_details_activated();
+--   ALTER TABLE public.payroll_bank_details DROP COLUMN IF EXISTS activated_at;
 --   DROP TABLE IF EXISTS public.payroll_bank_files;
 --   DROP FUNCTION IF EXISTS public.payroll_bank_files_guard();
 --   SELECT public.app_service_sync_policies();
@@ -126,6 +140,29 @@ GRANT SELECT ON public.payroll_bank_files TO app_user;
 GRANT INSERT (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
   ON public.payroll_bank_files TO app_user;
 GRANT UPDATE (status, confirmed_by, confirmed_at, voided_by, voided_at, void_not_sent) ON public.payroll_bank_files TO app_user;
+
+-- ── payroll_bank_details.activated_at (D-2) ──────────────────────────────────
+ALTER TABLE public.payroll_bank_details ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ;
+COMMENT ON COLUMN public.payroll_bank_details.activated_at IS
+  'When this row last became active (999h, trigger-stamped; NULL = active since created_at). Read by the salary bank file.';
+
+CREATE OR REPLACE FUNCTION public.payroll_bank_details_activated() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.activated_at := CASE WHEN NEW.is_active THEN clock_timestamp() END;
+  ELSIF NEW.is_active AND NOT OLD.is_active THEN
+    NEW.activated_at := clock_timestamp();
+  ELSE
+    NEW.activated_at := OLD.activated_at;
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS payroll_bank_details_activated ON public.payroll_bank_details;
+CREATE TRIGGER payroll_bank_details_activated BEFORE INSERT OR UPDATE ON public.payroll_bank_details
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_details_activated();
+ALTER TABLE public.payroll_bank_details ENABLE ALWAYS TRIGGER payroll_bank_details_activated;
 
 INSERT INTO public.feature_flags (code, name, description, is_global) VALUES
   ('payroll_salary_bank_file', 'Payroll: salary bank file',

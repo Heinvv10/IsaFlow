@@ -17,14 +17,14 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { withBoundedLockWait } from './payrollRunLock';
-import { PayrollBankFileRefusal, type BankFileStatus } from './payrollBankFileStatus';
+import { listRunBankFiles, PayrollBankFileRefusal, type BankFileStatus } from './payrollBankFileStatus';
 import type { BankFileActor } from './payrollBankFileService';
 
 export type BankFileAction = 'confirm' | 'void';
 
 export async function settleBankFile(opts: {
   companyId: string; runId: string; fileId: string; action: BankFileAction; actor: BankFileActor; notSentToBank?: boolean;
-}): Promise<{ id: string; status: BankFileStatus }> {
+}): Promise<{ id: string; status: BankFileStatus; differenceCents: number | null }> {
   const { companyId, runId, fileId, action, actor } = opts;
   if (action === 'void' && opts.notSentToBank !== true) {
     throw new PayrollBankFileRefusal('NOT_SENT_REQUIRED', 'Void a bank file only by confirming it was not sent to the bank.');
@@ -58,5 +58,7 @@ export async function settleBankFile(opts: {
     ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
   });
   log.info(`Salary bank file ${status}`, { companyId, runId, fileId }, 'payroll-bank-file');
-  return { id: fileId, status };
+  // D-3: a pre-reopen file confirmed against a re-approved run names what is still to pay (or was overpaid).
+  const differenceCents = (await listRunBankFiles(companyId, runId)).find((f) => f.id === fileId)?.differenceCents ?? null;
+  return { id: fileId, status, differenceCents };
 }

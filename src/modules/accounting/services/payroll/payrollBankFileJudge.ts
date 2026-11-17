@@ -7,11 +7,15 @@
  *                       UNSETTLED_FILE: it may have been uploaded, so a person must confirm it or void it with the
  *                       "not sent to the bank" attestation first. Never voided by the generator (review #1524 BRK-4).
  *   payingAccount       the company's bank-role holder (the account the payroll journal credits), with a valid number.
- *   readPayments        the run's lines with each employee's active bank details. Refused: details created after the
- *                       approval (BRK-2: the approver never saw them), missing or invalid details, negative net. Nil
+ *   readPayments        the run's lines with each employee's active bank details. Refused: details that became active
+ *                       after the approval (BRK-2/D-2: COALESCE(activated_at, created_at), activated_at stamped by the
+ *                       999h trigger on insert and on re-activation, so neither a new row nor a re-activated old one
+ *                       slips past, whether or not changes are written as new rows), missing or invalid details, negative net. Nil
  *                       net pay is left out of the file and named in the warnings (coordinator ruling, review #1524).
- *   judgeApprovedTotals the lines still sum to the header's approved total_net, and to the net-pay credit of the
- *                       approval journal when it is posted and not reversed (BRK-3).
+ *   judgeApprovedTotals fail closed (BRK-3, D-1): the run must link a posted, unreversed journal with net-pay lines
+ *                       (JOURNAL_NOT_POSTED otherwise: post it first), and the lines must sum to both the header's
+ *                       total_net and that journal's net-pay credit. The header alone is no anchor: app_user can move
+ *                       it with the lines; the posted journal it cannot.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -78,7 +82,7 @@ export async function readPayments(companyId: string, runId: string): Promise<Ru
   const rows = (await sql`
     SELECT l.employee_id, e.employee_number, e.first_name, e.last_name, round(l.net_pay * 100)::bigint::text AS net_cents,
            d.account_number, d.branch_code, d.account_type, d.account_holder,
-           (d.created_at > COALESCE(h.approved_at, h.approval_grandfathered_at)) AS details_after_approval,
+           (COALESCE(d.activated_at, d.created_at) > COALESCE(h.approved_at, h.approval_grandfathered_at)) AS details_after_approval,
            COALESCE(NULLIF(c.trading_name, ''), c.name) AS company_name
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid
@@ -135,9 +139,13 @@ export async function judgeApprovedTotals(companyId: string, runId: string, line
   `) as DbRow[])[0];
   const approved = h?.approved_cents == null ? null : BigInt(String(h.approved_cents));
   const journal = h?.journal_cents == null ? null : BigInt(String(h.journal_cents));
-  if (approved !== linesCents || (journal !== null && journal !== linesCents)) {
+  if (journal === null) {
+    throw new PayrollBankFileRefusal('JOURNAL_NOT_POSTED',
+      'This run has no posted payroll journal crediting its net pay (never posted, or reversed). Post the payroll journal first, then pay it.');
+  }
+  if (approved !== linesCents || journal !== linesCents) {
     throw new PayrollBankFileRefusal('RUN_CHANGED_SINCE_APPROVAL',
       `This run's lines total ${rand(Number(linesCents))} net, but it was approved at ${approved === null ? 'no total' : rand(Number(approved))}`
-      + `${journal === null ? '' : ` and its journal credits ${rand(Number(journal))} net pay`}. Reopen and re-approve it before paying it.`);
+      + ` and its journal credits ${rand(Number(journal))} net pay. Reopen and re-approve it before paying it.`);
   }
 }

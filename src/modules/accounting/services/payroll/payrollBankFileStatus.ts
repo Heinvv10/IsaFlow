@@ -21,12 +21,12 @@ export const SALARY_BANK_FILE_FLAG = 'payroll_salary_bank_file';
 export type BankFileRefusalReason =
   | 'FEATURE_DISABLED' | 'NOT_FOUND' | 'NOT_FINAL' | 'BANK_HAS_PAID' | 'FILE_EXISTS' | 'INVALID_ACTION_DATE'
   | 'NO_PAYING_ACCOUNT' | 'EMPLOYEES_NOT_PAYABLE' | 'NOT_GENERATED' | 'UNSETTLED_FILE' | 'BANK_DETAILS_CHANGED'
-  | 'RUN_CHANGED_SINCE_APPROVAL' | 'NOT_SENT_REQUIRED';
+  | 'RUN_CHANGED_SINCE_APPROVAL' | 'NOT_SENT_REQUIRED' | 'JOURNAL_NOT_POSTED';
 
 const STATUS: Record<BankFileRefusalReason, 400 | 403 | 404 | 409> = {
   FEATURE_DISABLED: 403, NOT_FOUND: 404, INVALID_ACTION_DATE: 400, NOT_FINAL: 409, BANK_HAS_PAID: 409, FILE_EXISTS: 409,
   NO_PAYING_ACCOUNT: 409, EMPLOYEES_NOT_PAYABLE: 409, NOT_GENERATED: 409, UNSETTLED_FILE: 409,
-  BANK_DETAILS_CHANGED: 409, RUN_CHANGED_SINCE_APPROVAL: 409, NOT_SENT_REQUIRED: 400,
+  BANK_DETAILS_CHANGED: 409, RUN_CHANGED_SINCE_APPROVAL: 409, NOT_SENT_REQUIRED: 400, JOURNAL_NOT_POSTED: 409,
 };
 
 /** Raised before any write of the request; the route answers it with `status` and `reason`. */
@@ -59,6 +59,11 @@ export interface PayrollBankFile {
   voidedAt: string | null;
   /** The run was reopened since this file was made: it pays an approval that has ended. */
   stale: boolean;
+  /**
+   * A confirmed file of an earlier approval while the run is approved again (review #1524 D-3): the run's current net
+   * less what the bank paid, in cents. Positive = still to pay separately; negative = overpaid. Null otherwise.
+   */
+  differenceCents: number | null;
 }
 
 const iso = (v: unknown): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -68,7 +73,10 @@ export async function listRunBankFiles(companyId: string, runId: string): Promis
   const rows = (await sql`
     SELECT f.id, f.status, f.layout, f.sha256, f.line_count, f.total_cents::text AS total_cents, f.action_date::text AS action_date,
            f.created_at, f.confirmed_at, f.voided_at,
-           NOT (h.status IN ('approved', 'paid') AND f.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at)) AS stale
+           NOT COALESCE(h.status IN ('approved', 'paid') AND f.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at), false) AS stale,
+           CASE WHEN f.status = 'confirmed' AND h.status IN ('approved', 'paid')
+                 AND f.run_approved_at IS DISTINCT FROM COALESCE(h.approved_at, h.approval_grandfathered_at)
+                THEN (round(h.total_net * 100)::bigint - f.total_cents)::text END AS difference_cents
       FROM payroll_bank_files f
       JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id
      WHERE f.company_id = ${companyId}::uuid AND f.run_id = ${runId}::uuid
@@ -78,6 +86,7 @@ export async function listRunBankFiles(companyId: string, runId: string): Promis
     id: String(r.id), status: r.status as BankFileStatus, layout: String(r.layout), sha256: String(r.sha256),
     lineCount: Number(r.line_count), totalCents: Number(r.total_cents), actionDate: String(r.action_date),
     createdAt: iso(r.created_at)!, confirmedAt: iso(r.confirmed_at), voidedAt: iso(r.voided_at), stale: r.stale === true,
+    differenceCents: r.difference_cents == null ? null : Number(r.difference_cents),
   }));
 }
 

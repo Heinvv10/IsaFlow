@@ -17,8 +17,18 @@ import type { PayrollBankFile, RunBankFileState } from '@/modules/accounting/ser
 const LOAD_FAILED = 'Could not load the salary bank file - try again';
 const BTN = 'px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50';
 
+/** D-3: a confirmed file of an earlier approval names the difference to the current one. */
+export function confirmedLabel(f: PayrollBankFile): string {
+  const paid = formatCurrency(f.totalCents / 100);
+  if (f.differenceCents == null) return 'Payment confirmed';
+  if (f.differenceCents === 0) return `The bank paid ${paid} on the earlier approval; nothing more to pay`;
+  return f.differenceCents > 0
+    ? `The bank paid ${paid} on the earlier approval; ${formatCurrency(f.differenceCents / 100)} still to pay separately`
+    : `The bank paid ${paid} on the earlier approval; ${formatCurrency(-f.differenceCents / 100)} overpaid`;
+}
+
 function statusLabel(f: PayrollBankFile): string {
-  if (f.status === 'confirmed') return 'Payment confirmed';
+  if (f.status === 'confirmed') return confirmedLabel(f);
   if (f.status === 'voided') return 'Voided';
   return f.stale ? 'Made before the run was reopened: record it if the bank paid it, or void it' : 'Generated, not yet confirmed';
 }
@@ -110,8 +120,10 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
       {confirmed && (
         <p role="status" className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          The bank has paid this run (file confirmed {confirmed.confirmedAt ? formatDisplayDate(confirmed.confirmedAt.slice(0, 10)) : ''}).
-          Reopening the run does not reverse that payment: pay any difference separately.
+          {confirmed.differenceCents == null
+            ? <>The bank has paid this run (file confirmed {confirmed.confirmedAt ? formatDisplayDate(confirmed.confirmedAt.slice(0, 10)) : ''}).
+              Reopening the run does not reverse that payment: pay any difference separately.</>
+            : <>{confirmedLabel(confirmed)}.</>}
         </p>
       )}
       {state && !state.enabled && state.files.length === 0 && (

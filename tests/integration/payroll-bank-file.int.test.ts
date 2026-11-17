@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { todayInSast } from '@/lib/saDateParser';
 import { rig } from './brkr.helpers';
 import {
-  act, approvedRun, bank, cleanup, enable, exports, files, generate, payingAccount, reason, status, voidNotSent, type R,
+  act, approvedRun, bank, cleanup, reapprove, enable, exports, files, generate, payingAccount, reason, status, voidNotSent, type R,
 } from './payroll-bank-file.helpers';
 
 let a: R;
@@ -59,6 +59,9 @@ describe('salary bank file', () => {
   it('generates the file: in the body, recorded with its sha256, totals and session user, audited; a second is refused', async () => {
     await a.pool.query("UPDATE payroll_bank_details SET account_number = '4071234567' WHERE company_id = $1 AND employee_id = $2", [a.company, emp[0]]);
     await a.pool.query('UPDATE payroll_bank_details SET is_active = true WHERE company_id = $1 AND employee_id = $2', [a.company, emp[1]]);
+    // Activated after the approval (999h stamps activated_at): refused until the run is approved again (D-2).
+    expect(reason(await generate(a, run1))).toBe('BANK_DETAILS_CHANGED');
+    await reapprove(a, run1);
     const res = await generate(a, run1);
     expect(res.statusCode).toBe(200);
     const body = res.body.data!;
