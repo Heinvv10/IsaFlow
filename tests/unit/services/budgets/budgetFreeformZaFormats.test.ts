@@ -3,9 +3,9 @@
  * allowlist of rand currency and accounting formats the character rule refuses (quoted "R", [$R-1C09] / [$R-en-ZA] /
  * [$R-436], `\-`, the accounting zero `"-"??`), as LibreOffice writes them in xlsx for en-ZA (verified) and as Excel
  * writes them (Microsoft's en-ZA defaults, not verified from a real Excel file). Matched after whitespace is normalised,
- * a leading locale-only tag (any hex id, round 7) dropped and colour names case-folded. Every accepted format
- * shows the imported value: a format with no decimals accepts whole rands only (it would show 1 235 for 1 234.50),
- * and the red-without-minus variants (a negative shown unsigned) stay refused.
+ * a leading locale-only tag (any hex id, round 7) dropped and colour names case-folded. No accepted format changes
+ * a value or its sign: a format with no decimals accepts whole rands only (IsaFlow rounds only under 2 decimals), and
+ * the red-without-minus variants (a negative drawn unsigned) stay refused.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -46,7 +46,7 @@ describe('what the allowlist keeps out', () => {
 
   it('a format with no decimals accepts whole rands only: it shows 1 235 for 1 234.50', async () => {
     expect(await cellWith('_-"R"* #,##0_-;\\-"R"* #,##0_-;_-"R"* "-"_-;_-@_-', 1234.5))
-      .toEqual({ kind: 'error', raw: '1234.5', reason: 'This cell shows 0 decimal places but holds 1234.5, so what you see is not what would be imported; format it with 2 decimals.' });
+      .toEqual({ kind: 'error', raw: '1234.5', reason: 'This cell shows 0 decimal places but holds 1234.5; IsaFlow rounds to cents only under a format showing exactly 2 decimals, so format it with 2 decimals or round it in the sheet.' });
     expect(await cellWith('#,##0', 83.33)).toMatchObject({ kind: 'error', reason: expect.stringMatching(/^This cell shows 0 decimal places but holds 83.33/) }); // the character rule's formats too
     expect(await cellWith('#,##0', 83)).toEqual({ kind: 'value', cents: 8300 });
   });

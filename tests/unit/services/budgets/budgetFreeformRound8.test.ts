@@ -11,7 +11,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { readImportWorkbook } from '@/modules/accounting/services/budgets/budgetImportFreeformRead';
 import { freeformLines } from '@/modules/accounting/services/budgets/budgetImportFreeform';
-import { shownCents } from '@/modules/accounting/services/budgets/budgetFreeformAmounts';
+import { roundToCents } from '@/modules/accounting/services/budgets/budgetFreeformAmounts';
 import { MONTHS, model } from '../../mcp/budgetToolsFixture';
 import { rawBook, rowXml, sheetBody, stylesWith } from './rawXlsxFixture';
 
@@ -75,6 +75,6 @@ describe('2, 3: fill characters and the escaped space', () => {
 
 describe('4: the rounding is IsaFlow\'s own, also at 1e10 and over', () => {
   it.each([[12345678901.125, 1234567890113], [123456789012.345, 12345678901235], [-98765432109.875, -9876543210988]])('%s rounds to %s cents (15 significant digits, half away from zero)', (value, cents) => {
-    expect(shownCents(value)).toBe(cents);
+    expect(roundToCents(value)).toBe(cents);
   });
 });

@@ -70,8 +70,8 @@ describe('4: the rand without a thousands separator', () => {
   });
 });
 
-describe('5: a format showing 2 decimals imports the value as shown (half away from zero), and lists it', () => {
-  it('8333.33, -8333.33, R 6172.84, 1.01, 2.68, -2.68, 1234.50, R0.13 as LibreOffice shows them', async () => {
+describe('5: a format showing 2 decimals rounds the value to cents by IsaFlow\'s rule (half away from zero), and lists it', () => {
+  it('8333.33, -8333.33, R 6172.84, 1.01, 2.68, -2.68, 1234.50, R0.13 (what LibreOffice also shows for these)', async () => {
     const out = await linesOf('rounding-en-za');
     expect(cents(out, '6000').slice(0, 8)).toEqual([833333, -833333, 617284, 101, 268, -268, 123450, 13]);
     expect(out.rounded).toEqual([

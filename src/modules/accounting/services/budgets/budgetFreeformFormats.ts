@@ -7,13 +7,14 @@
  *  1. Excel's built-in plain formats by id (0 General, 1-4, 37-40, 41 and 43: no currency symbol), General by name, and
  *     Text (`@`, built-in 49; round 7): a number in a Text cell shows as General does.
  *  2. ZA_FORMATS: an EXACT-STRING allowlist of South African rand currency and accounting formats that the character
- *     rule refuses (they carry quoted or escaped text: "R", \-, the accounting zero "-"??). Each shows the imported
- *     value for every number (a "-" for 0 imports 0; a red negative keeps its minus). Matched after `normaliseFormat`:
+ *     rule refuses (they carry quoted or escaped text: "R", \-, the accounting zero "-"??). None changes a number's value
+ *     or sign (a "-" for 0 is 0; a red negative keeps its minus; no scaling, no condition). Matched after `normaliseFormat`:
  *     the tags dropped, whitespace runs (a non-breaking space included) to one space, colour names case-folded.
  *  3. The character rule (`budgetFreeformXml.isPlainNumberFormat`).
- * A format shows `decimals` places (Infinity: General and Text show what the value holds): a cell holding more is
- * refused by the reader (it would show 1 235 for 1 234.50), but for a 2-decimal format, whose shown value is imported
- * and listed (round 7, `budgetFreeformAmounts`).
+ * A format shows `decimals` places (Infinity: General and Text; round 8: every digit placeholder after the `.`
+ * counts, a literal between them or not): a cell holding more is refused by the reader, but under a format showing
+ * exactly 2, where IsaFlow rounds it to cents and lists it (round 7, `budgetFreeformAmounts`). The guarantee is the
+ * value read, not how a spreadsheet draws it (round 8; evidence doc).
  *
  * Sources of ZA_FORMATS (evidence doc, "South African formats"): `libreoffice` = LibreOffice 24.2's own en-ZA
  * currency formats, applied to a cell and read back from the xlsx it saved; `libreoffice-excel` = Excel's en-ZA
@@ -104,6 +105,12 @@ export function formatDecimals(id: number, raw: string | undefined): number | nu
   const known = SAFE.get(normaliseFormat(code));
   if (known !== undefined) return known;
   if (!isPlainNumberFormat(id, code)) return null;
-  const shown = code.split(';').slice(0, 3).map((section) => /\.([0#?]*)/.exec(section.replace(/[_*]./gs, ''))?.[1]?.length ?? 0);
+  // Round 8: every digit placeholder after the `.` counts, a literal between them or not (`0.00\ ?` draws 1.234 as
+  // "1.23 4": 3 decimals), with padding, fills and [...] codes left out.
+  const shown = code.split(';').slice(0, 3).map((section) => {
+    const bare = section.replace(/_./gs, '').replace(/\*./gs, '').replace(/\[[^\]]*\]/g, '');
+    const dot = bare.indexOf('.');
+    return dot < 0 ? 0 : (bare.slice(dot + 1).match(/[0#?]/g) ?? []).length;
+  });
   return Math.min(...shown);
 }

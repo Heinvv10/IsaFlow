@@ -23,6 +23,10 @@ interface Handlers {
   /** `parents` ends with the element the text is in. */
   text?(text: string, parents: readonly string[]): void;
   close?(name: string, parents: readonly string[]): void;
+  /** Round 8: an element inside an <extLst> (any namespace), with its local names under the extLst. */
+  extOpen?(uri: string, name: string, path: readonly string[]): void;
+  extText?(text: string, path: readonly string[]): void;
+  extClose?(uri: string, name: string, path: readonly string[]): void;
 }
 
 export const truthy = (v: string | undefined): boolean => v !== undefined && ['1', 'true'].includes(v.trim().toLowerCase());
@@ -43,15 +47,21 @@ export const misplaced = (what: string, name: string, parent: string): BudgetVer
 export function parseXml(part: Buffer, what: string, h: Handlers): void {
   checkXmlPart(part);
   const parser = new SaxesParser({ xmlns: true, position: false });
-  const stack: Array<{ name: string; main: boolean; skip: boolean; ext: boolean }> = [];
+  const stack: Array<{ name: string; main: boolean; skip: boolean; ext: boolean; uri?: string }> = [];
   const mainNames: string[] = [];
+  const extPath: string[] = [];
   let failure: unknown = null;
   const foreign = (qname: string, uri: string) => inputError(`${what}: <${qname}> is not a SpreadsheetML element (namespace "${uri.slice(0, 80)}") where IsaFlow reads the file, so it cannot tell what a spreadsheet program shows. Open the file in Excel, save it again, and send it.`);
   parser.on('error', (e) => { failure ??= e; });
   parser.on('opentag', (node) => {
     const parent = stack.at(-1);
     const main = node.uri === MAIN_NS;
-    if (parent?.ext) { stack.push({ name: node.local, main, skip: true, ext: true }); return; } // extension data: read past
+    if (parent?.ext) { // extension data: read past, shown to extOpen (round 8: Excel 2010's x14 conditional formats)
+      h.extOpen?.(node.uri, node.local, extPath);
+      stack.push({ name: node.local, main, skip: true, ext: true, uri: node.uri });
+      extPath.push(node.local);
+      return;
+    }
     if (parent?.skip) {
       if (main) throw foreign(stack.find((e) => e.skip)!.name, 'a foreign element holding SpreadsheetML ones');
       stack.push({ name: node.local, main, skip: true, ext: false });
@@ -75,11 +85,16 @@ export function parseXml(part: Buffer, what: string, h: Handlers): void {
   });
   parser.on('closetag', () => {
     const top = stack.pop()!;
+    if (top.ext && top.uri !== undefined) { extPath.pop(); h.extClose?.(top.uri, top.name, extPath); }
     if (top.skip) return;
     mainNames.pop();
     h.close?.(top.name, mainNames);
   });
-  const text = (t: string) => { if (!stack.at(-1)?.skip) h.text?.(t, mainNames); };
+  const text = (t: string) => {
+    const top = stack.at(-1);
+    if (top?.ext && top.uri !== undefined) h.extText?.(t, extPath);
+    else if (!top?.skip) h.text?.(t, mainNames);
+  };
   parser.on('text', text);
   parser.on('cdata', text);
   try {
@@ -159,6 +174,26 @@ export function parseStyles(part: Buffer | null): FormatOf {
   };
 }
 
+/**
+ * Round 8: for each differential format (<dxfs>, what a conditional format applies), whether it sets a number
+ * format, a font or a fill, any of which can change how an amount reads (#,##0, scales 1500 to "2"; ;;; hides it;
+ * a white font on white). A border, alignment or protection does not.
+ */
+export function parseDxfs(part: Buffer | null): boolean[] {
+  const out: boolean[] = [];
+  if (!part) return out;
+  parseXml(part, 'The styles part', {
+    open(name, _a, parents) {
+      const parent = parents.at(-1);
+      if (name === 'dxf' && parent === 'dxfs') out.push(false);
+      else if (parent === 'dxf' && parents.at(-2) === 'dxfs' && DXF_STYLE.has(name)) out[out.length - 1] = true;
+    },
+  });
+  return out;
+}
+/** What in a differential format can change how an amount reads (shared with the x14 rules' inline dxf). */
+export const DXF_STYLE: ReadonlySet<string> = new Set(['numFmt', 'font', 'fill']);
+
 /** The shared strings (phonetic runs left out), at most `max` of them. */
 const SST_CHILDREN: Readonly<Record<string, readonly string[]>> = { sst: ['si'], si: ['t', 'r', 'rPh', 'phoneticPr'], r: ['rPr', 't'], rPh: ['t'] };
 
@@ -207,7 +242,8 @@ const RAND = /\[\$R(?:-[0-9a-f]{1,8})?\]/gi;
  * quoted or escaped literal text (but the negative section's `\-` or `\(` ... `\)`, round 7), no condition and no
  * other [...] code but [Red] / [Black] or the rand symbol ([$R-1C09], [$R], or a bare R, at most once a section; a
  * locale-only tag is dropped before this is called, `budgetFreeformFormats.stripLocaleTags`). A number section holds only digit placeholders (0 # ?),
- * `,` between placeholders (never a scaling comma), at most one `.`, spaces and `_` / `*` padding; the negative
+ * `,` between placeholders (never a scaling comma), at most one `.`, spaces (`\ ` too), `_` padding and a `*`
+ * space fill (round 8: no other fill character); the negative
  * section shows its sign (`-` or parentheses); the positive and zero sections show none; a fourth (text) section is
  * `@` alone. Built-in ids only 0-4, 37-40, 41 and 43.
  */
@@ -219,7 +255,9 @@ export function isPlainNumberFormat(id: number, code: string | undefined): boole
   // The character set below is the allowlist: a quote, a backslash or a bracket left after the colour and rand codes
   // fails it, and so does an empty (hidden) section, which holds no digit placeholder (or, as text, no @).
   return sections.every((section, i) => {
-    let bare = section.replace(/[_*]./gs, '').replace(COLOUR, '').replace(RAND, 'R');
+    // `_x` pads by x's width; round 8: a fill `*` only before a space (`*0`, `*-` draw digits or a minus that are not
+    // the value's), and an escaped space `\ ` is a literal space (LibreOffice writes a typed trailing space so).
+    let bare = section.replace(/_./gs, '').replace(/\* /g, '').replace(/\\ /g, ' ').replace(COLOUR, '').replace(RAND, 'R');
     if (i === 3) return /^\s*@\s*$/.test(bare);
     // Round 7: the negative section's sign as LibreOffice writes it, an escaped minus first or escaped parentheses round it.
     if (i === 1) bare = bare.replace(/^\\-/, '-').replace(/^\\\((.*)\\\)$/s, '($1)');

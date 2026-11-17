@@ -7,7 +7,8 @@
  *
  * Layout: the header row is the first of rows 1 to 20 OF THE SHEET with an account-code column ("Account code",
  * "Code" or "Account", any case; the first of those it has wins, a lower one in the same row is a name column).
- * A merge on or below the header row refuses the sheet; one entirely above it (a title) is fine (round 7).
+ * A merge on or below the header row refuses the sheet; one entirely above it (a title) is fine (round 7). So does a
+ * conditional format there whose style sets a number format, font or fill (round 8: its outcome is not in the file).
  * Month columns are headed YYYY-MM, by a date (any day of the month), or by a month name (Mar, March, Sept), with a
  * year (Mar 2026, Mar-26) or without one when exactly one year month has that name. A date header outside the year
  * that is not on the 1st is refused saying what it was read as ("Jan-27" typed in en-ZA is 27 January of this year;
@@ -118,7 +119,7 @@ export interface FreeformLines {
   skipped: Array<{ row: number; reason: string; amounts?: Record<string, string> }>;
   /** Rows refused before the resolver (money with no readable code, an error code, a lost leading zero), with the code as read. */
   errors: Array<ImportIssue & { account: string }>;
-  /** Cells under a 2-decimal format holding more decimals, imported as shown (round 7), on the rows imported. */
+  /** Cells under a 2-decimal format holding more decimals, rounded to cents by IsaFlow's rule (round 7), on the rows imported. */
   rounded: Array<{ sheet: string; row: number; column: string; value: number; imported: string }>;
 }
 
@@ -150,6 +151,9 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
   const { header, texts, dates, codeCol } = headerRow(sheet, where);
   if (sheet.merged && sheet.merged.lastRow >= header.row) {
     throw inputError(`${where} has merged cells (${clip(sheet.merged.ref)}) on or below its header row: unmerge them, so each value is in its own row and month, and send it again (a title merged above the header is fine).`);
+  }
+  if (sheet.conditional && sheet.conditional.lastRow >= header.row) {
+    throw inputError(`${where} has conditional formatting (${clip(sheet.conditional.ref)}) on or below its header row whose style sets a number format, font or fill, so a condition could change how an amount reads: remove that conditional formatting (or move it above the header) and send it again.`);
   }
   const at = (col: number) => `${where}, row ${header.row}, column ${letter(col)}`;
   const nameCols: number[] = [];

@@ -9,8 +9,9 @@
  *  - Otherwise the sheet the workbook OPENS ON (activeTab, round 7: what the user saw last) is the free-form sheet;
  *    it must be visible (a workbook saved open on a hidden sheet is refused). A sheet state the reader does not know
  *    refuses the file.
- *  - The free-form sheet must have no hidden row or column (AutoFilter-hidden included). Its lowest merge is handed
- *    on: `freeformLines` refuses one on or below the header row.
+ *  - The free-form sheet must have no hidden row or column (AutoFilter-hidden included). Its lowest merge and its
+ *    lowest conditional format whose style sets a number format, font or fill (round 8) are handed on:
+ *    `freeformLines` refuses either on or below the header row.
  * The app's import route does not call this.
  */
 import { openXlsxParts, worksheetPart } from '@/lib/xlsxNormalise';
@@ -18,7 +19,7 @@ import { looksLikeXlsx, SpreadsheetTooLargeError } from '@/lib/xlsxToCsv';
 import { inputError } from './gridErrors';
 import { BASE_SHEET, META_SHEET } from './budgetTemplateXlsx';
 import { BUDGET_IMPORT_LIMITS, clip, readBudgetWorkbook, type BudgetWorkbook } from './budgetImportParse';
-import { parseRels, parseSharedStrings, parseStyles, parseWorkbookXml } from './budgetFreeformXml';
+import { parseDxfs, parseRels, parseSharedStrings, parseStyles, parseWorkbookXml } from './budgetFreeformXml';
 import { parseSheetXml, type FreeRow } from './budgetFreeformSheet';
 
 export interface FreeformSheet {
@@ -28,6 +29,8 @@ export interface FreeformSheet {
   date1904?: boolean;
   /** The merged range reaching lowest down the sheet (round 7: refused on or below the header row), if any. */
   merged?: { ref: string; lastRow: number } | null;
+  /** The styled conditional format reaching lowest (round 8: refused on or below the header row), if any. */
+  conditional?: { ref: string; lastRow: number } | null;
 }
 
 export type ImportWorkbook = { kind: 'template'; wb: BudgetWorkbook } | { kind: 'freeform'; sheet: FreeformSheet };
@@ -78,9 +81,9 @@ export async function readImportWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIM
   const sst = await parts.read(sstPath, { bytes: limits.maxSharedStringsBytes, refuse: tooLarge('text') });
   const read = parseSheetXml(part, sheet.name, parseSharedStrings(sst, limits.maxSharedStrings), parseStyles(styles), {
     maxRows: limits.maxRows, maxColumns: limits.maxColumns, maxOutputBytes: limits.maxOutputBytes,
-  });
+  }, parseDxfs(styles));
   if (read.hidden) {
-    throw inputError(`Sheet "${clip(sheet.name)}" has hidden rows or columns (${read.hidden}): unhide every row and column, and clear any filter, so what IsaFlow imports is what you see; then send it again.`);
+    throw inputError(`Sheet "${clip(sheet.name)}" has hidden rows or columns (${read.hidden}): unhide every row and column, and clear any filter (IsaFlow reads no cell you cannot reach); then send it again.`);
   }
-  return { kind: 'freeform', sheet: { name: sheet.name, rows: read.rows, date1904: wb.date1904, merged: read.merged } };
+  return { kind: 'freeform', sheet: { name: sheet.name, rows: read.rows, date1904: wb.date1904, merged: read.merged, conditional: read.conditional } };
 }

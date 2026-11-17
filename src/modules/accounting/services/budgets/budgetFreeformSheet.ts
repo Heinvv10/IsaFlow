@@ -10,7 +10,7 @@
 import { SpreadsheetTooLargeError } from '@/lib/xlsxToCsv';
 import { inputError } from './gridErrors';
 import { clip } from './budgetImportParse';
-import { misplaced, parseXml, truthy, type FormatOf } from './budgetFreeformXml';
+import { DXF_STYLE, misplaced, parseXml, truthy, type FormatOf } from './budgetFreeformXml';
 import { formatDecimals } from './budgetFreeformFormats';
 
 /** A cell as read: text, a number with its format (plain = General or a plain number format), or something that is neither. */
@@ -27,6 +27,8 @@ export interface SheetXml {
   hidden: string | null;
   /** The merged range reaching lowest down the sheet (`ref` as written; `lastRow` Infinity when unreadable), or null. */
   merged: { ref: string; lastRow: number } | null;
+  /** Round 8: the conditional format reaching lowest whose style sets a number format, font or fill, or null. */
+  conditional: { ref: string; lastRow: number } | null;
 }
 
 export interface SheetLimits { maxRows: number; maxColumns: number; maxOutputBytes: number }
@@ -56,11 +58,27 @@ const SHEET_DATA: Readonly<Record<string, readonly string[]>> = {
 };
 /** A strict decimal: optional minus, digits, optional fraction, optional exponent (no whitespace, hex, Infinity, NaN). */
 const DECIMAL = /^-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
+const X14 = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
+const XM = 'http://schemas.microsoft.com/office/excel/2006/main';
+
+/** The lowest row a merge or sqref range list reaches (space separated; Infinity for a whole column, or unreadable). */
+const lastRowOf = (refs: string): number => {
+  const parts = refs.trim().split(/\s+/).filter((r) => r !== '');
+  if (parts.length === 0) return Infinity;
+  return Math.max(...parts.map((r) => cellRef(r.split(':').at(-1)!.replace(/\$/g, ''))?.row ?? Infinity));
+};
 const MIN_WIDTH = 1;
 const MIN_HEIGHT = 3;
 
-export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly string[], formatOf: FormatOf, limits: SheetLimits): SheetXml {
-  const out: SheetXml = { rows: [], hidden: null, merged: null };
+export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly string[], formatOf: FormatOf, limits: SheetLimits, dxfs: readonly boolean[] = []): SheetXml {
+  const out: SheetXml = { rows: [], hidden: null, merged: null, conditional: null };
+  const lowest = (key: 'merged' | 'conditional', ref: string, lastRow = lastRowOf(ref)) => {
+    if (out[key] === null || lastRow > out[key]!.lastRow) out[key] = { ref, lastRow };
+  };
+  // Round 8: a conditional format, SpreadsheetML's (a cfRule names a dxf; one the styles lack counts as styling) or
+  // Excel 2010's x14 inside extLst (its cfRule holds the dxf inline, its range is xm:sqref's text).
+  let rule: { sqref: string; styled: boolean } | null = null;
+  let x14: { sqref: string; styled: boolean; inDxf: number; inSqref: boolean } | null = null;
   const where = `Sheet "${clip(sheetName)}"`;
   const refuse = (message: string): never => { throw inputError(`${where}: ${message}`); };
   let row: FreeRow | null = null;
@@ -117,8 +135,10 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
         if (truthy(a.hidden) || (width !== undefined && width < MIN_WIDTH)) out.hidden ??= `column ${columnLetter(Math.max(1, Number(a.min) || 1) - 1)}`;
       } else if (name === 'mergeCell') {
         const ref = a.ref ?? '(no range)';
-        const lastRow = cellRef(ref.split(':').at(-1)!.replace(/\$/g, ''))?.row ?? Infinity;
-        if (out.merged === null || lastRow > out.merged.lastRow) out.merged = { ref, lastRow };
+        lowest('merged', ref, ref.includes(' ') ? Infinity : lastRowOf(ref));
+      } else if (name === 'conditionalFormatting' && parent === 'worksheet') rule = { sqref: a.sqref ?? '', styled: false };
+      else if (name === 'cfRule' && parent === 'conditionalFormatting' && rule && a.dxfId !== undefined) {
+        if (!/^\d{1,9}$/.test(a.dxfId) || (dxfs[Number(a.dxfId)] ?? true)) rule.styled = true;
       }
       else if (name === 'row' && parent === 'sheetData') {
         const r = a.r === undefined ? lastRow + 1 : Number(a.r);
@@ -141,6 +161,23 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
         if (name === 'v' && ++cell.vs > 1) refuse(`cell ${columnLetter(cell.col)}${row?.row ?? ''} holds more than one value, which Excel never writes.`);
       }
     },
+    extOpen(uri, name, path) {
+      if (uri === X14 && name === 'conditionalFormatting') x14 = { sqref: '', styled: false, inDxf: 0, inSqref: false };
+      else if (x14 && uri === XM && name === 'sqref') x14.inSqref = true;
+      else if (x14 && uri === X14 && name === 'dxf') x14.inDxf = path.length + 1;
+      else if (x14 && x14.inDxf > 0 && path.length === x14.inDxf && DXF_STYLE.has(name)) x14.styled = true;
+    },
+    extText(t) {
+      if (x14?.inSqref) x14.sqref += t;
+    },
+    extClose(uri, name) {
+      if (x14 && uri === XM && name === 'sqref') x14.inSqref = false;
+      else if (x14 && uri === X14 && name === 'dxf') x14.inDxf = 0;
+      else if (x14 && uri === X14 && name === 'conditionalFormatting') {
+        if (x14.styled) lowest('conditional', x14.sqref.trim() === '' ? '(no range)' : x14.sqref.trim());
+        x14 = null;
+      }
+    },
     text(t, parents) {
       if (!cell) return;
       const here = parents.at(-1);
@@ -148,6 +185,10 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
       else if (here === 't' && (parents.at(-2) === 'is' || (parents.at(-2) === 'r' && parents.at(-3) === 'is'))) cell.inline += t;
     },
     close(name, parents) {
+      if (name === 'conditionalFormatting' && rule) {
+        if (rule.styled) lowest('conditional', rule.sqref.trim() === '' ? '(no range)' : rule.sqref.trim());
+        rule = null;
+      }
       if (name === 'c' && cell && row && parents.at(-1) === 'row') {
         const value = finish(cell);
         if (value !== null) row.cells[cell.col] = value;

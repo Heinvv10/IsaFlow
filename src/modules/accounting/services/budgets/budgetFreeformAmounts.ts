@@ -1,13 +1,16 @@
 /**
- * A free-form budget sheet's month cells as amounts (MCP budget tools PR 2, review rounds 4, 5 and 7).
+ * A free-form budget sheet's month cells as amounts (MCP budget tools PR 2, review rounds 4, 5, 7 and 8).
+ * THE GUARANTEE (round 8) is about values, not appearance: each cell's STORED value is read exactly; it is rounded only
+ * under a format showing exactly 2 decimals, to cents by IsaFlow's own rule, and every such cell is listed; nothing is
+ * invented, dropped or moved. How a spreadsheet draws a cell (column width, fonts, renderer rounding) is not promised:
+ * the dry run's list of every cell and its value is what a person confirms.
  *  - Blank KEEPS the version's amount; the text "clear" clears the month; text is an amount as the template import
  *    reads text (`amountOf`); a TRUE / FALSE, error, date or result-less formula cell is refused.
  *  - A number is an amount only when its format is one a money cell may carry (`formatDecimals`), and then:
- *    a format showing 0 or 1 decimals refuses a value it does not show in full (it would show 1 235 for 1 234.50);
- *    a format showing EXACTLY 2 decimals imports the value AS SHOWN (round 7: =annual/12 under #,##0.00), rounded half
- *    away from zero from its 15 significant digits as Excel and LibreOffice draw it (1.005 shows 1.01, 2.675 2.68), and
- *    the cell is listed (`onRound`) so the dry run says which cells were rounded; General, Text and formats showing
- *    more than 2 decimals refuse a value with more than 2 (what they show is not a whole number of cents).
+ *    a format showing 0 or 1 decimals refuses a value with more (IsaFlow does not round there);
+ *    a format showing EXACTLY 2 decimals rounds the value to cents (`roundToCents`: round 7, =annual/12 under
+ *    #,##0.00) and lists the cell (`onRound`, the reply's rounded_cells); General, Text and formats showing more than
+ *    2 decimals refuse a value with more than 2.
  */
 import { amountOf, clip, type ImportLine } from './budgetImportParse';
 import type { FreeCell, FreeRow } from './budgetFreeformSheet';
@@ -23,8 +26,13 @@ export const centsText = (cents: number): string => {
   return `${cents < 0 ? '-' : ''}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
 };
 
-/** A value in cents as a 2-decimal format shows it: its 15 significant digits, rounded half away from zero. */
-export function shownCents(value: number): number {
+/**
+ * A value in cents by IsaFlow's rule, defined here and not by any renderer: the value's 15 significant digits (the
+ * precision Excel and LibreOffice keep and save), rounded half away from zero. It agrees with what Excel and
+ * LibreOffice show for the fixtures tested (1.005 -> 1.01, 2.675 -> 2.68), but at 1e10 and over a renderer may draw a
+ * cent differently (15 digits leave 4 or fewer for the fraction there); no refusal follows, the cell is listed.
+ */
+export function roundToCents(value: number): number {
   const [mantissa, exponent = '0'] = Math.abs(value).toPrecision(15).split('e');
   const digits = mantissa!.replace('.', '');
   const point = (mantissa!.includes('.') ? mantissa!.indexOf('.') : mantissa!.length) + Number(exponent);
@@ -46,12 +54,12 @@ export function amountCell(month: string, c: FreeCell | null | undefined, onRoun
     return { month, cell: { kind: 'error', raw: c.kind === 'text' ? c.text.slice(0, 40) : String(c.value), reason: `This cell's number format (${clip(c.format)}) is not a plain number, currency or accounting format (a date, time, percent or other), so it is not read as an amount; format it as a number.` } };
   }
   if (c.kind === 'text') return { month, cell: amountOf(c.text) };
-  if (c.decimals < 2 && off(c.value, 10 ** c.decimals)) { // the format shows fewer places than the cell holds: shown is not imported
-    return { month, cell: { kind: 'error', raw: String(c.value), reason: `This cell shows ${c.decimals} decimal place${c.decimals === 1 ? '' : 's'} but holds ${c.value}, so what you see is not what would be imported; format it with 2 decimals.` } };
+  if (c.decimals < 2 && off(c.value, 10 ** c.decimals)) { // fewer places than the cell holds: IsaFlow does not round there
+    return { month, cell: { kind: 'error', raw: String(c.value), reason: `This cell shows ${c.decimals} decimal place${c.decimals === 1 ? '' : 's'} but holds ${c.value}; IsaFlow rounds to cents only under a format showing exactly 2 decimals, so format it with 2 decimals or round it in the sheet.` } };
   }
   if (off(c.value, 100)) {
     if (c.decimals !== 2) return { month, cell: { kind: 'error', raw: String(c.value), reason: NOT_CENTS } };
-    const cents = shownCents(c.value);
+    const cents = roundToCents(c.value);
     onRound?.(c.value, centsText(cents));
     return { month, cell: amountOf(cents / 100) };
   }

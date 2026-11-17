@@ -8,17 +8,17 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { shownCents } from '@/modules/accounting/services/budgets/budgetFreeformAmounts';
+import { roundToCents } from '@/modules/accounting/services/budgets/budgetFreeformAmounts';
 import { freeformLines, type FreeCell } from '@/modules/accounting/services/budgets/budgetImportFreeform';
 import { formatDecimals } from '@/modules/accounting/services/budgets/budgetFreeformFormats';
 import { MONTHS, model } from '../../mcp/budgetToolsFixture';
 
-describe('shownCents: a value as a 2-decimal format draws it', () => {
+describe('roundToCents: a value as a 2-decimal format draws it', () => {
   it.each([
     [1.005, 101], [2.675, 268], [-2.675, -268], [0.125, 13], [-0.005, -1], [100000 / 12, 833333], [5, 500], [0.1 + 0.2, 30],
     [123456789.125, 12345678913], [1e-7, 0], [-0.004, 0], [0.995, 100], [999.995, 100000],
   ])('%s shows as %s cents', (value, cents) => {
-    expect(Object.is(shownCents(value), cents)).toBe(true);
+    expect(Object.is(roundToCents(value), cents)).toBe(true);
   });
 });
 
