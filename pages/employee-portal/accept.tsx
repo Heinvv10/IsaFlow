@@ -18,11 +18,15 @@ export default function EmployeePortalAccept() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // Wait for the router: on a statically optimised page Next replaces the URL (hash included) once it is ready,
+    // which would put the token back after a plain history.replaceState.
+    if (!router.isReady) return;
     const t = new URLSearchParams(window.location.hash.slice(1)).get('t');
-    setToken(t ?? '');
+    // Once read, the token stays in state even when this runs again after the hash is gone.
+    setToken((prev) => t ?? prev ?? '');
     // Off the address bar and out of history once read.
-    if (t) window.history.replaceState(null, '', window.location.pathname);
-  }, []);
+    if (t) void router.replace(window.location.pathname, undefined, { shallow: true });
+  }, [router, router.isReady]);
 
   async function submit(e: FormEvent): Promise<void> {
     e.preventDefault();

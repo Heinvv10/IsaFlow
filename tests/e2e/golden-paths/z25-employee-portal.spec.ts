@@ -108,7 +108,8 @@ async function portalPages(page: Page, theme: string): Promise<{ accepted: unkno
 
   await page.goto(`/employee-portal/accept#t=${TOKEN}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Choose your password' })).toBeVisible({ timeout: 60_000 });
-  expect(new URL(page.url()).hash, 'the token leaves the address bar once read').toBe('');
+  // The heading is server-rendered; the page drops the token once hydrated and its router is ready.
+  await expect.poll(() => new URL(page.url()).hash, { message: 'the token leaves the address bar once read', timeout: 30_000 }).toBe('');
   await shoot(page, 'employee-portal-accept', theme);
   await page.getByLabel('New password').fill('correct horse battery');
   await page.getByLabel('Type it again').fill('correct horse battery');
