@@ -18,7 +18,8 @@ import { MoneyField } from '@/components/ui/MoneyField';
 import { RunHoursCell } from '@/components/payroll/RunHoursCell';
 import { Select } from '@/components/ui/Select';
 import { PayrollRunLinesTable, type OnExplain, type RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
-import { cellKey, hoursKey, type RowSave, type RunInputComponent, type RunInputs } from '@/components/payroll/useRunInputs';
+import { RunUnitCell } from '@/components/payroll/RunUnitCell';
+import { cellKey, hoursKey, unitsKey, type RowSave, type RunInputComponent, type RunInputs } from '@/components/payroll/useRunInputs';
 import { formatCurrency } from '@/utils/formatters';
 
 interface Props {
@@ -29,6 +30,7 @@ interface Props {
   resets: Record<string, number>;
   commit: (employeeId: string, componentId: string, cents: number) => void;
   commitHours: (employeeId: string, hundredths: number | null) => void;
+  commitUnits: (employeeId: string, kind: 'overtime' | 'travel', multiplier: number | null, hundredths: number | null, rateCents: number | null) => void;
   refuse: (employeeId: string, componentId: string) => void;
   forgetRefused: (componentId: string) => void;
   onPayslip?: (line: RunLineAmounts) => void;
@@ -80,11 +82,13 @@ function ComponentPicker({ column, options, value, onChange }: {
 const hasOvertimeOrCommission = (earnings: RunInputComponent[]) =>
   earnings.some((c) => c.sarsSourceCode === '3606' || c.sarsSourceCode === '3607');
 
-export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, commitHours, refuse, forgetRefused, onPayslip, onExplain }: Props) {
+export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, commitHours, commitUnits, refuse, forgetRefused, onPayslip, onExplain }: Props) {
   const earnings = inputs.components.filter((c) => c.componentType === 'earning');
   const deductions = inputs.components.filter((c) => c.componentType === 'deduction');
   const [pickedEarning, setEarningId] = useState('');
   const [pickedDeduction, setDeductionId] = useState('');
+  // RI: overtime at 1.5x (BCEA s10(2)) or 2x (Sunday s16(1), public holiday s18(2)); each multiplier is its own row.
+  const [multiplier, setMultiplier] = useState(1.5);
   // The default until another is picked, and again if the picked one leaves the catalogue.
   const earningId = earnings.find((c) => c.id === pickedEarning)?.id ?? defaultEarning(earnings)?.id ?? '';
   const deductionId = deductions.find((c) => c.id === pickedDeduction)?.id ?? deductions[0]?.id ?? '';
@@ -138,6 +142,27 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
     );
   };
 
+  const runUnits = inputs.units;
+  const unitCell = (kind: 'overtime' | 'travel') => function UnitCell(l: RunLineAmounts, row: number) {
+    const m = kind === 'overtime' ? multiplier : null;
+    if (!inputs.employeeIds.includes(l.employeeId)) return <span className="text-[var(--ff-text-tertiary)]">—</span>;
+    if (runUnits.conflicts.some((c) => c.employeeId === l.employeeId && c.kind === kind && c.multiplier === m)) {
+      return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
+    }
+    const held = runUnits.rows.find((r) => r.employeeId === l.employeeId && r.kind === kind && r.multiplier === m);
+    const label = kind === 'overtime' ? `Overtime hours at ${multiplier}x, ${l.employeeName}` : `Travel km, ${l.employeeName}`;
+    return (
+      <RunUnitCell key={`${kind}${m ?? ''}`} id={`run-${runId}-${kind}-${row}`} kind={kind} label={label} quantity={held?.quantity ?? null} amount={held?.amount ?? null}
+        hourlyRate={runUnits.rates.find((r) => r.employeeId === l.employeeId)?.hourlyRate ?? null} multiplier={multiplier}
+        resetKey={resets[unitsKey(l.employeeId, kind, m)] ?? 0}
+        onCommit={(h, rate) => commitUnits(l.employeeId, kind, m, h, rate)} onRefuse={() => refuse(l.employeeId, `${kind}${m ?? ''}`)} />
+    );
+  };
+  const unitColumns = [
+    ...(runUnits.overtimeComponentId ? [{ head: `Overtime hours (${multiplier}x)`, cell: unitCell('overtime') }] : []),
+    ...(runUnits.travelComponentId ? [{ head: 'Travel km', cell: unitCell('travel') }] : []),
+  ];
+
   const save = (l: RunLineAmounts) => {
     const s = rowSave(saves, l.employeeId);
     return s ? <AutosaveStatus state={s.state} savedAt={s.savedAt} errorMessage={s.message} className="flex max-w-44" /> : null;
@@ -150,6 +175,13 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
           <p className="text-xs text-[var(--ff-text-secondary)]">No earning can be edited on a pay run. SARS-coded earnings are captured on the employee page.</p>
         )}
         {deductions.length > 0 && <ComponentPicker column="deduction" options={deductions} value={deductionId} onChange={setDeductionId} />}
+        {runUnits.overtimeComponentId && (
+          <div className="w-64">
+            <Select label="Overtime rate" labelClassName="mb-1 text-xs font-normal text-[var(--ff-text-secondary)]" value={String(multiplier)}
+              onChange={(v) => { if (v) setMultiplier(Number(v)); }}
+              options={[{ value: '1.5', label: '1.5x: overtime (BCEA s10)' }, { value: '2', label: '2x: Sunday or public holiday (s16, s18)' }]} />
+          </div>
+        )}
         {byUnit.some((e) => !e.componentId) && (
           <p className="pb-2 text-xs text-[var(--ff-text-secondary)]">
             {inputs.hours.problem ?? 'Hourly and daily staff need an active taxable Basic Salary (3601) component to record hours on.'}{' '}
@@ -166,6 +198,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
       <div className="overflow-x-auto" role="region" aria-label="Pay run lines, scrolls sideways" tabIndex={0}>
         <PayrollRunLinesTable lines={lines} edit={{
           hours: byUnit.some((e) => e.componentId) || inputs.hours.duplicates.length > 0 ? { head: hoursHead, cell: hoursCell } : undefined,
+          units: unitColumns,
           earning: { head: COLUMN_LABEL.earning, cell: cell('earning', earningId) },
           deduction: deductions.length > 0 ? { head: COLUMN_LABEL.deduction, cell: cell('deduction', deductionId) } : undefined,
           statusCell: save,

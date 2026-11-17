@@ -27,6 +27,11 @@ export interface TaxYearConfig {
    * Employment"; the summary table's R394 line). null = not verified for that year: a case that turns on it is undetermined.
    */
   nonStandardDailyThreshold: number | null;
+  /**
+   * The rate per km fixed by the Minister under s8(1)(b)(ii)/(iii): a reimbursive travel allowance within it is not remuneration,
+   * the excess is (code 3722; payrollRunInputUnits). null = not verified for that year: a km row is taxed in full and warned.
+   */
+  reimbursiveRatePerKm: number | null;
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -70,6 +75,8 @@ const TAX_2025: TaxYearConfig = {
   // UNVERIFIED for 2025: the G19 guide (PAYE-GEN-01-G19) could not be fetched, so no daily threshold is stated and a case
   // that turns on it is undetermined (employmentTerms.ts). 2026 is R383 (G20 p. 28).
   nonStandardDailyThreshold: null,
+  // UNVERIFIED for 2025 (R4.84 per secondary sources; Notice 4456, GG 50243 not read): null, so a km row is taxed in full.
+  reimbursiveRatePerKm: null,
 };
 
 const TAX_2026: TaxYearConfig = {
@@ -77,6 +84,8 @@ const TAX_2026: TaxYearConfig = {
   year: 2026,
   // R383 a day: SARS PAYE-GEN-01-G20 (2026 tax year) Rev 0 p. 28, "Deemed Standard Employment" and the summary table.
   nonStandardDailyThreshold: 383,
+  // 476 cents per km from 1 March 2025: Notice 5936, Government Gazette 52199 (28 Feb 2025), Schedule para 1.4.
+  reimbursiveRatePerKm: 4.76,
 };
 
 // Tax year 2027 = 1 March 2026 to 28 February 2027 (SARS 2026/27).
@@ -114,6 +123,9 @@ const TAX_2027: TaxYearConfig = {
   retirementDeductionCap: 430_000,
   // R394 a day: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 28, "Deemed Standard Employment" and the summary table.
   nonStandardDailyThreshold: 394,
+  // 495 cents per km from 1 March 2026: SARS Rate per Kilometre Schedule PAYE-GEN-01-G03-A01 Rev 19 (2027 tax year) p. 2
+  // para 1.4; G21 (2027) p. 4 (the oracle's ri-reimbursive-* cases).
+  reimbursiveRatePerKm: 4.95,
 };
 
 const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {

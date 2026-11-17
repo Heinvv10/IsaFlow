@@ -39,6 +39,7 @@ export const HELD_FAILED = 'A save failed: see the row. The grid shows what is s
 export const HELD_STALE = 'This run could not be re-read after a failed save. Reload the page before you approve.';
 
 export const hoursKey = (employeeId: string) => `${employeeId}:hours`;
+export const unitsKey = (employeeId: string, kind: string, multiplier: number | null) => `${employeeId}:${kind}${multiplier ?? ''}`;
 export const cellKey = (employeeId: string, componentId: string) => `${employeeId}:${componentId}`;
 const amountAt = (inputs: RunInputs | null, key: string) => inputs?.amounts.find((a) => cellKey(a.employeeId, a.componentId) === key);
 
@@ -150,6 +151,20 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     });
   }, [send]);
 
+  /**
+   * RI: overtime hours at a multiplier, or travel km at a rate a km (cents); priced on the server. The cell expects the quantity
+   * it last showed (null: none). `hundredths` null clears the row.
+   */
+  const commitUnits = useCallback((employeeId: string, kind: 'overtime' | 'travel', multiplier: number | null, hundredths: number | null, rateCents: number | null) => {
+    send(unitsKey(employeeId, kind, multiplier), () => {
+      const held = known.current?.units.rows.find((r) => r.employeeId === employeeId && r.kind === kind && r.multiplier === multiplier);
+      return { employeeId, units: {
+        kind, multiplier, quantity: hundredths == null ? null : hundredths / 100, ratePerKm: rateCents == null ? null : rateCents / 100,
+        expectedQuantity: held?.quantity ?? null,
+      } };
+    });
+  }, [send]);
+
   /** The cell holds text MoneyField refused: nothing was sent, and what is on screen is not what is stored. */
   const refuse = useCallback((employeeId: string, componentId: string) => {
     refused.current.add(cellKey(employeeId, componentId));
@@ -179,5 +194,5 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     return null;
   }, [drained]);
 
-  return { inputs, loadError, saves, resets, commit, commitHours, refuse, forgetRefused, drained, settled };
+  return { inputs, loadError, saves, resets, commit, commitHours, commitUnits, refuse, forgetRefused, drained, settled };
 }

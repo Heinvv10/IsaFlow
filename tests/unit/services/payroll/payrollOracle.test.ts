@@ -110,7 +110,7 @@ describe('payroll oracle fixtures', () => {
     expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
   });
 
-  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its two signed entries', () => {
+  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
     'db-fund-12d-s11f-cap-binds': 'DBF',
@@ -120,10 +120,6 @@ describe('payroll oracle fixtures', () => {
     'offcycle-termination-leave-after-regular': 'OC',
     'psp-company-27pct': 'PSP',
     'psp-trust-45pct': 'PSP',
-    'ri-overtime-10h-at-1-5x': 'RI',
-    'ri-reimbursive-1000km-at-prescribed-3703': 'RI',
-    'ri-reimbursive-above-prescribed-3702-3722': 'RI',
-    'ri-sunday-8h-at-2x': 'RI',
     'sage-2027-03-marco': 'PARITY',
     'weekly-6000-fourth-week-month-uif-ceiling': 'FQc',
     'weekly-6000-third-week-month-uif-ceiling': 'FQc',
@@ -131,7 +127,8 @@ describe('payroll oracle fixtures', () => {
     'weekly-starter-g21-3-of-7-days': 'FQc',
     'weekly-week-53-pay-sunday': 'FQc',
     });
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
+    // RI closed its four gaps; its two BCEA-multiplier cases are UNVERIFIED and match the engine (adv-payroll signs them).
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {

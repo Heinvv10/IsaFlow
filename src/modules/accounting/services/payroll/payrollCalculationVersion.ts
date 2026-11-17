@@ -18,5 +18,7 @@
  *    assignment stays cash, migration 975); percent_of_rfi rows are costed on RFI (RF). Master's value + 1 at RF's rebase (DR may take it).
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
+ * 13: overtime hours at 1.5x / 2x priced on the server, and their hours in ETI; a km row splits at the prescribed rate a km into 3702 / 3703
+ *    (not taxed) and 3722 (taxed, UIF, SDL); OVERTIME_ABOVE_BCEA_THRESHOLD (RI, migration 999t). Provisional: master's value + 1 at RI's rebase.
  */
-export const PAYROLL_CALCULATION_VERSION = 12;
+export const PAYROLL_CALCULATION_VERSION = 13;

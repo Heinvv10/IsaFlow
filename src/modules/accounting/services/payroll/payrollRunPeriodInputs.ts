@@ -58,6 +58,7 @@ import { getTaxYear, getTaxYearConfig, UnsupportedTaxYearError } from './taxTabl
 import { describePayRunApproval } from './payRunApprovalControl';
 import { unitOf } from './payrollRunHours';
 import { hoursComponentOf, hoursInputsOf, type RunInputHours } from './payrollRunHoursRead';
+import { readRunInputUnits, type RunInputUnits } from './payrollRunUnitsRead';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const EDITABLE_EARNING_CODES: ReadonlySet<string> = new Set(['3601', '3606', '3607']);
@@ -119,6 +120,8 @@ export interface RunInputsState {
     components: RunInputComponent[]; employeeIds: string[]; amounts: RunInputAmount[]; recurring: RunInputRecurring[];
     /** HD: the Basic Salary component the hours are recorded on (null: none, so none can be entered) and who is paid by the hour or day. */
     hours: RunInputHours;
+    /** RI: overtime hours at a multiplier and travel km (payrollRunUnitsRead). */
+    units: RunInputUnits;
   };
 }
 
@@ -160,7 +163,8 @@ export async function getRunInputs(companyId: string, runId: string): Promise<Ru
   const hours: RunInputHours = {
     componentId: 'component' in found ? found.component.id : null, problem: 'problem' in found ? found.problem : null, ...hoursInputsOf(employees, quantityRows, 'component' in found ? found.component.id : null),
   };
-  return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured, hours } };
+  const units = await readRunInputUnits(companyId, period, employees);
+  return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured, hours, units } };
 }
 
 function assertAmount(amount: number): void {

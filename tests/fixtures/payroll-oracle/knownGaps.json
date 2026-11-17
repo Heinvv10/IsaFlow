@@ -63,44 +63,6 @@
     "closedBy": "PSP (wave 6): personal service providers at 45% with no UIF, per SARS PAYE-GEN-01-G01-A06 row 6 and UICA s1 \"remuneration\" (b); re-cite to the 2027 A06 when SARS publishes it."
   },
   {
-    "case": "ri-overtime-10h-at-1-5x",
-    "engineActual": {
-      "paye": 243,
-      "uifEmployee": 96,
-      "net": 9261
-    },
-    "reason": "Overtime hours and their multiplier do not reach the calculator: only the R9 600 ordinary pay is costed.",
-    "closedBy": "RI (wave 6): overtime hours x rate x multiplier."
-  },
-  {
-    "case": "ri-reimbursive-1000km-at-prescribed-3703",
-    "engineActual": {
-      "net": 17707.88
-    },
-    "reason": "Business km and the reimbursive rate do not reach the calculator, so the R4 950 reimbursement is not paid in net.",
-    "closedBy": "RI (wave 6): reimbursive travel at the prescribed rate (3703)."
-  },
-  {
-    "case": "ri-reimbursive-above-prescribed-3702-3722",
-    "engineActual": {
-      "paye": 2115,
-      "sdl": 200,
-      "net": 17707.88
-    },
-    "reason": "Business km and the rate do not reach the calculator: neither the R4 950 (3702) nor the taxable R1 050 excess (3722) is costed.",
-    "closedBy": "RI (wave 6): reimbursive travel above the prescribed rate (3702/3722)."
-  },
-  {
-    "case": "ri-sunday-8h-at-2x",
-    "engineActual": {
-      "paye": 243,
-      "uifEmployee": 96,
-      "net": 9261
-    },
-    "reason": "Overtime hours and their multiplier do not reach the calculator: only the R9 600 ordinary pay is costed.",
-    "closedBy": "RI (wave 6): overtime hours x rate x multiplier."
-  },
-  {
     "case": "sage-2027-03-marco",
     "engineActual": {
       "paye": 0,

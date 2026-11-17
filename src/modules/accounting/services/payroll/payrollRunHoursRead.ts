@@ -3,15 +3,15 @@
  * and who is paid by the hour or day at what rate.
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
-import { rateOf, unitOf } from './payrollRunHours';
-import type { PayrollEmployee, QuantityUnit } from './payrollTypes';
+import { rateOf, unitOf, type PayUnit } from './payrollRunHours';
+import type { PayrollEmployee } from './payrollTypes';
 
 export interface RunInputHours {
   /** The one component hours are recorded on (hoursComponentOf); null with `problem` saying why none can be. */
   componentId: string | null;
   problem: string | null;
   /** `componentId`: where THIS employee's hours sit this month (the row they already have), else the company's hours component. */
-  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null; componentId: string | null }>;
+  employees: Array<{ employeeId: string; unit: PayUnit; rate: number | null; componentId: string | null }>;
   /** Employees of ANY pay basis with more than one quantity row this month (the write refuses them 409): the grid sends them to the employee page. */
   duplicates: string[];
 }

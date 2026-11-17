@@ -31,6 +31,8 @@ export interface RunRowWrite {
   clear: boolean;
   /** HD: the hours or days the amount is for; null for a plain amount. */
   quantity: { value: number; unit: QuantityUnit } | null;
+  /** RI: the overtime multiplier of an hours row (1.5 or 2), null on every other row. */
+  rateMultiplier?: number | null;
   actor: ComponentChangeActor;
 }
 
@@ -44,6 +46,7 @@ export async function writeRunRow(w: RunRowWrite): Promise<void> {
   const { from, to } = monthBounds(w.period);
   const quantity = w.quantity?.value ?? null;
   const unit = w.quantity?.unit ?? null;
+  const multiplier = w.rateMultiplier ?? null;
   await withTransaction(async (tx) => {
     // From a calculation, not the stored line: another writer may have moved the inputs since it was stored.
     await calculatePayrollRun(runId, companyId, actor.userId);
@@ -54,7 +57,7 @@ export async function writeRunRow(w: RunRowWrite): Promise<void> {
       await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor, { removed: { employeeId } });
     } else if (rowId) {
       // RF: a percent_of_rfi row's amount is the run's to cost (its CHECK holds amount at 0): a 400, never the CHECK's 500.
-      const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}
+      const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}, rate_multiplier = ${multiplier}::numeric
         WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid AND percent_of_rfi IS NULL RETURNING id`) as DbRow[];
       if (updated.length === 0) {
         throw new PayrollRunInputRefusedError(400, 'This amount is a percentage of retirement-funding income, costed by the run: change the percentage on the employee profile.');
@@ -69,8 +72,8 @@ export async function writeRunRow(w: RunRowWrite): Promise<void> {
         throw err;
       }
       const inserted = (await tx`
-        INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)
-        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${quantity}::numeric, ${unit}, ${from}, ${to}, FALSE, FALSE) RETURNING id
+        INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, rate_multiplier, effective_from, effective_to, is_recurring, supersede_inferred)
+        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${quantity}::numeric, ${unit}, ${multiplier}::numeric, ${from}, ${to}, FALSE, FALSE) RETURNING id
       `) as DbRow[];
       await auditComponentChange(tx, companyId, String(inserted[0]!.id), null, window, 'run_input', actor);
     }

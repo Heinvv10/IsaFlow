@@ -10,8 +10,8 @@ export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
 export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
-/** The unit of a run's quantity on a component row (migration 967). */
-export type QuantityUnit = 'hour' | 'day';
+/** The unit of a run's quantity on a component row (migration 967; 'km' for reimbursive travel, 999t RI). */
+export type QuantityUnit = 'hour' | 'day' | 'km';
 
 export interface PayrollEmployee {
   id: string;
@@ -94,6 +94,8 @@ export interface EmployeeComponent {
   /** Hours or days this row pays (HD, migration 967): amount = quantity x the rate at entry. Absent on a plain amount. */
   quantity?: number | null;
   quantityUnit?: QuantityUnit | null;
+  /** RI (999t): overtime hours at 1.5 or 2.0 (BCEA s10(2), s16(1)); amount = hours x hourly rate x this. Null on other rows. */
+  rateMultiplier?: number | null;
   /** The assignment costs this fraction of the line's RFI (migration 975; rfi.ts costs `amount` from it). Absent or null = a plain amount. */
   percentOfRfi?: number | null;
   /** Set by rfi.costPercentOfRfi on a percent_of_rfi row: the RFI its amount was costed on. */
@@ -197,6 +199,8 @@ export interface ComponentBreakdownItem {
   quantity?: number;
   quantityUnit?: QuantityUnit;
   rate?: number;
+  /** RI: the overtime multiplier the hours were priced at. */
+  rateMultiplier?: number;
   /**
    * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
    * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;

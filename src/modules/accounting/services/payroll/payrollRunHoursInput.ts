@@ -15,6 +15,7 @@ import { payrollRunReadDate } from './payrollRunReadDate';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { hoursAmountCents, maxQuantity, rateOf, unitOf } from './payrollRunHours';
+import { isRunInputUnitRow } from './payrollRunInputUnits';
 import { anchorOf, hoursComponentOf } from './payrollRunHoursRead';
 import { PayrollRunInputRefusedError } from './payrollRunInputRefused';
 import { lockPaidRows } from './payrollRunPeriodInputsRead';
@@ -57,7 +58,7 @@ export async function setRunHours(
   // Anchored on the component the employee's existing hours row sits on (so a later second 3601 earning does not move it, and
   // an ambiguous company can still edit and clear what is there); the company's hours component only when there is none.
   const anchorNow = async () => anchorOf((await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period)))
-    .filter((c) => c.quantity != null && editable.some((e) => e.id === c.component.id)).map((c) => c.component.id));
+    .filter((c) => c.quantity != null && !isRunInputUnitRow(c) && editable.some((e) => e.id === c.component.id)).map((c) => c.component.id));
   const anchor = await anchorNow();
   if (anchor.duplicate) throw new PayrollRunInputRefusedError(409, `${name} has more than one row recording hours or days this month. Keep one on the employee page.`);
   const found = anchor.componentId ? { component: editable.find((e) => e.id === anchor.componentId)! } : hoursComponentOf(editable);

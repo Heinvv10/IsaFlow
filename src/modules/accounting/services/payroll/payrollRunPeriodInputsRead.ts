@@ -9,6 +9,7 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { endOfMonthIso } from './leaveAccrualService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { payrollRunReadDate } from './payrollRunReadDate';
+import { isRunInputUnitRow } from './payrollRunInputUnits';
 import type { RunInputAmount, RunInputRecurring } from './payrollRunPeriodInputs';
 
 export interface RunPeriod { year: number; month: number }
@@ -31,7 +32,8 @@ async function paidByRun(companyId: string, employeeIds: string[], period: Perio
   const paid: Array<{ employeeId: string; componentId: string; id: string; recurring: boolean; amount: number; quantity: number | null }> = [];
   for (const employeeId of employeeIds) {
     for (const c of await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period))) {
-      if (wanted.has(c.component.id) && c.assignmentId) {
+      // RI's overtime and km rows are the grid's own cells (payrollRunUnitsRead), never an amount cell's.
+      if (wanted.has(c.component.id) && c.assignmentId && !isRunInputUnitRow(c)) {
         paid.push({ employeeId, componentId: c.component.id, id: c.assignmentId, recurring: c.isRecurring !== false, amount: c.amount, quantity: c.quantity ?? null });
       }
     }
