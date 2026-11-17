@@ -13,6 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { runOrderKeySql } from '@/modules/accounting/services/payroll/payrollRunOrder';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import {
   expectedVatPeriodAsOf,
@@ -35,6 +36,8 @@ export interface PayrollRunRow {
   total_uif: string | number;
   total_sdl: string | number;
   total_eti: string | number;
+  /** The run's pay date, COALESCE(run_date, period_end) as YYYY-MM-DD; absent means still due. */
+  pay_date?: string | null;
 }
 
 export interface CashPositionPayroll {
@@ -44,6 +47,8 @@ export interface CashPositionPayroll {
   totalRequired: number;
   canPay: boolean;
   shortfall: number;
+  /** The open runs `totalRequired` adds up: this run and every earlier one (pickPayrollRun). */
+  runsCounted: number;
 }
 
 export interface CashPositionVat {
@@ -57,6 +62,8 @@ export interface OwnerCashPosition {
   payroll: CashPositionPayroll | null;
   vat: CashPositionVat | null;
 }
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Null/undefined branch is defensive only — payroll money columns are NOT NULL DEFAULT 0 (migration 382). */
 const num = (v: string | number | null | undefined): number => (v == null ? 0 : Number(v)) || 0;
@@ -83,7 +90,8 @@ export function shapePayrollAffordability(
     status: run.status === 'approved' ? 'approved' : 'estimated',
     totalRequired,
     canPay,
-    shortfall: canPay ? 0 : Math.round((totalRequired - cash) * 100) / 100,
+    shortfall: canPay ? 0 : r2(totalRequired - cash),
+    runsCounted: 1,
   };
 }
 
@@ -99,19 +107,41 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
 }
 
 /**
- * Which run of the window to report: the earliest one with totals that cash
- * cannot cover; else the latest one with totals; else the earliest run. A run
- * with no totals yet (a draft) never hides a shortfall on another run.
+ * Which run of the window to report. A run whose pay date is today or later is STILL DUE, and cash pays the due runs
+ * in pay order: each is judged against what the due runs before it left (review #1549 L1), so `totalRequired` is the
+ * due runs up to and including it and `runsCounted` how many. A run whose pay date has passed is judged on its own, as
+ * before: nothing marks a run paid (no writer sets 'paid'; a bank-file confirmation exists only where the platform
+ * flag is on), so last month's approved run still sits in the window after its salaries left the bank, and adding it
+ * would report a false shortfall (review #1549 N-H1). The first run cash cannot cover is reported; when every run is
+ * covered, the latest run with totals. A run with no totals yet (a draft) needs nothing and never hides a shortfall
+ * on another run; with no totals at all, the earliest run. No `asAt`: every run is due.
  */
-export function pickPayrollRun(runs: PayrollRunRow[], cash: number): CashPositionPayroll | null {
-  const shaped = runs.map((r) => shapePayrollAffordability(r, cash)!);
-  const withTotals = shaped.filter((p) => p.totalRequired > 0);
-  return withTotals.find((p) => !p.canPay) ?? withTotals[withTotals.length - 1] ?? shaped[0] ?? null;
+export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
+  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || String(r.pay_date).slice(0, 10) >= asAt;
+  let required = 0;
+  let counted = 0;
+  let latest: CashPositionPayroll | null = null;
+  for (const r of runs) {
+    const own = shapePayrollAffordability(r, cash)!;
+    if (own.totalRequired <= 0) continue;
+    let judged = own;
+    if (due(r)) {
+      required = r2(required + own.totalRequired);
+      counted += 1;
+      judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
+    }
+    if (!judged.canPay) return judged;
+    latest = judged;
+  }
+  return latest ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
 }
 
 // ── Private section helpers ───────────────────────────────────────────────────
 
-/** The open runs of `asAt`'s month and the month before: a forgotten 2020 run is not "the next" one. */
+/**
+ * The open runs of `asAt`'s month and the month before: a forgotten 2020 run is not "the next" one. In pay order
+ * (runOrderKeySql, wave 6 FQb2), so "earliest" and "latest" name one run when a month holds several.
+ */
 async function nextPayrollSection(
   companyId: string,
   cash: number,
@@ -120,14 +150,15 @@ async function nextPayrollSection(
   const cur = Number(asAt.slice(0, 4)) * 12 + Number(asAt.slice(5, 7));
   const rows = (await sql`
     SELECT id, period_month, period_year, status,
-           total_net, total_paye, total_uif, total_sdl, total_eti
+           total_net, total_paye, total_uif, total_sdl, total_eti,
+           COALESCE(run_date, period_end)::text AS pay_date
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')
        AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
-     ORDER BY period_year, period_month
+     ORDER BY ${runOrderKeySql('payroll_run_headers')}
   `) as unknown as PayrollRunRow[];
-  return pickPayrollRun(rows, cash);
+  return pickPayrollRun(rows, cash, asAt);
 }
 
 async function vatSection(companyId: string, today: Date): Promise<CashPositionVat | null> {
