@@ -208,7 +208,7 @@ describe('ActionMenu round 3 (WP4b review)', () => {
     expect(menu().style.top).toBe(`${window.innerHeight - 30 + 24 + 4}px`); // it followed the trigger
   });
 
-  it('the Space that picked an item does not click the trigger open again on its keyup', () => {
+  it('the Space that picked an item is not swallowed on the trigger: the pick happened on its keydown, on the item', () => {
     const pickA = vi.fn();
     render(<ActionMenu triggerLabel="M" items={[{ label: 'A', onClick: pickA }]} />);
     const trigger = screen.getByRole('button', { name: 'M' });
@@ -216,8 +216,10 @@ describe('ActionMenu round 3 (WP4b review)', () => {
     fireEvent.keyDown(document.activeElement!, { key: ' ' });
     expect(pickA).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(trigger);
-    expect(fireEvent.keyUp(trigger, { key: ' ' })).toBe(false); // its default (a click) is cancelled
-    expect(fireEvent.keyUp(trigger, { key: ' ' })).toBe(true); // a later, ordinary Space is the button's own
+    // No swallow: browsers activate a button on a Space whose keydown was on it, and this one's was on the item
+    // (checked in Chromium, Firefox and WebKit). The keyup is the browser's own.
+    expect(fireEvent.keyUp(trigger, { key: ' ' })).toBe(true);
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('items changing while open: focus and the roving tabIndex stay on the same item, found by its label', () => {

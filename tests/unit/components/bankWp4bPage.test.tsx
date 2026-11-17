@@ -196,7 +196,25 @@ describe('a sort is not a filter in the empty state', () => {
   });
 });
 
-describe('the remembered page size is read once per visit', () => {
+describe('a URL without a size, reached without a remount', () => {
+  it('opens at the size just picked (a sidebar link, or Back to an entry with no size), not the one from page load', async () => {
+    try {
+      await open({ account_id: 'a' });
+      expect(lastParams().get('limit')).toBe('25');
+      fireEvent.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+      fireEvent.click(screen.getByRole('option', { name: '50' }));
+      await settle();
+      await waitFor(() => expect(cap.router!.query().size).toBe('50'));
+      await act(async () => { await cap.router!.navigate({ account_id: 'a', tab: 'reviewed' }); }); // a link with no size
+      await settle();
+      expect(tabSelected()).toMatch(/^Reviewed/);
+      expect(lastParams().get('limit')).toBe('50');
+      expect(cap.filters.pageSize).toBe(50);
+    } finally { localStorage.removeItem('isaflow.bankTxPageSize'); }
+  });
+});
+
+describe('the remembered page size warns at most once per visit', () => {
   it('blocked storage warns once, not on every render', async () => {
     const getItem = window.localStorage.getItem.bind(window.localStorage);
     const spy = vi.spyOn(window.localStorage, 'getItem').mockImplementation((key: string) => {
@@ -208,6 +226,8 @@ describe('the remembered page size is read once per visit', () => {
       await open({ account_id: 'a' });
       await call(cap.cards, 'onTile', 'suggested');
       await call(cap.table, 'onToggleSelect', 'p1a');
+      await act(async () => { await cap.router!.navigate({ account_id: 'a', tab: 'reviewed' }); }); // each one re-reads it
+      await act(async () => { await cap.router!.navigate({ account_id: 'a' }); });
       await settle();
       const unreadable = vi.mocked(log.warn).mock.calls.filter(c => c[0] === 'bank list: page size preference unreadable');
       expect(unreadable).toHaveLength(1);

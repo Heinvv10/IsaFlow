@@ -1,7 +1,7 @@
 /**
- * ActionMenu, WP4b review round 4: keys on the menu itself act from the ACTIVE item; a picking Space whose item takes
- * focus away does not eat the next Space on the trigger; Ctrl/Shift/Cmd+Enter on a link closes back to the trigger;
- * Escape on the trigger goes no further; the horizontal clamp uses the menu's measured width; a list that empties and
+ * ActionMenu, WP4b review rounds 4-5: keys on the menu itself act from the ACTIVE item (a modified Enter there only
+ * focuses a link item); Ctrl/Shift/Cmd+Enter on a link closes back to the trigger; Escape on the trigger goes no further,
+ * not even to a native listener above it; the horizontal clamp uses the menu's measured width; a list that empties and
  * refills while open starts again on its first item. happy-dom has no layout, so the width is stubbed on offsetWidth.
  */
 import { afterEach, describe, it, expect, vi } from 'vitest';
@@ -45,6 +45,23 @@ describe('keys on the menu itself (after a click on its padding) act from the ac
     expect(b).toHaveBeenCalledTimes(2);
   });
 
+  it('Ctrl/Shift/Cmd+Enter on the menu with a link active: focus goes to the link, nothing runs; a plain Enter picks it', () => {
+    const go = vi.fn();
+    render(<ActionMenu triggerLabel="M" items={[{ label: 'A', onClick: vi.fn() }, { label: 'Import', href: '/import', onClick: go }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'M' }));
+    fireEvent.mouseEnter(mi('Import'));
+    for (const mod of [{ ctrlKey: true }, { shiftKey: true }, { metaKey: true }]) {
+      menu().focus();
+      fireEvent.keyDown(menu(), { key: 'Enter', ...mod });
+      expect(go).not.toHaveBeenCalled();
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+      expect(document.activeElement).toBe(mi('Import'));
+    }
+    menu().focus();
+    fireEvent.keyDown(menu(), { key: 'Enter' });
+    expect(go).toHaveBeenCalledTimes(1);
+  });
+
   it('with no active item, ArrowDown goes to the first enabled item and ArrowUp to the last', () => {
     const enabled = [0, 2, 3];
     expect(arrowTarget(enabled, -1, 'ArrowDown')).toBe(0);
@@ -52,32 +69,6 @@ describe('keys on the menu itself (after a click on its padding) act from the ac
     expect(arrowTarget(enabled, 0, 'ArrowUp')).toBe(3);
     expect(arrowTarget(enabled, 3, 'ArrowDown')).toBe(0);
     expect(arrowTarget([], -1, 'ArrowDown')).toBeUndefined();
-  });
-});
-
-describe('the picking Space', () => {
-  it('a pick that moves focus to a dialog: the next real Space on the trigger still opens the menu', () => {
-    const dialog = document.body.appendChild(Object.assign(document.createElement('button'), { textContent: 'Dialog field' }));
-    try {
-      render(<ActionMenu triggerLabel="M" items={[{ label: 'Find & Match', onClick: () => dialog.focus() }]} />);
-      const trigger = screen.getByRole('button', { name: 'M' });
-      fireEvent.click(trigger);
-      fireEvent.keyDown(document.activeElement!, { key: ' ' });
-      expect(document.activeElement).toBe(dialog); // the picked item took focus
-      fireEvent.keyUp(dialog, { key: ' ' }); // that Space's keyup lands in the dialog, not on the trigger
-      trigger.focus(); // the dialog closes and hands focus back
-      expect(fireEvent.keyDown(trigger, { key: ' ' })).toBe(true);
-      expect(fireEvent.keyUp(trigger, { key: ' ' })).toBe(true); // not eaten: the browser clicks the trigger open
-    } finally { dialog.remove(); }
-  });
-
-  it('a held Space (key repeat) does not disarm it: its keyup on the trigger is still swallowed', () => {
-    render(<ActionMenu triggerLabel="M" items={[{ label: 'A', onClick: vi.fn() }]} />);
-    const trigger = screen.getByRole('button', { name: 'M' });
-    fireEvent.click(trigger);
-    fireEvent.keyDown(document.activeElement!, { key: ' ' });
-    fireEvent.keyDown(trigger, { key: ' ', repeat: true });
-    expect(fireEvent.keyUp(trigger, { key: ' ' })).toBe(false);
   });
 });
 
@@ -92,20 +83,21 @@ describe('closing', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('Escape on the trigger while open does not reach a dialog around it', () => {
-    const outer = vi.fn();
-    const doc = vi.fn();
+  it('Escape on the trigger while open reaches no listener above it: React, or NATIVE on an ancestor, #root, document', () => {
+    const outer = vi.fn(), nativeAncestor = vi.fn(), nativeRoot = vi.fn(), doc = vi.fn();
     document.addEventListener('keydown', doc);
     try {
-      render(<div onKeyDown={outer}><ActionMenu triggerLabel="M" items={abc()} /></div>);
+      const { container } = render(<div data-testid="dialog" onKeyDown={outer}><ActionMenu triggerLabel="M" items={abc()} /></div>);
+      container.addEventListener('keydown', nativeRoot); // React's root container (#root in the app)
+      screen.getByTestId('dialog').addEventListener('keydown', nativeAncestor);
       const trigger = screen.getByRole('button', { name: 'M' });
       fireEvent.click(trigger);
-      fireEvent.keyDown(trigger, { key: 'Escape' });
+      expect(fireEvent.keyDown(trigger, { key: 'Escape' })).toBe(false);
       expect(screen.queryByRole('menu')).toBeNull();
-      expect(outer).not.toHaveBeenCalled();
-      expect(doc).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(trigger);
+      for (const l of [outer, nativeAncestor, nativeRoot, doc]) expect(l).not.toHaveBeenCalled();
       fireEvent.keyDown(trigger, { key: 'Escape' }); // closed: Escape is the dialog's again
-      expect(outer).toHaveBeenCalledTimes(1);
+      for (const l of [outer, nativeAncestor, nativeRoot, doc]) expect(l).toHaveBeenCalledTimes(1);
     } finally { document.removeEventListener('keydown', doc); }
   });
 });

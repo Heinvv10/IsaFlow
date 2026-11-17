@@ -1,6 +1,6 @@
 /**
- * actionMenuParts — the pure layout and key rules of `ActionMenu`, and the hook that stops a picking Space from clicking
- * the trigger open again. Kept apart so ActionMenu.tsx stays one component.
+ * actionMenuParts — the pure layout and key rules of `ActionMenu`, and its isomorphic layout effect. Kept apart so
+ * ActionMenu.tsx stays one component.
  */
 
 import * as React from 'react';
@@ -39,32 +39,5 @@ export function arrowTarget(enabled: number[], from: number, key: 'ArrowDown' | 
   return enabled[(at + (key === 'ArrowDown' ? 1 : -1) + n) % n];
 }
 
-/**
- * A Space that picked an item: its keyup lands on the trigger (focus went back there) and must not click it open.
- * Armed by the pick, disarmed by the trigger's next keyup or by the NEXT keydown anywhere (not a key repeat): a pick
- * that opens a dialog takes focus away, so that keyup never reaches the trigger, and a flag left set would eat the
- * next real Space on it. The keydown listener is a window capture one, added during the picking keydown: that event
- * has already passed window, and nothing below can stop the next one before it.
- */
-export function useSwallowSpaceUp() {
-  const armed = React.useRef(false);
-  const listener = React.useRef<((e: KeyboardEvent) => void) | null>(null);
-  const disarm = React.useCallback(() => {
-    armed.current = false;
-    if (listener.current) window.removeEventListener('keydown', listener.current, true);
-    listener.current = null;
-  }, []);
-  const arm = React.useCallback(() => {
-    disarm();
-    armed.current = true;
-    const onKeyDown = (e: KeyboardEvent) => { if (!e.repeat) disarm(); };
-    listener.current = onKeyDown;
-    window.addEventListener('keydown', onKeyDown, true);
-  }, [disarm]);
-  React.useEffect(() => disarm, [disarm]);
-  const onTriggerKeyUp = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === ' ' && armed.current) e.preventDefault();
-    disarm();
-  };
-  return { arm, onTriggerKeyUp };
-}
+/** useLayoutEffect in the browser, useEffect on the server (where a layout effect cannot run and React warns). */
+export const useIsomorphicLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect;

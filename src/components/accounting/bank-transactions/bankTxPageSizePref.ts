@@ -9,13 +9,20 @@ import { BANK_TX_PAGE_SIZES, type BankTxPageSize } from './bankTxUrlState';
 
 export const PAGE_SIZE_KEY = 'isaflow.bankTxPageSize';
 
-/** The remembered size, or undefined when there is none (or it is not one the list offers). */
-export function readPageSizePref(): BankTxPageSize | undefined {
+export function warnPageSizePrefUnreadable(err: unknown): void {
+  log.warn('bank list: page size preference unreadable', { error: String(err) });
+}
+
+/**
+ * The remembered size, or undefined when there is none (or it is not one the list offers). Storage that cannot be read
+ * goes to `onUnreadable` (default: a warning); a caller that reads often passes its own, to warn once.
+ */
+export function readPageSizePref(onUnreadable: (err: unknown) => void = warnPageSizePrefUnreadable): BankTxPageSize | undefined {
   try {
     const v = window.localStorage.getItem(PAGE_SIZE_KEY);
     return BANK_TX_PAGE_SIZES.find(n => String(n) === v);
   } catch (err) {
-    log.warn('bank list: page size preference unreadable', { error: String(err) });
+    onUnreadable(err);
     return undefined;
   }
 }

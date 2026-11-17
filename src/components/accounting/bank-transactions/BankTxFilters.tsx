@@ -63,9 +63,10 @@ function useFocusAfterSelection(selecting: boolean) {
   }, [selecting]);
   const barFocus = {
     onFocus: () => { focusInBar.current = true; },
-    // Only a real move of focus OUT of the bar clears it. The bar going away is not one: a browser may fire a blur
-    // (relatedTarget null) at the focused button it removes, and whether React passes that on is React's business, so
-    // a blur from a node no longer in the document is ignored here rather than relied on never arriving.
+    // Only a real move of focus OUT of the bar clears it. The bar going away is not one, and what keeps the flag then
+    // is React: it drops the blur of a node it is removing (Chromium fires a native one, Firefox and WebKit fire none;
+    // checked in all three), so this handler never sees it in React 18. The isConnected guard is a defence only, for a
+    // React that did pass that blur on (relatedTarget null, the node already detached).
     onBlur: (e: React.FocusEvent<HTMLElement>) => {
       if (!(e.target as Node).isConnected) return;
       if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusInBar.current = false;

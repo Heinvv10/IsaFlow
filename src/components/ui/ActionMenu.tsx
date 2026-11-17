@@ -5,11 +5,13 @@
  * and the items rove: one has tabIndex 0, Arrow keys / Home / End move focus. With no enabled item the menu itself takes
  * focus, so Escape and Tab still work. Enter and Space act on the item that HAS focus when the key is pressed (read from
  * the event, never from a remembered index), so a key can never act on an item or a row the user has moved away from;
- * with focus on the menu itself (a click on its padding) the keys act from the ACTIVE item. The Space that picked is not
- * allowed to re-open the menu from the trigger on its keyup (useSwallowSpaceUp). Ctrl/Shift/Cmd+Enter on a link item is
- * the browser's (a new tab or window); the menu then closes back to the trigger. Escape closes and returns focus to the
- * trigger (from the trigger too, and it goes no further: a dialog around the menu stays open); Tab closes and lets focus
- * go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
+ * with focus on the menu itself (a click on its padding) the keys act from the ACTIVE item. Ctrl/Shift/Cmd+Enter on a
+ * link item is the browser's (a new tab or window), and the menu then closes back to the trigger; on the menu itself it
+ * only moves focus to the active item (the browser can open a link only from the link). Escape closes and returns focus
+ * to the trigger (from the trigger too). On the trigger it is handled by a NATIVE listener on the button, so it stops at
+ * the target: no bubbling listener above (a dialog's React onKeyDown, a native one on #root or document) sees it. A
+ * listener in the CAPTURE phase above (useFocusTrap listens on document, capturing) still runs first: no listener on the
+ * trigger can stop that. Tab closes and lets focus go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
  * menu's own padding keeps focus in it. The menu is fixed to the viewport: its side (down, or up when there is not room
  * below; panelPlacement) is chosen once when it opens, it is kept inside the viewport horizontally by its MEASURED width
  * (8px each side, capped at the viewport less 16px), and it follows its trigger on scroll. If the items change while it
@@ -25,7 +27,7 @@ import { MoreVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { chooseSide, placePanel, type PanelPlacement, type PanelSide } from './panelPlacement';
 import {
-  ITEM_PX, MENU_PAD_PX, MENU_MIN_W, MENU_MAX_W, arrowTarget, enabledIndexes, horizontal, useSwallowSpaceUp,
+  ITEM_PX, MENU_PAD_PX, MENU_MIN_W, MENU_MAX_W, arrowTarget, enabledIndexes, horizontal, useIsomorphicLayoutEffect,
 } from './actionMenuParts';
 
 export interface ActionMenuItem {
@@ -63,7 +65,6 @@ export function ActionMenu({
   const [active, setActive] = React.useState(-1);
   const [place, setPlace] = React.useState<Place | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const spaceUp = useSwallowSpaceUp();
   /** The menu's measured width (content-sized), so the horizontal clamp uses the real one. */
   const menuW = React.useRef(MENU_MIN_W);
   /** The label of the active item, so it can be found again when the items change while the menu is open. */
@@ -144,7 +145,7 @@ export function ActionMenu({
   }, [open, side, place_]);
 
   // The menu's real width, measured before paint (on open and when the items change): re-placed if it differs.
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!open || !menuRef.current) return;
     const w = Math.max(MENU_MIN_W, menuRef.current.offsetWidth);
     if (w !== menuW.current) { menuW.current = w; place_(side); }
@@ -171,13 +172,14 @@ export function ActionMenu({
       case 'Enter':
       case ' ': {
         const item = items[from];
-        if (item?.href && !onMenu && e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
-          // The browser opens the link in a new tab / window; the menu closes once it has, back to the trigger.
+        if (item?.href && e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+          // On the menu itself: focus goes to the link, and nothing runs (a pick would navigate in THIS tab).
+          if (onMenu) { itemAt(from)?.focus(); break; }
+          // On the link: the browser opens it in a new tab / window; the menu closes once it has, back to the trigger.
           handled = false;
           window.setTimeout(() => close(true), 0);
           break;
         }
-        if (item && e.key === ' ') spaceUp.arm();
         if (item) pick(item);
         break;
       }
@@ -203,13 +205,23 @@ export function ActionMenu({
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       openAt(e.key === 'ArrowDown' ? 'first' : 'last');
-    } else if (e.key === 'Escape' && open) {
-      // The menu's Escape: a dialog the menu sits in must not close too.
+    }
+  };
+  // Escape on the trigger while open is the menu's, and goes no further. React's stopPropagation acts only once the
+  // event reaches React's root listener, after every native listener between here and there has run; a native listener
+  // on the button stops it at the target. Closed, Escape is left alone (a dialog's).
+  React.useEffect(() => {
+    const t = triggerRef.current;
+    if (!open || !t) return undefined;
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
       close(true);
-    }
-  };
+    };
+    t.addEventListener('keydown', onEscape);
+    return () => t.removeEventListener('keydown', onEscape);
+  }, [open, close]);
 
   return (
     <div className={cn('relative inline-flex', className)}>
@@ -222,7 +234,6 @@ export function ActionMenu({
         title={triggerTitle}
         onClick={() => (open ? close(false) : openAt('first'))}
         onKeyDown={onTriggerKeyDown}
-        onKeyUp={spaceUp.onTriggerKeyUp}
         className={cn(
           'inline-flex items-center justify-center rounded-lg', triggerSizeClassName,
           'border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]',

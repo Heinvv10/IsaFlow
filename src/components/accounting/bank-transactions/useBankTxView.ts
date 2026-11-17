@@ -21,7 +21,7 @@ import type { BankTxFilterState } from './useBankTxFilters';
 import {
   DEFAULT_FILTERS, mergeOwnedQuery, ownedQueryKey, parseUrlView, serializeUrlView, type UrlFilters,
 } from './bankTxUrlState';
-import { readPageSizePref } from './bankTxPageSizePref';
+import { readPageSizePref, warnPageSizePrefUnreadable } from './bankTxPageSizePref';
 
 
 interface RouterLike {
@@ -42,9 +42,14 @@ interface Args {
 }
 
 export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection }: Args) {
-  // The size the plain page opens with (the remembered one, else 25), read ONCE per visit: storage that is blocked logs
-  // a warning on every read, and the view's canonical form must not shift under it when the footer writes a new size.
-  const [baseSize] = useState(() => readPageSizePref() ?? DEFAULT_FILTERS.pageSize);
+  // The size a URL without one opens with (the remembered one, else 25). Read when a URL is APPLIED (the first load, Back /
+  // Forward, a link such as the sidebar's), never per render: a plain URL reached without a remount opens at the size
+  // just picked, and the canonical form does not shift under the page's own writes. Blocked storage warns once per visit.
+  const warned = useRef(false);
+  const readBase = useCallback(() => readPageSizePref(err => {
+    if (!warned.current) { warned.current = true; warnPageSizePrefUnreadable(err); }
+  }) ?? DEFAULT_FILTERS.pageSize, []);
+  const [baseSize, setBaseSize] = useState(readBase);
   /** The view's query, measured against baseSize. */
   const ser = useCallback((v: Parameters<typeof serializeUrlView>[0]) => serializeUrlView(v, baseSize), [baseSize]);
   const routerRef = useRef(router);
@@ -94,8 +99,10 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
 
   const apply = useCallback((q: RouterLike['query'], withAccount: boolean) => {
     const p = parseUrlView(q);
-    // The page size: the URL's, else the one remembered in this browser, else 25.
-    const filters: UrlFilters = { ...DEFAULT_FILTERS, pageSize: baseSize, ...p.filters };
+    // The page size: the URL's, else the one remembered in this browser (read now), else 25.
+    const base = readBase();
+    setBaseSize(base);
+    const filters: UrlFilters = { ...DEFAULT_FILTERS, pageSize: base, ...p.filters };
     const account = withAccount && p.account && p.account !== live.current.selectedBank
       && live.current.bankAccounts.some(b => b.id === p.account && b.isActive) ? p.account : null;
     const nextTab = p.tab ?? 'new';
@@ -103,8 +110,9 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     if (nextTab !== tab) handledTab.current = nextTab;
     live.current.f.apply(filters); setPage(p.page ?? 1); setTab(nextTab); live.current.clearSelection();
     if (account) setSelectedBank(account);
-    return ser({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }); // the canonical form of what was applied
-  }, [tab, setPage, setTab, setSelectedBank, ser, baseSize]);
+    // The canonical form of what was applied, against the base just read (state set above lands on the next render).
+    return serializeUrlView({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }, base);
+  }, [tab, setPage, setTab, setSelectedBank, readBase]);
   // Back/Forward/a link took us to this URL. If it is not the canonical form of the view it shows (junk parameters, an account
   // that is not available), the correction REPLACES that entry: pushing one would leave the junk URL one Back away, forever.
   const applyExternal = useCallback((q: RouterLike['query'], incomingKey: string) => {
