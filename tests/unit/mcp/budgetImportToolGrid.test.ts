@@ -185,3 +185,24 @@ describe('import_budget_workbook (json): refusals', () => {
     expect(saveCells).not.toHaveBeenCalled();
   });
 });
+
+describe('PR 3\'s reference conventions (refText, ID_OR_CODE, DIM_REF) on a JSON row', () => {
+  const props = () => ((tool.inputSchema as { properties: Record<string, { items: { properties: Record<string, { type: unknown }> } }> }).properties.rows!.items.properties);
+  it('account is a string or a whole number, dimension also null', () => {
+    expect([props().account!.type, props().dimension!.type]).toEqual([['string', 'integer'], ['string', 'integer', 'null']]);
+  });
+  it('a numeric account code (6000) names the base\'s account; 6000.5 is refused as not an account code', async () => {
+    const ok = json(await tool.handler({ ...grid([{ ...basedRow(model(), RENT, { '2026-04': '250.00' }), account: 6000 }]), dry_run: true }, ctx()));
+    expect(listed(ok)).toEqual(['1:6000:2026-04:added']);
+    const bad = text(await tool.handler({ ...grid([{ ...basedRow(model(), RENT, { '2026-04': '250.00' }), account: 6000.5 }]), dry_run: true }, ctx()));
+    expect(bad).toBe('row 1: 6000.5 is not an account code');
+  });
+  it('a numeric dimension code names the base\'s member', async () => {
+    const m = model({ dimensions: { cc1: [{ id: CC1, code: '101', name: 'Centre', isActive: true }], cc2: [], bu: [] } as never });
+    use(m);
+    vi.mocked(loadGridReadModel).mockResolvedValue(m);
+    const row = { ...basedRow(m, SALES, { '2026-04': '250.00' }, { grain: 'cc1', memberId: CC1 }), dimension: 101 };
+    const out = json(await tool.handler({ ...grid([row], { grain: 'cc1' }), dry_run: true }, ctx()));
+    expect([listed(out), (out.cells as Array<{ reason?: string }>)[0]?.reason]).toEqual([['1:4000:2026-04:added'], undefined]);
+  });
+});
