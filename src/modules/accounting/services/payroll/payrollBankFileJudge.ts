@@ -34,6 +34,7 @@ import { resolveBankRoleHolder } from '@/modules/accounting/services/gl/bankRole
 import { salaryReference, type AcbAccount, type AcbAccountType, type AcbPayment } from './payrollAcbFile';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
 import { payrollRunJournalDescription } from './payrollJournalDescription';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
 
 const ACB_TYPES: ReadonlySet<string> = new Set<AcbAccountType>(['cheque', 'savings', 'transmission']);
@@ -143,12 +144,15 @@ export async function judgeApprovedTotals(
 ): Promise<void> {
   const h = ((await sql`
     SELECT round(h.total_net * 100)::bigint::text AS approved_cents,
-           (SELECT round(sum(jl.credit) * 100)::bigint::text FROM gl_journal_lines jl
-             WHERE jl.journal_entry_id = e.id AND jl.description IN (${NET_PAY_DESCRIPTION}, ${NET_PAY_CLEARING_DESCRIPTION})) AS journal_cents
+           (SELECT round(sum(jl.credit) * 100)::bigint::text
+              FROM gl_journal_lines jl
+              JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+             WHERE je.id = h.journal_entry_id AND je.company_id = h.company_id
+               AND je.status = 'posted' AND je.reversed_at IS NULL AND je.source = 'auto_payroll'
+               AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+               AND je.description = ${payrollRunJournalDescription(period.year, period.month)}
+               AND jl.description IN (${NET_PAY_DESCRIPTION}, ${NET_PAY_CLEARING_DESCRIPTION})) AS journal_cents
       FROM payroll_run_headers h
-      LEFT JOIN gl_journal_entries e ON e.id = h.journal_entry_id AND e.company_id = h.company_id
-        AND e.status = 'posted' AND e.reversed_at IS NULL AND e.source = 'auto_payroll'
-        AND e.description = ${payrollRunJournalDescription(period.year, period.month)}
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   const approved = h?.approved_cents == null ? null : BigInt(String(h.approved_cents));
