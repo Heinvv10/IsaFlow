@@ -29,6 +29,7 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { outsideTablesFlag } from './payrollOutsideTables';
+import { runOrderKeySql } from './payrollRunOrder';
 
 export interface MedicalRecord {
   fees: number;
@@ -63,7 +64,7 @@ export async function loadMedicalRecord(
            )))::numeric AS fees,
            SUM(l.medical_credit)::numeric AS credit,
            SUM(l.additional_medical_credit)::numeric AS additional_credit,
-           (array_agg(l.medical_credit IS NOT NULL ORDER BY h.period_year DESC, h.period_month DESC)
+           (array_agg(l.medical_credit IS NOT NULL ORDER BY ${runOrderKeySql('h')} DESC)
               FILTER (WHERE r.had_table_remuneration
                 OR COALESCE(l.medical_credit, 0) <> 0 OR COALESCE(l.additional_medical_credit, 0) <> 0))[1] AS latest_recorded
     FROM payroll_run_lines l
