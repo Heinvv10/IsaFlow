@@ -16,6 +16,7 @@ async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url || new URL(url).pathname !== '/isaflow_dev') throw new Error('DATABASE_URL must point at isaflow_dev');
   const pool = new Pool({ connectionString: url });
+  pool.on('error', (err) => { process.stderr.write(`pool error: ${err.message}\n`); });
   try {
     const co = await pool.query('SELECT name FROM companies WHERE id = $1', [QA_COMPANY]);
     if (co.rows[0]?.name !== QA_NAME) throw new Error(`company ${QA_COMPANY} is not "${QA_NAME}"`);
