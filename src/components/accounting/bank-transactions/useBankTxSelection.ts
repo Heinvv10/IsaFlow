@@ -39,7 +39,7 @@ export function useBankTxSelection(
   let next = chosen;
   let nextLost = lost;
   if (accounts !== seen && accounts.length > 0) {
-    if (nextLost && accounts.some(b => b.id === nextLost!.id)) nextLost = null;
+    if (nextLost && accounts.some(b => b.id === nextLost!.id && (nextLost!.kind !== 'link' || b.isActive))) nextLost = null; // a link to an inactive account stays "not available"
     if (next && !accounts.some(b => b.id === next)) {
       nextLost = { kind: 'gone', id: next, name: seen.find(b => b.id === next)?.accountName ?? 'The selected account' };
       next = pickDefault(accounts); // re-pin the fallback so the next loss is again a notice, not a silent drift
@@ -49,7 +49,8 @@ export function useBankTxSelection(
     const link = typeof deepLink === 'string' ? deepLink : '';
     if (Array.isArray(deepLink) && deepLink.length > 0) nextLost = { kind: 'link', id: '' };
     else if (link !== '') {
-      if (accounts.some(b => b.id === link)) next = link;
+      // An inactive account is never opened from a link (the default is shown instead, with the notice).
+      if (accounts.some(b => b.id === link && b.isActive)) next = link;
       else nextLost = { kind: 'link', id: link };
     }
   }

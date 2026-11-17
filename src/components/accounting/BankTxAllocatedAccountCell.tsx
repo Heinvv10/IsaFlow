@@ -21,9 +21,9 @@ export interface AllocatedTx {
 }
 
 const TYPE_COLOR: Record<string, string> = {
-  supplier: 'text-blue-400',
-  customer: 'text-purple-400',
-  transfer: 'text-orange-400',
+  supplier: 'text-blue-700 dark:text-blue-400',
+  customer: 'text-purple-700 dark:text-purple-400',
+  transfer: 'text-orange-700 dark:text-orange-400',
 };
 
 export function AllocatedAccountCell({ tx, fallbackLabel }: {

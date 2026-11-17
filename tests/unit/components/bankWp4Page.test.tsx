@@ -364,3 +364,95 @@ describe('an accepted line is off the screen before the reload answers; counts a
     expect(urls('bank-account-summaries').length - summariesBefore).toBe(1);
   });
 });
+
+describe('the page clamp REPLACES history (it never pushes)', () => {
+  it('page 3, the list shrinks to 2 pages: the entry is rewritten to page 2, and Back reaches the entry before, not page 3 again', async () => {
+    await open();
+    // the list shrank: page 3 now has no rows and a total of 40 (2 pages)
+    list = (url) => (params(url).get('offset') === '50' ? ok({ transactions: [], total: 40 }) : params(url).get('offset') === '25' ? ok({ transactions: [row('p2a')], total: 40 }) : PAGE1());
+    fireEvent.click(screen.getByRole('button', { name: '3' }));
+    await waitFor(() => expect(cap.router!.query().page).toBe('2'));
+    await settle();
+    const clamp = cap.router!.calls.filter(c => c.query.page === '2');
+    expect(clamp.map(c => c.kind)).toEqual(['replace']); // rewrote the page-3 entry in place
+    expect(cap.router!.calls.filter(c => c.kind === 'push').map(c => c.query.page)).toEqual(['3']);
+    await act(async () => { await cap.router!.back(); });
+    await waitFor(() => expect(cap.router!.query().page).toBeUndefined());
+    await settle();
+    expect(cap.router!.query().page).toBeUndefined(); // stays on the earlier entry: no bounce back to page 2/3
+    expect(lastParams().get('offset')).toBe('0');
+  });
+});
+
+describe('clicking the account already open changes nothing', () => {
+  it('the filters, the page and the selection survive, and nothing is fetched', async () => {
+    await open();
+    await call(cap.filters, 'onTxTypeChange', 'spent');
+    await call(cap.table, 'onToggleSelect', 'p1a');
+    await settle();
+    const n = listUrls().length;
+    fireEvent.click(screen.getByTestId('card-a')); // a is the selected account
+    await settle();
+    expect(cap.filters.txType).toBe('spent');
+    expect(screen.getByTestId('bank-tx-selected-count').textContent).toBe('1 selected');
+    expect(listUrls().length).toBe(n);
+  });
+});
+
+describe('counts refresh once per action', () => {
+  it('Refresh: one list fetch and one summary fetch', async () => {
+    await open();
+    await settle();
+    const l = listUrls().length, sm = urls('bank-account-summaries').length;
+    await call(cap.filters, 'onRefresh');
+    await settle();
+    expect(listUrls().length - l).toBe(1);
+    expect(urls('bank-account-summaries').length - sm).toBe(1);
+  });
+  it('a bulk Delete: the lines go at once, then one list fetch and one summary fetch', async () => {
+    vi.stubGlobal('confirm', () => true);
+    await open();
+    await call(cap.table, 'onToggleSelect', 'p1a'); await call(cap.table, 'onToggleSelect', 'p1b');
+    await settle();
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (u, i) => (String(u).includes('bank-transactions-action') ? ok({ deleted: 2 }) : inner(u, i)));
+    list = () => ok({ transactions: [row('p1c')], total: 58 });
+    const l = listUrls().length, sm = urls('bank-account-summaries').length;
+    await act(async () => { await (cap.filters.onBatchDelete as () => Promise<void>)(); });
+    await settle();
+    expect(ids()).toEqual(['p1c']);
+    expect(listUrls().length - l).toBe(1);
+    expect(urls('bank-account-summaries').length - sm).toBe(1);
+  });
+});
+
+describe('an account in the URL that is not active', () => {
+  it('is not selected: the default opens instead (with the notice that the link was not available)', async () => {
+    accounts = [summaryAcct('a'), summaryAcct('x', { isActive: false }), summaryAcct('b')];
+    await open({ account_id: 'x' });
+    expect(lastParams().get('bank_account_id')).toBe('a');
+    expect(listUrls().some(u => params(u).get('bank_account_id') === 'x')).toBe(false);
+    await waitFor(() => expect(cap.router!.query().account_id).toBe('a'));
+  });
+  it('a navigation to a link naming an inactive account (Back, or a link clicked elsewhere) does not select it', async () => {
+    accounts = [summaryAcct('a'), summaryAcct('x', { isActive: false })];
+    await open();
+    await act(async () => { await cap.router!.navigate({ account_id: 'x', tab: 'reviewed' }); });
+    await settle();
+    expect(listUrls().some(u => params(u).get('bank_account_id') === 'x')).toBe(false);
+    expect(cap.router!.query().account_id).toBe('a'); // the URL is put right again
+  });
+});
+
+describe('the URL carries no impossible dates or empty searches', () => {
+  it('?from=2026-02-31 opens the page without a date filter (the API would answer 500 to it)', async () => {
+    await open({ account_id: 'a', from: '2026-02-31', to: '2026-13-01' });
+    expect(lastParams().has('from_date')).toBe(false); expect(lastParams().has('to_date')).toBe(false);
+  });
+  it('?q=%20%20 is no search; ?min=900&max=100 is the range 100 to 900', async () => {
+    await open({ account_id: 'a', q: '  ', min: '900', max: '100' });
+    expect(lastParams().has('search')).toBe(false);
+    expect(lastParams().get('from_amount')).toBe('100'); expect(lastParams().get('to_amount')).toBe('900');
+  });
+});
+

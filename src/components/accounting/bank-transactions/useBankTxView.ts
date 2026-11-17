@@ -76,12 +76,13 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   const seen = useRef('');                       // the owned query last looked at
   const written = useRef<string[]>([]);          // keys we wrote and have not yet seen come back
   const lastSent = useRef<{ account: string; tab: BankTxTab; page: number } | null>(null);
+  const clampedTo = useRef<number | null>(null); // a page the clamp chose: that URL write REPLACES the entry (see clampPage)
 
   const apply = useCallback((q: RouterLike['query'], withAccount: boolean) => {
     const p = parseUrlView(q);
     const filters: UrlFilters = { ...DEFAULT_FILTERS, ...p.filters };
     const account = withAccount && p.account && p.account !== live.current.selectedBank
-      && live.current.bankAccounts.some(b => b.id === p.account) ? p.account : null;
+      && live.current.bankAccounts.some(b => b.id === p.account && b.isActive) ? p.account : null;
     const nextTab = p.tab ?? 'new';
     if (account) handledBank.current = account;
     if (nextTab !== tab) handledTab.current = nextTab;
@@ -106,11 +107,19 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     const prev = lastSent.current;
     lastSent.current = { account: selectedBank, tab, page };
     if (key === ownedQueryKey(r.query)) return;
-    const push = prev !== null && (prev.account !== selectedBank || prev.tab !== tab || prev.page !== page);
+    const push = prev !== null && (prev.account !== selectedBank || prev.tab !== tab || prev.page !== page) && clampedTo.current !== page;
     written.current.push(key);
     void (push ? r.push : r.replace)({ pathname: r.pathname, query: mergeOwnedQuery(r.query, owned) }, undefined, { shallow: true, scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restored, viewKey]);
+
+  useEffect(() => { clampedTo.current = null; }); // after the write above, every commit
+
+  /**
+   * For usePageClamp: the list is shorter than the page asked for, so the page is MOVED, not navigated to. It rewrites the
+   * current history entry; pushing one would make Back return to the page that no longer exists, clamp again, and loop.
+   */
+  const clampPage = useCallback((n: number) => { clampedTo.current = n; setPage(n); }, [setPage]);
 
   const incoming = ownedQueryKey(router.query);
   useEffect(() => { // Back / Forward / a link to this page: show what the URL says
@@ -124,5 +133,5 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restored, incoming]);
 
-  return { selectBank, changeTab };
+  return { selectBank, changeTab, clampPage };
 }

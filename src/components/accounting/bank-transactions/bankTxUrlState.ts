@@ -37,13 +37,18 @@ const MAX_SEARCH = 200;
 type Query = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined): string | undefined => (typeof v === 'string' ? v : undefined);
 const pick = <T extends string>(v: string | undefined, allowed: readonly T[]): T | undefined => allowed.find(a => a === v);
-const date = (v: string | undefined): string | undefined => (v && ISO_DATE.test(v) && !Number.isNaN(Date.parse(v)) ? v : undefined);
+/** A real calendar date: it must survive a round trip (V8 reads 2026-02-31 as March 3rd, which the API would then refuse). */
+const date = (v: string | undefined): string | undefined => {
+  if (!v || !ISO_DATE.test(v)) return undefined;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v ? v : undefined;
+};
 const amount = (v: string | undefined): string | undefined => (v && AMOUNT_BOUND_RE.test(v.trim()) ? v.trim() : undefined);
 
 /** What the query says. Absent or invalid keys are simply missing from the result (the caller keeps its defaults). */
 export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab; page?: number; filters: Partial<UrlFilters> } {
   const page = Number(one(query.page));
-  const q = one(query.q);
+  const q = one(query.q)?.trim(); // a search of only spaces is no search
   const filters: Partial<UrlFilters> = {};
   if (q) filters.search = q.slice(0, MAX_SEARCH);
   const set = <K extends keyof UrlFilters>(k: K, v: UrlFilters[K] | undefined) => { if (v !== undefined) filters[k] = v; };
@@ -53,6 +58,13 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   set('allocationFilter', pick(one(query.alloc), ALLOC)); set('txType', pick(one(query.type), TYPES));
   set('allocType', pick(one(query.cat), CATS)); set('hasSuggestion', pick(one(query.sugg), SUGG));
   set('reconFilter', pick(one(query.recon), RECON));
+  // A range typed the wrong way round (min above max, from after to) is read the right way round, not as an empty list.
+  if (filters.fromAmount !== undefined && filters.toAmount !== undefined && Number(filters.fromAmount) > Number(filters.toAmount)) {
+    [filters.fromAmount, filters.toAmount] = [filters.toAmount, filters.fromAmount];
+  }
+  if (filters.fromDate !== undefined && filters.toDate !== undefined && filters.fromDate > filters.toDate) {
+    [filters.fromDate, filters.toDate] = [filters.toDate, filters.fromDate];
+  }
   return {
     account: one(query.account_id) || undefined,
     tab: pick(one(query.tab), TABS),
@@ -68,7 +80,7 @@ export function serializeUrlView(v: UrlView): Record<string, string> {
   if (v.account) out.account_id = v.account;
   if (v.tab !== 'new') out.tab = v.tab;
   if (v.page > 1) out.page = String(v.page);
-  if (f.search) out.q = f.search;
+  if (f.search.trim()) out.q = f.search.trim();
   if (f.fromDate) out.from = f.fromDate;
   if (f.toDate) out.to = f.toDate;
   if (f.fromAmount) out.min = f.fromAmount;

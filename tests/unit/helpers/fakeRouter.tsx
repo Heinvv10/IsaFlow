@@ -14,6 +14,8 @@ export interface FakeRouterHandle {
   use: () => { isReady: boolean; pathname: string; query: Query; push: typeof push; replace: typeof replace };
   calls: Array<{ kind: 'push' | 'replace'; query: Query }>;
   query: () => Query;
+  /** A navigation that did not come from the page (a link clicked elsewhere): a new history entry. */
+  navigate: (query: Query) => Promise<void>;
   back: () => Promise<void>;
   forward: () => Promise<void>;
   /** Renders as not ready until released (the router before hydration). */
@@ -43,6 +45,7 @@ export function makeFakeRouter(initial: Query = {}, pathname = '/accounting/bank
     use: () => useSyncExternalStore(cb => { listeners.add(cb); return () => { listeners.delete(cb); }; }, get, get),
     calls,
     query: () => stack[index]!,
+    navigate: async (q: Query) => { await later(() => { stack.splice(index + 1); stack.push({ ...q }); index = stack.length - 1; }); },
     back: async () => { if (index > 0) { index -= 1; await later(() => undefined); } },
     forward: async () => { if (index < stack.length - 1) { index += 1; await later(() => undefined); } },
     setReady: (v: boolean) => { ready = v; changed(); },

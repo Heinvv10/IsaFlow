@@ -171,7 +171,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
           <div className="p-2 rounded-lg bg-green-500/10">
-            <MessageCircle className="h-4 w-4 text-green-400" />
+            <MessageCircle className="h-4 w-4 text-green-700 dark:text-green-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Ask Client on WhatsApp</h2>

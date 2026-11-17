@@ -90,10 +90,10 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                 : rowType === 'account'
                   ? 'text-amber-700 dark:text-amber-400 bg-amber-500/10 font-medium'
                   : rowType === 'supplier'
-                    ? 'text-blue-400 bg-blue-500/10 font-medium'
+                    ? 'text-blue-700 dark:text-blue-400 bg-blue-500/10 font-medium'
                     : rowType === 'transfer'
-                      ? 'text-orange-400 bg-orange-500/10 font-medium'
-                      : 'text-purple-400 bg-purple-500/10 font-medium'
+                      ? 'text-orange-700 dark:text-orange-400 bg-orange-500/10 font-medium'
+                      : 'text-purple-700 dark:text-purple-400 bg-purple-500/10 font-medium'
             }`}
           >
             {triggerText}

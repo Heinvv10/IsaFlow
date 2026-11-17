@@ -75,17 +75,17 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               </button>
               {onFindMatch && (
                 <button onClick={() => onFindMatch(tx.id)} title="Find & Match" aria-label={`Find & Match, ${label}`}
-                  className={`${TOUCH_ICON} p-1 rounded hover:bg-blue-500/10 text-blue-400`}>
+                  className={`${TOUCH_ICON} p-1 rounded hover:bg-blue-500/10 text-blue-700 dark:text-blue-400`}>
                   <SearchCheck className="h-3.5 w-3.5" />
                 </button>
               )}
               <button onClick={() => onSplit(tx.id)} title="Split transaction" aria-label={`Split transaction, ${label}`}
-                className={`${TOUCH_ICON} p-1 rounded hover:bg-purple-500/10 text-purple-400`}>
+                className={`${TOUCH_ICON} p-1 rounded hover:bg-purple-500/10 text-purple-700 dark:text-purple-400`}>
                 <Scissors className="h-3.5 w-3.5" />
               </button>
               {onCreateRule && (
                 <button onClick={() => onCreateRule(tx)} title="Create rule from this transaction" aria-label={`Create rule from this transaction, ${label}`}
-                  className={`${TOUCH_ICON} p-1 rounded hover:bg-yellow-500/10 text-yellow-400`}>
+                  className={`${TOUCH_ICON} p-1 rounded hover:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400`}>
                   <BookmarkPlus className="h-3.5 w-3.5" />
                 </button>
               )}

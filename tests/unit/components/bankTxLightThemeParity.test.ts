@@ -1,6 +1,6 @@
 /**
  * WP4a light-theme parity: the bank-transactions page and its components may not hard-code a dark-theme text colour
- * (text-red-400, text-teal-400/300, text-amber-400/300) without a `dark:` pairing - on the light background those read as
+ * (any Tailwind palette colour at -300 or -400: red, teal, amber, blue, purple, orange, yellow, sky, cyan, green, ...) without a `dark:` pairing - on the light background those read as
  * washed-out pastel. The fix is `text-red-700 dark:text-red-400`. This scans every file of the page's component folders;
  * the detector itself is pinned by the sample cases.
  */
@@ -16,10 +16,12 @@ const FILES = [
   ...readdirSync(join(ROOT, 'src/components/accounting')).filter(f => /^BankTx.*\.tsx$/.test(f)).map(f => `src/components/accounting/${f}`),
 ];
 
+const PALETTE = 'slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose';
+
 /** Class tokens that use a dark-theme text colour with no `dark:` variant in front of them. */
 export function unpairedDarkText(source: string): string[] {
   const out: string[] = [];
-  const re = /(?<![\w:-])((?:[a-z-]+:)*)text-(?:red|teal|amber)-(?:300|400)(?![\w-])/g;
+  const re = new RegExp(`(?<![\\w:-])((?:[a-z-]+:)*)text-(?:${PALETTE})-(?:300|400)(?![\\w-])`, 'g');
   for (const m of source.matchAll(re)) if (!m[1]!.includes('dark:')) out.push(m[0]);
   return out;
 }
@@ -28,7 +30,8 @@ describe('the detector', () => {
   it.each([
     ['text-red-400', 1], ['text-teal-400 hover:underline', 1], ['hover:text-teal-300', 1], ['text-amber-300', 1],
     ['text-red-700 dark:text-red-400', 0], ['dark:hover:text-teal-300 hover:text-teal-800', 0],
-    ['text-red-500', 0], ['bg-red-400', 0], ['text-red-4000', 0], ['text-green-400', 0],
+    ['text-red-500', 0], ['bg-red-400', 0], ['text-red-4000', 0], ['text-green-400', 1], ['text-blue-400', 1], ['text-purple-300', 1], ['text-orange-400', 1],
+    ['text-yellow-400 hover:text-sky-300', 2], ['text-blue-700 dark:text-blue-400', 0], ['text-gray-900', 0], ['text-white', 0],
   ])('%j -> %i violation(s)', (src, n) => { expect(unpairedDarkText(`className="${src}"`)).toHaveLength(n); });
   it('finds each one in a longer string', () => {
     expect(unpairedDarkText("x ? 'text-red-400' : 'text-teal-400'")).toEqual(['text-red-400', 'text-teal-400']);

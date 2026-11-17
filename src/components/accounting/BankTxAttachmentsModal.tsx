@@ -191,7 +191,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
           <div className="p-2 rounded-lg bg-blue-500/10">
-            <Paperclip className="h-4 w-4 text-blue-400" />
+            <Paperclip className="h-4 w-4 text-blue-700 dark:text-blue-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Attachments</h2>
@@ -223,7 +223,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           >
             {uploading ? (
               <>
-                <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+                <Loader2 className="h-5 w-5 text-blue-700 dark:text-blue-400 animate-spin" />
                 <span className="text-xs text-[var(--ff-text-secondary)]">Uploading…</span>
               </>
             ) : (
@@ -231,7 +231,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
                 <Upload className="h-5 w-5 text-[var(--ff-text-tertiary)]" />
                 <p className="text-xs text-[var(--ff-text-secondary)] text-center">
                   Drag &amp; drop or{' '}
-                  <span className="text-blue-400 font-medium">click to browse</span>
+                  <span className="text-blue-700 dark:text-blue-400 font-medium">click to browse</span>
                 </p>
                 <p className="text-xs text-[var(--ff-text-tertiary)]">
                   JPG, PNG, PDF — max 2 MB

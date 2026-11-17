@@ -131,8 +131,6 @@ export default function BankTransactionsPage() {
   // reload the view the user is on NOW, not the one that was on screen when they clicked.
   const reloadList = useCallback(() => { void loadLatest.current(); }, []);
   const reloadWithSummary = useCallback(async () => { await loadLatest.current({ silent: true }); void refreshSummary(); }, [refreshSummary]);
-  // The total is judged only once it was counted for THIS account and tab: a page restored from the URL is not "past the end" of a list not loaded yet.
-  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading: isLoading || loaded.key !== listKey(selectedBank, tab), failed: error !== '', setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, reloadWithSummary); // AI suggestions move lines Unallocated -> Suggested
@@ -143,12 +141,14 @@ export default function BankTransactionsPage() {
 
   // ---- The view (account, tab, page, filters) lives in the URL; switching account or tab is ONE batch (one fetch) ----
   const clearSelection = useCallback(() => { setSelectedIds(new Set()); setRowSelections({}); }, []);
-  const { selectBank, changeTab } = useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection });
+  const { selectBank, changeTab, clampPage } = useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection });
   useScrollSelectedCard(selectedBank, bankAccounts.find(b => b.id === selectedBank)?.groupId);
+  // The total is judged only once it was counted for THIS account and tab: a page restored from the URL is not "past the end" of a list not loaded yet.
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading: isLoading || loaded.key !== listKey(selectedBank, tab), failed: error !== '', setPage: clampPage });
   // Whatever changes the list (page, search, filter, sort, reload, an action) prunes the selection to the rows on screen.
   useEffect(() => { setSelectedIds(prev => pruneSelection(prev, transactions) ?? prev); }, [transactions]);
 
-  const removeRows = useRemoveRows(setTransactions, setLoaded);
+  const removeRows = useRemoveRows(transactions, setTransactions, setLoaded);
 
   // ---- Build action handlers ----
   const actions = buildBankTxActions({

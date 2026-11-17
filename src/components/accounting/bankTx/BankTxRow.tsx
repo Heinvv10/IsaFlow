@@ -175,9 +175,9 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
           />
         ) : (
           <span className={`text-xs font-medium ${
-            (tx.allocationType || sel?.type) === 'supplier' ? 'text-blue-400'
-            : (tx.allocationType || sel?.type) === 'customer' ? 'text-purple-400'
-            : (tx.allocationType || sel?.type) === 'transfer' ? 'text-orange-400'
+            (tx.allocationType || sel?.type) === 'supplier' ? 'text-blue-700 dark:text-blue-400'
+            : (tx.allocationType || sel?.type) === 'customer' ? 'text-purple-700 dark:text-purple-400'
+            : (tx.allocationType || sel?.type) === 'transfer' ? 'text-orange-700 dark:text-orange-400'
             : 'text-[var(--ff-text-secondary)]'
           }`}>
             {(tx.allocationType || sel?.type) === 'supplier' ? 'Supplier'

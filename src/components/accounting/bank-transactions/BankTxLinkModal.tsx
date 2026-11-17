@@ -121,7 +121,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Link to asset / fuel / service">
       <div className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
-          <div className="p-2 rounded-lg bg-sky-500/10"><Truck className="h-4 w-4 text-sky-400" /></div>
+          <div className="p-2 rounded-lg bg-sky-500/10"><Truck className="h-4 w-4 text-sky-700 dark:text-sky-400" /></div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Link to asset / fuel / service</h2>
             <p className="text-xs text-[var(--ff-text-tertiary)] truncate">{tx.transactionDate} · {fmtR(tx.amount)} · {tx.description ?? ''}</p>
@@ -135,7 +135,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
           <p className="text-xs text-[var(--ff-text-tertiary)]">A link is a note on this line only. It posts nothing and does not change its allocation or reconciliation.</p>
           {tx.link && (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2">
-              <span className="text-xs text-sky-300 truncate">Linked: {tx.link.assetName && tx.link.kind !== 'asset' ? `${tx.link.assetName} — ` : ''}{tx.link.label}</span>
+              <span className="text-xs text-sky-700 dark:text-sky-300 truncate">Linked: {tx.link.assetName && tx.link.kind !== 'asset' ? `${tx.link.assetName} — ` : ''}{tx.link.label}</span>
               <button onClick={() => void unlink()} disabled={busy} className="text-xs px-2 py-1 rounded border border-red-500/40 text-red-700 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50">Unlink</button>
             </div>
           )}
@@ -149,7 +149,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
                 : assets.length === 0 ? <p className="p-3 text-xs text-[var(--ff-text-tertiary)]">No assets found</p>
                   : assets.map(a => (
                     <button key={a.id} type="button" onClick={() => setAssetId(a.id)}
-                      className={`w-full text-left px-3 py-1.5 text-xs ${a.id === assetId ? 'bg-sky-500/15 text-sky-300' : 'text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]'}`}>
+                      className={`w-full text-left px-3 py-1.5 text-xs ${a.id === assetId ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300' : 'text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]'}`}>
                       {a.name} <span className="text-[var(--ff-text-tertiary)]">{a.assetNumber}</span>
                     </button>
                   ))}
