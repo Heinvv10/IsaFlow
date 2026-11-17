@@ -124,6 +124,25 @@ describe('salary bank file', () => {
     expect((await files(a)).filter((f) => f.run_id === run).length).toBe(1);
   });
 
+  it('a live file committed between the judge and the insert is answered FILE_EXISTS (23505 mapped), not a 500', async () => {
+    const run = await approvedRun(a, 3);
+    const c = await a.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin })]);
+      await c.query(
+        `INSERT INTO payroll_bank_files (company_id, run_id, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
+         SELECT company_id, id, 'fnb_obe_2023_02', repeat('b', 64), 1, 1, '2099-01-15', COALESCE(approved_at, approval_grandfathered_at), 'x'
+           FROM payroll_run_headers WHERE id = $1`, [run]);
+      const pending = generate(a, run); // its judge cannot see the uncommitted row; its insert waits on the unique index
+      await new Promise((ok) => setTimeout(ok, 1500));
+      await c.query('COMMIT');
+      const res = await pending;
+      expect([res.statusCode, reason(res)]).toEqual([409, 'FILE_EXISTS']);
+    } finally { c.release(); }
+    expect((await files(a)).filter((f) => f.run_id === run).map((f) => f.sha256)).toEqual(['b'.repeat(64)]);
+  });
+
   it('the table refuses a forged transition, a changed fact, and a write with no session user', async () => {
     const [file] = await files(a);
     await expect(a.pool.query("UPDATE payroll_bank_files SET status = 'generated', confirmed_at = NULL, confirmed_by = NULL WHERE id = $1", [file!.id]))
