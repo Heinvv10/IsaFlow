@@ -341,6 +341,16 @@ describe('the abandon wait, edge by edge', () => {
     expect(warned()).toBe(0);
   });
 
+  it('case O: Y deferred, a FRESH W with Y\'s values is saved, then the older X is saved last: the row stays Y (the deferred put-back is not W\'s)', async () => {
+    const r = await hungXThenRefusedY(); // X in flight, Y refused and deferred behind it
+    r.build().handleRowEntityChange('t1', 'glY', 'Y'); // W: a fresh edit with Y's very values
+    await r.ok(2); // W stored
+    expect(r.get().t1?.entityId).toBe('glY');
+    await r.ok(0); // the older X answers last: it must not trigger Y's stale put-back over W
+    expect(r.get().t1?.entityId).toBe('glY');
+    expect(trackedEditCount()).toBe(0);
+  });
+
   it('a late REFUSAL of the hung request after the wait fired changes nothing more and leaves the tracker clean', async () => {
     const r = await hungXThenRefusedY();
     await adv(EDIT_ABANDON_MS + 1000);
