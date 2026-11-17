@@ -21,6 +21,7 @@ import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { BUDGET_READ_SCOPE, BUDGET_WRITE_FENCE, isResult, ownVersion } from './budgetToolArgs';
 import { centsDeep, docFromWire, docToWire } from './budgetThreeWayWire';
 import { changedSections, threeWayRefusal } from './budgetThreeWayRefusal';
+import { threeWayRunLimit, threeWaySaveLimit } from './budgetToolRateLimits';
 import { ok, toolError } from './toolHelpers';
 
 export const THREE_WAY_SECTIONS = ['opening', 'pnl', 'balance_sheet', 'cash_flow', 'runway', 'checks', 'warnings', 'vat_settlements', 'tax_events', 'assumptions', 'lookback'] as const;
@@ -28,6 +29,7 @@ export const THREE_WAY_SECTIONS = ['opening', 'pnl', 'balance_sheet', 'cash_flow
 export const THREE_WAY_LIST_CAP = 50;
 const NOT_ENABLED = 'The balance sheet and cash budget is not enabled for this company';
 
+/** The routes' gate: the flag first (passThreeWayGate); each tool then charges its own bucket once its arguments are read. */
 async function gate(ctx: McpToolContext): Promise<McpToolResult | null> {
   return (await hasFeature(ctx.companyId, THREE_WAY_FEATURE)) ? null : toolError(NOT_ENABLED);
 }
@@ -44,7 +46,9 @@ async function answering(fn: () => Promise<McpToolResult>, prefix = ''): Promise
 }
 
 const cap = <T>(list: readonly T[]) => list.slice(0, THREE_WAY_LIST_CAP);
-const capWarning = (w: Record<string, unknown>) => Object.fromEntries(Object.entries(w).map(([k, v]) => [k, Array.isArray(v) ? cap(v) : v]));
+/** An object with every list over the cap cut, and `<list>_total` beside each cut one (review round 1, F4). */
+const capLists = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).flatMap(([k, v]) => (Array.isArray(v) && v.length > THREE_WAY_LIST_CAP
+  ? [[k, cap(v)], [`${k}_total`, v.length]] : [[k, v]])));
 
 export const getThreeWayTool: McpTool = {
   name: 'get_three_way',
@@ -52,7 +56,8 @@ export const getThreeWayTool: McpTool = {
     'One budget version\'s three-way forecast, as the app\'s Balance sheet & cash page shows it: the opening balance sheet, the budgeted P&L, the projected balance sheet and cash flow (direct and indirect) per month, runway, checks and warnings, VAT settlements and tax events, and the assumptions it ran on (resolved, the scenario chain, the stored document). '
     + 'TRAPS FIRST: it is computed now from the STORED assumptions (set_three_way_assumptions; with none stored, the derived defaults) and the version\'s amounts, so it changes when either does; a scenario reads its base\'s assumptions with its own overrides; '
     + 'the opening is the posted balance sheet the day before the first month (provisional, and warned, when that is after today); warnings are not errors (negative cash is shown, never funded). Needs the company\'s balance sheet and cash budget feature. '
-    + `Money is decimal text (balances debit-positive: liabilities and equity negative), months YYYY-MM. version_id, or fiscal_year for that year's primary. include picks sections (default all but lookback); lists over ${THREE_WAY_LIST_CAP} entries are cut (with a total).`,
+    + `Money is decimal text (balances debit-positive: liabilities and equity negative), months YYYY-MM. version_id, or fiscal_year for that year's primary. include picks sections (default all but lookback); lists over ${THREE_WAY_LIST_CAP} entries are cut, each with <list>_total beside it. `
+    + 'It has no holder scoping: a budget holder sees the whole version\'s forecast, same as the app (holder slices are a work scope, not a confidentiality boundary).',
   scope: BUDGET_READ_SCOPE,
   write: false,
   inputSchema: {
@@ -77,6 +82,8 @@ export const getThreeWayTool: McpTool = {
     } else if (Number.isInteger(args.fiscal_year) && Number(args.fiscal_year) >= 1900 && Number(args.fiscal_year) <= 2200) {
       opts = { fiscalYear: Number(args.fiscal_year) };
     } else return toolError('Pass version_id, or fiscal_year as a year label such as 2027');
+    const limited = await threeWayRunLimit(ctx);
+    if (limited) return limited;
     return answering(async () => {
       const r = await getThreeWay(ctx.companyId, opts, localISODate());
       const has = (s: string) => include.includes(s);
@@ -88,8 +95,8 @@ export const getThreeWayTool: McpTool = {
         ...(has('balance_sheet') ? { balance_sheet: centsDeep(r.balanceSheet) } : {}),
         ...(has('cash_flow') ? { cash_flow: centsDeep(r.cashFlow) } : {}),
         ...(has('runway') ? { runway: centsDeep(r.runway) } : {}),
-        ...(has('checks') ? { checks: centsDeep({ ...r.checks, openingCash: { ...r.checks.openingCash, accounts: cap(r.checks.openingCash.accounts) } }) } : {}),
-        ...(has('warnings') ? { warnings: centsDeep(r.warnings.map((w) => capWarning(w as unknown as Record<string, unknown>))) } : {}),
+        ...(has('checks') ? { checks: { ...(centsDeep(r.checks) as object), openingCash: capLists(centsDeep(r.checks.openingCash) as Record<string, unknown>) } } : {}),
+        ...(has('warnings') ? { warnings: r.warnings.map((w) => capLists(centsDeep(w) as Record<string, unknown>)) } : {}),
         ...(has('vat_settlements') ? { vat_settlements: centsDeep(r.vatSettlements) } : {}),
         ...(has('tax_events') ? { tax_events: centsDeep(r.taxEvents) } : {}),
         ...(has('assumptions') ? {
@@ -132,6 +139,8 @@ export const setThreeWayAssumptionsTool: McpTool = {
     const token = args.assumptions_token;
     if (token !== null && (typeof token !== 'string' || token.length > 40 || !isVersionToken(token))) return toolError('assumptions_token must be the token get_three_way returned, or null');
     if (typeof args.doc !== 'object' || args.doc === null || Array.isArray(args.doc)) return toolError('doc must be the assumptions document (an object)');
+    const limited = await threeWaySaveLimit(ctx);
+    if (limited) return limited;
     const version = await ownVersion(ctx, args.version_id);
     if (isResult(version)) return version;
     const wire = docFromWire(args.doc);
@@ -165,7 +174,7 @@ export const deriveThreeWayTool: McpTool = {
   name: 'derive_three_way',
   description:
     'Propose three-way assumptions for a budget version from the company\'s history (the app\'s Derive): debtor and creditor days from the trailing turnover and purchases and the opening balances, VAT from the company\'s settings and VAT201s, the payroll statutory share from EMP201s, the income-tax and dividends payable accounts by name, with the evidence. '
-    + 'TRAPS: it SAVES NOTHING and the forecast does not use it until the assumptions are saved: assumptions come before derive\'s effect, so pass the proposal (edited or not) to set_three_way_assumptions. Too little history gives defaults (insufficientHistory). '
+    + 'TRAPS: It saves nothing: get_three_way uses only saved assumptions, so save the proposal (edited or not) with set_three_way_assumptions first. Too little history gives defaults (insufficientHistory). '
     + 'Owners, admins and managers only, as in the app. Money is decimal text. Needs the balance sheet and cash budget feature and read:reports.',
   scope: BUDGET_READ_SCOPE,
   write: false,
@@ -176,6 +185,8 @@ export const deriveThreeWayTool: McpTool = {
     if (!canWrite(ctx.companyRole)) return toolError('derive_three_way is for owners, admins and managers, as the app\'s Derive is');
     const version = await ownVersion(ctx, args.version_id);
     if (isResult(version)) return version;
+    const limited = await threeWayRunLimit(ctx);
+    if (limited) return limited;
     return answering(async () => {
       const d = await deriveView(ctx.companyId, version.id, localISODate());
       return ok({

@@ -1,36 +1,40 @@
 /**
  * MCP budget control reads (budget tools PR 3), over the services the app's budget controls call:
  *  - budget_remaining: `remainingFor` (POST /api/accounting/budgets/remaining, the approve dialog's and PO form's
- *    preview): budget writers only as that route (withWriteAccess), its bounds (`remainingKeysProblem`), accounts
- *    and members by id or code per row (PR 1's resolver over the grid of the month's year: a bad row is refused in
- *    place, the rest answered);
+ *    preview): budget writers only as that route (withWriteAccess), its bounds (`remainingKeysProblem`), its lines
+ *    as it takes them (any account of the company, any of cc1 / cc2 / bu: the service maps them onto the account's
+ *    level), by id or code (`chartRefResolver`; an unknown reference refused in place, the rest answered), a
+ *    TrackingError answered with its message as the route's `respondTrackingError`;
  *  - budget_tracking: the overspend alerts the controls page lists (`listBudgetAlerts`, GET /budgets/alerts): owners
  *    and admins only, fenced by the registry as that route is (requiresRole 'admin').
- * Figures as decimal text. read:reports.
+ * Holder slices are a work scope, not a confidentiality boundary (as in the app): neither read is narrowed to a
+ * holder's slices. Figures as decimal text. read:reports.
  */
 import { canWrite } from '@/lib/auth/writeRoles';
-import { loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
-import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
+import { chartRefResolver, loadChartRefs } from '@/modules/accounting/services/budgets/budgetRefResolve';
 import { remainingFor, remainingKeysProblem, MAX_REMAINING_KEYS, type RemainingKey } from '@/modules/accounting/services/budgets/remainingBudget';
-import { mapRegistryMiss, registryYears } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
+import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { ALERT_LIST_LIMIT, listBudgetAlerts, type BudgetAlertItem } from '@/modules/accounting/services/budgets/budgetAlertList';
 import type { McpTool } from '../types';
 import { BUDGET_READ_SCOPE, randText } from './budgetToolArgs';
-import { dimensionLabel, resolveRows, type RowRef } from './budgetCellArgs';
-import { driverLabels } from './budgetDriverView';
+import { offsetArg } from './budgetPaging';
+import { remainingLimit } from './budgetToolRateLimits';
 import { clampLimit, ok, toolError } from './toolHelpers';
 
 const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
+const DIMS = ['cc1', 'cc2', 'bu'] as const;
 const money = (v: number | null) => (v === null ? null : randText(v));
+const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 export const budgetRemainingTool: McpTool = {
   name: 'budget_remaining',
   description:
     'Remaining budget per account, slice and month, as the app\'s approve dialog and purchase-order form preview it: budget (the PRIMARY version of the month\'s year, at the account\'s level), posted actual, committed (open purchase-order lines less what their bills posted) and remaining = budget - actual - committed. '
     + 'TRAPS FIRST: budget null means "No budget" (no primary version, the account holds no budget there, or the line misses the level\'s dimension: unassigned), never 0 (a budgeted zero is 0); off_slice true means the account is budgeted but not on this slice (an approval warns or refuses it); '
-    + 'a line names at most one dimension (cc1, cc2 or bu, by id or code); its dimensions map onto the account\'s level (keep that level\'s, drop the rest). '
-    + `At most ${MAX_REMAINING_KEYS} lines whose months (YYYY-MM) span at most 12 months; a line that cannot be read is refused in place with its reason. Owners, admins and managers only, as in the app. Figures are decimal text. Needs read:reports.`,
+    + 'a line names an account (any account of the company: a balance-sheet one answers with no budget) and any of cc1, cc2 and bu, as a document line carries them: they map onto the account\'s level (that level\'s dimension kept, the rest dropped), and slice says what it mapped to. '
+    + 'A budget holder sees every line, not only their slices: slices are a work scope, not a confidentiality boundary, as in the app. '
+    + `At most ${MAX_REMAINING_KEYS} lines whose months (YYYY-MM) span at most 12 months; an account or member that is not the company's is refused in place. Owners, admins and managers only, as in the app. Figures are decimal text. Needs read:reports.`,
   scope: BUDGET_READ_SCOPE,
   write: false,
   inputSchema: {
@@ -52,50 +56,48 @@ export const budgetRemainingTool: McpTool = {
     if (!Array.isArray(args.lines) || args.lines.length === 0) return toolError('lines must list at least one line');
     const rows = args.lines.map((l, index) => {
       const o = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>;
-      return { index, account: o.account, cc1: o.cc1, cc2: o.cc2, bu: o.bu, month: typeof o.month === 'string' ? o.month : '' };
+      return { index, account: text(o.account), month: typeof o.month === 'string' ? o.month : '', dims: Object.fromEntries(DIMS.map((d) => [d, o[d]])) };
     });
     const problem = remainingKeysProblem(rows.map((r) => r.month));
     if (problem) return toolError(problem);
-    // Each row resolves against the grid of its month's financial year (the year whose primary version answers it).
-    const years = registryYears(ctx.companyId);
-    const labelOf = new Map<string, number | { reason: string }>();
-    for (const month of new Set(rows.map((r) => r.month))) {
-      try {
-        labelOf.set(month, (await years.forDate(`${month}-01`))!.fiscalYear);
-      } catch (err) {
-        if (!(err instanceof TrackingError)) throw err;
-        labelOf.set(month, { reason: err.message });
-      }
-    }
+    const limited = await remainingLimit(ctx);
+    if (limited) return limited;
+    const chart = await loadChartRefs(ctx.companyId);
+    const refs = chartRefResolver(chart);
+    const keyed: Array<{ index: number; key: RemainingKey }> = [];
     const refused = new Map<number, string>();
-    const keyed: Array<{ row: (typeof rows)[number]; key: RemainingKey }> = [];
-    const models = new Map<number, GridReadModel>();
-    for (const label of new Set([...labelOf.values()].filter((v): v is number => typeof v === 'number'))) {
-      const model = await loadGridReadModel(ctx.companyId, { fiscalYear: label }, 'totals');
-      models.set(label, model);
-      const mine = rows.filter((r) => labelOf.get(r.month) === label);
-      const refs = await resolveRows(ctx, model, mine as RowRef[]);
-      for (const r of mine) {
-        const ref = refs.get(r.index);
-        if (!ref || !('glAccountId' in ref)) refused.set(r.index, ref?.reason ?? 'unresolved');
-        else keyed.push({ row: r, key: { ...ref, month: r.month } });
-      }
-    }
     for (const r of rows) {
-      const label = labelOf.get(r.month);
-      if (typeof label === 'object' && label !== undefined) refused.set(r.index, label.reason);
+      const account = refs.account(r.account);
+      if (!account.ok) { refused.set(r.index, r.account === '' ? 'account is required (an id or code)' : account.reason); continue; }
+      const ids: Record<(typeof DIMS)[number], string | null> = { cc1: null, cc2: null, bu: null };
+      const bad = DIMS.flatMap((d) => {
+        if (r.dims[d] === undefined || r.dims[d] === null) return [];
+        const m = refs.member(d, text(r.dims[d]));
+        if (!m.ok) return [m.reason];
+        ids[d] = m.item;
+        return [];
+      });
+      if (bad.length > 0) { refused.set(r.index, bad.join('; ')); continue; }
+      keyed.push({ index: r.index, key: { glAccountId: account.item, cc1Id: ids.cc1, cc2Id: ids.cc2, buId: ids.bu, month: r.month } });
     }
-    const results = keyed.length === 0 ? [] : await mapRegistryMiss(() => remainingFor(ctx.companyId, keyed.map((k) => k.key)));
-    const answered = new Map(keyed.map((k, i) => [k.row.index, results[i]!]));
+    let results;
+    try {
+      results = keyed.length === 0 ? [] : await mapRegistryMiss(() => remainingFor(ctx.companyId, keyed.map((k) => k.key)));
+    } catch (err) {
+      // The route answers a TrackingError with its message (respondTrackingError); nothing was written.
+      if (err instanceof TrackingError) return toolError(err.message);
+      throw err;
+    }
+    const answered = new Map(keyed.map((k, i) => [k.index, results[i]!]));
+    const code = new Map([...chart.accounts, ...chart.members].map((x) => [x.id, x.code]));
     const lines = rows.map((r) => {
-      const head = { i: r.index, account: String(r.account ?? '').slice(0, 64), dimension: dimensionLabel(r), month: r.month };
+      const head = { i: r.index, account: r.account.slice(0, 64), month: r.month };
       const res = answered.get(r.index);
       if (!res) return { ...head, refused: refused.get(r.index) ?? 'unresolved' };
-      const labels = driverLabels(models.get(labelOf.get(r.month) as number)!);
-      const slice = labels.grain(res.slice);
+      const member = (id: string | null) => (id === null ? null : code.get(id) ?? id);
       return {
         ...head, version_id: res.versionId, grain: res.grain,
-        slice: { cc1: res.slice.cc1Id ? slice.member : null, cc2: res.slice.cc2Id ? slice.member : null, bu: res.slice.buId ? slice.member : null },
+        slice: { cc1: member(res.slice.cc1Id), cc2: member(res.slice.cc2Id), bu: member(res.slice.buId) },
         unassigned: res.unassigned, off_slice: res.offSlice,
         budget: money(res.budget), actual: money(res.actual), committed: money(res.committed), remaining: money(res.remaining),
       };
@@ -116,9 +118,9 @@ const alertView = (a: BudgetAlertItem) => ({
 export const budgetTrackingTool: McpTool = {
   name: 'budget_tracking',
   description:
-    'The company\'s budget overspend alerts, as the app\'s Budget controls page lists them: status open (still over a threshold) or resolved (in the last 30 days). Each: account, slice, month, the threshold crossed (% of budget), budget, actual, committed and pct = (actual + committed) / budget. '
-    + 'TRAPS FIRST: alerts are recorded when the alerts are evaluated (daily, or Evaluate now in the app), not live: last_evaluated says when; they cover the PRIMARY version of the current financial year, expense accounts only; '
-    + `pct null is spend against a zero budget; an open alert of an earlier year stays open (that year ended over budget). The app lists at most ${ALERT_LIST_LIMIT} per status (capped true). For live figures use budget_remaining; for Budget vs Actual use budget_variance. `
+    'Overspend alerts only; for budget vs actual use budget_variance. The company\'s budget overspend alerts, as the app\'s Budget controls page lists them: status open (still over a threshold) or resolved (in the last 30 days). Each: account, slice, month, the threshold crossed (% of budget), budget, actual, committed and pct = (actual + committed) / budget. '
+    + 'TRAPS: alerts are recorded when the alerts are evaluated (daily, or Evaluate now in the app), not live: last_evaluated says when; they cover the PRIMARY version of the current financial year, expense accounts only; '
+    + `pct null is spend against a zero budget; an open alert of an earlier year stays open (that year ended over budget). The app lists at most ${ALERT_LIST_LIMIT} per status (capped true). For live figures use budget_remaining. `
     + `Paged: status, limit (default ${ALERTS_LIMIT_DEFAULT}, max ${ALERTS_LIMIT_MAX}), offset, next_offset. Owners and admins only, as in the app. Needs read:reports.`,
   scope: BUDGET_READ_SCOPE,
   write: false,
@@ -137,7 +139,7 @@ export const budgetTrackingTool: McpTool = {
     const list = await listBudgetAlerts(ctx.companyId);
     const all = status === 'open' ? list.open : list.resolved;
     const limit = clampLimit(args, ALERTS_LIMIT_DEFAULT, ALERTS_LIMIT_MAX);
-    const offset = Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0;
+    const offset = offsetArg(args);
     const items = all.slice(offset, offset + limit);
     const next = offset + items.length;
     return ok({

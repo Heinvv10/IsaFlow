@@ -9,6 +9,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: vi.fn(async (_n: string, cb: () => unknown) => cb()) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
+vi.mock('@/modules/accounting/services/budgets/budgetRefResolve', async (orig) => ({ ...(await orig<object>()), loadChartRefs: vi.fn(async () => ({ accounts: [{ id: '20000000-0000-4000-8000-000000000002', code: '6000' }], members: [] })) }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({ hasFeature: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/budgets/budgetVersions', () => ({ getVersion: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/gridReadModel', () => ({ loadGridReadModel: vi.fn() }));
@@ -17,7 +19,6 @@ vi.mock('@/modules/accounting/services/budgets/drivers/plannedHireService', () =
 vi.mock('@/modules/accounting/services/budgets/threeWay/threeWayViews', () => ({ getThreeWay: vi.fn(), deriveView: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/budgetAlertList', async (orig) => ({ ...(await orig<object>()), listBudgetAlerts: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/remainingBudget', async (orig) => ({ ...(await orig<object>()), remainingFor: vi.fn() }));
-vi.mock('@/modules/accounting/services/budgets/tracking/trackingWindow', async (orig) => ({ ...(await orig<object>()), registryYears: vi.fn() }));
 
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
@@ -26,7 +27,6 @@ import { listHires, readHeadcount } from '@/modules/accounting/services/budgets/
 import { deriveView, getThreeWay } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import { listBudgetAlerts } from '@/modules/accounting/services/budgets/budgetAlertList';
 import { remainingFor } from '@/modules/accounting/services/budgets/remainingBudget';
-import { registryYears } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
 import { defaultAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsDefaults';
 import { BUCKET_KEYS, PNL_BANDS } from '@/modules/accounting/services/budgets/threeWay/types';
 import { MAX_READ_RESULT_BYTES } from '@/lib/mcp/resultSize';
@@ -69,7 +69,7 @@ describe('get_budget_drivers', () => {
 function worstRun() {
   const buckets = Object.fromEntries(BUCKET_KEYS.map((k) => [k, CENTS]));
   const sections = { currentAssets: CENTS, nonCurrentAssets: CENTS, totalAssets: CENTS, currentLiabilities: CENTS, nonCurrentLiabilities: CENTS, totalLiabilities: CENTS, equity: CENTS, check: CENTS };
-  const direct = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`group${i}`, CENTS]));
+  const direct = Object.fromEntries(['cash_received_from_customers', 'cash_paid_to_suppliers', 'cash_paid_to_employees', 'other_operating', 'investing', 'financing'].map((g) => [g, CENTS]));
   const many = <T>(n: number, f: (i: number) => T) => Array.from({ length: n }, (_, i) => f(i));
   const doc = {
     ...defaultAssumptions({ priorYearEnd: '2026-02', entityType: 'pty_ltd', vat: { registered: true, cadence: 'bi-monthly', alignment: 'odd', basis: 'invoice' } }),
@@ -119,8 +119,6 @@ describe('get_three_way and derive_three_way', () => {
 
 describe('budget_remaining and budget_tracking', () => {
   it('200 lines, every figure the widest: under MAX_READ_RESULT_BYTES', async () => {
-    vi.mocked(loadGridReadModel).mockResolvedValue(model());
-    vi.mocked(registryYears).mockReturnValue({ forDate: vi.fn(async () => ({ fiscalYear: 2027 })), byLabel: vi.fn() } as never);
     vi.mocked(remainingFor).mockImplementation(async (_c, keys) => keys.map((key) => ({
       key, versionId: VERSION, grain: 'company', slice: { cc1Id: null, cc2Id: null, buId: null }, unassigned: false, offSlice: false, budget: WIDE, actual: WIDE, committed: WIDE, remaining: WIDE,
     })));

@@ -15,6 +15,7 @@ import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fi
 import type { McpTool } from '../types';
 import { BUDGET_READ_SCOPE, centsText, isMonth, isResult, ownVersion, randText, versionView } from './budgetToolArgs';
 import { NOT_FOUND, clampLimit, ok, toolError } from './toolHelpers';
+import { offsetArg } from './budgetPaging';
 
 /** Pages sized so the worst realistic page stays under MAX_READ_RESULT_BYTES (tests/unit/mcp/readLimitsSizeBudgets.test.ts). */
 export const GET_BUDGET_LIMIT_DEFAULT = 50;
@@ -58,7 +59,6 @@ export const listBudgetVersionsTool: McpTool = {
   },
 };
 
-const offsetArg = (args: Record<string, unknown>): number => (Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0);
 const LEVEL = (c: { cc1Id: string | null; cc2Id: string | null; buId: string | null }) => (c.cc1Id ? 'cc1' : c.cc2Id ? 'cc2' : c.buId ? 'bu' : 'company');
 
 export const getBudgetTool: McpTool = {

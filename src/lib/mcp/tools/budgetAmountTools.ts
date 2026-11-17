@@ -15,6 +15,7 @@ import { dimensionLabel, resolveRows, parseAmountCells, type ResolvedRef } from 
 import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
 import { loadModel, runAmountWrite, type RoundingNotice } from './budgetAmountWrite';
 import { toolError } from './toolHelpers';
+import { listPage } from './budgetPaging';
 
 const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
 const PAGING = {
@@ -30,10 +31,7 @@ const COMMON = {
   ...PAGING,
 };
 
-function page(args: Record<string, unknown>) {
-  const int = (v: unknown, d: number) => (Number.isInteger(v) ? Number(v) : d);
-  return { offset: Math.max(0, int(args.list_offset, 0)), limit: Math.min(DIFF_LIST_MAX, Math.max(1, int(args.list_limit, DIFF_LIST_DEFAULT))) };
-}
+const page = (args: Record<string, unknown>) => listPage(args, DIFF_LIST_DEFAULT, DIFF_LIST_MAX);
 
 export const setBudgetAmountsTool: McpTool = {
   name: 'set_budget_amounts',

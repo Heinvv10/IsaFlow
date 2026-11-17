@@ -14,6 +14,7 @@ import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolled
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { BUDGET_WRITE_FENCE, isResult, ownVersion } from './budgetToolArgs';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
+import { sliceLimit } from './budgetToolRateLimits';
 
 const SUBMITTABLE = new Set(['open', 'returned']);
 
@@ -65,6 +66,9 @@ export const submitBudgetForReviewTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    if (args.slice_id === undefined && args.version_id === undefined) return toolError('Pass slice_id, or version_id to submit your one open slice of that version');
+    const limited = await sliceLimit(ctx);
+    if (limited) return limited;
     const slice = await sliceToSubmit(ctx, args);
     if (isResult(slice)) return slice;
     const actor = { userId: ctx.userId, role: ctx.companyRole ?? '' };

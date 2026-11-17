@@ -11,12 +11,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: vi.fn(async (_n: string, cb: () => unknown) => cb()) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({ hasFeature: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/budgets/budgetVersions', () => ({ getVersion: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/threeWay/threeWayViews', () => ({ getThreeWay: vi.fn(), deriveView: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/threeWay/assumptionsRepo', async (orig) => ({ ...(await orig<object>()), saveAssumptions: vi.fn(), readChain: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }) }));
 
+import { checkRateLimit } from '@/lib/rateLimit';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { deriveView, getThreeWay } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
@@ -38,6 +40,7 @@ const base = { version_id: VERSION, idempotency_key: 'k' };
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(hasFeature).mockResolvedValue(true);
+  vi.mocked(checkRateLimit).mockResolvedValue(true);
   vi.mocked(getVersion).mockResolvedValue(version() as never);
   vi.mocked(readChain).mockResolvedValue({ versions: new Map(), stored: null });
   vi.mocked(saveAssumptions).mockImplementation(async (_c, _u, input) => ({ doc: input.doc as never, updatedAt: TOKEN, updatedBy: 'u-1' }));
@@ -65,14 +68,19 @@ describe('get_three_way', () => {
         unmapped: Array.from({ length: 150 }, (_, i) => ({ accountCode: `U${i}`, bucket: 'otherEquity', balance: 99 })) },
       pnl: [{ month: '2026-03', turnover: 250050, netProfit: -1 }], balanceSheet: [], cashFlow: { direct: [], indirect: [] },
       runway: { minimumCash: 0, firstBelowMinimum: null, minCash: 5, minCashMonth: '2026-03' },
-      checks: { balanced: true, unbalancedMonths: [], openingCash: { bucket: 1, ledger: 1, difference: 0, accounts: [] } },
-      warnings: [{ code: 'opening_excess_spread', series: 'receivables', days: 365, excess: 1001, months: 12 }],
+      checks: { balanced: true, unbalancedMonths: [], openingCash: { bucket: 1, ledger: 1, difference: 0, accounts: Array.from({ length: 60 }, (_, i) => ({ accountCode: `B${i}`, bucket: 1, ledger: 2 })) } },
+      warnings: [{ code: 'opening_excess_spread', series: 'receivables', days: 365, excess: 1001, months: 12 },
+        { code: 'outside_months', entries: Array.from({ length: 70 }, (_, i) => ({ list: 'capex', id: `e${i}`, skipped: 'entry', detail: 'd' })) }],
       vatSettlements: [], taxEvents: [], assumptions: { resolved: doc(), chain: [VERSION], stored: null },
     } as never);
     const out = json(await getThreeWayTool.handler({ version_id: VERSION }, ctx('viewer', ['read:reports'])));
     expect(out.pnl).toEqual([{ month: '2026-03', turnover: '2500.50', netProfit: '-0.01' }]);
     expect((out.opening as { buckets: unknown }).buckets).toEqual({ cash: '1234.56' });
-    expect(out.warnings).toEqual([{ code: 'opening_excess_spread', series: 'receivables', days: 365, excess: '10.01', months: 12 }]);
+    const [spread, outside] = out.warnings as Array<Record<string, unknown>>;
+    expect(spread).toEqual({ code: 'opening_excess_spread', series: 'receivables', days: 365, excess: '10.01', months: 12 });
+    expect([(outside!.entries as unknown[]).length, outside!.entries_total]).toEqual([50, 70]);
+    const cash = (out.checks as { openingCash: { accounts: unknown[]; accounts_total: number } }).openingCash;
+    expect([cash.accounts.length, cash.accounts_total]).toEqual([50, 60]);
     expect(out.opening).toMatchObject({ unmapped_total: 150 });
     expect((out.opening as { unmapped: unknown[] }).unmapped).toHaveLength(50);
     expect((out.assumptions as { resolved: { capex: unknown[] } }).resolved.capex[0]).toMatchObject({ amountExVat: '1500.00' });
@@ -127,6 +135,21 @@ describe('set_three_way_assumptions', () => {
   });
 });
 
+describe('rate limits (mcp- buckets mirroring the app routes)', () => {
+  it.each([
+    ['get_three_way', () => getThreeWayTool.handler({ version_id: VERSION }, ctx()), 'mcp-budget-three-way:u-1', 60],
+    ['derive_three_way', () => deriveThreeWayTool.handler({ version_id: VERSION }, ctx()), 'mcp-budget-three-way:u-1', 60],
+    ['set_three_way_assumptions', () => setThreeWayAssumptionsTool.handler({ ...base, doc: wire(), assumptions_token: null }, ctx()), 'mcp-budget-three-way-save:u-1', 120],
+  ])('%s: refused past its bucket before any service', async (_n, call, bucket, max) => {
+    vi.mocked(checkRateLimit).mockResolvedValue(false);
+    expect(text(await call())).toMatch(/Too many/);
+    expect(checkRateLimit).toHaveBeenCalledWith(bucket, { max, windowSecs: 60 });
+    expect(getThreeWay).not.toHaveBeenCalled();
+    expect(deriveView).not.toHaveBeenCalled();
+    expect(saveAssumptions).not.toHaveBeenCalled();
+  });
+});
+
 describe('derive_three_way', () => {
   beforeEach(() => {
     vi.mocked(deriveView).mockResolvedValue({
@@ -140,10 +163,15 @@ describe('derive_three_way', () => {
     expect(deriveView).not.toHaveBeenCalled();
   });
 
+  it('the description says plainly that it saves nothing and the forecast uses only saved assumptions', () => {
+    expect(deriveThreeWayTool.description).toMatch(/It saves nothing: get_three_way uses only saved assumptions, so save the proposal \(edited or not\) with set_three_way_assumptions first/);
+  });
+
   it('proposes assumptions with money as decimal text and saves nothing', async () => {
     const out = json(await deriveThreeWayTool.handler({ version_id: VERSION }, ctx('manager', ['read:reports'])));
     expect((out.assumptions as { capex: unknown[] }).capex[0]).toMatchObject({ amountExVat: '1500.00' });
     expect(out.evidence).toMatchObject({ window: { months: 12, days: 365 }, trailing: { turnover: '12000.00' }, aging: { receivables: '0.50' } });
+    expect(getThreeWayTool.description).toMatch(/no holder scoping.*same as the app/);
     expect(saveAssumptions).not.toHaveBeenCalled();
   });
 });

@@ -21,13 +21,19 @@ import { DRIVER_WRITE_TOOL, recordSnapshot } from '@/modules/accounting/services
 import { listDriverLines, listPlannedHires, type StoredPlannedHire } from '@/modules/accounting/services/budgets/drivers/driverRepository';
 import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
+import { loadHolderScope } from '@/modules/accounting/services/budgets/holderScope';
+import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
-import { BUDGET_WRITE_FENCE, isResult, PLAN_CHANGED, planHashArg, versionTokenArg } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, isResult, planHashArg, versionTokenArg } from './budgetToolArgs';
 import { cellMap, sectionTotals, DIFF_LIST_MAX, type CellMap } from './budgetDiffView';
-import { loadModel, STALE_SINCE_DRY_RUN } from './budgetAmountWrite';
+import { loadModel } from './budgetAmountWrite';
+import { planHashRefusal, staleRefusal } from './budgetWriteGate';
+import { listPage } from './budgetPaging';
+import { budgetLabels, type BudgetLabels } from './budgetLabels';
+import { driverChangesLimit } from './budgetToolRateLimits';
 import { MAX_DRIVER_CHANGES, parseDriverChanges, type DriverChange } from './budgetDriverArgs';
 import { applyDriverChanges, DriverChangeRefused } from './budgetDriverApply';
-import { driverCellChanges, driverCellListing, driverLabels, driverLineView, driverSnapshotCells, hireView, type DriverLabels } from './budgetDriverView';
+import { driverCellChanges, driverCellListing, driverLineView, driverSnapshotCells, hireView } from './budgetDriverView';
 import { DRIVER_CHANGES_SCHEMA } from './budgetDriverSchema';
 import { ok, toolError } from './toolHelpers';
 
@@ -41,20 +47,29 @@ async function readState(ctx: McpToolContext, versionId: string): Promise<Driver
   return { cells, lines: await listDriverLines(ctx.companyId, versionId), hires: await listPlannedHires(ctx.companyId, versionId) };
 }
 
-/** The hash over the changes and the state they start from (lines and hires by content, every cell). */
-function planHash(versionId: string, token: string, changes: readonly DriverChange[], s: DriverState): string {
-  const strip = <T extends { updatedAt: string }>({ updatedAt: _u, ...rest }: T) => rest;
-  return budgetStatePlanHash(versionId, DRIVER_WRITE_TOOL, token, [
-    changes, s.lines.map(strip), s.hires.map(strip), [...s.cells].sort(([a], [b]) => (a < b ? -1 : 1)),
+/** A stored row's content: everything but its token (inside one transaction every write stamps the same now()). */
+const content = (row: object) => Object.fromEntries(Object.entries(row).filter(([k]) => k !== 'updatedAt'));
+
+/**
+ * The hash over the changes and everything they start from: the version's status, its slice reviews (review round 1,
+ * F3: inside one transaction the token cannot show an approve or a slice move; a superset of the slices the plan
+ * touches, since a hire or a headcount refresh reaches per_head rows anywhere), the stored lines and hires by
+ * content, and every cell.
+ */
+async function planHash(ctx: McpToolContext, version: BudgetVersion, token: string, changes: readonly DriverChange[], s: DriverState): Promise<string> {
+  const reviews = (await loadHolderScope(ctx.companyId, version.id, ctx.userId)).reviews
+    .map((r) => [r.cc1Id, r.cc2Id, r.buId, r.status]).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1));
+  return budgetStatePlanHash(version.id, DRIVER_WRITE_TOOL, token, [
+    version.status, reviews, changes, s.lines.map(content), s.hires.map(content), [...s.cells].sort(([a], [b]) => (a < b ? -1 : 1)),
   ]);
 }
 
 /** Driver lines (by row) and hires (by id) whose content differs, before and after. */
-function stateDiff(before: DriverState, after: DriverState, l: DriverLabels) {
+function stateDiff(before: DriverState, after: DriverState, l: BudgetLabels) {
   const rowOf = (d: StoredDriverLine) => `${d.glAccountId}|${d.cc1Id ?? ''}|${d.cc2Id ?? ''}|${d.buId ?? ''}`;
-  const content = (v: unknown) => JSON.stringify(v, (k, x) => (k === 'updatedAt' ? undefined : x));
-  const pair = <T>(b: Map<string, T>, a: Map<string, T>, view: (x: T) => unknown) => [...new Set([...b.keys(), ...a.keys()])]
-    .filter((k) => content(b.get(k)) !== content(a.get(k)))
+  const same = (x: object | undefined, y: object | undefined) => JSON.stringify(x && content(x)) === JSON.stringify(y && content(y));
+  const pair = <T extends object>(b: Map<string, T>, a: Map<string, T>, view: (x: T) => unknown) => [...new Set([...b.keys(), ...a.keys()])]
+    .filter((k) => !same(b.get(k), a.get(k)))
     .map((k) => ({ before: b.has(k) ? view(b.get(k)!) : null, after: a.has(k) ? view(a.get(k)!) : null }));
   return {
     driver_lines: pair(new Map(before.lines.map((d) => [rowOf(d), d])), new Map(after.lines.map((d) => [rowOf(d), d])), (d) => driverLineView(d, l)),
@@ -64,25 +79,22 @@ function stateDiff(before: DriverState, after: DriverState, l: DriverLabels) {
 
 const tooMany = (n: number) => `These changes change ${n} cells; one call changes at most ${MAX_SAVE_CELLS} (split the changes). Nothing was written.`;
 
-function page(args: Record<string, unknown>) {
-  const int = (v: unknown, d: number) => (Number.isInteger(v) ? Number(v) : d);
-  return { offset: Math.max(0, int(args.list_offset, 0)), limit: Math.min(DIFF_LIST_MAX, Math.max(1, int(args.list_limit, LIST_DEFAULT))) };
-}
-
-async function run(ctx: McpToolContext, args: Record<string, unknown>, model: GridReadModel, raw: unknown[]): Promise<McpToolResult> {
+async function run(ctx: McpToolContext, args: Record<string, unknown>, model: GridReadModel, version: BudgetVersion, raw: unknown[]): Promise<McpToolResult> {
   const versionToken = versionTokenArg(args);
   if (isResult(versionToken)) return versionToken;
   const planHashGiven = planHashArg(args);
   if (isResult(planHashGiven)) return planHashGiven;
-  const versionId = model.version!.id;
-  const token = model.updatedAt!;
-  const labels = driverLabels(model);
+  const limited = await driverChangesLimit(ctx, raw.length);
+  if (limited) return limited;
+  const versionId = version.id;
+  const token = model.updatedAt ?? version.updatedAt;
+  const labels = budgetLabels(model);
   const before = await readState(ctx, versionId);
   const { changes, refusals } = await parseDriverChanges(ctx, model, before.lines, raw);
-  const hash = planHash(versionId, token, changes, before);
-  const head = { version_id: versionId, version: { name: model.version!.name, fiscal_year: model.version!.fiscalYear, status: model.version!.status } };
+  const hash = await planHash(ctx, version, token, changes, before);
+  const head = { version_id: versionId, version: { name: version.name, fiscal_year: version.fiscalYear, status: version.status } };
   const view = (after: DriverState, outcomes: unknown[]) => {
-    const listing = driverCellListing(driverCellChanges(before.cells, after.cells), labels, page(args));
+    const listing = driverCellListing(driverCellChanges(before.cells, after.cells), labels, listPage(args, LIST_DEFAULT, DIFF_LIST_MAX));
     return { ...listing, totals: sectionTotals(model, before.cells, after.cells), ...stateDiff(before, after, labels), changes: outcomes };
   };
 
@@ -112,15 +124,14 @@ async function run(ctx: McpToolContext, args: Record<string, unknown>, model: Gr
     };
   }
 
-  if (versionToken !== null && versionToken !== token) return toolError(STALE_SINCE_DRY_RUN);
+  const stale = staleRefusal(versionToken, token);
+  if (stale) return stale;
   if (refusals.length > 0) {
     const named = refusals.slice(0, 20).map((r) => `change ${r.i}: ${r.reason}`).join('; ');
     return toolError(`${refusals.length} change${refusals.length === 1 ? ' is' : 's are'} refused, so nothing was written (a call is all or nothing): ${named}. Dry-run to see them all.`);
   }
-  if (planHashGiven === null) {
-    return toolError('plan_hash is required: call set_budget_drivers with dry_run true, read the diff (cells, driver lines, hires), then apply with the plan_hash it returns.');
-  }
-  if (planHashGiven !== hash) return toolError(PLAN_CHANGED);
+  const planRefused = planHashRefusal({ tool: 'set_budget_drivers', given: planHashGiven, hash, required: true, why: 'for every driver write (one change can recompute many cells)' });
+  if (planRefused) return planRefused;
   let applied;
   try {
     applied = await applyDriverChanges(ctx, versionId, token, changes);
@@ -152,7 +163,8 @@ export const setBudgetDriversTool: McpTool = {
     + 'TRAPS FIRST: restore_budget_version does NOT undo this (it undoes amount writes only, and refuses one once drivers changed after it); the reply lists every driver line and hire as it was before, which is how to undo. '
     + 'One driver per row (account at one level: company, or one cc1, cc2 or bu member, the level the account is budgeted at in the version; never two dimensions); a driver writes only its months, never a closed (actual) month and never an override; '
     + 'set_driver replaces the row\'s driver; delete_driver turns the row\'s overrides into typed figures; a per_head driver reads payroll headcount on its own write and on refresh_headcount only. amount is a decimal STRING (rand per month, or per head); pct a number (4 decimals). '
-    + 'Refused on a locked version and, for a budget holder, outside their slices or in a slice under review. '
+    + 'delete_driver, update_hire and delete_hire name rows that exist before the call: a row or hire made by an earlier change of the same call cannot be named (call again). '
+    + 'Refused on a locked version and, for a budget holder, outside their slices or in a slice under review. The changed amounts are the version\'s at once: get_three_way and the reports read the changed amounts. '
     + 'WORKFLOW: 1) dry_run true: the real changes rolled back, answering every cell they would change (other accounts\' recomputed dependents included), section totals before and after, the driver lines and hires before and after, and plan_hash; '
     + '2) the same call with dry_run false and that plan_hash (always required). If the version changed since, it is refused: dry-run again. The recomputed values are not bound by plan_hash (a payroll headcount can move); the live reply lists what was written. '
     + `At most ${MAX_DRIVER_CHANGES} changes and ${MAX_SAVE_CELLS} changed cells per call, all or nothing. Each change is audited as you. Needs write:budgets and read:reports.`,
@@ -177,6 +189,7 @@ export const setBudgetDriversTool: McpTool = {
     if (args.changes.length > MAX_DRIVER_CHANGES) return toolError(`changes lists ${args.changes.length} changes; one call makes at most ${MAX_DRIVER_CHANGES}`);
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
-    return run(ctx, args, model, args.changes);
+    if (model.version === null) return toolError('Not found');
+    return run(ctx, args, model, model.version, args.changes);
   },
 };

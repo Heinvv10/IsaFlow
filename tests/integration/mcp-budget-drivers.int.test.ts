@@ -11,12 +11,23 @@
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetDriverRouteFixture, type DriverWorld } from './helpers/budgetDriverRouteFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { body, mcp, mcpBatch, mcpReads, text } from './helpers/mcpBudgetFixture';
+
+/** Review round 1 (M1): a hire service that refuses on demand AFTER the dry run, so a live call is refused at its second change. */
+const failHire = vi.hoisted(() => ({ on: false }));
+vi.mock('@/modules/accounting/services/budgets/drivers/plannedHireService', async (orig) => {
+  const real = await orig<typeof import('@/modules/accounting/services/budgets/drivers/plannedHireService')>();
+  const { BudgetVersionError } = await import('@/modules/accounting/services/budgets/budgetVersionTypes');
+  return { ...real, createHire: async (...a: Parameters<typeof real.createHire>) => {
+    if (failHire.on) throw new BudgetVersionError('BUDGET_VERSION_LOCKED', 'This budget version is locked');
+    return real.createHire(...a);
+  } };
+});
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -131,6 +142,41 @@ describe('refusals write nothing', () => {
 });
 
 describe('the plan_hash inside one transaction', () => {
+  it('binds the version status (review round 1, F3): an approve between dry run and apply, same token, refuses the apply', async () => {
+    const v = await salesVersion();
+    const before = await state(v);
+    const out = await mcpBatch(pool, w.u, [
+      () => ['set_budget_amounts', { version_id: v, cells: [{ account: 'GS-4000', month: w.months[0], amount: '1100.00' }], idempotency_key: key() }],
+      () => ['set_budget_drivers', { version_id: v, changes: [cogs()], dry_run: true, idempotency_key: key() }],
+      () => ['approve_budget_version', { version_id: v, idempotency_key: key() }],
+      (b) => ['set_budget_drivers', { version_id: v, changes: [cogs()], plan_hash: body(b[1]!).plan_hash, idempotency_key: key() }],
+    ]);
+    expect((body(out[2]!).version as { version_token: string }).version_token).toBe(body(out[1]!).version_token);
+    expect(text(out[3]!)).toMatch(/plan changed since your dry run/);
+    expect((await fx.state(v)).drivers).toEqual(before.drivers);
+  });
+
+  it('a refusal at the SECOND change rolls the first one back (the registry savepoint): nothing kept (review round 1, M1)', async () => {
+    const v = await salesVersion();
+    const changes = [cogs(), { op: 'add_hire', label: 'Rep', start_month: w.months[0] }];
+    const d = body(await dry(v, changes));
+    const before = await state(v);
+    failHire.on = true;
+    try {
+      const r = await mcp(pool, w.u, 'set_budget_drivers', { version_id: v, changes, plan_hash: d.plan_hash, idempotency_key: key() });
+      expect(text(r)).toBe('Change 1 (add_hire) was refused: This budget version is locked. Nothing was written: a call is all or nothing (the earlier changes were rolled back).');
+    } finally { failHire.on = false; }
+    expect(await state(v)).toEqual(before);
+  });
+
+  it('a percent past 4 decimals and an FTE past 2 are refused by the services, never rounded', async () => {
+    const v = await salesVersion();
+    const before = await state(v);
+    expect(text(await dry(v, [cogs({ pct: 38.12345 })]))).toMatch(/would be refused: change 0 \(set_driver\): .*at most 4 decimals/);
+    expect(text(await dry(v, [{ op: 'add_hire', label: 'Rep', start_month: w.months[0], fte: 1.234 }]))).toMatch(/would be refused: change 0 \(add_hire\): FTE must be .*at most 2 decimals/);
+    expect(await state(v)).toEqual(before);
+  });
+
   it('inside one transaction (the token cannot move) the plan_hash still binds the cells: a save between dry run and apply refuses it', async () => {
     const v = await salesVersion();
     const before = await state(v);

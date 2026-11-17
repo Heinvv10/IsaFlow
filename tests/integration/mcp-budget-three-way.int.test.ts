@@ -13,7 +13,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { defaultAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsDefaults';
-import { centsDeep, docToWire } from '@/lib/mcp/tools/budgetThreeWayWire';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { monthsFrom } from './helpers/budgetGridFixture';
 import { budgetThreeWayFixture, dataOf, type ThreeWayCo } from './helpers/budgetThreeWayFixture';
@@ -39,6 +38,12 @@ afterAll(async () => {
 }, 120_000);
 
 const key = () => crypto.randomUUID();
+/**
+ * An INDEPENDENT conversion (review round 1, M3: not the tool's own converter): every number of a run section is cents
+ * as rand text; for the evidence, the counts the test names are kept.
+ */
+const asRand = (x: unknown, keep: readonly string[] = []): unknown =>
+  JSON.parse(JSON.stringify(x), (k, v) => (typeof v === 'number' && !keep.includes(k) ? (v / 100).toFixed(2) : v));
 const doc = (capex: string | number = '1500.00', debtorDays = 45) => {
   const d = defaultAssumptions({ priorYearEnd: '2026-02', entityType: 'pty_ltd', vat: { registered: false, cadence: 'bi-monthly', alignment: 'odd', basis: 'invoice' } });
   d.workingCapital.debtorDays = { value: debtorDays, source: 'manual' };
@@ -125,8 +130,10 @@ describe('equivalence with the app', () => {
     expect(derived.status).toBe(200);
     const d = dataOf<{ assumptions: unknown; evidence: unknown }>(derived);
     const viaMcp = body(await mcp(pool, A.owner, 'derive_three_way', { version_id: v }));
-    expect(viaMcp.assumptions).toEqual(docToWire(d.assumptions));
-    expect(viaMcp.evidence).toEqual(centsDeep(d.evidence));
+    const da = d.assumptions as { capex: Array<{ amountExVat: number }>; minimumCash: { value: number }; workingCapital: unknown };
+    const ma = viaMcp.assumptions as { capex: unknown[]; minimumCash: { value: string }; workingCapital: unknown };
+    expect([ma.capex, ma.minimumCash.value, ma.workingCapital]).toEqual([asRand(da.capex, ['usefulLifeYears']), (da.minimumCash.value / 100).toFixed(2), da.workingCapital]);
+    expect(viaMcp.evidence).toEqual(asRand(d.evidence, ['months', 'days']));
 
     const run = await fx.routes.index(A.owner, { version_id: v });
     expect(run.status).toBe(200);
@@ -134,11 +141,10 @@ describe('equivalence with the app', () => {
     const tw = body(await mcp(pool, A.owner, 'get_three_way', { version_id: v }));
     expect(r.pnl[0]!.turnover).toBe(100000);
     expect((tw.pnl as Array<{ turnover: string }>)[0]!.turnover).toBe('1000.00');
-    expect(tw.pnl).toEqual(centsDeep(r.pnl));
-    expect(tw.balance_sheet).toEqual(centsDeep(r.balanceSheet));
-    expect(tw.cash_flow).toEqual(centsDeep(r.cashFlow));
-    expect(tw.runway).toEqual(centsDeep(r.runway));
-    expect((tw.assumptions as { resolved: unknown }).resolved).toEqual(docToWire(r.assumptions.resolved));
+    expect(tw.pnl).toEqual(asRand(r.pnl));
+    expect(tw.balance_sheet).toEqual(asRand(r.balanceSheet));
+    expect(tw.cash_flow).toEqual(asRand(r.cashFlow));
+    expect(tw.runway).toEqual(asRand(r.runway));
     expect((tw.assumptions as { resolved: { capex: Array<{ amountExVat: string }> } }).resolved.capex[0]!.amountExVat).toBe('1500.00');
   });
 });

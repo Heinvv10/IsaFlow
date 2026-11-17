@@ -16,6 +16,7 @@ vi.mock('@/modules/accounting/services/budgets/drivers/driverRepository', () => 
 import { latestSnapshot, DRIVER_WRITE_TOOL, type SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
 import { driverChangesSince } from '@/modules/accounting/services/budgets/budgetVersionActivity';
 import { planRestore } from '@/modules/accounting/services/budgets/budgetSnapshotRestore';
+import { restoreBudgetVersionTool } from '@/lib/mcp/tools/budgetRestoreTool';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const V = '22222222-2222-4222-8222-222222222222';
@@ -43,6 +44,13 @@ describe('restore covers amount writes only', () => {
     const p = await planRestore('co', V, null, current, owner);
     expect(p).toMatchObject({ ok: false, reason: expect.stringMatching(/drivers of this version changed since that write/i) });
     expect(driverChangesSince).toHaveBeenCalledWith('co', V, T);
+  });
+
+  it('the tool and the refusal state the over-refusal exactly: a driver change anywhere in the same request, even before the write', async () => {
+    vi.mocked(driverChangesSince).mockResolvedValue(1);
+    const p = await planRestore('co', V, null, current, owner);
+    expect(p).toMatchObject({ ok: false, reason: expect.stringMatching(/at or after that write's transaction: in a later request, or anywhere in the same request, including before the write/) });
+    expect(restoreBudgetVersionTool.description).toMatch(/refuses an amount write once any driver change was made at or after that write's transaction: in a later request, or anywhere in the same request \(batch\), including one made before the write/);
   });
 
   it('an amount write whose drivers did not change since still restores', async () => {

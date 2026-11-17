@@ -93,7 +93,8 @@ export async function planRestore(
     return {
       ok: false,
       reason: `The drivers of this version changed since that write (snapshot ${latest.id}): a driver line, planned hire, override reset or headcount `
-        + 'refresh, in the same request as the write or later. Restoring its cells would recompute them under other drivers, so nothing was restored; change the cells by hand instead',
+        + 'refresh at or after that write\'s transaction: in a later request, or anywhere in the same request, including before the write (one request\'s '
+        + 'changes share a time). Restoring its cells would recompute them under other drivers, so nothing was restored; change the cells by hand instead',
     };
   }
   if (current.statusMovedAt !== null && current.statusMovedAt > latest.createdAt) {

@@ -101,3 +101,52 @@ export async function explainMissingAccounts(companyId: string, refs: readonly s
   }
   return out;
 }
+
+/**
+ * The company's chart and dimension members by id or code, for a READ that takes lines as the app's remaining-budget
+ * preview takes them (budget tools PR 3, review F1): any account of the company (a balance-sheet account too: the
+ * preview answers it, with no budget), and any of cc1 / cc2 / bu at once (`remainingFor` maps them onto the account's
+ * level). Not for amount writes: those resolve over the grid (`refResolver`), which refuses what cannot be budgeted.
+ */
+export interface ChartRefs {
+  accounts: Array<{ id: string; code: string }>;
+  members: Array<{ id: string; code: string; kind: DimensionKind }>;
+}
+
+/** One read of the company's accounts, CC1 / CC2 centres and business units (ids and codes only). */
+export async function loadChartRefs(companyId: string): Promise<ChartRefs> {
+  const accounts = (await sql`
+    SELECT id::text AS id, account_code AS code FROM gl_accounts WHERE company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const members = (await sql`
+    SELECT id::text AS id, code, cc_type AS kind FROM cost_centres WHERE company_id = ${companyId}::UUID AND cc_type IN ('cc1', 'cc2')
+    UNION ALL
+    SELECT id::text, code, 'bu' FROM business_units WHERE company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return {
+    accounts: accounts.map((r) => ({ id: String(r.id), code: String(r.code) })),
+    members: members.map((r) => ({ id: String(r.id), code: String(r.code), kind: String(r.kind) as DimensionKind })),
+  };
+}
+
+/** Resolves an account or a member of `refs` by id or code (the import's code rule); never guessed. */
+export function chartRefResolver(refs: ChartRefs) {
+  const byCode = codeIndex(refs.accounts);
+  const ids = new Set(refs.accounts.map((a) => a.id));
+  const kinds = new Map<DimensionKind, { byCode: Find<{ id: string; code: string }>; ids: Set<string> }>();
+  for (const kind of ['cc1', 'cc2', 'bu'] as const) {
+    const of = refs.members.filter((m) => m.kind === kind);
+    kinds.set(kind, { byCode: codeIndex(of), ids: new Set(of.map((m) => m.id)) });
+  }
+  const find = (ref: string, index: Find<{ id: string; code: string }>, known: Set<string>, noun: string): RefResult<string> => {
+    const missing = { ok: false as const, reason: `${clip(ref)} is not ${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun} of this company` };
+    if (UUID_RE.test(ref)) return known.has(ref.toLowerCase()) ? { ok: true, item: ref.toLowerCase() } : missing;
+    const hit = index(ref);
+    if (hit === null) return { ok: false, reason: `Code ${clip(ref)} matches more than one ${noun}; name it by id` };
+    return hit === undefined ? missing : { ok: true, item: hit.id };
+  };
+  return {
+    account: (ref: string) => find(ref, byCode, ids, 'account'),
+    member: (kind: DimensionKind, ref: string) => find(ref, kinds.get(kind)!.byCode, kinds.get(kind)!.ids, DIM_LABEL[kind]),
+  };
+}

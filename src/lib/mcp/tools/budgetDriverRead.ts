@@ -13,7 +13,9 @@ import type { McpTool } from '../types';
 import { BUDGET_READ_SCOPE, centsText, isResult } from './budgetToolArgs';
 import { loadModel } from './budgetAmountWrite';
 import { resolveCentre } from './budgetDriverArgs';
-import { driverLabels, driverLineView, hireView } from './budgetDriverView';
+import { driverLineView, hireView } from './budgetDriverView';
+import { budgetLabels } from './budgetLabels';
+import { offsetArg } from './budgetPaging';
 import { clampLimit, ok, toolError } from './toolHelpers';
 
 /** Pages sized so the worst realistic reply stays under MAX_READ_RESULT_BYTES (tests/unit/mcp/readLimitsSizeBudgetDrivers.test.ts). */
@@ -28,6 +30,7 @@ export const getBudgetDriversTool: McpTool = {
     'The drivers of one budget version, as the app\'s driver panel shows them: driver lines (paged), planned hires, headcount per month and the override cells (typed over a driver). '
     + 'TRAPS FIRST: a per_head line\'s rate and the headcount counts are shown to owners, admins and managers only (per-person pay, POPIA): any other role gets the line with per_head_restricted true and no amount, and headcount without counts; '
     + 'headcount is payroll actives plus planned hires, at the company or at headcount_cost_centre (a CC1 or CC2, id or code), read now (as_of); a per_head row\'s cells reflect the headcount read on its last write or refresh, not this one. '
+    + 'A budget holder sees every driver line of the version, not only their slices\' (the app\'s driver list does the same): holder slices are a work scope, not a confidentiality boundary. '
     + `Money is decimal text, months YYYY-MM, accounts and members by code. Paged drivers: limit (default ${DRIVERS_LIMIT_DEFAULT}, max ${DRIVERS_LIMIT_MAX}), offset, next_offset; `
     + `at most ${HIRES_LISTED} hires and ${OVERRIDES_LISTED} overrides are listed (their totals say how many there are). Change drivers with set_budget_drivers.`,
   scope: BUDGET_READ_SCOPE,
@@ -45,20 +48,22 @@ export const getBudgetDriversTool: McpTool = {
   handler: async (args, ctx) => {
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
+    const version = model.version;
+    if (version === null) return toolError('Not found');
     const scope = resolveCentre(model, args.headcount_cost_centre, 'headcount_cost_centre');
     if ('reason' in scope) return toolError(scope.reason);
-    const versionId = model.version!.id;
+    const versionId = version.id;
     const access = perHeadAccessOf(ctx.companyRole);
-    const labels = driverLabels(model);
+    const labels = budgetLabels(model);
     const { drivers } = await listDrivers(ctx.companyId, versionId, access);
     const { hires } = await listHires(ctx.companyId, versionId);
     const headcount = await readHeadcount(ctx.companyId, versionId, scope.id, access);
     const limit = clampLimit(args, DRIVERS_LIMIT_DEFAULT, DRIVERS_LIMIT_MAX);
-    const offset = Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0;
+    const offset = offsetArg(args);
     const shown = drivers.slice(offset, offset + limit);
     const overrides = model.cells.filter((c) => c.source === 'override');
     return ok({
-      version: { id: versionId, name: model.version!.name, fiscal_year: model.version!.fiscalYear, status: model.version!.status },
+      version: { id: versionId, name: version.name, fiscal_year: version.fiscalYear, status: version.status },
       version_token: model.updatedAt,
       drivers: shown.map((d) => driverLineView(d, labels)), drivers_total: drivers.length,
       next_offset: offset + shown.length < drivers.length ? offset + shown.length : null,
