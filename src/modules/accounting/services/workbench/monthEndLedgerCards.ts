@@ -112,11 +112,14 @@ export async function buildVatCard(companyId: string, periodStart: string, perio
   };
 }
 
+/**
+ * The month's pay runs, all of them (wave 6 FQb2): a month may hold an off-cycle bonus beside its regular run, so the
+ * card is ready only when every run is approved, and shows their gross together. One run reads exactly as before.
+ */
 export async function buildPayrollCard(companyId: string, period: string): Promise<WorkbenchCard> {
   const [year, month] = period.split('-').map(Number) as [number, number];
-  const runs = await listPayrollRuns(companyId);
-  const thisRun = runs.find(r => r.periodYear === year && r.periodMonth === month);
-  if (!thisRun) {
+  const monthRuns = (await listPayrollRuns(companyId)).filter(r => r.periodYear === year && r.periodMonth === month);
+  if (monthRuns.length === 0) {
     return {
       id: 'payroll',
       title: 'Payroll Run',
@@ -126,14 +129,17 @@ export async function buildPayrollCard(companyId: string, period: string): Promi
       href: '/payroll/runs',
     };
   }
-  const status: CardStatus = thisRun.status === 'approved' ? 'ready' : 'in_progress';
+  const status: CardStatus = monthRuns.every(r => r.status === 'approved') ? 'ready' : 'in_progress';
+  const gross = monthRuns.reduce((t, r) => t + (Number(r.totalGross) || 0), 0);
+  const employees = Math.max(...monthRuns.map(r => r.employeeCount));
   return {
     id: 'payroll',
     title: 'Payroll Run',
     status,
-    primary: `${fmtR(Number(thisRun.totalGross) || 0)} gross`,
-    secondary: `${thisRun.employeeCount} employees · ${thisRun.status}`,
+    primary: `${fmtR(gross)} gross`,
+    secondary: monthRuns.length === 1
+      ? `${employees} employees · ${monthRuns[0]!.status}`
+      : `${employees} employees · ${monthRuns.length} runs: ${monthRuns.map(r => r.status).join(', ')}`,
     href: '/payroll/runs',
   };
 }
-

@@ -13,6 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { runOrderKeySql } from '@/modules/accounting/services/payroll/payrollRunOrder';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import {
   expectedVatPeriodAsOf,
@@ -111,7 +112,10 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number): CashPositio
 
 // ── Private section helpers ───────────────────────────────────────────────────
 
-/** The open runs of `asAt`'s month and the month before: a forgotten 2020 run is not "the next" one. */
+/**
+ * The open runs of `asAt`'s month and the month before: a forgotten 2020 run is not "the next" one. In pay order
+ * (runOrderKeySql, wave 6 FQb2), so "earliest" and "latest" name one run when a month holds several.
+ */
 async function nextPayrollSection(
   companyId: string,
   cash: number,
@@ -125,7 +129,7 @@ async function nextPayrollSection(
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')
        AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
-     ORDER BY period_year, period_month
+     ORDER BY ${runOrderKeySql('payroll_run_headers')}
   `) as unknown as PayrollRunRow[];
   return pickPayrollRun(rows, cash);
 }
