@@ -119,6 +119,30 @@ integration (every mcp-budget-*, budget-grid-*, budget-drivers-*, budgets-three-
 `Test Files  67 passed (67)`, `Tests  559 passed | 1 skipped (560)`; tsc exit 0; eslint on src/lib/mcp and services/budgets 0 errors
 (2 warnings, both in tools/reports.ts, not this branch); `agent-docs:check` OK (114 mirrors).
 
+## Mutation table, review round 2 (head 702b9cf494)
+
+Red first: `Tests  14 failed | 59 passed (73)` (the paging cases against both tools, the argument order, a numeric code).
+
+| # | Mutant | unit | int |
+|---|---|---|---|
+| Q1 | M-1: listPage without the floor of 1 | 6 failed / 51 | – |
+| Q2 | M-1: a non-integer list_limit floored instead of defaulted | 7 failed / 51 | – |
+| Q3 | L-2: bucket and grid read before the version_token / plan_hash checks | 2 failed / 32 | – |
+| Q4 | L-3: a numeric code read as '' | 1 failed / 21 | – |
+| Q5 | L-1: loadChartRefs without its gl_accounts company predicate | – | **6 passed / 6** |
+| Q5b | the same, after the RLS-bypassed case (702b9cf494) | – | 1 failed / 6 |
+| Q6 | L-1: loadChartRefs without its cost_centres company predicate | – | **6 passed / 6** |
+| Q6b | the same, after 702b9cf494 | – | 1 failed / 6 |
+
+Q5 and Q6 first stayed green: as app_user the tenant policy refused the other company's rows on its own (PR 1's M4b
+lesson). The case added in 702b9cf494 runs `loadChartRefs` on the superuser connection, so only the service's own
+predicate keeps them out.
+
+Runs at 702b9cf494: unit `tests/unit` `Test Files  2576 passed | 47 skipped (2623)`, `Tests  37581 passed | 289 skipped (37870)`;
+`tests/unit/security/rateLimitKeyCensus.test.ts` `Tests  10 passed (10)`; integration (67 files, same set)
+`Test Files  67 passed (67)`, `Tests  560 passed | 1 skipped (561)`; tsc exit 0; eslint 0 errors (the 2 warnings in
+tools/reports.ts); `agent-docs:check` OK (114).
+
 ## Equivalence
 
 - `mcp-budget-drivers-equivalence` (1): one twin version through the app's routes as the owner (PUT a pct_of_line driver,
