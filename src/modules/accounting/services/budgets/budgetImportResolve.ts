@@ -13,6 +13,7 @@ import { COLUMN, GRAIN_LABEL, templateRowKey, type TemplateGrain } from './budge
 import { clip, type ImportLine } from './budgetImportParse';
 import { tampered, type BaseLine } from './budgetImportBase';
 import type { GridAccount, GridMember, GridReadModel } from './gridReadTypes';
+import { codeIndex, type Find } from './codeIndex';
 
 export interface ImportIssue {
   /** The sheet row (1-based); 0 for the file as a whole. */
@@ -23,20 +24,6 @@ export interface ImportIssue {
 }
 
 export interface ResolvedLine { line: ImportLine; account: GridAccount; rowKey: string }
-
-/** A code's owner: the item, null when the code (or its trimmed form) belongs to more than one, undefined when to none. */
-type Find<T> = (code: string) => T | null | undefined;
-
-function codeIndex<T extends { code: string }>(items: readonly T[]): Find<T> {
-  const exact = new Map<string, T | null>();
-  const trimmed = new Map<string, T | null>();
-  for (const item of items) {
-    exact.set(item.code, exact.has(item.code) ? null : item);
-    const t = item.code.trim();
-    trimmed.set(t, trimmed.has(t) ? null : item);
-  }
-  return (code) => (exact.has(code) ? exact.get(code) : trimmed.get(code.trim()));
-}
 
 interface Finders { account: Find<GridAccount>; member: Find<GridMember> }
 

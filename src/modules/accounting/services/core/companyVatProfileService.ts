@@ -72,8 +72,9 @@ export function profileView(s: VatProfileState): ProfileView {
 }
 
 /**
- * Every VAT return, VAT period lock (any state) and legacy VAT201 submission (sars_submissions, any status but draft:
- * the VAT201 page's mark-submitted writes only that row, no lock and no vat_returns) the company has, newest period
+ * Every VAT return, VAT period lock (any state) and legacy VAT201 submission (sars_submissions that reached SARS:
+ * submitted, accepted or rejected; a draft or a superseded draft, which migration 999b's dedupe also writes, filed
+ * nothing. The VAT201 page's mark-submitted writes only that row, no lock and no vat_returns) the company has, newest period
  * first. A VAT201 version (tax_return_versions) always references its period's lock row, which is never deleted, so a
  * version adds nothing.
  */
@@ -88,7 +89,8 @@ export async function vatFilingFootprint(companyId: string): Promise<FilingFootp
           FROM vat_period_locks WHERE company_id = ${companyId}::UUID
         UNION ALL
         SELECT 'sars_vat201_submission', period_start, period_end, false
-          FROM sars_submissions WHERE company_id = ${companyId}::UUID AND form_type = 'VAT201' AND status <> 'draft'
+          FROM sars_submissions WHERE company_id = ${companyId}::UUID AND form_type = 'VAT201'
+           AND status IN ('submitted', 'accepted', 'rejected')
       ) f
      ORDER BY period_end DESC, source
   `) as { source: FilingRecord['source']; period_start: string; period_end: string; unlocked: boolean }[];

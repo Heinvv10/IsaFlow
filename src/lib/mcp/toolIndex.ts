@@ -63,6 +63,7 @@ import {
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
 import { RECURRING_JOURNAL_TOOLS } from './tools/recurringJournalToolSet';
+import { BUDGET_READ_TOOLS, BUDGET_WRITE_TOOLS } from './tools/budgetToolSet';
 import { proposeReclassificationTool } from './tools/reclassificationPropose';
 import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
@@ -269,6 +270,8 @@ export const MCP_TOOLS = [
   supplierStatementTool,
   jobCostReportTool,
   budgetVarianceTool,
+  // Budget versions and amounts (list_budget_versions, get_budget).
+  ...BUDGET_READ_TOOLS,
   proposeReclassificationTool,
   // CC1 / CC2 / BU masters (dimensions Phase 1).
   ...DIMENSION_READ_TOOLS,
@@ -293,6 +296,8 @@ export const MCP_TOOLS = [
   cancelCustomerInvoiceTool,
   deleteDraftCreditNoteTool,
   ...RECURRING_JOURNAL_TOOLS,
+  // Budget writes: versions, seed, amounts, notes, restore; approve/lock/unlock/primary on an owner's token only.
+  ...BUDGET_WRITE_TOOLS,
   createFixedAssetTool,
   deleteFixedAssetTool,
   updateSupplierInvoiceTool,

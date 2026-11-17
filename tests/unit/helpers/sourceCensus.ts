@@ -137,5 +137,5 @@ export function stripComments(text: string, file = 'x.ts'): string {
   return stripScript(text);
 }
 
-/** Three-digit migration number; `880b_x.sql` is 880. */
-export const migrationNumber = (file: string): number => Number(/(\d{3})[a-z]?_/.exec(path.basename(file))?.[1] ?? 'NaN');
+/** Migration number from every leading digit; `880b_x.sql` is 880, `1000_x.sql` is 1000. */
+export const migrationNumber = (file: string): number => Number(/^(\d+)[a-z]?_/.exec(path.basename(file))?.[1] ?? 'NaN');

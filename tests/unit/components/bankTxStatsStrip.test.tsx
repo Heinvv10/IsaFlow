@@ -59,7 +59,7 @@ describe('BankTxTabs: the Provisional tab', () => {
     rerender(<BankTxTabs tab="new" onTab={vi.fn()} provisionalCount={2} />);
     expect(screen.getByTestId('bank-tx-tab-provisional').textContent).toBe('Provisional (2)');
     rerender(<BankTxTabs tab="provisional" onTab={vi.fn()} provisionalCount={0} />);
-    expect(screen.getByTestId('bank-tx-tab-provisional').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('bank-tx-tab-provisional').getAttribute('aria-selected')).toBe('true');
   });
 
   it('clicking it asks for the provisional tab, which the list requests as status=provisional', () => {
