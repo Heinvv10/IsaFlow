@@ -107,10 +107,21 @@ describe('set_budget_amounts: a dry run with refused rows', () => {
     expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
   });
 
-  it('a save refusal with refused rows says both', async () => {
+  it('a save refusal of the subset is never answered while rows are refused: only the refusals are listed', async () => {
+    // e.g. a refused clear in merge leaves an old-level cell standing, so the subset trips the one-level rule.
+    vi.mocked(saveCells).mockRejectedValue(new BudgetVersionError('BUDGET_GRAIN_CONFLICT', 'Account 6000 is budgeted at one level per version'));
+    const r = await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00', { cc1: 'C1' }), cell('6000', '2026-03', null), cell('6000', '2026-4', null)] }, ctx());
+    const out = json(r);
+    expect(out).toMatchObject({ ready: false, plan_hash: null, totals: null, counts: { added: 0, changed: 0, removed: 0, unchanged: 0, refused: 1 } });
+    expect((out.cells as Array<Record<string, unknown>>).map((c) => c.status)).toEqual(['refused']);
+    expect(out.next_step).toMatch(/other cells are checked once nothing is refused/);
+    expect(JSON.stringify(out)).not.toMatch(/one level per version/);
+    expect(r.wroteNothing).toBe(true);
+  });
+
+  it('with nothing refused a save refusal is still answered', async () => {
     vi.mocked(saveCells).mockRejectedValue(new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'You can change only your own budget slices'));
-    const r = await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
-    expect(text(r)).toMatch(/would be refused: You can change only your own budget slices\. Besides, 1 cell is refused.*cell 1: .*header/);
+    expect(text(await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00')] }, ctx()))).toMatch(/would be refused: You can change only your own budget slices/);
   });
 
   it('any other failure of the trial save is thrown, never answered as a refusal', async () => {
