@@ -279,7 +279,7 @@ describe('no request role deletes a row; the seed and an employee\'s delete stil
     expect(await rowsOf(pool, e)).toHaveLength(1);
   });
 
-  // scripts/seed-payroll-data.ts: cleanExisting() on MIGRATION_ADMIN_DATABASE_URL, its documented connection.
+  // The sweep the retired scripts/seed-payroll-data.ts ran (cleanExisting() on MIGRATION_ADMIN_DATABASE_URL); kept as a role check.
   it('the seed\'s sweep works as migration_admin, under forced RLS', async () => {
     const e = await entered();
     await as(pool, o, { role: 'migration_admin', claims: null }, (db) => db.query(

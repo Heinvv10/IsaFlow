@@ -23,6 +23,11 @@
     "tests/helpers/liveGoTrue.ts",
     "tests/helpers/integrationGate.ts",
     "scripts/sandbox/*.ts",
+    "scripts/reseed-demo-company.ts",
+    "scripts/seed-demo-data.ts",
+    "scripts/seed-payroll-data.ts",
+    "scripts/seed-practice-data.ts",
+    "scripts/lib/demoReseed/*.ts",
     "next-env.d.ts"
   ],
   "exclude": ["node_modules"]

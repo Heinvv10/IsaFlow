@@ -11,6 +11,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { compareMigrationNames } from './migrationFiles';
 
 export const MIG_DIR = 'scripts/migrations/sql';
 
@@ -60,7 +61,7 @@ const NON_COL_PREFIXES = new Set([
 
 export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<string>> {
   const expected = new Map<string, Set<string>>();
-  const files = readdirSync(migDir).filter(f => f.endsWith('.sql')).sort();
+  const files = readdirSync(migDir).filter(f => f.endsWith('.sql')).sort(compareMigrationNames);
 
   for (const f of files) {
     const src = readFileSync(join(migDir, f), 'utf8');
