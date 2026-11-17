@@ -18,6 +18,9 @@ import { PspComponentRefused } from '@/modules/accounting/services/payroll/pspLi
 import { listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { getPayslips } from '@/modules/accounting/services/payroll/payslipModel';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
+import { listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -103,6 +106,11 @@ describe('a PSP trust in March, an employee from April', () => {
     who = await addEmployee(pool, f, 'psp-switch', PAY);
     const travel = await component(f, '3701', 'earning');
     await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 5000, '2020-01-01')`, [who, travel]);
+    const medical = await component(f, '4005', 'deduction');
+    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 3000, '2020-01-01')`, [who, medical]);
+    const bonus = await component(f, '3605', 'earning');
+    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
+      VALUES ($1, $2, 10000, '2026-03-01', '2026-03-31')`, [who, bonus]);
     await toPsp(f, who, 'trust');
     march = await newRun(pool, f, 3);
     await calculatePayrollRun(march, f.company);
@@ -130,13 +138,23 @@ describe('a PSP trust in March, an employee from April', () => {
     await expect(listRunAllowanceFiling(f.company, saTaxYearBounds(2027), who).then((m) => m.get(who)?.cash3701)).resolves.toBe(5_000);
   });
 
+  it('H1: the certificate readers take April only: no March 3605, March 4005 or March PSP pay on the natural person', async () => {
+    const bounds = saTaxYearBounds(2027);
+    expect((await listRunAnnualPayments(f.company, bounds)).get(who) ?? 0).toBe(0);
+    expect((await loadMedicalRecord(f.company, bounds, [who])).get(who)?.fees).toBe(3_000);
+    const agg = (await loadCertificateAggregates(f.company, { startYear: 2026, startMonth: 3, endYear: 2027, endMonth: 2 }))
+      .find((r) => String(r.employee_id) === who)!;
+    expect(Number(agg.total_gross)).toBe(45_000); // April: 40 000 + 5 000 travel; March's 55 000 is the PSP's
+  });
+
   it('H1: the EMP501 reconciliation puts March\'s PSP PAYE apart and names it', async () => {
     const out = await f.call(reconciliationRoute as Route, 'GET', '/api/payroll/emp501/reconciliation?taxYear=2027', undefined, { query: { taxYear: '2027' } });
     expect(out.statusCode).toBe(200);
     const body = out.body as unknown as { data: { rows: Array<{ month: number; pspPaye: number; irp5Paye: number; emp201Paye: number }>; runWarnings: string[] } };
     const mar = body.data.rows.find((r) => r.month === 3)!;
-    // 45% x (40 000 + 80% of the 5 000 travel allowance: Fourth Schedule para 1 "remuneration", the base before any deduction).
-    expect(mar.pspPaye).toBe(19_800);
+    // 45% x (40 000 + 80% of the 5 000 travel allowance + the 10 000 bonus: Fourth Schedule para 1 "remuneration", before any
+    // deduction, the 3 000 of medical aid included).
+    expect(mar.pspPaye).toBe(24_300);
     expect(mar.emp201Paye - mar.irp5Paye).toBeCloseTo(mar.pspPaye, 2);
     expect(body.data.runWarnings.some((w) => w.includes('TSB-psp-switch') && w.includes('personal service provider'))).toBe(true);
   });
