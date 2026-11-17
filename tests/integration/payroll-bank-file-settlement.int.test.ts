@@ -108,12 +108,12 @@ describe('what a confirmed pre-reopen file leaves to settle', () => {
       const n = await nets(run);
       const [n1, n2] = [n['BRK-1']!, n['BRK-2']!];
       const offRun = (await a.employee(12000)).employee; // created after the run: no line on it
-      const asAppUser = async (items: [string, number][]) => {
+      const asAppUser = async (items: [string, number][], role: 'app_user' | 'owner' = 'app_user') => {
         const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
         const c = await pool.connect();
         try {
           await c.query('BEGIN');
-          await c.query('SET LOCAL ROLE app_user');
+          if (role === 'app_user') await c.query('SET LOCAL ROLE app_user');
           await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated' })]);
           await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
           const f = (await c.query(
@@ -129,9 +129,12 @@ describe('what a confirmed pre-reopen file leaves to settle', () => {
       };
       const refused = /exactly their net on the file's run/;
       expect(await asAppUser([[emp[0]!.employee, n1], [foreign, n2]])).toMatch(refused); // F-2: another tenant's employee
-      // F-2 even with a (forged) line for that employee on this run: the employee must be this company's.
+      // F-2 even with a (forged) line for that employee on this run: the employee must be this company's. As app_user, RLS
+      // already hides the other tenant's employee from the guard; as a role that bypasses RLS (the owner), only the
+      // guard's explicit company check refuses it.
       await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, $3)', [run, foreign, n2 / 100]);
       expect(await asAppUser([[emp[0]!.employee, n1], [foreign, n2]])).toMatch(refused);
+      expect(await asAppUser([[emp[0]!.employee, n1], [foreign, n2]], 'owner')).toMatch(refused);
       await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [run, foreign]);
       expect(await asAppUser([[emp[0]!.employee, n1], [offRun, n2]])).toMatch(refused); // F-3: no line on the run
       expect(await asAppUser([[emp[0]!.employee, n1 + n2 - 100], [emp[1]!.employee, 100]])).toMatch(refused); // F-3: redistributed
