@@ -65,20 +65,34 @@ export async function recordOutcome(o: DeliveryRecord & { status: DeliveryStatus
   });
 }
 
+/** What this run's slip has come to for one employee at its current approval. */
+export interface AttemptState {
+  /** Sent, or may have been: any outcome 'sent' or 'unknown', or a claim with no outcome after it (review #1542 D-S4). */
+  delivered: boolean;
+  /** The latest attempt was refused (and nothing was delivered): a whole-run send skips it (D-I1). */
+  lastFailed: boolean;
+}
+
 /**
- * Each employee's LATEST attempt of this run at its current approval: 'sent' and 'unknown' mean delivered (a plain
- * send skips them); 'failed' means the last try was refused (a plain send of the whole run skips it too, review
- * #1542 D-I1, so a batch never re-tries the same bad address ahead of everyone else; naming the employee retries).
+ * Per employee, at the run's current approval. A later failed resend never undoes an earlier delivery (D-S4): a
+ * plain send stays ALREADY_SENT. Each attempt is a claim then an outcome, serialised by the run's advisory lock, so a
+ * claim with no outcome after it is the latest row.
  */
-export async function latestAttempts(companyId: string, runId: string): Promise<Map<string, DeliveryStatus>> {
+export async function attemptStates(companyId: string, runId: string): Promise<Map<string, AttemptState>> {
   const rows = (await sql`
-    SELECT DISTINCT ON (d.employee_id) d.employee_id::text AS employee_id, d.status
+    SELECT d.employee_id::text AS employee_id,
+           bool_or(NOT d.claim AND d.status IN ('sent', 'unknown')) AS delivered_outcome,
+           (array_agg(d.claim ORDER BY d.created_at DESC, d.id DESC))[1] AS latest_is_claim,
+           (array_agg(d.status ORDER BY d.created_at DESC, d.id DESC))[1] AS latest_status
       FROM payslip_deliveries d JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
      WHERE d.company_id = ${companyId}::uuid AND d.run_id = ${runId}::uuid
        AND d.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at)
-     ORDER BY d.employee_id, d.created_at DESC, d.id DESC
-  `) as Array<{ employee_id: string; status: DeliveryStatus }>;
-  return new Map(rows.map((r) => [r.employee_id, r.status]));
+     GROUP BY d.employee_id
+  `) as Array<{ employee_id: string; delivered_outcome: boolean; latest_is_claim: boolean; latest_status: DeliveryStatus }>;
+  return new Map(rows.map((r) => {
+    const delivered = r.delivered_outcome === true || r.latest_is_claim === true;
+    return [r.employee_id, { delivered, lastFailed: !delivered && r.latest_status === 'failed' }];
+  }));
 }
 
 /** Where each employee's last payslip email went (any run), for naming a changed address. */

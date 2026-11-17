@@ -9,7 +9,9 @@
  *    plain send says ALREADY_SENT;
  *  - D-A1: a server refusing everything, 21 slips, the default batch of 20: the 21st is tried in the second request,
  *    and the third has nothing left;
- *  - B3: the deliveries GET is tenant-scoped.
+ *  - B3: the deliveries GET is tenant-scoped;
+ *  - D-S4: a slip once delivered stays ALREADY_SENT after a later failed resend: a manager naming the employee
+ *    does not mail it again.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
@@ -121,6 +123,20 @@ describe('payslip email, review delta round', () => {
     expect(again.body.data!.skipped.map((s: { reason: string }) => s.reason)).toEqual(['ALREADY_SENT']);
     expect(sentTo('b2-new@example.invalid')).toBe(0);
   }, 30_000);
+
+  it('D-S4: sent, then an owner resend fails: a manager naming the employee gets ALREADY_SENT, not a second mail', async () => {
+    const victim = await person(a, 19000, { email: 'ds4@example.invalid', idNumber: ID });
+    const run = await approvedRun(a, 10);
+    expect((await send(a, run, { body: { employeeIds: [victim] } })).body.data!.sent.length).toBe(1);
+    failNext.count = 1;
+    const resend = await send(a, run, { body: { employeeIds: [victim], resend: true } });
+    expect(resend.body.data!.failed.map((f: { employeeId: string }) => f.employeeId)).toEqual([victim]);
+    const manager = await a.addUser('manager');
+    const plain = await send(a, run, { user: manager, body: { employeeIds: [victim] } });
+    expect(plain.statusCode, JSON.stringify(plain.body)).toBe(200);
+    expect(plain.body.data!.skipped.map((s: { reason: string }) => s.reason)).toEqual(['ALREADY_SENT']);
+    expect(sentTo('ds4@example.invalid')).toBe(1);
+  });
 
   it('B3: the deliveries GET is tenant-scoped', async () => {
     const run = (await a.pool.query('SELECT DISTINCT run_id FROM payslip_deliveries WHERE company_id = $1 LIMIT 1', [a.company])).rows[0]!.run_id;
