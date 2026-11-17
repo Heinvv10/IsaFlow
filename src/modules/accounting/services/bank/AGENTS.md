@@ -182,7 +182,7 @@ measured 2026-10-05 on migration 852) are no longer a lock-order or FK-order que
 
 ## Bank Transactions page: accessibility rules
 
-- The modals the page opens (Query, Link, Split, Exclude, Find match, Create rule, Create entity) all render inside `BankTxModalShell`: the kit `useFocusTrap` (Tab kept inside, Escape closes, focus in on open and back to the opener on close), a named `role="dialog" aria-modal`, a portal to the body, and a busy guard (Escape and backdrop do nothing while a save/send runs). A new page modal uses the shell; it does not write its own overlay.
+- The modals the page opens (Query, Link, Split, Exclude, Find match, Create rule, Create entity, Attachments) all render inside `BankTxModalShell`: the kit `useFocusTrap` (Tab kept inside, Escape closes), a named `role="dialog" aria-modal`, a portal to the body, focus in on the first FIELD (never the header X), focus back to the opener (the last clicked control where the browser did not focus it, then the grid), and a busy guard through `useModalBusy` (Escape, backdrop and the close buttons wait for a save/send in flight; a request silent for 30 s releases the dialog with a warning). A new page modal uses the shell; it does not write its own overlay.
 - The pager is a `nav` named "Transaction pages" and marks the current page with `aria-current="page"`.
 - No colour-only state on cards or tabs: the selected account card, group card and worklist row carry a check mark; the selected tab is semibold as well as underlined.
-- Golden z26 (dev-only, axe) opens the Exclude and Ask-client dialogs read-only and checks them.
+- Golden z31 (dev-only, axe) opens the Exclude and Ask-client dialogs read-only and checks them.

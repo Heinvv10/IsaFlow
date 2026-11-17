@@ -20,7 +20,7 @@ import {
   suggestFromType,
   type GLSuggestion,
 } from './createEntity/glAccountSuggestions';
-import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface Props {
   type: AllocType;
@@ -32,6 +32,7 @@ interface Props {
 
 export function CreateEntityModal({ type, transactionDescription, existingAccounts, onClose, onCreated }: Props) {
   const [saving, setSaving] = useState(false);
+  const locked = useModalBusy(saving); // the shell, Escape and the close buttons wait for a save/send in flight (released if it hangs)
 
   const [acctCode, setAcctCode] = useState('');
   const [acctName, setAcctName] = useState('');
@@ -155,14 +156,14 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
   };
 
   return (
-    <BankTxModalShell label="Create a new record" onClose={onClose} busy={saving} zClass="z-[60]" className="">
+    <BankTxModalShell label="Create a new record" onClose={onClose} busy={locked} zClass="z-[60]" className="">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md mx-4">
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
           <div className="flex items-center gap-2">
             <Plus className="h-4 w-4 text-teal-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">{title}</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -199,7 +200,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--ff-border-light)]">
-          <button onClick={onClose}
+          <button onClick={onClose} disabled={locked}
             className="px-4 py-1.5 rounded text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
             Cancel
           </button>

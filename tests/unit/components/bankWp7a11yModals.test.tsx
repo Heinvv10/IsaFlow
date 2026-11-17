@@ -19,6 +19,7 @@ import { BankTxQueryModal } from '@/components/accounting/BankTxQueryModal';
 import { BankTxLinkModal } from '@/components/accounting/bank-transactions/BankTxLinkModal';
 import { SplitTransactionModal } from '@/components/accounting/SplitTransactionModal';
 import { FindMatchModal } from '@/components/accounting/FindMatchModal';
+import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachmentsModal';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 
 afterEach(cleanup);
@@ -75,7 +76,7 @@ describe('BankTxModalShell', () => {
   });
 });
 
-describe('the seven modals use the shell: a named dialog in the body that closes on Escape', () => {
+describe('the eight modals use the shell: a named dialog in the body that closes on Escape', () => {
   const noop = vi.fn();
   const cases: Array<[string, string, () => JSX.Element]> = [
     ['Exclude', 'Exclude transaction', () => <ExcludeReasonModal transaction={TX} onExclude={noop} onClose={noop} /> as never],
@@ -84,6 +85,7 @@ describe('the seven modals use the shell: a named dialog in the body that closes
     ['Query', 'Ask the client', () => <BankTxQueryModal tx={TX} onClose={noop} /> as never],
     ['Link', 'Link to asset / fuel / service', () => <BankTxLinkModal tx={TX} onClose={noop} onDone={noop} /> as never],
     ['Split', 'Split transaction', () => <SplitTransactionModal transaction={TX} glAccounts={[]} onClose={noop} onSplit={noop} /> as never],
+    ['Attachments', 'Attachments', () => <BankTxAttachmentsModal bankTransactionId="tx-1" onClose={noop} /> as never],
     ['Find match', 'Find a match', () => <FindMatchModal transaction={TX} onClose={noop} onMatch={noop} /> as never],
   ];
   it.each(cases)('%s', (_n, name, ui) => {
@@ -96,5 +98,64 @@ describe('the seven modals use the shell: a named dialog in the body that closes
     expect(d.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(noop).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('initial focus: the first field, not the close button', () => {
+  it('on the shell: a [data-autofocus] element wins, else the first text field, else the first control', () => {
+    const { unmount } = render(<BankTxModalShell label="A" onClose={vi.fn()}><button aria-label="Close">x</button><input aria-label="one" /><input aria-label="two" data-autofocus /></BankTxModalShell>);
+    expect(document.activeElement).toBe(screen.getByLabelText('two'));
+    unmount();
+    const r = render(<BankTxModalShell label="A" onClose={vi.fn()}><button aria-label="Close">x</button><input type="checkbox" aria-label="box" /><input aria-label="one" /></BankTxModalShell>);
+    expect(document.activeElement).toBe(screen.getByLabelText('one')); // not the close button, not the checkbox
+    r.unmount();
+    render(<BankTxModalShell label="A" onClose={vi.fn()}><button aria-label="Close">x</button><button>other</button></BankTxModalShell>);
+    expect(document.activeElement).toBe(screen.getByLabelText('Close')); // last resort
+  });
+  it('Enter right after opening does not close FindMatch / Split (focus is on a field)', async () => {
+    const onClose = vi.fn();
+    render(<FindMatchModal transaction={{ id: 'tx-1', amount: -115, description: 'W', transactionDate: '2026-06-01' } as never} onClose={onClose} onMatch={vi.fn()} />);
+    expect(document.activeElement?.tagName).toBe('INPUT');
+    expect(document.activeElement?.getAttribute('aria-label') ?? '').not.toMatch(/close/i);
+  });
+});
+
+describe('focus goes back where the user was', () => {
+  function Page({ returnFocus }: { returnFocus?: () => HTMLElement | null }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <div>
+        <div data-testid="bank-tx-table"><button data-testid="row-btn" onClick={() => setOpen(true)}>row action</button></div>
+        {open && <BankTxModalShell label="T" onClose={() => setOpen(false)} returnFocus={returnFocus}><input aria-label="f" /></BankTxModalShell>}
+      </div>
+    );
+  }
+  it('Safari/macOS Firefox: a click does not focus the button (activeElement is the body): focus still returns to it', () => {
+    render(<Page />);
+    const btn = screen.getByTestId('row-btn');
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.click(btn); // no focus() - as those browsers
+    expect(document.activeElement).not.toBe(btn);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(btn);
+  });
+  it('an explicit returnFocus target is used when what opened it is gone', () => {
+    const { rerender } = render(<Page returnFocus={() => document.getElementById('fallback')} />);
+    document.body.insertAdjacentHTML('beforeend', '<button id="fallback">fb</button>');
+    fireEvent.click(screen.getByTestId('row-btn'));
+    screen.getByTestId('row-btn').remove(); // the row re-rendered away
+    rerender(<Page returnFocus={() => document.getElementById('fallback')} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement?.id).toBe('fallback');
+    document.getElementById('fallback')?.remove();
+  });
+  it('with nothing else, focus lands on the transaction grid', () => {
+    render(<Page />);
+    fireEvent.click(screen.getByTestId('row-btn'));
+    screen.getByTestId('row-btn').remove();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(screen.getByTestId('bank-tx-table'));
   });
 });

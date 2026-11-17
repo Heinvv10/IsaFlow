@@ -12,7 +12,7 @@ import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/api
 import type { MatchCandidate, CandidateType } from '@/modules/accounting/types/bank-match.types';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface Transaction {
   id: string;
@@ -55,6 +55,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<MatchCandidate | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const locked = useModalBusy(confirming); // the shell, Escape and the close buttons wait for a save/send in flight (released if it hangs)
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -127,7 +128,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
   const txIsExact = (c: MatchCandidate) => Math.abs(Math.abs(c.amount) - Math.abs(transaction.amount)) < 0.01;
 
   return (
-    <BankTxModalShell label="Find a match" onClose={onClose} busy={confirming}>
+    <BankTxModalShell label="Find a match" onClose={onClose} busy={locked}>
       <div className="w-full max-w-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
 
         {/* Header */}
@@ -146,7 +147,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
               {fmtCurrency(transaction.amount)}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -258,7 +259,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
           </p>
           <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
+              onClick={onClose} disabled={locked}
               className="px-3 py-1.5 rounded text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]"
             >
               Cancel

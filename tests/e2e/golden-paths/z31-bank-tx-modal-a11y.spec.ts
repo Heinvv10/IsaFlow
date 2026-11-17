@@ -1,12 +1,13 @@
 // golden:dev-only
 /**
- * Golden path (z26): the bank-transactions modals and pager are accessible (WP7 accessibility pass).
+ * Golden path (z31): the bank-transactions modals and pager are accessible (WP7 accessibility pass).
  *
  * Read-only on dev data: it OPENS the Exclude and Ask-client dialogs and closes them again; nothing is sent or saved.
  *  - each dialog is a named, modal dialog, axe reports no serious or critical violation inside it (nothing excused),
  *    Tab stays inside it, Escape closes it and focus returns to the button that opened it;
  *  - the pager is a named `nav` and marks the current page with aria-current;
  *  - the selected account card carries a check mark as well as its colour.
+ * A part that cannot run for lack of data is SKIPPED with its reason (visible in the report), never silently passed.
  * Dev-only: axe, and it needs rows (and a second page for the pager) in dev's Demo company; every part guards on what exists.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -30,14 +31,14 @@ async function openBank(page: Page, theme: (typeof THEMES)[number]) {
 for (const theme of THEMES) {
   test(`the pager is a named nav with the current page marked, and the selected card has a check (${theme})`, async ({ page }) => {
     await openBank(page, theme);
-    if (await page.getByText('No bank accounts configured').count() > 0) return;
+    test.skip(await page.getByText('No bank accounts configured').count() > 0, 'dev has no bank account: nothing to check');
     const card = page.getByTestId('card-selected-mark');
     if (await page.getByTestId('bank-account-card').count() > 0 && await page.locator('[data-testid="bank-account-card"][aria-current="true"]').count() > 0) {
       await expect(card.first()).toBeVisible();
     }
     await expect(page.getByTestId('bank-tx-table').or(page.getByTestId('bank-tx-empty'))).toBeVisible({ timeout: 45_000 });
     const nav = page.getByRole('navigation', { name: 'Transaction pages' });
-    if (await nav.count() === 0) return; // a single page of lines: no pager
+    test.skip(await nav.count() === 0, 'a single page of lines: there is no pager to check');
     await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
     await expect(nav.locator('[aria-current="page"]')).toHaveText('1');
   });
@@ -50,7 +51,7 @@ for (const theme of THEMES) {
       await openBank(page, theme);
       await expect(page.getByTestId('bank-tx-table').or(page.getByTestId('bank-tx-empty'))).toBeVisible({ timeout: 45_000 });
       const trigger = page.locator(ROWS).getByRole('button', { name: button }).first();
-      if (await trigger.count() === 0) return; // no such line on this account's New tab
+      test.skip(await trigger.count() === 0, `no line with a "${name}" button on this account's New tab: the dialog cannot be opened`);
       await trigger.focus();
       await trigger.press('Enter');
       const dialog = page.getByRole('dialog', { name: dialogName });

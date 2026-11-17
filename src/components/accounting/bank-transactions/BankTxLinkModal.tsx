@@ -10,7 +10,7 @@ import { notify } from '@/utils/toast';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 import { loadFuelRecords, loadServiceRecords, type FuelRecord, type ServiceRecord } from '@/components/assets/fleetRecordsApi';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface LinkableTx { id: string; description?: string; amount: number; transactionDate: string; link?: BankTxLink }
 interface Props { tx: LinkableTx; onClose: () => void; onDone: () => void }
@@ -43,6 +43,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
   const [services, setServices] = useState<ServiceRecord[]>([]);
   const [target, setTarget] = useState<Target>({ kind: 'asset' });
   const [busy, setBusy] = useState(false);
+  const locked = useModalBusy(busy); // the shell, Escape and the close buttons wait for a save/send in flight (released if it hangs)
   const [error, setError] = useState('');
 
   // Each effect ignores a response that arrives after it was superseded (a newer search, another asset picked):
@@ -119,7 +120,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
   };
 
   return (
-    <BankTxModalShell label="Link to asset / fuel / service" onClose={onClose} busy={busy}>
+    <BankTxModalShell label="Link to asset / fuel / service" onClose={onClose} busy={locked}>
       <div className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
           <div className="p-2 rounded-lg bg-sky-500/10"><Truck className="h-4 w-4 text-sky-400" /></div>
@@ -127,7 +128,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Link to asset / fuel / service</h2>
             <p className="text-xs text-[var(--ff-text-tertiary)] truncate">{tx.transactionDate} · {fmtR(tx.amount)} · {tx.description ?? ''}</p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} aria-label="Close" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -168,7 +169,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--ff-border-light)] shrink-0">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)]">Cancel</button>
+          <button onClick={onClose} disabled={locked} className="px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)]">Cancel</button>
           <button onClick={() => void link()} disabled={!assetId || busy}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Link

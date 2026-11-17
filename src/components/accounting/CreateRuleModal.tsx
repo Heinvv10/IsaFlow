@@ -15,7 +15,7 @@ import { VatTreatmentField, AllocTypeField } from './RuleModalFields';
 import { useRuleTarget } from './useRuleTarget';
 import { extractPattern } from './extractPattern';
 import type { RuleMatchType } from '@/modules/accounting/types/bank.types';
-import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface Props {
   transaction: BankTx;
@@ -47,6 +47,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const locked = useModalBusy(saving); // the shell, Escape and the close buttons wait for a save/send in flight (released if it hangs)
 
   // Live preview — debounced query as user edits pattern
   useEffect(() => {
@@ -124,7 +125,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   };
 
   return (
-    <BankTxModalShell label="Create a bank rule" onClose={onClose} busy={saving} className="">
+    <BankTxModalShell label="Create a bank rule" onClose={onClose} busy={locked} className="">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-lg mx-4">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
@@ -132,7 +133,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             <BookmarkPlus className="h-4 w-4 text-yellow-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Create Categorisation Rule</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -258,7 +259,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--ff-border-light)]">
-          <button onClick={onClose}
+          <button onClick={onClose} disabled={locked}
             className="px-4 py-1.5 rounded text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
             Cancel
           </button>
