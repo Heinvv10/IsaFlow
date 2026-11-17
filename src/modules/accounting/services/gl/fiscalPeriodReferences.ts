@@ -52,7 +52,9 @@ export async function countFiscalPeriodReferences(companyId: string): Promise<Fi
       (SELECT COUNT(*) FROM close_runs WHERE fiscal_period_id IN (SELECT id FROM p))::int AS close_runs,
       (SELECT COUNT(*) FROM gl_entry_date_corrections WHERE old_fiscal_period_id IN (SELECT id FROM p)
           OR new_fiscal_period_id IN (SELECT id FROM p))::int AS date_corrections,
-      (SELECT COUNT(*) FROM consolidation_adjustments WHERE fiscal_period_id IN (SELECT id FROM p))::int AS consolidation_adjustments,
+      -- A definer (migration 999r): the adjustments are the GROUP's, so a company that has left the group no longer sees them
+      -- through its own row security, and a plain count would let it rebuild periods a group's adjustment still points at.
+      public.consolidation_adjustments_on_company_periods(${companyId}::UUID) AS consolidation_adjustments,
       (SELECT COUNT(*) FROM audit_trail_exports WHERE fiscal_period_id IN (SELECT id FROM p))::int AS audit_trail_exports,
       (SELECT COUNT(*) FROM fiscal_periods WHERE company_id = ${companyId}::UUID AND status <> 'open')::int AS non_open_periods,
       ((SELECT COUNT(*) FROM accounting_budgets WHERE company_id = ${companyId}::UUID)

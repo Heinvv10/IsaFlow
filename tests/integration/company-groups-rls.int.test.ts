@@ -16,7 +16,7 @@ import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { groupsFixture } from './helpers/companyGroupsRlsFixture';
 import {
-  addMember, createGroup, getGroup, getGroupMembers, listGroupsForUser, removeMember, updateGroup, updateMember,
+  addMember, createGroup, deleteGroup, getGroup, getGroupMembers, listGroupsForUser, removeMember, updateGroup, updateMember,
 } from '@/modules/accounting/services/reports/groupCrudService';
 import { creatorMayBootstrapGroup } from '@/modules/accounting/services/core/groupRouteGuards';
 import { userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
@@ -90,8 +90,17 @@ describe('company_groups writes', () => {
       expect((await q.query('UPDATE company_groups SET is_active = false WHERE id = $1', [g.GA])).rowCount).toBe(1);
     });
   });
-  it('a writer cannot make a foreign company the holding company', async () => {
+  it('a group writer outside the holding company renames and deactivates it, through the service (S1)', async () => {
+    await asService(u.UX, co.A4, async () => {    // UX writes GA through A4 only; the holding company is A1
+      expect((await updateGroup(g.GA, { name: 'CG999r renamed by UX' })).name).toBe('CG999r renamed by UX');
+      await deleteGroup(g.GA);
+      expect((await getGroup(g.GA))?.isActive).toBe(false);
+    });
+  });
+  it('created_by never changes, and a holding company is only ever changed to one of the caller\'s', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
+      expect(await F.codeOf(q, 'UPDATE company_groups SET created_by = $2::UUID WHERE id = $1', [g.GA, u.UB])).toBe(NEVER_MOVES);
+      expect(await F.codeOf(q, 'UPDATE company_groups SET holding_company_id = $2 WHERE id = $1', [g.GA, co.A2])).toBe('ok');
       expect(await F.codeOf(q, 'UPDATE company_groups SET holding_company_id = $2 WHERE id = $1', [g.GA, co.B1])).toBe(RLS_DENIED);
     });
   });
@@ -132,11 +141,43 @@ describe('company_group_members: nobody joins a group they have no standing in',
       expect(await F.codeOf(q, ...join(g.GE, co.A2))).toBe(RLS_DENIED);
     });
   });
-  it('a retired member cannot re-join by clearing left_date: the gated INSERT is the only way in', async () => {
-    await F.asAppUser(u.UA, co.A1, async (q) => {
-      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [g.GA, co.A1]);
-      expect(await F.codeOf(q, 'UPDATE company_group_members SET left_date = NULL WHERE group_id = $1 AND company_id = $2', [g.GA, co.A1])).toBe(NEVER_MOVES);
+  it('only a writer of the group and of the company retires or re-activates a member row (a company that left may return)', async () => {
+    const retire = 'UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2';
+    const revive = 'UPDATE company_group_members SET left_date = NULL WHERE group_id = $1 AND company_id = $2';
+    await F.asAppUser(u.UA, co.A4, async (q) => {
+      expect((await q.query(retire, [g.GA, co.A4])).rowCount).toBe(1);
+      expect((await q.query(revive, [g.GA, co.A4])).rowCount).toBe(1);   // UA writes GA (through A1) and A4: back in
+      expect((await q.query('SELECT left_date FROM company_group_members WHERE group_id = $1 AND company_id = $2', [g.GA, co.A4])).rows[0].left_date).toBeNull();
     });
+    await F.asAppUser(u.UX, co.A4, async (q) => {
+      expect((await q.query(retire, [g.GA, co.A4])).rowCount).toBe(1);   // UX writes GA only through A4 itself
+      expect((await q.query(revive, [g.GA, co.A4])).rowCount).toBe(0);   // ... and with A4 gone writes nothing in it: no way back
+    });
+    await F.asAppUser(u.UW, co.A4, async (q) => {                         // owner of A1, only a viewer of A4
+      await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A4]);
+      expect((await q.query(retire, [g.GA, co.A4])).rowCount).toBe(0);
+    });
+  });
+  it('a viewer of a member company changes nothing about its member row', async () => {
+    await F.asAppUser(u.UV, co.A1, async (q) => {   // UV: viewer of A1, so a reader of GA
+      for (const set of ['left_date = CURRENT_DATE', 'ownership_pct = 1', "consolidation_method = 'equity'", 'is_holding = false']) {
+        expect((await q.query(`UPDATE company_group_members SET ${set} WHERE group_id = $1 AND company_id = $2`, [g.GA, co.A1])).rowCount, set).toBe(0);
+      }
+      // Unconditionally, with A3 active: only the one row it writes (A3's, in GC), never A1's or A4's in GA.
+      await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A3]);
+      expect((await q.query('UPDATE company_group_members SET ownership_pct = 1')).rowCount).toBe(1);
+    });
+  });
+  it('a member row\'s company never changes either (UPDATE company_id)', async () => {
+    await F.asAppUser(u.UA, co.A4, async (q) => {
+      await q.query(...join(g.GE, co.A4));
+      await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A1]);
+      expect(await F.codeOf(q, 'UPDATE company_group_members SET company_id = $2 WHERE group_id = $1', [g.GE, co.A1])).toBe(NEVER_MOVES);
+    });
+  });
+  it('a member is inserted with its own company active, whoever the writer is (T2)', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => expect(await F.codeOf(q, ...join(g.GA, co.A2))).toBe(RLS_DENIED));
+    await F.asAppUser(u.UA, co.A2, async (q) => expect(await F.codeOf(q, ...join(g.GA, co.A2))).toBe('ok'));
   });
   it('no session deletes a member row, so the bootstrap cannot be re-opened by deleting the history', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {

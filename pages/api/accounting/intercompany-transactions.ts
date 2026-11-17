@@ -16,7 +16,7 @@ import {
   matchIntercompanyTransactions,
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
-import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
@@ -152,6 +152,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (badValue) return apiResponse.badRequest(res, badValue);
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
     if (!(await userCanWriteGroup(userId, gId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
+
+    // The row is recorded FROM the source company: a write role in it, as the row-security policy (999r) requires, so the
+    // refusal is this 403 and not a 500 from the database.
+    if (!(await userCanWriteCompany(userId, sourceCompanyId as string))) {
+      return apiResponse.forbidden(res, 'Recording an intercompany transaction needs an owner, admin or manager role in the source company.');
+    }
 
     // Both source and target companies must be active members of the group — reject
     // forged/foreign companyIds before they reach the INSERT (cross-tenant forgery).
