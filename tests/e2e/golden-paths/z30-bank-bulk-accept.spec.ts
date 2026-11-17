@@ -64,13 +64,28 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
       ruleName: `${ref} fuel`, matchField: 'description', matchType: 'contains', matchPattern: ref, glAccountId: expenseId, autoCreateEntry: false,
     });
     ruleId = rule.id ?? rule.rule?.id ?? '';
-    await api.post('/api/accounting/smart-categorize', { transactionIds: ids });
+    const categorised = await api.post<{ categorized?: number; results?: unknown[] }>('/api/accounting/smart-categorize', { transactionIds: ids });
+
+    // The API half first, so a failure names its cause (no suggestion written, a line left out, a refused preview) instead of
+    // "the button never appeared": the three lines must carry the rule's suggestion and the preview must list them.
+    const suggested = await api.get<{ transactions: Array<{ id: string; suggestedGlAccountId?: string | null; suggestedConfidence?: number | null }> }>(
+      `/api/accounting/bank-transactions?bank_account_id=${bankAccountId}&status=imported&search=${encodeURIComponent(ref)}`);
+    expect(suggested.transactions.filter((t) => t.suggestedGlAccountId && (t.suggestedConfidence ?? 0) >= 0.9).length,
+      `the categoriser must suggest all three lines (rule ${ruleId || '?'}, answer ${JSON.stringify(categorised)}, lines ${JSON.stringify(suggested.transactions)})`).toBe(3);
+    const apiPreview = await api.get<{ lines: unknown[]; excluded: unknown; needsAttention: unknown[]; scanTruncated: boolean }>(
+      `/api/accounting/bank-bulk-accept?bankAccountId=${bankAccountId}`);
+    expect(apiPreview.lines, `the preview must list the three lines (excluded ${JSON.stringify(apiPreview.excluded)}, held ${JSON.stringify(apiPreview.needsAttention)}, truncated ${apiPreview.scanTruncated})`).toHaveLength(3);
 
     // The page: the button names the count, the preview lists the three lines and their totals.
     await page.setViewportSize({ width: 1568, height: 1000 });
+    const countRead = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'GET', { timeout: 90_000 });
     await page.goto(`/accounting/bank-transactions?account_id=${bankAccountId}`);
-    const button = page.getByRole('button', { name: /^Accept 3\+? high-confidence suggestions$/ });
+    const read = await countRead;
+    expect(read.status(), `the page's count read answered ${read.status()} for ${read.url()}`).toBe(200);
+    expect(read.url(), 'the page must read the count for the seeded account').toContain(bankAccountId);
+    const button = page.getByRole('button', { name: /high-confidence suggestion/ });
     await expect(button).toBeVisible({ timeout: 60_000 });
+    await expect(button).toHaveText(/Accept 3\+? high-confidence suggestions/);
     await button.click();
     const dialog = page.getByRole('dialog', { name: /Accept 3 high-confidence suggestions/ });
     await expect(dialog).toBeVisible();
