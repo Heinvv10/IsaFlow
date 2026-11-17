@@ -8,9 +8,11 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import {
   syncBankFeed,
   BankFeedProviderNotImplementedError,
+  BankFeedConnectionNotFoundError,
 } from '@/modules/accounting/services/bank/openBankingService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -21,6 +23,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!connectionId) {
     return apiResponse.badRequest(res, 'Connection ID is required');
   }
+  if (!UUID.safeParse(connectionId).success) return apiResponse.badRequest(res, 'Connection ID must be a valid UUID');
 
   if (req.method === 'POST') {
     try {
@@ -30,6 +33,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // A provider with no integration is a permanent, expected answer, not a
       // server fault. Answering 4xx keeps the failed sync log and the
       // connection's last_sync_error — withAuth only ROLLBACKs on >= 500.
+      // Thrown before any write: an unknown (or another company's) connection is a 404, not a 500.
+      if (err instanceof BankFeedConnectionNotFoundError) return apiResponse.notFound(res, 'Bank feed connection', connectionId);
       if (err instanceof BankFeedProviderNotImplementedError) {
         return apiResponse.badRequest(res, err.message);
       }

@@ -35,6 +35,7 @@ import {
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { manualLinePaymentRefusal } from '@/modules/accounting/services/ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '@/modules/accounting/services/bank/bankLineJournalGate';
+import { handKeyedRefundRefusal } from '@/modules/accounting/services/bank/bankLineRefundGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
@@ -118,6 +119,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // nothing is written. Money in (a refund) is not an instruction to pay.
   if (allocationType === 'supplier' && type === 'spend') {
     const refusal = await manualLinePaymentRefusal(companyId, numericAmount);
+    if (refusal && respondIfApprovalRequired(res, refusal)) return;
+  }
+  // Hein 2026-11-15: money out to a customer is a refund nobody decided; refused the same way as a manual journal,
+  // before the line is inserted. Money in (a receipt) is not gated.
+  if (allocationType === 'customer' && type === 'spend') {
+    const refusal = await handKeyedRefundRefusal(companyId, numericAmount);
     if (refusal && respondIfApprovalRequired(res, refusal)) return;
   }
   // R-035 PR6 (Hein, H2): posted to a GL account — in or out, and a transfer to

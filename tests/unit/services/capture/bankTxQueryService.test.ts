@@ -10,6 +10,7 @@ vi.mock('@/lib/neon', () => ({
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
   }, { unsafe: (text: string) => text }),
+  withSavepoint: async (_name: string, fn: () => Promise<unknown>) => fn(),
 }));
 
 const sendMock = vi.fn(async (_to: string, _body: string): Promise<{ sent: boolean; reason?: string; sid?: string }> => ({ sent: true }));
@@ -68,13 +69,18 @@ describe('createAndSendQuery', () => {
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('does NOT insert a row when the Twilio send fails', async () => {
-    routeMock([{ match: 'FROM bank_transactions', rows: [TX_ROW] }]);
+  it('leaves no row when the Twilio send fails: it is recorded first (WP7) and taken back out', async () => {
+    routeMock([
+      { match: 'FROM bank_transactions', rows: [TX_ROW] },
+      { match: 'INSERT INTO bank_tx_queries', rows: [{ id: QUERY_ID, status: 'sent' }] },
+    ]);
     sendMock.mockResolvedValue({ sent: false, reason: 'twilio env vars not configured' });
     const res = await createAndSendQuery(COMPANY_ID, input);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/twilio/i);
-    expect(sqlCalls.some((c) => c.sql.includes('INSERT INTO bank_tx_queries'))).toBe(false);
+    const kinds = sqlCalls.map((c) => (c.sql.includes('INSERT INTO bank_tx_queries') ? 'insert' : c.sql.includes('DELETE FROM bank_tx_queries') ? 'delete' : ''));
+    expect(kinds.filter(Boolean)).toEqual(['insert', 'delete']);
+    expect(sqlCalls.find((c) => c.sql.includes('DELETE FROM bank_tx_queries'))!.values).toContain(QUERY_ID);
   });
 
   it('sends a composed message to the normalized number and inserts the row', async () => {
@@ -90,11 +96,13 @@ describe('createAndSendQuery', () => {
     expect(insert).toBeDefined();
     expect(insert!.values).toContain(COMPANY_ID);
     expect(insert!.values).toContain('+27821234567');
-    expect(insert!.sql).toContain('message_sid');
-    expect(insert!.values).toContain('SM_TEST_SID');
+    // the sid arrives after the send, on the row recorded before it
+    const sid = sqlCalls.find((c) => c.sql.includes('UPDATE bank_tx_queries SET status = \'sent\', message_sid'));
+    expect(sid!.values).toContain('SM_TEST_SID');
+    expect(sid!.values).toContain(QUERY_ID);
   });
 
-  it('fails (and skips UPDATE companies) when the INSERT returns no row', async () => {
+  it('fails (sending nothing, skipping UPDATE companies) when the INSERT returns no row', async () => {
     routeMock([
       { match: 'FROM bank_transactions', rows: [TX_ROW] },
       { match: 'INSERT INTO bank_tx_queries', rows: [] },
@@ -103,6 +111,7 @@ describe('createAndSendQuery', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/internal/i);
     expect(sqlCalls.some((c) => c.sql.includes('UPDATE companies'))).toBe(false);
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it('uses a caller-supplied message verbatim', async () => {

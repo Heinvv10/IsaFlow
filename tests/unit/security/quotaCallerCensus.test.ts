@@ -62,6 +62,8 @@ const KEEPS_CHARGE: Record<string, string> = {
   'accounting/smart-categorize.ts': 'its LLM pass runs after COMMIT, outside the request, where use cannot be recorded',
   'accounting/vlm-extract.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
   'accounting/document-capture.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
+  'accounting/bank-statements/index.ts': 'its AI read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
+  'accounting/bank-tx-queries/index.ts': 'sends a WhatsApp message, which no quota recorder counts (markQuotaUsed(send) is the email service); the bucket bounds requests',
   'accounting/document-capture-action.ts': "its 'retry' read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded",
 };
 

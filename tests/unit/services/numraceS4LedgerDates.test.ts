@@ -76,7 +76,8 @@ describe('OCR statement import', () => {
   it('commit skips a stored row dated outside the window', async () => {
     sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (step 2: one commit at a time)
     sqlMock.mockResolvedValueOnce([importRow([row('0001-06-01', 'ancient'), row('2026-03-05', 'modern')])]);
-    sqlMock.mockResolvedValue([]);
+    // a bank_transactions INSERT answers the row it wrote (RETURNING id); everything else answers nothing
+    sqlMock.mockImplementation(async (strings: string[]) => (String(strings.join('')).includes('INSERT INTO bank_transactions') ? [{ id: 'tx-1' }] : []));
     const out = await commitImport(CO, IMPORT, USER);
     const inserts = sqlMock.mock.calls.filter((c) => String((c[0] as string[]).join('')).includes('INSERT INTO bank_transactions'));
     expect(out).toEqual({ inserted: 1, skipped: 1 });
