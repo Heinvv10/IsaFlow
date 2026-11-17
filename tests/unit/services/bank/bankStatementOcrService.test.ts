@@ -17,7 +17,7 @@ const { sqlMock, afterCommit, runJob } = vi.hoisted(() => ({
   runJob: vi.fn(async () => undefined),
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: async (_name: string, fn: () => Promise<unknown>) => fn() }));
 // bank/bankAccountGuard reads Postgres; a mocked sql would answer it. Proven in tests/integration/bank-account-guard-*.
 vi.mock('@/modules/accounting/services/bank/bankAccountGuard', async () => (await import('../../helpers/bankControlGateMocks')).bankAccountGuardOpen());
 vi.mock('@/lib/logger', () => ({
@@ -272,6 +272,21 @@ describe('deleteFailedImport', () => {
   });
 });
 
+/**
+ * A sql mock that answers by statement, so the count of bank_transactions INSERTs that really wrote a row (RETURNING id)
+ * is scripted per call: `writes[i]` is true when the i-th INSERT wrote its row, false when ON CONFLICT DO NOTHING skipped it.
+ */
+function commitSql(importRow: Record<string, unknown>, writes: boolean[]) {
+  let insert = 0;
+  sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
+    const text = strings.join('?');
+    if (text.includes('FROM bank_statement_imports') && text.includes('SELECT *')) return [importRow];
+    if (text.includes('INSERT INTO bank_transactions')) return writes[insert++] ? [{ id: `tx-${insert}` }] : [];
+    return [];
+  });
+}
+const sqlTexts = () => sqlMock.mock.calls.map(([q]) => (q as TemplateStringsArray).join('?'));
+
 // ── commitImport ──────────────────────────────────────────────────────────────
 
 describe('commitImport', () => {
@@ -291,22 +306,45 @@ describe('commitImport', () => {
       extraction_summary: { rows, warnings: [] },
     });
 
-    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
-    // getImport: SELECT * FROM bank_statement_imports
-    sqlMock.mockResolvedValueOnce([importRow]);
-    // INSERT bank_import_batches (step 2 provenance: the uploader, the document's hash)
-    sqlMock.mockResolvedValueOnce([]);
-    // INSERT bank_transactions for row[0]
-    sqlMock.mockResolvedValueOnce([]);
-    // INSERT bank_transactions for row[2]
-    sqlMock.mockResolvedValueOnce([]);
-    // UPDATE bank_statement_imports SET status='committed'
-    sqlMock.mockResolvedValueOnce([]);
-
-    const result = await commitImport(COMPANY_ID, IMPORT_ID, USER_ID);
+    commitSql(importRow, [true, true]);
+    let result: Awaited<ReturnType<typeof commitImport>>;
+    let texts: string[] = [];
+    try { result = await commitImport(COMPANY_ID, IMPORT_ID, USER_ID); texts = sqlTexts(); } finally { sqlMock.mockReset(); }
 
     expect(result.inserted).toBe(2);
     expect(result.skipped).toBe(1);
+    // every row went in: the batch's line count (already nonDupes.length) is not rewritten
+    expect(texts.some((t) => t.includes('SET transaction_count'))).toBe(false);
+  });
+
+  it('does not count a row ON CONFLICT skipped as inserted, and corrects the batch line count (WP7)', async () => {
+    const rows = [0, 1, 2].map((i) => ({ date: `2026-03-0${i + 1}`, description: `Line ${i}`, amount: -10 - i, isDuplicate: false, reference: null, runningBalance: null, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }));
+    const importRow = makeImportDbRow({ status: 'extracted', row_count: 3, duplicate_count: 0, extraction_summary: { rows, warnings: [] } });
+    commitSql(importRow, [true, false, true]); // the middle row: ON CONFLICT DO NOTHING wrote nothing
+    let result: Awaited<ReturnType<typeof commitImport>>;
+    let calls: unknown[][];
+    try { result = await commitImport(COMPANY_ID, IMPORT_ID, USER_ID); calls = [...sqlMock.mock.calls]; } finally { sqlMock.mockReset(); }
+
+    expect(result).toEqual({ inserted: 2, skipped: 1 });
+    const text = (c: unknown[]) => (c[0] as TemplateStringsArray).join('?');
+    const correction = calls.find((c) => text(c).includes('SET transaction_count'));
+    expect(correction, 'the batch line count is corrected to what was written').toBeTruthy();
+    expect(correction!.slice(1)).toContain(2);
+    const committed = calls.find((c) => text(c).includes("SET status = 'committed'"));
+    expect(committed!.slice(1)).toContain(2); // imported_count counts written rows only
+  });
+
+  it('every row ON CONFLICT-skipped: refused (409 EVERY_ROW_PRESENT), the import is NOT marked committed (WP7)', async () => {
+    const rows = [0, 1].map((i) => ({ date: `2026-03-0${i + 1}`, description: `Line ${i}`, amount: -10 - i, isDuplicate: false, reference: null, runningBalance: null, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }));
+    const importRow = makeImportDbRow({ status: 'extracted', row_count: 2, duplicate_count: 0, extraction_summary: { rows, warnings: [] } });
+    commitSql(importRow, [false, false]);
+    let texts: string[] = [];
+    try {
+      await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'EVERY_ROW_PRESENT' });
+      texts = sqlTexts();
+    } finally { sqlMock.mockReset(); }
+    expect(texts.some((t) => t.includes("SET status = 'committed'"))).toBe(false); // left as it was
+    expect(texts.some((t) => t.includes('SET transaction_count'))).toBe(false);
   });
 
   it('flips status from reviewing to committed', async () => {
@@ -333,6 +371,9 @@ describe('commitImport', () => {
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import already committed');
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([importRow]);
+    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'ALREADY_COMMITTED' }); // a double commit: 409
   });
 
   it('throws "Import has been rolled back" when status is rolled_back', async () => {
@@ -341,13 +382,16 @@ describe('commitImport', () => {
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import has been rolled back');
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([importRow]);
+    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'ROLLED_BACK' });
   });
 
-  it('throws when import is not found', async () => {
+  it('a missing import is a refusal the route answers 404 (not a bare Error, a 500)', async () => {
     sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     sqlMock.mockResolvedValueOnce([]);
 
-    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import not found');
+    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'NOT_FOUND' });
   });
 
   it('all rows are duplicates → inserted=0, skipped=rowCount', async () => {
@@ -420,13 +464,18 @@ describe('rollbackImport', () => {
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Cannot roll back a committed import');
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([importRow]);
+    // typed, so the route answers 409 (it was a bare Error: a 500), and refused before any write
+    await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'ALREADY_COMMITTED' });
+    expect(sqlMock.mock.calls.map(text).some((t) => t.startsWith('UPDATE'))).toBe(false);
   });
 
-  it('throws when import is not found', async () => {
+  it('a missing import is a refusal the route answers 404 (not a bare Error, a 500)', async () => {
     sqlMock.mockResolvedValueOnce([]);
     sqlMock.mockResolvedValueOnce([]);
 
-    await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import not found');
+    await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'NOT_FOUND' });
   });
 });
 

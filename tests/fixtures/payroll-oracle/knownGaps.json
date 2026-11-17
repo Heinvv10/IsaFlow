@@ -111,15 +111,6 @@
     "parity": true
   },
   {
-    "case": "uif-clawback-larger-than-pay-nil",
-    "engineActual": {
-      "uifEmployee": -30,
-      "uifEmployer": -30
-    },
-    "reason": "The engine levies 1% of a negative UIF-leviable month (-R3 000), giving -30.00 each side; G21 p. 13 levies 1% of remuneration paid, so nil.",
-    "closedBy": "UF (wave 6): UIF floored at nil."
-  },
-  {
     "case": "weekly-6000-fourth-week-month-uif-ceiling",
     "engineActual": {
       "paye": 0,

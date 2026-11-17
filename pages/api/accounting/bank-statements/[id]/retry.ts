@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { respondToStatementRefusal } from '@/lib/apiStatementExtraction';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { retryImport } from '@/modules/accounting/services/bank/bankStatementOcrService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -17,6 +18,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const { id } = req.query as { id: string };
+  if (!UUID.safeParse(id).success) return apiResponse.badRequest(res, 'Statement import id must be a valid UUID');
 
   try {
     return apiResponse.success(res, await retryImport(companyId, id));

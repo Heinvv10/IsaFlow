@@ -27,6 +27,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertBankLineMayRefundCustomer } from './bankLineRefundGate';
 import { assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { stampContraDimensions } from './bankAllocationDimensions';
 import { recordAllocationDecision } from './codingDecisionLog';
@@ -35,6 +36,7 @@ import { assertAllocationInputUsable } from './bankAllocationInputGuard';
 import { buildAllocationArm } from './bankAllocationArms';
 import { invoiceSourceDocumentOf, recordAllocationDocuments } from './bankAllocationDocuments';
 import { assertAllocationVatCode } from './bankVatCodes';
+import { allocationPeriodFor } from './bankAllocationPeriod';
 
 export { splitAllocateTransaction } from './bankSplitAllocate';
 export { reverseReconciledTransaction } from './bankReverseReconciled';
@@ -133,6 +135,8 @@ export async function allocateTransaction(
   // payment instruction, not bank evidence — refused (409) under an enforced
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
+  // Hein 2026-11-15: money OUT to a customer from a HAND-KEYED line is a refund nobody decided: the same gate, same rules.
+  if (allocType === 'customer' && entityId && isSpent) await assertBankLineMayRefundCustomer(companyId, tx, totalAmount);
   if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
   await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId); // step 2: not the statement's importer (403)
 
@@ -170,8 +174,11 @@ export async function allocateTransaction(
   // like a Transfers-page one: the reference says so (only a journal the statement created is reference-less:
   // reports/journalSourceKinds, bank/transferDuplicateGuard — sec-nrfa r4 M1, brk-nrfa r6 L2).
   const reference = source === 'auto_bank_transfer' && !isBankEvidenced(tx) ? 'No statement or feed line' : undefined;
+  // WP2 row 12: the open period this journal posts on, resolved last before the journal (bankAllocationPeriod) — a
+  // date no period covers or can cover posted with fiscal_period_id NULL, past the closed-period check.
+  const fiscalPeriodId = await allocationPeriodFor(companyId, txDate);
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference,
+    entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference, fiscalPeriodId,
   }, userId, allocationMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
   const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 

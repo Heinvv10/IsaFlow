@@ -48,7 +48,7 @@ const lineState = async (id: string) => ((await sql`SELECT status, matched_journ
 describeIfDb('which line pairs a transfer, and what the manual route refuses', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedDateFixture('PAIR', DATABASE_URL!);
+    c = await seedDateFixture('PAIR', DATABASE_URL!, [2027, 2028, 2029]);
     token = await seedRouteUser(c.fx, 'pair');
     bankA = c.fx.bankAccountId;
     bankB = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
@@ -177,10 +177,13 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
   };
   it('a pointer at a live re-reversal is read from the chain root (sweep posts; typed copy answers 428)', async () => {
     const aMon = await bankLine(bankA, '2028-11-06', -4100, 'K1 OUT MON');
-    await bankLine(bankB, '2028-11-06', 4100, 'K1 IN MON');
+    const bMon = await bankLine(bankB, '2028-11-06', 4100, 'K1 IN MON');
     expect((await allocTransfer(aMon, bankB)).statusCode).toBe(200);
     const { r2 } = await bankReverseAndReReverse(aMon);
     expect((await confirm(aMon, await lineOf(r2, bankA))).statusCode).toBe(200);
+    // WP2 row 10 (2026-11-16): the bank Reverse freed BOTH legs, so the re-reversed movement's B leg is matched again too
+    // (before, Monday's B line stayed allocated to the reversed journal and stood in for that match).
+    expect((await confirm(bMon, await lineOf(r2, bankB))).statusCode).toBe(200);
     await bankLine(bankA, '2028-11-07', -4100, 'K1 OUT TUE');
     expect((await allocTransfer(await bankLine(bankB, '2028-11-07', 4100, 'K1 IN TUE'), bankA)).statusCode).toBe(200);
     expect(await glMovement(bankB, '2028-11-06', '2028-11-30')).toBe(8200);

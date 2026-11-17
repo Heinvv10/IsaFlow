@@ -28,6 +28,7 @@ import type { SplitLine } from './bankAllocationTypes';
 import { assertAllocationVatCode } from './bankVatCodes';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { splitTotalMismatch } from './bankSplitTotal';
+import { allocationPeriodFor } from './bankAllocationPeriod';
 
 type Row = DbRow;
 
@@ -112,8 +113,9 @@ export async function splitAllocateTransaction(
     ...(opts?.actorType === undefined ? {} : { actorType: opts.actorType }),
     ...(opts?.actorTokenJti === undefined ? {} : { actorTokenJti: opts.actorTokenJti }),
   };
+  const fiscalPeriodId = await allocationPeriodFor(companyId, txDate); // WP2 row 12, as allocateTransaction
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines,
+    entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines, fiscalPeriodId,
   }, userId, splitMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
   const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 

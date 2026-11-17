@@ -18,7 +18,7 @@ import { createPortal } from 'react-dom';
 import { X, Paperclip, Upload, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
-import { type Attachment, MAX_BYTES, ACCEPT, ACCEPTED_MIME, readFileAsDataUrl } from './bankTxAttachmentHelpers';
+import { type Attachment, MAX_BYTES, ACCEPT, ACCEPTED_MIME, readFileAsDataUrl, attachmentTotal } from './bankTxAttachmentHelpers';
 import { BankTxAttachmentRow } from './BankTxAttachmentRow';
 import { AttachmentViewer } from './AttachmentViewer';
 import { previewKind } from './attachmentPreview';
@@ -56,6 +56,9 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   useEffect(() => { countRef.current = onCountChange; });
   const openFirstRef = useRef(openFirst);
   const listRef = useRef<Attachment[]>([]);
+  // The line's TRUE visible count (X-Attachments-Total): the list carries the newest 100 only. The badge and the notice use it.
+  const [total, setTotal] = useState(0);
+  const totalRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deleting = useRef(new Set<string>());
 
@@ -72,8 +75,10 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       if (!json.success) throw new ApiEnvelopeError('Could not load attachments');
       listRef.current = json.data;
       setAttachments(json.data);
+      totalRef.current = attachmentTotal(res, json.data.length);
+      setTotal(totalRef.current);
       // Only a successful read reports a count: a failed one must not clear the row's highlight.
-      countRef.current?.(json.data.length);
+      countRef.current?.(totalRef.current);
       // A refresh changed the list behind any open viewer, so its index no longer names the same file. Only the
       // opening load may open the viewer; a ref, as the prop follows the count and must not re-create this callback.
       if (keepList) setViewIndex(null);
@@ -163,11 +168,15 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
       notify.success(`${name} removed`);
       // From the ref, not this render's list: two removes can overlap, and the second must not restore the first.
+      const olderExist = totalRef.current > listRef.current.length; // the list was the newest N of M
       const next = listRef.current.filter(a => a.id !== id);
       listRef.current = next;
       setAttachments(next);
       setViewIndex(null);
-      countRef.current?.(next.length);
+      totalRef.current = Math.max(0, totalRef.current - 1);
+      setTotal(totalRef.current);
+      countRef.current?.(totalRef.current);
+      if (olderExist) void fetchAttachments(true); // the next-older rows now fit: show them
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));
     } finally {
@@ -262,17 +271,24 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
               <span className="text-xs">No attachments yet</span>
             </div>
           ) : (
-            attachments.map(att => (
+            <>
+              {total > attachments.length && (
+                <p data-testid="attachments-truncated" role="status" className="text-xs text-amber-700 dark:text-amber-400">
+                  Showing newest {attachments.length} of {total}
+                </p>
+              )}
+            {attachments.map(att => (
               <BankTxAttachmentRow key={att.id} att={att} deleting={deletingId === att.id}
                 onView={() => setViewIndex(viewable.indexOf(att))} onDelete={() => void handleDelete(att)} />
-            ))
+            ))}
+            </>
           )}
         </div>
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         <div className="border-t border-[var(--ff-border-light)] px-5 py-3 flex items-center justify-between shrink-0">
           <span className="text-xs text-[var(--ff-text-tertiary)]">
-            {attachments.length} attachment{attachments.length !== 1 ? 's' : ''}
+            {total > attachments.length ? `${total} attachments` : `${attachments.length} attachment${attachments.length !== 1 ? 's' : ''}`}
           </span>
           <button
             onClick={onClose}

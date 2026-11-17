@@ -35,7 +35,7 @@ export interface KnownItem {
   flags?: string[];
 }
 
-/** A user's own line (PR 2 stores them). `repeat` repeats it from `date` until `until` (inclusive) or the horizon. */
+/** A user's own line (cash_forecast_items, via engineAdapter). `repeat` repeats it from `date` until `until` (inclusive) or the horizon. */
 export interface ManualItem {
   id: string;
   date: string;
@@ -46,7 +46,7 @@ export interface ManualItem {
 }
 
 /**
- * A user's change to one cell of a line (PR 2 stores them). Applied after everything else, in array order.
+ * A user's change to one cell of a line (cash_forecast_overrides, via engineAdapter). Applied after everything else, in array order.
  *   set:     the cell becomes `amountCents`.
  *   add:     `amountCents` is added to the cell.
  *   move_to: the cell's amount moves to `targetWeek`; or, when `amountCents` is given, that MAGNITUDE (≥ 0, as the
@@ -118,7 +118,8 @@ export interface ForecastLine {
   kind: LineKind;
   weekly: number[];
   totalCents: number;
-  basis?: ArBasis;
+  /** AR lines (`ar:<customerId>`, one per customer): the in-horizon cents by how each invoice was dated. */
+  basisCents?: Record<ArBasis, number>;
   flags: string[];
   items: LineItem[];
 }

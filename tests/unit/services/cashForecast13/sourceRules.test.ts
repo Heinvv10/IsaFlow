@@ -25,7 +25,7 @@ describe('cash13 AR expected dates', () => {
 
   it('not yet due: the due date, basis due', () => {
     const { items } = ar([inv({})], new Map(), today);
-    expect(items[0]).toMatchObject({ date: '2026-11-30', amountCents: 1_000, basis: 'due', lineKey: 'ar:c1:due' });
+    expect(items[0]).toMatchObject({ date: '2026-11-30', amountCents: 1_000, basis: 'due', lineKey: 'ar:c1' });
   });
 
   it('due today is not overdue', () => {
@@ -36,13 +36,13 @@ describe('cash13 AR expected dates', () => {
 
   it('overdue with 3 or more paid invoices: due + median days late, basis history', () => {
     const { items, summary } = ar([inv({ dueDate: '2026-11-10' })], new Map([['c1', [20, 30, 25]]]), today);
-    expect(items[0]).toMatchObject({ date: '2026-12-05', basis: 'history', lineKey: 'ar:c1:history' });
+    expect(items[0]).toMatchObject({ date: '2026-12-05', basis: 'history', lineKey: 'ar:c1' });
     expect(summary).toMatchObject({ totalCents: 1_000, invoiceCount: 1, byBasis: { history: 1_000, no_history: 0 } });
   });
 
   it('overdue with only 2 paid invoices: week 1 (today), basis no_history', () => {
     const { items, summary } = ar([inv({ dueDate: '2026-11-10' })], new Map([['c1', [20, 30]]]), today);
-    expect(items[0]).toMatchObject({ date: today, basis: 'no_history', lineKey: 'ar:c1:no_history' });
+    expect(items[0]).toMatchObject({ date: today, basis: 'no_history', lineKey: 'ar:c1' });
     expect(summary.byBasis).toEqual({ history: 0, no_history: 1_000 });
   });
 

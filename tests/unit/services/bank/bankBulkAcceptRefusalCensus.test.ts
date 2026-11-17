@@ -15,7 +15,9 @@ const S = 'src/modules/accounting/services';
  * so a new file under those directories is scanned. Broader than the path on purpose (a class thrown only by an unrelated
  * service must still be named below). LIMIT: only a literal `throw new X(` is seen; a throw via a variable (`throw err`,
  * `throw makeError()`) or an inherited constructor call is not detected.
- * (bankReallocationGuards throws only for `opts.reallocation`, which a bulk accept never passes: named in NOT_ON_PATH.)
+ * (bankReallocationGuards throws only for `opts.reallocation`, which a bulk accept never passes: named in NOT_ON_PATH. So is
+ * JournalHasLiveBankLineError: allocateTransaction reverses a journal only under `opts.reallocation`. ProbeDone is
+ * allocationPeriodProbe's own sentinel, always caught there; allocateTransaction calls allocationPeriodFor directly.)
  */
 const EXTRA_FILES = ['core/companySettingsService.ts', 'core/rowLockBudget.ts', '../utils/journalDateWindow.ts'];
 const listTs = (dir: string): string[] => readdirSync(resolve(process.cwd(), S, dir), { withFileTypes: true })
@@ -33,15 +35,15 @@ const NOT_ON_PATH = [
   'ApprovalEnforcementUnavailableError', 'ApprovalExpectedDigestRequiredError', 'ApprovalFieldInvalidError', 'ApprovalImportAuthorityError',
   'ApprovalNameInvalidError', 'ApprovalNotRequiredError', 'ApprovalOperatorInvalidError', 'ApprovalRequestLockTimeoutError',
   'ApprovalRequestNotFoundError', 'ApprovalRoleInvalidError', 'ApprovalRuleAuthorityError', 'ApprovalRuleLegacyTypeError',
-  'ApprovalRuleNotFoundError', 'AutoPostSettingsInvalidError', 'BankAccountGuardRefusal', 'BankAccountRefusedError', 'BankImportLockTimeoutError',
+  'ApprovalRuleNotFoundError', 'AutoPostSettingsInvalidError', 'BankAccountGuardRefusal', 'BankAccountRefusedError', 'BankFeedConnectionNotFoundError', 'BankImportLockTimeoutError',
   'BankIngestionRefusal', 'BankLineChangedError', 'BankRequestRefusal', 'BankMatchTargetError', 'BankMatchUnavailableError', 'BankReallocationRefusal',
   'BankTransactionAllocatedError', 'BankTransferRefusedError', 'BulkAcceptRefusal', 'ChartRefusal', 'CloseRunNotFoundError', 'ClosingChainTooLong',
-  'DefaultAccountsRefusal', 'DocumentLineAccountRefusal',
+  'DefaultAccountsRefusal', 'DocumentLineAccountRefusal', 'EveryRowPresent', 'ExtractionActionRefusedError',
   'FinancialYearStartLockedError', 'FinancialYearStartScopeError', 'FiscalPeriodsInUseError', 'FiscalYearLabelUnknownError',
   'GlAccountLockTimeoutError', 'HandCorrectionRefusedError', 'ImportValidationError', 'InvalidCursorError',
-  'InvalidFinancialYearStartError', 'JournalDocumentLinkRefusal', 'JournalReversalLockTimeoutError',
-  'LedgerAccountNotFoundError', 'LineRefused', 'MissingAssetAccountError', 'OpeningBalanceValidationError',
-  'ParentAccountError', 'PeriodCloseBlockedError', 'PeriodNotCloseableError', 'PossibleDuplicateTransferError', 'ProposalDecisionError',
+  'InvalidFinancialYearStartError', 'JournalDocumentLinkRefusal', 'JournalHasLiveBankLineError', 'JournalReversalLockTimeoutError',
+  'LedgerAccountNotFoundError', 'LineRefused', 'MissingAssetAccountError', 'OffsetTooLargeError', 'OpeningBalanceValidationError',
+  'ParentAccountError', 'PeriodCloseBlockedError', 'PeriodNotCloseableError', 'PossibleDuplicateTransferError', 'ProbeDone', 'ProposalDecisionError',
   'ReclassLineLockTimeoutError', 'ReclassifyError', 'ReconciliationNotBalancedError', 'ReconciliationNotCancellableError',
   'ReconciliationNotReopenableError', 'ReconciliationReviewRequiredError', 'RecurringJournalLockTimeoutError', 'RecurringJournalNotFoundError',
   'RecurringJournalRequestError', 'ReversalBeforeOriginalError', 'ReversalPeriodError', 'RunAlreadyUndoneError', 'ShareHasLiveUndosError',
