@@ -140,6 +140,14 @@ describe('review round 3: the sheet read, and what it must not read silently', (
     ]);
   });
 
+  it('a numeric code that lost its leading zero is a refused row in the reply (never guessed), so the live call writes nothing', async () => {
+    vi.mocked(loadGridReadModel).mockResolvedValue(model({ accounts: [...model().accounts, { ...model().accounts[0]!, id: '20000000-0000-4000-8000-0000000000a1', code: '0400', name: 'Fees' }] }));
+    const file = await book({ name: 'Budget', rows: [['Code', ...MONTHS], [400, 5], ['6000', null, 250]] });
+    const out = json(await dry(file));
+    expect([out.ready, listed(out).filter((c) => c.status === 'refused').map((c) => [c.i, c.account, c.reason])]).toEqual([false, [[2, '400', expect.stringMatching(/lost its leading zero \(0400\?\)/)]]]);
+    expect(text(await tool.handler({ ...KEY, file_base64: file, version_token: TOKEN, plan_hash: 'a'.repeat(64) }, ctx()))).toMatch(/^1 cell is refused, so nothing was written/);
+  });
+
   it('F5: cells merged across month columns refuse the workbook', async () => {
     const file = await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['6000', 120]], edit: (ws) => ws.mergeCells('B2:D2') });
     expect(text(await dry(file))).toMatch(/^Sheet "Budget", cells B2:D2: merged across month columns/);
