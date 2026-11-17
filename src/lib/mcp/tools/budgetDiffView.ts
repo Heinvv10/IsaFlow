@@ -14,7 +14,9 @@ import type { CurrentCell, PlanEntry } from '@/modules/accounting/services/budge
 import type { SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
 import { centsText, randText } from './budgetToolArgs';
 
-export { DIFF_LIST_DEFAULT, DIFF_LIST_MAX } from './budgetToolArgs';
+/** Default and largest page of listed cells: ~150 bytes each, so 400 stay near 60 KB with the totals. */
+export const DIFF_LIST_DEFAULT = 200;
+export const DIFF_LIST_MAX = 400;
 
 export type CellMap = Map<CellKey, CurrentCell>;
 

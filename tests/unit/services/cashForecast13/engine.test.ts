@@ -74,12 +74,18 @@ describe('cash13 engine', () => {
     assertInvariants(out, 100_000);
   });
 
-  it('carries an AR line basis and kind known; an estimate item makes its line an estimate', () => {
+  it('one AR line per customer carries cents by basis; an estimate item makes its line an estimate', () => {
     const out = runEngine(input({ items: [
-      item('2026-11-20', 100, { lineKey: 'ar:c1:history', basis: 'history' }),
+      item('2026-11-20', 100, { lineKey: 'ar:c1', basis: 'history' }),
+      item('2026-11-25', 30, { lineKey: 'ar:c1', basis: 'due', ref: 'd1' }),
+      item('2026-11-26', 7, { lineKey: 'ar:c1', basis: 'no_history', ref: 'n1' }),
+      item('2026-11-27', 5, { lineKey: 'ar:c1', basis: 'due', ref: 'd2' }),
       item('2026-11-20', -50, { lineKey: 'sars:emp201', category: 'sars', estimate: true }),
     ] }));
-    expect(out.lines.find((l) => l.key === 'ar:c1:history')).toMatchObject({ kind: 'known', basis: 'history' });
+    const ar = out.lines.find((l) => l.key === 'ar:c1')!;
+    expect(ar).toMatchObject({ kind: 'known', totalCents: 142, basisCents: { due: 35, history: 100, no_history: 7 } });
+    expect(ar.items.map((i) => i.basis)).toEqual(['history', 'due', 'no_history', 'due']);
+    expect(out.lines.find((l) => l.key === 'sars:emp201')).not.toHaveProperty('basisCents');
     expect(out.lines.find((l) => l.key === 'sars:emp201')).toMatchObject({ kind: 'estimate' });
   });
 

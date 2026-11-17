@@ -7,8 +7,8 @@
  * Opening cash is the one source the forecast cannot do without: when it cannot be read the service refuses
  * with `CashForecastUnavailableError` (the route answers 503) rather than forecasting from zero (review L5).
  *
- * Manual items and overrides arrive with PR 2 (their tables); until then the engine gets none. The pay day
- * setting also arrives with PR 2; until then it is the 25th.
+ * The user's stored inputs (manual items, overrides, the salary pay day; migration 999i) are read through
+ * readStoredInputs unless the caller passes them; a pay day that cannot be read is the 25th.
  */
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { runEngine } from './engine';
@@ -22,6 +22,7 @@ import { netCredits, warnUnusedCredit } from './creditNetting';
 import { readPayables, readReceivables } from './readReceivables';
 import { sarsItems } from './readSars';
 import { buildWeeks } from './weeks';
+import { readStoredInputs } from './readStoredInputs';
 import type { PayDay } from './payDates';
 import type { CashForecast13, ForecastWarning, KnownItem, ManualItem, OverdueArSummary, Override } from './types';
 
@@ -52,6 +53,8 @@ export async function getCashForecast13(companyId: string, today: string, opts: 
   /** The known items before credit netting, for the budget fill (re-review N1). */
   const gross: KnownItem[] = [];
 
+  const stored = await readStoredInputs(companyId, today, warnings);
+  const payDay = opts.payDay ?? stored.payDay ?? DEFAULT_PAY_DAY;
   const balance = await guardedSource('cash13_opening', 'opening cash', warnings, () => getCashBalance(companyId, today));
   if (!balance) throw new CashForecastUnavailableError();
   const ar = await guardedSource('cash13_ar', 'customer invoices', warnings, () => readReceivables(companyId, today, horizonEnd, warnings));
@@ -73,7 +76,7 @@ export async function getCashForecast13(companyId: string, today: string, opts: 
     warnings.push({ code: 'payroll_frequency_unsupported', source: 'payroll', message: 'Weekly or fortnightly pay runs are not forecast; only monthly runs are' });
   }
   const rest: KnownItem[] = [];
-  if (payroll) rest.push(...payrollItems(payroll, opts.payDay ?? DEFAULT_PAY_DAY, today, horizonEnd, warnings));
+  if (payroll) rest.push(...payrollItems(payroll, payDay, today, horizonEnd, warnings));
 
   const budget = await guardedSource('cash13_budget', 'budget', warnings, () => readBudget(companyId, today, horizonEnd, warnings), BUDGET_REFUSALS);
   rest.push(...(await guardedSource('cash13_sars', 'SARS calendar', warnings, () => sarsItems(companyId, today, horizonEnd, payroll, budget, warnings))) ?? []);
@@ -92,8 +95,8 @@ export async function getCashForecast13(companyId: string, today: string, opts: 
     items,
     budgetKnown: gross,
     budget: budget ? budget.months : null,
-    manualItems: opts.manualItems ?? [],
-    overrides: opts.overrides ?? [],
+    manualItems: opts.manualItems ?? stored.manualItems,
+    overrides: opts.overrides ?? stored.overrides,
     overdueAR: ar ? ar.summary : NO_OVERDUE,
     warnings,
   });

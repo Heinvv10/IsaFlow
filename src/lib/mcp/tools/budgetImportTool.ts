@@ -33,9 +33,10 @@ import type { GridReadModel } from '@/modules/accounting/services/budgets/gridRe
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { McpTool, McpToolResult } from '../types';
 import {
-  BUDGET_WRITE_FENCE, DIFF_LIST_DEFAULT, DIFF_LIST_MAX, isMonth, isResult, MCP_SLOT_WAIT_MS, page, planHashArg, spreadsheetBusy, versionTokenArg,
+  BUDGET_WRITE_FENCE, isMonth, isResult, MCP_SLOT_WAIT_MS, planHashArg, spreadsheetBusy, versionTokenArg,
 } from './budgetToolArgs';
-import type { RowRefusal } from './budgetDiffView';
+import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
+import { listPage } from './budgetPaging';
 import { loadModel, runAmountWrite } from './budgetAmountWrite';
 import { conflictView, FREEFORM_NEEDS_TOKEN, FREEFORM_OVERWRITE, MAX_WORKBOOK_BASE64, NO_BASE_REFUSED, workbookBytes } from './budgetImportArgs';
 import { GRID_ROW_KEYS, gridLines, MAX_GRID_ROWS } from './budgetWorkbookGrid';
@@ -81,6 +82,8 @@ export const importBudgetWorkbookTool: McpTool = {
             ...Object.fromEntries(GRID_ROW_KEYS.map((k) => [k, {}])),
             base: { type: 'string', description: 'The row\'s base exactly as get_budget_template returned it.' },
             account: { type: 'string', description: 'Optional: the base\'s account (code or id).' },
+            account_id: { type: 'string', format: 'uuid', description: 'Optional: the base\'s account id.' },
+            dimension_id: { type: 'string', format: 'uuid', description: 'Optional, cc1 / cc2 / bu grid: the base\'s member id.' },
             dimension: { type: ['string', 'null'], description: 'Optional, cc1 / cc2 / bu grid: the base\'s member (code or id).' },
             months: { type: 'object', additionalProperties: { type: ['string', 'null'] }, description: 'Every YYYY-MM of the year: a decimal string, or null (not budgeted).' },
           },
@@ -187,7 +190,7 @@ export const importBudgetWorkbookTool: McpTool = {
     const possibleRevert = preview.changes.filter((c) => c.possibleRevert).length;
     return runAmountWrite(ctx, {
       tool: 'import_budget_workbook', model, mode: 'merge', inputs, rowRefusals, dryRun: args.dry_run === true, versionToken, planHash,
-      hashRequired: true, page: page(args), // round 2: every import is previewed by its dry run first, as in the app
+      hashRequired: true, page: listPage(args, DIFF_LIST_DEFAULT, DIFF_LIST_MAX), // round 2: every import is previewed by its dry run first, as in the app
       extra: {
         format: bytes ? 'xlsx' : 'json', ...(sheet ? { sheet } : {}),
         ...(freeform ? { sheet_name: freeform.name, overwrite: FREEFORM_OVERWRITE, skipped_rows: freeform.skipped.slice(0, SKIPPED_LISTED), skipped_count: freeform.skipped.length,

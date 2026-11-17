@@ -10,13 +10,13 @@ import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { WRITE_MODES, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
 import type { McpTool } from '../types';
 import { residueFlipsSign } from '@/modules/accounting/services/budgets/grid/spread';
-import { BUDGET_WRITE_FENCE, isResult, page, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
+import { DIM_REF, ID_OR_CODE, BUDGET_WRITE_FENCE, isResult, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
 import { dimensionLabel, resolveRows, parseAmountCells, type ResolvedRef } from './budgetCellArgs';
 import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
 import { loadModel, runAmountWrite, type RoundingNotice } from './budgetAmountWrite';
 import { toolError } from './toolHelpers';
+import { listPage } from './budgetPaging';
 
-const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
 const PAGING = {
   list_offset: { type: 'integer', minimum: 0, description: 'Page of the listed cells (default 0).' },
   list_limit: { type: 'integer', minimum: 1, maximum: DIFF_LIST_MAX, description: `Listed cells per reply (default ${DIFF_LIST_DEFAULT}).` },
@@ -29,6 +29,8 @@ const COMMON = {
   idempotency_key: { type: 'string' },
   ...PAGING,
 };
+
+const page = (args: Record<string, unknown>) => listPage(args, DIFF_LIST_DEFAULT, DIFF_LIST_MAX);
 
 export const setBudgetAmountsTool: McpTool = {
   name: 'set_budget_amounts',
@@ -55,7 +57,7 @@ export const setBudgetAmountsTool: McpTool = {
           properties: {
             account: ID_OR_CODE, month: { type: 'string', description: 'YYYY-MM' },
             amount: { type: ['string', 'null'], description: 'Decimal string; null clears the cell (merge, replace).' },
-            cc1: ID_OR_CODE, cc2: ID_OR_CODE, bu: ID_OR_CODE,
+            cc1: DIM_REF, cc2: DIM_REF, bu: DIM_REF,
           },
           required: ['account', 'month', 'amount'],
           additionalProperties: false,
@@ -124,7 +126,7 @@ export const setBudgetAnnualTool: McpTool = {
             account: ID_OR_CODE, amount: { type: 'string', description: 'The annual amount, decimal string.' },
             spread: { type: 'string', enum: ['flat', 'prior_year', 'weights'] },
             weights: { type: 'array', items: { type: 'number', minimum: 0 }, description: 'spread weights: one per month of the year.' },
-            cc1: ID_OR_CODE, cc2: ID_OR_CODE, bu: ID_OR_CODE,
+            cc1: DIM_REF, cc2: DIM_REF, bu: DIM_REF,
           },
           required: ['account', 'amount', 'spread'],
           additionalProperties: false,

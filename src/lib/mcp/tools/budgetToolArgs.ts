@@ -49,6 +49,24 @@ export function centsText(cents: number): string {
 /** A rand amount the services hold as a number (NUMERIC(15,2) read exactly) as decimal text. */
 export const randText = (rand: number): string => centsText(Math.round(rand * 100));
 
+/**
+ * An account, member or cost-centre reference (an id or a code) as the budget tools read it (review round 3, one rule
+ * for every tool): a string trimmed; a SAFE integer as its digits (a numeric code sent as a JSON number); any other
+ * number (a fraction, Infinity, NaN, an integer past 2^53 or 1e21, whose digits are not the ones sent) refused as
+ * "not a <what> code", never truncated; anything else '' (the caller words it: absent, or refused where a value is needed).
+ */
+export function refText(v: unknown, what = 'account'): { ref: string } | { error: string } {
+  if (typeof v === 'string') return { ref: v.trim() };
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? { ref: String(v) } : { error: `${String(v)} is not ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} code` };
+  return { ref: '' };
+}
+
+/** The JSON-schema type of every reference `refText` reads: a code may arrive as text or as a whole number (round 5). */
+export const REF_TYPE = ['string', 'integer'] as const;
+export const ID_OR_CODE = { type: [...REF_TYPE], description: 'Id or code (a numeric code may be sent as a whole number).' };
+/** A cc1 / cc2 / bu field of a row: the handlers read null as absent (no dimension), so the schema says so (round 6). */
+export const DIM_REF = { type: [...REF_TYPE, 'null'], description: 'Id or code (a whole number for a numeric code); absent or null: none.' };
+
 export const isMonth = (v: unknown): v is string => typeof v === 'string' && MONTH.test(v);
 
 export function roundingUnitArg(args: Record<string, unknown>): RoundingUnit | McpToolResult {
@@ -97,16 +115,6 @@ export function versionView(v: BudgetVersion) {
     approved_by: v.approvedBy, approved_at: v.approvedAt, locked_by: v.lockedBy, locked_at: v.lockedAt,
     unlocked_by: v.unlockedBy, unlocked_at: v.unlockedAt, unlock_reason: v.unlockReason, created_by: v.createdBy, created_at: v.createdAt,
   };
-}
-
-/** Default and largest page of a write's listed cells: ~150 bytes each, so 400 stay near 60 KB with the totals. */
-export const DIFF_LIST_DEFAULT = 200;
-export const DIFF_LIST_MAX = 400;
-
-/** A write's listed-cells page (`list_offset`, `list_limit`). */
-export function page(args: Record<string, unknown>) {
-  const int = (v: unknown, d: number) => (Number.isInteger(v) ? Number(v) : d);
-  return { offset: Math.max(0, int(args.list_offset, 0)), limit: Math.min(DIFF_LIST_MAX, Math.max(1, int(args.list_limit, DIFF_LIST_DEFAULT))) };
 }
 
 /**

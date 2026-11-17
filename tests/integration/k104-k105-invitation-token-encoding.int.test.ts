@@ -44,6 +44,17 @@ vi.mock('@/lib/auth/gotrue', async (importOriginal) => ({
   })),
 }));
 
+// accept.ts reads the account it resolved (invitationAccountRole): the legacy invitee's, created for the invitation
+// addressed to it (invite_id, as resolveInvitationAccount stamps it).
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({
+  adminGetUser: vi.fn(async (id: string) => {
+    const inv = (await pool.query(
+      "SELECT id, email FROM company_invitations WHERE email LIKE 'legacy-%' AND $1 = $2 LIMIT 1", [id, legacyUserId],
+    )).rows[0] as { id: string; email: string } | undefined;
+    return inv ? { id, email: inv.email, user_metadata: { invite_id: inv.id } } : null;
+  }),
+}));
+
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();

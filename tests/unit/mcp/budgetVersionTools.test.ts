@@ -187,8 +187,8 @@ describe('reads', () => {
 
 describe('registration', () => {
   const names = [...BUDGET_READ_TOOLS, ...BUDGET_WRITE_TOOLS].map((t) => t.name);
-  it('seventeen tools, all registered, listed for clients, free; reads need read:reports, writes write:budgets AND read:reports', () => {
-    expect(names).toHaveLength(17);
+  it('twenty-five tools (PR 2 added two, PR 3 eight), all registered, listed for clients, free; reads need read:reports, writes write:budgets AND read:reports', () => {
+    expect(names).toHaveLength(25);
     for (const n of names) {
       expect(MCP_TOOLS.some((t) => t.name === n)).toBe(true);
       expect(CLIENT_MCP_TOOL_NAMES).toContain(n);

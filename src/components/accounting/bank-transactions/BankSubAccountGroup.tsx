@@ -9,6 +9,7 @@
 import { CreditCard, ChevronDown, CornerDownRight } from 'lucide-react';
 import { fmtCents } from './bankCents';
 import { ToCodeLine } from './ToCodeLine';
+import { MiddleTruncate } from './MiddleTruncate';
 import type { BankAccountGroup } from './groupBankAccounts';
 
 interface CardProps {
@@ -31,13 +32,11 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle, re
           ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
           : 'border-dashed border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'
       }`}>
-      <button onClick={onToggle} aria-expanded={expanded} className="block w-full px-4 py-2.5 text-left">
+      <button onClick={onToggle} aria-expanded={expanded} aria-current={containsSelection ? 'true' : undefined} className="block w-full px-4 py-2.5 text-left">
         <div className="flex items-start gap-2">
           <CreditCard className={`mt-0.5 h-4 w-4 shrink-0 ${active ? 'text-teal-600 dark:text-teal-400' : 'text-[var(--ff-text-tertiary)]'}`} />
-          <p className={`line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`}
-            title={group.groupName}>
-            {group.groupName}
-          </p>
+          <MiddleTruncate name={group.groupName} testId="card-name"
+            className={`flex-1 text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`} />
           <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </div>
         <div className="mt-1 flex items-baseline justify-between gap-2">

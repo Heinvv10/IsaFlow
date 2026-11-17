@@ -68,10 +68,11 @@ describe('MCP write-tool role fence (S-01)', () => {
   });
 
   // B6 (2026-11-15): the HTTP period controls are withRole('admin'); over MCP a manager was let through by the
-  // write fence. These three are owner/admin only, and nothing else is narrowed by accident.
-  it('the period controls, and only they, are owner/admin only', () => {
+  // write fence. These three are owner/admin only, and nothing else is narrowed by accident. MCP budget tools PR 3:
+  // budget_tracking reads the overspend alerts, which the app's alerts route gives owners and admins only.
+  it('the period controls and the budget alerts, and only they, are owner/admin only', () => {
     expect(ALL.filter((t) => t.requiresRole).map((t) => [t.name, t.requiresRole]).sort()).toEqual([
-      ['close_fiscal_period', 'admin'], ['reopen_fiscal_period', 'admin'], ['year_end_close', 'admin'],
+      ['budget_tracking', 'admin'], ['close_fiscal_period', 'admin'], ['reopen_fiscal_period', 'admin'], ['year_end_close', 'admin'],
     ]);
   });
 
@@ -111,6 +112,8 @@ describe('MCP write-tool role fence (S-01)', () => {
     'list_quotes', 'list_supplier_invoices', 'list_supplier_payments', 'list_suppliers',
     'list_time_entries', 'list_unapplied_payments', 'list_unapplied_receipts', 'list_unsupported_transactions', 'list_missing_documents',
     'list_proofs_of_payment', 'list_budget_versions', 'get_budget', 'get_budget_template',
+    // PR 3: derive_three_way and budget_remaining check the write role in the handler; budget_tracking is requiresRole admin.
+    'get_budget_drivers', 'get_three_way', 'derive_three_way', 'budget_remaining', 'budget_tracking',
     'list_work_items', 'party_ledger_check', 'period_close_checklist', 'profit_and_loss', 'project_profitability',
     'propose_reclassification', 'reconcile_fixed_assets', 'reconcile_subledger', 'search_gl',
     'stock_valuation', 'suggest_receipt_matches', 'supplier_statement', 'token_info', 'trial_balance',

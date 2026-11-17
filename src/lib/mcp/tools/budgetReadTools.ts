@@ -13,8 +13,9 @@ import { BAND_ORDER, type Band } from '@/modules/accounting/services/budgets/gri
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, centsText, isMonth, isResult, ownVersion, randText, versionView } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, REF_TYPE, centsText, isMonth, isResult, ownVersion, randText, refText, versionView } from './budgetToolArgs';
 import { NOT_FOUND, clampLimit, ok, toolError } from './toolHelpers';
+import { offsetArg } from './budgetPaging';
 
 /** Pages sized so the worst realistic page stays under MAX_READ_RESULT_BYTES (tests/unit/mcp/readLimitsSizeBudgets.test.ts). */
 export const GET_BUDGET_LIMIT_DEFAULT = 50;
@@ -58,7 +59,6 @@ export const listBudgetVersionsTool: McpTool = {
   },
 };
 
-const offsetArg = (args: Record<string, unknown>): number => (Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0);
 const LEVEL = (c: { cc1Id: string | null; cc2Id: string | null; buId: string | null }) => (c.cc1Id ? 'cc1' : c.cc2Id ? 'cc2' : c.buId ? 'bu' : 'company');
 
 export const getBudgetTool: McpTool = {
@@ -75,10 +75,10 @@ export const getBudgetTool: McpTool = {
     type: 'object',
     properties: {
       version_id: { type: 'string', format: 'uuid' }, fiscal_year: { type: 'integer' },
-      accounts: { type: 'array', items: { type: 'string' }, maxItems: 500, description: 'Account ids or codes.' },
+      accounts: { type: 'array', items: { type: [...REF_TYPE] }, maxItems: 500, description: 'Account ids or codes.' },
       section: { type: 'string', enum: [...BAND_ORDER] },
       level: { type: 'string', enum: ['company', 'cc1', 'cc2', 'bu'] },
-      member: { type: 'string', description: 'A cc1 / cc2 / bu member id or code (with level).' },
+      member: { type: [...REF_TYPE], description: 'A cc1 / cc2 / bu member id or code (with level).' },
       from_month: { type: 'string' }, to_month: { type: 'string' },
       include_drivers: { type: 'boolean' }, include_notes: { type: 'boolean' },
       limit: { type: 'integer', minimum: 1, maximum: GET_BUDGET_LIMIT_MAX }, offset: { type: 'integer', minimum: 0 },
@@ -109,15 +109,24 @@ export const getBudgetTool: McpTool = {
     if (Array.isArray(args.accounts)) {
       accountFilter = new Set();
       for (const ref of args.accounts) {
-        const found = typeof ref === 'string' ? resolver.account(ref.trim()) : null;
+        const read = refText(ref);
+        if ('error' in read) return toolError(`accounts: ${read.error}`);
+        const found = read.ref === '' ? null : resolver.account(read.ref);
         if (!found) return toolError(`accounts: ${JSON.stringify(String(ref).slice(0, 40))} is not an account this budget lists`);
         if (!found.ok) return toolError(`accounts: ${found.reason}`);
         accountFilter.add(found.item.id);
       }
     }
     let memberId: string | null = null;
-    if (typeof args.member === 'string') {
-      const m = resolver.member(args.level as 'cc1', args.member.trim());
+    if (args.member !== undefined && args.member !== null) {
+      const level = (['cc1', 'cc2', 'bu'] as const).find((l) => l === args.level);
+      if (level === undefined) return toolError('member needs level cc1, cc2 or bu');
+      // A member that is neither text nor a safe integer is REFUSED here (never read as "no filter", which would
+      // answer every member's rows).
+      const read = refText(args.member, level);
+      if ('error' in read) return toolError(read.error);
+      if (read.ref === '') return toolError('member must be an id or code');
+      const m = resolver.member(level, read.ref);
       if (!m.ok) return toolError(m.reason);
       memberId = m.item.id;
     }

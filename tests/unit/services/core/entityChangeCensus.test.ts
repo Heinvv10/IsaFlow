@@ -52,7 +52,7 @@ const WRITERS: Record<string, string[]> = {
   ],
   gl_accounts: [
     'pages/api/accounting/bank-accounts.ts', 'scripts/cleanup-demo-data.ts', 'scripts/import-sage-britech.ts',
-    'scripts/large-scale-seed.ts', 'scripts/qa-create-blitz-bank.ts', 'scripts/qa-create-brighttech-bank.ts',
+    'scripts/dev/seed-bank-switcher-qa.ts', 'scripts/large-scale-seed.ts', 'scripts/qa-create-blitz-bank.ts', 'scripts/qa-create-brighttech-bank.ts',
     'scripts/qa-create-velofibre-bank.ts', 'scripts/qa-seed-bank-account.ts', 'scripts/qa-seed-blitz-coa.ts',
     'scripts/qa-seed/coa.ts', 'scripts/qa-seed/reset.ts', 'scripts/qa-test-bank-delete-balance.ts',
     'scripts/qa-verify-bank-sprint.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/stress-test.ts',
