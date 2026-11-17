@@ -2,7 +2,7 @@
  * The three calls of the bulk-accept route (WP6): preview, confirm, undo. The route is registered as one union, so each
  * call narrows by a field only its own answer carries - a wrong shape is an error here, not a blank screen.
  */
-import { apiFetch, apiJson, assertOk, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 
 const URL = '/api/accounting/bank-bulk-accept';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -64,12 +64,8 @@ export async function confirmBulk(previewToken: string, key: string): Promise<Bu
     const res = await sendConfirm(previewToken, key);
     if (res === 'ambiguous') continue;
     if (AMBIGUOUS_STATUS.has(res.status)) continue;
-    try {
-      await assertOk(res, 'Could not post the suggestions - try again');
-    } catch (err) {
-      if (err instanceof ApiRequestError && res.status === 409 && STILL_RUNNING.test(err.message)) continue;
-      throw err;
-    }
+    if (res.status === 409 && STILL_RUNNING.test(await res.clone().text())) continue;
+    await assertOk(res, 'Could not post the suggestions - try again');
     const out = (JSON.parse(await res.text()) as { data?: unknown }).data as BulkConfirmed | undefined;
     if (!out || !Array.isArray(out.posted)) throw wrong('result');
     return out;
