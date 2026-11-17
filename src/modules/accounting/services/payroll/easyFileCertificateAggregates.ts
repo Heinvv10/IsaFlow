@@ -48,11 +48,8 @@ export function loadCertificateAggregates(
     JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = prh.company_id
     WHERE prh.company_id = ${companyId}::uuid
       AND ${sql.unsafe(payRunFinalSql('prh'))}
-      AND (
-        (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
-        OR
-        (prh.period_year = ${endYear}   AND prh.period_month <= ${endMonth})
-      )
+      -- One range, not "start year from startMonth OR end year to endMonth": for the interim (both in one year) that OR is the whole year.
+      AND prh.period_year * 100 + prh.period_month BETWEEN ${startYear * 100 + startMonth} AND ${endYear * 100 + endMonth}
     GROUP BY prl.employee_id
 ` as Promise<DbRow[]>;
 }

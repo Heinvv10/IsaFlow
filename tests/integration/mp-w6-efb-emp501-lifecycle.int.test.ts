@@ -14,6 +14,7 @@ import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
 import { request, response } from './mfa-impersonation-postgres.helpers';
+import { refreshCache } from '../../src/modules/accounting/services/payroll/sarsCodesService';
 import listSubmissions from '../../pages/api/accounting/sars/sars-submissions';
 import returns from '../../pages/api/payroll/emp501/returns/index';
 import filingFile from '../../pages/api/payroll/emp501/returns/filing-file';
@@ -62,17 +63,22 @@ async function finalRun(month: number, lines: Array<[string, number, number]>, c
     VALUES (${companyId}::UUID, 2025, ${month}, 'approved', 0, '2025-04-01T10:00:00Z') RETURNING id`) as Row[])[0]!.id);
   for (const [emp, gross, paye] of lines) {
     await sql`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown)
-      VALUES (${run}::UUID, ${emp}::UUID, ${gross}, ${gross}, ${paye}, 177.12, 177.12, ${gross / 100}, '[]'::JSONB)`;
+      VALUES (${run}::UUID, ${emp}::UUID, ${gross}, ${gross}, ${paye}, 177.12, 177.12, ${gross / 100},
+        ${JSON.stringify([{ sarsSourceCode: '3601', amount: gross }])}::JSONB)`;
   }
   return run;
 }
 
 describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
-  let alice = '', bob = '', versionId = '', body = '';
+  let alice = '', bob = '', versionId = '', body = '', seeded3601 = false;
 
   beforeAll(async () => {
     assertNotProductionDb('This test seeds companies, employees, pay runs and return versions.');
     rf = await seedReturnFixture('EFB', DATABASE_URL!);
+    // PAYE needs an income code paid (IRP5_PAYE_WITHOUT_INCOME_CODE): the schema-only fixture loads no SARS codes.
+    seeded3601 = ((await sql`INSERT INTO sars_source_codes (code, effective_year, category, description, status)
+      VALUES ('3601', 2026, 'income', 'Income', 'active') ON CONFLICT DO NOTHING RETURNING code`) as Row[]).length === 1;
+    refreshCache();
     await sql`UPDATE companies SET paye_reference_number = '7123456789', sars_contact_first_name = 'Ada',
       sars_contact_last_name = 'Lovelace', sars_contact_telephone = '0110000000', physical_address_line1 = '1 Fixture Street',
       physical_postal_code = '0001', physical_city = 'Pretoria' WHERE id = ${c()}::UUID`;
@@ -100,6 +106,8 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     await sql`DELETE FROM company_users WHERE company_id = ${other.companyId}::UUID`;
     await sql`DELETE FROM users WHERE id = ${other.userId}`;
     await sql`DELETE FROM companies WHERE id = ${other.companyId}::UUID`;
+    if (seeded3601) await sql`DELETE FROM sars_source_codes WHERE code = '3601' AND effective_year = 2026`;
+    refreshCache();
     await dropReturnFixture(rf);
   }, 120000);
 

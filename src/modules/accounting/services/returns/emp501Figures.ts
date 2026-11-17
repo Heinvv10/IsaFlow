@@ -34,6 +34,7 @@ const cents = (n: number): number => Math.round(n * 100) / 100;
 /** JSON with keys sorted at every level and undefined dropped: JSONB stores keys in its own order. */
 export function canonical(v: unknown): string {
   const norm = (x: unknown): unknown => {
+    if (x instanceof Date) return x.toISOString(); // as JSONB stores it (an object with no own keys otherwise)
     if (Array.isArray(x)) return x.map(norm);
     if (x && typeof x === 'object') {
       return Object.fromEntries(Object.keys(x).sort()
