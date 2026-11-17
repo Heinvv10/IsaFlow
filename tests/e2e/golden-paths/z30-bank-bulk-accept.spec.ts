@@ -1,13 +1,12 @@
-// golden:dev-only
 /**
- * Golden path Z1 (WP6): bulk accept of high-confidence suggestions - preview, confirm, undo batch.
+ * Golden path z30 (WP6): bulk accept of high-confidence suggestions - preview, confirm, undo batch.
  *
  * Seeds three imported lines and a suggest-only rule over them, runs the categoriser so each carries a 0.95 suggestion,
  * then drives the page: the "Accept N high-confidence suggestions" button opens the preview (rows, totals), Confirm posts
  * the batch, the result says "Posted 3", Undo batch reverses exactly that batch and the lines are back to imported.
  *
- * Dev-only: it writes a rule and statement lines, and Confirm posts every high-confidence line of the account - so it
- * stands down (skips) when the account holds any suggestion that is not this run's. BANK_TX_EVIDENCE_DIR=<dir> saves a
+ * It writes a rule, statement lines and one batch (undone again), and Confirm posts every high-confidence line of the
+ * account - so it stands down (skips) when the account already holds any suggestion, and removes its lines and rule after. BANK_TX_EVIDENCE_DIR=<dir> saves a
  * screenshot of the preview.
  */
 import { expect, test } from '@playwright/test';
