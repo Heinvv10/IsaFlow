@@ -1,0 +1,12 @@
+"section","field","value_excl_vat","vat","value_incl_vat"
+"Return","Form","VAT201",,
+"Return","Tax period","202603",,
+"Return","Period","2026-02-01 to 2026-03-31",,
+"Return","Version","2 (11111111-1111-4111-8111-111111111111)",,
+"Output tax","Field 1: Standard rate (excl. capital goods)",100000.00,15000.00,115000.00
+"Output tax","Field 2: Zero rate, ""excluding"" exports",2500.25,0.00,2500.25
+"Input tax","Field 14: Capital goods",20000.00,3000.00,23000.00
+"Input tax","Field 15: =Other goods and services",23003.33,3450.50,26453.83
+"Totals","Field 4: Total output tax",,15000.00,
+"Totals","Field 19: Total input tax",,6450.50,
+"Totals","Field 20: Net VAT payable (negative: refundable)",,8549.50,

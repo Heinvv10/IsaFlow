@@ -64,12 +64,12 @@ describeIfDb('an uncertain send against the return lifecycle', () => {
     const d = await draft(P2);
     await event(d, 'submit', 'sending', null);
     await event(d, 'error', null, null);
-    const refused = await fileV(String(v.id), { reference: 'R-UNC' }, a.admin.token, 'vat201');
+    const refused = await fileV(String(v.id), { reference: '4123456789V00000004' }, a.admin.token, 'vat201');
     expect(refused.status).toBe(409);
     expect(JSON.stringify(refused.body)).toMatch(/SEND_UNCERTAIN|may have reached/);
     expect(((await sql`SELECT status FROM tax_return_versions WHERE id = ${String(v.id)}::UUID`) as Row[])[0]!.status).toBe('finalised');
     await event(d, 'submit', 'reconciled', null); // the manual reconcile: a non-intent submit event
-    expect((await fileV(String(v.id), { reference: 'R-OK' }, a.admin.token, 'vat201')).status).toBe(200);
+    expect((await fileV(String(v.id), { reference: '4123456789V00000005' }, a.admin.token, 'vat201')).status).toBe(200);
     await amendV(String(v.id), { reason: 'cleanup' }, a.admin.token, 'vat201');
   });
 

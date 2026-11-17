@@ -1,0 +1,18 @@
+"section","field","amount"
+"Return","Form","EMP201"
+"Return","Tax period","202603"
+"Return","Period","2026-03-01 to 2026-03-31"
+"Return","Version","1 (33333333-3333-4333-8333-333333333333)"
+"Payroll tax calculations","PAYE",41234.56
+"Payroll tax calculations","SDL",2100.10
+"Payroll tax calculations","UIF",1771.24
+"Payroll tax calculations","Payroll tax liability",45105.90
+"Employment Tax Incentive","ETI brought forward",500.00
+"Employment Tax Incentive","ETI calculated",1500.00
+"Employment Tax Incentive","ETI utilised",2000.00
+"Employment Tax Incentive","ETI carried forward",0.00
+"Payment details","PAYE (after ETI utilised)",39234.56
+"Payment details","SDL",2100.10
+"Payment details","UIF",1771.24
+"Payment details","Tax payable",43105.90
+"Payment details","Payment reference number","Shown by eFiling on this EMP201: type it back to mark the return filed"

@@ -33,13 +33,13 @@ beforeEach(() => { vi.clearAllMocks(); m.peekForm.mockResolvedValue('VAT201'); }
 describe('stale refusals carry the shared code', () => {
   it('filing a filed version: ALREADY_FILED', async () => {
     m.getVersionForUpdate.mockResolvedValue(version('filed'));
-    await expect(markReturnFiled('c1', 'VAT201', 'v1', 'R-2', actor))
+    await expect(markReturnFiled('c1', 'VAT201', 'v1', '4123456789V00000001', actor))
       .rejects.toMatchObject({ status: 409, refusalCode: STALE_RETURN_REFUSAL.ALREADY_FILED });
   });
 
   it('filing a superseded version: VERSION_SUPERSEDED', async () => {
     m.getVersionForUpdate.mockResolvedValue(version('superseded'));
-    await expect(markReturnFiled('c1', 'VAT201', 'v1', 'R-2', actor))
+    await expect(markReturnFiled('c1', 'VAT201', 'v1', '4123456789V00000001', actor))
       .rejects.toMatchObject({ status: 409, refusalCode: STALE_RETURN_REFUSAL.VERSION_SUPERSEDED });
   });
 

@@ -50,7 +50,7 @@ function describe(form: ReturnForm, action: ReturnAction, n: number): { title: s
   }
   if (action === 'file') {
     return { title: `Mark ${form} v${n} filed`, cta: 'Mark filed',
-      text: 'Records that you filed this version on SARS eFiling. IsaFlow does not send the return to SARS: enter the reference eFiling gave you.' };
+      text: 'Records that you filed this version on SARS eFiling. IsaFlow does not send the return to SARS: enter the payment reference number (PRN) eFiling shows on the return.' };
   }
   return { title: `Amend ${form} v${n}`, cta: 'Amend',
     text: `Version ${n} becomes superseded${form === 'VAT201' ? ' and its VAT period lock is released so postings can be corrected' : ''}. `

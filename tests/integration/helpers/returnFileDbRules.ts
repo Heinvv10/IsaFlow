@@ -22,12 +22,19 @@ export async function submission(f: ReturnFixture, m: number, status = 'submitte
     VALUES (${f.fx.companyId}::UUID, ${form}, ${day(m)}::DATE, ${day(m, true)}::DATE, ${status}, 'R') RETURNING id`) as Row[])[0]!.id);
 }
 
-/** An EMP201 version of month m in the given state, inserted as the table owner (the fixture is not under test). */
-export async function version(f: ReturnFixture, m: number, state: 'finalised' | 'filed' | 'superseded'): Promise<string> {
+/**
+ * An EMP201 version of month m in the given state, inserted as the table owner (the fixture is not under test). It is
+ * finalised before migration 999v's cut-off unless `afterCutoff`, so the 971 rules are judged without the filing-file rule.
+ */
+export async function version(
+  f: ReturnFixture, m: number, state: 'finalised' | 'filed' | 'superseded', afterCutoff = false,
+): Promise<string> {
   const sub = state === 'filed' ? await submission(f, m) : null;
+  const finalisedAt = afterCutoff ? new Date().toISOString() : '2026-01-01T00:00:00Z';
   const rows = (await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
-    posted_through, finalised_by, status, sars_submission_id, filed_reference, filed_by, filed_at, amended_by, amend_reason, amended_at)
-    VALUES (${f.fx.companyId}::UUID, 'EMP201', ${day(m)}::DATE, ${day(m, true)}::DATE, 1, '{}', now(), ${f.admin.userId}, ${state},
+    posted_through, finalised_by, finalised_at, status, sars_submission_id, filed_reference, filed_by, filed_at, amended_by, amend_reason, amended_at)
+    VALUES (${f.fx.companyId}::UUID, 'EMP201', ${day(m)}::DATE, ${day(m, true)}::DATE, 1, '{}', now(), ${f.admin.userId},
+      ${finalisedAt}::TIMESTAMPTZ, ${state},
       ${sub}::UUID, ${sub ? 'REF' : null}, ${sub ? 'u' : null}, ${sub ? new Date().toISOString() : null}::TIMESTAMPTZ,
       ${state === 'superseded' ? 'u' : null}, ${state === 'superseded' ? 'why' : null},
       ${state === 'superseded' ? new Date().toISOString() : null}::TIMESTAMPTZ) RETURNING id`) as Row[];

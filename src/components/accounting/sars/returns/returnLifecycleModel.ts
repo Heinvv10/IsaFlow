@@ -57,7 +57,8 @@ export function availableActions(
   }
   const acts = ACT_ROLES.includes(role ?? '');
   const finalise = live === null && canWrite(role);
-  const file = live?.status === 'finalised' && acts;
+  // Wave 6 EFa: filed only once the version's filing file was generated (the server refuses otherwise).
+  const file = live?.status === 'finalised' && acts && live.filingFileSha256 !== null;
   const amend = live !== null && acts;
   let note: string | null = null;
   if (live === null && !canWrite(role)) note = 'You have read-only access to this company, so you cannot finalise the return.';
