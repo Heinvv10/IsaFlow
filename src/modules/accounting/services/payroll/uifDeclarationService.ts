@@ -226,7 +226,7 @@ export async function generateUifDeclaration(
       ${companyId}::uuid, ${year}, ${month},
       ${employeeCount}, ${r(totalLeviable)},
       ${r(totalUifEmployee)}, ${r(totalUifEmployer)},
-      'draft', ${generatedByUserId}::uuid, NOW()
+      'draft', ${generatedByUserId}, NOW()
     )
     ON CONFLICT (company_id, period_year, period_month) DO UPDATE SET
       total_employees             = EXCLUDED.total_employees,
@@ -261,7 +261,7 @@ export async function markUifSubmitted(
     UPDATE uif_declarations SET
       status       = 'submitted',
       submitted_at = NOW(),
-      submitted_by = ${submittedByUserId}::uuid,
+      submitted_by = ${submittedByUserId},
       updated_at   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *

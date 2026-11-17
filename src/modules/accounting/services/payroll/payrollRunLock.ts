@@ -220,7 +220,7 @@ export async function saveCalculatedRunTotals(
       total_eti      = ${t.eti},
       total_net      = ${t.net},
       employee_count = ${t.employeeCount},
-      prepared_by     = ${preparedBy}::uuid,
+      prepared_by     = ${preparedBy},
       approval_plan_hash = NULL,
       approval_revision = gen_random_uuid(),
       updated_at     = NOW(),

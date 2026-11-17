@@ -190,10 +190,7 @@ export async function updateTaxDirective(
       status = COALESCE(${change.status ?? null}::text, status),
       issued_date = CASE WHEN ${setIssued}::boolean THEN ${change.issued_date ?? null}::date ELSE issued_date END,
       expiry_date = CASE WHEN ${restoreNull}::boolean THEN NULL ELSE COALESCE(${judged?.undo?.oldExpiry ?? change.expiry_date ?? null}::date, expiry_date) END,
-      approved_by = CASE
-        WHEN ${approvedByUserId ?? null}::uuid IS NOT NULL THEN ${approvedByUserId ?? null}::uuid
-        ELSE approved_by
-      END,
+      approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),
       updated_at = NOW()
     WHERE company_id = ${companyId}
       AND id = ${id}

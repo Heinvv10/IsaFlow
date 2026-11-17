@@ -68,18 +68,25 @@ export class SubmissionNotOpenError extends Error {
 
 /**
  * The (company, form, period) draft key, held until the transaction ends. saveDraftSubmission takes it, and so does
- * the ISV path before anything goes to SARS: a filing, a draft save and an ISV submit of one period queue.
+ * the ISV path before anything goes to SARS: a filing, a draft save and an ISV submit of one period queue. The key is
+ * built from the values as the database reads them (uuid and dates in canonical text), so '2026-1-1' and '2026-01-01'
+ * queue on one key, as they name one row; for canonical input it is the string the earlier colour built.
  */
 export async function takeDraftPeriodLock(companyId: string, formType: string, periodStart: string, periodEnd: string): Promise<void> {
   if (!als.getStore()?.client) throw new Error('The draft period lock must be taken inside a request transaction');
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sars-draft:${companyId}:${formType}:${periodStart}:${periodEnd}`}, 0))`;
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended('sars-draft:' || ${companyId}::UUID::TEXT || ':' || ${formType}::TEXT
+    || ':' || ${periodStart}::DATE::TEXT || ':' || ${periodEnd}::DATE::TEXT, 0))`;
 }
+
+/** The partial unique index of one open draft per company, form and period (migration 999b). */
+const ONE_OPEN_DRAFT_INDEX = 'uq_sars_submissions_one_open_draft';
 
 /**
  * Saves the company's open draft for the period: updates it when one exists (keepExistingAs stores its previous
  * form_data under that key of the new one, so nothing the page saved is lost), inserts it otherwise. One open draft per company, form and period, held by an advisory lock on that key
- * and a row lock on the draft, not by an index (migration 971 explains why): concurrent saves queue, the second
- * sees the first's draft. A period already filed is not refused; a correction is a new submission.
+ * and a row lock on the draft, and by the partial unique index of migration 999b: concurrent saves queue, the second
+ * sees the first's draft. A second open draft some other writer slipped in is refused by the index: 409
+ * (SubmissionNotOpenError), never a 500. A period already filed is not refused; a correction is a new submission.
  */
 export async function saveDraftSubmission(
   companyId: string,
@@ -117,7 +124,13 @@ export async function saveDraftSubmission(
     : await sql`
       INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)
       VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})
-      RETURNING *`) as DbRow[];
+      RETURNING *`.catch((err: unknown) => {
+        const pg = err as { code?: string; constraint?: string };
+        if (pg.code === '23505' && pg.constraint === ONE_OPEN_DRAFT_INDEX) {
+          throw new SubmissionNotOpenError('Another open draft of this period was saved at the same time. Reload and save again.');
+        }
+        throw err;
+      })) as DbRow[];
 
   return mapSubmissionRow(rows[0]!);
 }
@@ -189,7 +202,7 @@ export async function markSubmitted(companyId: string,
         submission_reference = ${reference},
         submitted_at = NOW(),
         -- Who recorded the filing (the calendar names them), not whoever last saved the draft.
-        submitted_by = ${actorUserId}::UUID,
+        submitted_by = ${actorUserId},
         updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     RETURNING *
