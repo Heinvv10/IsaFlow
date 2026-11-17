@@ -14,29 +14,35 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const coA = randomUUID();
 const coB = randomUUID();
+const coG = randomUUID(); // a grandfathered month (migration 951: approval_grandfathered_at, no approved_at)
 
 /** An approved/paid header carries its approval time, as approvePayrollRun leaves it (the EMP201 reads final runs). */
-async function header(company: string, year: number, month: number, status: string, paye: number, eti: number): Promise<void> {
+async function header(company: string, year: number, month: number, status: string, paye: number, eti: number, grandfathered = false): Promise<void> {
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_eti, approved_at)
-     VALUES ($1, $2, $3, $4::text, $5, $6, CASE WHEN $4::text IN ('approved', 'paid') THEN clock_timestamp() END)`,
-    [company, year, month, status, paye, eti]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_eti, approved_at, approval_grandfathered_at)
+     VALUES ($1, $2, $3, $4::text, $5, $6,
+             CASE WHEN $4::text IN ('approved', 'paid') AND NOT $7::boolean THEN clock_timestamp() END,
+             CASE WHEN $7::boolean THEN clock_timestamp() END)`,
+    [company, year, month, status, paye, eti, grandfathered]);
 }
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2), ($3, $4)', [coA, 'ET carry A', coB, 'ET carry B']);
+  await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2), ($3, $4), ($5, $6)', [coA, 'ET carry A', coB, 'ET carry B', coG, 'ET carry grandfathered']);
   await header(coA, 2026, 2, 'approved', 0, 1_000); // end of the September-February period
   await header(coA, 2026, 3, 'approved', 400, 0);
   await header(coA, 2026, 4, 'draft', 0, 9_999); // not declarable: never carried
   await header(coA, 2026, 5, 'approved', 200, 2_000);
   await header(coA, 2026, 6, 'paid', 3_000, 500);
   await header(coB, 2026, 5, 'approved', 0, 5_000); // another company: never carried
+  // A grandfathered May (final: approved before approved_at existed, stamped by migration 951) carries its excess.
+  await header(coG, 2026, 5, 'approved', 200, 2_000, true);
+  await header(coG, 2026, 6, 'approved', 3_000, 500);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
-    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[coA, coB]]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [[coA, coB, coG]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[coA, coB, coG]]);
   } finally {
     await pool.end();
   }
@@ -56,5 +62,11 @@ describe('EMP201 ETI carry-forward', () => {
     const march = await generateEMP201(coA, '2026-03-01', '2026-03-31');
     expect(march.etiCarry.broughtForward).toBe(0);
     expect(march.payePayable).toBe(400);
+  });
+
+  it('a grandfathered May (approval_grandfathered_at, no approved_at) is final: its R1 800 excess is brought into June', async () => {
+    const june = await generateEMP201(coG, '2026-06-01', '2026-06-30');
+    expect(june.etiCarry).toEqual({ broughtForward: 1_800, used: 2_300, carriedForward: 0, refundClaimable: 0 });
+    expect(june.payePayable).toBe(700);
   });
 });
