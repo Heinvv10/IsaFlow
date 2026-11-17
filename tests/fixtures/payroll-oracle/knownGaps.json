@@ -120,53 +120,5 @@
     "reason": "Hours-blind Sage parity: R1 125.00 (Sage's flat 25% for its 'Temporary/Part time' status) against engine R0.00 with HOURS_NOT_RECORDED. The case carries no hours, so G21 Rev 1 p. 27-28 cannot put it in non-standard employment; the statutory 22 h and under-5 h cases are ts-standard-22h-boundary-tables-not-flat-25pct and ts-non-standard-under-5h-day-flat-25pct.",
     "closedBy": "Never by a status label: only if Sage's hours for this employee are recorded (then correct the fixture or add them). Parity only.",
     "parity": true
-  },
-  {
-    "case": "weekly-6000-fourth-week-month-uif-ceiling",
-    "engineActual": {
-      "paye": 0,
-      "uifEmployee": 60,
-      "uifEmployer": 60,
-      "net": 5940
-    },
-    "reason": "No pay frequency reaches the calculator: the week runs as a monthly R6 000 (x12, below the threshold, so PAYE 0), and UIF is costed per line (60.00), not on the month to date across the month's weekly runs (0.00).",
-    "closedBy": "FQc (wave 6): weekly engine with the x52 factor, and UIF capped on the month-to-date remuneration across the month's weekly runs (UICA s6(2), coordinator ruling); a week that straddles two months belongs to the month of its pay date."
-  },
-  {
-    "case": "weekly-6000-third-week-month-uif-ceiling",
-    "engineActual": {
-      "paye": 0,
-      "uifEmployee": 60,
-      "uifEmployer": 60,
-      "net": 5940
-    },
-    "reason": "No pay frequency reaches the calculator: the week runs as a monthly R6 000 (x12, below the threshold, so PAYE 0), and UIF is costed per line (60.00), not on the month to date across the month's weekly runs (57.12).",
-    "closedBy": "FQc (wave 6): weekly engine with the x52 factor, and UIF capped on the month-to-date remuneration across the month's weekly runs (UICA s6(2), coordinator ruling); a week that straddles two months belongs to the month of its pay date."
-  },
-  {
-    "case": "weekly-starter-fourth-week-averaged",
-    "engineActual": {
-      "paye": 0,
-      "net": 2475
-    },
-    "reason": "The three weekly priors are folded as monthly periods: the engine annualises the year to date x12 over periods, so the R2 500 week is below the threshold.",
-    "closedBy": "FQc (wave 6): weekly engine (x52 over periods worked, run-keyed year to date). The period fraction is an input truncated to 4 decimals as G21 p. 10 prints it (0.4285), not 3/7."
-  },
-  {
-    "case": "weekly-starter-g21-3-of-7-days",
-    "engineActual": {
-      "paye": 0
-    },
-    "reason": "No pay frequency or part-period reaches the calculator: R1 090 runs as a monthly line (x12 = 13 080, below the threshold), not 1 090 / 0.4285 x 52.",
-    "closedBy": "FQc (wave 6): weekly engine with the part-period fraction. The period fraction is an input truncated to 4 decimals as G21 p. 10 prints it (0.4285), not 3/7."
-  },
-  {
-    "case": "weekly-week-53-pay-sunday",
-    "engineActual": {
-      "paye": 0,
-      "net": 2970
-    },
-    "reason": "52 weekly priors fold as 52 monthly periods (x12 / 53), so PAYE is 0, not the week-53 averaged 197.31.",
-    "closedBy": "FQc (wave 6): weekly engine and the 53-period year."
   }
 ]

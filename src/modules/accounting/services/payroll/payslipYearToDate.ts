@@ -1,7 +1,7 @@
 /**
  * A payslip's year to date (wave 4 PS): the employee's stored lines on the runs of
  * the same PAYE tax year (1 March to February, `payeTaxYearOf`), up to and including
- * this run's period, that are FINAL by the same test the slip uses (`payslipFinal`),
+ * this run in pay order (payrollRunOrder; wave 6 FQc), that are FINAL by the same test the slip uses (`payslipFinal`),
  * plus this run's own line. A DRAFT slip's year to date therefore includes its own
  * draft figures, under the slip's DRAFT mark.
  *
@@ -10,6 +10,7 @@
  * independent reads. Nothing is recalculated; every figure is a sum of stored ones.
  */
 import { sql } from '@/lib/neon';
+import { runIsBeforeSql, runOrderKeySql } from './payrollRunOrder';
 import { PAYE_TAX_YEAR_START_MONTH, payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
 
 export interface PayslipYearToDate {
@@ -51,10 +52,8 @@ export async function payslipYearToDate(
   employeeIds: string[],
 ): Promise<Map<string, PayslipYearToDate>> {
   const startYear = payeTaxYearOf(run.periodMonth, run.periodYear) - 1;
-  // Bounded by period, not by run: "up to and including this period" is this run alone only because
-  // payroll_run_headers is UNIQUE (company_id, period_year, period_month). The year-to-date test in
-  // tests/integration/payslips.int.test.ts inserts a second header and expects that unique_violation
-  // (23505). Drop the constraint and this bound must name the run too.
+  // Up to and including this run in pay order (payrollRunOrder; wave 6 FQc, spec F2): with several runs a month (weekly,
+  // off-cycle) "up to this period" is no longer this run alone, so the bound names the run.
   const rows = (await sql`
     SELECT prl.run_id::text AS run_id, prl.employee_id::text AS employee_id,
            prl.gross_pay, prl.taxable_income, prl.paye, prl.uif_employee, prl.net_pay,
@@ -64,8 +63,8 @@ export async function payslipYearToDate(
      WHERE prh.company_id = ${companyId}::uuid
        AND prl.employee_id::text = ANY(${employeeIds}::text[])
        AND (prh.period_year, prh.period_month) >= (${startYear}::int, ${PAYE_TAX_YEAR_START_MONTH}::int)
-       AND (prh.period_year, prh.period_month) <= (${run.periodYear}::int, ${run.periodMonth}::int)
-     ORDER BY prh.period_year, prh.period_month, prl.run_id
+       AND (prh.id = ${run.id}::uuid OR ${runIsBeforeSql('prh', companyId, run.id)})
+     ORDER BY ${runOrderKeySql('prh')}
   `) as YtdRow[];
 
   const totals = new Map<string, PayslipYearToDate>(employeeIds.map((id) => [id, ZERO]));

@@ -8,5 +8,10 @@
     "case": "db-fund-12d-category-factor",
     "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page; under the s11F cap the fringe and its deemed contribution cancel, so the engine already gives the hand figure.",
     "wouldVerify": "The Seventh Schedule para 12D text or a SARS 2027 guide page on defined benefit fund fringe benefits, or a Sage payslip with a category factor."
+  },
+  {
+    "case": "weekly-week-53-pay-sunday",
+    "reason": "No SARS page covers a 53rd pay day in a tax year: G20 s7.2 pp. 8-9 / G21 p. 9 say x total pay periods in the tax year (x53 would give 203.77 a week), the weekly tables use x52, and SimplePay documents YTD x 52 / periods worked. The engine (FQc) annualises x52 over n = 53 periods, which is the hand figure in the case notes (197.31).",
+    "wouldVerify": "A SARS ruling or guide page on 53 weekly pay days in one year of assessment, or a SimplePay or Sage payslip for week 53 of a Sunday-paid year."
   }
 ]

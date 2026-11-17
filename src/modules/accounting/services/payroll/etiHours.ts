@@ -17,7 +17,7 @@ import { normaliseSarsCode } from './payeAnnualPayment';
 import { effectiveInclusionRate, includedInPaye } from './fringeBenefits';
 import { employedShareOfMonth } from './employmentTerms';
 import { unitOf } from './payrollRunHours';
-import type { EmployeeComponent, PayrollEmployee, PayrollPeriod } from './payrollTypes';
+import type { EmployeeComponent, EtiMonthParts, PayrollEmployee, PayrollPeriod } from './payrollTypes';
 
 /** ETI Act s7(5): the full month for ETI. */
 export const ETI_FULL_MONTH_HOURS = 160;
@@ -68,11 +68,13 @@ export function etiHoursOf(
   period: PayrollPeriod,
   runHours: number | null,
   components: EmployeeComponent[],
+  /** Wave 6 FQc: the month's earlier weekly or fortnightly runs (payrollLineEtiMonth), added to this run's. */
+  earlier?: EtiMonthParts,
 ): EtiHours {
   let ordinary: number;
   if (unitOf(employee) != null) {
-    if (runHours == null) return UNKNOWN;
-    ordinary = runHours;
+    if (runHours == null || (earlier && earlier.ordinaryHours == null)) return UNKNOWN;
+    ordinary = runHours + (earlier?.ordinaryHours ?? 0);
   } else {
     const perWeek = employee.hoursPerWeek == null ? null : Number(employee.hoursPerWeek);
     const share = employedShareOfMonth(period, employee.startDate, employee.endDate);
@@ -81,8 +83,8 @@ export function etiHoursOf(
     }
     ordinary = round2(((perWeek * 52) / 12) * share);
   }
-  const wage = ordinaryWageCents(components) / 100;
-  const overtime = overtimeHours(components, ordinary > 0 ? wage / ordinary : 0);
+  const wage = (ordinaryWageCents(components) + (earlier?.wageCents ?? 0)) / 100;
+  const overtime = overtimeHours(components, ordinary > 0 ? wage / ordinary : 0) + (earlier?.overtimeHours ?? 0);
   return { hours: round2(ordinary + overtime), ordinaryHours: ordinary, assumed: false };
 }
 

@@ -1,4 +1,6 @@
 import { getEmployeeComponents } from './payrollComponentService';
+import { getTerminationDetails } from './payrollTerminationService';
+import { isoOfDate } from './payFrequencyPeriods';
 import { applyFringeBenefits, FringeBenefitConfigError, selectBenefit } from './fringeBenefits';
 import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fringeBenefitService';
 import { markNonCashEmployerBenefits } from './employerContributions';
@@ -35,11 +37,12 @@ export async function prepareRunComponents(args: {
   const vehicleComponent = await loadVehicleBenefitComponent(companyId);
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
+    const read = onlySeverance ? [] : await getEmployeeComponents(employee.id, companyId, readDate, period.start);
     const components = onlySeverance
       ? await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings)
-      : await appendTerminationIfEndingThisPeriod(
-        companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
-      );
+      // A weekly or fortnightly run (it has its own dates, wave 6 FQc) costs no termination pay-outs: refused on the line.
+      : period.start ? read.concat(await nonMonthlyTermination(companyId, employee, period, terminationWarnings))
+        : await appendTerminationIfEndingThisPeriod(companyId, runId, employee, read, period, terminationWarnings);
     if (onlySeverance && components.length === 0) continue;
     // The whole reading (partial month, overlap, unusable row) reaches the line: each is warned there, none dropped.
     prepared.push({
@@ -79,4 +82,24 @@ export function withRfiCosted(components: EmployeeComponent[], warnings: Validat
   const costed = costPercentOfRfi(components);
   warnings.push(...costed.warnings);
   return costed.components;
+}
+
+/**
+ * Wave 6 FQc: leave and notice pay-outs are costed on a MONTHLY salary (payrollRunTermination), so a weekly or
+ * fortnightly leaver with a termination reason, leaving in this run's period, gets a warning on the line instead:
+ * the pay-outs are captured by hand as once-offs. Logged for wave 7. Adds no component.
+ */
+async function nonMonthlyTermination(
+  companyId: string, employee: PayrollEmployee, period: PayrollPeriod, warnings: ValidationResult[],
+): Promise<EmployeeComponent[]> {
+  const end = employee.endDate ? isoOfDate(employee.endDate) : null;
+  if (!end || !period.start || !period.end || end < period.start || end > period.end) return [];
+  if (!(await getTerminationDetails(companyId, employee.id))?.reason) return [];
+  warnings.push({
+    code: 'TERMINATION_NOT_COSTED_AT_FREQUENCY', severity: 'warning',
+    message: 'This employee leaves in this run, with a termination reason, but leave and notice pay-outs are worked out on a '
+      + 'monthly salary and are not costed on a weekly or fortnightly run yet: none was added. Add any that are due as '
+      + 'once-off earnings, then recalculate.',
+  });
+  return [];
 }

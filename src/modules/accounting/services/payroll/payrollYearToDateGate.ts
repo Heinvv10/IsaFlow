@@ -11,6 +11,7 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
+import { runOrderKeySql } from './payrollRunOrder';
 
 /** The blocker approval raises (null when current), and advisories it does not refuse for. */
 export interface YearToDateJudgement {
@@ -112,6 +113,10 @@ export interface YearToDateJudgement {
  * old figures for those employees, said in a non-blocking advisory
  * (`paye_paid_later_month_stale`, in the preview, not in the plan hash).
  *
+ * "Month" above means RUN since wave 6 FQc: earlier and later are pay order (payrollRunOrder), the warning is matched
+ * by the run's id (`runs`), and a line from before FQc (months only, no `runs`) still matches by the month. A
+ * message names a monthly regular run by its YYYY-MM and any other run by its period start.
+ *
  * Read-only; under the gate's company approval lock. Null when current.
  */
 export async function judgeYearToDate(companyId: string, runId: string): Promise<YearToDateJudgement> {
@@ -123,9 +128,11 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     runs AS (
       SELECT h.id, h.period_year, h.period_month, h.status, h.approved_at, h.approval_grandfathered_at, h.approval_history, h.approved_taxed_employees,
              make_date(h.period_year, h.period_month, 1) AS period,
-             -- Earlier / later stays the MONTH, as loadPayeYearToDate's bound is (spec F2): a gate that called a run of the
-             -- same month earlier would pass a run whose year to date never read it (review #1507 B2a). FQc moves the gate
-             -- and the figure onto payrollRunOrder together.
+             -- Earlier / later is pay order (payrollRunOrder), as loadPayeYearToDate's bound is (wave 6 FQc, spec F2;
+             -- review #1507 B2a): both moved together, so a weekly run 3 of a month judges runs 1-2 as earlier.
+             ${runOrderKeySql('h')} AS run_key,
+             CASE WHEN h.pay_frequency = 'monthly' AND h.run_kind = 'regular' THEN to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM')
+                  ELSE to_char(h.period_start, 'YYYY-MM-DD') END AS label,
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h, tax_year y
       WHERE h.company_id = ${companyId}::uuid
@@ -142,9 +149,9 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     ),
     me AS (SELECT r.* FROM runs r WHERE r.id = ${runId}::uuid),
     judged AS (
-    SELECT e.period_year, e.period_month, e.period > me.period AS later,
+    SELECT e.label, e.run_key, e.run_key > me.run_key AS later,
       CASE
-        WHEN e.period < me.period THEN NOT (
+        WHEN e.run_key < me.run_key THEN NOT (
           e.calculated_at <= me.calculated_at
           AND (COALESCE(e.approved_at <= me.calculated_at, true) OR COALESCE(e.approval_history @> me.calculated_at, false)))
         ELSE NOT (
@@ -157,13 +164,19 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
             WHERE ml.run_id = me.id
               AND ml.has_table_remuneration
               AND el.has_table_remuneration
+              -- The warning names the run (FQc). A line written before it names months only: it matches by the month,
+              -- and only a warning without runs may (a run-keyed warning that omits this run must not pass on its month).
               AND NOT ml.validation_results @> jsonb_build_array(jsonb_build_object(
-                'code', 'PAYE_LATER_PERIODS_APPROVED', 'periods', jsonb_build_array(to_char(e.period, 'YYYY-MM')))))
+                'code', 'PAYE_LATER_PERIODS_APPROVED', 'runs', jsonb_build_array(e.id::text)))
+              AND NOT (ml.validation_results @> jsonb_build_array(jsonb_build_object(
+                  'code', 'PAYE_LATER_PERIODS_APPROVED', 'periods', jsonb_build_array(to_char(e.period, 'YYYY-MM'))))
+                AND NOT ml.validation_results @> jsonb_build_array(jsonb_build_object(
+                  'code', 'PAYE_LATER_PERIODS_APPROVED', 'runs', '[]'::jsonb))))
       END AS recalc_here,
       -- A later month calculated from an earlier version of this run (approved then, lines since rewritten:
       -- only a closed approval can cover that time) that pays someone from the tables whom an earlier version
       -- taxed and this run no longer does. A paid month cannot be reopened: an advisory, not a refusal (limit (f)).
-      e.period > me.period
+      e.run_key > me.run_key
         AND COALESCE(me.calculated_at, 'infinity'::timestamptz) > e.calculated_at -- no lines: rewritten after every month
         AND COALESCE(me.approval_history @> e.calculated_at, false)
         AND EXISTS (
@@ -180,13 +193,14 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     WHERE e.id <> me.id
       AND ${sql.unsafe(payRunFinalSql('e'))}
     )
-    SELECT period_year, period_month, later, recalc_here,
+    SELECT label, later, recalc_here,
            older_dropped AND e_status <> 'paid' AS recalc_later, older_dropped AND e_status = 'paid' AS paid_old
     FROM judged WHERE recalc_here OR older_dropped
-    ORDER BY period_year, period_month
+    ORDER BY run_key
   `) as DbRow[];
   if (rows.length === 0) return { blocker: null, advisories: [] };
-  const month = (r: DbRow) => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`;
+  // A monthly regular run's YYYY-MM, else the run's period start (YYYY-MM-DD).
+  const month = (r: DbRow) => String(r.label);
   const here = rows.filter(r => r.recalc_here === true);
   const earlier = here.filter(r => r.later !== true).map(month);
   const later = here.filter(r => r.later === true).map(month);

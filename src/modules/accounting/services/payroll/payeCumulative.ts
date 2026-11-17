@@ -127,7 +127,9 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 export function calculateCumulativePaye(input: CumulativePayeInput): CumulativePayeResult {
   const { ytd, factor: F } = input;
   const hasPeriodic = input.periodicRemuneration > 0;
-  const periods = ytd.periods + (hasPeriodic ? 1 : 0);
+  // A part period counts its share (FQc: a weekly or fortnightly starter; monthly is always 1).
+  const share = input.periodShare ?? 1;
+  const periods = ytd.periods + (hasPeriodic ? share : 0);
   const feesToDate = Math.max(0, ytd.medicalSchemeFees + input.medicalSchemeFees);
   const annualMedicalSchemeFees = periods > 0 ? (feesToDate * F) / periods : feesToDate;
   const base = {
@@ -164,7 +166,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const offPeriodic = Math.min(deduction, offPeriodicCeiling);
   const periodicToDate = (offPeriodic * periods) / F;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
-    + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
+    + (hasPeriodic ? share : input.annualPaymentRemuneration > 0 ? 1 : 0);
   // RULED DEPARTURE (wave-6 ruling 5, vendor parity with Sage; coordinator 2026-11-17): the cap to date is cap × n ÷ F,
   // not G21 (2027) p. 10's period ratio n ÷ 12, so twelve months reach R430 000 × 12 ÷ F = R429 999.06, R0.94 under the
   // s11F cap, and SDL (on pay after this deduction) moves by cents where the cap binds. Pinned by payeAnnualisation.test.ts

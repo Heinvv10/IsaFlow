@@ -50,6 +50,12 @@ export async function getEmployeeComponents(
   employeeId: string,
   companyId: string,
   asOf: string,
+  /**
+   * The run's first day (wave 6 FQc): a once-off dated from it to `asOf` is the run's. Absent = the first of `asOf`'s
+   * month, which is a monthly run's first day, so a monthly run reads as it always did. A weekly or fortnightly run
+   * passes its own start, so each run of a month pays only the once-offs dated in its own period, each once.
+   */
+  periodStart?: string,
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
@@ -86,7 +92,7 @@ export async function getEmployeeComponents(
         )
         OR (
           pec.is_recurring = FALSE
-          AND pec.effective_from >= date_trunc('month', ${asOf}::date)::date
+          AND pec.effective_from >= COALESCE(${periodStart ?? null}::date, date_trunc('month', ${asOf}::date)::date)
           AND pec.superseded_at IS NULL
           AND NOT (pec.supersede_inferred AND EXISTS (
             SELECT 1 FROM payroll_employee_components nxt

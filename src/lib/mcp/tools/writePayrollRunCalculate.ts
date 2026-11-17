@@ -22,6 +22,7 @@ import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { assertFrequencyCostable, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 /** The run, as every tool here reports it. */
@@ -83,8 +84,13 @@ export const calculatePayRunTool: McpTool = {
         try {
           const employees = await listPayrollRunEmployees(ctx.companyId, { year: run.periodYear, month: run.periodMonth }, run.payFrequency);
           await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
+          // Wave 6 FQc: then the frequency guard, as the live call runs it (a mid-year frequency change refuses a monthly run too).
+          if (run.payFrequency !== 'unsupported') {
+            await assertFrequencyCostable(ctx.companyId, { frequency: run.payFrequency, period: { year: run.periodYear, month: run.periodMonth }, runDate: null },
+              employees.map((e) => e.id));
+          }
         } catch (err) {
-          if (isRunKindUnsupported(err)) return toolError(err.message);
+          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
           throw err;
         }
       }
@@ -121,7 +127,9 @@ export const calculatePayRunTool: McpTool = {
       // raised BEFORE any line is touched. Everything else propagates to the
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
-      if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || isRunKindUnsupported(err)) return toolError(err.message);
+      if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || isRunKindUnsupported(err) || isPayFrequencyRefused(err)) {
+        return toolError(err.message);
+      }
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError

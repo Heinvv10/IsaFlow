@@ -20,6 +20,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { getEmployeeComponents } from './payrollComponentService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import type { PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -57,7 +58,10 @@ export async function recurringRowsNeedingProRata(
 ): Promise<ProRataRow[]> {
   if (employeeIds.length === 0) return [];
   const last = payrollRunReadDate(period);
-  const day27 = `${last.slice(0, 8)}27`;
+  // The band: from the 27th of a month (Hein 2026-11-02); a weekly or fortnightly run's whole period (wave 6 FQc), since
+  // it reads on its own last day and does not apportion either: a row starting after its first day is paid in full, one
+  // ending before its last day is not paid.
+  const day27 = period.start ?? `${last.slice(0, 8)}27`;
   const rows = (await sql`
     SELECT pec.id, pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
            pec.effective_from > ${day27}::date AS starts
@@ -127,7 +131,7 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
 /** The approval refusal for the run, or null. Read-only. */
 export async function runProRataBlocker(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const lines = (await sql`
-    SELECT l.employee_id, e.employee_number, h.period_year, h.period_month,
+    SELECT l.employee_id, e.employee_number, h.period_year, h.period_month, h.pay_frequency, h.period_start, h.period_end,
            jsonb_path_exists(l.validation_results, ${`$[*] ? (@.code == "${PRO_RATA_CODE}")`}::jsonpath) AS flagged
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid
@@ -137,9 +141,9 @@ export async function runProRataBlocker(companyId: string, runId: string): Promi
   `) as DbRow[];
   const head = lines[0];
   if (!head) return null;
-  const period = { year: Number(head.period_year), month: Number(head.period_month) };
+  const period = runPeriodOf(head);
   // The lines that read components: the run's population, not its severance-only leavers (as calculatePayrollRun).
-  const reading = new Set((await listPayrollRunEmployees(companyId, period)).map((e) => e.id));
+  const reading = new Set((await listPayrollRunEmployees(companyId, period, payFrequencyOf(head.pay_frequency))).map((e) => e.id));
   const live = await recurringRowsNeedingProRata(
     companyId, period, lines.map((l) => String(l.employee_id)).filter((id) => reading.has(id)),
   );

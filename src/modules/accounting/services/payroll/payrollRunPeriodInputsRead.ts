@@ -11,10 +11,11 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { payrollRunReadDate } from './payrollRunReadDate';
 import type { RunInputAmount, RunInputRecurring } from './payrollRunPeriodInputs';
 
-export interface RunPeriod { year: number; month: number }
+/** The run's month, and its own dates when it is weekly or fortnightly (runPeriodOf; wave 6 FQc). */
+export interface RunPeriod { year: number; month: number; start?: string; end?: string }
 
-/** The row key's dates: the run month's first and last day. */
-export const monthBounds = ({ year, month }: RunPeriod) => ({
+/** The row key's dates: the run's own first and last day (wave 6 FQc: a once-off is keyed by its run), else its month's. */
+export const monthBounds = ({ year, month, start, end }: RunPeriod) => (start && end ? { from: start, to: end } : {
   from: `${year}-${String(month).padStart(2, '0')}-01`,
   to: endOfMonthIso(year, month),
 });
@@ -30,7 +31,7 @@ async function paidByRun(companyId: string, employeeIds: string[], period: Perio
   const wanted = new Set(componentIds);
   const paid: Array<{ employeeId: string; componentId: string; id: string; recurring: boolean; amount: number; quantity: number | null }> = [];
   for (const employeeId of employeeIds) {
-    for (const c of await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period))) {
+    for (const c of await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period), period.start)) {
       if (wanted.has(c.component.id) && c.assignmentId) {
         paid.push({ employeeId, componentId: c.component.id, id: c.assignmentId, recurring: c.isRecurring !== false, amount: c.amount, quantity: c.quantity ?? null });
       }

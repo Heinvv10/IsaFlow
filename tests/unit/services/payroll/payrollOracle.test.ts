@@ -110,7 +110,7 @@ describe('payroll oracle fixtures', () => {
     expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
   });
 
-  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its two signed entries', () => {
+  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
     'db-fund-12d-s11f-cap-binds': 'DBF',
@@ -127,13 +127,9 @@ describe('payroll oracle fixtures', () => {
     'ri-reimbursive-above-prescribed-3702-3722': 'RI',
     'ri-sunday-8h-at-2x': 'RI',
     'sage-2027-03-marco': 'PARITY',
-    'weekly-6000-fourth-week-month-uif-ceiling': 'FQc',
-    'weekly-6000-third-week-month-uif-ceiling': 'FQc',
-    'weekly-starter-fourth-week-averaged': 'FQc',
-    'weekly-starter-g21-3-of-7-days': 'FQc',
-    'weekly-week-53-pay-sunday': 'FQc',
     });
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
+    // FQc: week 53 (UNVERIFIED, x52 over n = 53) equals its hand figure, so it moves to unverified.json.
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'weekly-week-53-pay-sunday']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are not gaps', () => {

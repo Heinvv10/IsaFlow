@@ -3,13 +3,15 @@
  * (payeCumulative.ts; PAYE 4a follow-ups G4).
  *
  * From the employee's lines on FINAL runs (payRunFinalSql, wave 6 EF; formerly EMP201_DECLARABLE_STATUSES:
- * approved, paid) of the same SA tax year (March to February) whose period is
- * BEFORE the run being calculated, so the run itself, a reopened run (no longer
- * declarable) and any later period are never in it. Lines are what the
+ * approved, paid) of the same SA tax year (March to February) BEFORE the run being calculated in pay order
+ * (payrollRunOrder: period start, pay date, regular first; wave 6 FQc, spec F2: weekly runs 2-4 of a month see runs
+ * 1-3), so the run itself, a reopened run (no longer declarable) and any later run are never in it. Lines are what the
  * employee was paid and what EMP201 and the IRP5 declare, so the cumulative
  * deduction trues up to exactly those.
  *
- * - periods: lines with positive taxable periodic earnings before deductions,
+ * - periods: lines with positive taxable periodic earnings before deductions (a weekly or fortnightly line counts the
+ *   share of its period the employee was employed, payFrequencyPeriods.periodShareOf, from the employee's start and
+ *   end dates as they stand: a start date edited after the line moves its share),
  *   read separately from 3605 in the stored breakdown so an annual-payment
  *   clawback cannot erase a salary period (a severance-only or
  *   donation-correction-only line has none);
@@ -60,6 +62,7 @@ import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { outsideTablesFlag } from './payrollOutsideTables';
 import { restoreLegacyTaxableSplit, yearToDatePeriods } from './payrollYearToDateLegacy';
+import { runIsBeforeSql, runOrderKeySql } from './payrollRunOrder';
 
 export { yearToDatePeriods } from './payrollYearToDateLegacy';
 export { laterPeriodsWarnings } from './payrollLaterPeriodsWarnings';
@@ -83,13 +86,18 @@ export async function loadPayeYearToDate(
              r.periodic_before_deductions,
              r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations,
-             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
+             h.period_year, h.period_month, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
              l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable,
              l.donation_receipted, l.donation_base, l.donation_deduction,
              -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
-             NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables
+             NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables,
+             -- The share of the period employed (FQc; payFrequencyPeriods.periodShareOf, four decimals truncated): 1 a month.
+             CASE WHEN h.pay_frequency = 'monthly' OR h.period_start IS NULL OR h.period_end IS NULL THEN 1::numeric
+                  ELSE floor(GREATEST(0, LEAST(h.period_end, COALESCE(e.end_date, h.period_end)) - GREATEST(h.period_start, e.start_date) + 1)
+                         * 10000.0 / (h.period_end - h.period_start + 1)) / 10000 END AS share
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
+      JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
       CROSS JOIN LATERAL (
         SELECT COALESCE(SUM((item->'directive'->>'paye')::numeric) FILTER (WHERE item->'directive' IS NOT NULL), 0) AS directive_paye,
@@ -120,12 +128,13 @@ export async function loadPayeYearToDate(
         AND h.id <> ${runId}::uuid
         AND ${sql.unsafe(payRunFinalSql('h'))}
         AND make_date(h.period_year, h.period_month, 1) >= make_date(${taxYear - 1}::int, ${PAYE_TAX_YEAR_START_MONTH}::int, 1)
-        AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)
+        AND ${runIsBeforeSql('h', companyId, runId)}
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
-           COUNT(*) FILTER (WHERE on_tables AND periodic_before_deductions > 0)::int AS periods,
-           COUNT(*) FILTER (WHERE on_tables AND (periodic_before_deductions > 0 OR annual_before_deductions > 0))::int AS retirement_cap_periods,
+           COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0), 0)::float8 AS periods,
+           COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END)
+             FILTER (WHERE on_tables AND (periodic_before_deductions > 0 OR annual_before_deductions > 0)), 0)::float8 AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_lines,
            -- Only these lines may need the legacy restoration to add a cap period.
@@ -150,18 +159,15 @@ export async function loadPayeYearToDate(
            jsonb_agg(jsonb_build_object('line', line_id, 'sdl', sdl, 'sdlApplicable', stored_sdl_applicable,
                'rebuiltApplicable', rebuilt_sdl_applicable, 'sdlLeviable', sdl_leviable, 'sdlExempt', sdl_exempt,
                'retirement', retirement_deduction, 'donation', donation_deduction)
-             ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines
+             ORDER BY run_key, line_created_at, line_id) AS sdl_lines
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
   // The same lines' medical scheme fees and retirement fund contributions, by the one rule for each (a line
-  // before 926 / 948 from its breakdown).
-  const before = {
-    start: `${taxYear - 1}-03-01`,
-    end: period.month === 1 ? `${period.year - 1}-12-01` : `${period.year}-${String(period.month - 1).padStart(2, '0')}-01`,
-  };
-  const fees = await loadMedicalRecord(companyId, before, employeeIds, { tablesOnly: true });
-  const retirement = await loadRetirementRecord(companyId, before, employeeIds, { tablesOnly: true });
+  // before 926 / 948 from its breakdown): the tax year's runs before this one in pay order.
+  const before = { start: `${taxYear - 1}-03-01`, end: `${taxYear}-02-01` };
+  const fees = await loadMedicalRecord(companyId, before, employeeIds, { tablesOnly: true, beforeRun: runId });
+  const retirement = await loadRetirementRecord(companyId, before, employeeIds, { tablesOnly: true, beforeRun: runId });
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
     const taxableSplits = (r.taxable_splits ?? {}) as Record<string, unknown>;

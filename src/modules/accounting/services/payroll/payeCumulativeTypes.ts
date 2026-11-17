@@ -31,6 +31,11 @@ export interface CumulativePayeInput {
    * for monthly pay. 12 is the statutory × 12 of G21 p. 8, which the method's own tests use to check SARS's examples.
    */
   factor: number;
+  /**
+   * The part of this period worked (wave 6 FQc; payFrequencyPeriods.periodShareOf): a weekly or fortnightly starter's
+   * first period counts 3 of 7 days as 0.4285 of a period in n (G20 s7.2 p. 9 / G21 p. 10). Absent = 1 (a whole period).
+   */
+  periodShare?: number;
 }
 
 export interface CumulativePayeResult {

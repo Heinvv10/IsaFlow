@@ -8,4 +8,5 @@ export const PAYROLL_REFUSAL_CODES = [
   'RUN_KIND_UNSUPPORTED',
   'PAYROLL_BANK_FILE_REFUSED', // BF payrollBankFileStatus: a bank-file write refused before any write, naming the run's own employee numbers.
   'PAYSLIP_EMAIL_REFUSED', // PE payslipDeliveryRefusal: a payslip email refused before anything is sent or written.
+  'PAY_FREQUENCY_REFUSED', // FQc payrollFrequencyGuard: terms a weekly or fortnightly run cannot cost, its EMP201 month, a mid-year frequency change; names the company's own employee numbers, before any write.
 ] as const;

@@ -38,7 +38,7 @@ describe('loadPayeYearToDate: SDL year to date (SDL Act s3(3); SDL-GEN-01-G01 Re
     expect(query).toContain("COALESCE((item->>'isSdlApplicable')::boolean");
     expect(query).toContain('l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt');
     expect(query).toContain("pc.component_type = 'earning' AND pc.is_sdl_applicable");
-    expect(query).toContain('ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines');
+    expect(query).toContain('ORDER BY run_key, line_created_at, line_id) AS sdl_lines'); // pay order (payrollRunOrder; wave 6 FQc)
     // The SDL columns ride the one line set PAYE reads: no second WHERE.
     // One final-run predicate (payRunFinalSql, wave 6 EF) spliced into the line query itself.
     const firstQuery = sqlMock.mock.invocationCallOrder[0]!;

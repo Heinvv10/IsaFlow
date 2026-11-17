@@ -10,7 +10,9 @@ import { explainPayrollLine } from './payrollExplain';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
-import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
+import { classifyEmployment, timeWorkedEarnings } from './employmentTerms';
+import { cadenceTermsOf } from './payrollLineCadence';
+import { etiMonthPartsOf, pendingEti } from './payrollLineEtiMonth';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
@@ -80,10 +82,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // How the employee is taxed (TS-b): the tables, a flat 25% (non-standard), or none (contractor). The class reads what the line pays
   // per day (employmentTerms). A line off the tables is costed as a first period (no year to date), then replaced below; its month
   // stays out of every later table month's base.
-  const timeWorked = timeWorkedEarnings(components);
-  const classification = classifyEmployment(employee, taxYear, {
-    earnings: timeWorked, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate),
-  });
+  const cadence = cadenceTermsOf(input); // wave 6 FQc: weekly and fortnightly (payrollLineCadence)
+  const classification = classifyEmployment(employee, taxYear, cadence.dayPay(timeWorkedEarnings(components)));
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
   // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.
   // Never on an independent contractor (Hein, #1266 round 2): the line errors instead (contractorDirectiveResult).
@@ -123,6 +123,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       periodicRemuneration, annualPaymentRemuneration,
       ytd: ytdForTables ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
       taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
+      factor: cadence.factor, periodShare: cadence.periodShare,
     },
     ytd: ytdForTables,
   });
@@ -132,7 +133,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const taxableIncome = regularTaxable + annualTaxable;
   const balanceOfRemuneration = taxableIncome - retirementDeduction;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
+  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear, cadence.uifMonthToDate);
   const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
   if (uifCosted) warnings.push(...uifClawbackWarnings(earningParts, uifLeviable));
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
@@ -169,9 +170,13 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const lineEti = costLineEti({
     employee, components, period, periodDate, runHours: hours,
     notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
+    ...(input.cadence?.etiMonthToDate ? { monthToDate: input.cadence.etiMonthToDate } : {}),
   });
-  const eti: EtiResult = lineEti.eti;
-  warnings.push(...lineEti.warnings);
+  // A weekly or fortnightly line before its month's last run claims none and records its parts (payrollLineEtiMonth).
+  const etiPending = input.cadence && cadence.frequency !== 'monthly' && !input.cadence.etiMonthToDate && !input.notEmployedInPeriod
+    ? pendingEti(lineEti.eti, etiMonthPartsOf(employee, input.cadence, hours, components)) : null;
+  const eti: EtiResult = etiPending?.eti ?? lineEti.eti;
+  warnings.push(...(etiPending?.warnings ?? lineEti.warnings));
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,

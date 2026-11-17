@@ -9,7 +9,7 @@ import { etiHoursOf, etiRemunerationOf, ordinaryWageCents } from './etiHours';
 import { etiIdDocumentShown, idDateOfBirthMismatch } from './etiEligibility';
 import { nationalMinimumWageCents } from './etiTables';
 import { unitOf } from './payrollRunHours';
-import type { EmployeeComponent, EtiResult, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
+import type { EmployeeComponent, EtiMonthParts, EtiResult, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 export interface LineEtiInput {
   employee: PayrollEmployee;
@@ -22,6 +22,8 @@ export interface LineEtiInput {
   notEmployedInPeriod: boolean;
   /** False for an independent contractor (TS-b): not an employee, so no ETI. */
   etiApplies: boolean;
+  /** Wave 6 FQc: a weekly or fortnightly run closing its month carries the month's earlier runs' parts (payrollLineEtiMonth). */
+  monthToDate?: EtiMonthParts;
 }
 
 const nil = (r: EtiResult, ineligibilityReason: string): EtiResult => ({
@@ -33,14 +35,15 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
   const { employee, components, period, periodDate } = input;
   const warnings: ValidationResult[] = [];
   const name = `${employee.firstName} ${employee.lastName}`.trim();
-  const h = input.notEmployedInPeriod ? null : etiHoursOf(employee, period, input.runHours, components);
-  const wageCents = ordinaryWageCents(components);
+  const earlier = input.monthToDate;
+  const h = input.notEmployedInPeriod ? null : etiHoursOf(employee, period, input.runHours, components, earlier);
+  const wageCents = ordinaryWageCents(components) + (earlier?.wageCents ?? 0);
   // Missing dates are reported as indeterminate, never fabricated into "not eligible" (resolveEtiForEmployee).
   const resolved = resolveEtiForEmployee({
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
-    monthlyRemuneration: etiRemunerationOf(components),
+    monthlyRemuneration: etiRemunerationOf(components) + (earlier?.remuneration ?? 0),
     isUifExcluded: employee.uifExcluded,
     hours: h?.hours == null ? null : { monthlyHours: h.hours, ordinaryHours: h.ordinaryHours, ordinaryWageCents: wageCents },
     idDocumentShown: etiIdDocumentShown(employee) && !idDateOfBirthMismatch(employee),

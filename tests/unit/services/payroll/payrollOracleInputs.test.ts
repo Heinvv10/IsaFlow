@@ -13,14 +13,16 @@ import { UNMODELLED_KEYS } from '../../../fixtures/payroll-oracle/validate';
 const cases = loadCases();
 
 /** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, the run hours, the RF employer contribution: rfiInput.ts, or the regular-pay directive). */
-const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'monthlyHours', 'ordinaryHoursWage', 'erRetirementPctOfRfi', 'rfiBase', 'fixedAmountDirective', 'fixedRateDirectivePercent'];
+const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'monthlyHours', 'ordinaryHoursWage', 'erRetirementPctOfRfi', 'rfiBase', 'fixedAmountDirective', 'fixedRateDirectivePercent',
+  // FQc: the share of the period worked, from the case's dates; buildCaseInput refuses a stated fraction the dates do not give.
+  'periodFraction'];
 /** The keys the calculator cannot take yet, each with the PR that wires it (or why it is only context). */
 const NOT_YET: Record<string, string> = {
   erMedicalContribution: 'FB', travelBusinessUseAtLeast80Pct: 'FB', vehicleDeterminedValue: 'FB', vehicleBenefitPctOfValue: 'FB',
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
   daysWorked: 'context only: the case notes use it to reach the day rate', employmentBasis: 'context only: the classifier works it out from the hours',
   writtenDeclarationHeld: 'not recorded by IsaFlow yet (employmentTerms.ts, the PAYE_OUTSIDE_TABLES warning)',
-  periodFraction: 'FQc', dbMemberCategoryFactor: 'DBF', businessKm: 'RI', reimbursiveRatePerKm: 'RI', overtimeHours: 'RI',
+  dbMemberCategoryFactor: 'DBF', businessKm: 'RI', reimbursiveRatePerKm: 'RI', overtimeHours: 'RI',
   overtimeMultiplier: 'RI', garnisheeOrders: 'GA', ordinarilyWorksSunday: 'RI (BCEA s16(1): double pay only for a non-Sunday worker)',
 };
 

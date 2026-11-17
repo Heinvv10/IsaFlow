@@ -29,7 +29,7 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { outsideTablesFlag } from './payrollOutsideTables';
-import { runOrderKeySql } from './payrollRunOrder';
+import { runIsBeforeSql, runOrderKeySql } from './payrollRunOrder';
 
 export interface MedicalRecord {
   fees: number;
@@ -46,7 +46,8 @@ export async function loadMedicalRecord(
   companyId: string,
   bounds: { start: string; end: string },
   employeeIds: string[] | null = null,
-  opts: { tablesOnly?: boolean } = {},
+  /** `beforeRun` (wave 6 FQc, the year to date): only the runs before that run in pay order (payrollRunOrder), not `bounds.end`. */
+  opts: { tablesOnly?: boolean; beforeRun?: string } = {},
 ): Promise<Map<string, MedicalRecord>> {
   // The cumulative PAYE's year to date leaves out a month whose PAYE was not taken from the tables; the certificate does not.
   const tablesOnly = opts.tablesOnly === true;
@@ -72,7 +73,8 @@ export async function loadMedicalRecord(
     CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
     WHERE h.company_id = ${companyId}::uuid
       AND ${sql.unsafe(payRunFinalSql('h'))}
-      AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
+      AND make_date(h.period_year, h.period_month, 1) >= ${bounds.start}::date
+      AND ${opts.beforeRun ? runIsBeforeSql('h', companyId, opts.beforeRun) : sql`make_date(h.period_year, h.period_month, 1) <= ${bounds.end}::date`}
       AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
       AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))
     GROUP BY l.employee_id

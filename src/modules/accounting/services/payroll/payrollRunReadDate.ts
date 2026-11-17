@@ -17,7 +17,10 @@ function daysInMonth(year: number, month: number): number {
  * assignComponentToEmployee, applyPackageToEmployee), so only the month end is inside every once-off of the month.
  * It is one day for recurring rows too: a supersede leaves contiguous windows on one component, and reading two rows
  * of a pair on different days pays both or neither.
+ *
+ * A run with its own dates (a weekly or fortnightly run; wave 6 FQc) reads on its own last day, `period.end`.
  */
 export function payrollRunReadDate(period: PayrollPeriod): string {
+  if (period.end) return period.end;
   return `${period.year}-${pad2(period.month)}-${pad2(daysInMonth(period.year, period.month))}`;
 }

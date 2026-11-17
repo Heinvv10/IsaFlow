@@ -5,7 +5,7 @@
  * An ABSENT key (undefined) reads as the column default: only a hand-built row lacks it, since every
  * SELECT * of the two tables carries the columns from 999a on.
  */
-import { PAY_FREQUENCIES, type OffCycleReason, type PayFrequency, type RunKind, type UnsupportedValue } from './payrollTypesRun';
+import { PAY_FREQUENCIES, type OffCycleReason, type PayFrequency, type PayrollPeriod, type RunKind, type UnsupportedValue } from './payrollTypesRun';
 
 export function payFrequencyOf(raw: unknown): PayFrequency | UnsupportedValue {
   if (raw === undefined) return 'monthly';
@@ -30,4 +30,17 @@ export function dateColumnOf(raw: unknown): string | null {
     return `${raw.getFullYear()}-${p(raw.getMonth() + 1)}-${p(raw.getDate())}`;
   }
   return String(raw).slice(0, 10);
+}
+
+/**
+ * A run row's period as the engine reads it (wave 6 FQc): the EMP201 month, plus the run's own dates when it is not a
+ * monthly run. A monthly run carries no dates, so every reader keyed by them (payrollRunReadDate, the once-off window,
+ * the pro-rata band, the run population) reads it exactly as the calendar month, as before.
+ */
+export function runPeriodOf(row: Record<string, unknown>): PayrollPeriod {
+  const period: PayrollPeriod = { year: Number(row.period_year), month: Number(row.period_month) };
+  if (payFrequencyOf(row.pay_frequency) === 'monthly') return period;
+  const start = dateColumnOf(row.period_start);
+  const end = dateColumnOf(row.period_end);
+  return start && end ? { ...period, start, end } : period;
 }

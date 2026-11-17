@@ -4,6 +4,7 @@
  * All queries scoped by company_id.
  */
 
+import { assertFrequencyTermsAssignable } from './payrollFrequencyGuard';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -76,6 +77,8 @@ export async function createTaxDirective(
   // A regular-pay directive (IRP3(b)/(c)): Login-as refused, then judged under the employee's lock before the insert
   // (taxDirectiveRegularPayChange). Its fixed amount, or none for a percentage (taxDirectiveKinds).
   const regular = isRegularPayDirectiveType(input.directive_type);
+  // Wave 6 FQc (§0a.11): not on a weekly or fortnightly employee this wave.
+  if (regular && input.employee_id) await assertFrequencyTermsAssignable(companyId, input.employee_id, 'a regular-pay tax directive');
   if (regular && input.employee_id) await judgeRegularDirectiveCreate(companyId, input.employee_id, input.effective_date, input.expiry_date ?? null);
   const taxAmount = regular
     ? (input.directive_type === 'fixed_amount' ? input.tax_amount ?? null : null)
