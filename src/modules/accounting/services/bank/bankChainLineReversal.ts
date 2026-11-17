@@ -153,6 +153,9 @@ export async function resetBankLine(
     SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
         linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
         allocation_rule_id = NULL, allocation_rule_name = NULL,
+        -- A line reversed by hand is no longer part of the auto-post run that posted it: a later undo of that run must
+        -- not reach a re-allocation the person makes (WP6 review F1).
+        auto_post_run_id = NULL, auto_post_journal_id = NULL,
         -- Reversing one line takes it OUT of its batch: the batch no longer
         -- owns a journal here, and a later re-allocation must not be swept
         -- up by reverse_bank_allocation_batch.
