@@ -77,7 +77,10 @@ describe('salary bank file, review #1524 round 2', () => {
 
   it('D-1c: an approved run whose journal was reversed gets no file', async () => {
     const run = await approvedRun(a, 3);
-    expect((await a.api.reverse(String((await a.header(run)).journal_entry_id))).statusCode).toBe(200);
+    const je = String((await a.header(run)).journal_entry_id);
+    // The app refuses to reverse an approved run's journal; a reversal by any other path still leaves no anchor.
+    expect((await a.api.reverse(je)).statusCode).toBe(400);
+    await a.pool.query('UPDATE gl_journal_entries SET reversed_at = now() WHERE id = $1', [je]);
     expect(reason(await generate(a, run))).toBe('JOURNAL_NOT_POSTED');
     expect((await files(a)).filter((f) => f.run_id === run)).toEqual([]);
   }, 120_000);
