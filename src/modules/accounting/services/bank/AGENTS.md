@@ -178,3 +178,10 @@ measured 2026-10-05 on migration 852) are no longer a lock-order or FK-order que
 - `has_open_query` (EXISTS on `bank_tx_queries` sent/replied) maps to row `queried`.
 - `update_notes` answers 404 when the line is missing (`updateBankTxNotes` returns boolean).
 - Selection is pruned to rows on screen and bulk actions intersect with `transactions`; Delete reports the server's `deleted`; row and bulk actions are single-flight (`useBankTxBusy`).
+
+## Bank Transactions page: accessibility rules
+
+- The modals the page opens (Query, Link, Split, Exclude, Find match, Create rule, Create entity) all render inside `BankTxModalShell`: the kit `useFocusTrap` (Tab kept inside, Escape closes, focus in on open and back to the opener on close), a named `role="dialog" aria-modal`, a portal to the body, and a busy guard (Escape and backdrop do nothing while a save/send runs). A new page modal uses the shell; it does not write its own overlay.
+- The pager is a `nav` named "Transaction pages" and marks the current page with `aria-current="page"`.
+- No colour-only state on cards or tabs: the selected account card, group card and worklist row carry a check mark; the selected tab is semibold as well as underlined.
+- Golden z26 (dev-only, axe) opens the Exclude and Ask-client dialogs read-only and checks them.

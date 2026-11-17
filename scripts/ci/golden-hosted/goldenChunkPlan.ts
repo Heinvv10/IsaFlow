@@ -33,7 +33,7 @@ export const FILE_SECONDS: Readonly<Record<string, number>> = {
   'y1-invoice-form-kit.spec.ts': 39, 'y2-bank-tx-naming.spec.ts': 41, 'y3-employee-create-kit.spec.ts': 30,
   'y5-document-dates-sales.spec.ts': 51, 'y6-document-dates-rest.spec.ts': 21, 'y7-dashboard-aging-tie.spec.ts': 24,
   'y8-purchase-forms-390.spec.ts': 31, 'z1-invoice-defaults.spec.ts': 70, 'z10-payslips.spec.ts': 38,
-  'z11-kit-select.spec.ts': 31, 'z12-bank-tx-selects.spec.ts': 43, 'z13-invoice-preview-unsaved.spec.ts': 17, 'z23-bank-tx-truthful-numbers.spec.ts': 20, 'z24-bank-tx-selection-prunes.spec.ts': 20,
+  'z11-kit-select.spec.ts': 31, 'z12-bank-tx-selects.spec.ts': 43, 'z13-invoice-preview-unsaved.spec.ts': 17, 'z23-bank-tx-truthful-numbers.spec.ts': 20, 'z24-bank-tx-selection-prunes.spec.ts': 20, 'z26-bank-tx-modal-a11y.spec.ts': 60,
   'z15-density.spec.ts': 35, 'z16-return-lifecycle.spec.ts': 50, 'z17-return-drill.spec.ts': 39, 'z18-explain.spec.ts': 9,
   'z2-invoice-autosave-send.spec.ts': 72, 'z2b-invoice-held-back.spec.ts': 26, 'z3-pnl-pdf.spec.ts': 1,
   'z4-employee-pay-on-create.spec.ts': 65, 'z5-employee-bank-details.spec.ts': 41, 'z6-payrun-review-grid.spec.ts': 38,

@@ -13,6 +13,7 @@ import type { BankTx, SelectOption } from './BankTxTable';
 import { SplitLineRow, type SplitLineState } from './SplitLineRow';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface Props {
   transaction: BankTx;
@@ -121,7 +122,7 @@ export function SplitTransactionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Split transaction">
+    <BankTxModalShell label="Split transaction" onClose={onClose} busy={submitting}>
       <div className="w-full max-w-2xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)]">
@@ -194,6 +195,6 @@ export function SplitTransactionModal({
           </div>
         </div>
       </div>
-    </div>
+    </BankTxModalShell>
   );
 }

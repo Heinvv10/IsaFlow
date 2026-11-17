@@ -20,6 +20,7 @@ import {
   suggestFromType,
   type GLSuggestion,
 } from './createEntity/glAccountSuggestions';
+import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface Props {
   type: AllocType;
@@ -154,7 +155,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Create a new record">
+    <BankTxModalShell label="Create a new record" onClose={onClose} busy={saving} zClass="z-[60]" className="">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md mx-4">
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
           <div className="flex items-center gap-2">
@@ -209,6 +210,6 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
           </button>
         </div>
       </div>
-    </div>
+    </BankTxModalShell>
   );
 }

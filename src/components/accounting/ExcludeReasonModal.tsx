@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 /** Preset exclusion reasons shown as quick-select buttons */
 const PRESET_REASONS = [
@@ -57,14 +58,7 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
   const received = transaction.amount > 0 ? transaction.amount : null;
 
   return (
-    /* Backdrop */
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Exclude transaction"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
-    >
+    <BankTxModalShell label="Exclude transaction" onClose={onClose} closeOnBackdrop className="">
       {/* Panel — stop propagation so clicking inside doesn't close */}
       <div
         className="relative w-full max-w-md rounded-xl border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] shadow-2xl p-6 mx-4"
@@ -166,6 +160,6 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </BankTxModalShell>
   );
 }

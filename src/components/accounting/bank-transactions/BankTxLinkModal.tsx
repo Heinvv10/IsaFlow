@@ -10,6 +10,7 @@ import { notify } from '@/utils/toast';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 import { loadFuelRecords, loadServiceRecords, type FuelRecord, type ServiceRecord } from '@/components/assets/fleetRecordsApi';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 interface LinkableTx { id: string; description?: string; amount: number; transactionDate: string; link?: BankTxLink }
 interface Props { tx: LinkableTx; onClose: () => void; onDone: () => void }
@@ -118,7 +119,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Link to asset / fuel / service">
+    <BankTxModalShell label="Link to asset / fuel / service" onClose={onClose} busy={busy}>
       <div className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
           <div className="p-2 rounded-lg bg-sky-500/10"><Truck className="h-4 w-4 text-sky-400" /></div>
@@ -174,6 +175,6 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </BankTxModalShell>
   );
 }
