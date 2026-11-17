@@ -15,6 +15,7 @@ import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './t
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
+import { capUifToMonth, offCycleEti } from './payrollOffCycleMonth';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
 import type {
@@ -133,7 +134,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const balanceOfRemuneration = taxableIncome - retirementDeduction;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
   const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
-  const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
+  // An off-cycle line (OC): the month's runs share one UIF ceiling (payrollOffCycleMonth, UIC Act s6(2)).
+  const monthUif = uifCosted && input.monthEarlier ? capUifToMonth(uifCosted.uif, input.monthEarlier, taxYear) : null;
+  const uif = monthUif ?? uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
   if (uifCosted) warnings.push(...uifClawbackWarnings(earningParts, uifLeviable));
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
   const directed = directive
@@ -166,11 +169,15 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // ETI (wave 5 ET): hours, the minimum wage and the remuneration base are in payrollLineEti / etiHours.
   const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
+  // An off-cycle line (OC): the month's ETI on everything the month paid, less what its earlier lines claimed (ETI Act s7).
+  const etiComponents = input.monthEarlier ? [...input.monthEarlier.etiComponents, ...components] : components;
   const lineEti = costLineEti({
-    employee, components, period, periodDate, runHours: hours,
+    employee, components: etiComponents, period, periodDate,
+    runHours: input.notEmployedInPeriod ? null : input.monthEarlier ? runHoursOf(employee, etiComponents) : hours,
     notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
   });
-  const eti: EtiResult = lineEti.eti;
+  const eti: EtiResult = input.monthEarlier
+    ? { ...lineEti.eti, monthlyEti: offCycleEti(lineEti.eti.monthlyEti, input.monthEarlier) } : lineEti.eti;
   warnings.push(...lineEti.warnings);
 
   const netPay = Math.round(
@@ -211,7 +218,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         regular: directed.regular, annual: directed.annualPayment, capRoom: capped.capRoom }, taxYear) } : {}),
     },
     uif: {
-      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,
+      uif: uifCosted?.uif ?? uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,
       outsideReason: !treatment.uif ? 'Independent contractor: no UIF' : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {
@@ -221,7 +228,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
     },
     // The ETI base takes a taxable cash 3701 at its PAYE share and no 38xx or non-cash item (etiHours.etiRemunerationOf).
-    eti: { eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
+    ...(input.monthEarlier ? { offCycle: { earlier: input.monthEarlier, uifRoom: monthUif?.room ?? null, monthEti: lineEti.eti.monthlyEti, uif, eti: eti.monthlyEti } } : {}),
+    eti: { eti: lineEti.eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
   });
 
   return {

@@ -116,6 +116,16 @@ function recomputePaye(fig: FigureExplanation): number {
 function recomputeUif(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('uif.none')) return 0;
+  const own = recomputeOwnUif(fig);
+  if (!r.has('uif.month.room')) return own;
+  // An off-cycle line (OC; UIC Act s6(2)): the month's cap less the earlier runs' UIF, never below nil, then the lesser.
+  const room = Math.max(0, round2(round2(r.amt('uif.ceiling') * r.amt('uif.rate')) - r.amt('uif.month.earlier')));
+  expect(cents(r.amt('uif.month.room'))).toBe(cents(room));
+  return Math.min(own, room);
+}
+
+function recomputeOwnUif(fig: FigureExplanation): number {
+  const r = reader(fig);
   const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling'))); // UIC Act 4 of 2002 s6(1): never below nil (UF)
   expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
   const each = round2(leviable * r.amt('uif.rate'));
@@ -137,6 +147,15 @@ export function recomputeSdl(fig: FigureExplanation): number {
 }
 
 function recomputeEti(fig: FigureExplanation): number {
+  const r = reader(fig);
+  const month = recomputeMonthEti(fig);
+  if (!r.has('eti.month.total')) return month;
+  // An off-cycle line (OC; ETI Act s7): the month's ETI on everything it paid, less the earlier runs' claim.
+  expect(cents(r.amt('eti.month.total'))).toBe(cents(month));
+  return round2(month - r.amt('eti.month.earlier'));
+}
+
+function recomputeMonthEti(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('eti.ineligible')) return 0;
   // With the hours known, the table reads the remuneration grossed up to 160 hours, and the result is grossed down by
