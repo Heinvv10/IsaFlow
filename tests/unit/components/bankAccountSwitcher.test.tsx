@@ -265,6 +265,26 @@ describe('review round 1', () => {
     expect(notPrevented).toBe(false); // default prevented
   });
 
+  it('Safari order: pressing the trigger blurs the search box with no relatedTarget, then the click must leave it closed', async () => {
+    render(ui(many(8)));
+    const search = await open();
+    const trigger = screen.getByTestId('bank-switcher-trigger');
+    await act(async () => {
+      fireEvent.mouseDown(trigger);
+      fireEvent.blur(search, { relatedTarget: null }); // the button took no focus
+      fireEvent.mouseUp(trigger);
+      fireEvent.click(trigger);
+    });
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+  });
+
+  it('a press on the search box keeps its default (caret, selection); a press elsewhere in the popup does not', async () => {
+    render(ui(many(8)));
+    const search = await open();
+    expect(fireEvent.mouseDown(search)).toBe(true);
+    expect(fireEvent.mouseDown(screen.getAllByTestId('bank-switcher-option')[0]!)).toBe(false);
+  });
+
   it('focus moving to the trigger itself (Shift+Tab) does not close it', async () => {
     render(ui(many(8)));
     const search = await open();

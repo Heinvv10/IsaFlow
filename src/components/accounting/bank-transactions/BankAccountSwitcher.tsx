@@ -50,6 +50,9 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  // True from a press inside the control to its mouseup. Safari / macOS Firefox do not focus a clicked button, so
+  // pressing the trigger blurs the search box with no relatedTarget: that blur must not close, or the click reopens it.
+  const pressInside = useRef(false);
   const rows = useMemo(() => searchAccounts(primaries, groups, query), [primaries, groups, query]);
   const options = useMemo(() => rows.filter(isOption), [rows]);
   const current = options[Math.min(active, options.length - 1)];
@@ -58,8 +61,10 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
     if (!open) return undefined;
     input.current?.focus();
     const away = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
+    const released = () => { pressInside.current = false; };
     document.addEventListener('mousedown', away);
-    return () => document.removeEventListener('mousedown', away);
+    document.addEventListener('mouseup', released);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('mouseup', released); };
   }, [open]);
   useEffect(() => { setActive(0); }, [query]);
   useEffect(() => {
@@ -118,13 +123,14 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
     );
   };
 
-  // The popup's onMouseDown preventDefault keeps a press inside it from blurring the search box (the blur-close would
-  // eat the click).
+  // A press in the popup (other than on the search box, where the caret and selection need the default) is
+  // default-prevented so it cannot blur the search box.
   const label = outsideSelection ?? 'All accounts';
   return (
     <div ref={root} className="relative shrink-0" data-testid="bank-account-switcher"
       // Focus leaving the control closes it, to the page or to the browser chrome (relatedTarget null).
-      onBlur={e => { if (open && !root.current?.contains(e.relatedTarget as Node | null)) { setOpen(false); setQuery(''); } }}>
+      onMouseDownCapture={() => { pressInside.current = true; }}
+      onBlur={e => { if (open && !pressInside.current && !root.current?.contains(e.relatedTarget as Node | null)) { setOpen(false); setQuery(''); } }}>
       <button ref={trigger} type="button" aria-haspopup="listbox" aria-expanded={open} data-testid="bank-switcher-trigger"
         aria-label={outsideSelection ? `All accounts, current: ${outsideSelection}` : `All accounts (${accountCount})`}
         aria-current={outsideSelection ? 'true' : undefined}
@@ -140,7 +146,7 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
         <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
       </button>
       {open && (
-        <div onMouseDown={e => e.preventDefault()} className="absolute left-0 top-full z-30 mt-1 w-[420px] max-w-[90vw] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] shadow-xl">
+        <div onMouseDown={e => { if (e.target !== input.current) e.preventDefault(); }} className="absolute left-0 top-full z-30 mt-1 w-[420px] max-w-[90vw] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] shadow-xl">
           <div className="flex items-center gap-2 border-b border-[var(--ff-border-light)] px-3 py-2">
             <Search className="h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)]" aria-hidden />
             <input ref={input} role="combobox" aria-expanded aria-controls={listId} aria-autocomplete="list" aria-label="Search accounts"
