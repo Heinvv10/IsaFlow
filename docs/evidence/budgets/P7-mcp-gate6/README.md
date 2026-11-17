@@ -5,7 +5,7 @@ Company: `00000000-0000-0000-0000-000000000001` "ISAFlow Demo (Pty) Ltd" (checke
 Actor: QA user `reporting-qa@isaflow.dev` (owner of Demo), session minted via GoTrue email OTP, PAT made through `POST /api/auth/personal-tokens`
 (scopes `read:reports`, `write:budgets`, `read:payroll`, 1 day) and revoked afterwards. Every call went over HTTP to `POST http://localhost:3477/api/mcp`.
 
-Files: `transcript.jsonl` (39 JSON-RPC calls, token redacted, `file_base64` replaced by its length), `fleet-budget-fy2027.xlsx`
+Files: `transcript.jsonl` (39 JSON-RPC calls, token redacted; call 39 is a probe after the token was revoked, answered 401 `INVALID_TOKEN`; `file_base64` replaced by its length), `fleet-budget-fy2027.xlsx`
 (free-form fleet sheet made with LibreOffice headless from CSV), `budget-grid-fy2027.png`, `budget-vs-actual-fy2027.png`.
 
 ## Setup
@@ -20,7 +20,7 @@ Files: `transcript.jsonl` (39 JSON-RPC calls, token redacted, `file_base64` repl
 1. `list_budget_versions`: none. `create_budget_version` FY2027 original made `9c57f47a…`, which was empty.
 2. `seed_budget` original then refused: "The seed would be refused: FY2027 already has an original budget". seed_budget always creates its own version, so the empty one was removed with `delete_budget_version` (dry run, then live).
 3. `seed_budget` from prior_year_actuals, turnover +8%, others 0%. The first dry run gave 5 accounts / 60 cells, and **prior-year turnover is R0 on dev Demo**, so the +8% uplift yields nothing. It was re-run with `include_no_activity` (84 accounts / 1 008 cells) and applied live. seed_budget has no plan_hash parameter (dry run, then live).
-4. `set_budget_drivers`: 5200 Labour Costs (the only salary-type P&L account) per_head R12 000/head/month. Payroll headcount was 10 (Mar–Sep), 114 (Oct) and 144 (Nov–Feb), giving R9 120 000. Dry run, then live with plan_hash. The first call without `idempotency_key` was refused: "idempotency_key is required for write operations".
+4. `set_budget_drivers`: 5200 Labour Costs (the only salary-type P&L account) per_head R12 000/head/month. Payroll headcount was 10 (Mar–Sep), 114 (Oct) and 144 (Nov–Feb), giving R9 120 000. Dry run, then live with plan_hash. Its snapshot came back `restorable: false`, as designed: driver-line edits are a record only, and `restore_budget_version` refuses them. The first call without `idempotency_key` was refused: "idempotency_key is required for write operations".
 5. Fleet: the sheet held 5400 Transport & Fuel (the only fleet/vehicle expense account; R236 400) and 5500 Equipment Costs (picked as the second account, fleet tyres/servicing; R78 000). Free-form `import_budget_workbook` with `version_token`: dry run, then live. 24 cells changed, no warnings.
 6. `get_budget_template` (json) was edited to set 4100 Activation Revenue (R1 048 000) and 4200 Maintenance Revenue (R504 000), and 5600 Admin Dec-26 from 4 918 to 9 000. JSON-rows import: dry run, then live. 25 cells changed.
 7. `add_budget_note` on 5400. The tool takes an account per YEAR, not an account/month.
