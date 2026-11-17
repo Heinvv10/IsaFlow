@@ -71,6 +71,13 @@ export function bankContraOpen() {
   };
 }
 
+/** The batch / range reversals' counterpart pre-check and pre-lock with no counterpart (reversalCounterparts reads Postgres). */
+export function reversalCounterpartsOpen() {
+  return {
+    counterpartRows: vi.fn(async () => []), counterpartRefusal: vi.fn(async () => null), preLockReversalLines: vi.fn(async () => undefined),
+  };
+}
+
 export function transferPrelockOpen() {
   return { preLockSweepTransfers: vi.fn(async () => ({ transfers: new Set<string>(), contended: new Set<string>() })) };
 }

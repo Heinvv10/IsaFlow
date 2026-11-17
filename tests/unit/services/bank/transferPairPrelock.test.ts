@@ -13,7 +13,7 @@ const { sqlMock, client } = vi.hoisted(() => ({
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()) }));
 vi.mock('@/lib/als', () => ({ als: { getStore: () => ({ client }) }, assertTxUsable: () => undefined }));
 
-import { preLockTransferPairs, transferPairKey } from '@/modules/accounting/services/bank/transferPairLock';
+import { PRELOCK_FLOOR_MS, preLockTransferPairs, remainingWaitMs, transferPairKey } from '@/modules/accounting/services/bank/transferPairLock';
 
 const pgError = (code: string) => Object.assign(new Error(`pg ${code}`), { code });
 const CO = '00000000-0000-0000-0000-0000000000c0';
@@ -39,5 +39,13 @@ describe('preLockTransferPairs', () => {
     await preLockTransferPairs(CO, [['a', 'b']]);
     const calls = client.query.mock.calls as unknown as Array<[string, unknown[]?]>;
     expect(calls.at(-1)).toEqual(["SELECT set_config('lock_timeout', $1, true)", ['0']]);
+  });
+});
+
+describe('remainingWaitMs (#1494 rev 4)', () => {
+  it('past the budget every lock still gets the 50 ms floor, not 1 ms', () => {
+    expect(remainingWaitMs(Date.now() - 10_000)).toBe(PRELOCK_FLOOR_MS);
+    expect(PRELOCK_FLOOR_MS).toBe(50);
+    expect(remainingWaitMs(Date.now() + 3_000)).toBeGreaterThan(2_000);
   });
 });

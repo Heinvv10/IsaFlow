@@ -44,7 +44,7 @@ export async function preLockSweepTransfers(
     const bank = bankOf.get(r.id.toLowerCase());
     if (bank && bank.toLowerCase() !== r.contra!.toLowerCase()) { transfers.add(r.id); pairs.push([r.id, [bank, r.contra!]]); }
   }
-  // ONE budget for the whole pre-lock, lines and pairs (brk-1494 LOW 2): each waits what is left of 5 s, then 1 ms.
+  // ONE budget for the whole pre-lock, lines and pairs (brk-1494 LOW 2): each waits what is left of 5 s, then the 50 ms floor (rev 4).
   const deadline = Date.now() + 5000;
   for (const id of [...transfers].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : 1))) {
     try {
