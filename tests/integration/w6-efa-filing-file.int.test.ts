@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { callRoute, dropReturnFixture, loginAsToken, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+import { version } from './helpers/returnFileDbRules';
 import { amendV, CLEAN, fileV, fin, genFile, PRN, row, submissions, useFixture, versionOf } from './helpers/returnFileCalls';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import filingFile from '../../pages/api/accounting/sars/returns/[form]/filing-file';
@@ -109,5 +110,14 @@ describeIfDb('EFa: filing files through the routes', () => {
     expect((await amendV(id)).status).toBe(200);
     expect((await genFile(id, 'vat201', 'csv')).status).toBe(409);
     expect(await stampOf(id)).toEqual({ ...stamp, status: 'superseded' });
+  });
+
+  it('a version filed before 999v (no stamp) still downloads its file, and nothing is written (the trigger freezes the stamps once filed)', async () => {
+    const id = await version(a, 2, 'filed'); // finalised and filed before the cut-off, as the table owner
+    const before = await row(id);
+    const r = await genFile(id, 'emp201', 'csv');
+    expect(r.status).toBe(200);
+    expect((r.body as unknown as Buffer).toString('utf8')).toContain('"Return","Form","EMP201"');
+    expect(await row(id)).toEqual(before);
   });
 });
