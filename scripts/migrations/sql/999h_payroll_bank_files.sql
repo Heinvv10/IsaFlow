@@ -209,12 +209,14 @@ DECLARE
 BEGIN
   IF TG_TABLE_NAME = 'payroll_bank_files' THEN
     SELECT f.id INTO bad FROM public.payroll_bank_files f
-     WHERE f.id = NEW.id AND (f.total_cents, f.line_count)
-       IS DISTINCT FROM (SELECT COALESCE(sum(i.amount_cents), 0), count(*) FROM public.payroll_bank_file_items i WHERE i.file_id = f.id);
+     CROSS JOIN LATERAL (SELECT COALESCE(sum(i.amount_cents), 0) AS s, count(*) AS c
+                           FROM public.payroll_bank_file_items i WHERE i.file_id = f.id) x
+     WHERE f.id = NEW.id AND (f.total_cents <> x.s OR f.line_count <> x.c);
   ELSE
     SELECT f.id INTO bad FROM (SELECT DISTINCT file_id FROM new_items) n JOIN public.payroll_bank_files f ON f.id = n.file_id
-     WHERE (f.total_cents, f.line_count)
-       IS DISTINCT FROM (SELECT COALESCE(sum(i.amount_cents), 0), count(*) FROM public.payroll_bank_file_items i WHERE i.file_id = f.id)
+     CROSS JOIN LATERAL (SELECT COALESCE(sum(i.amount_cents), 0) AS s, count(*) AS c
+                           FROM public.payroll_bank_file_items i WHERE i.file_id = f.id) x
+     WHERE f.total_cents <> x.s OR f.line_count <> x.c
      LIMIT 1;
   END IF;
   IF bad IS NOT NULL THEN
