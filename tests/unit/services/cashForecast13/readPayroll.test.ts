@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { formatCents } from '@/lib/money/formatMoney';
 
 const rows = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (..._a: unknown[]) => rows() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign((..._a: unknown[]) => rows(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
 
 import { payrollItems, readPayroll, toMonthlyRun, type PayrollRead } from '@/modules/accounting/services/cashForecast13/readPayroll';
 import type { ForecastWarning } from '@/modules/accounting/services/cashForecast13/types';

@@ -6,10 +6,11 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { contractorLineFlag } from './payrollOutsideTables';
+import { payRunFinalSql } from './payRunFinalSql';
 
+/** FINAL runs only (payRunFinalSql, wave 6 EF): the runs the IRP5 dataset, the EMP201 and every sub-reader this file is netted with count. */
 export function loadCertificateAggregates(
   companyId: string,
-  declarableStatuses: string[],
   { startYear, startMonth, endYear, endMonth }: { startYear: number; startMonth: number; endYear: number; endMonth: number },
 ): Promise<DbRow[]> {
   return sql`
@@ -46,7 +47,7 @@ export function loadCertificateAggregates(
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = prh.company_id
     WHERE prh.company_id = ${companyId}::uuid
-      AND prh.status = ANY(${declarableStatuses}::text[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND (
         (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
         OR

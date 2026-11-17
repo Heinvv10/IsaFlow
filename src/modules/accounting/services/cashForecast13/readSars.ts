@@ -19,7 +19,8 @@ import { formatCents } from '@/lib/money/formatMoney';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getComplianceCalendarWithMarks } from '@/modules/accounting/services/reports/sarsComplianceCalendarDb';
 import type { ComplianceEvent } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
-import { guardedSource } from './guardedSource';
+import { RunKindUnsupportedError } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { guardedSource, refusalOf } from './guardedSource';
 import { toCents } from './lines';
 import { vatItem } from './readVat';
 import type { BudgetRead } from './readBudget';
@@ -27,6 +28,13 @@ import type { PayrollRead } from './readPayroll';
 import type { ForecastWarning, KnownItem } from './types';
 
 const PAYABLE = new Set(['EMP201_DUE', 'VAT201_DUE', 'PROVISIONAL_TAX']);
+
+/**
+ * A month whose EMP201 this release refuses (a run it cannot declare: weekly, off-cycle, ...; payrollRunKindGuard,
+ * wave 6 FQa/EF) is a source_unavailable warning carrying the guard's message, never a failed forecast. The EMP201
+ * route, MCP and finalise keep refusing.
+ */
+export const EMP201_REFUSALS = refusalOf([RunKindUnsupportedError], []);
 
 /** Pending calendar items due by the horizon end. The calendar of year y runs to 31 Mar y+1, so y+1 is read too when the horizon passes it. */
 export async function readSarsEvents(companyId: string, today: string, horizonEnd: string, warnings: ForecastWarning[]): Promise<ComplianceEvent[]> {
@@ -86,7 +94,7 @@ export async function sarsItems(
     const own: ForecastWarning[] = [];
     let item: KnownItem | null = null;
     if (e.eventType === 'EMP201_DUE') {
-      if (payroll) item = await guardedSource('cash13_emp201', `EMP201 ${e.periodStart.slice(0, 7)}`, own, () => emp201Item(companyId, e, payroll));
+      if (payroll) item = await guardedSource('cash13_emp201', `EMP201 ${e.periodStart.slice(0, 7)}`, own, () => emp201Item(companyId, e, payroll), EMP201_REFUSALS);
     } else if (e.eventType === 'VAT201_DUE') {
       item = await guardedSource('cash13_vat201', `VAT201 ${e.periodStart}..${e.periodEnd}`, own, () => vatItem(companyId, e, today, budget, own));
     } else {

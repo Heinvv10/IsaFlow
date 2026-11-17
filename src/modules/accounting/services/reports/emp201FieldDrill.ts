@@ -5,7 +5,7 @@
  * channel, `Cache-Control: no-store`.
  *
  * WHICH RUNS. The same set `generateEMP201` declares: this company's headers whose
- * status is in `EMP201_DECLARABLE_STATUSES` (approved, paid) and whose period month
+ * status is final (`payRunFinalSql`: approved or paid with an approval time) and whose period month
  * starts inside [from, to]. A calculated, draft, cancelled or reopened run is not
  * in it, so the drill never shows a figure the EMP201 does not carry. PAYE and
  * taxable remuneration also list the SARS directive payments made outside payroll,
@@ -17,7 +17,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { MAX_DRILL_PAGE_SIZE } from './drillPaging';
 
@@ -84,7 +84,6 @@ export async function emp201FieldDrill(
 ): Promise<Emp201DrillResult | null> {
   const startDate = periodStart.slice(0, 10);
   const endDate = periodEnd.slice(0, 10);
-  const statuses: string[] = [...EMP201_DECLARABLE_STATUSES];
   const size = Math.min(Math.max(Math.trunc(opts.pageSize ?? 100) || 100, 1), MAX_DRILL_PAGE_SIZE);
   const pg = Math.max(Math.trunc(opts.page ?? 1) || 1, 1);
 
@@ -103,7 +102,7 @@ export async function emp201FieldDrill(
     LEFT JOIN payroll_run_lines prl ON prl.run_id = prh.id
     LEFT JOIN payroll_employees pe ON pe.id = prl.employee_id AND pe.company_id = prh.company_id
     WHERE prh.company_id = ${companyId}::uuid
-      AND prh.status = ANY(${statuses}::text[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND make_date(prh.period_year, prh.period_month, 1) >= ${startDate}::date
       AND make_date(prh.period_year, prh.period_month, 1) <= ${endDate}::date
     ORDER BY prh.period_year, prh.period_month, pe.employee_number, prl.id

@@ -23,7 +23,7 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => {
-  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values);
+  const sql = Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values), { unsafe: (text: string) => ({ unsafe: text }) });
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
