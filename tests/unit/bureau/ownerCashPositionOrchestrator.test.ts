@@ -1,7 +1,8 @@
 // tests/unit/bureau/ownerCashPositionOrchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+// sql.unsafe: the pay-order key fragment (runOrderKeySql, wave 6 FQb2) is a value of the payroll query.
+const { sqlMock } = vi.hoisted(() => ({ sqlMock: Object.assign(vi.fn(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVATReturn: vi.fn() }));
@@ -89,7 +90,7 @@ describe('getOwnerCashPosition', () => {
     expect(text).toMatch(/period_year \* 12 \+ period_month\) BETWEEN \?::int AND \?::int/);
     expect(text).toContain('company_id = ?::uuid');
     const values = call!.slice(1);
-    expect(values).toEqual([COMPANY, 2026 * 12 + 12, 2027 * 12 + 1]);
+    expect(values).toEqual([COMPANY, 2026 * 12 + 12, 2027 * 12 + 1, { unsafe: expect.stringMatching(/^\(payroll_run_headers\.period_start, /) }]);
   });
 
   it('fails soft when the payroll query throws', async () => {
