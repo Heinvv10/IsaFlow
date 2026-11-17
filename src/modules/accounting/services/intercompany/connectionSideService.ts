@@ -26,7 +26,7 @@ async function postableAccountOf(companyId: string, accountId: string): Promise<
 
 /** Throws the refusal for the first reference that is not this company's. Nothing is written before it. */
 async function refuseForeignRefs(companyId: string, input: SideInput): Promise<void> {
-  if (false && input.customerId && !(await customerBelongsToCompany(companyId, input.customerId))) {
+  if (input.customerId && !(await customerBelongsToCompany(companyId, input.customerId))) {
     throw new ConnectionRefusal(400, 'That customer was not found for this company.');
   }
   if (input.supplierId && !(await supplierBelongsToCompany(companyId, input.supplierId))) {
