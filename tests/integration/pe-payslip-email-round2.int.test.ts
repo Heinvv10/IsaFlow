@@ -63,7 +63,9 @@ describe('payslip email, review delta round', () => {
       const refused = await send(a, run, { body: { employeeIds: [victim] } });
       expect(refused.statusCode).toBe(503);
       // F-A1: the lock is taken before the rate limit is charged: no bucket was touched.
-      expect((await a.pool.query("SELECT key FROM rate_limit_counters WHERE key LIKE 'send:payslips:%'")).rows).toEqual([]);
+      // Only this test's buckets: this company's, and the rig's request IP (mfa-impersonation-postgres.helpers request()).
+      expect((await a.pool.query(
+        "SELECT key FROM rate_limit_counters WHERE key LIKE $1 OR key = 'send:payslips:ip:127.0.0.79'", [`send:payslips:co:${a.company}%`])).rows).toEqual([]);
       expect(sentTo('b1@example.invalid')).toBe(0);
       expect(await deliveries(a, { claims: true })).toEqual([]);
     } finally {
