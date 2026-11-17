@@ -5,6 +5,10 @@
 -- filed VAT201 version and writes the version it settled here. After an amend, the next version may be settled by a
 -- TOP-UP (only the difference from what the period already settled), so a period can hold one settlement per version.
 --   return_version_id  UUID NULL. NULL = settled before the lifecycle (or by the old colour of a deploy).
+--   ledger_gap_ledger_net, ledger_gap_report_net  NUMERIC(15,2) NULL, ledger_gap_reason TEXT NULL: a settlement made
+--                      although the VAT control accounts' net VAT differed from the VAT201's, acknowledged by an
+--                      owner or admin with a reason (coordinator ruling on review round 1). All three or none
+--                      (vat_returns_ledger_gap_ck); the reason holds visible text.
 --   vat_returns_return_version_fk  (company_id, return_version_id, period_start, period_end)
 --                      -> tax_return_versions (company_id, id, period_start, period_end): a settlement can name only a
 --                      version of its own company AND its own period (a plain FK on id would accept another tenant's,
@@ -27,7 +31,8 @@
 -- with a version.
 --
 -- OLD COLOUR (the release before this one, while the deploy switches colours, or after a code-only rollback):
---   insert  submitVATReturn names its columns and leaves return_version_id out: NULL, allowed; the FK skips NULL. Its
+--   insert  submitVATReturn names its columns and leaves return_version_id and the three ledger_gap columns out:
+--           NULL, allowed (the check accepts all three NULL); the FK skips NULL. Its
 --           idempotency read ("a submitted row for the period exists") still refuses a second settlement, and the new
 --           unique index still refuses a second NULL row for the period, as the old constraint did.
 --   update  the old code never updates vat_returns.
@@ -44,7 +49,10 @@
 -- with a version (the PR body has the figure); real tables are small (dev: 24 VAT201 versions, 18 settlements).
 -- lock_timeout bounds the wait to acquire them, statement_timeout each statement.
 --
--- Rollback: ALTER TABLE vat_returns DROP CONSTRAINT IF EXISTS vat_returns_return_version_fk;
+-- Rollback: ALTER TABLE vat_returns DROP CONSTRAINT IF EXISTS vat_returns_ledger_gap_ck;
+--           ALTER TABLE vat_returns DROP COLUMN IF EXISTS ledger_gap_ledger_net, DROP COLUMN IF EXISTS
+--             ledger_gap_report_net, DROP COLUMN IF EXISTS ledger_gap_reason;
+--           ALTER TABLE vat_returns DROP CONSTRAINT IF EXISTS vat_returns_return_version_fk;
 --           (only while no period holds two rows) ALTER TABLE vat_returns
 --             ADD CONSTRAINT vat_returns_company_id_period_start_period_end_key UNIQUE (company_id, period_start, period_end);
 --           DROP INDEX IF EXISTS uq_vat_returns_period_settlement;
@@ -55,6 +63,23 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
 ALTER TABLE vat_returns ADD COLUMN IF NOT EXISTS return_version_id UUID NULL;
+ALTER TABLE vat_returns ADD COLUMN IF NOT EXISTS ledger_gap_ledger_net NUMERIC(15,2) NULL;
+ALTER TABLE vat_returns ADD COLUMN IF NOT EXISTS ledger_gap_report_net NUMERIC(15,2) NULL;
+ALTER TABLE vat_returns ADD COLUMN IF NOT EXISTS ledger_gap_reason TEXT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'vat_returns_ledger_gap_ck' AND conrelid = 'public.vat_returns'::regclass
+  ) THEN
+    -- Every existing row has all three NULL (the columns are new), so the check scans and passes.
+    ALTER TABLE vat_returns ADD CONSTRAINT vat_returns_ledger_gap_ck CHECK (
+      (ledger_gap_reason IS NULL AND ledger_gap_ledger_net IS NULL AND ledger_gap_report_net IS NULL)
+      OR (ledger_gap_reason IS NOT NULL AND btrim(ledger_gap_reason) <> ''
+          AND ledger_gap_ledger_net IS NOT NULL AND ledger_gap_report_net IS NOT NULL));
+  END IF;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tax_return_versions_company_period_id
   ON tax_return_versions (company_id, id, period_start, period_end);
@@ -96,6 +121,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_vat_returns_period_settlement
                   COALESCE(return_version_id, '00000000-0000-0000-0000-000000000000'::UUID));
 
 ALTER TABLE vat_returns DROP CONSTRAINT IF EXISTS vat_returns_company_id_period_start_period_end_key;
+
+COMMENT ON COLUMN vat_returns.ledger_gap_reason IS
+  'Wave 6 VR: why this settlement was made although the VAT control accounts (ledger_gap_ledger_net) and the VAT201 (ledger_gap_report_net) differed. NULL = no gap.';
 
 COMMENT ON COLUMN vat_returns.return_version_id IS
   'Wave 6 VR (2026-11-16): the VAT201 tax_return_versions row this settlement was posted against (same company and period). NULL = settled before the return lifecycle.';

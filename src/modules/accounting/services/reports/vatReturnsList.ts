@@ -12,6 +12,8 @@ export interface VATSubmitInput {
   periodStart: string;
   periodEnd: string;
   sarsReference?: string;
+  /** Settle although the control accounts and the VAT201 differ (owner/admin, with a reason; wave 6 VR). */
+  acknowledgeLedgerGap?: { reason: string; role: string };
 }
 
 export interface VATReturnRecord {
@@ -29,6 +31,8 @@ export interface VATReturnRecord {
   journalEntryId?: string;
   /** The VAT201 version this settlement was posted against; absent for one settled before the lifecycle. */
   returnVersionId?: string;
+  /** Settled although the control accounts' net VAT differed from the VAT201's, with the reason given. */
+  ledgerGap?: { ledgerNetVat: number; reportNetVat: number; reason: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -54,6 +58,10 @@ export function mapRow(row: Row): VATReturnRecord {
     submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,
     journalEntryId: row.journal_entry_id ? String(row.journal_entry_id) : undefined,
     returnVersionId: row.return_version_id ? String(row.return_version_id) : undefined,
+    ledgerGap: row.ledger_gap_reason == null ? undefined : {
+      ledgerNetVat: Number(row.ledger_gap_ledger_net), reportNetVat: Number(row.ledger_gap_report_net),
+      reason: String(row.ledger_gap_reason),
+    },
     createdAt:      toIsoTimestamp(row.created_at as Date | string) ?? '',
     updatedAt:      toIsoTimestamp(row.updated_at as Date | string) ?? '',
   };

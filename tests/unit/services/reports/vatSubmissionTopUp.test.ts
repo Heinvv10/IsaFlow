@@ -1,8 +1,9 @@
 /**
- * VR: submitVATReturn against its basis (settlementBasis mocked), wiring only. It refuses before any write when the
- * version is already settled or the ledger has drifted from the version, and after an amend it posts and records only
- * the difference from what the period already settled, linked to the new version. On real PG:
- * tests/integration/vat-returns-settlement-topup.int.test.ts.
+ * VR: submitVATReturn against its basis and figure checks (settlementBasis, checkSettlementFigures mocked), wiring
+ * only. It refuses before any write when the version is already settled or the figures are refused, records an
+ * acknowledged ledger gap on the row, and after an amend posts and records only the difference from what the period
+ * already settled, linked to the new version. The checks themselves: vatSettlementFigures.test.ts. On real PG:
+ * tests/integration/vat-returns-settlement-topup.int.test.ts and vat-returns-ledger-gap.int.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,12 +22,15 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodIdForDate: vi.fn().mockResolvedValue('11111111-1111-1111-1111-111111111111'),
 }));
 vi.mock('@/modules/accounting/services/returns/vatSettlementVersion', () => ({ settlementBasis: vi.fn() }));
+vi.mock('@/modules/accounting/services/returns/vatSettlementFigures', () => ({ checkSettlementFigures: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import { createJournalEntry, resolveUserUuid } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { settlementBasis } from '@/modules/accounting/services/returns/vatSettlementVersion';
+import { checkSettlementFigures } from '@/modules/accounting/services/returns/vatSettlementFigures';
+import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersionTypes';
 import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmissionService';
 
 const CO = '00000000-0000-0000-0000-000000000001';
@@ -41,6 +45,7 @@ function arrange(ledger: [number, number], versionNet: number, prior: [number, n
     prior: { outputTax: prior[0], inputTax: prior[1], netVat: prior[0] - prior[1], count: prior[2] },
     versionSettled,
   });
+  vi.mocked(checkSettlementFigures).mockResolvedValue(null);
   vi.mocked(getVATReturn).mockResolvedValue({ totalOutputTax: ledger[0], totalInputTax: ledger[1] } as never);
   vi.mocked(getSystemAccount).mockImplementation(async (role: string) => ({ id: `acc-${role}` }) as never);
   vi.mocked(resolveUserUuid).mockResolvedValue(USER as never);
@@ -49,6 +54,7 @@ function arrange(ledger: [number, number], versionNet: number, prior: [number, n
     .mockImplementationOnce((async (_t: TemplateStringsArray, ...v: unknown[]) => [{
       id: 'vr-2', company_id: CO, period_start: P.periodStart, period_end: P.periodEnd, status: 'submitted',
       total_output_tax: v[3], total_input_tax: v[4], net_vat: v[5], return_version_id: v.at(-1),
+      ledger_gap_ledger_net: v.at(-4), ledger_gap_report_net: v.at(-3), ledger_gap_reason: v.at(-2),
     }]) as never);
 }
 const refusal = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e as { status?: number; refusalCode?: string });
@@ -63,16 +69,24 @@ describe('submitVATReturn: settled-once, drift and the top-up (VR)', () => {
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
-  it('the ledger net differs from the version net by more than 1c: 409 VAT_SETTLEMENT_DRIFT, nothing written', async () => {
+  it('the figure checks are given the version, the ledger net and the acknowledgement; a refusal writes nothing', async () => {
     arrange([3150, 0], 3000, [0, 0, 0]);
-    expect(await refusal(submitVATReturn(CO, P, USER))).toMatchObject({ status: 409, refusalCode: 'VAT_SETTLEMENT_DRIFT' });
+    vi.mocked(checkSettlementFigures).mockRejectedValue(new ReturnRefusal(409, 'gap', 'VAT_SETTLEMENT_LEDGER_GAP'));
+    const ack = { reason: 'a cancelled invoice', role: 'owner' };
+    expect(await refusal(submitVATReturn(CO, { ...P, acknowledgeLedgerGap: ack }, USER)))
+      .toMatchObject({ status: 409, refusalCode: 'VAT_SETTLEMENT_LEDGER_GAP' });
+    expect(vi.mocked(checkSettlementFigures)).toHaveBeenCalledWith(CO, P.periodStart, P.periodEnd,
+      expect.objectContaining({ id: V2, netVat: 3000 }), 3150, ack);
     expect(createJournalEntry).not.toHaveBeenCalled();
     expect(vi.mocked(sql)).not.toHaveBeenCalled();
   });
 
-  it('1c of rounding is not drift', async () => {
-    arrange([3000.01, 0], 3000, [0, 0, 0]);
-    expect((await submitVATReturn(CO, P, USER)).netVat).toBe(3000.01);
+  it('an acknowledged ledger gap: the settlement posts the ledger figures and its row records the gap', async () => {
+    arrange([3150, 0], 3000, [0, 0, 0]);
+    vi.mocked(checkSettlementFigures).mockResolvedValue({ ledgerNetVat: 3150, reportNetVat: 3000, reason: 'a cancelled invoice' });
+    const rec = await submitVATReturn(CO, { ...P, acknowledgeLedgerGap: { reason: 'a cancelled invoice', role: 'owner' } }, USER);
+    expect(rec).toMatchObject({ totalOutputTax: 3150, netVat: 3150, returnVersionId: V2,
+      ledgerGap: { ledgerNetVat: 3150, reportNetVat: 3000, reason: 'a cancelled invoice' } });
   });
 
   it('after an amend: posts and records only the difference, linked to the new version', async () => {

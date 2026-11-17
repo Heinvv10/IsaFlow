@@ -81,4 +81,6 @@ export interface VatReturnRecord {
   returnVersionNo: number | null;
   /** True when its figures differ from the version's (or, before finalising, the figures about to be recorded). */
   mismatch: boolean;
+  /** The latest settlement row made although the control accounts and the VAT201 differed, with its reason. */
+  ledgerGap: { ledgerNetVat: number; reportNetVat: number; reason: string } | null;
 }

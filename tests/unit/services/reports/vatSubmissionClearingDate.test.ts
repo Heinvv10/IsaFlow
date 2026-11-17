@@ -22,8 +22,8 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   assertNotImpersonating: async () => undefined,
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
-// VR: the finalised-version requirement is its own module (vatSubmissionRequiresVersion.test.ts covers it); a
-// version exists here so these cases stay on the journal DATE they are about.
+// VR: the finalised-version requirement and the figure checks are their own modules (vatSettlementBasis.test.ts,
+// vatSettlementFigures.test.ts); a version exists and its figures agree here, so these cases stay on the journal DATE.
 // The version's net equals the ledger's (set by arrange), with nothing settled before it.
 const basisNet = { value: 0 };
 vi.mock('@/modules/accounting/services/returns/vatSettlementVersion', () => ({
@@ -32,6 +32,9 @@ vi.mock('@/modules/accounting/services/returns/vatSettlementVersion', () => ({
     prior: { outputTax: 0, inputTax: 0, netVat: 0, count: 0 },
     versionSettled: false,
   })),
+}));
+vi.mock('@/modules/accounting/services/returns/vatSettlementFigures', () => ({
+  checkSettlementFigures: vi.fn(async () => null),
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },

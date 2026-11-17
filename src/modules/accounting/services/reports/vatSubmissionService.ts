@@ -48,6 +48,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertClearingDateHasFiscalPeriod, nextDayISO, resolveNetVatAccount } from './vatSubmissionSupport';
 import { mapRow, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
 import { settlementBasis } from '../returns/vatSettlementVersion';
+import { checkSettlementFigures } from '../returns/vatSettlementFigures';
 import { ReturnRefusal } from '../returns/returnVersionTypes';
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -85,17 +86,13 @@ export async function submitVATReturn(
       'VAT_ALREADY_SETTLED');
   }
 
-  // 1. The ledger's figures for the period. They must agree with the version being settled (net within 1c), as a
-  //    filing refuses a drifted version: the version was locked from the VAT201 report, the settlement clears the
-  //    control accounts' movement, and a late claim or a back-dated post would part them.
+  // 1. The control accounts' movement for the period (what the settlement clears). The version must still match the
+  //    VAT201 regenerated now (drift: never overridable), and the ledger must match that VAT201 unless an owner or
+  //    admin acknowledges the gap with a reason (vatSettlementFigures).
   const ledger = await getVATReturn(companyId, periodStart, periodEnd);
   const ledgerNet = cents(ledger.totalOutputTax - ledger.totalInputTax);
-  if (Math.abs(cents(ledgerNet - basis.version.netVat)) > 0.01) {
-    throw new ReturnRefusal(409,
-      `The ledger's net VAT for ${periodStart} to ${periodEnd} (${ledgerNet}) differs from VAT201 version `
-      + `${basis.version.versionNo} (${basis.version.netVat}). Amend the return and finalise it again, then settle.`,
-      'VAT_SETTLEMENT_DRIFT');
-  }
+  const gap = await checkSettlementFigures(companyId, periodStart, periodEnd, basis.version, ledgerNet,
+    input.acknowledgeLedgerGap);
 
   // 2. Post only what the period has not settled yet: the whole return the first time, the difference after an amend
   //    (a top-up linked to the new version). Nothing left to settle is "already submitted".
@@ -199,7 +196,8 @@ export async function submitVATReturn(
     INSERT INTO vat_returns (
       company_id, period_start, period_end, status,
       total_output_tax, total_input_tax, net_vat,
-      sars_reference, submitted_by, journal_entry_id, return_version_id
+      sars_reference, submitted_by, journal_entry_id,
+      ledger_gap_ledger_net, ledger_gap_report_net, ledger_gap_reason, return_version_id
     ) VALUES (
       ${companyId}::UUID,
       ${periodStart}::DATE,
@@ -211,6 +209,7 @@ export async function submitVATReturn(
       ${sarsReference ?? null},
       ${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)
       ${journalEntryId}::UUID,
+      ${gap?.ledgerNetVat ?? null}, ${gap?.reportNetVat ?? null}, ${gap?.reason ?? null},
       ${basis.version.id}::UUID
     )
     RETURNING *

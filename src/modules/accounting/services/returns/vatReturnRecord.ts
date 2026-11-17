@@ -9,6 +9,9 @@ import type { VatReturnRecord } from './returnVersionTypes';
 export interface VatFigures { outputTax: number; inputTax: number; netVat: number }
 
 const cents = (n: unknown): number => Math.round((Number.isFinite(Number(n)) ? Number(n) : 0) * 100) / 100;
+const ledgerGapOf = (g: Record<string, unknown>) => ({
+  ledgerNetVat: cents(g.ledgerNetVat), reportNetVat: cents(g.reportNetVat), reason: String(g.reason),
+});
 
 /**
  * The settlement of exactly this period: its vat_returns rows SUMMED (the first settlement plus any top-up after an
@@ -24,7 +27,10 @@ export async function getVatReturnRecord(
            SUM(vr.net_vat) AS net_vat,
            (ARRAY_AGG(vr.sars_reference ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS sars_reference,
            MAX(vr.submitted_at) AS submitted_at,
-           (ARRAY_AGG(v.version_no ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS return_version_no
+           (ARRAY_AGG(v.version_no ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS return_version_no,
+           (ARRAY_AGG(jsonb_build_object('ledgerNetVat', vr.ledger_gap_ledger_net, 'reportNetVat', vr.ledger_gap_report_net,
+              'reason', vr.ledger_gap_reason) ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC)
+              FILTER (WHERE vr.ledger_gap_reason IS NOT NULL))[1] AS ledger_gap
     FROM vat_returns vr
     LEFT JOIN tax_return_versions v ON v.id = vr.return_version_id AND v.company_id = vr.company_id
     WHERE vr.company_id = ${companyId}::UUID AND vr.period_start = ${start}::DATE AND vr.period_end = ${end}::DATE
@@ -40,5 +46,6 @@ export async function getVatReturnRecord(
     status: String(r.status), ...rec, sarsReference: r.sars_reference == null ? null : String(r.sars_reference),
     submittedAt: r.submitted_at == null ? null : new Date(r.submitted_at as string | Date).toISOString(),
     returnVersionNo: r.return_version_no == null ? null : Number(r.return_version_no), mismatch,
+    ledgerGap: r.ledger_gap == null ? null : ledgerGapOf(r.ledger_gap as Record<string, unknown>),
   };
 }
