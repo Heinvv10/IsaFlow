@@ -44,7 +44,7 @@ describe('updateCompany: a rebuild refusal after the UPDATE', () => {
     const { u, companyId } = await fx.onboarded();
     const before = await fx.stored(companyId);
     force.refuse = true;
-    const out = await fx.put(u, { id: companyId, financialYearStart: 6, tradingName: 'must roll back' });
+    const out = await fx.put(u, { id: companyId, financialYearStart: 6, loadedFinancialYearStart: 3, tradingName: 'must roll back' });
     expect(out.status, JSON.stringify(out.body)).toBe(500);
     expect(await fx.stored(companyId)).toEqual(before);
   });
