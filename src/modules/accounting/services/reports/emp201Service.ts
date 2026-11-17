@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listNotFinalDeclaredRuns, notFinalRunWarning } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { loadRunLineUif, uifSplitMismatchWarning } from './emp201LineUif';
-import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { etiCarryLedger, etiMonthsOf, summariseCarry, type EtiCarry } from '@/modules/accounting/services/payroll/etiCarry';
 import { loadEarlierEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
@@ -278,6 +278,8 @@ export async function generateEMP201(
       directivePayments,
     };
   } catch (err) {
+    // A run this release cannot declare is a typed refusal (409), not an error to log (wave 6 EF review).
+    if (isRunKindUnsupported(err)) throw err;
     // Never convert a failure into a valid-looking nil declaration (R0 PAYE/UIF/SDL).
     log.error('Error generating EMP201 from payroll data', { error: err, companyId }, 'emp201Service');
     throw err;

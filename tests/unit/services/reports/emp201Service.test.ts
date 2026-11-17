@@ -17,7 +17,14 @@ vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
   listStandaloneDirectivePayments: vi.fn(async () => []),
 }));
 // The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
-vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => {
+  class RunKindUnsupportedError extends Error {}
+  return {
+    RunKindUnsupportedError,
+    assertRunKindSupported: vi.fn(async () => undefined),
+    isRunKindUnsupported: (e: unknown) => e instanceof RunKindUnsupportedError,
+  };
+});
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
 // The finality warning and the line UIF read are their own modules; their figures are proven on real PG
 // (tests/integration/w6-ef-emp201-finality.int.test.ts).
@@ -162,6 +169,16 @@ describe('emp201Service — Phase 1 schema (payroll_run_headers)', () => {
 
     await expect(generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END))
       .rejects.toThrow('connection terminated');
+  });
+
+  it('a run-kind refusal is rethrown as it is, never logged as an error (it is a typed 409)', async () => {
+    const guard = await import('@/modules/accounting/services/payroll/payrollRunKindGuard');
+    const refusal = new (guard.RunKindUnsupportedError as unknown as new (m: string) => Error)('weekly run');
+    vi.mocked(guard.assertRunKindSupported).mockRejectedValueOnce(refusal);
+    mockHappyPath();
+
+    await expect(generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END)).rejects.toBe(refusal);
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it('logs the failure before re-throwing it', async () => {
