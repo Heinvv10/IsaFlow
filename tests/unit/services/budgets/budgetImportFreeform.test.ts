@@ -132,23 +132,23 @@ describe('review round 3: what a free-form sheet must not read silently', () => 
   it('a numeric code that lost its leading zero: refused, never guessed; ambiguous when both codes exist', () => {
     const padded = model({ accounts: [...model().accounts, { ...model().accounts[0]!, id: '20000000-0000-4000-8000-0000000000a1', code: '0400', name: 'Fees' }] });
     const lost = freeformLines(padded, 'company', sheet(['Code', ...MONTHS], [400, ...vals({ 0: 1 })], ['0400', ...vals({ 0: 1 })]));
-    expect(lost.errors).toEqual([{ row: 2, column: 'Account code', account: '400', message: 'Account code 400 is a number: it lost its leading zero (0400?). Format the code column as text and type the code.' }]);
+    expect(lost.errors).toEqual([{ row: 2, column: 'Account code', account: '400', message: 'Sheet "Plan", row 2, column A: Account code 400 is a number: it lost its leading zero (0400?). Format the code column as text and type the code.' }]);
     expect(lost.lines.map((l) => l.accountCode)).toEqual(['0400']);
     const both = model({ accounts: [...padded.accounts, { ...model().accounts[0]!, id: '20000000-0000-4000-8000-0000000000a2', code: '400', name: 'Other' }] });
     expect(freeformLines(both, 'company', sheet(['Code', ...MONTHS], [400, ...vals({ 0: 1 })])).errors[0]!.message)
-      .toBe('Account code 400 is a number and could be 400 or 0400 (a lost leading zero). Format the code column as text and type the code.');
+      .toBe('Sheet "Plan", row 2, column A: Account code 400 is a number and could be 400 or 0400 (a lost leading zero). Format the code column as text and type the code.');
   });
 
   it('a number with more than 2 decimals is refused per cell (the template import rounds; a free-form sheet does not); float noise is not', () => {
     const [line] = freeformLines(model(), 'company', sheet(['Code', ...MONTHS], ['6000', ...vals({ 0: 1.005, 1: 1.1, 2: 0.07 })])).lines;
-    expect(line!.amounts[0]!.cell).toEqual({ kind: 'error', raw: '1.005', reason: 'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)' });
+    expect(line!.amounts[0]!.cell).toEqual({ kind: 'error', raw: '1.005', reason: 'has more than 2 decimals, and IsaFlow rounds to cents only under a format showing exactly 2 (this one is General, Text or shows more); format it with 2 decimals, or round it in the sheet' });
     expect(line!.amounts.slice(1, 3).map((a) => a.cell)).toEqual([{ kind: 'value', cents: 110 }, { kind: 'value', cents: 7 }]);
   });
 
   it('round 5: a numeric dimension code that lost its leading zero is refused, as an account code is', () => {
     const m = model({ dimensions: { cc1: [{ id: CC1, code: '07', name: 'Seven', isActive: true }], cc2: [], bu: [] } });
     const out = freeformLines(m, 'cc1', sheet(['Code', 'CC1', ...MONTHS], ['4000', 7, ...vals({ 0: 1 })], ['4000', '07', ...vals({ 0: 2 })]));
-    expect(out.errors).toEqual([{ row: 2, column: 'Dimension code', account: '4000', message: 'Dimension code 7 is a number: it lost its leading zero (07?). Format the dimension column as text and type the code.' }]);
+    expect(out.errors).toEqual([{ row: 2, column: 'Dimension code', account: '4000', message: 'Sheet "Plan", row 2, column B: Dimension code 7 is a number: it lost its leading zero (07?). Format the dimension column as text and type the code.' }]);
     expect(out.lines.map((l) => [l.row, l.dimensionCode])).toEqual([[3, '07']]);
   });
 

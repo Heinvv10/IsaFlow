@@ -4,8 +4,9 @@
  * number and date recognition and autoformat: en-ZA reads "4000,10" as a number and "Mar-26" as 26 March 2026), formats
  * from the Format Cells dialog's own generator (decimals, thousands separator, negative in red, Language) or typed as
  * a custom code, formulas entered, merges, widths, heights and the open sheet set as the UI sets them, then saved as
- * xlsx. No XML was edited. What LibreOffice SHOWS for each cell (its CSV, "save cell contents as shown") is in the
- * evidence doc beside what the reader imports. The generator: docs/plans/budgets/P7-mcp-tools-pr2-evidence.md.
+ * xlsx. No XML was edited. LibreOffice's CSV of each file ("save cell contents as shown") is in the evidence doc beside
+ * what the reader reads (evidence for the formats covered; the guarantee is the value read, not the display). The
+ * generator: tests/fixtures/budgets/freeform/make_fixtures.py.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -88,8 +89,8 @@ describe('5: a format showing 2 decimals rounds the value to cents by IsaFlow\'s
   it('General, 3 decimals, 0 decimals and 1 decimal keep the refusal', async () => {
     const reasons = (await linesOf('rounding-en-za')).lines.find((l) => l.accountCode === '4000')!.amounts.slice(0, 4).map((a) => (a.cell.kind === 'error' ? a.cell.reason : a.cell.kind));
     expect(reasons).toEqual([
-      'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)',
-      'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)',
+      'has more than 2 decimals, and IsaFlow rounds to cents only under a format showing exactly 2 (this one is General, Text or shows more); format it with 2 decimals, or round it in the sheet',
+      'has more than 2 decimals, and IsaFlow rounds to cents only under a format showing exactly 2 (this one is General, Text or shows more); format it with 2 decimals, or round it in the sheet',
       expect.stringMatching(/^This cell shows 0 decimal places but holds 83\.33/),
       expect.stringMatching(/^This cell shows 1 decimal place but holds 83\.33/),
     ]);

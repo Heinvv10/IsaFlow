@@ -1,5 +1,5 @@
 /**
- * The one write path of the MCP budget amount tools (set_budget_amounts, set_budget_annual): read the
+ * The one write path of the MCP budget amount tools (set_budget_amounts, set_budget_annual, import_budget_workbook): read the
  * version's grid as the token user sees it (a budget holder sees their slices), resolve every account and
  * member by id or code (the import's resolver), plan the cells (`cellWritePlan`), then either
  *  - DRY RUN: run the grid save itself (`saveCells`, as the token user) inside a savepoint that is always
@@ -7,7 +7,8 @@
  *    recomputed dependents included), the version token and the `plan_hash` (`wroteNothing`: the
  *    idempotency key stays free for the live call); or
  *  - LIVE: refuse any refused cell (all or nothing), recompute the plan from the current state and refuse
- *    unless its hash equals the dry run's `plan_hash` (required for a write of more than one cell), save
+ *    unless its hash equals the dry run's `plan_hash` (required when the caller sets `hashRequired`: set_budget_amounts
+ *    for anything but one cell merged, set_budget_annual and import_budget_workbook always), save
  *    (`saveCells`: its compare-and-set on the token, its audit row as the token user), read what the save
  *    left, then record the undo snapshot in the same savepoint.
  * Refusals before the save return a toolError; the save's own refusals roll back its own savepoint, so

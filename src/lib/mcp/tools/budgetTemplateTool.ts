@@ -40,9 +40,10 @@ const totalsView = (model: GridReadModel) => Object.fromEntries(Object.entries(m
   .map(([k, v]) => [k, { year: randText(model.totals.fy[k as keyof typeof model.totals.fy]), months: v.map(randText) }]));
 
 /** The template's rows as the JSON grid import_budget_workbook takes back, each with its signed base (its months as read). */
-function jsonRows(grid: TemplateGrid) {
+/** The JSON rows of one page of the grid (round 9: only those rows are built and signed). */
+function jsonRows(grid: TemplateGrid, rows: TemplateGrid['rows']) {
   const meta = { versionId: grid.meta.versionId, fiscalYear: grid.meta.fiscalYear, grain: grid.meta.grain, months: grid.months };
-  return grid.rows.map((r) => {
+  return rows.map((r) => {
     const cents = grid.months.map((m) => grid.values.get(`${r.rowKey}|${m}`) ?? null);
     const py = grid.py.get(r.rowKey);
     return {
@@ -119,14 +120,14 @@ export const getBudgetTemplateTool: McpTool = {
       if (!(await checkRateLimit(`mcp-budget-template-json:u:${ctx.userId}`, { max: JSON_TEMPLATE_MAX, windowSecs: RATE_WINDOW_SECS }))) return toolError('Too many template reads — wait a few minutes and try again.');
       const { model, prior } = await loadTemplateInputs(ctx.companyId, version.id, grain, ctx.userId);
       const grid = templateGrid(model, grain, prior, members);
-      const all = jsonRows(grid);
       const limit = clampLimit(args, TEMPLATE_LIMIT_DEFAULT, TEMPLATE_LIMIT_MAX);
       const offset = Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0;
-      const rows = all.slice(offset, offset + limit);
+      const rows = jsonRows(grid, grid.rows.slice(offset, offset + limit));
+      const total = grid.rows.length;
       const next = offset + rows.length;
       return ok({
         format: 'json', version: { id: version.id, name: version.name, fiscal_year: version.fiscalYear, status: version.status },
-        version_token: grid.meta.updatedAt, grain, months: grid.months, rows, rows_total: all.length, next_offset: next < all.length ? next : null,
+        version_token: grid.meta.updatedAt, grain, months: grid.months, rows, rows_total: total, next_offset: next < total ? next : null,
         totals: totalsView(model),
         next_step: 'Edit months (decimal strings; null = not budgeted) and send the rows, unchanged otherwise, with this version_token to import_budget_workbook (dry_run true first). Rows you leave out are untouched.',
       });

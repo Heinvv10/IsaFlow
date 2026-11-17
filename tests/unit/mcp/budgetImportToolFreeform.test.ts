@@ -112,7 +112,7 @@ describe('review round 3: the sheet read, and what it must not read silently', (
   const dry = async (file: string) => tool.handler({ ...KEY, file_base64: file, version_token: TOKEN, dry_run: true }, ctx());
   const listed = (out: Record<string, unknown>) => (out.cells as Array<{ i: number; account: string; month: string; status: string; reason?: string }>);
 
-  it.each(['hidden', 'veryHidden'] as const)('F1: a %s sheet first is not read: the first VISIBLE sheet is, and the reply names it', async (state) => {
+  it.each(['hidden', 'veryHidden'] as const)('F1: a %s sheet first is not read: the sheet the workbook opens on (here the first visible one) is, and the reply names it', async (state) => {
     const file = await book({ name: 'Old draft', state, rows: [['Code', ...MONTHS], ['6000', null, 999]] }, { name: 'Budget', rows: [['Code', ...MONTHS], ['6000', null, 250]] });
     const out = json(await dry(file));
     expect(out).toMatchObject({ sheet: 'free-form', sheet_name: 'Budget' });
@@ -152,7 +152,7 @@ describe('review round 3: the sheet read, and what it must not read silently', (
     expect(text(await tool.handler({ ...KEY, file_base64: file, version_token: TOKEN, plan_hash: 'a'.repeat(64) }, ctx()))).toMatch(/^1 cell is refused, so nothing was written/);
   });
 
-  it('F5 (round 4: any merge): merged cells refuse the workbook', async () => {
+  it('F5: a merge on or below the header row refuses the workbook (round 7: one above it is fine)', async () => {
     const file = await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['6000', 120]], edit: (ws) => ws.mergeCells('B2:D2') });
     expect(text(await dry(file))).toMatch(/^Sheet "Budget" has merged cells \(B2:D2\)/);
   });
@@ -174,7 +174,7 @@ describe('review round 7: LibreOffice files, the open sheet, and cells rounded t
     expect((out.cells as Array<{ account: string; month: string; status: string }>).map((c) => `${c.account}:${c.month}:${c.status}`)).toEqual(['6000:2026-03:changed']);
   });
 
-  it('cells under a 2-decimal format are imported as shown and listed (the first 20, and the count)', async () => {
+  it('cells under a 2-decimal format are rounded to cents by IsaFlow\'s rule and listed (the first 20, and the count)', async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Plan');
     ws.addRow(['Code', ...MONTHS]);

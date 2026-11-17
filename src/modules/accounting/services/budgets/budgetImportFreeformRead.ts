@@ -25,12 +25,12 @@ import { parseSheetXml, type FreeRow } from './budgetFreeformSheet';
 export interface FreeformSheet {
   name: string;
   rows: FreeRow[];
-  /** The workbook's date system (headers written as dates). */
+  /** The workbook's date system (headers written as dates): true for 1904, absent or false for 1900. */
   date1904?: boolean;
-  /** The merged range reaching lowest down the sheet (round 7: refused on or below the header row), if any. */
-  merged?: { ref: string; lastRow: number } | null;
-  /** The styled conditional format reaching lowest (round 8: refused on or below the header row), if any. */
-  conditional?: { ref: string; lastRow: number } | null;
+  /** The merged range reaching lowest down the sheet (refused on or below the header row); absent when none. */
+  merged?: { ref: string; lastRow: number };
+  /** The styled conditional format reaching lowest (refused on or below the header row); absent when none. */
+  conditional?: { ref: string; lastRow: number };
 }
 
 export type ImportWorkbook = { kind: 'template'; wb: BudgetWorkbook } | { kind: 'freeform'; sheet: FreeformSheet };
@@ -85,5 +85,7 @@ export async function readImportWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIM
   if (read.hidden) {
     throw inputError(`Sheet "${clip(sheet.name)}" has hidden rows or columns (${read.hidden}): unhide every row and column, and clear any filter (IsaFlow reads no cell you cannot reach); then send it again.`);
   }
-  return { kind: 'freeform', sheet: { name: sheet.name, rows: read.rows, date1904: wb.date1904, merged: read.merged, conditional: read.conditional } };
+  return { kind: 'freeform', sheet: {
+    name: sheet.name, rows: read.rows, date1904: wb.date1904, ...(read.merged ? { merged: read.merged } : {}), ...(read.conditional ? { conditional: read.conditional } : {}),
+  } };
 }

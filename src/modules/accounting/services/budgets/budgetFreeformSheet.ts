@@ -114,7 +114,7 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
         const value = DECIMAL.test(c.v) ? Number(c.v) : NaN;
         if (!Number.isFinite(value)) return { kind: 'bad', what: BAD.notNumber(c.v) };
         const fmt = formatOfCell(c.s);
-        const decimals = formatDecimals(fmt.id, fmt.code);
+        const decimals = formatDecimals(fmt.id, fmt.code, value);
         return { kind: 'number', value, format: fmt.code ?? `built-in ${fmt.id}`, plain: decimals !== null, decimals: decimals ?? 0 };
       }
       default: return refuse(`a cell has a type ("${clip(c.t)}") IsaFlow does not read.`);

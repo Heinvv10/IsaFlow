@@ -69,7 +69,7 @@ describe('2, 3: fill characters and the escaped space', () => {
   });
   it('#,##0.00\\ ? shows 3 decimals (LibreOffice draws 1.234 as "1.23 4"): a value with 3 is refused, not rounded', async () => {
     expect(await cellWith('#,##0.00\\ ?', 1.23)).toEqual({ kind: 'value', cents: 123 });
-    expect(await cellWith('#,##0.00\\ ?', 1.234)).toEqual({ kind: 'error', raw: '1.234', reason: 'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)' });
+    expect(await cellWith('#,##0.00\\ ?', 1.234)).toEqual({ kind: 'error', raw: '1.234', reason: 'has more than 2 decimals, and IsaFlow rounds to cents only under a format showing exactly 2 (this one is General, Text or shows more); format it with 2 decimals, or round it in the sheet' });
   });
   it('a [...] code after the decimals is not a digit placeholder: 0.00\\ [$R-1C09] shows 2 decimals, so 1.235 rounds to 1.24', async () => {
     expect(await cellWith('0.00\\ [$R-1C09]', 1.235)).toEqual({ kind: 'value', cents: 124 });

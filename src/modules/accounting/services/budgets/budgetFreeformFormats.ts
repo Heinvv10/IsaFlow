@@ -11,9 +11,9 @@
  *     or sign (a "-" for 0 is 0; a red negative keeps its minus; no scaling, no condition). Matched after `normaliseFormat`:
  *     the tags dropped, whitespace runs (a non-breaking space included) to one space, colour names case-folded.
  *  3. The character rule (`budgetFreeformXml.isPlainNumberFormat`).
- * A format shows `decimals` places (Infinity: General and Text; round 8: every digit placeholder after the `.`
- * counts, a literal between them or not): a cell holding more is refused by the reader, but under a format showing
- * exactly 2, where IsaFlow rounds it to cents and lists it (round 7, `budgetFreeformAmounts`). The guarantee is the
+ * A format shows `decimals` places for a value (`formatDecimals`; Infinity: General and Text): a cell holding more is
+ * refused by the reader, but under a format showing exactly 2, where IsaFlow rounds it to cents and lists it
+ * (`budgetFreeformAmounts`). The guarantee is the
  * value read, not how a spreadsheet draws it (round 8; evidence doc).
  *
  * Sources of ZA_FORMATS (evidence doc, "South African formats"): `libreoffice` = LibreOffice 24.2's own en-ZA
@@ -97,20 +97,24 @@ const SAFE = new Map(ZA_FORMATS.map((f) => [normaliseFormat(f.code), f.decimals]
 /** Decimals the plain built-ins show (General and Text, 49, show what the value holds). */
 const BUILTIN_DECIMALS: Readonly<Record<number, number>> = { 0: Infinity, 1: 0, 2: 2, 3: 0, 4: 2, 37: 0, 38: 0, 39: 2, 40: 2, 41: 0, 43: 2, 49: Infinity };
 
-/** The decimal places a money cell's format shows, or null when the format is not one a money cell may carry. */
-export function formatDecimals(id: number, raw: string | undefined): number | null {
+/**
+ * The decimal places a money cell's format shows FOR ITS VALUE, or null when the format is not one a money cell may
+ * carry. Round 9: the section that draws the value decides (Excel's rule): a negative is drawn by the second section
+ * when there is one, zero by the third when there is one (zero has no fraction, so that section never matters), every
+ * other value by the first. So `0.00;-0.0` shows 2 decimals for 1.25 and 1 for -1.25, and `#,##0.00;-#,##0.00;0` shows
+ * 2 for 1.50. Every digit placeholder after the section's `.` counts, a literal between them or not.
+ */
+export function formatDecimals(id: number, raw: string | undefined, value = 0): number | null {
   if (raw === undefined) return BUILTIN_DECIMALS[id] ?? null;
   const code = stripLocaleTags(raw);
   if (/^\s*(?:general|@)\s*$/i.test(code)) return Infinity;
   const known = SAFE.get(normaliseFormat(code));
   if (known !== undefined) return known;
   if (!isPlainNumberFormat(id, code)) return null;
-  // Round 8: every digit placeholder after the `.` counts, a literal between them or not (`0.00\ ?` draws 1.234 as
-  // "1.23 4": 3 decimals), with padding, fills and [...] codes left out.
-  const shown = code.split(';').slice(0, 3).map((section) => {
-    const bare = section.replace(/_./gs, '').replace(/\*./gs, '').replace(/\[[^\]]*\]/g, '');
-    const dot = bare.indexOf('.');
-    return dot < 0 ? 0 : (bare.slice(dot + 1).match(/[0#?]/g) ?? []).length;
-  });
-  return Math.min(...shown);
+  const sections = code.split(';');
+  const section = sections[value < 0 && sections.length >= 2 ? 1 : value === 0 && sections.length >= 3 ? 2 : 0]!;
+  // Round 8: padding, fills and [...] codes are no placeholders (`0.00\ ?` draws 1.234 as "1.23 4": 3 decimals).
+  const bare = section.replace(/_./gs, '').replace(/\*./gs, '').replace(/\[[^\]]*\]/g, '');
+  const dot = bare.indexOf('.');
+  return dot < 0 ? 0 : (bare.slice(dot + 1).match(/[0#?]/g) ?? []).length;
 }

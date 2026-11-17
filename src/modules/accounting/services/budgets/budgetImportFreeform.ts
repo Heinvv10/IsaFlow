@@ -1,31 +1,30 @@
 /**
- * A free-form budget sheet (MCP budget tools PR 2, review rounds 2 to 7): an .xlsx that is not an IsaFlow template,
- * the sheet it opens on PARSED cell by cell (`budgetImportFreeformRead`), read as an account-code column plus one
- * column for every month of the version's year, into the Excel import's own lines, so the import's resolver and diff
- * take it from there (`budgetImportDiff`, base `'current'`: an explicit overwrite of the version as it is). The app's
- * import route does not call this; it still reads templates only (`readBudgetWorkbook`).
+ * A free-form budget sheet (MCP budget tools PR 2; history in docs/plans/budgets/P7-mcp-tools-pr2-evidence.md): an
+ * .xlsx that is not an IsaFlow template, the sheet it opens on PARSED cell by cell (`budgetImportFreeformRead`), read
+ * as an account-code column plus one column for every month of the version's year, into the Excel import's own
+ * lines, so the import's resolver and diff take it from there (`budgetImportDiff`, base `'current'`: an explicit
+ * overwrite of the version as it is). The app's import route does not call this; it reads templates only.
  *
  * Layout: the header row is the first of rows 1 to 20 OF THE SHEET with an account-code column ("Account code",
- * "Code" or "Account", any case; the first of those it has wins, a lower one in the same row is a name column).
- * A merge on or below the header row refuses the sheet; one entirely above it (a title) is fine (round 7). So does a
- * conditional format there whose style sets a number format, font or fill (round 8: its outcome is not in the file).
- * Month columns are headed YYYY-MM, by a date (any day of the month), or by a month name (Mar, March, Sept), with a
- * year (Mar 2026, Mar-26) or without one when exactly one year month has that name. A date header outside the year
- * that is not on the 1st is refused saying what it was read as ("Jan-27" typed in en-ZA is 27 January of this year;
- * round 7). At a cc1 / cc2 / bu grain one dimension column ("Dimension code", "Dimension", or the grain's own: "CC1",
- * "Cost centre", ...); a second one, or one on a company import, is refused (decision 14: one dimension per amount).
- * Account name, Name, Description, Section, Total, FY total, PY actual and Notes columns are ignored. Every other
- * header, a month missing or twice, a month outside the year, a value under no header, and the IsaFlow template's own
- * header (a template stripped of its hidden sheets, whose blanks mean "clear") are refused whole with their sheet,
- * row and column.
+ * "Code" or "Account", any case; the first of those it has wins; another of them in the same row is a name column).
+ * A merge on or below the header row refuses the sheet (one entirely above it, a title, is fine), and so does a
+ * conditional format there whose style sets a number format, font or fill. Month columns are headed YYYY-MM, by a
+ * date (any day of the month), or by a month name (Mar, March, Sept), with a year (Mar 2026, Mar-26) or without one
+ * when exactly one year month has that name; a date header outside the year not on the 1st is refused saying what it
+ * was read as ("Jan-27" typed in en-ZA is 27 January of this year). At a cc1 / cc2 / bu grain one dimension column
+ * ("Dimension code", "Dimension", or the grain's own: "CC1", "Cost centre", ...); a second one, or one on a company
+ * import, is refused (decision 14). Account name, Name, Description, Section, Total, FY total, PY actual, Notes, Note
+ * and Dimension name columns are ignored (Account name, Name, Description and a second code header are the name
+ * columns a total word is looked for in). Every other header, a month missing or twice, a month outside the year, a
+ * value under no header or above the header under a month, and the IsaFlow template's own header (a template
+ * stripped of its hidden sheets, whose blanks mean "clear") are refused whole with their sheet, row and column.
  *
- * EVERY MONEY CELL IS ACCOUNTED FOR (round 4): a row is skipped (and listed) only when its month cells are all empty,
- * or when it is a total row that is no account: the code is a total word (Total, Totals, Subtotal, Grand total), or
- * the code is blank and a name column holds one (round 7). A row with any month cell filled and a blank, error or
- * unreadable code is refused, and a code that is no account with amounts reaches the resolver, which refuses it.
- * A NUMBER in the code (or dimension) column is read only when its format is General or Text and it is whole (B1,
- * round 7: 4000.1 under 0.00 shows 4000.10, under 0 shows 4000; 400 under 0000 shows 0400); a numeric code that lost
- * a leading zero (400 for 0400) is refused, never guessed. Month cells: `budgetFreeformAmounts`.
+ * EVERY MONEY CELL IS ACCOUNTED FOR: a row is skipped (and listed) only when its month cells are all empty, or when
+ * it is a total row that is no account (the code is Total, Totals, Subtotal or Grand total, or the code is blank and
+ * a name column holds one). A row with any month cell filled and a blank, error or unreadable code is refused, and a
+ * code that is no account with amounts reaches the resolver, which refuses it. A NUMBER in the code or dimension
+ * column is read only when its format is General or Text and it is whole; one that lost a leading zero (400 for 0400)
+ * is refused, never guessed; an error value there is refused as one. Month cells: `budgetFreeformAmounts`.
  */
 import { inputError } from './gridErrors';
 import type { GridReadModel } from './gridReadTypes';
@@ -40,7 +39,6 @@ import { amountCell, shownAmounts } from './budgetFreeformAmounts';
 
 export type { FreeformSheet } from './budgetImportFreeformRead';
 export type { FreeCell, FreeRow } from './budgetFreeformSheet';
-export { CLEAR_WORD } from './budgetFreeformAmounts';
 const HEADER_ROWS = 20;
 const TOTAL_WORDS = new Set(['total', 'totals', 'subtotal', 'sub total', 'sub-total', 'grand total']);
 const TEMPLATE_HEADER = ['section', 'account code', 'account name'];
@@ -149,10 +147,10 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
   const fy = model.year.fiscalYear;
   const where = `Sheet "${clip(sheet.name)}"`;
   const { header, texts, dates, codeCol } = headerRow(sheet, where);
-  if (sheet.merged && sheet.merged.lastRow >= header.row) {
+  if (sheet.merged !== undefined && sheet.merged.lastRow >= header.row) {
     throw inputError(`${where} has merged cells (${clip(sheet.merged.ref)}) on or below its header row: unmerge them, so each value is in its own row and month, and send it again (a title merged above the header is fine).`);
   }
-  if (sheet.conditional && sheet.conditional.lastRow >= header.row) {
+  if (sheet.conditional !== undefined && sheet.conditional.lastRow >= header.row) {
     throw inputError(`${where} has conditional formatting (${clip(sheet.conditional.ref)}) on or below its header row whose style sets a number format, font or fill, so a condition could change how an amount reads: remove that conditional formatting (or move it above the header) and send it again.`);
   }
   const at = (col: number) => `${where}, row ${header.row}, column ${letter(col)}`;
@@ -177,7 +175,7 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
     const month = monthOfHeader(shown, months, fy);
     if (month === null) {
       throw inputError(`${at(col)}: "${clip(shown)}" is not an account code, dimension or month column of FY${fy} (${months[0]} to ${months[months.length - 1]}). `
-        + 'Remove it; IsaFlow ignores only Account name, Name, Description, Section, Total, FY total, PY actual and Notes columns.');
+        + 'Remove it; IsaFlow ignores only Account name, Name, Description, Section, Total, FY total, PY actual, Notes, Note and Dimension name columns.');
     }
     if ('error' in month) throw inputError(`${at(col)}: ${(dates[col] ? dateHeaderError(shown, fy, months) : null) ?? `${month.error}.`}`);
     const twice = monthCol.get(month.month);
@@ -201,7 +199,7 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
   const memberCodes = grain === 'company' ? [] : model.dimensions[grain].map((m) => m.code.trim());
   for (const r of sheet.rows) {
     if (r.row <= header.row) continue;
-    const stray = r.cells.findIndex((c, col) => c !== null && c !== undefined && !known.has(col));
+    const stray = r.cells.findIndex((c, col) => c !== null && !known.has(col));
     if (stray >= 0) throw inputError(`${where}, row ${r.row}, column ${letter(stray)}: a value under no header. Head the column or remove the value.`);
     const rounded: FreeformLines['rounded'] = [];
     const amounts = months.map((month) => amountCell(month, r.cells[monthCol.get(month)!], (value, imported) => {
@@ -225,28 +223,25 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
     if (raw?.kind === 'number') {
       const padded = model.accounts.filter((a) => a.code.trim() !== code && /^0+\d/.test(a.code.trim()) && a.code.trim().replace(/^0+/, '') === code);
       if (padded.length > 0) {
-        const message = find(code)
+        refuse(find(code)
           ? `Account code ${code} is a number and could be ${code} or ${padded[0]!.code.trim()} (a lost leading zero). Format the code column as text and type the code.`
-          : `Account code ${code} is a number: it lost its leading zero (${padded[0]!.code.trim()}?). Format the code column as text and type the code.`;
-        out.errors.push({ row: r.row, column: 'Account code', message, account: code });
+          : `Account code ${code} is a number: it lost its leading zero (${padded[0]!.code.trim()}?). Format the code column as text and type the code.`, code);
         continue;
       }
     }
     if (find(accountCode) === undefined) {
-      if (TOTAL_WORDS.has(code.toLowerCase().replace(/\s+/g, ' '))) { out.skipped.push({ row: r.row, reason: 'a total row', ...shownAmounts(months, r, monthCol) }); continue; }
+      if (TOTAL_WORDS.has(norm(code))) { out.skipped.push({ row: r.row, reason: 'a total row', ...shownAmounts(months, r, monthCol) }); continue; }
       if (!money) { out.skipped.push({ row: r.row, reason: 'not an account, and no amounts (a heading?)' }); continue; }
     }
     const dim = dimCol === null ? null : r.cells[dimCol];
-    const notDimension = dim?.kind === 'number' ? numberCode(dim, 'dimension') : null;
-    if (notDimension !== null) {
-      out.errors.push({ row: r.row, column: 'Dimension code', account: code, message: `${where}, row ${r.row}, column ${letter(dimCol!)}: ${notDimension}` });
-      continue;
-    }
+    const refuseDimension = (message: string) => out.errors.push({ row: r.row, column: 'Dimension code', account: code, message: `${where}, row ${r.row}, column ${letter(dimCol!)}: ${message}` });
+    const notDimension = dim?.kind === 'number' ? numberCode(dim, 'dimension') : dim?.kind === 'bad' ? `the dimension code is ${dim.what}, not a code.` : null;
+    if (notDimension !== null) { refuseDimension(notDimension); continue; }
     if (dim?.kind === 'number') {
       const typed = String(dim.value);
       const padded = memberCodes.find((c) => c !== typed && /^0+\d/.test(c) && c.replace(/^0+/, '') === typed);
       if (padded !== undefined) {
-        out.errors.push({ row: r.row, column: 'Dimension code', account: code, message: `Dimension code ${typed} is a number: it lost its leading zero (${padded}?). Format the dimension column as text and type the code.` });
+        refuseDimension(`Dimension code ${typed} is a number: it lost its leading zero (${padded}?). Format the dimension column as text and type the code.`);
         continue;
       }
     }
