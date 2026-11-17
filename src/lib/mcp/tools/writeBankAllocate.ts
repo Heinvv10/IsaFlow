@@ -101,6 +101,8 @@ export const allocateBankTransactionTool: McpTool = {
       : { warnings: [] };
     if (typeof cos === 'string') return toolError(cos);
 
+    // WP2 row 5: onto its own bank, or a transfer already in the ledger, allocateTransaction refuses before any write
+    // (BANK_ALLOCATION_REFUSED / DUPLICATE_TRANSFER): the registry answers both typed, its savepoint rolled back.
     // No try/catch below this line, deliberately. Anything the service throws
     // must reach the registry's savepoint, which rolls the partial write back
     // and makes the retry safe.

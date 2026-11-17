@@ -15,6 +15,7 @@ import { cosProjectWarnings } from '../gl/dimensions/dimensionPolicy';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { isControlSubtype, planAllocationDimensions } from './bankAllocationDimensions';
 import { contactControlRefusal } from './contactControlGuard';
+import { bankContraRefusal } from './bankContraTransfer';
 
 export interface SplitDimensionLine extends DimensionIds {
   contraAccountId: string;
@@ -51,7 +52,9 @@ export async function planSplitDimensions(
   // A GL line straight onto AP/AR control moves the control with no document, so the subledger drifts from it by
   // that amount — and beside a contact line's document it hides behind that document's gate. Name the contact.
   for (const line of lines) {
-    const refusal = contactControlRefusal(byId.get(line.contraAccountId.toLowerCase())?.account_subtype, 'A split line', 'split line');
+    const subtype = byId.get(line.contraAccountId.toLowerCase())?.account_subtype;
+    // WP2 row 5: a part onto a bank account is a transfer, which cannot be split (bankContraTransfer).
+    const refusal = contactControlRefusal(subtype, 'A split line', 'split line') ?? bankContraRefusal(subtype, 'split line');
     if (refusal) throw refusal;
   }
   const dims = lines.map((line) => {

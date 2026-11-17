@@ -101,7 +101,7 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
     const NO_IMPORT = ['pages/api/accounting/bank-transactions-manual.ts']; // inserts its own hand-keyed line: no batch, no importer
     const callers = filesMatching(HAND_KEYED).filter((f) => !DEFINERS.includes(f));
     expect(callers).toEqual([
-      ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`, `${MCP}writeBankSplit.ts`,
+      ...NO_IMPORT, `${B}bankBulkAcceptEligibility.ts`, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`, `${MCP}writeBankSplit.ts`,
       'src/modules/accounting/services/ap/provisionalSettlementClaim.ts', `${B}bankAllocationService.ts`,
       `${B}bankRuleAutoPostLine.ts`, `${B}bankSplitAllocate.ts`, `${B}bankSplitContacts.ts`,
       'src/modules/accounting/services/capture/provisionalPostingService.ts',

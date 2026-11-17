@@ -52,6 +52,9 @@ export async function attemptUndoRow(
       );
     } else if (outcome === 'gone') {
       // A peer undo or a confirmed hand correction finished it first.
+    } else if (outcome === 'changedSinceRun') {
+      tally.skippedBy.changedSinceRun += 1;
+      log.warn('Auto-post undo left a transaction alone: its posting is not one this run made', { companyId, runId, txId }, 'auto-post-undo');
     } else if (outcome === 'reconciled') {
       tally.skippedBy.reconciled += 1;
     } else if (outcome === 'reversed') {
