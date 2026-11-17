@@ -39,36 +39,44 @@ const STILL_RUNNING = /still being processed/i; // the idempotency wrapper's 409
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function send(body: unknown, key: string): Promise<Response | 'ambiguous'> {
+/** One send's answer, its body already read inside the deadline. */
+interface Sent { status: number; text: string; res: Response }
+
+async function send(body: unknown, key: string): Promise<Sent | 'ambiguous'> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CONFIRM_RETRY.timeoutMs);
   try {
-    return await apiFetch(URL, {
+    const res = await apiFetch(URL, {
       method: 'POST', credentials: 'include', signal: controller.signal,
       headers: { ...JSON_HEADERS, 'Idempotency-Key': key }, body: JSON.stringify(body),
     });
+    // The deadline covers the body too: headers that arrive and a body that then stalls are as ambiguous as no answer, and
+    // clearing the timer at the headers would leave the dialog busy for good.
+    const text = await res.text();
+    return { status: res.status, text, res: new Response(text === '' ? null : text, { status: res.status, headers: res.headers }) };
   } catch {
-    return 'ambiguous'; // a dropped connection, or our own timeout: the first send may have committed
+    return 'ambiguous'; // a dropped connection, a body cut off, or our own timeout: the first send may have committed
   } finally { clearTimeout(timer); }
 }
 
 /**
  * POST under an Idempotency-Key, which the SERVER stores with the answer: a resend after a lost answer replays the first
  * answer (the same runId, the same undo result) instead of acting twice, or runs fresh if the first never committed. So an
- * ambiguous failure (network error, timeout, 408/502/503/504, "still being processed", a 200 whose body cannot be read) is
- * resent with the same key after a short backoff; a refusal (4xx) is definitive. `onRetry` fires before each resend.
+ * ambiguous failure (network error, a timeout before the headers or during the body, 408/502/503/504, "still being
+ * processed", a 200 whose body cannot be read) is resent with the same key after a short backoff; a refusal (4xx) is
+ * definitive. `onRetry` fires before each resend.
  * @throws WriteUnresolvedError when every try was ambiguous.
  */
 async function postUnderKey(body: unknown, key: string, fallback: string, unresolved: string, onRetry?: () => void): Promise<unknown> {
   const tries = CONFIRM_RETRY.backoffMs.length + 1;
   for (let attempt = 0; attempt < tries; attempt += 1) {
     if (attempt > 0) { onRetry?.(); await pause(CONFIRM_RETRY.backoffMs[attempt - 1]!); }
-    const res = await send(body, key);
-    if (res === 'ambiguous' || AMBIGUOUS_STATUS.has(res.status)) continue;
-    if (res.status === 409 && STILL_RUNNING.test(await res.clone().text())) continue;
-    await assertOk(res, fallback);
+    const sent = await send(body, key);
+    if (sent === 'ambiguous' || AMBIGUOUS_STATUS.has(sent.status)) continue;
+    if (sent.status === 409 && STILL_RUNNING.test(sent.text)) continue;
+    await assertOk(sent.res, fallback);
     let data: unknown;
-    try { data = (JSON.parse(await res.text()) as { data?: unknown }).data; } catch { continue; } // a body cut short: ambiguous
+    try { data = (JSON.parse(sent.text) as { data?: unknown }).data; } catch { continue; } // a body cut short: ambiguous
     if (data === undefined) continue;
     return data;
   }

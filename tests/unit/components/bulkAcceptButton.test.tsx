@@ -241,3 +241,107 @@ describe('an open dialog is not unmounted or retargeted by the page (z30 hypothe
     expect(screen.getByTestId('bulk-result')).toBeTruthy();
   });
 });
+
+describe('the dialog keeps ONE tree position (review: a flip under it remounted it)', () => {
+  const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
+  const RESULT = { runId: 'run-1', posted: [{ txId: 'id-0', journalEntryId: 'j0' }, { txId: 'id-1', journalEntryId: 'j1' }], refused: [], totalPosted: 2 };
+  const gets = (account: string) => vi.mocked(apiFetch).mock.calls.filter(([u, i]) => (i?.method ?? 'GET') === 'GET' && String(u).includes(`bankAccountId=${account}`)).length;
+
+  it('the tab flipping while a confirm is in flight: the same dialog node, then the result and Undo', async () => {
+    const post = deferred<Response>();
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'POST' ? post.promise : ok(preview(2))));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 2 high-confidence/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByRole('button', { name: 'Posting…' });
+    const before = screen.getByRole('dialog');
+    rerender(<BulkAcceptButton bankAccountId="b1" active={false} onChanged={vi.fn()} />);
+    expect(screen.getByRole('dialog')).toBe(before);
+    post.resolve(ok(RESULT));
+    expect((await screen.findByTestId('bulk-result')).textContent).toMatch(/Posted 2 lines/);
+    expect(screen.getByRole('button', { name: 'Undo batch' })).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBe(before);
+  });
+
+  it('the tab flipping on the result screen: Undo is still there', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'POST' ? ok(RESULT) : ok(preview(2))));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 2 high-confidence/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    const before = screen.getByRole('dialog');
+    rerender(<BulkAcceptButton bankAccountId="b1" active={false} onChanged={vi.fn()} />);
+    expect(screen.getByRole('dialog')).toBe(before);
+    expect(screen.getByRole('button', { name: 'Undo batch' })).toBeTruthy();
+    expect(screen.getByTestId('bulk-result').textContent).toMatch(/Posted 2 lines/);
+  });
+
+  it('the account flipping: the dialog stays on its own account and never previews the new one', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (u) => ok(preview(String(u).includes('b2') ? 5 : 2)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 2 high-confidence/ }));
+    await screen.findByRole('button', { name: /Confirm and post 2/ });
+    const before = screen.getByRole('dialog', { name: 'Accept 2 high-confidence suggestions' });
+    rerender(<BulkAcceptButton bankAccountId="b2" active onChanged={vi.fn()} />);
+    await waitFor(() => expect(gets('b2')).toBe(1)); // the button's count of b2
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(gets('b2')).toBe(1); // and no preview of b2 by the dialog
+    expect(screen.getByRole('dialog', { name: 'Accept 2 high-confidence suggestions' })).toBe(before);
+  });
+});
+
+describe('the count is throttled per account (review: one shared "last read")', () => {
+  const gets = (account: string) => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes(`bankAccountId=${account}`)).length;
+
+  it('switching A, B, A within the minute reads A once', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (u) => ok(preview(String(u).includes('b2') ? 5 : 3)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' });
+    rerender(<BulkAcceptButton bankAccountId="b2" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Accept 5 high-confidence suggestions' });
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(screen.getByRole('button', { name: 'Accept 3 high-confidence suggestions' })).toBeTruthy();
+    expect(gets('b1')).toBe(1);
+    expect(gets('b2')).toBe(1);
+  });
+
+  it("an account's read in flight still lands after a switch away, so coming back shows its number with no new read", async () => {
+    let resolveA!: (r: Response) => void;
+    const a = new Promise<Response>((r) => { resolveA = r; });
+    vi.mocked(apiFetch).mockImplementation(async (u) => (String(u).includes('b1') ? a : ok(preview(5))));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await waitFor(() => expect(gets('b1')).toBe(1));
+    rerender(<BulkAcceptButton bankAccountId="b2" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Accept 5 high-confidence suggestions' });
+    resolveA(ok(preview(3)));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' })).toBeTruthy();
+    expect(gets('b1')).toBe(1);
+  });
+});
+
+describe('focus back on close has one path (review: the shell and the button both moved it)', () => {
+  it('Done after a batch that empties the account: focus goes to the button, then the grid, and never to the table', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(preview(1))).mockResolvedValueOnce(ok(preview(1)))
+      .mockResolvedValueOnce(ok({ runId: 'r', posted: [{ txId: 'id-0', journalEntryId: 'j' }], refused: [], totalPosted: 1 })).mockResolvedValue(ok(preview(0)));
+    render(<>
+      <div data-testid="bank-tx-table" tabIndex={-1} />
+      <div role="group" aria-label="Bank transactions grid" tabIndex={0} data-testid="grid" />
+      <BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />
+    </>);
+    const table = screen.getByTestId('bank-tx-table');
+    const tableFocused = vi.fn();
+    table.addEventListener('focus', tableFocused);
+    const trigger = await screen.findByRole('button', { name: /Accept 1 high-confidence/ });
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 1/ }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(document.activeElement).toBe(trigger); // the button is still there until the count is read again
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('grid')));
+    expect(tableFocused).not.toHaveBeenCalled();
+  });
+});

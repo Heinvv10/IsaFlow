@@ -165,15 +165,15 @@ describe('an undo that meets a contended line and a changed-since-run line', () 
       await holder.query('BEGIN');
       await holder.query('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [second]); // a peer holds the second line
       const blocked = await undo(KEY1);
-      expect([409, 503]).toContain(blocked.state.statusCode); // a retryable refusal, whichever way the lock timeout is mapped
-      // Whether the changed line's untag committed with it (a 4xx commits) or rolled back (a 5xx does) is the wrapper's call;
-      // what must hold is that the contended line is untouched and nothing was reversed behind the failure.
-      expect([null, run.runId]).toContain((await tagOf(first)).t);
+      // The row lock times out (55P03): the undo re-throws it with nothing reversed, and the route maps a held row to 503 with
+      // Retry-After (respondIfLockTimeout). A 5xx rolls the request back, so the changed line's untag did NOT commit either.
+      expect(blocked.state.statusCode).toBe(503);
+      expect((await tagOf(first)).t).toBe(run.runId);
       expect((await tagOf(second)).t).toBe(run.runId);
       expect((await tagOf(second)).status).toBe('allocated');
     } finally { await holder.query('ROLLBACK'); holder.release(); }
 
-    const again = await undo(KEY1); // the same key: a 409 stored nothing, so it runs fresh
+    const again = await undo(KEY1); // the same key: a 503 stored nothing, so it runs fresh
     expect(again.state.statusCode).toBe(200);
     // The contended line is reversed now; the changed line left the run (skipped, never reversed): the run closes on the next undo.
     expect(dataOf<{ reversed: number; skippedBy: { changedSinceRun: number } }>(again)).toMatchObject({ reversed: 1, skippedBy: { changedSinceRun: 1 } });

@@ -24,6 +24,10 @@ const SANDBOX_ONBOARDING_ID = '5d8e1a3c-7b24-4f69-9a0e-3c6b2d1f8e57';
 /** The dialog's name once Confirm has answered: the title changes, so the preview's locator ("Accept 3 ...") no longer finds it. */
 const RESULT_TITLE = 'High-confidence suggestions: result';
 
+const t0 = Date.now();
+/** One line per step with the seconds since the start, written at once: the job log shows how far a run got even if a later step hangs. */
+const step = (what: string) => console.log(`[z30 +${((Date.now() - t0) / 1000).toFixed(1)}s] ${what}`);
+
 const NIL_ID = '00000000-0000-0000-0000-000000000000';
 const PAGE = '/accounting/bank-transactions';
 // Every route the page asks for while it is open (the shell, the page's mount reads and panels, the bulk-accept route
@@ -52,27 +56,31 @@ test.beforeAll(async () => {
     // No redirects: a stale session would 302 to /login and must fail here, not be mistaken for a warm route.
     const page = await ctx.get(PAGE, { timeout: 120_000, maxRedirects: 0 });
     expect(page.status(), `warm-up ${PAGE} (a 3xx means the session is not valid)`).toBe(200);
+    // Only the page must answer 200. A route is warmed by any answer: a 5xx or a timeout here is logged, not a failure (the
+    // test itself then meets the route and says what is wrong).
     for (const path of WARM_APIS) {
-      const res = await ctx.get(path, { timeout: 120_000, maxRedirects: 0 });
-      expect(res.status(), `warm-up ${path}: the route must answer, even with a refusal`).toBeLessThan(500);
+      const status = await ctx.get(path, { timeout: 120_000, maxRedirects: 0 }).then((r) => r.status(), (err: unknown) => String(err).split('\n')[0]);
+      if (typeof status !== 'number' || status >= 500) {
+        step(`warm-up ${path}: ${status} (not fatal)`);
+        test.info().annotations.push({ type: 'warm-up', description: `${path}: ${status}` });
+      }
     }
   } finally {
     await ctx.dispose();
   }
 });
 
-const t0 = Date.now();
-/** One line per step with the seconds since the start, written at once: the job log shows how far a run got even if a later step hangs. */
-const step = (what: string) => console.log(`[z30 +${((Date.now() - t0) / 1000).toFixed(1)}s] ${what}`);
-/** A cleanup step that cannot hold the run up: bounded, and it says which one hung. */
-async function bounded(name: string, work: () => Promise<unknown>, ms = 20_000): Promise<void> {
+/** A cleanup step that cannot hold the run up: bounded, and it says which one hung. True when it finished. */
+async function bounded(name: string, work: () => Promise<unknown>, ms = 20_000): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([work(), new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${name} did not finish within ${ms / 1000}s`)), ms); })]);
     step(`cleanup ${name}: done`);
+    return true;
   } catch (err) {
     step(`cleanup ${name}: FAILED ${String(err).split('\n')[0]}`);
     test.info().annotations.push({ type: 'cleanup-failed', description: `${name}: ${String(err)}` });
+    return false;
   } finally { if (timer) clearTimeout(timer); }
 }
 
@@ -214,8 +222,12 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     // Each cleanup step is bounded (20 s) and logged, so a hung request can never run the test out of time.
     step('cleanup begins');
     // A failed expect after Confirm must not leave the batch posted: undo it here whenever a run was seen.
-    if (runId && !undone) await bounded('undo batch', () => api.post('/api/accounting/bank-bulk-accept', { action: 'undo', runId }));
-    if (ids.length > 0) await bounded('delete lines', () => api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: ids }));
+    const undoneNow = runId && !undone ? await bounded('undo batch', () => api.post('/api/accounting/bank-bulk-accept', { action: 'undo', runId })) : true;
+    if (!undoneNow) {
+      // The batch may still be posted: deleting its lines now would fail or orphan the journals. Leave them for a person.
+      step(`cleanup delete lines: SKIPPED (batch ${runId} may still be posted)`);
+      test.info().annotations.push({ type: 'cleanup-skipped', description: `lines ${ids.join(', ')} of batch ${runId} left in the sandbox: the undo did not finish` });
+    } else if (ids.length > 0) await bounded('delete lines', () => api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: ids }));
     if (ruleId) await bounded('delete rule', () => api.post('/api/accounting/bank-rules-action', { action: 'delete', id: ruleId }));
     await bounded('dispose', () => api.dispose(), 10_000);
   }

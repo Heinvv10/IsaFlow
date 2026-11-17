@@ -585,3 +585,100 @@ describe('Confirm with the real preview answer (z30 regression)', () => {
     await screen.findByTestId('bulk-result');
   });
 });
+
+describe('focus and the outcome after a confirm or undo ends (review round)', () => {
+  const RUN = { runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+  const live = () => document.querySelector('[aria-live="polite"]')?.textContent ?? '';
+
+  it('after Confirm, focus is on Done (not the body) and the live region says what posted', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Done' })));
+    expect(live()).toBe('Batch posted: 1 line.');
+  });
+
+  it('after Undo finishes (its button gone), focus is on Done and the live region says it was undone', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN))
+      .mockResolvedValueOnce(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    const undoBtn = await screen.findByRole('button', { name: 'Undo batch' });
+    undoBtn.focus();
+    fireEvent.click(undoBtn);
+    await screen.findByText(/Batch undone: 1 line reversed/);
+    expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Done' })));
+    expect(live()).toBe('Undo finished: 1 line reversed.');
+  });
+
+  it('a refused Confirm puts focus back on Cancel', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(bad('The lines changed - refresh the preview', 409));
+    open();
+    const confirmBtn = await screen.findByRole('button', { name: /Confirm and post 2/ });
+    confirmBtn.focus(); // a real click focuses it; the refusal then leaves it disabled
+    fireEvent.click(confirmBtn);
+    await screen.findByText(/The lines changed/);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' })));
+  });
+});
+
+describe('a body that stalls after the headers (review round)', () => {
+  it('stays inside the deadline: the confirm ends as "may have posted" instead of Posting… for good', async () => {
+    CONFIRM_RETRY.timeoutMs = 40;
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockImplementation(async (_u, init) => new Response(new ReadableStream({
+      start(c) { init?.signal?.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError'))); }, // like fetch: abort errors the body
+    }), { status: 200 }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    expect(await screen.findByText(/may have posted/, undefined, { timeout: 3000 })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Posting…' })).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.filter(([, i]) => i?.method === 'POST')).toHaveLength(3); // every try, same key
+  });
+});
+
+describe('a dialog unmounted after a write was sent still reloads the page (review round)', () => {
+  it('unmounted while a confirm is in flight: onChanged once', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockReturnValueOnce(new Promise(() => undefined));
+    const onChanged = vi.fn();
+    const view = render(<BulkAcceptModal open bankAccountId="b1" onClose={vi.fn()} onChanged={onChanged} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByRole('button', { name: 'Posting…' });
+    view.unmount();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('unmounted on the result screen without Done: onChanged once; after Done and a close, not again', async () => {
+    const RUN = { runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN));
+    const onChanged = vi.fn();
+    const view = render(<BulkAcceptModal open bankAccountId="b1" onClose={vi.fn()} onChanged={onChanged} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    view.unmount();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    vi.mocked(apiFetch).mockReset();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN));
+    const again = vi.fn();
+    const onClose = vi.fn();
+    const second = render(<BulkAcceptModal open bankAccountId="b1" onClose={onClose} onChanged={again} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    second.rerender(<BulkAcceptModal open={false} bankAccountId="b1" onClose={onClose} onChanged={again} />);
+    second.unmount();
+    expect(again).toHaveBeenCalledTimes(1);
+  });
+
+  it('a preview only (nothing sent): unmounting reloads nothing', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW));
+    const onChanged = vi.fn();
+    const view = render(<BulkAcceptModal open bankAccountId="b1" onClose={vi.fn()} onChanged={onChanged} />);
+    await screen.findByText('LINE 1');
+    view.unmount();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});

@@ -4,8 +4,8 @@
  * gap (one trailing read). `refreshKey` - the page's total, which moves on every list load and accept - is what asks for a re-read.
  *
  * A read in flight is NEVER dropped because the key moved (the list loading changes it within moments of the first read, and
- * dropping that answer left the button without its number for a whole minute): it lands if the account is still the same and
- * no newer read has been started, and a change that came while it ran schedules the trailing read.
+ * dropping that answer left the button without its number for a whole minute): it lands unless a newer read of the same
+ * account has been started, and a change that came while it ran schedules the trailing read.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchBulkPreview } from './bulkAcceptApi';
@@ -20,24 +20,29 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   const wanted = active ? bankAccountId : null;
   const wantedRef = useRef(wanted);
   wantedRef.current = wanted;
-  const last = useRef<{ account: string; at: number } | null>(null);
+  // When each account was last read: switching A, B, A within the gap does not read A again (each read screens up to 2 000
+  // rows and spends preview quota).
+  const last = useRef(new Map<string, number>());
   const flight = useRef<{ account: string; seq: number } | null>(null);
   const dirty = useRef(false);
   const seq = useRef(0);
+  const latest = useRef(new Map<string, number>()); // the newest read's seq, per account
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const forced = useRef(0);
   const bypass = useRef(false); // a batch was just posted or undone: the next read ignores the gap
 
   const read = useCallback((account: string) => {
-    const mine = ++seq.current;
+    const mine = ++seq.current; // only read() bumps seq
     flight.current = { account, seq: mine };
     dirty.current = false;
-    last.current = { account, at: now() };
+    last.current.set(account, now());
+    latest.current.set(account, mine);
+    // The landing guard is per account: an answer lands unless a newer read of the SAME account was started since. A read of
+    // another account, a tab switch or a refresh does not drop it (counts are stored per account).
+    const lands = () => latest.current.get(account) === mine;
     fetchBulkPreview(account)
-      // `seq` is the one landing guard: any newer read, a change of account, or the button being switched off all bump it, so
-      // an answer that is no longer the latest never lands (an account check besides it would be redundant).
-      .then((p) => { if (seq.current === mine) setCounts((c) => ({ ...c, [account]: { n: p.lines.length, more: p.truncated || p.scanTruncated } })); })
-      .catch(() => { if (seq.current === mine) setCounts((c) => ({ ...c, [account]: null })); }) // the dialog reports a failure when it is opened
+      .then((p) => { if (lands()) setCounts((c) => ({ ...c, [account]: { n: p.lines.length, more: p.truncated || p.scanTruncated } })); })
+      .catch(() => { if (lands()) setCounts((c) => ({ ...c, [account]: null })); }) // the dialog reports a failure when it is opened
       .finally(() => {
         if (flight.current?.seq !== mine) return;
         flight.current = null;
@@ -48,8 +53,8 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
 
   const schedule = useCallback((account: string) => {
     if (timer.current) clearTimeout(timer.current);
-    const l = last.current;
-    const wait = !bypass.current && l && l.account === account ? Math.max(0, l.at + MIN_GAP_MS - now()) : 0;
+    const at = last.current.get(account);
+    const wait = !bypass.current && at !== undefined ? Math.max(0, at + MIN_GAP_MS - now()) : 0;
     timer.current = setTimeout(() => { timer.current = null; bypass.current = false; if (wantedRef.current === account) read(account); }, wait);
   }, [now, read]);
 
