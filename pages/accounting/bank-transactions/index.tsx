@@ -4,7 +4,7 @@
  * Action handlers: useBankTxActions | Ref data: useBankTxRefData | Bank accounts + figures: useBankTxSummary
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
@@ -74,10 +74,10 @@ export default function BankTransactionsPage() {
   // A link that names a usable account needs no default, so it does not wait for the saved order.
   const linked = router.isReady && typeof router.query.account_id === 'string' && bankAccounts.some(b => b.id === router.query.account_id && b.isActive);
   // Once an account is chosen the accounts stay passed: a client navigation to the bare page while the order is pending must not blank it.
-  const chosenRef = useRef('');
-  const sel = useBankTxSelection(orderReady || linked || chosenRef.current !== '' ? bankAccounts : NO_ACCOUNTS, router.isReady ? router.query.account_id : undefined, router.isReady, pickDefault);
+  const [hasChosen, setHasChosen] = useState(false);
+  const sel = useBankTxSelection(orderReady || linked || hasChosen ? bankAccounts : NO_ACCOUNTS, router.isReady ? router.query.account_id : undefined, router.isReady, pickDefault);
   const { selected: selectedBank, setSelected: setSelectedBank } = sel;
-  useEffect(() => { chosenRef.current = selectedBank; });
+  useEffect(() => { if (selectedBank !== '') setHasChosen(true); }, [selectedBank]);
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });
   // Filter / pagination
