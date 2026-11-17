@@ -47,10 +47,12 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     const before = await api.get<{ lines: unknown[]; scanTruncated: boolean }>(`/api/accounting/bank-bulk-accept?bankAccountId=${bankAccountId}`);
     test.skip(before.lines.length > 0 || before.scanTruncated, 'the account already holds (or may hold) high-confidence suggestions: a confirm would post them too');
 
+    // Descriptions carry no merchant word ("fuel", "coffee"): the global learned patterns would suggest them at import, and the
+    // rule's suggestion is only written to a line that has none.
     const csv = ['Date,Description,Amount,Balance,Reference',
-      `${d},${ref} fuel one,-110.00,9890.00,${ref}-1`,
-      `${d},${ref} fuel two,-220.00,9670.00,${ref}-2`,
-      `${d},${ref} fuel three,-330.00,9340.00,${ref}-3`].join('\n');
+      `${d},${ref} zq one,-110.00,9890.00,${ref}-1`,
+      `${d},${ref} zq two,-220.00,9670.00,${ref}-2`,
+      `${d},${ref} zq three,-330.00,9340.00,${ref}-3`].join('\n');
     await api.post('/api/accounting/bank-transactions-bulk-commit', {
       bankAccountId, bulkImportId: randomUUID(), bulkSequence: 1, filename: `${ref}.csv`, fileType: 'csv',
       statementDate: today(), csvContent: csv, bankFormat: 'fnb', applyBankRules: false,
@@ -61,7 +63,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     expect(ids).toHaveLength(3);
 
     const rule = await api.post<{ id?: string; rule?: { id: string } }>('/api/accounting/bank-rules', {
-      ruleName: `${ref} fuel`, matchField: 'description', matchType: 'contains', matchPattern: ref, glAccountId: expenseId, autoCreateEntry: false,
+      ruleName: `${ref} zq`, matchField: 'description', matchType: 'contains', matchPattern: ref, glAccountId: expenseId, autoCreateEntry: false,
     });
     ruleId = rule.id ?? rule.rule?.id ?? '';
     const categorised = await api.post<{ categorized?: number; results?: unknown[] }>('/api/accounting/smart-categorize', { transactionIds: ids });
@@ -89,7 +91,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     await button.click();
     const dialog = page.getByRole('dialog', { name: /Accept 3 high-confidence suggestions/ });
     await expect(dialog).toBeVisible();
-    for (const n of ['one', 'two', 'three']) await expect(dialog.getByText(`${ref} fuel ${n}`)).toBeVisible();
+    for (const n of ['one', 'two', 'three']) await expect(dialog.getByText(`${ref} zq ${n}`)).toBeVisible();
     await expect(dialog.getByTestId('bulk-totals')).toContainText(/Total out.*660/);
     if (process.env.BANK_TX_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.BANK_TX_EVIDENCE_DIR, 'bulk-accept-preview.png') });
 
