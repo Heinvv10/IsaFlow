@@ -13,6 +13,7 @@ import type { TaxStatus } from '@/modules/accounting/services/payroll/payrollTyp
 import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import type { Employee } from './EmployeeProfileCard';
 import { EmployeeEmailField } from './EmployeeEmailField';
+import { PayFrequencyField } from './PayFrequencyField';
 
 const TAX_STATUS = [
   { value: 'employee', label: 'Employee' },
@@ -121,6 +122,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
       <div className="mt-4 flex justify-end">
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>
+      <PayFrequencyField employeeId={employee.id} canEdit={canEditPriced} />
       <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
     </div>
   );

@@ -50,7 +50,7 @@ export default function PayrollRunsListPage() {
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Payroll Runs</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Monthly payroll cycles</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Monthly, weekly and fortnightly payroll cycles</p>
               </div>
             </div>
             {mayWrite && (

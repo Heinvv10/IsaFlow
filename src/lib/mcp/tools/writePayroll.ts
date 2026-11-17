@@ -15,8 +15,10 @@
  * impossible, and it is why every guard the live path runs is already in the
  * plan by the time the dry run reads it.
  */
-import type { McpTool } from '../types';
-import { createPayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import type { McpTool, McpToolContext } from '../types';
+import { createPayrollRun, PayrollRunDuplicateError } from '@/modules/accounting/services/payroll/payrollRunService';
+import { createPeriodRun, previewPeriodRun, PayrollRunOverlapError } from '@/modules/accounting/services/payroll/payrollRunCreatePeriod';
+import { RunPeriodRefused, type RunPeriod } from '@/modules/accounting/services/payroll/payrollPayWeek';
 import { PayrollPlanChangedSinceApprovalError, readApprovedPlan } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
@@ -33,8 +35,8 @@ const POST_TOOL_AGENT = 'mcp:post_payroll_journal:v1';
 export const createPayRunTool: McpTool = {
   name: 'create_pay_run',
   description:
-    'Open a payroll run for one calendar month. The run starts in draft with no employees costed and no journal — creating it posts NOTHING to the general ledger. ' +
-    'A company may have only one run per month; asking for a month that already has one is refused rather than duplicated. ' +
+    'Open a payroll run: a monthly run for one calendar month (month, year), or a weekly or fortnightly run for one period of the company\'s pay week (frequency, period_start: the period\'s first day, on the pay-week start day; a fortnight also on the company\'s fortnight step). A run pays only the employees of its own frequency. The run starts in draft with no employees costed and no journal — creating it posts NOTHING to the general ledger. ' +
+    'A company may have only one regular run per frequency and period; asking for one that already exists, or a weekly or fortnightly period that overlaps another, is refused rather than duplicated. ' +
     'Costing the run (which applies the PAYE, UIF, SDL and ETI engines to each employee) and approving it are separate steps in the app; this tool only opens the period. Once a run is approved, post_payroll_journal puts it in the ledger. ' +
     'Run it with dry_run: true first — the preview reports whether the month is already taken without writing anything.',
   scope: 'write:payroll',
@@ -43,14 +45,20 @@ export const createPayRunTool: McpTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      month: { type: 'number', description: 'Calendar month, 1-12.' },
-      year: { type: 'number', description: 'Calendar year, e.g. 2026.' },
+      frequency: { type: 'string', enum: ['monthly', 'weekly', 'fortnightly'], description: 'Default monthly.' },
+      month: { type: 'number', description: 'Monthly only: calendar month, 1-12.' },
+      year: { type: 'number', description: 'Monthly only: calendar year, e.g. 2026.' },
+      period_start: { type: 'string', format: 'date', description: 'Weekly or fortnightly only: the period\'s first day, YYYY-MM-DD.' },
       ...MUTATION_ARG_SCHEMA,
     },
-    required: ['month', 'year', 'idempotency_key'],
+    required: ['idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const frequency = args.frequency ?? 'monthly';
+    if (frequency === 'weekly' || frequency === 'fortnightly') return createPeriodPayRun(frequency, args, ctx);
+    if (frequency !== 'monthly') return toolError("frequency must be 'monthly', 'weekly' or 'fortnightly'");
+    if (args.period_start !== undefined) return toolError('period_start is for a weekly or fortnightly run; a monthly run takes month and year');
     const month = Number(args.month);
     const year = Number(args.year);
     if (!Number.isInteger(month) || month < 1 || month > 12) {
@@ -101,6 +109,40 @@ export const createPayRunTool: McpTool = {
     });
   },
 };
+
+/** create_pay_run for a weekly or fortnightly period (wave 6 FQd): the same service and refusals as the route. */
+async function createPeriodPayRun(
+  frequency: 'weekly' | 'fortnightly', args: Record<string, unknown>, ctx: McpToolContext,
+) {
+  if (args.month !== undefined || args.year !== undefined) {
+    return toolError('A weekly or fortnightly run takes period_start, not month and year');
+  }
+  let period: RunPeriod;
+  try {
+    period = await previewPeriodRun(ctx.companyId, frequency, args.period_start);
+  } catch (err) {
+    if (err instanceof RunPeriodRefused) return toolError(err.message);
+    throw err;
+  }
+  if (args.dry_run === true) {
+    const preview: DryRunResult = {
+      dryRun: true, journals: [], skipped: [], effects: [], journalsTotal: 0, truncated: false,
+    };
+    return { ...ok({ ...preview, period }), wroteNothing: true };
+  }
+  try {
+    const run = await createPeriodRun(ctx.companyId, frequency, args.period_start, ctx.userId);
+    return ok({
+      run_id: run.id, pay_frequency: run.payFrequency, period_start: run.periodStart, period_end: run.periodEnd,
+      pay_date: period.payDate, period_month: run.periodMonth, period_year: run.periodYear, status: run.status,
+      note: 'The run is open and empty. Cost and approve it before post_payroll_journal can put it in the ledger.',
+    });
+  } catch (err) {
+    // Refused before the insert (the service's own savepoint), so nothing was written.
+    if (err instanceof PayrollRunDuplicateError || err instanceof PayrollRunOverlapError) return toolError(err.message);
+    throw err;
+  }
+}
 
 export const postPayrollJournalTool: McpTool = {
   name: 'post_payroll_journal',

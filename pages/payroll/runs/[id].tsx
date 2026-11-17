@@ -24,8 +24,8 @@ import type { OnExplain, RunLineAmounts } from '@/components/payroll/PayrollRunL
 import { useLineExplain } from '@/components/payroll/LineExplain';
 import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
 import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
+import { periodLabel } from '@/components/payroll/RunCards';
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export default function PayrollRunDetailPage() {
   const router = useRouter();
@@ -68,7 +68,7 @@ export default function PayrollRunDetailPage() {
 
   const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
-  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
+  const period = periodLabel(run);
   const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}`, employeeName: l.employeeName });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');

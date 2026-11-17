@@ -46,6 +46,12 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({ other_frequency: ['E1'] })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
   });
 
+  it('judges the frequency as at a FINAL run: only approve and post meet the current employee (wave 6 FQd)', () => {
+    // An employee moved to weekly at a tax-year start keeps last year's payslips, EMP201 and IRP5.
+    expect(refusedBy({ other_frequency: ['E1'], final: true })).toEqual(['approve', 'post']);
+    expect(refusedBy({ other_frequency: ['E1'], final: false })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
+  });
+
   it('refuses odd assignments and active garnishee orders only where the run is costed', () => {
     expect(refusedBy({ odd_assignments: ['E1'] })).toEqual(['calculate', 'approve', 'post']);
     expect(refusedBy({ garnishee_orders: 2 })).toEqual(['calculate', 'approve', 'post']);
