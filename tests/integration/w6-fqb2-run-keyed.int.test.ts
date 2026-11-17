@@ -13,6 +13,8 @@ import { dropTenants, seedRun, seedTenant, twoRunsInMonth, type RunSpec, type Te
 import { payePayableDiffersFromEmp201 } from '@/modules/accounting/services/gl/integrityChecks/payrollChecks';
 import { getOwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
 import { buildPayrollCard } from '@/modules/accounting/services/workbench/monthEndLedgerCards';
+import { lastPayRun } from '@/modules/accounting/services/ask/askTax';
+import { shapeAttention } from '@/modules/accounting/services/dashboard/attentionShape';
 import { formatMoney } from '@/lib/money/formatMoney';
 
 assertDisposable();
@@ -84,35 +86,83 @@ describe('owner cash position: the next pay run', () => {
       async () => ({ got: await getOwnerCashPosition(A.company, cash, today), ids: ordered(ids, flip) }));
   };
 
-  it.each(BOTH_ORDERS)('cash covers both: the latest run of the month is the bonus (seeded reversed: %s)', async (flip) => {
+  it.each(BOTH_ORDERS)('cash covers both: the latest run of the month is the bonus, against both (seeded reversed: %s)', async (flip) => {
     const { got, ids } = await position(flip, 1_000_000);
     expect(got.payroll?.runId).toBe(ids[1]);
-    // The bonus alone: net 4 300 + PAYE 700 (B's 10x run would read 50 000).
-    expect(got.payroll?.totalRequired).toBe(5000);
+    // Regular 20 000 + bonus 5 000 (net + PAYE); B's 10x runs would read 250 000.
+    expect(got.payroll).toMatchObject({ totalRequired: 25000, canPay: true, shortfall: 0, runsCounted: 2 });
+  });
+
+  // Review #1549 L1: cash 22 000 pays either run alone, never both. Judged run by run against the whole balance it
+  // read "can pay"; the remainder after the regular run (2 000) cannot cover the bonus, so the month is short 3 000.
+  it.each(BOTH_ORDERS)('cash covers either run alone but not both: the bonus is short 3 000 and the dashboard says so (seeded reversed: %s)', async (flip) => {
+    const { got, ids } = await position(flip, 22_000);
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: false, shortfall: 3000, totalRequired: 25000, runsCounted: 2 });
+    const items = shapeAttention({
+      asAt: '2026-05-29', today, counts: { billsOverdue: 0, billsDueNext7Days: 0 } as never,
+      overdueInvoices: { count: 0, amount: 0 }, unreconciledBankTxns: 0, openPriorPeriods: 0, payRuns: [], work: [], cash: got,
+    });
+    expect(items.find((i) => i.key === 'payroll-shortfall')).toMatchObject({
+      amount: 3000, detail: expect.stringContaining('for this and 1 earlier open pay run (net pay'),
+    });
+  });
+
+  it('across months on today\'s schema too: April 20 000 and May 5 000 open, cash 22 000 is short 3 000 on May', async () => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      ids = await seedBoth(c, [{ ...REGULAR, month: 4, runDate: '2026-04-25' }, { year: 2026, month: 5, runDate: '2026-05-25', gross: 5000, paye: 700 }]);
+    }, () => getOwnerCashPosition(A.company, 22_000, today), { keepMonthKey: true });
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: false, shortfall: 3000, runsCounted: 2 });
   });
 
   it.each(BOTH_ORDERS)('cash covers neither: the earliest short run is the regular run (seeded reversed: %s)', async (flip) => {
     const { got, ids } = await position(flip, 100);
-    expect(got.payroll?.runId).toBe(ids[0]);
-    expect(got.payroll?.shortfall).toBe(19900);
+    expect(got.payroll).toMatchObject({ runId: ids[0], shortfall: 19900, totalRequired: 20000, runsCounted: 1 });
   });
 });
 
+/** A second employee of `t`, and the run's line moved to them (a leaver paid by a termination run). */
+async function payOther(c: PoolClient, t: Tenant, runId: string): Promise<void> {
+  const e2 = String((await c.query(
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, date_of_birth, tax_number)
+     VALUES ($1, 'FQB2-2', 'Leaver', 'Two', '2020-01-01', '2026-05-28', '1980-01-01', '0123456780') RETURNING id`, [t.company])).rows[0].id);
+  await c.query('UPDATE payroll_run_lines SET employee_id = $2 WHERE run_id = $1', [runId, e2]);
+  await c.query("UPDATE payroll_run_headers SET off_cycle_reason = 'termination' WHERE id = $1", [runId]);
+}
+
 describe('month-end workbench: the payroll card', () => {
-  it.each(BOTH_ORDERS)('two runs: ready only when both are approved, gross of both (seeded reversed: %s)', async (flip) => {
+  it.each(BOTH_ORDERS)('two runs: in progress while one is not final, which it names; gross of both (seeded reversed: %s)', async (flip) => {
     const card = await twoRunsInMonth(pool, A,
       async (c) => { await seedBoth(c, ordered([REGULAR, { ...BONUS, status: 'calculated' }], flip)); },
       () => buildPayrollCard(A.company, '2026-05'));
-    expect(card.status).toBe('in_progress');
-    expect(card.primary).toBe(`${formatMoney(25000)} gross`);
-    expect(card.secondary).toMatch(/^1 employees · 2 runs: /);
+    expect(card).toMatchObject({
+      status: 'in_progress', primary: `${formatMoney(25000)} gross`,
+      secondary: '1 employees · 1 of 2 runs not final: bonus run (calculated)',
+    });
   });
 
-  it.each(BOTH_ORDERS)('two approved runs: ready (seeded reversed: %s)', async (flip) => {
-    const card = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
+  it.each(BOTH_ORDERS)('two final runs (one paid): ready (seeded reversed: %s)', async (flip) => {
+    const card = await twoRunsInMonth(pool, A,
+      async (c) => { await seedBoth(c, ordered([REGULAR, { ...BONUS, status: 'paid', approvedAt: '2026-05-28' }], flip)); },
       () => buildPayrollCard(A.company, '2026-05'));
-    expect(card.status).toBe('ready');
-    expect(card.primary).toBe(`${formatMoney(25000)} gross`);
+    expect(card).toMatchObject({ status: 'ready', primary: `${formatMoney(25000)} gross`, secondary: '1 employees · 2 runs, all final' });
+  });
+
+  // Review #1549 L3: readiness is R-035 finality, not the status string.
+  it('an approved run with neither approval stamp is not final: in progress, named', async () => {
+    const card = await twoRunsInMonth(pool, A,
+      async (c) => { await seedBoth(c, [REGULAR, { ...BONUS, approvedAt: null }]); },
+      () => buildPayrollCard(A.company, '2026-05'));
+    expect(card).toMatchObject({ status: 'in_progress', secondary: '1 employees · 1 of 2 runs not final: bonus run (approved)' });
+  });
+
+  // Review #1549 L2: the people paid across the month's runs, not the larger run's head count.
+  it('a termination run paying another employee: 2 employees', async () => {
+    const card = await twoRunsInMonth(pool, A, async (c) => {
+      const [, term] = await seedBoth(c, [REGULAR, BONUS]);
+      await payOther(c, A, term!);
+    }, () => buildPayrollCard(A.company, '2026-05'));
+    expect(card).toMatchObject({ status: 'ready', secondary: '2 employees · 2 runs, all final' });
   });
 
   it('one run (a monthly-only company, today\'s schema): exactly as before', async () => {
@@ -122,5 +172,23 @@ describe('month-end workbench: the payroll card', () => {
       id: 'payroll', title: 'Payroll Run', status: 'ready',
       primary: `${formatMoney(20000)} gross`, secondary: '1 employees · approved', href: '/payroll/runs',
     });
+  });
+});
+
+describe('Ask IsaFlow: the pay run for a month', () => {
+  const ask = (flip: boolean, bonus: RunSpec) => twoRunsInMonth(pool, A,
+    async (c) => { await seedBoth(c, ordered([REGULAR, bonus], flip)); },
+    () => lastPayRun({ id: 'last_pay_run' as never, period: { kind: 'month', year: 2026, month: 5 } }, A.company, '2026-06-10'));
+
+  // Review #1549 L4: the regular run answers, and the month's other final run is named with the combined gross.
+  it.each(BOTH_ORDERS)('names the month\'s other final run and the combined gross (seeded reversed: %s)', async (flip) => {
+    const got = await ask(flip, BONUS);
+    expect(got.figure).toBe(20000);
+    expect(got.text).toContain('The month has 1 other final run (R 25 000.00 gross combined).');
+  });
+
+  it('a run that is not final is not named', async () => {
+    const got = await ask(false, { ...BONUS, status: 'calculated' });
+    expect(got.text).not.toContain('other final run');
   });
 });

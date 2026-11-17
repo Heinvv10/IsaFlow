@@ -18,7 +18,7 @@ describe('shapePayrollAffordability', () => {
     const p = shapePayrollAffordability(run(), 150000);
     expect(p).toEqual({
       runId: 'run-1', periodLabel: 'June 2026', status: 'approved',
-      totalRequired: 106000, canPay: true, shortfall: 0,
+      totalRequired: 106000, canPay: true, shortfall: 0, runsCounted: 1,
     });
   });
 
@@ -52,9 +52,15 @@ describe('pickPayrollRun', () => {
   const prev = run({ id: 'prev', period_month: 5, total_net: '300', total_paye: '100', total_uif: '0', total_sdl: '0', total_eti: '0' });
   const cur = run({ id: 'cur', period_month: 6, total_net: '4000', total_paye: '1000', total_uif: '0', total_sdl: '0', total_eti: '0' });
 
-  it('reports this month when last month is covered and this month is short', () => {
+  it('reports this month when last month is covered and this month is short, against both (cash pays them in turn)', () => {
     const p = pickPayrollRun([prev, cur], 1000);
-    expect(p).toMatchObject({ runId: 'cur', canPay: false, shortfall: 4000 });
+    // 400 for last month leaves 600 of the 1 000 for this month's 5 000: short 4 400 (review #1549 L1).
+    expect(p).toMatchObject({ runId: 'cur', canPay: false, shortfall: 4400, totalRequired: 5400, runsCounted: 2 });
+  });
+
+  it('cash that covers each run alone but not both is short on the second', () => {
+    expect(pickPayrollRun([prev, cur], 5000)).toMatchObject({ runId: 'cur', canPay: false, shortfall: 400, runsCounted: 2 });
+    expect(pickPayrollRun([prev, cur], 5400)).toMatchObject({ runId: 'cur', canPay: true, shortfall: 0, totalRequired: 5400, runsCounted: 2 });
   });
 
   it('reports the earliest short run when both are short', () => {

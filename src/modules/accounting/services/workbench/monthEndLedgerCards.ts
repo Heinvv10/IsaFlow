@@ -5,7 +5,8 @@ import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { fmtDate } from '@/lib/fmtDate';
-import { listPayrollRuns } from '@/modules/accounting/services/payroll/payrollRunService';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { runOrderKeySql } from '@/modules/accounting/services/payroll/payrollRunOrder';
 import { getSalesFigures, getPurchasesFigures } from './monthEndSalesFigures';
 import type { CardStatus, WorkbenchCard } from './monthEndWorkbenchService';
 
@@ -112,14 +113,28 @@ export async function buildVatCard(companyId: string, periodStart: string, perio
   };
 }
 
+/** A run named by its kind: "regular run", "bonus run", "termination run". */
+const runName = (r: DbRow): string => `${r.run_kind === 'off_cycle' ? String(r.off_cycle_reason ?? 'off-cycle') : 'regular'} run`;
+
 /**
- * The month's pay runs, all of them (wave 6 FQb2): a month may hold an off-cycle bonus beside its regular run, so the
- * card is ready only when every run is approved, and shows their gross together. One run reads exactly as before.
+ * The month's pay runs, all of them (wave 6 FQb2): a month may hold an off-cycle bonus beside its regular run. The card
+ * is ready only when every run is final (payRunFinalSql, the R-035 rule the EMP201 declares by; review #1549 L3), shows
+ * their gross together and the people paid across them (review L2), and names the runs not final yet. One run reads as
+ * before, except that readiness is finality, so a paid run is ready and an unstamped approved one is not.
  */
 export async function buildPayrollCard(companyId: string, period: string): Promise<WorkbenchCard> {
   const [year, month] = period.split('-').map(Number) as [number, number];
-  const monthRuns = (await listPayrollRuns(companyId)).filter(r => r.periodYear === year && r.periodMonth === month);
-  if (monthRuns.length === 0) {
+  const runs = (await sql`
+    SELECT h.status, h.run_kind, h.off_cycle_reason, h.total_gross, ${sql.unsafe(payRunFinalSql('h'))} AS final,
+           COUNT(*) OVER () AS runs,
+           (SELECT COUNT(DISTINCT l.employee_id) FROM payroll_run_lines l
+              JOIN payroll_run_headers m ON m.id = l.run_id
+             WHERE m.company_id = ${companyId}::uuid AND m.period_year = ${year}::int AND m.period_month = ${month}::int) AS employees
+      FROM payroll_run_headers h
+     WHERE h.company_id = ${companyId}::uuid AND h.period_year = ${year}::int AND h.period_month = ${month}::int
+     ORDER BY ${runOrderKeySql('h')}
+  `) as DbRow[];
+  if (runs.length === 0) {
     return {
       id: 'payroll',
       title: 'Payroll Run',
@@ -129,17 +144,21 @@ export async function buildPayrollCard(companyId: string, period: string): Promi
       href: '/payroll/runs',
     };
   }
-  const status: CardStatus = monthRuns.every(r => r.status === 'approved') ? 'ready' : 'in_progress';
-  const gross = monthRuns.reduce((t, r) => t + (Number(r.totalGross) || 0), 0);
-  const employees = Math.max(...monthRuns.map(r => r.employeeCount));
+  const notFinal = runs.filter(r => r.final !== true);
+  const status: CardStatus = notFinal.length === 0 ? 'ready' : 'in_progress';
+  const gross = runs.reduce((t, r) => t + (Number(r.total_gross) || 0), 0);
+  const employees = Number(runs[0]!.employees) || 0;
+  const state = runs.length === 1
+    ? String(runs[0]!.status)
+    : notFinal.length === 0
+      ? `${runs.length} runs, all final`
+      : `${notFinal.length} of ${runs.length} runs not final: ${notFinal.map(r => `${runName(r)} (${String(r.status)})`).join(', ')}`;
   return {
     id: 'payroll',
     title: 'Payroll Run',
     status,
     primary: `${fmtR(gross)} gross`,
-    secondary: monthRuns.length === 1
-      ? `${employees} employees · ${monthRuns[0]!.status}`
-      : `${employees} employees · ${monthRuns.length} runs: ${monthRuns.map(r => r.status).join(', ')}`,
+    secondary: `${employees} employees · ${state}`,
     href: '/payroll/runs',
   };
 }

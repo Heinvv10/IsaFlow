@@ -45,6 +45,8 @@ export interface CashPositionPayroll {
   totalRequired: number;
   canPay: boolean;
   shortfall: number;
+  /** The open runs `totalRequired` adds up: this run and every earlier one (pickPayrollRun). */
+  runsCounted: number;
 }
 
 export interface CashPositionVat {
@@ -58,6 +60,8 @@ export interface OwnerCashPosition {
   payroll: CashPositionPayroll | null;
   vat: CashPositionVat | null;
 }
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Null/undefined branch is defensive only — payroll money columns are NOT NULL DEFAULT 0 (migration 382). */
 const num = (v: string | number | null | undefined): number => (v == null ? 0 : Number(v)) || 0;
@@ -84,7 +88,8 @@ export function shapePayrollAffordability(
     status: run.status === 'approved' ? 'approved' : 'estimated',
     totalRequired,
     canPay,
-    shortfall: canPay ? 0 : Math.round((totalRequired - cash) * 100) / 100,
+    shortfall: canPay ? 0 : r2(totalRequired - cash),
+    runsCounted: 1,
   };
 }
 
@@ -100,14 +105,23 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
 }
 
 /**
- * Which run of the window to report: the earliest one with totals that cash
- * cannot cover; else the latest one with totals; else the earliest run. A run
- * with no totals yet (a draft) never hides a shortfall on another run.
+ * Which run of the window to report. Cash pays the runs in pay order, so each run is judged against what the runs
+ * before it left (review #1549 L1: never the whole balance once per run). The first run the remainder cannot cover is
+ * reported, its `totalRequired` the runs up to and including it and its shortfall that sum less cash; when every run
+ * is covered, the latest run with totals, against all of them. A run with no totals yet (a draft) needs nothing and
+ * never hides a shortfall on another run; with no totals at all, the earliest run.
  */
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number): CashPositionPayroll | null {
   const shaped = runs.map((r) => shapePayrollAffordability(r, cash)!);
   const withTotals = shaped.filter((p) => p.totalRequired > 0);
-  return withTotals.find((p) => !p.canPay) ?? withTotals[withTotals.length - 1] ?? shaped[0] ?? null;
+  let required = 0;
+  for (const [i, p] of withTotals.entries()) {
+    required = r2(required + p.totalRequired);
+    if (cash < required) return { ...p, totalRequired: required, canPay: false, shortfall: r2(required - cash), runsCounted: i + 1 };
+  }
+  const last = withTotals[withTotals.length - 1];
+  if (last) return { ...last, totalRequired: required, canPay: true, shortfall: 0, runsCounted: withTotals.length };
+  return shaped[0] ?? null;
 }
 
 // ── Private section helpers ───────────────────────────────────────────────────

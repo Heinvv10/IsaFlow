@@ -198,7 +198,7 @@ describe('shapeAttention: VAT is one row', () => {
 describe('shapeAttention: salary shortfall', () => {
   const payroll = (over: Partial<NonNullable<AttentionInput['cash']['payroll']>>) => ({
     runId: 'rnov', periodLabel: 'November 2026', status: 'approved' as const,
-    totalRequired: 50000, canPay: false, shortfall: 20000, ...over,
+    totalRequired: 50000, canPay: false, shortfall: 20000, runsCounted: 1, ...over,
   });
 
   it('a row when cash cannot pay the run', () => {
@@ -209,6 +209,13 @@ describe('shapeAttention: salary shortfall', () => {
       label: 'Cash is short for the November 2026 pay run',
     });
     expect(items[0]!.detail).toBe(`Cash ${formatMoney(30000)} against ${formatMoney(50000)} (net pay plus PAYE, UIF and SDL, less ETI)`);
+  });
+
+  it('names the earlier open runs the required total includes (review #1549 L1)', () => {
+    const two = shapeAttention(input({ cash: { cash: 30000, payroll: payroll({ runsCounted: 2 }), vat: null } }));
+    expect(two[0]!.detail).toBe(`Cash ${formatMoney(30000)} against ${formatMoney(50000)} for this and 1 earlier open pay run (net pay plus PAYE, UIF and SDL, less ETI)`);
+    const three = shapeAttention(input({ cash: { cash: 30000, payroll: payroll({ runsCounted: 3 }), vat: null } }));
+    expect(three[0]!.detail).toContain(' for this and 2 earlier open pay runs (');
   });
 
   it('says it is an estimate only for an unapproved run', () => {

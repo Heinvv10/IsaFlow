@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const m = vi.hoisted(() => ({
-  ar: vi.fn(), ap: vi.fn(), bank: vi.fn(), cash: vi.fn(), income: vi.fn(), sheet: vi.fn(), vat: vi.fn(), emp: vi.fn(), fy: vi.fn(), cycle: vi.fn(), run: vi.fn(), fyLabel: vi.fn(),
+  ar: vi.fn(), ap: vi.fn(), bank: vi.fn(), cash: vi.fn(), income: vi.fn(), sheet: vi.fn(), vat: vi.fn(), emp: vi.fn(), fy: vi.fn(), cycle: vi.fn(), run: vi.fn(), fyLabel: vi.fn(), others: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: m.ar }));
 vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAging: m.ap }));
@@ -14,6 +14,7 @@ vi.mock('@/modules/accounting/services/reports/emp201Service', () => ({ generate
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ fiscalYearForDate: m.fy, getFiscalYear: m.fyLabel }));
 vi.mock('@/modules/accounting/services/reports/companyVatCycle', () => ({ getCompanyVatCycle: m.cycle }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ getDeclarablePayRun: m.run }));
+vi.mock('@/modules/accounting/services/ask/askPayRunMonth', () => ({ otherFinalRuns: m.others }));
 
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 import { parseQuestion } from '@/modules/accounting/services/ask/askIntents';
@@ -45,6 +46,7 @@ beforeEach(() => {
   m.fy.mockImplementation(async (_c: string, d: string) => (d >= '2026-03-01' ? { startDate: '2026-03-01', endDate: '2027-02-28' } : { startDate: '2025-03-01', endDate: '2026-02-28' }));
   m.cycle.mockResolvedValue({ cadence: 'bi-monthly', alignment: 'even' });
   m.run.mockResolvedValue(run);
+  m.others.mockResolvedValue({ count: 0, gross: 0 });
 });
 
 describe('figure equals the service figure, with the exact page link', () => {
@@ -77,7 +79,7 @@ describe('company scoping', () => {
       expect(fn.mock.calls.length).toBeGreaterThan(0);
       for (const c of fn.mock.calls) expect(c[0]).toBe(CO);
     }
-    for (const fn of [m.cycle, m.run]) for (const c of fn.mock.calls) expect(c[0]).toBe(CO);
+    for (const fn of [m.cycle, m.run, m.others]) for (const c of fn.mock.calls) expect(c[0]).toBe(CO);
     await ask('who owes me money', 'other-co');
     expect(m.ar).toHaveBeenLastCalledWith('other-co', TODAY);
   });
