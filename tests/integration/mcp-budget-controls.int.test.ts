@@ -17,6 +17,8 @@ import { budgetDriverRouteFixture, dataOf, type DriverWorld } from './helpers/bu
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { body, mcp, mcpReads, text } from './helpers/mcpBudgetFixture';
+import { als } from '@/lib/als';
+import { loadChartRefs } from '@/modules/accounting/services/budgets/budgetRefResolve';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -111,6 +113,16 @@ describe('the control reads answer what the app answers', () => {
     expect((out.lines as Array<Record<string, unknown>>).map((l) => l.refused ?? 'answered')).toEqual([
       `${other.rent} is not an account of this company`, `${other.cc1} is not a CC1 cost centre of this company`, 'answered',
     ]);
+    // The same read on the superuser connection (RLS bypassed): the service's own company predicate, not the
+    // tenant policy, keeps the other company's rows out (the policy alone gave the same refusal above).
+    const client = await pool.connect();
+    let refs;
+    try {
+      await client.query('BEGIN');
+      refs = await als.run({ client, companyId: w.u.homeCompanyId, userId: w.u.userId, claims: {} } as never, () => loadChartRefs(w.u.homeCompanyId));
+    } finally { await client.query('ROLLBACK'); client.release(); }
+    const ids = new Set([...refs.accounts, ...refs.members].map((x) => x.id));
+    expect([ids.has(w.rent), ids.has(w.cc1), ids.has(other.rent), ids.has(other.cc1), ids.has(other.bu)]).toEqual([true, true, false, false, false]);
     await pool.query('DELETE FROM mcp_tool_calls WHERE company_id = $1', [other.u.homeCompanyId]);
   });
 
