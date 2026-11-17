@@ -276,10 +276,10 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, feb));
     const jan = await mk(f, 2027, 1);
     await calcOnly(f, jan);
-    // As #786 wrote it: the same code and message, no periods.
+    // As #786 wrote it: the same code and message, no periods (and no runs, which wave 6 FQc added).
     await pool.query(
       `UPDATE payroll_run_lines SET validation_results = (
-         SELECT jsonb_agg(CASE WHEN v->>'code' = 'PAYE_LATER_PERIODS_APPROVED' THEN v - 'periods' ELSE v END)
+         SELECT jsonb_agg(CASE WHEN v->>'code' = 'PAYE_LATER_PERIODS_APPROVED' THEN v - 'periods' - 'runs' ELSE v END)
          FROM jsonb_array_elements(validation_results) v) WHERE run_id = $1`, [jan]);
     expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
     const refused = await approveRun(f, jan);
