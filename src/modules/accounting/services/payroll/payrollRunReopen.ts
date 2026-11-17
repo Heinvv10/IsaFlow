@@ -15,6 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { bankFileReopenWarnings } from './payrollBankFileStatus';
 import { clearPayslipDetails } from './payslipSnapshot';
 
 /**
@@ -123,5 +124,5 @@ export async function reopenPayrollRun(opts: {
 
   // Wave 5 ET (round 3): the run no longer declares; the later run-less months of the ETI period follow (under lock 1).
   await rebookEtiAfterEvent(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) }, opts.userId);
-  return { runId: opts.runId, previousStatus, newStatus: 'calculated' };
+  return { runId: opts.runId, previousStatus, newStatus: 'calculated', ...(await bankFileReopenWarnings(opts.companyId, opts.runId)) };
 }
