@@ -41,16 +41,27 @@ export async function sweepExpiredUploads(db: SweepDb = getDbPool()): Promise<{ 
   return { cleared: cleared.rowCount ?? 0, deleted: deleted.rowCount ?? 0 };
 }
 
-/** The sweep for a caller that must not fail on it (both tools, the PUT route): a failure is logged and dropped. */
-export async function sweepExpiredUploadsQuietly(): Promise<void> {
-  try {
-    const { cleared, deleted } = await sweepExpiredUploads();
+/** How long a caller waits for the sweep (its pool checkout included) before going on without it. */
+export const SWEEP_WAIT_MS = 2_000;
+
+/**
+ * The sweep for a caller that must not fail on it (both tools, the PUT route): a failure is logged and dropped, and the
+ * caller waits at most SWEEP_WAIT_MS. A tool calls it while its own request transaction holds a pool connection, so a
+ * busy pool could otherwise stall the tool for the whole connect timeout; past the wait the sweep finishes (or fails,
+ * logged) in the background on its own connection.
+ */
+export async function sweepExpiredUploadsQuietly(waitMs: number = SWEEP_WAIT_MS): Promise<void> {
+  const run = sweepExpiredUploads().then(({ cleared, deleted }) => {
     if (cleared > 0 || deleted > 0) log.info('MCP upload sweep', { cleared, deleted }, 'mcp-uploads');
-  } catch (err) {
+  }, (err: unknown) => {
     log.warn('MCP upload sweep failed; the next call retries', {
       error: err instanceof Error ? err.message : String(err),
     }, 'mcp-uploads');
-  }
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const waited = new Promise<void>((resolve) => { timer = setTimeout(resolve, waitMs); });
+  await Promise.race([run, waited]);
+  if (timer) clearTimeout(timer);
 }
 
 /** The PUT route's sweep: at most once per SWEEP_MIN_INTERVAL_MS per process (a PUT flood is not a sweep flood). */

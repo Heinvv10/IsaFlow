@@ -20,3 +20,15 @@ describe('sweepExpiredUploadsThrottled', () => {
     expect(query).toHaveBeenCalledTimes(4); // two statements per sweep, two sweeps
   });
 });
+
+describe('sweepExpiredUploadsQuietly', () => {
+  it('waits at most its bound for a sweep that cannot get a connection, and never throws', async () => {
+    const { sweepExpiredUploadsQuietly } = await import('@/modules/accounting/services/core/mcpUploadIntentSweep');
+    query.mockImplementationOnce(() => new Promise(() => undefined)); // a pool checkout that never comes
+    const started = Date.now();
+    await sweepExpiredUploadsQuietly(50);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    query.mockRejectedValueOnce(new Error('pool down'));
+    await expect(sweepExpiredUploadsQuietly(50)).resolves.toBeUndefined();
+  });
+});

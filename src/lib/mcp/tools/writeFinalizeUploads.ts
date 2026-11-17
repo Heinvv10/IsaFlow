@@ -192,6 +192,7 @@ export const finalizeUploadsTool: McpTool = {
       deferred: count('deferred'),
       errors: count('error'),
       not_found: count('not_found'),
-    }), wroteNothing: !changedAny };
+    // A refusal writes an audit row (and may mark the row): that call wrote something, so its key is kept.
+    }), wroteNothing: !changedAny && count('refused') === 0 };
   },
 };

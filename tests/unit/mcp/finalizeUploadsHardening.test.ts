@@ -110,11 +110,13 @@ describe('finalize_uploads hardening', () => {
     expect(actions).toEqual([['update', id(1)], ['reject', id(2)]]);
   });
 
-  it('audits a scope refusal at finalize', async () => {
-    const res = body(await finalizeUploadsTool.handler({ upload_ids: [id(1)], idempotency_key: 'k' },
-      { ...ctx, scopes: ['write:invoices'] }));
+  it('audits a scope refusal at finalize, and keeps the idempotency key (the call wrote an audit row)', async () => {
+    const out = await finalizeUploadsTool.handler({ upload_ids: [id(1)], idempotency_key: 'k' },
+      { ...ctx, scopes: ['write:invoices'] });
+    const res = body(out);
     expect(res.files[0].status).toBe('refused');
     expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({ action: 'reject' });
+    expect(out.wroteNothing).toBe(false);
   });
 
   it('frees the idempotency key when the call changed no upload (all deferred / not uploaded), keeps it otherwise', async () => {
