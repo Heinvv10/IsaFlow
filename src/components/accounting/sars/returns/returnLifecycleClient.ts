@@ -4,6 +4,7 @@
  * VAT gate counts, so the caller can show it and offer the matching next step.
  */
 import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import type { ReturnVersionView } from '@/modules/accounting/services/returns/returnDrift';
 import type { ReturnForm, VatReturnRecord } from '@/modules/accounting/services/returns/returnVersionTypes';
 import type { VatGateCounts } from '../VatGateOverrideBox';
@@ -37,7 +38,7 @@ export async function loadReturnVersions(form: ReturnForm, periodStart: string, 
   const q = new URLSearchParams({ periodStart, periodEnd });
   const url = form === 'EMP501' ? `${EMP501_RETURNS}?${q}` : `/api/accounting/sars/returns/${slug(form)}/versions?${q}`;
   const res = await apiFetch(url, { credentials: 'include' });
-  await assertOk(res, 'Could not load the return versions - try again');
+  await assertOk(res, payrollLoadMessage(res.status, 'Could not load the return versions - try again'));
   const json = await res.json() as { data: ReturnVersions };
   return json.data;
 }

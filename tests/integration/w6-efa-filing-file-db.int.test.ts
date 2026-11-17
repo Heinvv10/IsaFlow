@@ -1,9 +1,11 @@
 /**
- * Migration 999v's table rules for the filing-file stamps (wave 6 EFa, grill F11), below the services. Every check runs
- * as app_user (SET LOCAL ROLE, withAuth's GUCs) in a transaction that is always rolled back: a forged, stale or
- * rewritten stamp is refused, stamps are frozen once a return is filed, and a version finalised after the cut-off is
- * filed only once its file was stamped. A version finalised before the cut-off files as before (the old colour).
+ * Migration 999v's table rules for the stored filing file and its stamps (wave 6 EFa, grill F11), below the services.
+ * Every check runs as app_user (SET LOCAL ROLE, withAuth's GUCs) in a transaction that is always rolled back: a forged,
+ * stale or rewritten stamp or file is refused, a stamp that is not the stored file's sha256 or names another form's
+ * kind is refused, both are frozen once a return is filed, and a version finalised after the cut-off is filed only once
+ * its file was stored. A version finalised before the cut-off files as before (the old colour).
  */
+import { createHash } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -15,9 +17,13 @@ const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describ
 type Row = Record<string, unknown>;
 let a: ReturnFixture;
 const { submission, version, asAppUser, failOf, upd, U, FILE } = rules;
-const SHA = 'a'.repeat(64);
-const STAMP = (by: string, at = 'now()', sha = SHA, kind = 'emp201_capture_csv') =>
-  `filing_file_sha256 = '${sha}', filing_file_kind = '${kind}', filing_file_at = ${at}, filing_file_by = '${by}'`;
+const CONTENT = '"section","field","amount"\r\n"Payroll tax calculations","PAYE",9000.00\r\n';
+const shaOf = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
+const SHA = shaOf(CONTENT);
+/** The five filing-file columns as the service writes them; each part can be forged. */
+const STAMP = (by: string, at = 'now()', sha = SHA, kind = 'emp201_capture_csv@1', content = CONTENT) =>
+  `filing_file_content = '${content}', filing_file_sha256 = '${sha}', filing_file_kind = '${kind}', filing_file_at = ${at}, `
+  + `filing_file_by = '${by}'`;
 
 describeIfDb('tax_return_versions filing-file stamps (migration 999v)', () => {
   beforeAll(async () => {
@@ -47,28 +53,41 @@ describeIfDb('tax_return_versions filing-file stamps (migration 999v)', () => {
     }
   });
 
-  it('the stamps are written once: rewriting each of the four, or clearing them, is refused', async () => {
+  it('the file and its stamps are written once: rewriting each of the five, or clearing them, is refused', async () => {
     const v = await version(a, 2, 'finalised', true);
+    const other = `${CONTENT}x`;
     await asAppUser(a, async (c) => {
       expect(await failOf(c, upd(v, STAMP(U())))).toBe('ok');
-      for (const set of [`filing_file_sha256 = '${'b'.repeat(64)}'`, `filing_file_kind = 'vat201_capture_csv'`,
+      for (const set of [`filing_file_sha256 = '${'b'.repeat(64)}'`, `filing_file_kind = 'emp201_capture_csv@2'`,
         `filing_file_at = clock_timestamp()`, `filing_file_by = '${U()}x'`,
-        'filing_file_sha256 = NULL, filing_file_kind = NULL, filing_file_at = NULL, filing_file_by = NULL']) {
+        `filing_file_content = '${other}', filing_file_sha256 = '${shaOf(other)}'`, // a new file with its own hash
+        'filing_file_content = NULL, filing_file_sha256 = NULL, filing_file_kind = NULL, filing_file_at = NULL, filing_file_by = NULL']) {
         expect(await failOf(c, upd(v, set)), set).toMatch(/^23514 the filing-file stamps of a return are written once/);
       }
     });
   });
 
-  it('a malformed stamp is refused by the CHECK: partial stamps, a hash that is not 64 hex digits, an unknown kind', async () => {
+  it('a malformed file or stamp is refused by the CHECK: partial, a hash that is not the file\'s, a kind of another form', async () => {
     const v = await version(a, 3, 'finalised', true);
+    const ck = /^23514 .*tax_return_versions_filing_file_ck/;
     await asAppUser(a, async (c) => {
-      expect(await failOf(c, upd(v, `filing_file_sha256 = '${SHA}', filing_file_at = now(), filing_file_by = '${U()}'`)))
-        .toMatch(/^23514 .*tax_return_versions_filing_file_ck/); // no kind
-      expect(await failOf(c, upd(v, `filing_file_kind = 'emp201_capture_csv', filing_file_at = now(), filing_file_by = '${U()}'`)))
-        .toMatch(/^23514 .*tax_return_versions_filing_file_ck/); // no hash
-      expect(await failOf(c, upd(v, STAMP(U(), 'now()', 'A'.repeat(64))))).toMatch(/^23514 .*filing_file_ck/);
-      expect(await failOf(c, upd(v, STAMP(U(), 'now()', 'abc')))).toMatch(/^23514 .*filing_file_ck/);
-      expect(await failOf(c, upd(v, STAMP(U(), 'now()', SHA, 'emp201_pdf')))).toMatch(/^23514 .*filing_file_ck/);
+      expect(await failOf(c, upd(v, `filing_file_content = '${CONTENT}', filing_file_sha256 = '${SHA}', filing_file_at = now(), filing_file_by = '${U()}'`)))
+        .toMatch(ck); // no kind
+      expect(await failOf(c, upd(v, `filing_file_content = '${CONTENT}', filing_file_kind = 'emp201_capture_csv@1', filing_file_at = now(), filing_file_by = '${U()}'`)))
+        .toMatch(ck); // no hash
+      expect(await failOf(c, upd(v, `filing_file_sha256 = '${SHA}', filing_file_kind = 'emp201_capture_csv@1', filing_file_at = now(), filing_file_by = '${U()}'`)))
+        .toMatch(ck); // no file
+      expect(await failOf(c, upd(v, STAMP(U(), 'now()', SHA.toUpperCase())))).toMatch(ck);
+      expect(await failOf(c, upd(v, STAMP(U(), 'now()', 'a'.repeat(64))))).toMatch(ck); // a hash that is not the file's
+      expect(await failOf(c, upd(v, STAMP(U(), 'now()', shaOf('other'), 'emp201_capture_csv@1', 'other')))).toBe('ok'); // control
+    });
+    await asAppUser(a, async (c) => {
+      for (const kind of ['emp201_pdf', 'emp201_capture_csv', 'emp201_capture_csv@0', 'emp201_capture_csv@1x',
+        'vat201_capture_csv@1', 'emp501_easyfile@1']) { // the last two belong to the VAT201 and the EMP501
+        expect(await failOf(c, upd(v, STAMP(U(), 'now()', SHA, kind))), kind).toMatch(ck);
+      }
+      const big = 'x'.repeat(1048577);
+      expect(await failOf(c, upd(v, STAMP(U(), 'now()', shaOf(big), 'emp201_capture_csv@1', big)))).toMatch(ck); // over 1 MB
     });
   });
 
@@ -77,6 +96,7 @@ describeIfDb('tax_return_versions filing-file stamps (migration 999v)', () => {
     const sup = await version(a, 5, 'superseded');
     await asAppUser(a, async (c) => {
       expect(await failOf(c, upd(filed, STAMP(U())))).toMatch(/^23514 the filing-file stamps are written only while a return is finalised/);
+      expect(await failOf(c, upd(filed, `filing_file_content = '${CONTENT}'`))).toMatch(/^23514 the filing-file stamps are written only while/);
       expect(await failOf(c, upd(sup, STAMP(U())))).toMatch(/^23514 a superseded return is frozen/);
     });
   });

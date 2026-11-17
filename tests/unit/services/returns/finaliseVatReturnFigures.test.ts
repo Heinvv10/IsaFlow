@@ -9,7 +9,9 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({
   computeVatLockFigures: vi.fn(), lockVatPeriod: vi.fn(), assertVatGateClear: vi.fn(),
   insertVersion: vi.fn(), listVersionRows: vi.fn(), assertNoLiveOverlap: vi.fn(), getVatReturnRecord: vi.fn(),
+  getNilRatedSupplies: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({ getNilRatedSupplies: m.getNilRatedSupplies }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockFigures', () => ({ computeVatLockFigures: m.computeVatLockFigures }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => ({ lockVatPeriod: m.lockVatPeriod }));
 vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => ({ assertVatGateClear: m.assertVatGateClear }));
@@ -20,9 +22,11 @@ vi.mock('@/modules/accounting/services/returns/returnVersionStore', () => ({
 }));
 
 import { finaliseVatReturn } from '@/modules/accounting/services/returns/finaliseVatReturn';
+import { buildVat201SarsFields } from '@/modules/accounting/services/reports/vat201SarsFields';
 
 const actor = { userId: 'u1', role: 'admin' };
 const lock = { id: 'lock-1', outputTax: 111, inputTax: 22, netVat: 89, postedThrough: '2026-06-30T00:00:00.000Z' };
+const NIL = { zeroRated: 40, exported: 0, exempt: 7, onTaxedJournals: 0, onTaxedCapital: 0, onTaxedAmbiguous: 0, uncodedAssumedZeroRated: 0 };
 const run = (opts = {}) => finaliseVatReturn('c1', '2026-02-01', '2026-03-31', actor, opts);
 
 beforeEach(() => {
@@ -31,6 +35,7 @@ beforeEach(() => {
     figures: { outputTax: 999, inputTax: 999, netVat: 0, postedThrough: 'x' },
     report: { rateCheck: { ties: true }, totals: { outputTax: 999, inputTax: 999, netVat: 0 }, boxes: [{ box: '1' }] },
   });
+  m.getNilRatedSupplies.mockResolvedValue(NIL);
   m.assertVatGateClear.mockResolvedValue({ overridden: false });
   m.assertNoLiveOverlap.mockResolvedValue(undefined);
   m.getVatReturnRecord.mockResolvedValue(null);
@@ -40,12 +45,16 @@ beforeEach(() => {
 });
 
 describe('finaliseVatReturn', () => {
-  it('stores the lock row figures and the report boxes, not the report totals', async () => {
+  it('stores the lock row figures, the report boxes and the SARS form (wave 6 EFa), not the report totals', async () => {
     await run();
+    const report = (await m.computeVatLockFigures.mock.results[0]!.value).report;
+    expect(m.getNilRatedSupplies).toHaveBeenCalledWith('c1', '2026-02-01', '2026-03-31');
     expect(m.insertVersion).toHaveBeenCalledWith(expect.objectContaining({
       vatPeriodLockId: 'lock-1', postedThrough: lock.postedThrough,
-      figures: { outputTax: 111, inputTax: 22, netVat: 89, sarsFields: [{ box: '1' }] },
+      figures: { outputTax: 111, inputTax: 22, netVat: 89, sarsFields: [{ box: '1' }], sarsForm: buildVat201SarsFields(report, NIL) },
     }));
+    // The form is read before the first write (the gate's override row, the lock).
+    expect(m.getNilRatedSupplies.mock.invocationCallOrder[0]).toBeLessThan(m.assertVatGateClear.mock.invocationCallOrder[0]!);
   });
 
   it('refuses 409 and inserts nothing when the lock was not created by this call', async () => {

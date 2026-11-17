@@ -7,7 +7,9 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
+import { getVat201Report, type Vat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { buildVat201SarsFields } from '@/modules/accounting/services/reports/vat201SarsFields';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { listVersionRows } from './returnVersionStore';
 import { getVatReturnRecord } from './vatReturnRecord';
@@ -51,14 +53,38 @@ function recordedDirective(figures: Record<string, unknown>): Record<string, unk
   return { directiveCount: t.count, directiveGross: t.gross, directivePaye: t.paye };
 }
 
+/** JSON with every object's keys sorted: jsonb stores keys in its own order, so a raw stringify is not a comparison. */
+function canonical(v: unknown): string {
+  return JSON.stringify(v, (_k, x: unknown) => (x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : x));
+}
+
+/**
+ * Whether the SARS form moved since finalise, like for like: a version that recorded the form (figures.sarsForm, wave 6
+ * EFa) is compared field by field, amount for amount, with the form built now from the same two sources; an older
+ * version (report boxes only) with the boxes now, key order aside.
+ */
+async function sarsFormChanged(companyId: string, v: ReturnVersion, r: Vat201Report): Promise<boolean> {
+  const stored = v.figures.sarsForm;
+  if (!Array.isArray(stored)) {
+    return canonical(v.figures.sarsFields ?? []) !== canonical(JSON.parse(JSON.stringify(r.boxes)));
+  }
+  const now = buildVat201SarsFields(r, await getNilRatedSupplies(companyId, v.periodStart, v.periodEnd));
+  const was = new Map(stored.map((f) => {
+    const x = f as { field?: unknown; amount?: unknown };
+    return [String(x.field), x.amount === null || x.amount === undefined ? null : cents(num(x.amount))];
+  }));
+  return now.length !== was.size
+    || now.some((f) => !was.has(f.field) || was.get(f.field) !== (f.amount === null ? null : cents(f.amount)));
+}
+
 export async function driftOf(companyId: string, v: ReturnVersion): Promise<ReturnDrift> {
   const { formType: form, periodStart: start, periodEnd: end, figures } = v;
   if (form === 'VAT201') {
     const r = await getVat201Report(companyId, start, end, { detail: 'summary' });
     const fields = compare(figures, { outputTax: r.totals.outputTax, inputTax: r.totals.inputTax, netVat: r.totals.netVat });
-    // Both sides went through JSON, so the same producer gives the same key order.
-    const changed = JSON.stringify(figures.sarsFields ?? []) !== JSON.stringify(JSON.parse(JSON.stringify(r.boxes)))
-      ? ['sarsFields'] : [];
+    const changed = await sarsFormChanged(companyId, v, r) ? ['sarsFields'] : [];
     return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };
   }
   if (form === 'EMP501') {

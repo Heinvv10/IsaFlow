@@ -13,7 +13,7 @@ export const V1 = {
   finalisedBy: 'u-owner', finalisedAt: '2026-09-02T10:00:00Z', filedBy: null as string | null, filedAt: null as string | null,
   amendedBy: null as string | null, amendReason: null as string | null, amendedAt: null as string | null,
   // Wave 6 EFa: the filing file was generated, so Mark filed is offered (filingFileActions.test.tsx covers the unstamped state).
-  filingFileSha256: 'a'.repeat(64) as string | null, filingFileKind: 'vat201_capture_csv' as string | null,
+  filingFileSha256: 'a'.repeat(64) as string | null, filingFileKind: 'vat201_capture_csv@1' as string | null,
   filingFileAt: '2026-09-02T11:00:00Z' as string | null, filingFileBy: 'u-owner' as string | null,
   drift: { drifted: false, fields: [], changed: [], unfinalRuns: 0 } as unknown, lockRemoved: false,
 };

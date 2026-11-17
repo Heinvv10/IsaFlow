@@ -1,46 +1,173 @@
 {
   "form": "VAT201",
   "taxPeriod": "202603",
-  "periodStart": "2026-02-01",
-  "periodEnd": "2026-03-31",
-  "versionNo": 2,
-  "versionId": "11111111-1111-4111-8111-111111111111",
+  "period": "2026-02-01 to 2026-03-31",
+  "version": "2 (11111111-1111-4111-8111-111111111111)",
   "fields": [
     {
+      "section": "Output tax: supplies",
       "field": "1",
-      "label": "Standard rate (excl. capital goods)",
-      "direction": "output",
-      "valueExclVat": "100000.00",
-      "vat": "15000.00",
-      "valueInclVat": "115000.00"
+      "label": "Standard rate (excluding capital goods and/or services and accommodation)",
+      "value": "112500.00",
+      "note": "Value including VAT: the form takes the tax in the next field as this value x r/(100+r)."
     },
     {
+      "section": "Output tax: supplies",
+      "field": "4",
+      "label": "Output tax on field 1",
+      "value": "15000.00"
+    },
+    {
+      "section": "Output tax: supplies",
+      "field": "1A",
+      "label": "Standard rate (only capital goods and/or services)",
+      "value": "11500.00",
+      "note": "Value including VAT: the form takes the tax in the next field as this value x r/(100+r)."
+    },
+    {
+      "section": "Output tax: supplies",
+      "field": "4A",
+      "label": "Output tax on field 1A",
+      "value": "1500.00"
+    },
+    {
+      "section": "Output tax: supplies",
       "field": "2",
-      "label": "Zero rate, \"excluding\" exports",
-      "direction": "output",
-      "valueExclVat": "2500.25",
-      "vat": "0.00",
-      "valueInclVat": "2500.25"
+      "label": "Zero rate (excluding goods exported)",
+      "value": "37999.75"
     },
     {
+      "section": "Output tax: supplies",
+      "field": "2A",
+      "label": "Zero rate (only exported goods)",
+      "value": "12000.25",
+      "note": "May include exported services, which belong in field 2: the ledger cannot tell exported goods from exported services."
+    },
+    {
+      "section": "Output tax: supplies",
+      "field": "3",
+      "label": "Exempt and non-supplies",
+      "value": "8000.00"
+    },
+    {
+      "section": "Output tax: accommodation",
+      "field": "5",
+      "label": "Accommodation exceeding 28 days",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: accommodation",
+      "field": "6",
+      "label": "Accommodation exceeding 28 days, taken into account (field 5 x percentage)",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: accommodation",
+      "field": "7",
+      "label": "Accommodation not exceeding 28 days",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: accommodation",
+      "field": "8",
+      "label": "Total accommodation (6 + 7)",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: accommodation",
+      "field": "9",
+      "label": "Output tax on accommodation (field 8)",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: adjustments",
+      "field": "10",
+      "label": "Change in use and export of second-hand goods",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: adjustments",
+      "field": "11",
+      "label": "Output tax on change in use and export of second-hand goods (field 10)",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Output tax: adjustments",
+      "field": "12",
+      "label": "Other and imported services",
+      "value": "1500.00",
+      "note": "Includes 1500.00 of output tax with no field of its own."
+    },
+    {
+      "section": "Total A",
+      "field": "13",
+      "label": "Total output tax (4 + 4A + 9 + 11 + 12)",
+      "value": "18000.00"
+    },
+    {
+      "section": "Input tax: supplies",
       "field": "14",
-      "label": "Capital goods",
-      "direction": "input",
-      "valueExclVat": "20000.00",
-      "vat": "3000.00",
-      "valueInclVat": "23000.00"
+      "label": "Capital goods and/or services supplied to you",
+      "value": "3000.00"
     },
     {
+      "section": "Input tax: supplies",
+      "field": "14A",
+      "label": "Capital goods imported by you",
+      "value": null,
+      "note": "IsaFlow books imported goods in one box and cannot separate capital goods; that tax is included in field 15A."
+    },
+    {
+      "section": "Input tax: supplies",
       "field": "15",
-      "label": "=Other goods and services",
-      "direction": "input",
-      "valueExclVat": "23003.33",
-      "vat": "3450.50",
-      "valueInclVat": "26453.83"
+      "label": "Other goods and/or services supplied to you (not capital goods)",
+      "value": "4950.50",
+      "note": "Includes 1500.00 of domestic reverse charge input tax. UNVERIFIED: SARS DRC guide not on file."
+    },
+    {
+      "section": "Input tax: supplies",
+      "field": "15A",
+      "label": "Other goods imported by you (not capital goods)",
+      "value": "600.00"
+    },
+    {
+      "section": "Input tax: adjustments",
+      "field": "16",
+      "label": "Change in use",
+      "value": null,
+      "note": "IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+    },
+    {
+      "section": "Input tax: adjustments",
+      "field": "17",
+      "label": "Bad debts",
+      "value": "0.00"
+    },
+    {
+      "section": "Input tax: adjustments",
+      "field": "18",
+      "label": "Other",
+      "value": "0.00"
+    },
+    {
+      "section": "Total B",
+      "field": "19",
+      "label": "Total input tax (14 + 14A + 15 + 15A + 16 + 17 + 18)",
+      "value": "8550.50"
+    },
+    {
+      "section": "Result",
+      "field": "20",
+      "label": "VAT payable / refundable (Total A - Total B)",
+      "value": "9449.50"
     }
   ],
-  "outputTax": "15000.00",
-  "inputTax": "6450.50",
-  "netVat": "8549.50",
-  "captureSheetSha256": "7192507513d4c6642882805afe91fc291268c9619b80b56822dc62fb6214e8c1"
+  "captureSheetSha256": "7c86417e99fc593757ade3f3dd4ba7938585394930f4ace32f7c6de40e2440f8"
 }

@@ -17,6 +17,7 @@ import { join } from 'path';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
+import { vatPrn } from './helpers/prn';
 import { THEMES, settle } from '../helpers/themeSpec';
 
 const SANDBOX = { name: '0GP Golden Filing Files Sandbox', onboardingId: '5d872580-bf8d-4f1c-9c49-30de070cb0fb' };
@@ -92,7 +93,7 @@ test('filing files: download before filing, the stamp is the CSV\'s sha256, a PR
   await dialog.getByLabel('SARS eFiling reference').fill('REF-1');
   await dialog.getByRole('button', { name: 'Mark filed' }).click();
   await expect(dialog.getByTestId('return-refusal')).toContainText('payment reference number (PRN)');
-  await dialog.getByLabel('SARS eFiling reference').fill(`4123456789V${String(Date.now() % 1e8).padStart(8, '0')}`);
+  await dialog.getByLabel('SARS eFiling reference').fill(vatPrn(c));
   await dialog.getByRole('button', { name: 'Mark filed' }).click();
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect(status(page)).toHaveText(`Filed (v${v.versionNo})`);

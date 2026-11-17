@@ -6,12 +6,13 @@
 import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { stampFilingFile } from './filingFileService';
+import { FILING_FILE_KIND } from './filingFileContent';
+import { stampFilingFile, storedContent } from './filingFileService';
 import { assertMayActOnReturns } from './returnGuards';
 import { getVersionForUpdate } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
 
-export const EMP501_FILE_KIND = 'emp501_easyfile'; // 999v's filing_file_kind CHECK
+export const EMP501_FILE_KIND = FILING_FILE_KIND.EMP501; // 999v's filing_file_kind CHECK: the kind and its builder version
 
 export interface Emp501File { body: string; filename: string; sha256: string }
 
@@ -27,9 +28,10 @@ export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Em
 
 /**
  * Download an EMP501 version's e@syFile file (wave 6 EFb), as EFa's downloadFilingFile does for VAT201/EMP201: owner/
- * admin only, Login-as refused, row-locked so concurrent first downloads stamp once; the first download of a finalised
- * version stamps it (999v) with its audit row in one savepoint; a later download is checked against the stamp
- * (409 FILING_FILE_MISMATCH); a superseded version is refused (409). Everything is judged before the one write.
+ * admin only, Login-as refused, row-locked so concurrent first downloads stamp once. The first download of a finalised
+ * version builds the file from the stored figures and stores it with its stamp (999v) and audit row in one savepoint;
+ * every later download serves the stored bytes, never a rebuilt file (ruling H2). A superseded version is refused (409).
+ * Everything is judged before the one write.
  */
 export async function downloadEmp501File(companyId: string, versionId: string, actor: ReturnActor): Promise<Emp501File & { stamped: boolean }> {
   await assertNotImpersonating(); // a stamp names the person
@@ -40,12 +42,11 @@ export async function downloadEmp501File(companyId: string, versionId: string, a
     throw new ReturnRefusal(409, `Version ${v.versionNo} was superseded by an amend. Download the current version's file.`,
       STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
-  const file = emp501FileOf(v);
-  if (v.filingFileSha256 && v.filingFileSha256 !== file.sha256) {
-    throw new ReturnRefusal(409, `Version ${v.versionNo}'s e@syFile file no longer regenerates to the file stamped on it `
-      + `(${v.filingFileSha256}). Nothing was downloaded; report this to support.`, 'FILING_FILE_MISMATCH');
+  const file = emp501FileOf(v); // the name; and, unstamped, the bytes (a version that cannot build one is refused here)
+  if (v.filingFileSha256) {
+    return { filename: file.filename, body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false };
   }
-  const stamp = v.filingFileSha256 === null && v.status === 'finalised';
-  if (stamp) await stampFilingFile(companyId, v, file.sha256, EMP501_FILE_KIND, 'irp5', actor.userId);
-  return { ...file, stamped: stamp };
+  if (v.status !== 'finalised') return { ...file, stamped: false }; // filed before 999v: the trigger keeps it unstamped
+  const sha256 = await stampFilingFile(companyId, v, file.body, EMP501_FILE_KIND, 'irp5', actor.userId);
+  return { ...file, sha256, stamped: true };
 }

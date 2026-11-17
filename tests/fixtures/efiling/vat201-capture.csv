@@ -1,12 +1,30 @@
-"section","field","value_excl_vat","vat","value_incl_vat"
-"Return","Form","VAT201",,
-"Return","Tax period","202603",,
-"Return","Period","2026-02-01 to 2026-03-31",,
-"Return","Version","2 (11111111-1111-4111-8111-111111111111)",,
-"Output tax","Field 1: Standard rate (excl. capital goods)",100000.00,15000.00,115000.00
-"Output tax","Field 2: Zero rate, ""excluding"" exports",2500.25,0.00,2500.25
-"Input tax","Field 14: Capital goods",20000.00,3000.00,23000.00
-"Input tax","Field 15: =Other goods and services",23003.33,3450.50,26453.83
-"Totals","Field 4: Total output tax",,15000.00,
-"Totals","Field 19: Total input tax",,6450.50,
-"Totals","Field 20: Net VAT payable (negative: refundable)",,8549.50,
+"section","field","label","value","note"
+"Return",,"Form","VAT201",
+"Return",,"Tax period","202603",
+"Return",,"Period","2026-02-01 to 2026-03-31",
+"Return",,"Version","2 (11111111-1111-4111-8111-111111111111)",
+"Output tax: supplies","1","Standard rate (excluding capital goods and/or services and accommodation)",112500.00,"Value including VAT: the form takes the tax in the next field as this value x r/(100+r)."
+"Output tax: supplies","4","Output tax on field 1",15000.00,
+"Output tax: supplies","1A","Standard rate (only capital goods and/or services)",11500.00,"Value including VAT: the form takes the tax in the next field as this value x r/(100+r)."
+"Output tax: supplies","4A","Output tax on field 1A",1500.00,
+"Output tax: supplies","2","Zero rate (excluding goods exported)",37999.75,
+"Output tax: supplies","2A","Zero rate (only exported goods)",12000.25,"May include exported services, which belong in field 2: the ledger cannot tell exported goods from exported services."
+"Output tax: supplies","3","Exempt and non-supplies",8000.00,
+"Output tax: accommodation","5","Accommodation exceeding 28 days",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: accommodation","6","Accommodation exceeding 28 days, taken into account (field 5 x percentage)",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: accommodation","7","Accommodation not exceeding 28 days",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: accommodation","8","Total accommodation (6 + 7)",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: accommodation","9","Output tax on accommodation (field 8)",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: adjustments","10","Change in use and export of second-hand goods",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: adjustments","11","Output tax on change in use and export of second-hand goods (field 10)",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Output tax: adjustments","12","Other and imported services",1500.00,"Includes 1500.00 of output tax with no field of its own."
+"Total A","13","Total output tax (4 + 4A + 9 + 11 + 12)",18000.00,
+"Input tax: supplies","14","Capital goods and/or services supplied to you",3000.00,
+"Input tax: supplies","14A","Capital goods imported by you",,"IsaFlow books imported goods in one box and cannot separate capital goods; that tax is included in field 15A."
+"Input tax: supplies","15","Other goods and/or services supplied to you (not capital goods)",4950.50,"Includes 1500.00 of domestic reverse charge input tax. UNVERIFIED: SARS DRC guide not on file."
+"Input tax: supplies","15A","Other goods imported by you (not capital goods)",600.00,
+"Input tax: adjustments","16","Change in use",,"IsaFlow does not compute this field. Complete it on eFiling if it applies to this period."
+"Input tax: adjustments","17","Bad debts",0.00,
+"Input tax: adjustments","18","Other",0.00,
+"Total B","19","Total input tax (14 + 14A + 15 + 15A + 16 + 17 + 18)",8550.50,
+"Result","20","VAT payable / refundable (Total A - Total B)",9449.50,

@@ -2,6 +2,11 @@
  * F23 (wave 6 grill): nothing in the e-filing files sends anything to SARS. The EFa (and EFb) modules and routes, and
  * everything they import, transitively, never reach the ISV client or its submission service; and their own source
  * holds no fetch(. EFb appends its files to OWN. Mutation: import sarsEfilingClient in filingFileService.ts (red).
+ *
+ * LIMITS (a text scan, not the bundler's graph): it follows string-literal specifiers only (`import … from`, `export …
+ * from`, a bare `import`, `import(…)` and `require(…)`), never a computed one (`import(name)`), and resolves `@/` and
+ * relative paths only, so a package import is not walked (no package here sends to SARS). A send by another means than
+ * fetch( in a walked file (an http client, a socket) is not looked for: the ISV client is the one sender to SARS.
  */
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
@@ -42,8 +47,8 @@ function resolve(from: string, spec: string): string | null {
   return null;
 }
 
-/** `import … from 'x'`, `export … from 'x'`, a bare `import 'x'`, and `import('x')`. */
-const IMPORT = /(?:import|export)\s[^'";]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+/** `import … from 'x'`, `export … from 'x'`, a bare `import 'x'`, `import('x')` and `require('x')`. */
+const IMPORT = /(?:import|export)\s[^'";]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|(?:\bimport|\brequire)\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 /** Every repo module reachable from the entry files (type-only imports included: stricter, never looser). */
 function closure(entries: string[]): Set<string> {

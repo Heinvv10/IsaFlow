@@ -175,7 +175,8 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     body = String(r.body);
     expect(body.split('\r\n')).toContain('2031,202608');
     const sha = createHash('sha256').update(body, 'utf8').digest('hex');
-    expect((await versionsOf())[0]).toMatchObject({ filing_file_sha256: sha, filing_file_kind: 'emp501_easyfile', filing_file_by: rf.admin.userId });
+    expect((await versionsOf())[0]).toMatchObject({ filing_file_sha256: sha, filing_file_kind: 'emp501_easyfile@1', filing_file_by: rf.admin.userId });
+    expect((await versionsOf())[0]!.filing_file_content).toBe(body); // stored: a re-download serves these bytes (H2)
     await sql`UPDATE payroll_run_lines SET paye = paye * 10 WHERE employee_id = ${alice}::UUID`;
     expect(String((await download(versionId)).body)).toBe(body);
     await sql`UPDATE payroll_run_lines SET paye = paye / 10 WHERE employee_id = ${alice}::UUID`;
