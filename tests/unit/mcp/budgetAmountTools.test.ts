@@ -255,3 +255,16 @@ describe('set_budget_annual', () => {
     expect(JSON.stringify(json(r).cells)).toMatch(/header account/);
   });
 });
+
+describe('plan_hash refusal wording, one rule per tool', () => {
+  const tail = (tool: string) => `: call ${tool} with dry_run true, read the diff, then apply with the plan_hash it returns.`;
+  it('set_budget_amounts: more than one cell, or replace mode', async () => {
+    const want = `plan_hash is required for a write of more than one cell or in replace mode${tail('set_budget_amounts')}`;
+    expect(text(await amounts.handler({ ...KEY, cells: TWO }, ctx()))).toBe(want);
+    expect(text(await amounts.handler({ ...KEY, mode: 'replace', cells: [cell('6000', '2026-04', '1')] }, ctx()))).toBe(want);
+  });
+  it('set_budget_annual: always, even for one row', async () => {
+    expect(text(await annual.handler({ ...KEY, rows: [{ account: '6000', amount: '1200', spread: 'flat' }] }, ctx())))
+      .toBe(`plan_hash is required for every annual write (its dry run is the preview)${tail('set_budget_annual')}`);
+  });
+});
