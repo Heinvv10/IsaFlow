@@ -12,6 +12,7 @@ const {
   sql: vi.fn(), createJournalEntry: vi.fn(), postJournalEntry: vi.fn(), newManualJournalGate: vi.fn(),
   markManualJournal: vi.fn(), requestApproval: vi.fn(), assertNotImpersonating: vi.fn(), findRecorded: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-posters.int
 vi.mock('@/lib/neon', () => ({ sql }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({ createJournalEntry, postJournalEntry }));
 vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({ newManualJournalGate, markManualJournal }));
