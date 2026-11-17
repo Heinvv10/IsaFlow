@@ -7,22 +7,25 @@
  * approved or paid with an approval time, else NOT_FINAL), the run-kind guard (getPayslips), the slips' details frozen
  * at this approval (PS3; a run approved before PS3 prints details as at download and is DETAILS_NOT_FROZEN), then
  * every recipient: no address (NO_EMAIL), neither ID nor passport number to protect the PDF with (NO_ID_OR_PASSPORT,
- * never sent unprotected), or already sent for this approval (ALREADY_SENT, unless `resend`). Those are skipped and
- * named, never refused. Then the rate limit for the count left (`admit`; RATE_LIMITED 429).
+ * never sent unprotected), or already delivered for this approval (ALREADY_SENT: sent, or 'unknown' because the mail
+ * server may have taken it; unless `resend`). Those are skipped and named, never refused. Then the rate limit for
+ * the count this request will send (`admit`; RATE_LIMITED 429).
  *
- * A slip sent to an address other than the one that employee's last payslip went to is NAMED (`addressChanged` on
- * its `sent` entry), so the sender sees a redirect (the address itself can only be changed by an owner or admin).
+ * At most `limits.maxSends` slips per request, and none started once `limits.budgetMs` has passed (review #1542 A1:
+ * a request must finish well inside the proxy's 60 s); the rest are `remaining`, and the caller asks again. Each
+ * send's row is committed on its own right after it (payslipDeliveryRecord, S3), so nothing that happens to the
+ * request afterwards can make a slip go twice.
+ *
+ * A slip sent to an address other than the one that employee's last payslip went to is NAMED (`addressChanged`).
  * Idempotent per (run, employee, approval): a reopen and re-approval is another document, so it may be sent again.
- * LOCKS: the run's advisory lock (payslip_email:<run>) and its header FOR SHARE, inside withBoundedLockWait's
- * savepoint and held to the end of the request transaction, so a second send waits and then sees this one's rows,
- * and a reopen waits for the sends to finish. Each send is bounded (SEND_DEADLINE_MS).
- * One audit_log `export` row per request that attempted any send (the slips carry pay and tax details).
+ * LOCKS: the run's advisory lock (payslip_email:<run>) then its header FOR SHARE, taken in withBoundedLockWait (5 s;
+ * a leaf lock, payrollRunLock.ts LOCK ORDER) and held to the end of the request. A second send of the same run, or a
+ * reopen, arriving meanwhile is refused after 5 s (ROW_LOCK_TIMEOUT, a retry), not queued behind the sends.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { EmailOptions, EmailResult } from '@/modules/accounting/services/core/emailService';
-import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { withBoundedLockWait } from './payrollRunLock';
 import { getPayslips, PayslipNotFound, type PayslipRun } from './payslipModel';
@@ -30,18 +33,26 @@ import { payslipEmailMessage, payslipPassword, renderEmailPayslip } from './pays
 import { PayslipEmailRefusal } from './payslipDeliveryRefusal';
 import { companyPayslipEmailEnabled, PAYSLIP_EMAIL_FLAG } from './payslipEmailSettings';
 import type { EmployeeEmailActor } from './payrollEmployeeEmail';
+import { alreadyDelivered, lastSentTo, recordDelivery, type DeliveryStatus } from './payslipDeliveryRecord';
 
 export type Mailer = (options: EmailOptions) => Promise<EmailResult>;
 
-const SEND_DEADLINE_MS = 30_000;
-const SMTP_TIMEOUTS_MS = { connection: 10_000, greeting: 10_000, socket: 20_000 };
+const SEND_DEADLINE_MS = 15_000;
+const SMTP_TIMEOUTS_MS = { connection: 5_000, greeting: 5_000, socket: 10_000 };
+/** Per request: at most 20 sends, none started after 20 s (+ one 15 s deadline = 35 s, inside nginx's 60 s). */
+export const SEND_LIMITS = { maxSends: 20, budgetMs: 20_000 } as const;
+export type SendLimits = { maxSends: number; budgetMs: number };
 
 export type SkipReason = 'NO_EMAIL' | 'NO_ID_OR_PASSPORT' | 'ALREADY_SENT';
 interface Who { employeeId: string; employeeNumber: string; employeeName: string }
 export interface PayslipEmailOutcome {
   sent: Array<Who & { sha256: string; addressChanged: boolean }>;
   failed: Array<Who & { error: string }>;
+  /** The mail server may have taken it (a deadline fired): not sent again unless a person resends it. */
+  uncertain: Who[];
   skipped: Array<Who & { reason: SkipReason }>;
+  /** Slips still to send after this request (the cap or the time budget): ask again. */
+  remaining: number;
 }
 
 interface Recipient { id: string; email: string | null; id_number: string | null; passport_number: string | null }
@@ -66,26 +77,7 @@ async function readSlips(companyId: string, runId: string, employeeIds?: string[
   }
 }
 
-/** Employees already sent this run's slip at its current approval. */
-async function alreadySent(companyId: string, runId: string): Promise<Set<string>> {
-  const rows = (await sql`
-    SELECT DISTINCT d.employee_id::text AS employee_id
-      FROM payslip_deliveries d JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
-     WHERE d.company_id = ${companyId}::uuid AND d.run_id = ${runId}::uuid AND d.status = 'sent'
-       AND d.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at)
-  `) as Array<{ employee_id: string }>;
-  return new Set(rows.map((r) => r.employee_id));
-}
 
-/** Where each employee's last payslip email went (any run), for naming a changed address. */
-async function lastSentTo(companyId: string, ids: string[]): Promise<Map<string, string>> {
-  const rows = (await sql`
-    SELECT DISTINCT ON (employee_id) employee_id::text AS employee_id, recipient_email FROM payslip_deliveries
-     WHERE company_id = ${companyId}::uuid AND status = 'sent' AND employee_id::text = ANY(${ids}::text[])
-     ORDER BY employee_id, created_at DESC, id DESC
-  `) as Array<{ employee_id: string; recipient_email: string }>;
-  return new Map(rows.map((r) => [r.employee_id, r.recipient_email]));
-}
 
 async function recipients(companyId: string, ids: string[]): Promise<Map<string, Recipient>> {
   const rows = (await sql`
@@ -95,36 +87,28 @@ async function recipients(companyId: string, ids: string[]): Promise<Map<string,
   return new Map(rows.map((r) => [r.id, r]));
 }
 
-async function record(o: {
-  companyId: string; runId: string; employeeId: string; email: string; sha256: string; resend: boolean; sentBy: string;
-  result: { messageId: string | null; error: string | null };
-}): Promise<void> {
-  const { companyId, runId, employeeId } = o;
-  await sql`
-    INSERT INTO payslip_deliveries
-      (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend, sent_by)
-    SELECT ${companyId}::uuid, h.id, ${employeeId}::uuid, COALESCE(h.approved_at, h.approval_grandfathered_at), ${o.email},
-           ${o.sha256}, ${o.result.error === null ? 'sent' : 'failed'}, ${o.result.messageId}, ${o.result.error}, ${o.resend}, ${o.sentBy}
-      FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-  `;
-}
 
-async function deliver(mailer: Mailer, options: EmailOptions): Promise<{ messageId: string | null; error: string | null }> {
+/** The mail server's answer: sent; failed (provably not sent); or unknown (it may have taken the message; S2). */
+async function deliver(mailer: Mailer, options: EmailOptions): Promise<{ status: DeliveryStatus; messageId: string | null; error: string | null }> {
   try {
     const r = await mailer(options);
-    if (r.success) return { messageId: r.messageId?.slice(0, 998) ?? null, error: null };
-    return { messageId: null, error: (r.error || 'The mail server did not accept the message').slice(0, 500) };
+    if (r.success) return { status: 'sent', messageId: r.messageId?.slice(0, 998) ?? null, error: null };
+    const error = (r.error || 'The mail server did not accept the message').slice(0, 500);
+    return { status: r.provablyNotSent === true ? 'failed' : 'unknown', messageId: null, error };
   } catch (err) {
+    // A throw from the transport can come after the message was handed over: not provably unsent.
     log.error('Payslip email send threw', { error: err instanceof Error ? err.message : String(err) }, 'payslip-email');
-    return { messageId: null, error: 'The send failed before the mail server answered' };
+    return { status: 'unknown', messageId: null, error: 'The send failed before the mail server answered' };
   }
 }
 
 export async function sendPayslipEmails(opts: {
   companyId: string; runId: string; employeeIds?: string[]; resend: boolean; actor: EmployeeEmailActor;
-  mailer: Mailer; admit: (count: number) => Promise<boolean>;
+  mailer: Mailer; admit: (count: number) => Promise<boolean>; limits?: SendLimits;
 }): Promise<PayslipEmailOutcome> {
   const { companyId, runId, resend, actor, mailer } = opts;
+  const limits = opts.limits ?? SEND_LIMITS;
+  const started = Date.now();
   if (!(await hasFeature(companyId, PAYSLIP_EMAIL_FLAG))) {
     throw new PayslipEmailRefusal('FEATURE_DISABLED', 'Emailing payslips is not switched on for IsaFlow yet.');
   }
@@ -143,9 +127,9 @@ export async function sendPayslipEmails(opts: {
   }
   const approvedAt = new Date(header.final_at as string | Date);
   const people = await recipients(companyId, run.payslips.map((p) => p.employeeId));
-  const done = resend ? new Set<string>() : await alreadySent(companyId, runId);
+  const done = resend ? new Set<string>() : await alreadyDelivered(companyId, runId);
 
-  const out: PayslipEmailOutcome = { sent: [], failed: [], skipped: [] };
+  const out: PayslipEmailOutcome = { sent: [], failed: [], uncertain: [], skipped: [], remaining: 0 };
   const queue: Array<{ slip: PayslipRun['payslips'][number]; email: string; password: NonNullable<ReturnType<typeof payslipPassword>> }> = [];
   for (const slip of run.payslips) {
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
@@ -157,33 +141,33 @@ export async function sendPayslipEmails(opts: {
     else queue.push({ slip, email: p.email, password });
   }
   if (queue.length === 0) return out;
-  if (!(await opts.admit(queue.length))) {
+  const batch = queue.slice(0, limits.maxSends);
+  if (!(await opts.admit(batch.length))) {
     throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
   }
 
-  const previous = await lastSentTo(companyId, queue.map((q) => q.slip.employeeId));
-  for (const { slip, email, password } of queue) {
+  const previous = await lastSentTo(companyId, batch.map((q) => q.slip.employeeId));
+  let attempted = 0;
+  for (const { slip, email, password } of batch) {
+    if (attempted > 0 && Date.now() - started > limits.budgetMs) break;
+    attempted += 1;
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
     const { filename, pdf, sha256 } = await renderEmailPayslip(run, slip, password.password, approvedAt);
     const message = payslipEmailMessage(run, slip, password.source);
     const result = await deliver(mailer, {
       to: email, subject: message.subject, html: message.html,
       attachments: [{ filename, content: pdf, contentType: 'application/pdf' }],
-      _log: { companyId, emailType: 'other', sentBy: actor.userId },
       smtpTimeoutsMs: SMTP_TIMEOUTS_MS, deadlineMs: SEND_DEADLINE_MS,
     });
-    await record({ companyId, runId, employeeId: slip.employeeId, email, sha256, resend, sentBy: actor.userId, result });
+    await recordDelivery({ companyId, runId, employeeId: slip.employeeId, email, subject: message.subject, sha256, resend, actor, ...result });
     const before = previous.get(slip.employeeId);
-    if (result.error === null) out.sent.push({ ...who, sha256, addressChanged: before !== undefined && before !== email });
+    if (result.status === 'sent') out.sent.push({ ...who, sha256, addressChanged: before !== undefined && before !== email });
+    else if (result.status === 'unknown') out.uncertain.push(who);
     else out.failed.push({ ...who, error: 'The mail server did not accept it. Check the address and try again.' });
   }
-  await logAuditOrThrow({
-    companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'export', entityType: 'payslip_email', entityId: runId,
-    changes: { fields: [], metadata: {
-      sent: out.sent.map((s) => s.employeeId).join(','), failed: out.failed.map((f) => f.employeeId).join(','), resend: String(resend),
-    } },
-    ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
-  });
-  log.info('Payslips emailed', { companyId, runId, sent: out.sent.length, failed: out.failed.length, skipped: out.skipped.length }, 'payslip-email');
+  out.remaining = queue.length - attempted;
+  log.info('Payslips emailed', {
+    companyId, runId, sent: out.sent.length, failed: out.failed.length, uncertain: out.uncertain.length, remaining: out.remaining,
+  }, 'payslip-email');
   return out;
 }

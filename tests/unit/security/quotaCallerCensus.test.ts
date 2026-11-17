@@ -101,8 +101,13 @@ function reachable(start: string): Set<string> {
 const code = (file: string) => read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[ \t])\/\/.*$/gm, '');
 /** Leaving the request context by hand. `runAfterCommit` is not here: it forfeits the refund itself. */
 const leavesContext = (source: string) => /\bals\s*\.\s*exit\s*\(|\.exit\s*\(\s*(?:async\s*)?\(\)\s*=>|setImmediate\s*\(|process\.nextTick\s*\(/.test(source);
-/** The one place that may: it is how runAfterCommit detaches work, after forfeiting the refund. */
-const MAY_LEAVE_CONTEXT = ['src/lib/afterCommit.ts'];
+/** The places that may: runAfterCommit (after forfeiting the refund), and an own transaction that records but never sends. */
+const MAY_LEAVE_CONTEXT = [
+  'src/lib/afterCommit.ts',
+  // PE (review #1542 S3): commits the payslip delivery record beside the request. It sends nothing; the send (and its
+  // markQuotaUsed) stays in the request context, so the refund is not lost.
+  'src/lib/auth/companyOwnTx.ts',
+];
 
 /**
  * Registering work to run after the request (`runAfterCommit`) forfeits the

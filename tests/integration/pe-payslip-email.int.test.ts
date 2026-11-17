@@ -17,7 +17,7 @@ import { createHash } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig } from './brkr.helpers';
 import {
-  agent, approvedRun, audits, capture, captured, cleanup, deliveries, enablePlatform, failNext, loginAs, person, putEmail, putSetting,
+  agent, approvedRun, asAppUser, audits, capture, captured, cleanup, deliveries, enablePlatform, failNext, loginAs, person, putEmail, putSetting,
   reapprove, reason, send, type R,
 } from './pe-payslip-email.helpers';
 
@@ -113,7 +113,10 @@ describe('payslip email', () => {
     await expect(opens(attachment(thandi))).rejects.toThrow(/password/i);
     expect(await opens(attachment(thandi), ID)).toContain('Brk BRK-1');
     expect(await opens(attachment(1 - thandi), 'M1234567')).toContain('Payslip');
-    expect(await audits(a, 'payslip_email')).toBe(1);
+    // One export audit per send, naming its recipient (review #1542 S5).
+    const audited = (await a.pool.query(
+      "SELECT changes->'metadata'->>'recipient' AS r FROM audit_log WHERE company_id = $1 AND entity_type = 'payslip_email' ORDER BY r", [a.company])).rows;
+    expect(audited.map((x) => x.r)).toEqual(['pass@example.invalid', 'thandi@example.invalid']);
   });
 
   it('is idempotent per approval; resend sends the same bytes; a failed send is retried', async () => {
@@ -121,7 +124,7 @@ describe('payslip email', () => {
     expect(again.body.data!.sent).toEqual([]);
     expect(again.body.data!.skipped.filter((s: { reason: string }) => s.reason === 'ALREADY_SENT').length).toBe(2);
     expect(captured.length).toBe(2);
-    expect(await audits(a, 'payslip_email')).toBe(1); // nothing attempted, nothing audited
+    expect(await audits(a, 'payslip_email')).toBe(2); // nothing attempted, nothing audited
 
     const first = captured.find((m) => m.to === 'thandi@example.invalid')!.attachments![0]!.content;
     const resend = await send(a, run, { body: { employeeIds: [emp.idOnly], resend: true } });
@@ -165,11 +168,10 @@ describe('payslip email', () => {
     expect(res.body.data!.sent.length).toBe(1);
     expect((await deliveries(b)).map((d) => d.run_id)).toEqual([bRun]);
     expect((await deliveries(a)).some((d) => d.run_id === bRun)).toBe(false);
-    // Company a's row naming b's run: the guard trigger refuses it (as the superuser; RLS would also hide the run).
-    await expect(a.pool.query(
-      `INSERT INTO payslip_deliveries (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, sent_by)
-       SELECT $1, h.id, l.employee_id, h.approved_at, 'x@example.invalid', repeat('a', 64), 'sent', 'forger'
-         FROM payroll_run_headers h JOIN payroll_run_lines l ON l.run_id = h.id WHERE h.id = $2 LIMIT 1`, [a.company, bRun],
+    // Company a's row naming b's run, written as app_user in a's session: refused (b's run is not a's).
+    await expect(asAppUser(a, a.admin, (q) => q(
+      `INSERT INTO payslip_deliveries (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status)
+       VALUES ($1, $2, $3, now(), 'x@example.invalid', repeat('a', 64), 'sent')`, [a.company, bRun, emp.idOnly]),
     )).rejects.toThrow(/not a final run of this company/);
     expect(typeof capture).toBe('function');
   });

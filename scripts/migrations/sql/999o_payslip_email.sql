@@ -11,9 +11,15 @@
 --   payslip_deliveries  one row per payslip email attempted: the run, the employee, the run's approval it was for
 --     (run_approved_at = the header's COALESCE(approved_at, approval_grandfathered_at) at send), the address, the
 --     sha256 of the exact PDF bytes attached, the mail server's message id or the error, and whether it was a resend.
+--     status  sent | failed (provably not sent) | unknown (the mail server may have taken it: a deadline fired);
+--             'unknown' counts as sent for idempotency (a plain re-send skips it; `resend` is a person's choice).
 --     Append-only for app_user: INSERT and SELECT, no UPDATE, no DELETE. A BEFORE INSERT trigger (INVOKER, so under
---     the caller's RLS) refuses a row whose run is not a final run of the row's company at its current approval, or
---     whose employee has no line on that run: the table cannot hold a delivery the code would never write.
+--     the caller's RLS) refuses a row whose run is not a final run of the row's company at its current approval,
+--     whose employee has no line on that run, or whose recipient is not the employee's address on file; it stamps
+--     sent_by from the session user (auth.uid(), as 999i stamps updated_by; app_user has no INSERT on sent_by) and
+--     refuses a write with none: the table cannot hold a delivery the code would never write.
+--     The code writes each row in its own short transaction right after the send (companyOwnTx), so a request
+--     that later rolls back cannot erase the record of a mail that left.
 --
 -- OLD COLOUR (the release before this one, running against this schema while the deploy switches colours):
 --   insert  employee inserts name their columns; email is NULL and passes the CHECK. Nothing old writes the new
@@ -65,13 +71,13 @@ CREATE TABLE IF NOT EXISTS public.payslip_deliveries (
   run_approved_at TIMESTAMPTZ NOT NULL,
   recipient_email TEXT NOT NULL CHECK (char_length(recipient_email) <= 254),
   pdf_sha256 TEXT NOT NULL CHECK (pdf_sha256 ~ '^[0-9a-f]{64}$'),
-  status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+  status TEXT NOT NULL CHECK (status IN ('sent', 'failed', 'unknown')),
   message_id TEXT CHECK (char_length(message_id) <= 998),
   error TEXT CHECK (char_length(error) <= 500),
   resend BOOLEAN NOT NULL DEFAULT FALSE,
   sent_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK ((status = 'failed') = (error IS NOT NULL))
+  CHECK ((status = 'sent') = (error IS NULL))
 );
 
 CREATE INDEX IF NOT EXISTS payslip_deliveries_run_idx
@@ -85,7 +91,12 @@ CREATE OR REPLACE FUNCTION public.payslip_deliveries_guard()
 RETURNS trigger LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
 AS $$
+DECLARE
+  uid text := auth.uid();
 BEGIN
+  IF uid IS NULL THEN
+    RAISE EXCEPTION 'payslip_deliveries: a write needs a session user' USING ERRCODE = '42501';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.payroll_run_headers h
       JOIN public.payroll_run_lines l ON l.run_id = h.id AND l.employee_id = NEW.employee_id
@@ -93,10 +104,12 @@ BEGIN
      WHERE h.id = NEW.run_id AND h.company_id = NEW.company_id
        AND h.status IN ('approved', 'paid')
        AND COALESCE(h.approved_at, h.approval_grandfathered_at) = NEW.run_approved_at
+       AND e.email IS NOT DISTINCT FROM NEW.recipient_email
   ) THEN
-    RAISE EXCEPTION 'payslip_deliveries: run % is not a final run of this company at that approval, or employee % has no line on it',
+    RAISE EXCEPTION 'payslip_deliveries: run % is not a final run of this company at that approval, or employee % has no line on it or another address',
       NEW.run_id, NEW.employee_id USING ERRCODE = 'check_violation';
   END IF;
+  NEW.sent_by := uid;
   NEW.created_at := clock_timestamp();
   RETURN NEW;
 END $$;
@@ -114,7 +127,7 @@ CREATE POLICY tenant_isolation ON public.payslip_deliveries FOR ALL TO app_user
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 REVOKE ALL ON public.payslip_deliveries FROM app_user;
 GRANT SELECT ON public.payslip_deliveries TO app_user;
-GRANT INSERT (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend, sent_by)
+GRANT INSERT (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend)
   ON public.payslip_deliveries TO app_user;
 
 SELECT public.app_service_sync_policies();

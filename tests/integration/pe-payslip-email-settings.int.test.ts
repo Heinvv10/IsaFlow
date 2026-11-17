@@ -7,8 +7,8 @@
  *  - the address: judged before any write (a second recipient, a header, a dot-less domain: 400, row unchanged);
  *    stored trimmed, cleared by a blank, audited with before and after; another tenant's employee is 404; Login-as
  *    is refused; the database CHECK refuses what the route refuses;
- *  - as bank details: a manager may set the FIRST address, but changing or clearing one already set needs an owner or
- *    admin (403, row and audit unchanged), so a manager cannot redirect payslips to themselves.
+ *  - only an owner or admin sets, changes or clears an address, the first one included (review #1542 S1: every
+ *    employee starts with none, so a first address is a redirect too); a manager gets 403 with nothing written.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
@@ -92,20 +92,23 @@ describe('the employee\'s payslip address', () => {
     ]);
   });
 
-  it('a manager may set the first address but not change or clear it; an admin may', async () => {
+  it('a manager may not set, change or clear an address (A1: not even the first); an admin may', async () => {
     const manager = await a.addUser('manager');
     const fresh = (await a.employee(15000)).employee;
-    expect((await putEmail(a, fresh, { email: 'first@example.invalid' }, { user: manager })).statusCode).toBe(200);
     const audited = await audits(a, 'payroll_employee');
+    const first = await putEmail(a, fresh, { email: 'manager-drop@example.invalid' }, { user: manager });
+    expect([first.statusCode, first.body.error?.message]).toEqual([403, "Only an owner or admin can set or change an employee's payslip email."]);
+    expect(await stored(a, fresh)).toBeNull();
+    expect((await putEmail(a, fresh, { email: 'first@example.invalid' })).statusCode).toBe(200);
     for (const email of ['manager-own@example.invalid', null]) {
-      const res = await putEmail(a, fresh, { email }, { user: manager });
-      expect(res.statusCode, String(email)).toBe(403);
+      expect((await putEmail(a, fresh, { email }, { user: manager })).statusCode, String(email)).toBe(403);
     }
+    // The value already on file is no change: allowed, and writes nothing.
+    expect((await putEmail(a, fresh, { email: 'first@example.invalid' }, { user: manager })).statusCode).toBe(200);
     expect(await stored(a, fresh)).toBe('first@example.invalid');
-    expect(await audits(a, 'payroll_employee')).toBe(audited);
-    expect((await putEmail(a, fresh, { email: 'changed@example.invalid' })).statusCode).toBe(200);
-    expect(await stored(a, fresh)).toBe('changed@example.invalid');
     expect(await audits(a, 'payroll_employee')).toBe(audited + 1);
+    expect((await putEmail(a, fresh, { email: 'changed@example.invalid' })).statusCode).toBe(200);
+    expect(await audits(a, 'payroll_employee')).toBe(audited + 2);
   });
 
   it('another tenant\'s employee is 404; Login-as is refused; the CHECK holds the same rule', async () => {

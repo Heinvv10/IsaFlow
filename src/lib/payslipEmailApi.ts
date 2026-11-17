@@ -5,7 +5,7 @@
  * recorded session) is 403 AGENT_FORBIDDEN, as the payslip download route, and a platform admin's Login-as is 403
  * IMPERSONATION_FORBIDDEN (an outbound send is never made under another person's name). Judged before any read.
  *
- * `payslipEmailHandler(mailer)` is the send route's handler, POST /api/payroll/runs/[id]/payslips/email, built around
+ * `payslipEmailHandler(mailer, admit)` is the send route's handler, POST /api/payroll/runs/[id]/payslips/email, built around
  * the Mailer it is given: the page wraps it with `sendEmail`; the integration suite wraps the same handler, in the
  * same middleware, with a capture mailer. Nothing selects the mailer from the environment.
  */
@@ -18,7 +18,8 @@ import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/a
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { getClientIp } from '@/lib/rateLimit';
 import { PayslipEmailRefusal } from '@/modules/accounting/services/payroll/payslipDeliveryRefusal';
-import { sendPayslipEmails, type Mailer } from '@/modules/accounting/services/payroll/payslipDeliveryService';
+import { SEND_LIMITS, sendPayslipEmails, type Mailer, type SendLimits } from '@/modules/accounting/services/payroll/payslipDeliveryService';
+import { listRunDeliveries } from '@/modules/accounting/services/payroll/payslipDeliveryRecord';
 import type { EmployeeEmailActor } from '@/modules/accounting/services/payroll/payrollEmployeeEmail';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,24 +56,36 @@ export function respondIfPayslipEmailRefused(res: NextApiResponse, err: unknown)
 const Body = z.object({
   employeeIds: z.array(z.string().regex(UUID, 'employeeIds must be UUIDs')).min(1).max(500).optional(),
   resend: z.boolean().optional(),
-}).strict();
+}).strict().refine((b) => b.resend !== true || (b.employeeIds !== undefined && b.employeeIds.length <= SEND_LIMITS.maxSends), {
+  // A resend names whom (at most one request's worth), or a caller looping on `remaining` would resend the same slips.
+  message: `resend needs employeeIds (at most ${SEND_LIMITS.maxSends})`,
+});
 
 /** The send limit, charged for the recipients left after judging (the route supplies it: pages/api/…/email.ts). */
 export type AdmitPayslipEmails = (req: NextApiRequest, companyId: string, count: number) => Promise<boolean>;
 
-export function payslipEmailHandler(mailer: Mailer, admit: AdmitPayslipEmails) {
+/**
+ * GET: the run's deliveries at its current approval (payroll-detail roles). POST: send. `limits` is SEND_LIMITS in
+ * the page route; a test may lower it.
+ */
+export function payslipEmailHandler(mailer: Mailer, admit: AdmitPayslipEmails, limits: SendLimits = SEND_LIMITS) {
   async function handler(req: NextApiRequest, res: NextApiResponse) {
-    if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
-    const { companyId } = req as CompanyAuthedRequest;
+    const { companyId, companyRole } = req as CompanyAuthedRequest;
     const runId = req.query.id;
     if (typeof runId !== 'string' || !UUID.test(runId)) return apiResponse.badRequest(res, 'id must be a UUID');
+    if (req.method === 'GET') return apiResponse.success(res, await listRunDeliveries(companyId, runId));
+    if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
     const parsed = Body.safeParse(req.body ?? {});
     if (!parsed.success) return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
+    const resend = parsed.data.resend === true;
+    if (resend && !['owner', 'admin'].includes(companyRole)) {
+      return apiResponse.forbidden(res, 'Only an owner or admin can send a payslip again.');
+    }
     const actor = await payslipEmailActor(req, res);
     if (!actor) return;
     try {
       return apiResponse.success(res, await sendPayslipEmails({
-        companyId, runId, employeeIds: parsed.data.employeeIds, resend: parsed.data.resend === true, actor, mailer,
+        companyId, runId, employeeIds: parsed.data.employeeIds, resend, actor, mailer, limits,
         admit: (count) => admit(req, companyId, count),
       }));
     } catch (err) {

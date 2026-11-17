@@ -1,7 +1,7 @@
 /**
  * The employee's payslip email address (wave 6 PE; grill F16: its own field and route, mounted on the work card by
- * one line). Reads and saves /api/payroll/employees/[id]/email; the server judges the address (one plain address
- * or blank) and audits the change. Payroll-detail roles only (the route refuses the rest).
+ * one line). Reads /api/payroll/employees/[id]/email (payroll-detail roles); only an owner or admin may save it (the
+ * route refuses anyone else; review #1542 S1). The server judges the address (one plain address or blank) and audits.
  */
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +18,8 @@ export function emailOf(data: unknown): string | null {
   throw new Error('Unexpected response');
 }
 
-export function EmployeeEmailField({ employeeId }: { employeeId: string }) {
+/** `canEdit`: owner or admin (the route refuses anyone else a change; review #1542 S1). */
+export function EmployeeEmailField({ employeeId, canEdit }: { employeeId: string; canEdit: boolean }) {
   const [saved, setSaved] = useState<string | null | undefined>(undefined);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -57,10 +58,11 @@ export function EmployeeEmailField({ employeeId }: { employeeId: string }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
           <Input label="Payslip email" type="email" autoComplete="off" maxLength={254} value={draft}
-            disabled={saved === undefined} onChange={(e) => { setDraft(e.target.value); setDone(false); }}
-            helperText="Where this employee's payslips are emailed, when payslip email is on. Leave blank for none." />
+            disabled={saved === undefined || !canEdit} onChange={(e) => { setDraft(e.target.value); setDone(false); }}
+            helperText={canEdit ? "Where this employee's payslips are emailed, when payslip email is on. Leave blank for none."
+              : 'Only an owner or admin can set where payslips are emailed.'} />
         </div>
-        <Button variant="secondary" onClick={() => void save()} disabled={!dirty} loading={saving}>Save email</Button>
+        {canEdit && <Button variant="secondary" onClick={() => void save()} disabled={!dirty} loading={saving}>Save email</Button>}
       </div>
       {done && <p role="status" className="mt-2 text-sm text-emerald-700 dark:text-emerald-400">Payslip email saved.</p>}
       {error && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-400">{error}</p>}

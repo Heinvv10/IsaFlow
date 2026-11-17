@@ -66,7 +66,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 91: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
-  [`${S}payroll/payrollRunLock.ts`]: { 223: 'prepared_by     = ${preparedBy},' },
+  [`${S}payroll/payrollRunLock.ts`]: { 226: 'prepared_by     = ${preparedBy},' },
   [`${S}payroll/payrollRunReopen.ts`]: { 77: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   [`${S}payroll/taxDirectiveApprover.ts`]: {
     32: 'SELECT requested_by::text AS requested_by, approvers_at_create FROM tax_directives WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid',

@@ -3,55 +3,48 @@
  * Reads the two switches (GET /api/payroll/settings/payslip-email): while the platform switch is off it only says so;
  * an owner or admin turns the company setting on or off here (PUT, audited); with both on, "Email payslips" sends
  * each employee their own protected PDF (POST /api/payroll/runs/[id]/payslips/email) after a confirmation, and
- * lists who was sent, skipped (and why) and failed. The protection is weak, and the card says so (spec §0a.18).
+ * lists who was sent, skipped (and why), failed, or may have been sent. The server sends a batch per request; the card
+ * asks again until nothing remains. Below it, who has been emailed at this approval, with "Send again" for an owner
+ * or admin. The protection is weak, and the card says so (spec §0a.18, review #1542 S7).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
+import { PayslipEmailDeliveries } from './PayslipEmailDeliveries';
+import {
+  deliveriesOf, mergeOutcomes, outcomeOf, stateOf, type Delivery, type EmailOutcome, type EmailState,
+} from './payslipEmailPayloads';
 
+/** Spec §0a.18 and review #1542 S7: said plainly, on the card and in the confirmation. */
 export const WEAK_PROTECTION = 'Each PDF is protected with the employee\'s ID number, or passport number. This protection is weak '
-  + '(40-bit RC4): it keeps a payslip from a casual reader, not from someone set on opening it.';
+  + '(40-bit RC4): anyone who knows the employee\'s ID number or date of birth can open it. It only keeps a payslip from a casual reader.';
 const SKIP_LABEL: Record<string, string> = {
   NO_EMAIL: 'no email address on file', NO_ID_OR_PASSPORT: 'no ID or passport number to protect the PDF with',
-  ALREADY_SENT: 'already sent for this approval',
+  ALREADY_SENT: 'already sent (or may have been) for this approval',
 };
-
-interface State { platformEnabled: boolean; enabled: boolean }
-interface Who { employeeNumber: string; employeeName: string }
-interface Outcome { sent: Array<Who & { addressChanged?: boolean }>; failed: Array<Who & { error: string }>; skipped: Array<Who & { reason: string }> }
-
-/** The rows of one list whose `extra` field is text; anything else is dropped. */
-function rows<K extends string>(u: unknown, extra?: K): Array<Who & Record<K, string>> {
-  if (!Array.isArray(u)) return [];
-  return u.flatMap((x: Record<string, unknown>) => {
-    if (typeof x?.employeeNumber !== 'string' || typeof x?.employeeName !== 'string') return [];
-    if (extra && typeof x[extra] !== 'string') return [];
-    return [{ employeeNumber: x.employeeNumber, employeeName: x.employeeName, ...(extra ? { [extra]: x[extra] } : {}) } as Who & Record<K, string>];
-  });
-}
-/** The routes' payloads, checked at run time (neither is in the apiRoutes registry). */
-export function stateOf(d: unknown): State {
-  const s = d as Partial<State> | null;
-  if (typeof s?.platformEnabled !== 'boolean' || typeof s?.enabled !== 'boolean') throw new Error('Unexpected response');
-  return { platformEnabled: s.platformEnabled, enabled: s.enabled };
-}
-export function outcomeOf(d: unknown): Outcome {
-  const o = d as Record<string, unknown> | null;
-  const changed = new Set((Array.isArray(o?.sent) ? o.sent : []).filter((x: { addressChanged?: unknown }) => x?.addressChanged === true)
-    .map((x: { employeeNumber?: unknown }) => x.employeeNumber));
-  return { sent: rows(o?.sent).map((r) => ({ ...r, addressChanged: changed.has(r.employeeNumber) })), failed: rows(o?.failed, 'error'), skipped: rows(o?.skipped, 'reason') };
-}
+/** A send loop stops after this many requests whatever the server says, so a fault can never spin. */
+const MAX_ROUNDS = 50;
 
 export function PayslipEmailCard({ runId, companyRole }: { runId: string; companyRole: string | null | undefined }) {
-  const [state, setState] = useState<State | null>(null);
+  const [state, setState] = useState<EmailState | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [outcome, setOutcome] = useState<EmailOutcome | null>(null);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const canSet = companyRole === 'owner' || companyRole === 'admin';
+  const url = `/api/payroll/runs/${runId}/payslips/email`;
+
+  const loadDeliveries = useCallback(async () => {
+    try {
+      setDeliveries(deliveriesOf(await apiJson(url, undefined, 'Could not load who was emailed')));
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load who was emailed'));
+    }
+  }, [url]);
 
   const load = useCallback(async () => {
     try {
@@ -60,7 +53,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
       setError(apiErrorMessage(err, 'Could not load the payslip email setting'));
     }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); void loadDeliveries(); }, [load, loadDeliveries]);
 
   async function toggle(enabled: boolean): Promise<void> {
     setBusy(true);
@@ -77,17 +70,24 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
     }
   }
 
-  async function send(): Promise<void> {
+  /** POST until nothing remains (the server sends a batch per request), folding the answers; then re-read the list. */
+  async function post(body: Record<string, unknown>): Promise<void> {
     setConfirming(false);
     setBusy(true);
     setError('');
+    let total: EmailOutcome | null = null;
     try {
-      setOutcome(outcomeOf(await apiJson(`/api/payroll/runs/${runId}/payslips/email`,
-        { method: 'POST', body: JSON.stringify({}) }, 'Could not email the payslips - try again')));
+      for (let round = 0; round < MAX_ROUNDS; round += 1) {
+        const next = outcomeOf(await apiJson(url, { method: 'POST', body: JSON.stringify(body) }, 'Could not email the payslips - try again'));
+        total = total ? mergeOutcomes(total, next) : next;
+        setOutcome(total);
+        if (next.remaining === 0 || next.sent.length + next.failed.length + next.uncertain.length === 0) break;
+      }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not email the payslips - try again'));
     } finally {
       setBusy(false);
+      void loadDeliveries();
     }
   }
 
@@ -122,21 +122,30 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
       {error && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-400">{error}</p>}
       {outcome && (
         <div role="status" className="mt-3 space-y-1 text-sm text-[var(--ff-text-primary)]" data-testid="payslip-email-outcome">
-          <p>Sent to {outcome.sent.length} {outcome.sent.length === 1 ? 'employee' : 'employees'}.</p>
+          <p>Sent to {outcome.sent.length} {outcome.sent.length === 1 ? 'employee' : 'employees'}.{outcome.remaining > 0 ? ` ${outcome.remaining} still to send: press Email payslips again.` : ''}</p>
           {outcome.sent.filter((s) => s.addressChanged).map((s) => (
-            <p key={`c-${s.employeeNumber}`} className="text-amber-700 dark:text-amber-400">
+            <p key={`c-${s.employeeId}`} className="text-amber-700 dark:text-amber-400">
               Sent to a new address for {s.employeeName} ({s.employeeNumber}): it differs from where their last payslip went.
             </p>
           ))}
+          {outcome.uncertain.map((u) => (
+            <p key={`u-${u.employeeId}`} className="text-amber-700 dark:text-amber-400">
+              May have been sent to {u.employeeName} ({u.employeeNumber}): the mail server did not confirm. It is not sent again unless you choose Send again.
+            </p>
+          ))}
           {outcome.skipped.map((s) => (
-            <p key={`s-${s.employeeNumber}`} className="text-amber-700 dark:text-amber-400">
+            <p key={`s-${s.employeeId}`} className="text-amber-700 dark:text-amber-400">
               Not sent to {s.employeeName} ({s.employeeNumber}): {SKIP_LABEL[s.reason] ?? s.reason}.
             </p>
           ))}
           {outcome.failed.map((f) => (
-            <p key={`f-${f.employeeNumber}`} className="text-red-700 dark:text-red-400">Failed for {f.employeeName} ({f.employeeNumber}): {f.error}</p>
+            <p key={`f-${f.employeeId}`} className="text-red-700 dark:text-red-400">Failed for {f.employeeName} ({f.employeeNumber}): {f.error}</p>
           ))}
         </div>
+      )}
+      {state?.platformEnabled && state.enabled && (
+        <PayslipEmailDeliveries deliveries={deliveries} canResend={canSet} busy={busy}
+          onResend={(employeeId) => void post({ employeeIds: [employeeId], resend: true })} />
       )}
       <Modal open={confirming} onClose={() => setConfirming(false)} title="Email payslips?" size="sm">
         <Modal.Body className="space-y-2 text-sm text-[var(--ff-text-primary)]">
@@ -145,7 +154,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setConfirming(false)}>Cancel</Button>
-          <Button onClick={() => void send()}>Email payslips</Button>
+          <Button onClick={() => void post({})}>Email payslips</Button>
         </Modal.Footer>
       </Modal>
     </section>

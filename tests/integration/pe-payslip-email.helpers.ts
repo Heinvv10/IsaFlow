@@ -5,7 +5,9 @@
  */
 import { SignJWT } from 'jose';
 import type { EmailOptions } from '@/modules/accounting/services/core/emailService';
-import type { Mailer } from '@/modules/accounting/services/payroll/payslipDeliveryService';
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { als } from '@/lib/als';
+import type { Mailer, SendLimits } from '@/modules/accounting/services/payroll/payslipDeliveryService';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -24,10 +26,17 @@ type Opts = { company?: string; user?: string };
 export const captured: EmailOptions[] = [];
 /** Fails the next N sends (a mail server refusing them). */
 export const failNext = { count: 0 };
+/** The next N sends hit sendEmail's deadline after the server may have taken them (review #1542 S2). */
+export const maybeNext = { count: 0 };
 export const capture: Mailer = async (o) => {
   if (failNext.count > 0) {
     failNext.count -= 1;
     return { success: false, error: '550 mailbox unavailable', provablyNotSent: true };
+  }
+  if (maybeNext.count > 0) {
+    maybeNext.count -= 1;
+    captured.push(o);
+    return { success: false, error: 'The send did not finish within 15000 ms', provablyNotSent: false };
   }
   captured.push(o);
   return { success: true, messageId: `<pe-${captured.length}@example.invalid>` };
@@ -37,6 +46,23 @@ const sendRoute = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDeta
 
 export const send = (r: R, runId: string, o: Opts & { body?: unknown } = {}) =>
   r.call(sendRoute, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });
+export const listDeliveries = (r: R, runId: string, o: Opts = {}) =>
+  r.call(sendRoute, 'GET', `/api/payroll/runs/${runId}/payslips/email`, runId, o);
+/**
+ * The same route with other send limits (A1), and/or failing AFTER its sends (S3): the handler runs, then the
+ * request is marked rollback-only, as a later fault or a draining colour would leave it; withAuth answers 500 and
+ * rolls the request back.
+ */
+export function sendVariant(r: R, runId: string, v: { limits?: SendLimits; failAfter?: boolean }, o: Opts & { body?: unknown } = {}) {
+  const inner = payslipEmailHandler(capture, admitPayslipEmails, v.limits);
+  const handler = async (req: NextApiRequest, res: NextApiResponse) => {
+    await inner(req, res);
+    const store = als.getStore();
+    if (v.failAfter && store) store.rollbackOnly = 'test: the request fails after its sends';
+  };
+  const route = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))) as unknown as Route;
+  return r.call(route, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });
+}
 export const putSetting = (r: R, enabled: unknown, o: Opts = {}) =>
   r.call(settings as Route, 'PUT', '/api/payroll/settings/payslip-email', undefined, { ...o, body: { enabled } });
 export const getSetting = (r: R, o: Opts = {}) => r.call(settings as Route, 'GET', '/api/payroll/settings/payslip-email', undefined, o);
@@ -89,6 +115,24 @@ export const reapprove = async (r: R, runId: string) => {
   const ap = await r.api.approve(runId);
   if (ap.statusCode !== 200) throw new Error(`re-approve: ${ap.statusCode} ${JSON.stringify(ap.body)}`);
 };
+
+/**
+ * `fn` on one connection as app_user with r's company and `sub` as the session (as withAuth sets them), rolled back
+ * afterwards: for proving what the table itself refuses or stamps (review #1542 S4).
+ */
+export async function asAppUser<T>(r: R, sub: string | null, fn: (q: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>) => Promise<T>): Promise<T> {
+  const client = await r.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE app_user');
+    if (sub) await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub })]);
+    await client.query("SELECT set_config('app.current_company_id', $1, true)", [r.company]);
+    return await fn(async (text, values) => client.query(text, values as unknown[]));
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+}
 
 export async function cleanup(r: R): Promise<void> {
   await r.pool.query('DELETE FROM payslip_deliveries WHERE company_id = $1', [r.company]);

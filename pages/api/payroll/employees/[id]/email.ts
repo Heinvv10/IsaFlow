@@ -1,7 +1,7 @@
 /**
  * GET /api/payroll/employees/[id]/email  { email }        payroll-detail roles
- * PUT /api/payroll/employees/[id]/email  { email|null }   payroll-detail roles, own session, never Login-as; changing
- *                                                         or clearing an address already set: owner / admin only (403)
+ * PUT /api/payroll/employees/[id]/email  { email|null }   owner / admin to set, change or clear it (a manager's PUT
+ *                                                         of the value on file is a no-op), own session, never Login-as
  *
  * The address an employee's payslips are emailed to (wave 6 PE; payrollEmployeeEmail). Judged before any write; a
  * change is audited with its before and after. Another company's employee is 404. Every response is no-store.
@@ -50,4 +50,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return saved ? apiResponse.success(res, saved) : apiResponse.notFound(res, 'PayrollEmployee', id);
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+// The address is personal data: the request log masks it.
+export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['email'] })));

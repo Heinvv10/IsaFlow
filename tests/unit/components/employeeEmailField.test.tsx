@@ -15,7 +15,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('EmployeeEmailField', () => {
   it('loads the address, saves only when changed, trimmed, and shows what the server stored', async () => {
     fetchMock.mockResolvedValueOnce(ok({ email: 'old@example.invalid' }));
-    render(<EmployeeEmailField employeeId="e1" />);
+    render(<EmployeeEmailField employeeId="e1" canEdit />);
     const input = await screen.findByDisplayValue('old@example.invalid');
     expect(screen.getByRole('button', { name: 'Save email' })).toBeDisabled();
     fetchMock.mockResolvedValueOnce(ok({ email: 'new@example.invalid' }));
@@ -28,9 +28,17 @@ describe('EmployeeEmailField', () => {
     expect(JSON.parse(init.body)).toEqual({ email: 'new@example.invalid' });
   });
 
-  it('shows the server refusal (a manager changing a set address) and keeps the typed value', async () => {
+  it('read-only for a role that may not set it: no save button, a note says who can', async () => {
     fetchMock.mockResolvedValueOnce(ok({ email: 'old@example.invalid' }));
-    render(<EmployeeEmailField employeeId="e1" />);
+    render(<EmployeeEmailField employeeId="e1" canEdit={false} />);
+    expect(await screen.findByDisplayValue('old@example.invalid')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save email' })).toBeNull();
+    expect(screen.getByText('Only an owner or admin can set where payslips are emailed.')).toBeTruthy();
+  });
+
+  it('shows the server refusal and keeps the typed value', async () => {
+    fetchMock.mockResolvedValueOnce(ok({ email: 'old@example.invalid' }));
+    render(<EmployeeEmailField employeeId="e1" canEdit />);
     const input = await screen.findByDisplayValue('old@example.invalid');
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: { code: 'FORBIDDEN',
       message: "Only an owner or admin can change an employee's payslip email once it is set." } }), { status: 403 }));

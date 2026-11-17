@@ -121,7 +121,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
       <div className="mt-4 flex justify-end">
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>
-      <EmployeeEmailField employeeId={employee.id} />
+      <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
     </div>
   );
 }

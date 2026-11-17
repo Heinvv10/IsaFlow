@@ -57,8 +57,10 @@ async function sandboxRun(api: Api): Promise<{ runId: string; employeeId: string
     }
   }
   await api.post(`/api/payroll/runs/${runId}/calculate`);
-  // Each execution saves the address through the field: start without one.
+  // Each execution saves the address and turns the switch on through the card: start with neither, so a crashed
+  // execution cannot leave the switch on.
   await api.put(`/api/payroll/employees/${employeeId}/email`, { email: null });
+  await api.put('/api/payroll/settings/payslip-email', { enabled: false });
   return { runId, employeeId };
 }
 
