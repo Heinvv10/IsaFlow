@@ -33,7 +33,7 @@ beforeAll(async () => {
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number)
      VALUES ($1, 'F1', 'Test', 'Fringe', '2020-01-01', '1980-01-01', '8001015009087', '0123456789') RETURNING id`, [company])).rows[0]!.id;
   const run = (await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, 3, 2026, 'approved', 0) RETURNING id`, [company])).rows[0]!.id;
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, approved_at) VALUES ($1, 3, 2026, 'approved', 0, clock_timestamp()) RETURNING id`, [company])).rows[0]!.id;
   const items = [
     item('3601', 30_000),
     item('3701', 5_000, { payeInclusionRate: 0.8, payeIncludedAmount: 4_000 }),
@@ -56,7 +56,7 @@ beforeAll(async () => {
   // MIXED: an employee in March (with a 3701) and a contractor in April (also a 3701, in a contractor line).
   const flag = [{ code: 'PAYE_OUTSIDE_TABLES', treatment: 'none' }];
   const run2 = (await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, 4, 2026, 'approved', 0) RETURNING id`, [company])).rows[0]!.id;
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, approved_at) VALUES ($1, 4, 2026, 'approved', 0, clock_timestamp()) RETURNING id`, [company])).rows[0]!.id;
   const person = async (n: string) => (await pool.query(
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number)
      VALUES ($1, $2, 'Test', $2, '2020-01-01', '1980-01-01', '8001015009087', '0123456789') RETURNING id`, [company, n])).rows[0]!.id as string;

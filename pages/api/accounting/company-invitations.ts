@@ -23,6 +23,7 @@ import {
 import { InvitationConflictError, InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
 import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
 import { checkSendRateLimit } from '@/lib/rateLimit';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 type Row = Record<string, unknown>;
 
 
@@ -121,6 +122,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       if (err instanceof InvitationForbiddenError || err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       if (err instanceof InvitationConflictError) return apiResponse.conflict(res, err.message);
+      // GoTrue could not say who holds the address (createInvitation pins it): 503, nothing written.
+      if (respondIfAuthUnavailable(res, err, 'company-invitations')) return;
       return apiResponse.badRequestFromError(res, err, 'Invite failed.');
     }
   }

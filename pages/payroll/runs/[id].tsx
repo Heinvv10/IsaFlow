@@ -22,6 +22,8 @@ import { useRunInputs } from '@/components/payroll/useRunInputs';
 import { PayslipDrawer, payslipUrl, type PayslipTarget } from '@/components/payroll/PayslipDrawer';
 import type { OnExplain, RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
 import { useLineExplain } from '@/components/payroll/LineExplain';
+import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
+import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -122,8 +124,11 @@ export default function PayrollRunDetailPage() {
               <a href={payslipUrl(runId, null, 'attachment')} download className="underline">Download all payslips (PDF)</a>
             </div>
           )}
+          {run.payslipsFinal && canWrite(companyRole) && <PayslipEmailCard runId={runId} companyRole={companyRole} />}
 
           <PayrollRunTotals run={run} />
+
+          {run.lines.length > 0 && <SalaryBankFileCard runId={runId} runStatus={run.status} canManage={companyRole === 'owner' || companyRole === 'admin'} />}
 
           <PayrollRunWarnings lines={run.lines} status={run.status} />
 

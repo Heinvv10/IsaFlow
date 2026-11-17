@@ -29,6 +29,17 @@ export function importerGateOpen() {
   };
 }
 
+/**
+ * WP2 row 10's other-legs reset (transferLegReset) with no second live line on the journal: its peeks read Postgres.
+ * Proven against real Postgres in tests/integration/bank-reversed-journal-line.int.test.ts.
+ */
+export function transferLegResetNone() {
+  return {
+    lockOtherLegs: vi.fn(async () => new Map()), takeOtherLegs: vi.fn(async () => [] as string[]),
+    journalReversedNow: vi.fn(async () => false),
+  };
+}
+
 export function reversalGateOpen() {
   return {
     assertMayReverse: vi.fn(async () => null),
@@ -41,6 +52,34 @@ export function reversalGateOpen() {
     lockJournalCashForGlReversal: vi.fn(async (companyId: string, journalEntryId: string) =>
       (await import('@/modules/accounting/services/bank/reconciledCash')).refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId)),
   };
+}
+
+/**
+ * WP2 row 5's bank-contra pre-checks with no bank contra in the batch: each reads gl_accounts / bank_transactions.
+ * Proven against real Postgres in tests/integration/bank-contra-transfer-r2.int.test.ts.
+ *
+ *   vi.mock('@/modules/accounting/services/bank/bankContraLineSkips', async () =>
+ *     (await import('../helpers/bankControlGateMocks')).bankContraOpen());
+ *   vi.mock('@/modules/accounting/services/bank/transferSweepPrelock', async () =>
+ *     (await import('../helpers/bankControlGateMocks')).transferPrelockOpen());
+ */
+export function bankContraOpen() {
+  return {
+    TRANSFER_DRY_RUN_CAVEAT: 'transfer caveat',
+    batchPostsTransfers: vi.fn(async () => false),
+    bankContraLineSkips: vi.fn(async () => new Map<string, string>()),
+  };
+}
+
+/** The batch / range reversals' counterpart pre-check and pre-lock with no counterpart (reversalCounterparts reads Postgres). */
+export function reversalCounterpartsOpen() {
+  return {
+    counterpartRows: vi.fn(async () => []), counterpartRefusal: vi.fn(async () => null), preLockReversalLines: vi.fn(async () => undefined),
+  };
+}
+
+export function transferPrelockOpen() {
+  return { preLockSweepTransfers: vi.fn(async () => ({ transfers: new Set<string>(), contended: new Set<string>() })) };
 }
 
 /**

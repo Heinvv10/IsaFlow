@@ -4,9 +4,10 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { listStandaloneDirectivePayments } from './directivePaymentFiling';
 import { payrollJournalInForce } from './payrollJournalChain';
+import { inForceRunHeaders } from './etiBooking';
 import {
   etiCarryLedger, etiMonthsOf, index, reconciliationStart, type EtiCarryMonth, type EtiMonth, type YearMonth,
 } from './etiCarry';
@@ -18,7 +19,7 @@ const fromIndex = (i: number): YearMonth => ({ year: Math.floor(i / 12), month: 
 
 /**
  * Which runs a month's sum counts:
- *  - 'declarable': approved or paid headers, what the EMP201 declares;
+ *  - 'declarable': FINAL headers (payRunFinalSql: approved or paid with an approval time), what the EMP201 declares;
  *  - 'inForceJournal': headers whose journal is in force (payrollJournalChain), what the ledger has booked;
  *  - 'none': no runs (the caller adds its own).
  */
@@ -27,9 +28,9 @@ export type RunBasis = 'declarable' | 'inForceJournal' | 'none';
 /** PAYE and ETI by month for `from`..`to` (inclusive): the runs on `basis`, and every in-force stand-alone directive. */
 export async function loadEtiMonths(companyId: string, from: YearMonth, to: YearMonth, basis: RunBasis = 'declarable'): Promise<EtiMonth[]> {
   if (index(to) < index(from)) return [];
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = basis === 'none' ? [] : (await sql`
-    SELECT period_year, period_month, total_paye AS paye, total_eti AS eti, status, journal_entry_id
+    SELECT period_year, period_month, total_paye AS paye, total_eti AS eti, status, journal_entry_id,
+           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND make_date(period_year, period_month, 1) >= ${firstOf(from)}::date
@@ -38,7 +39,7 @@ export async function loadEtiMonths(companyId: string, from: YearMonth, to: Year
   const runs: DbRow[] = [];
   for (const r of rows) {
     const counted = basis === 'declarable'
-      ? declarable.includes(String(r.status))
+      ? r.final === true
       : r.journal_entry_id != null && await payrollJournalInForce(companyId, String(r.journal_entry_id));
     if (counted) runs.push(r);
   }
@@ -56,12 +57,20 @@ const lineOf = (ym: YearMonth, months: EtiMonth[]): EtiCarryMonth =>
   etiCarryLedger(ym, ym, months).find((m) => index(m) === index(ym))!;
 
 /**
- * One month's ledger line for a run's journal: the earlier months, this month's stand-alone directive PAYE, and the run
- * itself (one run per company per month). `used` is the ETI the EMP201 uses against the month's whole PAYE (directives
- * included, guide §6.1 p. 42), so the journals' net 2140 credit for the month is the EMP201 PAYE payable.
+ * One month's ledger line for a run's journal: the earlier months, this month's stand-alone directive PAYE, the month's
+ * OTHER runs whose journal is in force (wave 6 FQb1: several runs a month; review #1507 B1), and the run itself. `used`
+ * is the ETI the EMP201 uses against the month's whole PAYE (directives included, guide §6.1 p. 42), so the journals'
+ * net 2140 credit for the month is the EMP201 PAYE payable. The caller books only `used` less what the month's other
+ * journals already booked (payrollJournalEti.etiForRun).
  */
-export async function etiMonthForRun(companyId: string, ym: YearMonth, run: { paye: number; eti: number }): Promise<EtiCarryMonth> {
-  return lineOf(ym, [...await loadEarlierEtiMonths(companyId, ym), ...await loadEtiMonths(companyId, ym, ym, 'none'), { ...ym, ...run }]);
+export async function etiMonthForRun(
+  companyId: string, ym: YearMonth, run: { paye: number; eti: number }, runId: string | null = null, otherHeaders?: DbRow[],
+): Promise<EtiCarryMonth> {
+  const others = (otherHeaders ?? await inForceRunHeaders(companyId, [ym], runId))
+    .map((h) => ({ ...ym, paye: Number(h.total_paye) || 0, eti: Number(h.total_eti) || 0 }));
+  return lineOf(ym, [
+    ...await loadEarlierEtiMonths(companyId, ym), ...await loadEtiMonths(companyId, ym, ym, 'none'), ...others, { ...ym, ...run },
+  ]);
 }
 
 /**

@@ -63,13 +63,13 @@ beforeAll(async () => {
   }
   // C: a run for last month and that month's EMP201 marked filed — a completed item is not a payment to come.
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
-     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [C.id, prevMonth[0], prevMonth[1]]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl, approved_at)
+     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100, clock_timestamp())`, [C.id, prevMonth[0], prevMonth[1]]);
   // C: a weekly regular run this month, the latest run — never used as the monthly net, warned (review L3).
   const twoBack = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, pay_frequency, period_start, period_end)
-     VALUES ($1, $2, $3, 'approved', 1, 'weekly', make_date($2, $3, 1), make_date($2, $3, 7))`, [C.id, twoBack[0], twoBack[1]]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, pay_frequency, period_start, period_end, approved_at)
+     VALUES ($1, $2, $3, 'approved', 1, 'weekly', make_date($2, $3, 1), make_date($2, $3, 7), clock_timestamp())`, [C.id, twoBack[0], twoBack[1]]);
   const mark = await pool.connect();
   try {
     await mark.query('BEGIN');
@@ -114,8 +114,8 @@ beforeAll(async () => {
     `INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
      VALUES ($1, $2, 'B1', $3, $4, 'approved', 400, 0, $5) RETURNING id`, [A.id, ids.sup, day(-45), day(-15), A.user])).rows[0].id);
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
-     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [A.id, prevMonth[0], prevMonth[1]]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl, approved_at)
+     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100, clock_timestamp())`, [A.id, prevMonth[0], prevMonth[1]]);
   await pool.query(
     `INSERT INTO recurring_invoices (company_id, template_name, client_id, frequency, next_run_date, total_amount, subtotal, created_by)
      VALUES ($1, 'Retainer', $2, 'weekly', $3, 1150, 1150, $4)`, [A.id, ids.hist, day(2), A.user]);
@@ -160,21 +160,24 @@ describe('GET /api/accounting/cash-forecast-13', () => {
   });
 
   it('overdue AR with 3 paid invoices: due + median 20 days, basis history', () => {
-    const l = line(f, `ar:${ids.hist}:history`)!;
-    expect(l.basis).toBe('history');
-    expect(l.items).toEqual([expect.objectContaining({ ref: docs.histOverdue, date: day(-20), weekIndex: 0, amountCents: 50_000 })]);
+    const l = line(f, `ar:${ids.hist}`)!;
+    expect(l.basisCents).toEqual({ due: 0, history: 50_000, no_history: 0 });
+    expect(l.items).toEqual([expect.objectContaining({ ref: docs.histOverdue, date: day(-20), weekIndex: 0, amountCents: 50_000, basis: 'history' })]);
   });
 
   it('overdue AR with 2 paid (a cancelled receipt and one older than 12 months do not count): week 1, no_history', () => {
-    const l = line(f, `ar:${ids.nohist}:no_history`)!;
+    // One line per customer: New Ltd's overdue (no_history) and not-yet-due invoices share ar:<id>.
+    const l = line(f, `ar:${ids.nohist}`)!;
     expect(l.flags).toContain('no_history');
-    expect(l.items).toEqual([expect.objectContaining({ ref: docs.nohistOverdue, date: today, weekIndex: 0, amountCents: 30_000 })]);
+    expect(l.basisCents).toEqual({ due: 20_000, history: 0, no_history: 30_000 });
+    expect(l.items.find((i) => i.ref === docs.nohistOverdue)).toMatchObject({ date: today, weekIndex: 0, amountCents: 30_000, basis: 'no_history' });
+    expect(f.lines.filter((x) => x.key.startsWith(`ar:${ids.nohist}`)).map((x) => x.key)).toEqual([`ar:${ids.nohist}`]);
     expect(f.overdueAR).toMatchObject({ totalCents: 80_000, invoiceCount: 2, byBasis: { history: 50_000, no_history: 30_000 } });
   });
 
   it('AR not yet due on its due date; overdue AP in week 1; another tenant’s invoice nowhere', () => {
     const weeks = buildWeeks(today);
-    expect(line(f, `ar:${ids.nohist}:due`)!.items[0]).toMatchObject({ ref: docs.notDue, weekIndex: weekIndexOf(day(10), today, weeks), amountCents: 20_000 });
+    expect(line(f, `ar:${ids.nohist}`)!.items.find((i) => i.ref === docs.notDue)).toMatchObject({ ref: docs.notDue, weekIndex: weekIndexOf(day(10), today, weeks), amountCents: 20_000 });
     expect(line(f, `ap:${ids.sup}`)!.items[0]).toMatchObject({ ref: docs.bill, weekIndex: 0, amountCents: -40_000 });
     expect(JSON.stringify(f)).not.toContain(docs.otherTenant!);
     expect(JSON.stringify(f)).not.toContain(ids.other);

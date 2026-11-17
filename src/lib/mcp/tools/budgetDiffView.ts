@@ -64,7 +64,8 @@ export function snapshotCells(diff: readonly ActualDiff[]): SnapshotCell[] {
   });
 }
 
-function labels(model: GridReadModel) {
+/** Account codes and `{ kind, code }` of a cell's member, as the replies name them. */
+export function cellLabels(model: GridReadModel) {
   const accounts = new Map(model.accounts.map((a) => [a.id, a.code]));
   const members = new Map<string, string>();
   for (const kind of ['cc1', 'cc2', 'bu'] as const) for (const m of model.dimensions[kind]) members.set(`${kind}:${m.id}`, m.code);
@@ -81,7 +82,7 @@ export interface DiffPage { offset: number; limit: number }
 
 /** Counts, the listed page and the paging fields. */
 export function diffListing(model: GridReadModel, diff: readonly ActualDiff[], rowRefusals: readonly RowRefusal[], page: DiffPage) {
-  const name = labels(model);
+  const name = cellLabels(model);
   const money = (c: CurrentCell | undefined) => (c === undefined ? null : centsText(c.cents));
   const listed: Array<Record<string, unknown> & { i: number | null }> = [
     ...rowRefusals.map((r) => ({ i: r.index, account: r.account, dimension: r.dimension, month: r.month, status: 'refused', reason: r.reason })),

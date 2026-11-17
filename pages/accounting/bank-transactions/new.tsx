@@ -3,7 +3,7 @@
  * Equivalent to Sage "Create Transaction" in Process Bank.
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useIdempotencyKey } from '@/hooks/useIdempotencyKey';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -11,50 +11,15 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
-import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
-import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { PageHeader, DateField } from '@/components/ui';
-
-type TxType = 'spend' | 'receive';
-type AllocType = 'account' | 'supplier' | 'customer';
-type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
-
-interface SelectOption { id: string; name: string; code?: string }
-interface BankAcct { id: string; accountCode: string; accountName: string; bankAccountNumber?: string | null }
-interface GlAccountOption {
-  id: string;
-  accountCode?: string | null;
-  code?: string | null;
-  accountName?: string | null;
-  name?: string | null;
-  accountSubtype?: string | null;
-}
-interface EntityOption {
-  id: string;
-  name?: string | null;
-  code?: string | null;
-  company_name?: string | null;
-  companyName?: string | null;
-}
-interface FormState {
-  bankAccountId: string; date: string; reference: string; description: string;
-  amount: string; allocationType: AllocType; contraAccountId: string; entityId: string; vatCode: VatCode;
-}
-
-const todayISO = () => localISODate();
-const VAT_OPTIONS: { value: VatCode; label: string }[] = [
-  { value: 'none', label: 'No VAT' }, { value: 'standard', label: 'Standard 15%' },
-  { value: 'zero_rated', label: 'Zero Rated' }, { value: 'exempt', label: 'Exempt' },
-];
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
-const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
-
-const asArray = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
+import {
+  VAT_OPTIONS, card, inp, lbl, todayISO, type AllocType, type FormState, type SelectOption, type TxType, type VatCode,
+} from '@/components/accounting/bank-transaction-new/newBankTxForm';
+import { useNewBankTxReferenceData } from '@/components/accounting/bank-transaction-new/useNewBankTxReferenceData';
 
 export default function NewBankTransactionPage() {
   const router = useRouter();
@@ -65,50 +30,8 @@ export default function NewBankTransactionPage() {
   });
   const [entitySearch, setEntitySearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
-  const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
-  const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
-  const [suppliersFailed, setSuppliersFailed] = useState(false);
-  const [suppliersTruncated, setSuppliersTruncated] = useState(false);
-  const [customers, setCustomers] = useState<SelectOption[]>([]);
-  const [isLoadingRef, setIsLoadingRef] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    const promises = [
-      apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again').then(data => {
-        if (!mounted) return;
-        const list: BankAcct[] = Array.isArray(data) ? data : [];
-        setBankAccounts(list);
-        if (list.length > 0) setForm(prev => ({ ...prev, bankAccountId: list[0]!.id }));
-      }).catch((err) => {
-        log.error('Failed to load bank accounts', { error: err }, 'accounting-ui');
-        if (mounted) notify.error('Could not load bank accounts — reload the page to try again');
-      }),
-      apiFetch('/api/accounting/chart-of-accounts').then(async r => { await assertOk(r, 'Could not load accounts - try again'); return r.json(); }).then(json => {
-        if (!mounted) return;
-        const list = asArray<GlAccountOption>(json.data ?? json);
-        setGlAccounts(list
-          .filter(a => !isBankSubtype(a.accountSubtype))
-          .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
-      }).catch((err) => { log.error('Failed to load accounts', { error: err }, 'accounting-ui'); if (mounted) notify.error(apiErrorMessage(err, 'Could not load accounts - try again')); }),
-      fetchAllSuppliers().then(({ suppliers: list, truncated }) => {
-        if (!mounted) return;
-        setSuppliers(list.map(s => ({ id: String(s.id), name: s.name ?? '', code: s.code ?? undefined })));
-        if (truncated) setSuppliersTruncated(true);
-      }).catch(err => {
-        log.warn('Failed to load suppliers for new bank transaction', { error: err }, 'accounting-ui');
-        if (mounted) setSuppliersFailed(true);
-      }),
-      apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then(json => {
-        if (!mounted) return;
-        const list = asArray<EntityOption>(json.data);
-        setCustomers(list.map(c => ({ id: String(c.id), name: c.company_name ?? c.companyName ?? c.name ?? '' })));
-      }).catch((err) => { log.error('Failed to load customers', { error: err }, 'accounting-ui'); if (mounted) notify.error(apiErrorMessage(err, 'Could not load customers - try again')); }),
-    ];
-    void Promise.allSettled(promises).finally(() => { if (mounted) setIsLoadingRef(false); });
-    return () => { mounted = false; };
-  }, []);
+  const { bankAccounts, glAccounts, suppliers, suppliersFailed, suppliersTruncated, customers, isLoadingRef } =
+    useNewBankTxReferenceData(setForm);
 
   const entityOptions = useMemo((): SelectOption[] => {
     const base = form.allocationType === 'supplier' ? suppliers

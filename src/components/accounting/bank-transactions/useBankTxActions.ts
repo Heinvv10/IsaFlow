@@ -49,6 +49,8 @@ interface ActionDeps {
   /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
   reloadCurrentView: () => void;
   onLlmResidual?: (n: number) => void;
+  /** Takes lines that left the tab off the screen at once, before the reload tops the page up (WP4a). */
+  removeRows?: (ids: string[]) => void;
 }
 
 export function buildBankTxActions(deps: ActionDeps) {
@@ -64,7 +66,9 @@ export function buildBankTxActions(deps: ActionDeps) {
   const run: BankTxBusy['run'] = deps.busy?.run ?? ((_key, fn) => fn());
 
   const callAction = async (body: Record<string, string>, fallback = 'Could not complete the action - try again') => {
-    deps.busy?.touch(); // a request starting is activity: the hold's silence timer restarts
+    // A request about these lines is activity for the operation holding them (and only that one): its silence timer restarts.
+    const rows = [body.bankTransactionId, ...(Array.isArray(body.bankTransactionIds) ? body.bankTransactionIds : [])].filter((r): r is string => typeof r === 'string');
+    deps.busy?.touch?.({ rows });
     try {
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -74,7 +78,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       const json = await res.json();
       if (json.success === false) throw new ApiEnvelopeError(json.error?.message || fallback);
       return json;
-    } finally { deps.busy?.touch(); } // and so is one finishing
+    } finally { deps.busy?.touch?.({ rows }); } // and so is one finishing
   };
 
   const { saveSelection, saveDimensions } = buildSaveActions(deps.refreshSummarySoon ?? refreshBankAccounts);
@@ -100,6 +104,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       }
       const allocated = await callAction(body);
       onPosted();
+      deps.removeRows?.([txId]); // gone from the New tab now; the reload below only tops the page up
       const journalEntryId: unknown = allocated?.data?.journalEntryId;
       if (typeof journalEntryId === 'string' && isUndoableAllocation(sel, bankAccounts)) {
         offerAllocationUndo(txId, journalEntryId, sel.type === 'account', { callAction, reloadCurrentView });
@@ -181,23 +186,26 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!selectedBank) { notify.error('Select a bank account first'); return; }
     setSmartRunning(true);
     notify.success('Running smart categorization...');
+    const alive = () => deps.busy?.touch?.({ key: 'apply-rules' }); // each step of a long run is activity for its hold
     try {
+      alive();
       const rulesRes = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
-      await assertOk(rulesRes, 'Could not apply the rules - try again');
+      alive(); await assertOk(rulesRes, 'Could not apply the rules - try again');
       const rulesApplied = (await rulesRes.json()).data?.applied ?? 0;
       let smartCategorized = 0, totalSkipped = 0, smartFailed = false;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
+        alive();
         const smartRes = await apiFetch('/api/accounting/smart-categorize', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ action: 'categorize', bankAccountId: selectedBank }),
           signal: controller.signal,
         });
-        clearTimeout(timeout); await assertOk(smartRes, 'Smart categorisation could not run - try again');
+        clearTimeout(timeout); alive(); await assertOk(smartRes, 'Smart categorisation could not run - try again');
         const smartJson = await smartRes.json();
         smartCategorized = smartJson.data?.categorized ?? 0;
         totalSkipped = smartJson.data?.skipped ?? 0;
@@ -249,7 +257,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     handleDownloadReport,
     ...buildBulkActions({
       transactions, selected: selectedIds, rowSelections, callAction, run, setProgress: deps.busy?.setProgress ?? (() => undefined),
-      setSelectedIds, reload: () => { loadTransactions(); refreshBankAccounts(); },
+      setSelectedIds, reload: () => { loadTransactions(); refreshBankAccounts(); }, removeRows: deps.removeRows,
     }),
     ...buildBankTxSelectionActions({ ...deps, selectedIds }, saveSelection, saveDimensions),
   };

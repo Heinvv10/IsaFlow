@@ -131,7 +131,8 @@ describe('a contractor is not remuneration (SDL s4(b)) and not a UIF contributor
     await updatePayrollEmployee(contractor, f.company, { taxStatus: 'independent_contractor' });
     const id = await newRun(pool, f, 3);
     await calculatePayrollRun(id, f.company);
-    await pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [id]);
+    // Approved as approvePayrollRun leaves it: the status with its approval time (the UI-19 reads final runs, wave 6 EF).
+    await pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [id]);
     const decl = await generateUifDeclaration(f.company, 2026, 3, f.approver);
     expect(decl.totalEmployees).toBe(1);
     const detail = await getUifDeclaration(f.company, decl.id);

@@ -24,6 +24,8 @@ export interface EMP201Data {
   payePayable: number;
   etiCarry: Emp201EtiCarry;
   etiWarnings?: string[];
+  /** Runs left out (approved/paid with no approval time) or whose line UIF split differs from the header (wave 6 EF). */
+  runWarnings?: string[];
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;

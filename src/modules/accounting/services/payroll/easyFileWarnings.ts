@@ -16,3 +16,8 @@ export function capWarningsForHeader(warnings: readonly string[]): string[] {
   while (shown > 0 && !fits(shown)) shown -= 1;
   return shown < total ? [...warnings.slice(0, shown), more(shown)] : [...warnings];
 }
+
+/** The X-IsaFlow-Warnings header value for an export (the EMP501 CSV; wave 6 EF): capped as above, null when empty. */
+export function warningsHeader(warnings: readonly string[]): string | null {
+  return warnings.length > 0 ? encodeURIComponent(JSON.stringify(capWarningsForHeader(warnings))) : null;
+}

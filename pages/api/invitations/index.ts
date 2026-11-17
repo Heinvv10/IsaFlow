@@ -66,6 +66,11 @@ const createInvitation: NextApiHandler = async (req, res) => {
   //    already promises. The old link stops working, which is what a resend
   //    means. Tenant-scoped by the conflict target, so this can never touch
   //    another company's invitation for the same address.
+  //    A refreshed row keeps its old gotrue_user_id until step 3. No accept can
+  //    use it meanwhile: the old token died here and the new one is mailed only
+  //    after step 3 wrote this request's pin under it (a re-send in between
+  //    moves the token, and step 3 answers 409). Revoke deletes only an account
+  //    the invitation created (user_metadata.invite_id), never a stale pin's.
   let inv: { id: string; inserted: boolean };
   try {
     inv = await migrationAdminTx('create invitation', async (client) => {

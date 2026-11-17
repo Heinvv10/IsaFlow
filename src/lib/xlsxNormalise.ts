@@ -167,6 +167,26 @@ async function openWorkbook(buf: Buffer, maxBytes: number): Promise<Workbook> {
   return { zip, budget, read, workbook, rels, sheets };
 }
 
+/**
+ * One opened .xlsx for a caller that parses its parts itself with an XML parser (the MCP free-form budget reader,
+ * which must not trust the regex sheet list here): workbook.xml, its rels, and a read of any part, every byte counted
+ * against `maxBytes` and, when given, the part's own cap (past it `refuse()`). `worksheetPart` validates a rels
+ * target as the readers here do.
+ */
+export interface XlsxParts {
+  workbook: Buffer;
+  rels: Buffer | null;
+  read(path: string, cap?: { bytes: number; refuse: () => Error }): Promise<Buffer | null>;
+}
+
+export async function openXlsxParts(buf: Buffer, maxBytes: number): Promise<XlsxParts> {
+  const wb = await openWorkbook(buf, maxBytes);
+  return { workbook: wb.workbook, rels: wb.rels, read: (path, cap) => wb.read(path, cap ? [{ left: cap.bytes, refuse: cap.refuse }] : []) };
+}
+
+/** A rels target as the zip path of a worksheet part, or null when it is not one (see namedSheetPart). */
+export const worksheetPart = (target: string): string | null => namedSheetPart(target);
+
 /** The lowest-numbered sheet, when the workbook does not name its first. */
 function lowestSheetPath(zip: JSZip): string | null {
   const sheets = Object.keys(zip.files)

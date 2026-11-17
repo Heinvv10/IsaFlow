@@ -22,6 +22,7 @@ import { ReconciliationCompletedError, refuseLinesInCompletedSession } from './r
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { findChainCashLines } from './chainBankLines';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
+import { refuseLiveBankLines } from './liveBankLineReversal';
 
 /** Raised before any write; every caller answers it 400. A completed reconciliation is `ReconciliationCompletedError` (409, D12). */
 export class ReconciledCashError extends Error {
@@ -147,11 +148,14 @@ export async function refuseJournalCashOfCompletedReconciliation(companyId: stri
  */
 export async function refuseReversingCompletedCash(
   companyId: string, journalEntryId: string, lockedLines?: readonly string[],
+  /** The bank line's own undo (reverse, auto-post undo, reallocation), which resets the line itself. */
+  opts?: { bankLinesHandled?: boolean },
 ): Promise<void> {
   const ids = await findChainCashLines(companyId, journalEntryId);
   if (ids.length === 0) return;
   const rows = (await sql`
-    SELECT bt.id::TEXT AS id, bt.status, r.status AS rec_status, r.statement_date, a.account_name
+    SELECT bt.id::TEXT AS id, bt.status, r.status AS rec_status, r.statement_date, a.account_name,
+           bt.matched_journal_line_id, bt.provisional_je_id, bt.amount, bt.transaction_date, bt.description
     FROM bank_transactions bt
     LEFT JOIN bank_reconciliations r ON r.id = bt.reconciliation_id AND r.company_id = bt.company_id
     LEFT JOIN gl_accounts a ON a.id = r.bank_account_id AND a.company_id = r.company_id
@@ -165,6 +169,10 @@ export async function refuseReversingCompletedCash(
   if (lockedLines && ids.some((id) => !lockedLines.includes(id))) {
     throw new RowLockTimeoutError('A bank line of this journal');
   }
+  // A LIVE statement line still books this journal's cash (allocated, matched, reconciled in an open session):
+  // reversed from the journal screens or MCP, the line kept pointing at a reversed journal and its cards and tiles
+  // went on counting it. Refused (400) — the bank line's own undo resets it in the same act. Read under the claim.
+  if (!opts?.bankLinesHandled) await refuseLiveBankLines(companyId, journalEntryId, rows);
 }
 
 export const RECONCILED_DOCUMENT_REMOVAL =

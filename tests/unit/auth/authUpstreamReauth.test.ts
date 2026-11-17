@@ -87,7 +87,7 @@ function hangingFetch() {
 function gotrue(token: (url: string, init?: RequestInit) => Promise<Response>) {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (url.includes('/token?grant_type=password')) return token(url, init);
-    if (url.includes('/admin/users/')) return Response.json({ id: 'gt-1', email: 'invitee@example.test' });
+    if (url.includes('/admin/users/')) return Response.json({ id: 'gt-1', email: 'invitee@example.test', user_metadata: { invite_id: 'inv-1' } });
     throw new Error(`unexpected fetch ${url}`);
   });
 }
@@ -107,7 +107,8 @@ function expectOutage(answer: Answer): void {
   expect(answer.headers['retry-after']).toBe('5');
   expect(answer.body).toMatchObject({ success: false, error: { code: 'AUTH_UNAVAILABLE' } });
 }
-const writes = (fetch: ReturnType<typeof gotrue>) => fetch.mock.calls.filter(([u]) => String(u).includes('/admin/users/'));
+const writes = (fetch: ReturnType<typeof gotrue>) => fetch.mock.calls.filter(([u, init]) =>
+  String(u).includes('/admin/users/') && (init as RequestInit | undefined)?.method === 'PUT');
 
 let restoreBound: () => void;
 beforeEach(() => {
@@ -183,7 +184,7 @@ describe('POST /api/invitations/[token]/accept', () => {
     const session = { access_token: 'a', refresh_token: 'r', expires_in: 3600, token_type: 'bearer', user: { id: 'gt-1', email: 'invitee@example.test' } };
     let signIns = 0;
     const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
-      if (url.includes('/admin/users/')) return Response.json({ id: 'gt-1', email: 'invitee@example.test' });
+      if (url.includes('/admin/users/')) return Response.json({ id: 'gt-1', email: 'invitee@example.test', user_metadata: { invite_id: 'inv-1' } });
       if (url.includes('/token?grant_type=password')) return ++signIns === 1 ? new Response('', { status: 503 }) : Response.json(session);
       throw new Error(`unexpected fetch ${url}`);
     });
