@@ -17,7 +17,7 @@ import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { ALERT_LIST_LIMIT, listBudgetAlerts, type BudgetAlertItem } from '@/modules/accounting/services/budgets/budgetAlertList';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, randText } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, randText, refText } from './budgetToolArgs';
 import { offsetArg } from './budgetPaging';
 import { remainingLimit } from './budgetToolRateLimits';
 import { clampLimit, ok, toolError } from './toolHelpers';
@@ -25,8 +25,6 @@ import { clampLimit, ok, toolError } from './toolHelpers';
 const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
 const DIMS = ['cc1', 'cc2', 'bu'] as const;
 const money = (v: number | null) => (v === null ? null : randText(v));
-/** A reference as text: a JSON number is its digits (review round 2, L-3: a numeric code), anything else not text is ''. */
-const text = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 
 export const budgetRemainingTool: McpTool = {
   name: 'budget_remaining',
@@ -57,7 +55,7 @@ export const budgetRemainingTool: McpTool = {
     if (!Array.isArray(args.lines) || args.lines.length === 0) return toolError('lines must list at least one line');
     const rows = args.lines.map((l, index) => {
       const o = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>;
-      return { index, account: text(o.account), month: typeof o.month === 'string' ? o.month : '', dims: Object.fromEntries(DIMS.map((d) => [d, o[d]])) };
+      return { index, account: refText(o.account), shown: typeof o.account === 'number' ? String(o.account) : typeof o.account === 'string' ? o.account.trim() : '', month: typeof o.month === 'string' ? o.month : '', dims: Object.fromEntries(DIMS.map((d) => [d, o[d]])) };
     });
     const problem = remainingKeysProblem(rows.map((r) => r.month));
     if (problem) return toolError(problem);
@@ -68,12 +66,16 @@ export const budgetRemainingTool: McpTool = {
     const keyed: Array<{ index: number; key: RemainingKey }> = [];
     const refused = new Map<number, string>();
     for (const r of rows) {
-      const account = refs.account(r.account);
-      if (!account.ok) { refused.set(r.index, r.account === '' ? 'account is required (an id or code)' : account.reason); continue; }
+      if ('error' in r.account) { refused.set(r.index, r.account.error); continue; }
+      if (r.account.ref === '') { refused.set(r.index, 'account is required (an id or code)'); continue; }
+      const account = refs.account(r.account.ref);
+      if (!account.ok) { refused.set(r.index, account.reason); continue; }
       const ids: Record<(typeof DIMS)[number], string | null> = { cc1: null, cc2: null, bu: null };
       const bad = DIMS.flatMap((d) => {
         if (r.dims[d] === undefined || r.dims[d] === null) return [];
-        const m = refs.member(d, text(r.dims[d]));
+        const read = refText(r.dims[d], d);
+        if ('error' in read) return [read.error];
+        const m = refs.member(d, read.ref);
         if (!m.ok) return [m.reason];
         ids[d] = m.item;
         return [];
@@ -92,7 +94,7 @@ export const budgetRemainingTool: McpTool = {
     const answered = new Map(keyed.map((k, i) => [k.index, results[i]!]));
     const code = new Map([...chart.accounts, ...chart.members].map((x) => [x.id, x.code]));
     const lines = rows.map((r) => {
-      const head = { i: r.index, account: r.account.slice(0, 64), month: r.month };
+      const head = { i: r.index, account: r.shown.slice(0, 64), month: r.month };
       const res = answered.get(r.index);
       if (!res) return { ...head, refused: refused.get(r.index) ?? 'unresolved' };
       const member = (id: string | null) => (id === null ? null : code.get(id) ?? id);

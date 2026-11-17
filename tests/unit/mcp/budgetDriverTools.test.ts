@@ -123,6 +123,20 @@ describe('set_budget_drivers: refusals before any service (each per change, noth
   });
 });
 
+describe('set_budget_drivers: the bucket before any read (review round 3)', () => {
+  it('checkRateLimit is called before the grid read, and a refusal there means no read at all', async () => {
+    const order: string[] = [];
+    vi.mocked(checkRateLimit).mockImplementation(async () => { order.push('limit'); return true; });
+    vi.mocked(loadGridReadModel).mockImplementation(async () => { order.push('grid'); return model({ cells: db.cells as never }); });
+    await call({ changes: [fixed], dry_run: true });
+    expect(order.slice(0, 2)).toEqual(['limit', 'grid']);
+    order.length = 0;
+    vi.mocked(checkRateLimit).mockImplementation(async () => { order.push('limit'); return false; });
+    expect(text(await call({ changes: [fixed], dry_run: true }))).toMatch(/Too many budget driver changes/);
+    expect(order).toEqual(['limit']);
+  });
+});
+
 describe('set_budget_drivers: dry run', () => {
   it('runs the real services rolled back, answers what they left (dependents included) and a plan_hash, frees the key', async () => {
     const r = await call({ changes: [fixed], dry_run: true });

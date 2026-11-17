@@ -9,7 +9,7 @@ import { explainMissingAccounts, refResolver, type DimensionKind } from '@/modul
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PlanInput } from '@/modules/accounting/services/budgets/cellWritePlan';
 import type { McpToolContext } from '../types';
-import { isMonth, parseMoney } from './budgetToolArgs';
+import { isMonth, parseMoney, refText } from './budgetToolArgs';
 import type { RowRefusal } from './budgetDiffView';
 
 export interface RowRef { index: number; account: unknown; cc1?: unknown; cc2?: unknown; bu?: unknown }
@@ -17,7 +17,8 @@ export interface RowRef { index: number; account: unknown; cc1?: unknown; cc2?: 
 export type ResolvedRef = { glAccountId: string; cc1Id: string | null; cc2Id: string | null; buId: string | null };
 
 const DIMS: readonly DimensionKind[] = ['cc1', 'cc2', 'bu'];
-const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+/** A reference as the agent wrote it, for messages (a refused one keeps its digits too). */
+const text = (v: unknown): string => (typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim() : '');
 
 /** The dimension a row names, as the agent wrote it (for messages), or null. */
 export function dimensionLabel(r: RowRef): string | null {
@@ -31,7 +32,9 @@ export async function resolveRows(ctx: McpToolContext, model: GridReadModel, row
   const out = new Map<number, ResolvedRef | { reason: string }>();
   const missing = new Map<number, string>();
   for (const r of rows) {
-    const account = text(r.account);
+    const acc = refText(r.account);
+    if ('error' in acc) { out.set(r.index, { reason: acc.error }); continue; }
+    const account = acc.ref;
     if (account === '') { out.set(r.index, { reason: 'account is required (an account id or code)' }); continue; }
     const named = DIMS.filter((d) => r[d] !== undefined && r[d] !== null);
     if (named.length > 1) { out.set(r.index, { reason: 'A budget amount carries at most one dimension: cc1, cc2 or bu (decision 14)' }); continue; }
@@ -41,8 +44,10 @@ export async function resolveRows(ctx: McpToolContext, model: GridReadModel, row
     const ref: ResolvedRef = { glAccountId: found.item.id, cc1Id: null, cc2Id: null, buId: null };
     const kind = named[0];
     if (kind) {
-      const value = text(r[kind]);
-      const member = value === '' ? { ok: false as const, reason: `${kind} must be an id or code` } : resolver.member(kind, value);
+      const named = refText(r[kind], kind);
+      const value = 'error' in named ? '' : named.ref;
+      const member = 'error' in named ? { ok: false as const, reason: named.error }
+        : value === '' ? { ok: false as const, reason: `${kind} must be an id or code` } : resolver.member(kind, value);
       if (!member.ok) { out.set(r.index, { reason: member.reason }); continue; }
       ref[kind === 'cc1' ? 'cc1Id' : kind === 'cc2' ? 'cc2Id' : 'buId'] = member.item.id;
     }

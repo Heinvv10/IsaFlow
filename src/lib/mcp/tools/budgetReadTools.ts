@@ -13,7 +13,7 @@ import { BAND_ORDER, type Band } from '@/modules/accounting/services/budgets/gri
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, centsText, isMonth, isResult, ownVersion, randText, versionView } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, centsText, isMonth, isResult, ownVersion, randText, refText, versionView } from './budgetToolArgs';
 import { NOT_FOUND, clampLimit, ok, toolError } from './toolHelpers';
 import { offsetArg } from './budgetPaging';
 
@@ -109,15 +109,19 @@ export const getBudgetTool: McpTool = {
     if (Array.isArray(args.accounts)) {
       accountFilter = new Set();
       for (const ref of args.accounts) {
-        const found = typeof ref === 'string' ? resolver.account(ref.trim()) : null;
+        const read = refText(ref);
+        if ('error' in read) return toolError(`accounts: ${read.error}`);
+        const found = read.ref === '' ? null : resolver.account(read.ref);
         if (!found) return toolError(`accounts: ${JSON.stringify(String(ref).slice(0, 40))} is not an account this budget lists`);
         if (!found.ok) return toolError(`accounts: ${found.reason}`);
         accountFilter.add(found.item.id);
       }
     }
     let memberId: string | null = null;
-    if (typeof args.member === 'string') {
-      const m = resolver.member(args.level as 'cc1', args.member.trim());
+    if (args.member !== undefined && args.member !== null) {
+      const read = refText(args.member, String(args.level));
+      if ('error' in read) return toolError(read.error);
+      const m = resolver.member(args.level as 'cc1', read.ref);
       if (!m.ok) return toolError(m.reason);
       memberId = m.item.id;
     }

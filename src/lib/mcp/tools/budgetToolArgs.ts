@@ -48,6 +48,17 @@ export function centsText(cents: number): string {
 /** A rand amount the services hold as a number (NUMERIC(15,2) read exactly) as decimal text. */
 export const randText = (rand: number): string => centsText(Math.round(rand * 100));
 
+/**
+ * An account, member or cost-centre reference (an id or a code) as the budget tools read it (review round 3, one rule
+ * for every tool): a string trimmed; a finite integer as its digits (a numeric code sent as a JSON number); any other
+ * number refused as "not a <what> code" (never truncated); anything else '' (absent, for the caller's own wording).
+ */
+export function refText(v: unknown, what = 'account'): { ref: string } | { error: string } {
+  if (typeof v === 'string') return { ref: v.trim() };
+  if (typeof v === 'number') return Number.isInteger(v) ? { ref: String(v) } : { error: `${String(v)} is not ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} code` };
+  return { ref: '' };
+}
+
 export const isMonth = (v: unknown): v is string => typeof v === 'string' && MONTH.test(v);
 
 export function roundingUnitArg(args: Record<string, unknown>): RoundingUnit | McpToolResult {

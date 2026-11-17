@@ -15,7 +15,7 @@ import type { GridReadModel } from '@/modules/accounting/services/budgets/gridRe
 import type { DriverGrain, DriverLineInput, StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import type { PlannedHireInput } from '@/modules/accounting/services/budgets/drivers/driverRepository';
 import type { McpToolContext } from '../types';
-import { isMonth, parseMoney } from './budgetToolArgs';
+import { isMonth, parseMoney, refText } from './budgetToolArgs';
 import { resolveRows, type RowRef } from './budgetCellArgs';
 
 export const MAX_DRIVER_CHANGES = 50;
@@ -56,11 +56,14 @@ const num = (o: Record<string, unknown>, k: string): number => (typeof o[k] === 
 /** A cost centre (CC1 or CC2) by id or code: its id, null when absent, or why it cannot be one. */
 export function resolveCentre(model: GridReadModel, v: unknown, what: string): { id: string | null } | { reason: string } {
   if (v === undefined || v === null) return { id: null };
-  if (typeof v !== 'string' || v.trim() === '') return { reason: `${what} must be a cost centre id or code` };
-  if (UUID_RE.test(v)) return { id: v.toLowerCase() };
-  const found = codeIndex([...model.dimensions.cc1, ...model.dimensions.cc2])(v);
-  if (found === null) return { reason: `cost centre code ${v.slice(0, 40)} matches more than one cost centre; name it by id` };
-  return found === undefined ? { reason: `${v.slice(0, 40)} is not one of this company's active cost centres` } : { id: found.id };
+  const read = refText(v, 'cost centre');
+  if ('error' in read) return { reason: read.error };
+  const ref = read.ref;
+  if (ref === '') return { reason: `${what} must be a cost centre id or code` };
+  if (UUID_RE.test(ref)) return { id: ref.toLowerCase() };
+  const found = codeIndex([...model.dimensions.cc1, ...model.dimensions.cc2])(ref);
+  if (found === null) return { reason: `cost centre code ${ref.slice(0, 40)} matches more than one cost centre; name it by id` };
+  return found === undefined ? { reason: `${ref.slice(0, 40)} is not one of this company's active cost centres` } : { id: found.id };
 }
 
 function centreResolver(model: GridReadModel) {
