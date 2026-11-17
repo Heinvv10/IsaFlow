@@ -140,6 +140,24 @@
   "src/modules/accounting/services/payroll/payrollBankDetailsService.ts": [
    {"line":142,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"EXISTS an approved run paying the employee"}
   ],
+  "src/modules/accounting/services/payroll/payrollBankFileConfirm.ts": [
+   {"line":38,"text":"JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"bank file by id, joined to its own run by run id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollBankFileJudge.ts": [
+   {"line":48,"text":"FROM payroll_bank_files f JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"the run's live bank files, by run id"},
+   {"line":101,"text":"JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"the run's lines, by run id"},
+   {"line":156,"text":"FROM payroll_run_headers h","class":"R","owner":"FQc","why":"by run id (je.id = h.journal_entry_id); the journal description it requires is built from the month, mirroring payrollJournalBuilder: right for a monthly run, regular or off-cycle; weekly/fortnightly descriptions are FQc's"}
+  ],
+  "src/modules/accounting/services/payroll/payrollBankFileService.ts": [
+   {"line":62,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"lock and read the run by id"},
+   {"line":124,"text":"FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"file insert from the run by id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollBankFileSettlement.ts": [
+   {"line":30,"text":"FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"the run's lines, by run id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollBankFileStatus.ts": [
+   {"line":81,"text":"JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"list the run's files, by run id"}
+  ],
   "src/modules/accounting/services/payroll/payrollBatchPost.ts": [
    {"line":106,"text":"UPDATE payroll_batches","class":"S","owner":"FQb1","why":"batch write by id (a batch is not a run)"},
    {"line":157,"text":"INSERT INTO payroll_employee_components (","class":"S","owner":"FQb1","why":"assignment write"}
