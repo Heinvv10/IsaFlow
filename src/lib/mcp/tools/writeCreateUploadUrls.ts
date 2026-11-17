@@ -19,7 +19,7 @@ import {
   FINALIZE_WINDOW_HOURS, MAX_OUTSTANDING_BYTES, MAX_OUTSTANDING_UPLOADS, SHA256_RE, UPLOAD_TTL_MINUTES,
   insertUploadIntent, lockAndReadUploadUsage, type UploadTargetKind,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
-import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { uploadTokenKeyAvailable } from '../uploadToken';
 import { isValidUUID } from '@/lib/validation';
 import { ok, toolError } from './toolHelpers';
@@ -147,7 +147,7 @@ export const createUploadUrlsTool: McpTool = {
     const resolved = refs.length > 0 ? await resolveTxSelectors(refs, ctx.companyId) : [];
     let r = 0;
 
-    await sweepExpiredUploadsQuietly();
+    await sweepExpiredUploadsThrottled();
     const usage = await lockAndReadUploadUsage(ctx.companyId);
     const base = appOrigin();
     const seen = new Map<string, number>();

@@ -14,7 +14,7 @@ vi.mock('@/lib/neon', () => ({
   withSavepoint: vi.fn(async (n: string, fn: () => Promise<unknown>) => { savepoints.names.push(n); return fn(); }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsQuietly: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsThrottled: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentStore', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/mcpUploadIntentStore')>();
   return {
@@ -38,7 +38,7 @@ import { bankTxBelongsToCompany } from '@/modules/accounting/services/core/bankL
 import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/bankLineShaDuplicate';
 import { addBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { finalizeUploadsTool } from '@/lib/mcp/tools/writeFinalizeUploads';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -128,8 +128,8 @@ describe('finalize_uploads hardening', () => {
   });
 
   it('runs the global sweep once and never fails on it', async () => {
-    vi.mocked(sweepExpiredUploadsQuietly).mockResolvedValueOnce(undefined);
+    vi.mocked(sweepExpiredUploadsThrottled).mockResolvedValueOnce(true);
     await run([id(1)]);
-    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+    expect(sweepExpiredUploadsThrottled).toHaveBeenCalledTimes(1);
   });
 });

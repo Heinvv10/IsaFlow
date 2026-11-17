@@ -26,7 +26,7 @@ import {
   FINALIZE_WINDOW_HOURS, lockIntentForFinalize, lockUploadTarget, markIntentFinalized, markIntentRefused, readStagedBytes,
   type UploadIntent,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
-import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { uploadBytesRefusal } from '../uploadBytesCheck';
 import { ok, toolError } from './toolHelpers';
 import { bankLineScopeError } from './writeAttachBankLineDocument';
@@ -164,7 +164,7 @@ export const finalizeUploadsTool: McpTool = {
     if (!ids.every((id) => typeof id === 'string' && isValidUUID(id))) return toolError('invalid upload_ids: each must be an upload_id');
     const unique = [...new Set(ids as string[])];
 
-    await sweepExpiredUploadsQuietly();
+    await sweepExpiredUploadsThrottled();
     const files: FileResult[] = [];
     let budget = FINALIZE_MAX_BYTES_PER_CALL;
     let changedAny = false;

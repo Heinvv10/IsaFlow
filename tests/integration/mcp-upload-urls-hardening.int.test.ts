@@ -9,10 +9,11 @@
  *  - app_user cannot forge status / result / created_by / staged bytes; app_service can stage and sweep;
  *  - audit rows for a PUT, a refusal and a duplicate finalize.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { stageUploadBytes } from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import { SWEEP_MIN_INTERVAL_MS } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { sweepExpiredUploads } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -158,15 +159,25 @@ describeIfDb('MCP uploads: review hardening (999q)', () => {
     const [w] = await sql`SELECT expires_at > now() + interval '110 minutes' AS long FROM mcp_upload_intents WHERE id = ${String(u.upload_id)}::UUID`;
     expect(w!.long).toBe(true);
 
+    // The sweep runs at most once per SWEEP_MIN_INTERVAL_MS per process: move this process's clock past that window
+    // before each triggering call (only Date is faked; timers and the database clock are real).
+    const pastThrottle = () => vi.setSystemTime(Date.now() + SWEEP_MIN_INTERVAL_MS + 1);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
     await sql`UPDATE mcp_upload_intents SET expires_at = now() - interval '1 minute' WHERE id = ${String(u.upload_id)}::UUID`;
+    pastThrottle();
     await createUrls(fx, [bankFile(lines[5]!, 'trigger.pdf', PDF('sweep trigger'))]); // a tool call in ANOTHER company
     const [row] = await sql`SELECT staged_bytes IS NULL AS cleared FROM mcp_upload_intents WHERE id = ${String(u.upload_id)}::UUID`;
     expect(row!.cleared).toBe(true);
     expect((await finalize(other, [u.upload_id])).files).toEqual([expect.objectContaining({ status: 'expired' })]);
 
     await sql`UPDATE mcp_upload_intents SET expires_at = now() - interval '8 days' WHERE id = ${String(u.upload_id)}::UUID`;
+    pastThrottle();
     await createUrls(fx, [bankFile(lines[5]!, 'trigger2.pdf', PDF('sweep trigger 2'))]);
     expect(await sql`SELECT 1 FROM mcp_upload_intents WHERE id = ${String(u.upload_id)}::UUID`).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('app_user cannot forge status, result, created_by, bytes or expiry, nor delete', async () => {

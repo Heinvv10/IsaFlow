@@ -5,7 +5,10 @@
  * magic-byte check: a PDF must END with %%EOF (in its last 1024 bytes, followed only by whitespace or NUL padding). A PNG must CONTAIN its IEND chunk and a JPEG its
  * end-of-image marker FFD9 (a truncated image is refused), but content AFTER them is allowed: phone "motion photos"
  * append an MP4 after FFD9 and some cameras pad after the image, and those are genuine receipts (attach_document takes
- * them). The bytes are stored and served as the declared type only. OOXML (DOCX / XLSX) is checked by magic bytes
+ * them). The image rule is a truncation HEURISTIC, not a security control (an EXIF thumbnail's FFD9 also satisfies
+ * it); what keeps image bytes inert is that they are stored and served as the declared type only (nosniff in the app,
+ * SAFE_HREF for bank-line data URLs). The PDF end rule can refuse a rare generator that writes after its last %%EOF;
+ * the refusal says why. OOXML (DOCX / XLSX) is checked by magic bytes
  * only. Other upload routes keep fileMagic as it is.
  */
 import { createHash } from 'crypto';

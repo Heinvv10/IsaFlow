@@ -64,7 +64,10 @@ export async function sweepExpiredUploadsQuietly(waitMs: number = SWEEP_WAIT_MS)
   if (timer) clearTimeout(timer);
 }
 
-/** The PUT route's sweep: at most once per SWEEP_MIN_INTERVAL_MS per process (a PUT flood is not a sweep flood). */
+/**
+ * The sweep every caller uses (both tools, the PUT route): at most once per SWEEP_MIN_INTERVAL_MS per process, so a
+ * burst of calls is not a burst of background sweeps queueing for pool connections.
+ */
 export const SWEEP_MIN_INTERVAL_MS = 10_000;
 let lastThrottledSweepAt = Number.NEGATIVE_INFINITY;
 

@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'crypto';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()) }));
-vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsQuietly: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsThrottled: vi.fn(async () => true) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentStore', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/mcpUploadIntentStore')>();
@@ -41,7 +41,7 @@ import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/ban
 import { addBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { findActiveDuplicate, storeDocumentBytes, verifyEntityOwnershipTyped } from '@/modules/accounting/services/core/documentStorageService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { createUploadUrlsTool } from '@/lib/mcp/tools/writeCreateUploadUrls';
 import { finalizeUploadsTool } from '@/lib/mcp/tools/writeFinalizeUploads';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
@@ -104,7 +104,7 @@ describe('create_upload_urls', () => {
     expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![1]).toBe('j');
     expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![2]).toMatchObject({
       targetKind: 'bank_transaction', targetId: TX, sha256: sha(PDF), size: PDF.length });
-    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+    expect(sweepExpiredUploadsThrottled).toHaveBeenCalledTimes(1);
   });
 
   it('issues no url, and reads nothing, when the server key for upload tokens is missing', async () => {
@@ -218,7 +218,7 @@ describe('finalize_uploads', () => {
     expect(res.files[0]).toMatchObject({ status: 'finalized', document_id: 'att-1', duplicate: false });
     expect(vi.mocked(addBankTxAttachment).mock.calls[0]![1]).toMatchObject({ bankTransactionId: TX, maxBytes: 2 * 1024 * 1024 });
     expect(store.markIntentFinalized).toHaveBeenCalledWith(ctx().companyId, UP, 'att-1', false);
-    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+    expect(sweepExpiredUploadsThrottled).toHaveBeenCalledTimes(1);
     expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({ entityId: TX, action: 'create' });
   });
 
