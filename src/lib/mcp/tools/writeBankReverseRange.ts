@@ -35,6 +35,7 @@ import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { assertLinesKeepCredit, reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { counterpartRefusal, preLockReversalLines } from '@/modules/accounting/services/bank/reversalCounterparts';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -128,14 +129,14 @@ export const reverseAllocationsTool: McpTool = {
       });
     }
 
-    const rows = await findAllocatedInRange(
+    let rows = await findAllocatedInRange(
       ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE,
     );
 
     // The preview carries the RULE behind each allocation, because the reason
     // an agent reverses a range is usually that a rule was wrong — and the rule
     // is what it has to fix next, or the next import re-creates all of this.
-    const preview = rows.map((r) => ({
+    const previewOf = (list: typeof rows) => list.map((r) => ({
       transaction_id: r.id,
       date: r.transactionDate,
       amount: r.amount,
@@ -154,6 +155,10 @@ export const reverseAllocationsTool: McpTool = {
     // A supplier payment or customer receipt whose cash a refund outside the range returned is refused live
     // (ap/supplierVoidCredit, ar/customerVoidCredit); the preview answers the same, decided on the range's net
     // (bank/reverseLinesCreditLast). `wroteNothing` keeps the idempotency key free for the real call.
+    // #1494 follow-ups M1: a transfer counterpart a reconciliation holds refuses the call before any write — asked here,
+    // read-only, so the preview gives the same refusal as the live call (re-asked there under the locks).
+    const legRefusal = await counterpartRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (legRefusal) return toolError(legRefusal);
     if (dryRun) {
       await assertLinesKeepCredit(ctx.companyId, rows.map((r) => r.journalEntryId));
       return {
@@ -161,7 +166,7 @@ export const reverseAllocationsTool: McpTool = {
           bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
           dry_run: true,
           would_reverse: rows.length,
-          transactions: preview,
+          transactions: previewOf(rows),
           // Named so an agent can go straight to fixing the cause.
           rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
         }),
@@ -174,6 +179,22 @@ export const reverseAllocationsTool: McpTool = {
     // paths use, so this cannot deadlock against a concurrent batch. A supplier payment whose refund is later in the
     // range is set aside and retried after the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
     // A customer's receipts and refunds in the range are judged together first, by the dry run's own judgment.
+    // A transfer's other bank line (auto-linked outside the batch / range) is freed by reverseReconciledTransaction
+    // itself (WP2 row 10, transferLegReset), as for the screen and reverse_bank_allocation: one mechanism.
+    // Every line and counterpart locked in one id order before the first reversal (brk), then the range re-read and the
+    // counterparts re-judged under those locks: a line freed meanwhile drops out instead of aborting the call.
+    // #1545 r2 M1: only rows this call LOCKED are reversed — one that moved INTO the range after the first read was not
+    // pre-locked (it would be locked out of order) and is left for a re-run — and the step-2 agent refusal is asked again
+    // of what remains, under the locks.
+    const lockedIds = new Set(rows.map((r) => r.id.toLowerCase()));
+    await preLockReversalLines(ctx.companyId, rows.map((r) => r.id));
+    const reread = await findAllocatedInRange(ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE);
+    rows = reread.filter((r) => lockedIds.has(r.id.toLowerCase()));
+    const leftForRerun = reread.length - rows.length; // allocated into the range after the first read: not locked here
+    const lockedAgentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (lockedAgentRefusal) return toolError(lockedAgentRefusal.message);
+    const lockedRefusal = await counterpartRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (lockedRefusal) return toolError(lockedRefusal);
     await reverseLinesJudged(ctx.companyId, rows, (id) =>
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,
@@ -187,8 +208,11 @@ export const reverseAllocationsTool: McpTool = {
       bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
       dry_run: false,
       reversed: rows.length,
-      transactions: preview,
+      transactions: previewOf(rows), // #1545 r2 M2: what was reversed, from the re-read, not the first read
       rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
+      // Said, never silent (#1545 r2 LOW): allocations that entered the range while this call waited were not reversed.
+      ...(leftForRerun > 0 ? { left_for_rerun: leftForRerun,
+        note: `${leftForRerun} allocation(s) entered this range while the call ran and were not reversed — run it again.` } : {}),
     });
   },
 };

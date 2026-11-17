@@ -7,7 +7,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { contractorLineFlag } from './payrollOutsideTables';
-import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
+import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
 import {
   componentIdsToResolve,
   loadComponentTypes,
@@ -37,6 +38,8 @@ export interface UifDeclaration {
   paymentDate: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Approved/paid runs of the month left out because they are not final (wave 6 EF), by name; set by generate and get. */
+  runWarnings?: string[];
 }
 
 export interface UifPaymentResult {
@@ -110,6 +113,12 @@ export async function listUifDeclarations(
   return rows.map(mapUifDeclaration);
 }
 
+/** The month's approved/paid runs that are not final, named as the EMP201 and IRP5 name them (wave 6 EF). */
+async function uifRunWarnings(companyId: string, year: number, month: number): Promise<string[]> {
+  const first = `${year}-${String(month).padStart(2, '0')}-01`;
+  return (await listNotFinalDeclaredRuns(companyId, first, first)).map((r) => notFinalRunWarning(r, 'UI-19'));
+}
+
 export async function getUifDeclaration(
   companyId: string,
   id: string,
@@ -121,9 +130,6 @@ export async function getUifDeclaration(
   if (rows.length === 0 || !rows[0]) return null;
 
   const decl = mapUifDeclaration(rows[0]);
-  // Bound as an array rather than inlined literals so the vocabulary lives in
-  // exactly one place (@/lib/constants/payrollRunStatuses).
-  const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
 
   // Pull per-employee lines from the payroll run for this period
   const lineRows = (await sql`
@@ -142,7 +148,8 @@ export async function getUifDeclaration(
     WHERE prh.company_id = ${companyId}::uuid
       AND prh.period_year  = ${decl.periodYear}
       AND prh.period_month = ${decl.periodMonth}
-      AND prh.status = ANY(${declarableStatuses}::text[])
+      -- Final runs only (payRunFinalSql: approved or paid with an approval time), as the EMP201.
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       -- An independent contractor is no UIF contributor (G21 p. 26): not on the UI-19.
       AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
     ORDER BY pe.employee_number
@@ -175,7 +182,7 @@ export async function getUifDeclaration(
     };
   });
 
-  return { ...decl, lines };
+  return { ...decl, lines, runWarnings: await uifRunWarnings(companyId, decl.periodYear, decl.periodMonth) };
 }
 
 export async function generateUifDeclaration(
@@ -186,9 +193,7 @@ export async function generateUifDeclaration(
 ): Promise<UifDeclaration> {
   log.info('Generating UIF declaration', { companyId, year, month }, 'uifDeclarationService');
 
-  const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
-
-  // Aggregate from payroll run lines for the period
+  // Aggregate from the final runs' lines for the period (payRunFinalSql, as the EMP201)
   const aggRows = (await sql`
     SELECT
       COUNT(DISTINCT prl.employee_id)::int        AS employee_count,
@@ -199,7 +204,7 @@ export async function generateUifDeclaration(
     WHERE prh.company_id  = ${companyId}::uuid
       AND prh.period_year  = ${year}
       AND prh.period_month = ${month}
-      AND prh.status = ANY(${declarableStatuses}::text[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
   `) as Row[];
 
@@ -249,7 +254,7 @@ export async function generateUifDeclaration(
     'uifDeclarationService',
   );
 
-  return mapUifDeclaration(upsertRows[0]);
+  return { ...mapUifDeclaration(upsertRows[0]), runWarnings: await uifRunWarnings(companyId, year, month) };
 }
 
 export async function markUifSubmitted(

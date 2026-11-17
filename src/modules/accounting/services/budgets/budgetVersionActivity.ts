@@ -23,3 +23,19 @@ export async function lastEditsOf(companyId: string, versionIds: readonly string
   }
   return out;
 }
+
+/**
+ * How many driver writes the version has had at or after `since` (a version token: the transaction time of a
+ * write, so that write's own transaction counts too). Every driver line, override reset, planned hire and
+ * headcount refresh write runs through drivers/driverWriteScope.runDriverWrite, whose audit row carries
+ * `driverAction` (created_at = its transaction's now()). The restore of an amount write refuses on any
+ * (budgetSnapshotRestore): it puts cells back, never drivers.
+ */
+export async function driverChangesSince(companyId: string, versionId: string, since: string): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS n FROM audit_log
+     WHERE company_id = ${companyId}::UUID AND entity_type = 'budget' AND entity_id = ${versionId}::UUID
+       AND (changes -> 'metadata' ->> 'driverAction') IS NOT NULL AND created_at >= ${since}::TIMESTAMPTZ
+  `) as DbRow[];
+  return Number(rows[0]?.n ?? 0);
+}

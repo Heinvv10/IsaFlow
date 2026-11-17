@@ -6,7 +6,7 @@
  *    and returns populated EMP201Data with correct aggregations.
  * 2. Company-id scoping: the SQL query must include company_id and the UUID binding.
  * 3. Tables-missing path: returns zero-filled EMP201Data without throwing.
- * 4. UIF 50/50 split: totalUIF_employee + totalUIF_employer === totalUIF.
+ * 4. UIF split: the lines' own employee/employer sums per run (emp201LineUif; it was 50/50 until wave 6 EF).
  * 5. payrollRuns shape: runDate constructed from period_year + period_month.
  */
 
@@ -16,7 +16,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
   listStandaloneDirectivePayments: vi.fn(async () => []),
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => {
+  class RunKindUnsupportedError extends Error {}
+  return {
+    RunKindUnsupportedError,
+    assertRunKindSupported: vi.fn(async () => undefined),
+    isRunKindUnsupported: (e: unknown) => e instanceof RunKindUnsupportedError,
+  };
+});
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
+// The finality warning and the line UIF read are their own modules; their figures are proven on real PG
+// (tests/integration/w6-ef-emp201-finality.int.test.ts).
+vi.mock('@/modules/accounting/services/payroll/payRunNotFinal', () => ({
+  listNotFinalDeclaredRuns: vi.fn(async () => []),
+  notFinalRunWarning: vi.fn(() => 'not final'),
+}));
+vi.mock('@/modules/accounting/services/reports/emp201LineUif', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/reports/emp201LineUif')>()),
+  loadRunLineUif: vi.fn(async (_c: string, ids: string[]) => new Map(ids.map((id) => [id, { employee: 400, employer: 600 }]))),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -152,6 +171,16 @@ describe('emp201Service — Phase 1 schema (payroll_run_headers)', () => {
       .rejects.toThrow('connection terminated');
   });
 
+  it('a run-kind refusal is rethrown as it is, never logged as an error (it is a typed 409)', async () => {
+    const guard = await import('@/modules/accounting/services/payroll/payrollRunKindGuard');
+    const refusal = new (guard.RunKindUnsupportedError as unknown as new (m: string) => Error)('weekly run');
+    vi.mocked(guard.assertRunKindSupported).mockRejectedValueOnce(refusal);
+    mockHappyPath();
+
+    await expect(generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END)).rejects.toBe(refusal);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
   it('logs the failure before re-throwing it', async () => {
     vi.mocked(sql)
       .mockResolvedValueOnce(TABLE_CHECK_ROWS as never)
@@ -165,16 +194,27 @@ describe('emp201Service — Phase 1 schema (payroll_run_headers)', () => {
     );
   });
 
-  // ── Test 4: UIF 50/50 split ──────────────────────────────────────────────────
+  // ── Test 4: UIF split from the lines ─────────────────────────────────────────
 
-  it('splits total_uif 50/50 into employee and employer portions', async () => {
+  it('splits total_uif by the lines\' own employee/employer sums, never 50/50', async () => {
     mockHappyPath();
 
     const res = await generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END);
 
-    expect(res.totalUIF_employee).toBe(500);
-    expect(res.totalUIF_employer).toBe(500);
+    expect(res.totalUIF_employee).toBe(400);
+    expect(res.totalUIF_employer).toBe(600);
     expect(res.totalUIF_employee + res.totalUIF_employer).toBe(res.totalUIF);
+    expect(res.runWarnings).toEqual([]);
+  });
+
+  it('names a run whose line split does not add up to its header total', async () => {
+    mockHappyPath([{ ...HEADER_ROW, total_uif: 1200 }]);
+
+    const res = await generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(res.totalUIF).toBe(1200);
+    expect(res.runWarnings).toHaveLength(1);
+    expect(res.runWarnings[0]).toContain('2025-03');
   });
 
   // ── Test 5: payrollRuns shape and runDate construction ───────────────────────

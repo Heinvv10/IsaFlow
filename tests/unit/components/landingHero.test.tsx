@@ -190,3 +190,46 @@ describe('LandingHero media', () => {
     expect(loop2.getAttribute('preload')).toBe('metadata');
   });
 });
+
+describe('LandingHero scrim', () => {
+  const MOBILE = 'linear-gradient(180deg, rgba(7,26,36,0.68) 0%, rgba(7,26,36,0.58) 22%, '
+    + 'rgba(7,26,36,0.62) 74%, rgba(7,26,36,0.28) 90%, rgba(7,26,36,0.08) 100%)';
+  const DESKTOP_BG = 'linear-gradient(90deg, rgba(7,26,36,0.90) 0%, rgba(7,26,36,0.74) 30%, '
+    + 'rgba(7,26,36,0.28) max(48%, 620px), rgba(7,26,36,0) max(60%, 800px))';
+  const MASK = 'linear-gradient(180deg, #000 0%, #000 calc(50% + 200px), '
+    + 'rgba(0,0,0,0.5) calc(50% + 300px), transparent calc(50% + 440px))';
+  const scrims = (html: string) => html.match(/<div[^>]*data-hero-scrim="[^"]*"[^>]*>/g) ?? [];
+
+  function serverHtml() {
+    setRiverEnv({ desktop: false, reducedMotion: false, saveData: false });
+    return renderToString(<LandingHero />);
+  }
+
+  it('renders exactly two aria-hidden scrims', () => {
+    const tags = scrims(serverHtml());
+    expect(tags).toHaveLength(2);
+    for (const t of tags) expect(t).toContain('aria-hidden="true"');
+  });
+
+  it('gives phones the vertical wash that lets go of the bottom', () => {
+    const tag = scrims(serverHtml()).find((t) => t.includes('data-hero-scrim="mobile"')) ?? '';
+    expect(tag).toMatch(/class="[^"]*\bmd:hidden\b[^"]*"/);
+    expect(tag).toContain(`style="background:${MOBILE}"`);
+    const alphas = [...MOBILE.matchAll(/rgba\(7,26,36,([\d.]+)\)/g)].map((m) => Number(m[1]));
+    expect(alphas[alphas.length - 1]).toBeLessThanOrEqual(0.3);
+  });
+
+  it('gives wide screens the left wash masked to the copy band', () => {
+    const tag = scrims(serverHtml()).find((t) => t.includes('data-hero-scrim="desktop"')) ?? '';
+    expect(tag).toMatch(/class="[^"]*\bhidden md:block\b[^"]*"/);
+    expect(tag).toContain(
+      `style="background:${DESKTOP_BG};mask-image:${MASK};-webkit-mask-image:${MASK}"`,
+    );
+  });
+
+  it('does not bring back the old heavy stops', () => {
+    const html = serverHtml();
+    expect(html).not.toContain('0.88) 100%');
+    expect(html).not.toContain('0.70) 38%');
+  });
+});

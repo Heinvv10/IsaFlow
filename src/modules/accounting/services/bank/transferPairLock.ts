@@ -9,16 +9,19 @@
  * duplicate check and held to the end of the request: the second writer then reads the first one's committed journal.
  *
  * Lock order (bank/.claude.md): AFTER the bank line(s) a caller holds, BEFORE the journal-number lock the journal
- * INSERT trigger takes (857/858), so the pair key is never awaited by a holder of a later lock in the same request:
- * no request posts two transfer journals today (a bulk one would, once WP2 row 5 routes bulk bank contras here — it
- * must then take every pair first, in sorted order; see the table row). It is bounded 5 s, tighten-only like
+ * INSERT trigger takes (857/858), so the pair key is never awaited by a holder of a later lock in the same request. A
+ * request that posts SEVERAL transfer journals (MCP bulk allocate, the rule sweep, the confidence gate — WP2 row 5
+ * routes their bank contras here) takes every pair it needs first, in sorted key order, before its first journal
+ * (`preLockTransferPairs`): otherwise it holds the number lock from journal N while it waits on pair N+1, which a
+ * single request holds while it waits on that number — a 40P01 the pair lock itself would cause. It is bounded 5 s, tighten-only like
  * `documentNumberLockBudget` and `bankAccountGuard` (a tighter caller value is kept, and the caller's value is put back),
  * and a wait that runs out is `RowLockTimeoutError`, which every route answers 503 + Retry-After.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-import { isLockNotAvailable } from '../core/lockContention';
-import { RowLockTimeoutError, restoreLockTimeout } from '../core/rowLockBudget';
+import { isLockContention, isLockNotAvailable } from '../core/lockContention';
+import { isHeldRowError } from '@/lib/lockTimeout';
+import { RowLockTimeoutError, currentLockTimeout, restoreLockTimeout, tightenLockTimeout } from '../core/rowLockBudget';
 
 /** The key both legs (and the typed transfer) take: company + the two accounts in sorted order. */
 export function transferPairKey(companyId: string, accountA: string, accountB: string): string {
@@ -44,4 +47,55 @@ export async function lockTransferPair(companyId: string, accountA: string, acco
   } finally {
     await restoreLockTimeout(client, rows[0]!.prev, failure);
   }
+}
+
+/** A lock wait that ran out (ours, or a raw 55P03), a held row, or a deadlock victim: contended, decided by outcome. */
+export function isContendedLock(err: unknown): boolean {
+  return err instanceof RowLockTimeoutError || isLockContention(err) || isHeldRowError(err);
+}
+
+/**
+ * The wait left before `deadline`, ms. Past it every remaining lock still gets a short FLOOR (#1494 rev 4): at 1 ms a
+ * line or pair a peer held for an instant (a single statement's lock) was skipped as contended; 50 ms rides that out,
+ * while a lock held for real still costs the batch at most 50 ms per remaining item.
+ */
+export const PRELOCK_FLOOR_MS = 50;
+export const remainingWaitMs = (deadline: number): number => Math.max(PRELOCK_FLOOR_MS, deadline - Date.now());
+
+/**
+ * Every pair a multi-journal request will post, taken in SORTED key order before its first journal (see the header).
+ * ONE total budget for all of them (`deadline`, default 5 s from now — brk-1494 LOW 2: 5 s per held pair, serially,
+ * cost 10 s for two): each waits only what is left, and once it is spent the rest get the 50 ms floor (PRELOCK_FLOOR_MS). Each in its own
+ * savepoint, so a pair another request holds (or a deadlock that picks this request as its victim, 40P01) leaves the
+ * request usable: its key comes back in the returned set, and the caller must SKIP every line of that pair (counted
+ * as held) — attempting one would wait on the pair while holding the number lock, the cycle this exists to prevent.
+ * The request's own `lock_timeout` is put back afterwards.
+ */
+export async function preLockTransferPairs(
+  companyId: string, pairs: Iterable<readonly [string, string]>, deadline = Date.now() + 5000,
+): Promise<Set<string>> {
+  const keyed = new Map<string, readonly [string, string]>();
+  for (const [a, b] of pairs) if (a.toLowerCase() !== b.toLowerCase()) keyed.set(transferPairKey(companyId, a, b), [a, b]);
+  const held = new Set<string>();
+  if (keyed.size === 0) return held;
+  const client = als.getStore()?.client;
+  const previous = client ? await currentLockTimeout(client) : null;
+  try {
+    for (const key of [...keyed.keys()].sort()) {
+      const [a, b] = keyed.get(key)!;
+      try {
+        await withSavepoint('transfer_pair_prelock', async () => {
+          // lockTransferPair keeps a TIGHTER caller value (tighten-only), so this is the wait it gets.
+          if (client) await tightenLockTimeout(client, remainingWaitMs(deadline)); // never looser than the caller's (rev 1)
+          await lockTransferPair(companyId, a, b);
+        });
+      } catch (err) {
+        if (!isContendedLock(err)) throw err; // a 40P01 victim too: the savepoint rolled back, the request goes on
+        held.add(key);
+      }
+    }
+  } finally {
+    if (client && previous !== null) await restoreLockTimeout(client, previous);
+  }
+  return held;
 }

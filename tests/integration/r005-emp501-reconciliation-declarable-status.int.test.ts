@@ -29,6 +29,7 @@ const runs = {
   paid: crypto.randomUUID(),
   priorYear: crypto.randomUUID(),
   otherCompany: crypto.randomUUID(),
+  unstamped: crypto.randomUUID(),
 };
 let token = '';
 
@@ -52,8 +53,9 @@ async function insertRun(
   opts: { year?: number; companyId?: string; employeeId?: string } = {},
 ) {
   await pool.query(
-    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye)
-     VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    // An approved/paid run carries its approval time, as approvePayrollRun leaves it (declared runs are final, wave 6 EF).
+    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye,approved_at)
+     VALUES($1,$2,$3,$4,$5::text,$6,$7,CASE WHEN $5::text IN ('approved','paid') THEN clock_timestamp() END)`,
     [id, opts.companyId ?? company, month, opts.year ?? 2025, status, gross, paye],
   );
   await pool.query(
@@ -97,6 +99,9 @@ beforeAll(async () => {
   await insertRun(runs.otherCompany, 3, 'approved', 800000, 350000, {
     companyId: otherCompany, employeeId: otherEmployee,
   });
+  // July: approved by status alone, neither stamp (hand-edit shape, wave 6 EF): not final, on no surface, and named.
+  await insertRun(runs.unstamped, 7, 'approved', 600000, 250000);
+  await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [runs.unstamped]);
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -155,4 +160,15 @@ it('agrees with the EMP501 export it reconciles', async () => {
   expect(summary.totalEmp201).toBe(exportedPaye);
   expect(summary.totalIrp5).toBe(exportedPaye);
   expect(summary.totalVariance).toBe(0);
+});
+
+it('the EMP501 export leaves out an approved run with no approval time and names it (wave 6 EF)', async () => {
+  const result = textResponse();
+  await emp501Export(get('/api/payroll/emp501/export', { taxYear: '2026' }), result.res);
+  const exportedPaye = String(result.state.body).split('\n').slice(1).reduce((sum, line) => sum + Number(line.split(',')[3]), 0);
+  expect(exportedPaye).toBe(3000);
+  const header = JSON.parse(decodeURIComponent(String(result.state.getHeader('X-IsaFlow-Warnings') ?? '%5B%5D'))) as string[];
+  expect(header.filter((w) => w.includes('2025-07') && w.includes('not final'))).toHaveLength(1);
+  const summary = await reconcile();
+  expect(summary.rows.find((r) => r.monthLabel === 'Jul 2025')).toMatchObject({ emp201Paye: 0, irp5Paye: 0, status: 'no_data' });
 });

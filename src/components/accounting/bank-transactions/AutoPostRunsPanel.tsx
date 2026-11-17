@@ -26,7 +26,7 @@ interface AutoPostRunsResponse {
 /** `undoRun`'s result. `undone` is false whenever a line was skipped. */
 interface UndoResult {
   reversed: number;
-  skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number; creditCeiling: number };
+  skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number; creditCeiling: number; changedSinceRun?: number };
   undone: boolean;
   handOffsets: HandOffset[];
 }
@@ -51,6 +51,9 @@ function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
       : null,
     skippedBy.creditCeiling > 0
       ? `${skippedBy.creditCeiling} paid a supplier whose refund already returned that cash — reverse the refund first`
+      : null,
+    (skippedBy.changedSinceRun ?? 0) > 0
+      ? `${skippedBy.changedSinceRun} were re-coded by hand after the run, so they left it; press Undo again to close the run`
       : null,
   ].filter((r): r is string => r !== null);
   return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}. Not undone: ${reasons.join('; ')}.`;
@@ -122,13 +125,13 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
     <div className="mb-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3">
       <h3 className="text-xs font-semibold text-[var(--ff-text-secondary)] mb-2">Recent auto-post runs</h3>
       {loadError && (
-        <p role="alert" className="text-xs text-red-400 mb-2">{loadError}</p>
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400 mb-2">{loadError}</p>
       )}
       {undoError && (
-        <p className="text-xs text-red-400 mb-2">{undoError}</p>
+        <p className="text-xs text-red-700 dark:text-red-400 mb-2">{undoError}</p>
       )}
       {undoNotice && (
-        <p role="status" className="text-xs text-amber-500 mb-2">{undoNotice}</p>
+        <p role="status" className="text-xs text-amber-700 dark:text-amber-500 mb-2">{undoNotice}</p>
       )}
       {handOffsets && (
         <ul aria-label="Lines already corrected by hand" className="space-y-1 mb-2">

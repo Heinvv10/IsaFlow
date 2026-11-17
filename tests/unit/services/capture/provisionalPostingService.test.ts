@@ -20,6 +20,9 @@ const { sqlMock } = vi.hoisted(() => {
 vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open', isLineSkipRefusal: () => false })); // WP2 row 12: proven in bank-wp2-12-posters.int
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ handKeyedLineJournalRefusal: vi.fn(async () => null) })); // R-035 PR6: proven in r035-pr6-banksweep.int
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: (_n: string, fn: () => unknown) => fn(), fmtDate: (x: unknown) => String(x) }));
+// WP2 row 5: whether the predicted account is a bank account — mocked by outcome, so no test depends on where the
+// subtype read falls in the SQL order. Not a bank unless a test says so.
+vi.mock('@/modules/accounting/services/bank/bankContraTransfer', () => ({ isBankContra: vi.fn(async () => false) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -39,6 +42,7 @@ import {
   postProvisional,
 } from '@/modules/accounting/services/capture/provisionalPostingService';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { isBankContra } from '@/modules/accounting/services/bank/bankContraTransfer';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -258,6 +262,24 @@ describe('postProvisional', () => {
 
     expect(result.journalEntryId).toBeNull();
     expect(result.skipped).toContain('low confidence');
+  });
+
+  it('skips a prediction onto a BANK account: a transfer is allocated, not posted provisionally (WP2 row 5)', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+    ] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never); // valid codes (#1474)
+    vi.mocked(isBankContra).mockResolvedValueOnce(true); // the predicted account is a bank
+
+    const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    // The outcome, not the mock order: asked about the PREDICTED account, skipped, nothing written.
+    expect(vi.mocked(isBankContra)).toHaveBeenCalledWith(COMPANY_ID, GL_ACC_ID);
+    expect(result.journalEntryId).toBeNull();
+    expect(result.skipped).toMatch(/bank account: a transfer/);
+    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+    expect(vi.mocked(sqlMock).mock.calls.some(([q]) => /UPDATE|INSERT/i.test(String((q as unknown as string[]).join?.('') ?? q)))).toBe(false);
   });
 
   it('creates a journal entry and returns its id on the happy path', async () => {

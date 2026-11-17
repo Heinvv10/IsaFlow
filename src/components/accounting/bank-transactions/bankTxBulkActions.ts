@@ -28,10 +28,12 @@ export interface BulkDeps {
   setSelectedIds: (fn: (prev: Set<string>) => Set<string>) => void;
   /** The list and the summary, once. */
   reload: () => void;
+  /** Takes lines that left the tab off the screen at once (the reload that follows only tops the page up). */
+  removeRows?: (ids: string[]) => void;
 }
 
 export function buildBulkActions(d: BulkDeps) {
-  const { transactions, selected, rowSelections, callAction, run, setProgress, setSelectedIds, reload } = d;
+  const { transactions, selected, rowSelections, callAction, run, setProgress, setSelectedIds, reload, removeRows } = d;
   const rows = Array.from(selected); // the lines these operations touch: a row action on one of them is refused meanwhile
   // Only the lines this batch handled are un-ticked: a tick made on another page meanwhile is the user's, and stays.
   const done = () => { setSelectedIds(prev => { const next = new Set(prev); rows.forEach(id => next.delete(id)); return next; }); reload(); };
@@ -42,6 +44,7 @@ export function buildBulkActions(d: BulkDeps) {
     if (actionable.length === 0 && selected.size > 0) { notify.error("Pending transactions can't be processed until they post."); return; }
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
     let ok = 0, fail = 0, firstReason = '';
+    const okIds: string[] = [];
     const late: unknown[] = [];
     for (const [i, txId] of toAccept.entries()) {
       setProgress({ key: 'batch-allocate', done: i, total: toAccept.length });
@@ -57,7 +60,7 @@ export function buildBulkActions(d: BulkDeps) {
           if (sel.cc2Id) body.cc2Id = sel.cc2Id;
           if (sel.buId) body.buId = sel.buId;
         }
-        late.push((await callAction(body))?.data?.lateClaim); ok++;
+        late.push((await callAction(body))?.data?.lateClaim); ok++; okIds.push(txId);
       } catch (e) { fail++; firstReason ||= apiErrorMessage(e, 'Could not allocate the transaction - try again'); }
     }
     setProgress(null);
@@ -65,6 +68,7 @@ export function buildBulkActions(d: BulkDeps) {
     else if (fail) notify.warning(`${ok} allocated, ${fail} could not be allocated`, firstReason);
     else notify.success(`${ok} allocated`);
     notifyLateClaims({ data: { results: late.map((lateClaim) => ({ lateClaim })) } });
+    removeRows?.(okIds);
     done();
   }, rows);
 
@@ -81,6 +85,7 @@ export function buildBulkActions(d: BulkDeps) {
       else if (deleted === 0) notify.error(`Nothing was deleted: the ${toDelete.length} line(s) are no longer awaiting allocation`);
       else if (deleted < toDelete.length) notify.warning(`${deleted} of ${toDelete.length} transaction(s) deleted`, `${toDelete.length - deleted} were refused: already allocated, reconciled or no longer there.`);
       else notify.success(`${deleted} transaction(s) deleted`);
+      if (deleted === toDelete.length) removeRows?.(toDelete);
       done();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not delete the transactions - try again')); }
   }, rows);
@@ -94,6 +99,7 @@ export function buildBulkActions(d: BulkDeps) {
       const accepted: number = json.data?.accepted ?? toAccept.length;
       if (accepted < toAccept.length) notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or have no journal yet - allocate the line (Undo it first if it shows as matched) before reviewing it`);
       else notify.success(`${accepted} transaction(s) marked as reviewed`);
+      if (accepted === toAccept.length) removeRows?.(toAccept);
       done();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not mark as reviewed - try again')); }
   }, rows);

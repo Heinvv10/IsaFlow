@@ -80,11 +80,16 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'delete_budget_version',
   'set_budget_amounts',
   'set_budget_annual',
+  'import_budget_workbook',
   'restore_budget_version',
   'approve_budget_version',
   'lock_budget_version',
   'unlock_budget_version',
   'set_primary_budget_version',
+  // PR 3: drivers and three-way assumptions replace what is stored; a slice submit freezes the slice for review.
+  'set_budget_drivers',
+  'set_three_way_assumptions',
+  'submit_budget_for_review',
 ]);
 
 type AnnotationTool = Pick<McpTool, 'name' | 'write' | 'requiresPost'>;

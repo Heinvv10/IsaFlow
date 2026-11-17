@@ -20,6 +20,11 @@ const VAT_FALLBACK_CODES: Record<'vat_input' | 'vat_output', string> = {
   vat_output: '2120',
 };
 
+/** The company has no VAT input/output system account: a setup gap the person can fix (Default Accounts). */
+export class VatAccountNotFoundError extends Error {
+  constructor(message: string) { super(message); this.name = 'VatAccountNotFoundError'; }
+}
+
 export async function resolveVatAccountId(
   key: 'vat_input' | 'vat_output',
   companyId: string,
@@ -44,7 +49,7 @@ export async function resolveVatAccountId(
       );
       return String(rows[0]!.id);
     }
-    throw new Error(
+    throw new VatAccountNotFoundError(
       `VAT Input system account not found for company ${companyId}. ` +
       `Create a system account with account_subtype='${key}' or account_code='${code}' (migration 327).`,
     );
