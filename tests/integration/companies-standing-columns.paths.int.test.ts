@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
+import { companySavePayload } from '@/components/accounting/settings/companySavePayload';
 import companiesRoute from '../../pages/api/accounting/companies';
 import chaseRoute from '../../pages/api/accounting/chase-settings';
 import cipcRoute from '../../pages/api/accounting/cipc-annual-return';
@@ -100,7 +101,7 @@ const SETTINGS: Array<[string, string, string | number | boolean]> = [
 ];
 
 describe('936: Company Settings (PUT /api/accounting/companies)', () => {
-  // The page loads the company with GET ?id=, maps it, and PUTs the whole mapped company back.
+  // The page loads the company with GET ?id=, maps it, and PUTs the whole mapped company back (companySavePayload).
   const pagePayload = async () => {
     const got = await callRoute(companiesRoute, { ...as(me), method: 'GET', query: { id: company } });
     expect(got.status, JSON.stringify(got.body)).toBe(200);
@@ -108,7 +109,8 @@ describe('936: Company Settings (PUT /api/accounting/companies)', () => {
   };
 
   it('saves what every tab edited, as the company admin, and the locked columns stay put', async () => {
-    const payload: Record<string, unknown> = { ...(await pagePayload()) };
+    const loaded = await pagePayload();
+    const payload = companySavePayload(loaded, loaded.financialYearStart);   // the page's own body
     for (const [key, , value] of SETTINGS) payload[key] = value;
     const put = await callRoute(companiesRoute, { ...as(me), method: 'PUT', body: payload });
     expect(put.status, JSON.stringify(put.body)).toBe(200);
