@@ -57,6 +57,7 @@ const DEV_ONLY_SPECS = [
   'z29-pre-validation',
   'z2b-invoice-held-back',
   'z3-pnl-pdf',
+  'z30-bank-bulk-accept',
   'z4-employee-pay-on-create',
   'z5-employee-bank-details',
   'z6-payrun-review-grid',

@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path z30 (WP6): bulk accept of high-confidence suggestions - preview, confirm, undo batch.
  *
@@ -5,19 +6,29 @@
  * then drives the page: the "Accept N high-confidence suggestions" button opens the preview (rows, totals), Confirm posts
  * the batch, the result says "Posted 3", Undo batch reverses exactly that batch and the lines are back to imported.
  *
- * It writes a rule, statement lines and one batch (undone again), and Confirm posts every high-confidence line of the
- * account - so it stands down (skips) when the account already holds any suggestion, and removes its lines and rule after. BANK_TX_EVIDENCE_DIR=<dir> saves a
- * screenshot of the preview.
+ * Sandbox only (the z12 pattern): everything runs in the dedicated "0GP Golden Bank Bulk Accept Sandbox" company, found by
+ * name and created once through onboarding, never Demo or a real company. It writes a rule, statement lines and one batch
+ * (undone again), and Confirm posts every high-confidence line of the account, so the spec skips when the sandbox account
+ * already holds a suggestion, and deletes its lines and rule after.
+ * Dev-only: a sandbox company and writes, so the post-deploy run against production never loads it (a red production run
+ * rolls the deploy back). BANK_TX_EVIDENCE_DIR=<dir> saves a screenshot of the preview.
  */
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { Api, gpRef, today } from './_api';
+import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
+
+const SANDBOX_NAME = '0GP Golden Bank Bulk Accept Sandbox';
+const SANDBOX_ONBOARDING_ID = '5d8e1a3c-7b24-4f69-9a0e-3c6b2d1f8e57';
 
 test.setTimeout(180_000);
 
-test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page }) => {
+test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, context }) => {
   const api = await Api.login(baseURL!);
+  const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
+  await switchApiCompany(api, sandboxId);
+  await switchBrowserCompany(context, sandboxId);
   const ref = gpRef('BULK');
   const d = today().replace(/-/g, '/');
   let bankAccountId = '';
@@ -43,7 +54,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page }) => {
       statementDate: today(), csvContent: csv, bankFormat: 'fnb', applyBankRules: false,
     });
     const found = await api.get<{ transactions: Array<{ id: string }> }>(
-      `/api/accounting/bank-transactions?bankAccountId=${bankAccountId}&status=imported&search=${encodeURIComponent(ref)}`);
+      `/api/accounting/bank-transactions?bank_account_id=${bankAccountId}&status=imported&search=${encodeURIComponent(ref)}`);
     ids = found.transactions.map((t) => t.id);
     expect(ids).toHaveLength(3);
 
@@ -68,17 +79,16 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page }) => {
     // Confirm posts the batch.
     await dialog.getByRole('button', { name: /Confirm and post 3/ }).click();
     await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines');
-    const posted = await api.get<{ transactions: Array<{ status: string }> }>(
-      `/api/accounting/bank-transactions?bankAccountId=${bankAccountId}&search=${encodeURIComponent(ref)}`);
-    expect(posted.transactions.map((t) => t.status)).toEqual(['allocated', 'allocated', 'allocated']);
+    const withStatus = async (status: string) => (await api.get<{ transactions: Array<{ id: string }> }>(
+      `/api/accounting/bank-transactions?bank_account_id=${bankAccountId}&status=${status}&search=${encodeURIComponent(ref)}`)).transactions.length;
+    expect(await withStatus('allocated')).toBe(3);
 
     // Undo batch reverses exactly that batch: the lines are imported again.
     await dialog.getByRole('button', { name: 'Undo batch' }).click();
     await expect(dialog.getByText(/Batch undone: 3 lines reversed/)).toBeVisible();
     await dialog.getByRole('button', { name: 'Done' }).click();
-    const undone = await api.get<{ transactions: Array<{ status: string }> }>(
-      `/api/accounting/bank-transactions?bankAccountId=${bankAccountId}&search=${encodeURIComponent(ref)}`);
-    expect(undone.transactions.map((t) => t.status)).toEqual(['imported', 'imported', 'imported']);
+    expect(await withStatus('imported')).toBe(3);
+    expect(await withStatus('allocated')).toBe(0);
   } finally {
     try {
       if (ids.length > 0) await api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: ids });
