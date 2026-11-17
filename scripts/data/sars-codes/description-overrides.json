@@ -1,5 +1,10 @@
 {
  "2024": {
+  "3601": {
+   "brs": "v22.1.2",
+   "description": "Income (PAYE)",
+   "page": 71
+  },
   "3602": {
    "brs": "v22.1.2",
    "description": "Non-Taxable Income (Excl)",
@@ -10,9 +15,34 @@
    "description": "Pension (PAYE)",
    "page": 72
   },
+  "3604": {
+   "brs": "v22.1.2",
+   "description": "Pension (Excl)",
+   "page": 73
+  },
   "3605": {
    "brs": "v22.1.2",
    "description": "Annual payment (PAYE)",
+   "page": 73
+  },
+  "3606": {
+   "brs": "v22.1.2",
+   "description": "Commission (PAYE)",
+   "page": 73
+  },
+  "3607": {
+   "brs": "v22.1.2",
+   "description": "Overtime (PAYE)",
+   "page": 73
+  },
+  "3608": {
+   "brs": "v22.1.2",
+   "description": "Arbitration award (PAYE)",
+   "page": 73
+  },
+  "3609": {
+   "brs": "v22.1.2",
+   "description": "Arbitration award (Excl)",
    "page": 73
   },
   "3610": {
@@ -28,6 +58,11 @@
   "3612": {
    "brs": "v22.1.2",
    "description": "Purchased annuity (Excl)",
+   "page": 74
+  },
+  "3613": {
+   "brs": "v22.1.2",
+   "description": "Restraint of trade (PAYE)",
    "page": 74
   },
   "3614": {
@@ -138,6 +173,11 @@
   "3713": {
    "brs": "v22.1.2",
    "description": "Other allowances (PAYE)",
+   "page": 79
+  },
+  "3714": {
+   "brs": "v22.1.2",
+   "description": "Other allowances (Excl)",
    "page": 79
   },
   "3715": {
@@ -397,6 +437,11 @@
   }
  },
  "2025": {
+  "3601": {
+   "brs": "v23.0.0",
+   "description": "Income (PAYE)",
+   "page": 73
+  },
   "3602": {
    "brs": "v23.0.0",
    "description": "Non-Taxable Income (Excl)",
@@ -407,9 +452,34 @@
    "description": "Pension (PAYE)",
    "page": 74
   },
+  "3604": {
+   "brs": "v23.0.0",
+   "description": "Pension (Excl)",
+   "page": 75
+  },
   "3605": {
    "brs": "v23.0.0",
    "description": "Annual payment (PAYE)",
+   "page": 75
+  },
+  "3606": {
+   "brs": "v23.0.0",
+   "description": "Commission (PAYE)",
+   "page": 75
+  },
+  "3607": {
+   "brs": "v23.0.0",
+   "description": "Overtime (PAYE)",
+   "page": 75
+  },
+  "3608": {
+   "brs": "v23.0.0",
+   "description": "Arbitration award (PAYE)",
+   "page": 75
+  },
+  "3609": {
+   "brs": "v23.0.0",
+   "description": "Arbitration award (Excl)",
    "page": 75
   },
   "3610": {
@@ -425,6 +495,11 @@
   "3612": {
    "brs": "v23.0.0",
    "description": "Purchased annuity (Excl)",
+   "page": 76
+  },
+  "3613": {
+   "brs": "v23.0.0",
+   "description": "Restraint of trade (PAYE)",
    "page": 76
   },
   "3614": {
@@ -542,6 +617,11 @@
   "3713": {
    "brs": "v23.0.0",
    "description": "Other allowances (PAYE)",
+   "page": 81
+  },
+  "3714": {
+   "brs": "v23.0.0",
+   "description": "Other allowances (Excl)",
    "page": 81
   },
   "3715": {
@@ -806,6 +886,12 @@
   }
  },
  "2026": {
+  "3601": {
+   "brs": "v25.3.0",
+   "description": "Income (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 80
+  },
   "3602": {
    "brs": "v25.3.0",
    "description": "Non-Taxable Income (Excl)",
@@ -818,9 +904,39 @@
    "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
    "page": 81
   },
+  "3604": {
+   "brs": "v25.3.0",
+   "description": "Pension (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
   "3605": {
    "brs": "v25.3.0",
    "description": "Annual payment (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3606": {
+   "brs": "v25.3.0",
+   "description": "Commission (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3607": {
+   "brs": "v25.3.0",
+   "description": "Overtime (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3608": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3609": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (Excl)",
    "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
    "page": 82
   },
@@ -839,6 +955,12 @@
   "3612": {
    "brs": "v25.3.0",
    "description": "Purchased annuity (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3613": {
+   "brs": "v25.3.0",
+   "description": "Restraint of trade (PAYE)",
    "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
    "page": 83
   },
@@ -977,6 +1099,12 @@
   "3713": {
    "brs": "v25.3.0",
    "description": "Other allowances (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 88
+  },
+  "3714": {
+   "brs": "v25.3.0",
+   "description": "Other allowances (Excl)",
    "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
    "page": 88
   },
@@ -1294,6 +1422,11 @@
   }
  },
  "2027": {
+  "3601": {
+   "brs": "v25.3.0",
+   "description": "Income (PAYE)",
+   "page": 80
+  },
   "3602": {
    "brs": "v25.3.0",
    "description": "Non-Taxable Income (Excl)",
@@ -1304,9 +1437,34 @@
    "description": "Pension (PAYE)",
    "page": 81
   },
+  "3604": {
+   "brs": "v25.3.0",
+   "description": "Pension (Excl)",
+   "page": 82
+  },
   "3605": {
    "brs": "v25.3.0",
    "description": "Annual payment (PAYE)",
+   "page": 82
+  },
+  "3606": {
+   "brs": "v25.3.0",
+   "description": "Commission (PAYE)",
+   "page": 82
+  },
+  "3607": {
+   "brs": "v25.3.0",
+   "description": "Overtime (PAYE)",
+   "page": 82
+  },
+  "3608": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (PAYE)",
+   "page": 82
+  },
+  "3609": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (Excl)",
    "page": 82
   },
   "3610": {
@@ -1322,6 +1480,11 @@
   "3612": {
    "brs": "v25.3.0",
    "description": "Purchased annuity (Excl)",
+   "page": 83
+  },
+  "3613": {
+   "brs": "v25.3.0",
+   "description": "Restraint of trade (PAYE)",
    "page": 83
   },
   "3614": {
@@ -1437,6 +1600,11 @@
   "3713": {
    "brs": "v25.3.0",
    "description": "Other allowances (PAYE)",
+   "page": 88
+  },
+  "3714": {
+   "brs": "v25.3.0",
+   "description": "Other allowances (Excl)",
    "page": 88
   },
   "3715": {

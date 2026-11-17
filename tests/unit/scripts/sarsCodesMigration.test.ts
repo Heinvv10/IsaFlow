@@ -12,7 +12,7 @@ const ROOT = resolve(__dirname, '../../..');
 const committed = readFileSync(resolve(ROOT, 'scripts/migrations/sql/999m_sars_source_codes_2024_2025.sql'), 'utf8');
 
 /** A BRS description ends in its treatment tag: (PAYE), (IT), (Excl), a conditional (Excl if … PAYE if …), or [..]. */
-const TAG = /\((PAYE|IT|Excl|Non-taxable|Subject to PAYE)( if [^()]*)?\)$|\]$/;
+const TAG = /\((PAYE|IT|Excl)( if [^()]*)?\)$|\]$/;
 /**
  * The only descriptions the BRS itself gives without a trailing tag: the 4xxx deductions, 3835's 'Long Service Award',
  * the 3902-3905 '(PAYE) – …' accrual forms, and the 3696-3699 gross remuneration totals (section 6.5, no treatment).
@@ -89,6 +89,7 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
   it('the description check rejects the fragment shapes the reviews found', () => {
     expect(descriptionProblem('3923', 'Transfer of Unclaimed')).toMatch(/treatment tag/);
     expect(descriptionProblem('3809', 'Taxable Bursaries or scholarships to a non-disabled person')).toMatch(/treatment tag/);
+    expect(descriptionProblem('3601', 'Income excluding any Long Service Cash Award, required to be declared under code (Subject to PAYE)')).toMatch(/treatment tag/);
     expect(descriptionProblem('3835', 'null')).toMatch(/null/);
     expect(descriptionProblem('3602', 'Income residents that are exempt i (Non-taxable)')).toMatch(/word cut/);
     expect(descriptionProblem('3802', 'Use of motor vehicle NOT under an “operating lease (PAYE)')).toMatch(/quote/);
