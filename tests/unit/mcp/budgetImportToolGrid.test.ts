@@ -161,6 +161,9 @@ describe('import_budget_workbook (json): refusals', () => {
     const refused = (dry.cells as Array<{ i: number; status: string; month: string; reason: string }>).filter((c) => c.status === 'refused');
     expect(refused.map((c) => [c.i, c.month, c.reason])).toEqual([[1, '2026-04', expect.stringMatching(/decimal strings/)], [2, '2026-04', expect.stringMatching(/at most 2 decimals/)]]);
     expect([dry.ready, dry.plan_hash]).toEqual([false, null]);
+    // The dry run's rolled-back save takes only the row that is not refused; the live call never saves.
+    expect(vi.mocked(saveCells).mock.calls.map((c) => c[2].cells.map((x) => x.glAccountId))).toEqual([['20000000-0000-4000-8000-000000000004']]);
+    vi.mocked(saveCells).mockClear();
     expect(text(await tool.handler({ ...grid(rows), plan_hash: 'a'.repeat(64) }, ctx()))).toMatch(/2 cells are refused, so nothing was written/);
     expect(saveCells).not.toHaveBeenCalled();
   });
