@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 import type { BankTxPageSize, UrlFilters } from './bankTxUrlState';
+import { writePageSizePref } from './bankTxPageSizePref';
 
 export type AllocationFilter = 'all' | 'unallocated' | 'suggested' | 'allocated';
 export type TxTypeFilter = 'all' | 'spent' | 'received';
@@ -70,7 +71,7 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   const resetForAccount = useCallback(() => { clear(); }, [clear]);
 
   /** A new page size starts the list from page 1 (page 3 of 25 rows is not page 3 of 100). */
-  const setPageSize = useCallback((n: BankTxPageSize) => { setPageSizeState(n); setPage(1); }, [setPage]);
+  const setPageSize = useCallback((n: BankTxPageSize) => { setPageSizeState(n); writePageSizePref(n); setPage(1); }, [setPage]);
 
   /** Sets every filter at once from a view (the URL): the search takes effect at once, no debounce, and the page is the caller's. */
   const apply = useCallback((v: UrlFilters) => {

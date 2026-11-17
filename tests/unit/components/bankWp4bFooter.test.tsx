@@ -1,7 +1,7 @@
 /**
- * WP4b list footer: rows per page (25 / 50 / 100), the table density toggle wired to TableDensityContext (offered only
- * where a provider is mounted), and the coding-metrics line, moved off the top of the list and labelled company-wide
- * (it counts every bank account, not the one on screen).
+ * WP4b list footer: rows per page (25 / 50 / 100, remembered in this browser) and the coding-metrics line, moved off
+ * the top of the list and labelled company-wide (it counts every bank account, not the one on screen). No second
+ * density toggle: the header's drives the grid. The loading skeleton draws as many rows as the page holds.
  */
 import { act, cleanup, fireEvent, render, screen, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,9 @@ import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/Co
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { useBankTxFilters } from '@/components/accounting/bank-transactions/useBankTxFilters';
 import { computeCodingMetrics } from '@/modules/accounting/services/bank/codingMetrics';
+import { PAGE_SIZE_KEY, readPageSizePref } from '@/components/accounting/bank-transactions/bankTxPageSizePref';
+import { BankTxLoading } from '@/components/accounting/bank-transactions/BankTxListStates';
+import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch }));
@@ -62,18 +65,37 @@ describe('the sort is listed and cleared with the filters', () => {
 });
 
 describe('density', () => {
-  it('the toggle is the TableDensityContext one: compact sets the shared density', async () => {
+  // ONE density toggle: the header's (TableDensityContext). The bank grid follows it: xs selects and 33px rows in
+  // compact (bankTxSelectionPopoverUxb.test "compact: xs selects", golden z15 "bank transaction rows shrink").
+  it('the footer adds no second density toggle', async () => {
     apiFetch.mockResolvedValue(ok());
     render(<TableDensityProvider><BankTxListFooter pageSize={25} onPageSize={vi.fn()} /></TableDensityProvider>);
-    fireEvent.click(screen.getByRole('button', { name: /^Compact/ }));
-    expect(localStorage.getItem('isaflow.tableDensity')).toBe('compact');
-    expect(document.documentElement.dataset.density).toBe('compact');
-  });
-
-  it('no provider: no toggle (it would do nothing)', async () => {
-    apiFetch.mockResolvedValue(ok());
-    render(<BankTxListFooter pageSize={25} onPageSize={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /^Compact/ })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Table row density' })).toBeNull();
+  });
+});
+
+describe('the page size is remembered in this browser', () => {
+  it('choosing a size stores it; the stored size reads back; junk reads as none', () => {
+    const { result } = renderHook(() => useBankTxFilters(vi.fn()));
+    act(() => result.current.setPageSize(50));
+    expect(localStorage.getItem(PAGE_SIZE_KEY)).toBe('50');
+    expect(readPageSizePref()).toBe(50);
+    localStorage.setItem(PAGE_SIZE_KEY, '37');
+    expect(readPageSizePref()).toBeUndefined();
+  });
+});
+
+describe('the loading skeleton', () => {
+  it('draws as many rows as the page holds', () => {
+    render(<BankTxLoading rows={50} />);
+    const rows = Array.from(screen.getByTestId('list-skeleton').children).filter(c => c.className.includes('flex'));
+    expect(rows).toHaveLength(50);
+  });
+  it('the list frame hands it the page size', () => {
+    render(<BankTxListFrame relinkFailed={false} aiPolling={0} isLoading error="" empty pastEnd={false} tab="new" onDetailClose={vi.fn()} pageSize={100}><div /></BankTxListFrame>);
+    const rows = Array.from(screen.getByTestId('list-skeleton').children).filter(c => c.className.includes('flex'));
+    expect(rows).toHaveLength(100);
   });
 });
 

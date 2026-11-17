@@ -146,9 +146,9 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
   };
 
   return (
-    <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 pt-2.5 pb-2">
-      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 className="text-xl font-bold text-[var(--ff-text-primary)]">Bank Transactions</h1>
+    <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 pt-2 pb-1">
+      <div className="mb-0.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h1 className="text-lg leading-6 font-bold text-[var(--ff-text-primary)]">Bank Transactions</h1>
         {switcher && (
           <BankAccountSwitcher primaries={primaries} groups={groups} accountCount={bankAccounts.length} selectedBank={selectedBank}
             pinned={new Set(pinned)} outsideSelection={outsideSelection} onTogglePin={onTogglePin}
@@ -166,7 +166,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
       </div>
       <div className="relative min-w-0">
         <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
-          className="flex items-stretch gap-3 overflow-x-auto pb-2">
+          className="flex items-stretch gap-3 overflow-x-auto pb-1">
           <SortableCardRow cards={shownCards} onReorder={keys => void reorder(keys)} />
         </div>
         {rowMore && (

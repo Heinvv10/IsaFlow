@@ -4,7 +4,7 @@
  * only while something is selected (the page's always-mounted live region still says "N selected"); the less-used filters fold
  * behind a "Filters" toggle, open by default on a wide screen or while one of them narrows the list.
  */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BankTxFilters, type BankTxFiltersProps } from '@/components/accounting/bank-transactions/BankTxFilters';
 
@@ -50,7 +50,14 @@ describe('the toolbar', () => {
     expect(p.onExportAll).toHaveBeenCalledTimes(1);
     fireEvent.click(more); fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Recon report' }));
     expect(p.onDownloadReport).toHaveBeenCalledTimes(1);
-    fireEvent.click(more); fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Import bank statements' }));
+    fireEvent.click(more);
+    // Import is a real link (new tab, middle-click), not a button that pushes the router.
+    const imp = within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Import bank statements' });
+    expect(imp.tagName).toBe('A');
+    expect(imp.getAttribute('href')).toBe('/accounting/bank-reconciliation/import');
+    // From the keyboard, Enter follows it.
+    imp.focus();
+    fireEvent.keyDown(imp, { key: 'Enter' });
     expect(push).toHaveBeenCalledWith('/accounting/bank-reconciliation/import');
   });
 
@@ -94,6 +101,55 @@ describe('the contextual selection bar', () => {
     expect(screen.getByTestId('bank-tx-toolbar').className.split(/\s+/)).toEqual(expect.arrayContaining(['sticky', 'top-0']));
   });
 
+  it('BankTxFilters hands the bar the busy keys and the batch progress', () => {
+    render(<BankTxFilters {...props()} selectedCount={2} busy={new Set(['delete'])} progress={{ key: 'batch-allocate', done: 1, total: 5 }} />);
+    const bar = screen.getByTestId('bank-tx-selection-bar');
+    expect(within(bar).getByRole('button', { name: 'Mark as Reviewed' })).toBeDisabled();
+    expect(within(bar).getByRole('button', { name: /Allocating 2 of 5/ })).toBeInTheDocument();
+  });
+
+  it('with a selection the page actions stay reachable: Refresh on the bar, the rest first in More', () => {
+    const p = props();
+    render(<BankTxFilters {...p} selectedCount={2} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(p.onRefresh).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem');
+    expect(items.map(i => i.textContent)).toEqual(['Smart Categorize', 'New transaction', 'Import bank statements', 'Export this page', 'Export all accounts', 'Recon report']);
+    expect(items[1]!.getAttribute('href')).toBe('/accounting/bank-transactions/new');
+    fireEvent.click(items[0]!);
+    expect(p.onApplyRules).toHaveBeenCalledTimes(1);
+  });
+
+  it('with a selection the bar keeps one row: Refresh is its icon (same name), the row range gives way to the pager\'s', () => {
+    const { rerender } = render(<BankTxFilters {...props()} />);
+    expect(screen.getByText('1–25 of 40')).toBeInTheDocument();
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    rerender(<BankTxFilters {...props()} selectedCount={1} />);
+    expect(screen.queryByText('1–25 of 40')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBe(refresh); // the same element: focus can rest on it
+    expect(refresh.textContent?.trim()).toBe('');
+  });
+
+  it('a running Smart Categorize stays visible while a selection is active', () => {
+    render(<BankTxFilters {...props()} selectedCount={2} smartRunning />);
+    expect(screen.getByTestId('bank-tx-smart-running')).toHaveTextContent('Categorizing...');
+  });
+
+  it('when the selection bar goes (Clear, Mark as Reviewed, Delete) focus lands on Refresh, not on <body>', () => {
+    const { rerender } = render(<BankTxFilters {...props()} selectedCount={2} />);
+    screen.getByRole('button', { name: 'Clear selection' }).focus();
+    rerender(<BankTxFilters {...props()} selectedCount={0} />);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh' }));
+  });
+
+  it('...but focus that went somewhere else (a dialog, a field) is left there', () => {
+    const { rerender } = render(<><input aria-label="elsewhere" /><BankTxFilters {...props()} selectedCount={2} /></>);
+    screen.getByLabelText('elsewhere').focus();
+    rerender(<><input aria-label="elsewhere" /><BankTxFilters {...props()} selectedCount={0} /></>);
+    expect(document.activeElement).toBe(screen.getByLabelText('elsewhere'));
+  });
+
   it('the selection actions show only on the New tab', () => {
     render(<BankTxFilters {...props()} tab="reviewed" selectedCount={2} />);
     expect(screen.queryByRole('button', { name: 'Mark as Reviewed' })).toBeNull();
@@ -122,6 +178,22 @@ describe('the Filters toggle', () => {
   it('a sort other than newest first is out of sight too: it opens the panel and is counted', () => {
     render(<BankTxFilters {...props()} sortOrder="asc" />);
     expect(screen.getByRole('button', { name: 'Filters (1)' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('open by default on a wide screen (>= 1536px), and it follows the width across 1536px', () => {
+    let listener: (() => void) | undefined;
+    const mq = { matches: true, addEventListener: (_: string, l: () => void) => { listener = l; }, removeEventListener: vi.fn() };
+    const spy = vi.spyOn(window, 'matchMedia').mockImplementation(() => mq as unknown as MediaQueryList);
+    try {
+      render(<BankTxFilters {...props()} />);
+      const toggle = screen.getByRole('button', { name: 'Filters' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'true'); // from the first render: no closed-then-open jump
+      expect(toggle).toHaveAttribute('aria-controls', 'bank-tx-filter-panel');
+      mq.matches = false;
+      act(() => listener!());
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(toggle).not.toHaveAttribute('aria-controls'); // no reference to a panel that is not there
+    } finally { spy.mockRestore(); }
   });
 
   it('search and the status filter stay on the bar', () => {

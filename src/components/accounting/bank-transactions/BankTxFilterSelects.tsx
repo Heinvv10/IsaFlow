@@ -38,11 +38,11 @@ function pick<T extends string>(on: (v: T) => void) {
 export function BankTxStatusSelect({ tab, allocationFilter, reconFilter, onAllocationFilterChange, onReconFilterChange }:
   Pick<Props, 'tab' | 'allocationFilter' | 'reconFilter' | 'onAllocationFilterChange' | 'onReconFilterChange'>) {
   if (tab === 'new') {
-    return <Select label="Allocation status" labelClassName="sr-only" size="sm" className="w-32"
+    return <Select label="Allocation status" labelClassName="sr-only" size="xs" className="w-32"
       options={STATUS} value={allocationFilter} onChange={pick(onAllocationFilterChange)} />;
   }
   if (tab === 'reviewed') {
-    return <Select label="Reconciliation" labelClassName="sr-only" size="sm" className="w-36"
+    return <Select label="Reconciliation" labelClassName="sr-only" size="xs" className="w-36"
       options={RECON} value={reconFilter} onChange={pick(onReconFilterChange)} />;
   }
   return null;

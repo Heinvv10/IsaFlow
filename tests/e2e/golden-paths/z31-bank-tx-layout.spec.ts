@@ -8,9 +8,9 @@
  *    header's getBoundingClientRect().top and the count are printed, so a regression shows by how much.
  *  - At 1366 the Actions column is on screen with the grid scrolled fully left (no sideways scroll to reach Accept), and
  *    a New row's Accept and "More actions" targets are at least 24px.
- * A dismissable announcement banner (the shell's, data-testid="announcement-banner") is hidden for the measure: it is
- * not part of this page and comes and goes with the platform's notices.
+ * The shell's announcement banner, when there is one, is measured with the page: the targets hold with it showing.
  *  - With a row ticked, the selection bar is still on screen (and uncovered) once the list is scrolled to its last row.
+ *  - A row menu opened near the bottom of the screen opens upward with every item (Exclude last) on screen.
  *  - A status tile is a toggle: pressing it filters the list to that bucket (the list request carries the filter, the
  *    URL keeps it), pressing it again drops the filter.
  * EVIDENCE_DIR=<dir> saves a screenshot at each size.
@@ -23,7 +23,6 @@ const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 
 async function openList(page: Page): Promise<void> {
   await page.goto(BANK, { waitUntil: 'domcontentloaded' });
-  await page.addStyleTag({ content: '[data-testid="announcement-banner"]{display:none!important}' });
   await expect(page.getByTestId('bank-tx-stats-strip')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(ROWS).first()).toBeVisible({ timeout: 60_000 });
 }
@@ -71,12 +70,16 @@ for (const { width, height, min } of [{ width: 1920, height: 1080, min: 12 }, { 
   });
 }
 
-test('bank transactions: the selection bar stays on screen when the list is scrolled to its last row', async ({ page }) => {
+test('bank transactions: ticking a row moves nothing, and the selection bar stays on screen at the last row', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await openList(page);
+  const headTop = () => page.evaluate(() => Math.round(document.querySelector('[data-testid="bank-tx-table"] thead')!.getBoundingClientRect().top));
+  const before = await headTop();
   await page.locator(`${ROWS} input[type="checkbox"]:enabled`).first().check();
   const bar = page.getByTestId('bank-tx-selection-bar');
   await expect(bar).toBeVisible();
+  // Ticking a row moves nothing: the bar takes the page actions' place in the same row (no wrap at 1366).
+  expect(await headTop(), 'the table did not move when a row was ticked').toBe(before);
   await page.locator(ROWS).last().scrollIntoViewIfNeeded();
   await expect(page.locator(ROWS).first()).not.toBeInViewport();
   await expect(bar).toBeInViewport({ ratio: 1 });
@@ -86,6 +89,26 @@ test('bank transactions: the selection bar stays on screen when the list is scro
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return hit !== null && el.contains(hit);
   })).toBe(true);
+});
+
+test('bank transactions: a row menu near the bottom of the screen opens upward, every item on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await openList(page);
+  const triggers = page.locator(ROWS).getByRole('button', { name: /^More actions, / });
+  // The lowest trigger wholly on screen.
+  const n = await triggers.count();
+  let last = -1;
+  for (let i = 0; i < n; i++) {
+    const b = await triggers.nth(i).boundingBox();
+    if (b && b.y + b.height <= 768) last = i;
+  }
+  expect(last, 'a row menu is on screen').toBeGreaterThanOrEqual(0);
+  await triggers.nth(last).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toHaveAttribute('data-side', 'up');
+  await expect(menu.getByRole('menuitem', { name: 'Exclude', exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(menu).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press('Escape');
 });
 
 test('bank transactions: a status tile filters the list and a second press clears it', async ({ page }) => {

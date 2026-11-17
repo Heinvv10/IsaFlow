@@ -33,7 +33,7 @@ export function BankTxSelectionBar({ count, showActions, busy, progress, onBulkA
   // The three bulk operations act on the same selected lines: while one runs, the others wait (the hook refuses them too).
   const bulkBusy = isBulkBusy(busy);
   return (
-    <div data-testid="bank-tx-selection-bar" className="flex flex-wrap items-center gap-1.5 rounded-md bg-teal-500/10 px-2 py-0.5">
+    <div data-testid="bank-tx-selection-bar" className="flex flex-wrap items-center gap-1.5 rounded-md bg-teal-500/10 px-2">
       <span data-testid="bank-tx-selected-count" className="px-1 text-xs font-semibold text-teal-700 dark:text-teal-400">{count} selected</span>
       {showActions && (
         <>
@@ -57,9 +57,10 @@ export function BankTxSelectionBar({ count, showActions, busy, progress, onBulkA
           </button>
         </>
       )}
-      <button type="button" onClick={onClear} data-testid="bank-tx-selection-clear"
+      {/* "Clear" on screen (the bar shares its row with search and the filters at 1366px); the name says what it clears. */}
+      <button type="button" onClick={onClear} data-testid="bank-tx-selection-clear" aria-label="Clear selection" title="Clear selection"
         className={`${BTN} text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]`}>
-        <X className="h-3.5 w-3.5" /> Clear selection
+        <X className="h-3.5 w-3.5" /> Clear
       </button>
     </div>
   );

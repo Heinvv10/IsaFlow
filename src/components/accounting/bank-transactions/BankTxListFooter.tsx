@@ -1,13 +1,11 @@
 /**
- * BankTxListFooter - the line under the bank transactions list (WP4b): rows per page (25 / 50 / 100, kept in the URL
- * as `size`), the table density toggle (the shared TableDensityContext one, offered only where a provider is mounted:
- * the bank grid's selects and rows follow it), and the company-wide coding-metrics line, moved here from above the
- * list so the list starts higher.
+ * BankTxListFooter - the line under the bank transactions list (WP4b): rows per page (25 / 50 / 100: in the URL as
+ * `size` and remembered in this browser, the URL winning) and the company-wide coding-metrics line, moved here from
+ * above the list so the list starts higher. Density has ONE toggle, the header's (TableDensityContext): the bank grid
+ * follows it (xs selects and 33px rows in compact, bankTxSelectionPopoverUxb.test, golden z15).
  */
 
 import { Select, type SelectOption } from '@/components/ui/Select';
-import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
-import { useOptionalTableDensity } from '@/contexts/TableDensityContext';
 import { CodingMetricsStrip } from './CodingMetricsStrip';
 import { BANK_TX_PAGE_SIZES, type BankTxPageSize } from './bankTxUrlState';
 
@@ -19,7 +17,6 @@ interface Props {
 }
 
 export function BankTxListFooter({ pageSize, onPageSize }: Props) {
-  const density = useOptionalTableDensity();
   const choose = (v: string | null) => {
     const n = BANK_TX_PAGE_SIZES.find(s => String(s) === v);
     if (n) onPageSize(n);
@@ -30,12 +27,6 @@ export function BankTxListFooter({ pageSize, onPageSize }: Props) {
         <span aria-hidden="true">Rows per page</span>
         <Select label="Rows per page" labelClassName="sr-only" size="sm" className="w-20" options={SIZES} value={String(pageSize)} onChange={choose} />
       </div>
-      {density && (
-        <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
-          <span aria-hidden="true">Density</span>
-          <TableDensityToggle />
-        </div>
-      )}
       <div className="ml-auto"><CodingMetricsStrip /></div>
     </div>
   );

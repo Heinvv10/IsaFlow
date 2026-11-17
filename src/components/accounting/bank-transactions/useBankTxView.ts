@@ -21,6 +21,7 @@ import type { BankTxFilterState } from './useBankTxFilters';
 import {
   DEFAULT_FILTERS, mergeOwnedQuery, ownedQueryKey, parseUrlView, serializeUrlView, type UrlFilters,
 } from './bankTxUrlState';
+import { readPageSizePref } from './bankTxPageSizePref';
 
 interface RouterLike {
   isReady: boolean; pathname: string; query: Record<string, string | string[] | undefined>;
@@ -87,7 +88,8 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
 
   const apply = useCallback((q: RouterLike['query'], withAccount: boolean) => {
     const p = parseUrlView(q);
-    const filters: UrlFilters = { ...DEFAULT_FILTERS, ...p.filters };
+    // The page size: the URL's, else the one remembered in this browser, else 25.
+    const filters: UrlFilters = { ...DEFAULT_FILTERS, pageSize: readPageSizePref() ?? DEFAULT_FILTERS.pageSize, ...p.filters };
     const account = withAccount && p.account && p.account !== live.current.selectedBank
       && live.current.bankAccounts.some(b => b.id === p.account && b.isActive) ? p.account : null;
     const nextTab = p.tab ?? 'new';

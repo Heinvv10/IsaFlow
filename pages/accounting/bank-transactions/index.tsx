@@ -232,14 +232,14 @@ export default function BankTransactionsPage() {
         />
 
         {/* Table */}
-        <div className="px-4 py-2">
+        <div className="px-4 pt-1 pb-2">
           <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={afterMutation} />
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
           <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
           {sel.noneActive && <BankTxSummaryNotice kind="none-active" />}
           {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={(isLoading || summary.status === 'loading' || choosing) && !refreshing} refreshing={refreshing} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.activeLabels}
-            detailTx={detailTx} onDetailClose={closeDetail}>
+            detailTx={detailTx} onDetailClose={closeDetail} pageSize={PAGE_SIZE}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}

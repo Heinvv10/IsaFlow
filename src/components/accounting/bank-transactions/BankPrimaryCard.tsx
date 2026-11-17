@@ -12,7 +12,7 @@ export function BankPrimaryCard({ b, active, onSelect }: { b: BankAccountSummary
       onClick={onSelect}
       title={b.accountName}
       aria-current={active ? 'true' : undefined}
-      className={`h-full w-[280px] shrink-0 flex items-stretch gap-3 px-4 py-2 rounded-lg border-2 transition-all text-left ${
+      className={`h-full w-[280px] shrink-0 flex items-stretch gap-3 px-4 py-1.5 rounded-lg border-2 transition-all text-left ${
         active
           ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
           : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'

@@ -47,8 +47,10 @@ function Figures({ bank }: { bank: BankAccountSummary }) {
   const { latest, differenceCents } = bank.statement;
   const v = statementView(bank);
   const caveat = v.basis ? caveatFor(v.basis.balanceSource) : undefined;
-  const statement = v.basis
-    ? { text: <>Statement <span className="font-semibold tabular-nums text-[var(--ff-text-primary)]">{fmtCents(v.basis.closingCents!)}</span></>,
+  // The basis is the last statement WITH a closing balance, so its figure is there; a null is still said, never forced.
+  const closing = v.basis?.closingCents ?? null;
+  const statement = v.basis && closing !== null
+    ? { text: <>Statement <span className="font-semibold tabular-nums text-[var(--ff-text-primary)]">{fmtCents(closing)}</span></>,
         title: `Statement balance as at ${when(v.basis.statementDate)}${caveat ? ` - ${caveat}` : ''}` }
     : latest ? { text: <>Statement not available</>, title: reasonFor(latest) } : { text: <>No statement imported</>, title: undefined };
   const shortDiff = v.provenance === 'unchecked' ? 'Difference (not checked)' : v.provenance === 'unknown' ? 'Difference (source not recorded)' : 'Difference';
@@ -76,7 +78,7 @@ export function BankTxStatsStrip({ bank, shown, onShowProvisional, tab, allocati
   const [open, setOpen] = useState(false);
   const detailsId = `bank-statement-details-${bank.id}`;
   return (
-    <div data-testid="bank-tx-stats-strip" data-posted-lines={c.posted} className="mt-1.5">
+    <div data-testid="bank-tx-stats-strip" data-posted-lines={c.posted} className="mt-1">
       <div data-testid="bank-summary-line" className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-sm text-[var(--ff-text-secondary)]">
         <span className="min-w-0 max-w-[16rem] truncate font-semibold text-[var(--ff-text-primary)]" title={bank.accountName}>{bank.accountName}</span>
         <span className="font-id text-xs">{bank.accountCode}</span>
@@ -121,7 +123,7 @@ export function BankTxStatsStrip({ bank, shown, onShowProvisional, tab, allocati
             {c.pendingAtBank > 0 && <span data-testid="tile-pending-at-bank" className="text-[var(--ff-text-tertiary)]">+{c.pendingAtBank} pending at bank</span>}
           </span>
         </div>
-        <button type="button" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(o => !o)}
+        <button type="button" aria-expanded={open} aria-controls={open ? detailsId : undefined} onClick={() => setOpen(o => !o)}
           className="ml-auto inline-flex min-h-6 items-center gap-1 rounded px-2 text-xs text-teal-700 dark:text-teal-400 hover:bg-teal-500/10">
           Details <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>

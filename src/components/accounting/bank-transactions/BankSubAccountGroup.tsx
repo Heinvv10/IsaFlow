@@ -32,7 +32,7 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle, re
           ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
           : 'border-dashed border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'
       }`}>
-      <button onClick={onToggle} aria-expanded={expanded} aria-current={containsSelection ? 'true' : undefined} className="block w-full px-4 py-2 text-left">
+      <button onClick={onToggle} aria-expanded={expanded} aria-current={containsSelection ? 'true' : undefined} className="block w-full px-4 py-1.5 text-left">
         <div className="flex items-start gap-2">
           <CreditCard className={`mt-0.5 h-4 w-4 shrink-0 ${active ? 'text-teal-600 dark:text-teal-400' : 'text-[var(--ff-text-tertiary)]'}`} />
           <MiddleTruncate name={group.groupName} testId="card-name"

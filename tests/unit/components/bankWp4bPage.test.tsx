@@ -150,6 +150,21 @@ describe('rows per page', () => {
   });
 });
 
+describe('the page size remembered in this browser', () => {
+  it('a plain visit opens with the remembered size (and writes it to the URL); a size in the URL wins', async () => {
+    localStorage.setItem('isaflow.bankTxPageSize', '50');
+    try {
+      await open({ account_id: 'a' });
+      expect(lastParams().get('limit')).toBe('50');
+      await waitFor(() => expect(cap.router!.query().size).toBe('50'));
+      cleanup();
+      vi.mocked(apiFetch).mockClear();
+      await open({ account_id: 'a', size: '100' });
+      expect(lastParams().get('limit')).toBe('100');
+    } finally { localStorage.removeItem('isaflow.bankTxPageSize'); }
+  });
+});
+
 describe('nothing floats over the rows', () => {
   it('with rows on the New tab and one ticked, there is no floating "Mark Selected as Reviewed"', async () => {
     await open({ account_id: 'a' });

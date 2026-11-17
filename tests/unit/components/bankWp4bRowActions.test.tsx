@@ -60,7 +60,21 @@ describe('New-row actions: Accept and a ⋯ menu', () => {
     expect(items).toEqual(['Find & Match', 'Split transaction', 'Create rule from this transaction', 'Exclude']);
   });
 
-  it('Accept and the menu trigger are at least 24px (min-h-6 min-w-6 on desktop)', () => {
+  it('Enter on row B\'s Accept after row A\'s menu was open never runs a row-A item (the breaker\'s repro)', () => {
+    const props = tableProps();
+    render(<BankTxTable {...props} />);
+    openMenu('a'); // focus is on its first item, Ask client
+    const acceptC = screen.getByRole('button', { name: `Accept, ${label('c')}` });
+    fireEvent.blur(screen.getByRole('menuitem', { name: 'Ask client on WhatsApp' }), { relatedTarget: acceptC });
+    acceptC.focus();
+    expect(screen.queryByRole('menu')).toBeNull(); // focus left the menu: it closed
+    fireEvent.keyDown(acceptC, { key: 'Enter' });
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(props.onAskClient).not.toHaveBeenCalled();
+    expect(props.onExclude).not.toHaveBeenCalled();
+  });
+
+  it('Accept and the menu trigger are at least 24px (min-h-6 min-w-6 on desktop; measured in px by golden z31)', () => {
     render(<BankTxTable {...tableProps()} />);
     for (const el of [screen.getByRole('button', { name: `Accept, ${label('a')}` }), menuOf('a')]) {
       expect(el.className.split(/\s+/)).toEqual(expect.arrayContaining(['min-h-6', 'min-w-6']));

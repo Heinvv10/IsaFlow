@@ -44,10 +44,12 @@ describe('the summary line', () => {
     render(strip());
     const details = screen.getByRole('button', { name: 'Details' });
     expect(details).toHaveAttribute('aria-expanded', 'false');
+    expect(details).not.toHaveAttribute('aria-controls'); // it names the panel only while the panel is there
     expect(screen.queryByTestId('bank-statement-panel')).toBeNull();
     fireEvent.click(details);
     expect(details).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('bank-statement-panel')).toBeInTheDocument();
+    expect(document.getElementById(details.getAttribute('aria-controls')!)).not.toBeNull();
     fireEvent.click(details);
     expect(screen.queryByTestId('bank-statement-panel')).toBeNull();
   });
@@ -60,6 +62,12 @@ describe('the summary line', () => {
     expect(screen.queryByTestId('summary-difference')).toBeNull();
     render(strip({ bank: summaryAcct('a2', { counts }) }));
     expect(screen.getAllByTestId('summary-statement')[1]!.textContent).toBe('No statement imported');
+  });
+
+  it('a basis whose closing figure is missing says "not available", never a forced number', () => {
+    const l = ref({ closingCents: null, balanceSource: 'not_in_file' });
+    render(strip({ bank: summaryAcct('a1', { counts, statement: { latest: l, lastWithBalance: l, ledgerAtStatementCents: null, differenceCents: null } }) }));
+    expect(screen.getByTestId('summary-statement').textContent).toBe('Statement not available');
   });
 
   it('an unchecked closing balance: the difference says "(not checked)" and is never styled as reconciled', () => {

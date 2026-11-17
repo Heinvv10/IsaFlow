@@ -13,6 +13,8 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
+import Router from 'next/router';
 import { MoreVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { chooseSide, placePanel, type PanelPlacement } from './panelPlacement';
@@ -20,7 +22,9 @@ import { chooseSide, placePanel, type PanelPlacement } from './panelPlacement';
 export interface ActionMenuItem {
   label: string;
   icon?: React.ReactNode;
-  onClick: () => void;
+  /** A navigation: the item is a real link (new tab, middle-click and copy-link work); Enter / Space follow it. */
+  href?: string;
+  onClick?: () => void;
   disabled?: boolean;
   tone?: 'default' | 'destructive';
 }
@@ -52,7 +56,9 @@ export function ActionMenu({
   const [place, setPlace] = React.useState<{ p: PanelPlacement; right: number } | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
-  const itemRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  /** An item element by its index (data-menu-index): links and buttons alike, without relying on refs reaching an <a>. */
+  const itemAt = (i: number) => menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${i}"]`) ?? null;
+  const indexOf = (el: EventTarget | null) => Number((el as HTMLElement | null)?.closest?.('[data-menu-index]')?.getAttribute('data-menu-index') ?? -1);
 
   const measure = React.useCallback(() => {
     const t = triggerRef.current;
@@ -77,7 +83,7 @@ export function ActionMenu({
 
   // Focus follows the active item (roving focus): on open, and on every Arrow / Home / End.
   React.useEffect(() => {
-    if (open && active >= 0) itemRefs.current[active]?.focus();
+    if (open && active >= 0) itemAt(active)?.focus();
   }, [open, active]);
 
   // A click outside the trigger and the menu closes it (focus stays where the click put it).
@@ -105,12 +111,13 @@ export function ActionMenu({
   const pick = (item: ActionMenuItem) => {
     if (item.disabled) return;
     close(true);
-    item.onClick();
+    if (item.href) void Router.push(item.href);
+    else item.onClick?.();
   };
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const enabled = enabledIndexes(items);
-    const at = enabled.indexOf(itemRefs.current.indexOf(e.target as HTMLButtonElement));
+    const at = enabled.indexOf(indexOf(e.target));
     const move = (to: number | undefined) => { if (to !== undefined) setActive(to); };
     let handled = true;
     switch (e.key) {
@@ -121,7 +128,7 @@ export function ActionMenu({
       case 'Escape': close(true); break;
       case 'Enter':
       case ' ': {
-        const item = items[itemRefs.current.indexOf(e.target as HTMLButtonElement)];
+        const item = items[indexOf(e.target)];
         if (item) pick(item);
         break;
       }
@@ -185,32 +192,28 @@ export function ActionMenu({
           style={{ position: 'fixed', top: place.p.top, bottom: place.p.bottom, right: place.right, maxHeight: place.p.maxHeight, minWidth: 180, zIndex: 9999 }}
           className="overflow-y-auto rounded-lg shadow-xl border py-1 bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]"
         >
-          {items.map((item, idx) => (
-            <button
-              key={item.label}
-              ref={el => { itemRefs.current[idx] = el; }}
-              role="menuitem"
-              type="button"
-              disabled={item.disabled}
-              tabIndex={idx === active ? 0 : -1}
-              onMouseEnter={() => { if (!item.disabled) setActive(idx); }}
-              onClick={() => pick(item)}
-              className={cn(
-                'w-full flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-colors outline-none',
-                'disabled:opacity-40 disabled:pointer-events-none',
-                item.tone === 'destructive'
-                  ? idx === active
-                    ? 'bg-red-500/15 text-red-700 dark:text-red-400'
-                    : 'text-red-700 dark:text-red-400 hover:bg-red-500/10'
-                  : idx === active
-                  ? 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)]'
-                  : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] hover:text-[var(--ff-text-primary)]',
-              )}
-            >
-              {item.icon && <span className="flex-shrink-0 h-4 w-4 flex items-center">{item.icon}</span>}
-              {item.label}
-            </button>
-          ))}
+          {items.map((item, idx) => {
+            const cls = cn(
+              'w-full flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-colors outline-none',
+              'disabled:opacity-40 disabled:pointer-events-none',
+              item.tone === 'destructive'
+                ? idx === active
+                  ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                  : 'text-red-700 dark:text-red-400 hover:bg-red-500/10'
+                : idx === active
+                ? 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)]'
+                : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] hover:text-[var(--ff-text-primary)]',
+            );
+            const content = <>{item.icon && <span className="flex-shrink-0 h-4 w-4 flex items-center">{item.icon}</span>}{item.label}</>;
+            const common = {
+              'data-menu-index': idx, role: 'menuitem', tabIndex: idx === active ? 0 : -1,
+              onMouseEnter: () => { if (!item.disabled) setActive(idx); }, className: cls,
+            };
+            // A link item is a real <a>: a click navigates natively (closing the menu), Enter / Space go through pick().
+            return item.href && !item.disabled
+              ? <Link key={item.label} href={item.href} {...common} onClick={() => close(false)}>{content}</Link>
+              : <button key={item.label} type="button" disabled={item.disabled} {...common} onClick={() => pick(item)}>{content}</button>;
+          })}
         </div>,
         document.body,
       )}
