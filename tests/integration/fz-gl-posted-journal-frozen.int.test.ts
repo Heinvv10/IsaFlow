@@ -40,6 +40,24 @@ async function asRole(role: string, fn: (c: PoolClient) => Promise<unknown>): Pr
     await c.query('COMMIT');
   } catch (err) { await c.query('ROLLBACK').catch(() => undefined); throw err; } finally { c.release(); await pool.end(); }
 }
+/**
+ * One transaction as migration_admin with session_replication_role = replica, which skips every trigger not ENABLE
+ * ALWAYS. The fixture's superuser first grants SET on that parameter (PG15+); all of it rolls back, the grant included.
+ * SET CONSTRAINTS ALL IMMEDIATE fires the deferred balance check before the rollback.
+ */
+async function inReplica(fn: (c: PoolClient) => Promise<unknown>): Promise<void> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('GRANT SET ON PARAMETER session_replication_role TO migration_admin');
+    await c.query('SET LOCAL ROLE migration_admin');
+    await c.query("SET LOCAL session_replication_role = 'replica'");
+    expect((await c.query("SELECT current_setting('is_superuser') AS su")).rows[0]!.su).toBe('off');
+    await fn(c);
+    await c.query('SET CONSTRAINTS ALL IMMEDIATE');
+  } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); await pool.end(); }
+}
 /** A journal inserted already posted with these [account, debit, credit] lines, in one transaction as app_user. */
 const bornPosted = (lines: Array<[string, number, number]>) => asAppUser(async (c) => {
   const je = (await c.query(
@@ -114,6 +132,14 @@ describe('FZ: a posted journal refuses amount changes', () => {
     await expect(asAppUser((c) => c.query('DELETE FROM gl_journal_lines WHERE id = (SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND debit > 0 LIMIT 1)', [je])))
       .rejects.toThrow(UNBALANCED);
     await expect(asRole('platform_admin', (c) => c.query(
+      'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
+      .rejects.toThrow(UNBALANCED);
+  }, 60_000);
+  it('session_replication_role = replica skips none of the three GL triggers (all ENABLE ALWAYS)', async () => {
+    await expect(inReplica((c) => c.query('UPDATE gl_journal_lines SET debit = debit + 1 WHERE journal_entry_id = $1 AND debit > 0', [je])))
+      .rejects.toThrow(FROZEN);
+    await expect(inReplica((c) => c.query("UPDATE gl_journal_entries SET status = 'draft' WHERE id = $1", [je]))).rejects.toThrow(FROZEN);
+    await expect(inReplica((c) => c.query(
       'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
       .rejects.toThrow(UNBALANCED);
   }, 60_000);
