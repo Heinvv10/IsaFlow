@@ -24,8 +24,9 @@
  * companies) makes every settings save write companies then fiscal_years, so a
  * change of year end (apply / undo) takes the company row FOR NO KEY UPDATE
  * before any fiscal row (`lockCompanyForYearChange`), and a start-month change
- * locks the periods before its companies UPDATE fires that trigger
- * (`assertFinancialYearStartChange`). No close path locks companies.
+ * locks the periods (after its in-use counts, bounded 5 s) before its companies
+ * UPDATE fires that trigger (`assertFinancialYearStartChange`). No close path
+ * locks companies; the year-end close's journal INSERT takes FOR KEY SHARE on it.
  * Test: companies-fiscal-years-lock-order.int.test.ts.
  *
  * What blocks is `isCloseBlocker`: a `fail`, or a check that could not be
