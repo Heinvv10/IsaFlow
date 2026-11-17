@@ -26,6 +26,7 @@ import { forecastFixture, WARNINGS } from './fixture';
 beforeEach(() => { answerDefaults(); vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { cleanup(); });
 
+const sp = (t: string | null | undefined) => (t ?? '').replace(/\u00a0/g, ' ');
 const grid = () => screen.findByRole('table', { name: '13-week cash forecast' });
 
 describe('tabs', () => {
@@ -89,7 +90,6 @@ describe('13 weeks from the engine', () => {
   it('an AR line (one per customer) shows its basis breakdown as a tooltip, and the no-history flag', async () => {
     render(<CashFlowForecastPage />);
     await grid();
-    const sp = (t: string | null) => (t ?? '').replace(/\u00a0/g, ' ');
     const acme = document.querySelector('[data-line="ar:c1"]') as HTMLElement;
     const basis = within(acme).getByTestId('ar-basis');
     expect(basis.textContent).toMatch(/^due · history: /);
@@ -102,24 +102,28 @@ describe('13 weeks from the engine', () => {
     expect(flag.getAttribute('title')).toMatch(/too few paid invoices/);
   });
 
-  it('overdue panel: total, by basis, beyond the horizon', async () => {
+  it('overdue panel: total, by basis, beyond the horizon, disputed (the engine\'s overdueSummary)', async () => {
     render(<CashFlowForecastPage />);
     await grid();
-    expect(screen.getByTestId('overdue-total').textContent).toBe('R 4 000');
-    const panel = screen.getByRole('region', { name: 'Overdue customer invoices' });
-    expect(panel.textContent).toContain('R 3 000');
-    expect(panel.textContent).toContain('R 1 000');
-    expect(panel.textContent).toContain('R 500');
+    expect(sp(screen.getByTestId('overdue-total').textContent)).toBe('R 5 200');
+    const panel = sp(screen.getByRole('region', { name: 'Overdue customer invoices' }).textContent);
+    expect(panel).toContain('3 invoices');
+    expect(panel).toContain('usual delayR 4 200');
+    expect(panel).toContain('this weekR 1 000');
+    expect(panel).toContain('not in this forecast)R 500');
+    expect(panel).toContain('Disputed (left out)R 250');
   });
 
   it('warnings in plain English, never a code', async () => {
     render(<CashFlowForecastPage />);
     await grid();
     const list = screen.getByTestId('cash13-warnings');
-    expect(list.querySelectorAll('li').length).toBe(WARNINGS.length);
+    const f = forecastFixture({ overrides: [] });
+    expect(f.warnings.length).toBeGreaterThan(WARNINGS.length); // + the engine's own beyond_horizon (Delta)
+    expect(list.querySelectorAll('li').length).toBe(f.warnings.length);
     expect(list.textContent).toContain('Could not read the loans');
     expect(list.textContent).toContain('assumed paid');
-    for (const w of WARNINGS) expect(document.body.textContent).not.toContain(w.code);
+    for (const w of f.warnings) expect(document.body.textContent).not.toContain(w.code);
   });
 
   it('a refused forecast shows the server\'s message', async () => {

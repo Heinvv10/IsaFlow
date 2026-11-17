@@ -12,8 +12,10 @@
  * every stored change except this cell's own, which a save replaces.
  */
 import type { ForecastLine, ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
+import type { StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
+import type { OverrideMode } from '@/modules/accounting/services/cashForecast13/storeTypes';
 
-export type OverrideMode = 'set' | 'add' | 'move_to';
+export type { OverrideMode };
 export type Direction = 1 | -1;
 
 export interface OverrideDraft {
@@ -38,16 +40,8 @@ export interface OverrideBody {
   note: string | null;
 }
 
-/** The stored override as the editor reads it (#1509 overridesRepo.StoredOverride). */
-export interface ExistingOverride {
-  id: string;
-  lineKey: string;
-  weekStart: string;
-  mode: OverrideMode;
-  amount: number | null;
-  targetWeekStart?: string;
-  note: string | null;
-}
+/** The stored override as the editor reads it (the fields of overridesRepo.StoredOverride it uses). */
+export type ExistingOverride = Pick<StoredOverride, 'id' | 'lineKey' | 'weekStart' | 'mode' | 'amount' | 'targetWeekStart' | 'note'>;
 
 export type OverrideBodyResult = { ok: true; body: OverrideBody } | { ok: false; message: string };
 

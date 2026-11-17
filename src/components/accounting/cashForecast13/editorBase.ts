@@ -4,20 +4,18 @@
  *
  * A save REPLACES the cell's stored override (#1509's PUT upserts per company + line + week). So the editor's BASE
  * is the source line with every stored override of that line EXCEPT this cell's own, applied in stored order;
- * the preview applies the draft on top of that base. Stored overrides map to the engine's week indexes as #1509's
- * engineAdapter does: whole weeks from the forecast's first Monday, a cell outside the 13 weeks dropped, a move
+ * the preview applies the draft on top of that base. Stored overrides map to the engine's week indexes with the
+ * engineAdapter's own `weekOffset`, as its toEngineOverrides does: whole weeks from the forecast's first Monday, a cell outside the 13 weeks dropped, a move
  * target outside passed on for the engine to skip.
  */
 import { applyOverrides } from '@/modules/accounting/services/cashForecast13/adjustments';
 import { toCents } from '@/modules/accounting/services/cashForecast13/lines';
-import { daysBetween } from '@/modules/accounting/services/cashForecast13/weeks';
+import { weekOffset } from '@/modules/accounting/services/cashForecast13/engineAdapter';
 import { FORECAST_WEEKS, type ForecastLine, type ForecastWeek, type Override } from '@/modules/accounting/services/cashForecast13/types';
 import { formatCents } from '@/lib/money/formatMoney';
 import type { ExistingOverride, OverrideBody } from './overridePayload';
 
 type Stored = Omit<ExistingOverride, 'id' | 'note'>;
-
-const weekOffset = (first: string, monday: string): number => Math.round(daysBetween(first, monday) / 7);
 
 /** Stored (rand, Mondays) → the engine's overrides (cents, week indexes), in the order given. */
 export function toEngineOverrides(stored: readonly Stored[], weeks: readonly ForecastWeek[]): Override[] {

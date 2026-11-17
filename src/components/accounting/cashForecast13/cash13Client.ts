@@ -3,58 +3,26 @@
  * workspace's `call` and returns an `ApiResult` (data, or a typed failure with the server's message); nothing
  * throws on a status or a dropped connection. apiFetch adds the CSRF header to the writes.
  *
- * The forecast GET is the engine's route (registered: its type comes from the service). The stored inputs
- * (items, overrides, pay day) are the data layer's routes (PR #1509): until that merges their service types are
- * not on master, so their wire shapes are written out below from #1509's storeTypes / overridesRepo / itemsRepo /
- * payDaySetting. Switch them to `import type` from those modules (and register the routes) once #1509 merges.
+ * Every route is registered in apiRoutesBudgets; the wire types are the services' (`import type` only, so no
+ * server code reaches the bundle). A 2xx whose body is not the expected shape is still refused (`shaped`).
  */
 import { call } from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
-import type { CashCategory, CashForecast13 } from '@/modules/accounting/services/cashForecast13/types';
-import type { OverrideBody, OverrideMode } from './overridePayload';
+import type { CashForecast13 } from '@/modules/accounting/services/cashForecast13/types';
+import type { StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
+import type { StoredCashItem } from '@/modules/accounting/services/cashForecast13/itemsRepo';
+import type { PayDaySetting } from '@/modules/accounting/services/cashForecast13/payDaySetting';
+import type { ItemInput } from '@/modules/accounting/services/cashForecast13/storeSchemas';
+import type { ManualItemDirection, ManualItemRepeat, PayDayRule } from '@/modules/accounting/services/cashForecast13/storeTypes';
+import type { OverrideBody } from './overridePayload';
 
 const BASE = '/api/accounting/cash-forecast-13';
 
-/** #1509 overridesRepo.StoredOverride. */
-export interface StoredOverride {
-  id: string;
-  lineKey: string;
-  weekStart: string;
-  mode: OverrideMode;
-  amount: number | null;
-  targetWeekStart?: string;
-  note: string | null;
-}
-
-export type ItemDirection = 'receipt' | 'payment';
-export type ItemRepeat = 'none' | 'weekly' | 'monthly';
-
-/** #1509 itemsRepo.StoredCashItem (less the account and stamp the page does not use). */
-export interface StoredItem {
-  id: string;
-  direction: ItemDirection;
-  amount: number;
-  date: string;
-  repeat: ItemRepeat;
-  repeatUntil: string | null;
-  description: string;
-  category: CashCategory;
-}
-
-/** #1509 storeSchemas.ItemInput. */
-export interface ItemBody {
-  direction: ItemDirection;
-  amount: number;
-  date: string;
-  repeat: ItemRepeat;
-  repeatUntil: string | null;
-  description: string;
-  category: CashCategory;
-}
-
-/** #1509 storeTypes.PayDayRule / payDaySetting.PaySetting. */
-export type PayDayRule = { kind: 'day_of_month'; day: number } | { kind: 'last_working_day' };
-export interface PayDaySetting { payDay: PayDayRule; day: number; isDefault: boolean }
+export type { StoredOverride, StoredCashItem as StoredItem, PayDaySetting, PayDayRule };
+export type ItemDirection = ManualItemDirection;
+export type ItemRepeat = ManualItemRepeat;
+/** The POST /items body (storeSchemas.ItemInput's input, less the optional account the page does not set). */
+export type ItemBody = Omit<ItemInput, 'accountId'>;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
@@ -68,24 +36,24 @@ const isForecast = (d: unknown): d is CashForecast13 => isObj(d) && Array.isArra
 
 export async function fetchForecast(): Promise<ApiResult<CashForecast13>> {
   const fallback = 'Could not load the 13-week forecast - try again.';
-  return shaped(await call(BASE, undefined, fallback), isForecast, fallback);
+  return shaped(await call('/api/accounting/cash-forecast-13', undefined, fallback), isForecast, fallback);
 }
 
 export async function fetchOverrides(): Promise<ApiResult<StoredOverride[]>> {
   const fallback = 'Could not load your changes to the forecast.';
-  const r = shaped(await call(`${BASE}/overrides`, undefined, fallback), (d): d is { overrides: StoredOverride[] } => isObj(d) && Array.isArray(d.overrides), fallback);
+  const r = shaped(await call('/api/accounting/cash-forecast-13/overrides', undefined, fallback), (d): d is { overrides: StoredOverride[] } => isObj(d) && Array.isArray(d.overrides), fallback);
   return r.ok ? { ok: true, data: r.data.overrides } : r;
 }
 
-export async function fetchItems(): Promise<ApiResult<StoredItem[]>> {
+export async function fetchItems(): Promise<ApiResult<StoredCashItem[]>> {
   const fallback = 'Could not load your expected items.';
-  const r = shaped(await call(`${BASE}/items`, undefined, fallback), (d): d is { items: StoredItem[] } => isObj(d) && Array.isArray(d.items), fallback);
+  const r = shaped(await call('/api/accounting/cash-forecast-13/items', undefined, fallback), (d): d is { items: StoredCashItem[] } => isObj(d) && Array.isArray(d.items), fallback);
   return r.ok ? { ok: true, data: r.data.items } : r;
 }
 
 export async function fetchPayDay(): Promise<ApiResult<PayDaySetting>> {
   const fallback = 'Could not load the pay day.';
-  return shaped(await call(`${BASE}/pay-day`, undefined, fallback), (d): d is PayDaySetting => isObj(d) && isObj(d.payDay), fallback);
+  return shaped(await call('/api/accounting/cash-forecast-13/pay-day', undefined, fallback), (d): d is PayDaySetting => isObj(d) && isObj(d.payDay), fallback);
 }
 
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });

@@ -22,14 +22,8 @@ const fig = (cents: number) => formatStatementFigure(cents / 100);
 const R = (cents: number) => (cents === 0 ? 'R 0' : formatStatementFigure(cents / 100, { symbol: true }));
 const BASES: readonly ArBasis[] = ['due', 'history', 'no_history'];
 
-/**
- * #1509's AR line field (82e1ceea2f): the in-horizon cents by basis. Read through this widening until #1509
- * merges and `ForecastLine` carries it; then drop the cast.
- */
-type BasisCents = Record<ArBasis, number>;
-const basisCentsOf = (line: ForecastLine): BasisCents | undefined => (line as ForecastLine & { basisCents?: BasisCents }).basisCents;
 
-export function basisBreakdownText(b: BasisCents): string {
+export function basisBreakdownText(b: Record<ArBasis, number>): string {
   return `Expected: ${BASES.map((k) => `${BASIS_WORDS[k].label} ${R(b[k])}`).join(' · ')}`;
 }
 const STICKY = 'sticky left-0 z-[1] bg-[var(--ff-surface-primary)]';
@@ -49,7 +43,7 @@ export interface ForecastGridProps {
 
 function LineLabel({ line }: { line: ForecastLine }) {
   const estimate = line.kind === 'estimate';
-  const basis = basisCentsOf(line);
+  const basis = line.basisCents;
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <span>{line.label}</span>
