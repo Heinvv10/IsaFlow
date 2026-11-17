@@ -4,6 +4,25 @@ Branch `feat/mcp-budget-tools-excel-20261117`, stacked on PR 1 (#1513). Tools an
 in `src/lib/mcp/.claude.md` ("Budget Excel tools") and `src/modules/accounting/services/budgets/.claude.md` ("PR 2").
 No migration: the snapshot table's `tool` column (999l) takes `import_budget_workbook` as it is.
 
+## The free-form guarantee (round 8, decided)
+
+The free-form import promises VALUES, not appearance. Matching what a spreadsheet shows cannot be guaranteed for
+xlsx: conditional formats, General numbers drawn to fit the column, fill characters, fonts and a renderer's own
+rounding at 1e10 and over all change the display without being in the cell, and the app's template import does not
+promise it either. So:
+- Each cell's STORED value is read exactly. It is rounded to cents (half away from zero from its 15 significant
+  digits, a rule IsaFlow defines, not any renderer) only under a format that shows exactly 2 decimals, and every
+  rounded cell is listed in `rounded_cells` / `rounded_count`.
+- No value is invented, dropped or moved. Every money cell is accounted for (refused, imported, or listed as skipped).
+- No cell the user cannot reach is read: hidden rows, columns and sheets, merges over data, and only the sheet the
+  workbook opens on.
+- Formats that could change a number's value or sign are refused: scaling, literals, conditions, non-plain formats,
+  fill characters other than a space, and conditional formats on the data whose style sets a number format, font or
+  fill.
+- The dry run's diff, listing every cell with its value, is what a person confirms. The sheet's appearance is not
+  part of the guarantee. The LibreOffice tables below are evidence for the formats they cover, not a promise that
+  the reader matches a display.
+
 ## Choices made inside the brief
 
 - **Template form.** Measured 2026-11-17 (`buildBudgetTemplate`, 12 months, company grain, amounts repeating so the
@@ -118,8 +137,8 @@ dialog or by the locale the format was made in, NOT on every format it writes: G
 written plain), and colour names case-folded (`[RED]` = `[Red]`). Every listed format shows the imported value for every number it
 accepts: a negative keeps its minus, the accounting zero shows "-" and imports 0.
 
-**Shown equals imported, generally.** A money cell whose format shows fewer decimals than the cell holds is refused
-(`This cell shows 0 decimal places but holds 1234.5 ...`): a `#,##0` cell shows 1,235 for 1 234.50. This applies to the
+**IsaFlow rounds only under 2 decimals.** A money cell whose format shows fewer decimals than the cell holds is
+refused (`This cell shows 0 decimal places but holds 1234.5 ...`; a `#,##0` cell draws 1,235 for 1 234.50). This applies to the
 allowlist's no-decimal formats and to the character rule's (built-ins 1, 3, 37, 38, 41 and custom `#,##0` alike), so a
 whole-rand budget in those formats still imports; one with cents is refused, not misread.
 
@@ -239,9 +258,10 @@ What changed:
   (`[$R-1C09]\ 0.00;[$R-1C09]\-0.00`, red, 0 decimals), `"R "0.00`, `[$R-1C09]\ 0.00`, `"R"0.00` (written `\R0.00`),
   `"R "0` as LibreOffice writes them (verified), and Excel's spellings `"R"0.00`, `"R"0`, `"R" 0.00`,
   `"R" 0.00;\-"R" 0.00`, `[$R-1C09] 0.00`, `[$R-en-ZA] 0.00` (NOT verified from an Excel file).
-- **5: a format showing exactly 2 decimals imports the value as shown** (`budgetFreeformAmounts.shownCents`: the
-  value's 15 significant digits, as Excel and LibreOffice keep and draw it, rounded half away from zero: 1.005 shows
-  1.01, 2.675 shows 2.68, -2.675 shows -2.68, all as LibreOffice shows them below), and lists the cell:
+- **5: a format showing exactly 2 decimals rounds the value to cents** (`budgetFreeformAmounts.roundToCents`, named
+  `shownCents` in round 7: the value's 15 significant digits, rounded half away from zero, IsaFlow's rule (round 8);
+  for these fixtures it agrees with LibreOffice's display: 1.005 to 1.01, 2.675 to 2.68, -2.675 to -2.68), and lists
+  the cell:
   `rounded_cells` (the first 20: sheet, row, column, value, imported) and `rounded_count`. General, Text and formats
   showing more than 2 decimals keep refusing a value with more than 2; a format showing 0 or 1 decimals keeps refusing a
   value it does not show in full.
@@ -263,11 +283,13 @@ What changed:
 - **Low: hidden by size, and colours.** A column under one character wide or a row under 3pt counts as hidden (was 0.5
   and 1pt); only `[Red]` and `[Black]` colours are read (`[White]`, `[Blue]`, `[ColorN]` could hide an amount on its fill).
 
-### What LibreOffice shows, next to what the reader imports (round 7 fixtures)
+### LibreOffice's CSV next to what the reader imports (round 7 and 8 fixtures, reader as of round 8)
 
 Codes are listed for the B1 files only. Refusal texts are cut at about 110 characters; the tests hold them whole.
+LibreOffice's CSV export applies cell formats but NOT conditional formats: for the `cond-*` files its PDF export (its
+own renderer) draws 1500 / 250 as `2` / `0` under the condition's `#,##0,`, and nothing under `;;;` (round 8).
 
-| Fixture | Cell | Format in the file | LibreOffice shows | IsaFlow reads |
+| Fixture | Cell | Format in the file | LibreOffice's CSV (as shown) | IsaFlow reads |
 |---|---|---|---|---|
 | active-sheet-en-za | C2 | `General` | `100` | imports 100.00 |
 | b1-codes-en-us | A5 | `General` | `6000` | code 6000 |
@@ -297,6 +319,13 @@ Codes are listed for the B1 files only. Refusal texts are cut at about 110 chara
 | colours-en-us | D2 | `[$-409]#,##0.00;[BLUE]\-#,##0.00` | `-5.00` | refused: This cell's number format ([$-409]#,##0.00;[BLUE]\-#,##0.00) is not a plain number, currency or accou ... |
 | colours-en-us | E2 | `[$-409]#,##0.00;[WHITE]\-#,##0.00` | `-5.00` | refused: This cell's number format ([$-409]#,##0.00;[WHITE]\-#,##0.00) is not a plain number, currency or acco ... |
 | colours-en-us | F2 | `[WHITE][$-409]#,##0.00` | `-5.00` | refused: This cell's number format ([WHITE][$-409]#,##0.00) is not a plain number, currency or accounting form ... |
+| cond-border-en-za | C2 | `General` | `1500` | imports 1500.00 |
+| cond-border-en-za | D2 | `General` | `250` | imports 250.00 |
+| cond-fill-en-za | (file) | | | refused: Sheet "Sheet1" has conditional formatting (C2:N2) on or below its header row whose style sets a number format, font or fill, so a condition ... |
+| cond-hidden-en-za | (file) | | | refused: Sheet "Sheet1" has conditional formatting (C2:N2) on or below its header row whose style sets a number format, font or fill, so a condition ... |
+| cond-thousands-en-za | (file) | | | refused: Sheet "Sheet1" has conditional formatting (C2:N2) on or below its header row whose style sets a number format, font or fill, so a condition ... |
+| cond-title-en-za | C3 | `General` | `1500` | imports 1500.00 |
+| cond-white-en-za | (file) | | | refused: Sheet "Sheet1" has conditional formatting (C2:N2) on or below its header row whose style sets a number format, font or fill, so a condition ... |
 | locale-tags-en-us | C2 | `[$-1C09]0.00` | `12,50` | imports 12.50 |
 | locale-tags-en-us | D2 | `[$-809]#,##0.00` | `12.50` | imports 12.50 |
 | locale-tags-en-us | E2 | `[$-436]0.00` | `12,50` | imports 12.50 |
@@ -312,7 +341,7 @@ Codes are listed for the B1 files only. Refusal texts are cut at about 110 chara
 | mar-26-en-za | (file) | | | refused: Sheet "Sheet1", row 1, column M: the header is the date 2026-01-27 (a spreadsheet reads "Jan-27" as 27 January of this year), which is not a ... |
 | merge-body-en-za | (file) | | | refused: Sheet "Sheet1" has merged cells (C2:D2) on or below its header row: unmerge them, so each value is in its own row and month, and send it aga ... |
 | merge-header-en-za | (file) | | | refused: Sheet "Sheet1" has merged cells (N1:O1) on or below its header row: unmerge them, so each value is in its own row and month, and send it aga ... |
-| narrow-column-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (column D): unhide every row and column, and clear any filter, so what IsaFlow imports is what you ... |
+| narrow-column-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (column D): unhide every row and column, and clear any filter (IsaFlow reads no cell you cannot re ... |
 | rand-nosep-en-za | C2 | `[$R-1C09]\ 0.00;[$R-1C09]\-0.00` | `R-1234,50` | imports -1234.50 |
 | rand-nosep-en-za | D2 | `[$R-1C09]\ 0.00;[RED][$R-1C09]\-0.00` | `R-1234,50` | imports -1234.50 |
 | rand-nosep-en-za | E2 | `[$R-1C09]\ 0;[$R-1C09]\-0` | `R-1234` | imports -1234.00 |
@@ -331,9 +360,9 @@ Codes are listed for the B1 files only. Refusal texts are cut at about 110 chara
 | rounding-en-za | J2 | `[$-409]_-\R* #,##0.00_-;"-R"* #,##0.00_-;_-\R* \-??_-;_-@_-` | ` R0.13 ` | imports 0.13 |
 | rounding-en-za | C3 | `General` | `0,333333333333333` | refused: has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you) |
 | rounding-en-za | D3 | `[$-1C09]0.000` | `0,333` | refused: has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you) |
-| rounding-en-za | E3 | `[$-1C09]#,##0` | `83` | refused: This cell shows 0 decimal places but holds 83.3333333333333, so what you see is not what would be imp ... |
-| rounding-en-za | F3 | `[$-1C09]0.0` | `83,3` | refused: This cell shows 1 decimal place but holds 83.3333333333333, so what you see is not what would be impo ... |
-| short-row-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (row 3): unhide every row and column, and clear any filter, so what IsaFlow imports is what you se ... |
+| rounding-en-za | E3 | `[$-1C09]#,##0` | `83` | refused: This cell shows 0 decimal places but holds 83.3333333333333; IsaFlow rounds to cents only under a for ... |
+| rounding-en-za | F3 | `[$-1C09]0.0` | `83,3` | refused: This cell shows 1 decimal place but holds 83.3333333333333; IsaFlow rounds to cents only under a form ... |
+| short-row-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (row 3): unhide every row and column, and clear any filter (IsaFlow reads no cell you cannot reach ... |
 | signs-en-us | C2 | `[$-409]#,##0.00;[RED]\-#,##0.00` | `-5.00` | imports -5.00 |
 | signs-en-us | D2 | `[$-409]0;[RED]\-0` | `-5` | imports -5.00 |
 | signs-en-us | E2 | `[$-409]#,##0.00_);\(#,##0.00\)` | `(5.00)` | imports -5.00 |
@@ -388,8 +417,8 @@ Unit: budgetFreeformLibreOffice, -Round7, -Raw, -Raw5, -ZaFormats, budgetImportF
 | S9 | item 8: built-in 49 shows as General | no decimals entry | 1/276 |
 | S10 | low: only [Red] / [Black] | [Blue] / [White] read | 1/276 |
 | S11 | item 4: a no-separator rand format allowlisted | one entry removed | 3/275 |
-| S12 | item 5: a 2-decimal format imports as shown | refused as before | 2/276 |
-| S13 | item 5: shown from 15 significant digits | 17 digits | 4/276 |
+| S12 | item 5: a 2-decimal format rounds to cents | refused as before | 2/276 |
+| S13 | item 5: rounded from 15 significant digits | 17 digits | 4/276 |
 | S14 | item 5: a rounded cell is listed | not listed | 2/276 |
 | S15 | item 5: listed for the rows imported | never listed | 2/276 |
 | S16 | rounded_cells lists the first 20 | all listed | 1/276 |
@@ -405,18 +434,73 @@ Unit: budgetFreeformLibreOffice, -Round7, -Raw, -Raw5, -ZaFormats, budgetImportF
 | S26 | low: exactly 1 character wide is read | `<=` | 1/276 |
 | S27 | item 10: a date on the 1st is the ordinary refusal | misread advice | 1/276 |
 | S28 | item 10: a misread date header says so | ordinary refusal | 1/276 |
-| S29 | shownCents never gives -0 | -0 for -0.004 | 1/276 |
+| S29 | roundToCents never gives -0 | -0 for -0.004 | 1/276 |
 | S30 | 0 / 1-decimal formats refuse what they do not show | check removed | 4/276 |
 | S31 | half away from zero (5 rounds up) | only above 5 | 9/276 |
 | S32 | a tag after a colour is dropped | only at the very start | 1/276 |
+
+## Review round 8 (final): the guarantee, conditional formats, fill characters
+
+The real-file breaker showed that display fidelity cannot be guaranteed for xlsx, so the guarantee was changed (top of
+this doc): values, not appearance. Claims that the reader matches what a spreadsheet shows were removed from the code,
+the tool description and this doc. Fixed test first (red at `228cdad1ca`, committed `9f2bc8d9ee`: `Tests 22 failed |
+32 passed (54)` over `budgetFreeformRound8.test.ts` and the new `budgetFreeformLibreOffice.test.ts` cases):
+- **1: conditional formatting.** A rule whose range reaches the header row or below and whose style (a dxf) sets a
+  number format, a font or a fill refuses the sheet. Both kinds are parsed with the namespace-aware saxes reader:
+  SpreadsheetML's `<conditionalFormatting sqref>` / `<cfRule dxfId>` against `<dxfs>` (`parseDxfs`; a dxfId the styles
+  lack counts as styled), and Excel 2010's x14 rules inside `<extLst>` (`x14:conditionalFormatting` / `x14:cfRule` with
+  an inline `x14:dxf`, range in `xm:sqref`; `parseXml` now shows extension elements to `extOpen` / `extText` /
+  `extClose`, still reading them past otherwise). A whole-column, missing or unreadable range reaches every row. A
+  border-only style, a style-less rule (colour scale, data bar) and a rule entirely above the header are read. Six
+  LibreOffice-made fixtures (`cond-*`, made by `make_fixtures.py` through Format > Conditional with a new cell style:
+  NumberFormat `#,##0,`, `;;;`, white CharColor, a yellow background; controls: a top border, a white title above
+  the header). LibreOffice's PDF of them draws 1500 / 250 as `2` / `0` and as nothing: what the reader would have
+  imported as 1500 / 250 with no sign of it in the cell.
+- **2: fill characters.** `*` is allowed only before a space (`* #,##0.00`, the accounting formats). `#,##0.00*0`,
+  `*-#,##0.00`, `*9#,##0.00` and `#,##0.00;*-#,##0.00` are refused (four representative formats; the breaker's exact
+  four were not in the brief: these draw digits or a minus that are not the value's).
+- **3: an escaped space `\ ` is a literal space** and is read (`#,##0.00\ `, `#,##0.00_ ;[RED]\-#,##0.00\ ` as
+  LibreOffice writes a typed trailing space). Every digit placeholder after the `.` now counts, a literal between them
+  or not: LibreOffice writes `#,##0.00 ?` as `#,##0.00\ ?` and draws 1.234 as `1.23 4`, so that format shows 3
+  decimals and a value with 3 is refused, not rounded. `[...]` codes after the `.` are not placeholders.
+- **4: the rounding is IsaFlow's** (`roundToCents`, was `shownCents`): 15 significant digits, half away from zero,
+  pinned by tests at 1e10 and over (12345678901.125 to 12345678901.13; 123456789012.345 to 123456789012.35). A
+  renderer may draw such a value a cent differently; no refusal follows, the cell is in `rounded_cells`.
+
+### Round 8 mutation rows
+
+Unit: the 8 free-form test files (311 tests, baseline 311 / 311); failed / total, every mutant restored.
+
+| # | Guard | Mutant | Result |
+|---|---|---|---|
+| T1 | a dxf setting numFmt / font / fill is styled | never styled | 10/311 |
+| T2 | a font counts | font left out | 9/311 |
+| T3 | a fill counts | fill left out | 2/311 |
+| T4 | a number format counts | numFmt left out | 3/311 |
+| T5 | a dxfId the styles lack counts as styled | counts as plain | 1/311 |
+| T6 | a styled conditional format on the data refuses | check removed | 15/311 |
+| T7 | on the header row refuses | only below it | 1/311 |
+| T8 | above the header is fine | any row refuses | 3/311 |
+| T9 | a whole column or unreadable range reaches every row | row 0 | 3/311 |
+| T10 | a range list reaches its lowest range | its highest | 1/311 |
+| T11 | x14 rules in extLst are read | extension elements not shown | 4/311 |
+| T12 | x14's xm:sqref is read | range text dropped | 1/311 |
+| T13 | an x14 rule's inline dxf styles it | never styled | 4/311 |
+| T14 | a SpreadsheetML rule is recorded | never recorded | 11/311 |
+| T15 | a fill * only before a space | any fill character | 3/311 |
+| T16 | `\ ` is a literal space | still refused | 5/311 |
+| T17 | every placeholder after the . counts | only the run right after it | 1/311 |
+| T18 | [...] codes are no placeholders | counted | 1/311 |
+| T19 | a cfRule names a styled dxf | ignored | 11/311 |
 
 ## Review round 5: final hardening, and the threat model
 
 **Threat model for the free-form path (fixed after this round).** The caller already holds set_budget_amounts, so a
 crafted file gives no capability beyond it. The dry run's diff, listing every cell, is the authoritative view a person
 checks before the live call. The reader's job is to never misread a file saved by Excel, Google Sheets or LibreOffice,
-and to refuse, rather than guess, anything else it cannot read exactly. Outside it, by this model: what a file's
-conditional formatting shows (display only; the values are read), and cached formula results in a workbook marked
+and to refuse, rather than guess, anything else it cannot read exactly. (Round 8 restates this as the guarantee at the
+top of this doc: values, not appearance; and a conditional format on the data whose style sets a number format, font
+or fill is now refused, not left outside.) Outside it, by this model: cached formula results in a workbook marked
 `fullCalcOnLoad` (a spreadsheet program recalculates on open; the reader, as the template path, reads the cached
 result; unconfirmed whether a saved file can differ, documented, not fixed).
 
@@ -537,6 +621,12 @@ Error: Cannot find package '@/lib/mcp/tools/budgetTemplateTool' imported from ..
 
 That red only proves the modules were missing; the table below is the evidence that each test fails on its own
 guard's removal.
+
+Review round 8: the six `cond-*` LibreOffice fixtures, their tests and `budgetFreeformRound8.test.ts` were written
+first and run at `228cdad1ca` (committed as `9f2bc8d9ee`): `Tests 22 failed | 32 passed (54)` (every styled
+conditional format read, `*0` / `*-` / `*9` fills read, `\ ` refused, `#,##0.00\ ?` taken as 2 decimals; the green
+ones are the controls, the `;*-` format already refused, and the 1e10 rounding pins of unchanged code). The test for a
+`[...]` code after the decimals came after the fix and is checked by T18.
 
 Review round 7: the LibreOffice fixtures, `budgetFreeformLibreOffice.test.ts` and the two tool tests were written
 first and run at `0b4a4dfa57` (committed as `87ecf99186`): `Tests 19 failed | 1 passed (20)` (the one green is the
@@ -714,6 +804,12 @@ per month, each account's month; its revenue / expense / net profit budget equal
   sales, expenses and an own-amount header, all 14 months, end to end (the breaker's R1 / R2 probes, made permanent).
 
 ## Accepted limits
+
+- Display only, outside the guarantee (round 8): a General number drawn to fit its column (Excel shows 1.23E+11 or
+  rounds the shown digits; the stored value is read); fonts, fills and white or tiny text, set on the cell (a
+  conditional format that sets them is refused); Thai, full-width or other digit-shape tags in a format (the same
+  value drawn in other digits); a renderer's own rounding of a value of 1e10 or more under 2 decimals (IsaFlow's
+  rounding is listed in `rounded_cells`).
 
 - An xlsx template over 85 000 base64 characters (a few hundred rows) is answered only as JSON, or in parts by members.
 - A JSON row cannot be added: every row needs the base its template read gave it (read the account's template row).
