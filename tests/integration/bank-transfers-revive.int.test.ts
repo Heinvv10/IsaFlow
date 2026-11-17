@@ -232,7 +232,8 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
       'BTXF line out', gen_random_uuid(), 'imported') RETURNING id`) as Row[])[0]!.id);
     await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF line transfer', 'transfer'));
     const je = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!.id);
-    const reversal = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId, { reversalDate: '2026-06-11' }));
+    // The journal reversed with its line left as it was (opt-out of bank/liveBankLineReversal): this is about flags only.
+    const reversal = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId, { reversalDate: '2026-06-11', bankLinesHandled: true }));
     const r = await getUnusualJournals(c.fx.companyId, { start: '2026-06-01', end: '2026-06-30' });
     const flagged = r.flags.filter((f) => f.reason === 'round_number').map((f) => f.entryId);
     expect(flagged).not.toContain(je);
@@ -358,7 +359,8 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
       'BTXF to reverse', gen_random_uuid(), 'imported') RETURNING id`) as Row[])[0]!.id);
     await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF stmt 80k', 'transfer'));
     const stmtJe = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!.id);
-    const stmtRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, stmtJe, c.fx.userId, { reversalDate: '2026-11-04' }));
+    // The bank reversal's two steps by hand: the journal (opting out of bank/liveBankLineReversal), then the line reset.
+    const stmtRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, stmtJe, c.fx.userId, { reversalDate: '2026-11-04', bankLinesHandled: true }));
     await sql`UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL WHERE id = ${line}::UUID`;
     const typed = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 70000, transferDate: '2026-11-05' });
     const typedJe = (dataOf<{ journalEntry: { id: string } }>(typed)).journalEntry.id;
@@ -397,7 +399,8 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
       'BTXF realloc', gen_random_uuid(), 'imported') RETURNING id`) as Row[])[0]!.id);
     await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF realloc 60k', 'transfer'));
     const stmtJe = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!.id);
-    const stmtRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, stmtJe, c.fx.userId, { reversalDate: '2027-01-12' }));
+    // The bank reversal's two steps by hand: the journal (opting out of bank/liveBankLineReversal), then the line reset.
+    const stmtRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, stmtJe, c.fx.userId, { reversalDate: '2027-01-12', bankLinesHandled: true }));
     // The bank reversal frees the line; re-allocated, its pointer no longer names the original.
     await sql`UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL, transfer_journal_entry_id = NULL
       WHERE id = ${line}::UUID`;

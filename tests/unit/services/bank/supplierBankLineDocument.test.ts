@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // The learning-loop log has its own suites (codingDecisionLog, coding-decision-paths); it is kept out of this
 // file's SQL sequence.
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-fiscal-preflight.int
 vi.mock('@/modules/accounting/services/bank/codingDecisionLog', () => ({
   postingRefOf: () => ({}), recordAllocationDecision: vi.fn(), recordAutoPostUndone: vi.fn(),
   recordExcluded: vi.fn(), recordMatchDecision: vi.fn(),

@@ -154,6 +154,23 @@ describe('reallocate_bank_transaction: a reconciled line, re-pointed in place', 
     expect(await snapshot(c, s.bt, s.rec)).toEqual(before);
   }, 120000);
 
+  it('a re-posting date no period covers or can cover (WP2 row 12) is refused, dry run and live alike, nothing written', async () => {
+    const s = await reconciledLine(c, { amount: -60, date: '2026-06-12', statementDate: '2026-06-30', alloc: 'account', contra: c.acct.expense });
+    // The new journal is dated by the bank line; the original journal (and so the kept date) stays in an open period.
+    await sql`UPDATE bank_transactions SET transaction_date = '2001-03-15' WHERE id = ${s.bt}::UUID`;
+    const before = await snapshot(c, s.bt, s.rec);
+    const args = { transaction_id: s.bt, expected_journal_entry_id: s.je, target: { gl_account_id: c.acct.sales } };
+    const dry = await mcp(c, TOOL, { ...args, dry_run: true, idempotency_key: key() });
+    const live = await mcp(c, TOOL, { ...args, dry_run: false, idempotency_key: key() });
+    expect(live.isError).toBe(true);
+    // Refused by the reallocation's own date guard (the line's date moved off its journal's) before the period
+    // pre-flight is reached: a reallocation cannot post on a period-less date, whichever guard answers.
+    expect(live.text).toMatch(/This bank line's journal is dated/);
+    expect(dry.text).toBe(live.text);
+    expect(await snapshot(c, s.bt, s.rec)).toEqual(before);
+    await sql`UPDATE bank_transactions SET transaction_date = '2026-06-12' WHERE id = ${s.bt}::UUID`;
+  }, 120000);
+
   it('a VAT-locked date is refused, whether the old journal or only the new one moves VAT; nothing written', async () => {
     const withVat = await reconciledLine(c, { amount: -115, date: '2026-08-10', statementDate: '2026-08-31', alloc: 'account', contra: c.acct.expense });
     // Re-allocated with VAT so the OLD journal moves a VAT figure (allocate's own VAT split), before the lock lands.

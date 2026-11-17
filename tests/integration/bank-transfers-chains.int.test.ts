@@ -9,7 +9,8 @@ import bankTxAction from '../../pages/api/accounting/bank-transactions-action';
 import bankMatchConfirm from '../../pages/api/accounting/bank-match-confirm';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx } from './helpers/l1FifoFixture';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
@@ -37,6 +38,10 @@ const bankLine = async (account: string, date: string, amount: number, desc: str
   RETURNING id`) as Row[])[0]!.id);
 const allocTransfer = (line: string, contra: string) => callRoute(c.fx, token, bankTxAction,
   { action: 'allocate', bankTransactionId: line, allocationType: 'transfer', contraAccountId: contra });
+/** A GL reversal that leaves its statement line as it was: the pre-2026-11-16 state, which the GL now refuses while the
+ *  line books the journal (bank/liveBankLineReversal), planted through the internal opt-out. */
+const handReverse = async (je: string) => String((await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId,
+  { bankLinesHandled: true }))).id);
 const lineOf = async (je: string, acct: string) => String(((await sql`SELECT id FROM gl_journal_lines
   WHERE journal_entry_id = ${je}::UUID AND gl_account_id = ${acct}::UUID AND company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.id);
 const lineState = async (id: string) => ((await sql`SELECT status, matched_journal_line_id AS m,
@@ -45,7 +50,7 @@ const lineState = async (id: string) => ((await sql`SELECT status, matched_journ
 describeIfDb('the transfer guard on reversal chains', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedDateFixture('CHAIN', DATABASE_URL!);
+    c = await seedDateFixture('CHAIN', DATABASE_URL!, [2029]);
     token = await seedRouteUser(c.fx, 'chain');
     bankA = c.fx.bankAccountId;
     bankB = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
@@ -71,7 +76,7 @@ describeIfDb('the transfer guard on reversal chains', () => {
   // cross-tenant reversal_of_id on the pointer journal does not drop the line (the duplicate is still refused), and a
   // forged reversal loop does not hang the allocation.
   it('a forged reversal_of_id (cross-tenant, or a loop) neither drops the line nor hangs arm 1', async () => {
-    const other = await seedDateFixture('PAIRX', DATABASE_URL!);
+    const other = await seedDateFixture('PAIRX', DATABASE_URL!, [2029]);
     const foreign = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, source,
       created_by) VALUES (${other.fx.companyId}::UUID, '2029-03-01', 'PAIRX other tenant', 'draft', 'manual',
       ${other.fx.userId}::UUID) RETURNING id`) as Row[])[0]!.id);
@@ -108,7 +113,10 @@ describeIfDb('the transfer guard on reversal chains', () => {
       const aOut = await bankLine(bankA, date, -amt, `O1 A OUT ${date}`);
       await bankLine(bankB, date, amt, `O1 B IN ${date}`); // auto-linked by the allocation below
       expect((await allocTransfer(aOut, bankB)).statusCode).toBe(200);
-      const r1 = await glReverse(String((await lineState(aOut))!.ptr));
+      // The bounce reversed in the GL — no longer reachable: Hein, 2026-11-16, kept option (a): a GL reversal of a journal
+      // a live bank line books is refused (bank/liveBankLineReversal) and a bounce is booked by allocating the bounce-back
+      // line. Planted here (legacy data has it) so the matcher's reading of such a chain stays pinned.
+      const r1 = await handReverse(String((await lineState(aOut))!.ptr));
       const next = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10);
       const aBack = await bankLine(bankA, next, amt, `O1 A IN ${next}`);
       const bBack = await bankLine(bankB, next, -amt, `O1 B OUT ${next}`);
@@ -120,6 +128,30 @@ describeIfDb('the transfer guard on reversal chains', () => {
       expect((await transferJournals(date, next)).filter((j) => j.reversal_of_id === null)).toHaveLength(1);
     }
   }, 180000);
+
+  // Hein, 2026-11-16 (option a): a bounce is booked by ALLOCATING the bounce-back line — a transfer back — never by
+  // reversing the original in the GL (refused while its line is live, bank/liveBankLineReversal). Both movements stand,
+  // each pair of statement lines on its own journal, and each bank nets to zero across the two days.
+  it('a bounce booked the new way: the bounce-back line allocated as a transfer back, all four lines consistent', async () => {
+    const [d, next, amt] = ['2029-04-20', '2029-04-21', 5300];
+    const aOut = await bankLine(bankA, d, -amt, 'NB A OUT');
+    const bIn = await bankLine(bankB, d, amt, 'NB B IN'); // auto-linked by the allocation below
+    expect((await allocTransfer(aOut, bankB)).statusCode).toBe(200);
+    const j1 = String((await lineState(aOut))!.ptr);
+    const glReverse = await callRoute(c.fx, token, journalEntriesAction, { id: j1, action: 'reverse' });
+    expect(glReverse.statusCode, 'the old way is refused').toBe(400);
+    const aBack = await bankLine(bankA, next, amt, 'NB A BACK');
+    const bOut = await bankLine(bankB, next, -amt, 'NB B OUT'); // auto-linked by the bounce's allocation
+    const back = await allocTransfer(aBack, bankB);
+    expect(back.statusCode, JSON.stringify(back.body)).toBe(200);
+    const j2 = String((await lineState(aBack))!.ptr);
+    const on = async (id: string) => { const s = (await lineState(id))!; return [s.status, String(s.ptr)]; };
+    expect({ aOut: await on(aOut), bIn: await on(bIn), aBack: await on(aBack), bOut: await on(bOut) }).toEqual({
+      aOut: ['allocated', j1], bIn: ['allocated', j1], aBack: ['allocated', j2], bOut: ['allocated', j2] });
+    expect(j2).not.toBe(j1);
+    expect((await transferJournals(d, next)).map((j) => j.reversal_of_id)).toEqual([null, null]);
+    expect({ a: await glMovement(bankA, d, next), b: await glMovement(bankB, d, next) }).toEqual({ a: 0, b: 0 });
+  }, 120000);
 
   // sec-nrfa round 11 L1: a forged odd-length loop (J1 -> J2 -> J3 -> J1) has no root; J1's pointer anchors at J1
   // itself, so B lines legitimately matched to J2's and J3's legs do not pair J1 and J1's duplicate is still refused.

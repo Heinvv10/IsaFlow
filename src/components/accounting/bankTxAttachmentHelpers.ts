@@ -57,3 +57,9 @@ export function readFileAsDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** The line's true number of documents from a list response: X-Attachments-Total, else the list's own length. */
+export function attachmentTotal(res: { headers: { get(name: string): string | null } }, listLength: number): number {
+  const n = Number(res.headers.get('X-Attachments-Total'));
+  return Number.isInteger(n) && n >= listLength ? n : listLength;
+}

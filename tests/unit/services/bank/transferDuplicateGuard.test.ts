@@ -73,7 +73,9 @@ describe('assertNoDuplicateTransfer', () => {
     // reclass, and refusing on it blocked real transfers (brk-nrfa round 15 L1 — a stated residual instead). brk-1494
     // LOW 1 (2026-11-16) asked to count manual and recurring journals; the lead's ruling: only with a confirm override
     // (428 + resend), which the allocate route and screen do not carry, so round 15 L1 stands.
-    expect(text(1)).toMatch(/je\.source = 'auto_bank_transfer' AND je\.status = 'posted' AND je\.reference IS NOT NULL/);
+    // Typed journals, plus (WP2 row 10, 2026-11-16) a statement transfer put back in force by a re-reversal: its bank
+    // Reverse now frees both legs, so arm 1 no longer finds it by its lines.
+    expect(text(1)).toMatch(/je\.source = 'auto_bank_transfer' AND je\.status = 'posted'[\s\S]*AND \(je\.reference IS NOT NULL OR je\.reversed_at IS NOT NULL\)/);
     expect(text(1)).not.toMatch(/source = 'manual'/);
     expect(text(1)).toMatch(/je\.entry_date BETWEEN \(\?::DATE - INTERVAL '10 days'\)/);
     expect(text(1)).toMatch(/ml\.id = bt\.matched_journal_line_id/);

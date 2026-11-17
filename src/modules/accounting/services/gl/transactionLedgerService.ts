@@ -37,7 +37,9 @@ export async function getBankTransactions(
   companyId: string,
   periodStart: string,
   periodEnd: string,
-  accountCode?: string
+  accountCode?: string,
+  /** At most this many period rows are read (a caller that exports asks for its cap + 1 and refuses beyond the cap). */
+  maxRows?: number,
 ): Promise<BankTransactionsReport> {
   try {
     const bankCode = accountCode || (await getSystemAccount('bank', companyId)).accountCode;
@@ -72,6 +74,7 @@ export async function getBankTransactions(
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${bankCode}
       ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
+      LIMIT ${maxRows ?? null}::INT
     `) as Row[];
 
     const acctRows = (await sql`

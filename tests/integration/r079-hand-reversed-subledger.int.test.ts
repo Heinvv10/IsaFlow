@@ -39,7 +39,9 @@ const delta = (a: Record<string, number>, b: Record<string, number>) =>
 
 async function reverse(journalId: string): Promise<void> {
   const { reverseJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
-  await inRequest(pool, fx, () => reverseJournalEntry(fx.company, journalId, fx.user));
+  // The pre-2026-11-16 hand reversal these tests start from: the GL now refuses it while a live line books the
+  // journal (bank/liveBankLineReversal), so the legacy state is planted through the internal opt-out.
+  await inRequest(pool, fx, () => reverseJournalEntry(fx.company, journalId, fx.user, { bankLinesHandled: true }));
 }
 
 /**
