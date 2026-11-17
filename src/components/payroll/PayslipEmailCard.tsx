@@ -20,7 +20,7 @@ const SKIP_LABEL: Record<string, string> = {
 
 interface State { platformEnabled: boolean; enabled: boolean }
 interface Who { employeeNumber: string; employeeName: string }
-interface Outcome { sent: Who[]; failed: Array<Who & { error: string }>; skipped: Array<Who & { reason: string }> }
+interface Outcome { sent: Array<Who & { addressChanged?: boolean }>; failed: Array<Who & { error: string }>; skipped: Array<Who & { reason: string }> }
 
 /** The rows of one list whose `extra` field is text; anything else is dropped. */
 function rows<K extends string>(u: unknown, extra?: K): Array<Who & Record<K, string>> {
@@ -39,7 +39,9 @@ export function stateOf(d: unknown): State {
 }
 export function outcomeOf(d: unknown): Outcome {
   const o = d as Record<string, unknown> | null;
-  return { sent: rows(o?.sent), failed: rows(o?.failed, 'error'), skipped: rows(o?.skipped, 'reason') };
+  const changed = new Set((Array.isArray(o?.sent) ? o.sent : []).filter((x: { addressChanged?: unknown }) => x?.addressChanged === true)
+    .map((x: { employeeNumber?: unknown }) => x.employeeNumber));
+  return { sent: rows(o?.sent).map((r) => ({ ...r, addressChanged: changed.has(r.employeeNumber) })), failed: rows(o?.failed, 'error'), skipped: rows(o?.skipped, 'reason') };
 }
 
 export function PayslipEmailCard({ runId, companyRole }: { runId: string; companyRole: string | null | undefined }) {
@@ -121,6 +123,11 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
       {outcome && (
         <div role="status" className="mt-3 space-y-1 text-sm text-[var(--ff-text-primary)]" data-testid="payslip-email-outcome">
           <p>Sent to {outcome.sent.length} {outcome.sent.length === 1 ? 'employee' : 'employees'}.</p>
+          {outcome.sent.filter((s) => s.addressChanged).map((s) => (
+            <p key={`c-${s.employeeNumber}`} className="text-amber-700 dark:text-amber-400">
+              Sent to a new address for {s.employeeName} ({s.employeeNumber}): it differs from where their last payslip went.
+            </p>
+          ))}
           {outcome.skipped.map((s) => (
             <p key={`s-${s.employeeNumber}`} className="text-amber-700 dark:text-amber-400">
               Not sent to {s.employeeName} ({s.employeeNumber}): {SKIP_LABEL[s.reason] ?? s.reason}.

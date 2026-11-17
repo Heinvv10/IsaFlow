@@ -10,6 +10,8 @@
  * never sent unprotected), or already sent for this approval (ALREADY_SENT, unless `resend`). Those are skipped and
  * named, never refused. Then the rate limit for the count left (`admit`; RATE_LIMITED 429).
  *
+ * A slip sent to an address other than the one that employee's last payslip went to is NAMED (`addressChanged` on
+ * its `sent` entry), so the sender sees a redirect (the address itself can only be changed by an owner or admin).
  * Idempotent per (run, employee, approval): a reopen and re-approval is another document, so it may be sent again.
  * LOCKS: the run's advisory lock (payslip_email:<run>) and its header FOR SHARE, inside withBoundedLockWait's
  * savepoint and held to the end of the request transaction, so a second send waits and then sees this one's rows,
@@ -37,7 +39,7 @@ const SMTP_TIMEOUTS_MS = { connection: 10_000, greeting: 10_000, socket: 20_000 
 export type SkipReason = 'NO_EMAIL' | 'NO_ID_OR_PASSPORT' | 'ALREADY_SENT';
 interface Who { employeeId: string; employeeNumber: string; employeeName: string }
 export interface PayslipEmailOutcome {
-  sent: Array<Who & { sha256: string }>;
+  sent: Array<Who & { sha256: string; addressChanged: boolean }>;
   failed: Array<Who & { error: string }>;
   skipped: Array<Who & { reason: SkipReason }>;
 }
@@ -73,6 +75,16 @@ async function alreadySent(companyId: string, runId: string): Promise<Set<string
        AND d.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at)
   `) as Array<{ employee_id: string }>;
   return new Set(rows.map((r) => r.employee_id));
+}
+
+/** Where each employee's last payslip email went (any run), for naming a changed address. */
+async function lastSentTo(companyId: string, ids: string[]): Promise<Map<string, string>> {
+  const rows = (await sql`
+    SELECT DISTINCT ON (employee_id) employee_id::text AS employee_id, recipient_email FROM payslip_deliveries
+     WHERE company_id = ${companyId}::uuid AND status = 'sent' AND employee_id::text = ANY(${ids}::text[])
+     ORDER BY employee_id, created_at DESC, id DESC
+  `) as Array<{ employee_id: string; recipient_email: string }>;
+  return new Map(rows.map((r) => [r.employee_id, r.recipient_email]));
 }
 
 async function recipients(companyId: string, ids: string[]): Promise<Map<string, Recipient>> {
@@ -148,6 +160,7 @@ export async function sendPayslipEmails(opts: {
     throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
   }
 
+  const previous = await lastSentTo(companyId, queue.map((q) => q.slip.employeeId));
   for (const { slip, email, password } of queue) {
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
     const { filename, pdf, sha256 } = await renderEmailPayslip(run, slip, password.password, approvedAt);
@@ -159,7 +172,8 @@ export async function sendPayslipEmails(opts: {
       smtpTimeoutsMs: SMTP_TIMEOUTS_MS, deadlineMs: SEND_DEADLINE_MS,
     });
     await record({ companyId, runId, employeeId: slip.employeeId, email, sha256, resend, sentBy: actor.userId, result });
-    if (result.error === null) out.sent.push({ ...who, sha256 });
+    const before = previous.get(slip.employeeId);
+    if (result.error === null) out.sent.push({ ...who, sha256, addressChanged: before !== undefined && before !== email });
     else out.failed.push({ ...who, error: 'The mail server did not accept it. Check the address and try again.' });
   }
   await logAuditOrThrow({

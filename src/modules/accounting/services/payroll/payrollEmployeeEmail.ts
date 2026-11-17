@@ -8,6 +8,9 @@
  *
  * `setEmployeeEmail` writes it on this company's employee only and records one audit_log `update` row with the
  * before and after; an unchanged value writes nothing. It returns null when the employee is not this company's.
+ * As for bank details: the FIRST address may be set by any payroll-detail role, but changing or clearing one already
+ * on file needs an owner or admin (`mayChange`; else EmployeeEmailForbidden, before any write), so a manager cannot
+ * redirect an employee's payslips (with their ID number as the password) to an address of their own.
  */
 import { sql } from '@/lib/neon';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
@@ -34,6 +37,13 @@ export function judgeEmployeeEmail(value: unknown): string | null {
   return v;
 }
 
+export class EmployeeEmailForbidden extends Error {
+  constructor() {
+    super('Only an owner or admin can change an employee\'s payslip email once it is set.');
+    this.name = 'EmployeeEmailForbidden';
+  }
+}
+
 export interface EmployeeEmailActor { userId: string; userEmail?: string; ip?: string; userAgent?: string; sessionId?: string | null }
 
 /** This company's employee's address; undefined when the employee is not this company's. */
@@ -45,7 +55,7 @@ export async function readEmployeeEmail(companyId: string, employeeId: string): 
 }
 
 export async function setEmployeeEmail(
-  companyId: string, employeeId: string, email: string | null, actor: EmployeeEmailActor,
+  companyId: string, employeeId: string, email: string | null, actor: EmployeeEmailActor, mayChange: boolean,
 ): Promise<{ email: string | null } | null> {
   const before = (await sql`
     SELECT email FROM payroll_employees WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid FOR UPDATE
@@ -53,6 +63,7 @@ export async function setEmployeeEmail(
   if (before.length === 0) return null;
   const old = before[0]!.email;
   if (old === email) return { email };
+  if (old !== null && !mayChange) throw new EmployeeEmailForbidden();
   await sql`
     UPDATE payroll_employees SET email = ${email}, updated_at = now()
      WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid

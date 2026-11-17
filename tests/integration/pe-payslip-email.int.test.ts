@@ -8,6 +8,7 @@
  *    skips and names an employee with no address or no ID/passport number, and audits once;
  *  - it is idempotent per (run, employee, approval): again = ALREADY_SENT; resend = the same bytes; a failed send is
  *    retried; a re-approval may be sent again;
+ *  - a send to an address other than the employee's last one is named (addressChanged);
  *  - every captured recipient is @example.invalid; the table refuses a row the code would never write.
  *
  * Disposable DB only (rig -> assertDisposable).
@@ -16,7 +17,7 @@ import { createHash } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig } from './brkr.helpers';
 import {
-  agent, approvedRun, audits, capture, captured, cleanup, deliveries, enablePlatform, failNext, loginAs, person, putSetting,
+  agent, approvedRun, audits, capture, captured, cleanup, deliveries, enablePlatform, failNext, loginAs, person, putEmail, putSetting,
   reapprove, reason, send, type R,
 } from './pe-payslip-email.helpers';
 
@@ -124,7 +125,7 @@ describe('payslip email', () => {
 
     const first = captured.find((m) => m.to === 'thandi@example.invalid')!.attachments![0]!.content;
     const resend = await send(a, run, { body: { employeeIds: [emp.idOnly], resend: true } });
-    expect(resend.body.data!.sent.map((s: { employeeId: string }) => s.employeeId)).toEqual([emp.idOnly]);
+    expect(resend.body.data!.sent).toMatchObject([{ employeeId: emp.idOnly, addressChanged: false }]);
     expect(Buffer.compare(attachment(2), first)).toBe(0);
     expect((await deliveries(a)).at(-1)).toMatchObject({ resend: true, pdf_sha256: sha(first) });
 
@@ -141,8 +142,10 @@ describe('payslip email', () => {
   it('a re-approval is another document: it may be sent again, and the old rows stay with the old approval', async () => {
     await reapprove(a, run);
     const before = captured.length;
+    // An admin moves the address: the send names it, so a redirect is seen by the sender.
+    expect((await putEmail(a, emp.idOnly, { email: 'thandi-new@example.invalid' })).statusCode).toBe(200);
     const res = await send(a, run, { body: { employeeIds: [emp.idOnly] } });
-    expect(res.body.data!.sent.length).toBe(1);
+    expect(res.body.data!.sent).toMatchObject([{ employeeId: emp.idOnly, addressChanged: true }]);
     expect(captured.length).toBe(before + 1);
     expect((await deliveries(a)).filter((d) => d.employee_id === emp.idOnly).map((d) => d.current)).toEqual([false, false, true]);
   });
