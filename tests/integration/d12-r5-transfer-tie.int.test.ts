@@ -90,10 +90,13 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect((await tie(s.lb)).status, 'the other session\'s line is untouched').toBe('reconciled');
   }, 60000);
 
-  it('R4-1 journal-entries-action reverse of T, same shape -> 200', async () => {
+  it('R4-1 journal-entries-action reverse of T, same shape: not the stale tie\'s 409 — the live line\'s 400', async () => {
     const s = await staleReconciledElsewhere();
     const out = await reverse(s.t);
-    expect(out.status, out.body).toBe(200);
+    // The stale tie is not cash (round 5); T's own allocated line is, so since 2026-11-16 the GL refuses (liveBankLineReversal)
+    // and the bank reverse above is the way (200).
+    expect(out.status, out.body).toBe(400);
+    expect(out.body).toMatch(/still allocated to it\. Undo it from Bank Transactions/);
   }, 60000);
 
   it('R4-2 auto_match (T\'s head, then the stale line) racing the reversal gate (line, then head): no 40P01', async () => {

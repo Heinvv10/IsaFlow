@@ -71,7 +71,9 @@ describe('assertNoDuplicateTransfer', () => {
     expect(text(1)).toMatch(/je\.reference IS NOT NULL/);
     // Only Transfers-page journals: a manual journal of the amount between the banks may be a correction or a
     // reclass, and refusing on it blocked real transfers (brk-nrfa round 15 L1 — a stated residual instead).
-    expect(text(1)).toMatch(/je\.source = 'auto_bank_transfer' AND je\.status = 'posted' AND je\.reference IS NOT NULL/);
+    // Typed journals, plus (WP2 row 10, 2026-11-16) a statement transfer put back in force by a re-reversal: its bank
+    // Reverse now frees both legs, so arm 1 no longer finds it by its lines.
+    expect(text(1)).toMatch(/je\.source = 'auto_bank_transfer' AND je\.status = 'posted'[\s\S]*AND \(je\.reference IS NOT NULL OR je\.reversed_at IS NOT NULL\)/);
     expect(text(1)).not.toMatch(/source = 'manual'/);
     expect(text(1)).toMatch(/je\.entry_date BETWEEN \(\?::DATE - INTERVAL '10 days'\)/);
     expect(text(1)).toMatch(/ml\.id = bt\.matched_journal_line_id/);

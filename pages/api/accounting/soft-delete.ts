@@ -38,6 +38,7 @@ import {
   ReversalPeriodError,
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 
 /**
  * Refusals the caller can act on, as opposed to a fault. Both the delete and
@@ -100,6 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         expiresIn: null,
       });
     } catch (err) {
+      if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       if (isUserFixable(err)) {
         return apiResponse.badRequest(res, (err as Error).message);
       }
@@ -133,6 +135,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.info('Undo delete via API', { entityType, entityId, restored, companyId }, 'accounting');
       return apiResponse.success(res, { restored });
     } catch (err) {
+      if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       // Same mapping as the delete path: the undo re-instates the journal
       // through the same reverseJournalEntry, so a period closed between the
       // delete and the undo is an ordinary, user-fixable refusal, not a 500.

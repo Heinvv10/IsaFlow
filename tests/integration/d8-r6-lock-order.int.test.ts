@@ -123,8 +123,12 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 6: one lock order, decision
     const m = await one(sql`SELECT l.journal_entry_id AS j FROM bank_transactions bt
       JOIN gl_journal_lines l ON l.id = bt.matched_journal_line_id WHERE bt.id = ${bt}::UUID`);
     const t0 = await tb(c);
-    const r = await settle(hooked(() => reverseReconciledTransaction(c.fx.companyId, bt, c.fx.userId), isChainWalk, 1,
-      async () => { await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, String(m.j), c.fx.userId)); }));
+    // The THIRD chain walk: since WP2 row 10 the first two are the other-legs peek (before the line lock) and its re-read
+    // under the locks (transferLegReset); the pre-write read this race targets comes next.
+    const r = await settle(hooked(() => reverseReconciledTransaction(c.fx.companyId, bt, c.fx.userId), isChainWalk, 3,
+      // The racing reversal: an internal / legacy path (the GL routes now refuse it while the line is live,
+      // bank/liveBankLineReversal), planted through the opt-out — the bank reversal must still meet it safely.
+      async () => { await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, String(m.j), c.fx.userId, { bankLinesHandled: true })); }));
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r)).toMatch(/BankAllocationRefusal.*reversed by another request.*retry/);
     expect((await one(sql`SELECT status FROM bank_transactions WHERE id = ${bt}::UUID`)).status).toBe('allocated');
