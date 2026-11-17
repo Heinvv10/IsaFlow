@@ -47,7 +47,10 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertClearingDateHasFiscalPeriod, nextDayISO, resolveNetVatAccount } from './vatSubmissionSupport';
 import { mapRow, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
-import { requireVatVersionForSettlement } from '../returns/vatSettlementVersion';
+import { settlementBasis } from '../returns/vatSettlementVersion';
+import { ReturnRefusal } from '../returns/returnVersionTypes';
+
+const cents = (n: number): number => Math.round(n * 100) / 100;
 
 export { nextDayISO } from './vatSubmissionSupport';
 export { listVATReturns, type ListVATReturnsOptions, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
@@ -57,8 +60,9 @@ type Row = DbRow;
 // ── submitVATReturn ───────────────────────────────────────────────────────────
 
 /**
- * Submit a VAT return for the given period.
- * Idempotent: throws if a 'submitted' record already exists for the period.
+ * Settle a VAT period against its live VAT201 version (wave 6 VR). Refuses (409) a period with no finalised or filed
+ * version, a released lock, an overlapping settlement or a ledger that has drifted from the version; throws when the
+ * version is already settled. After an amend it posts only the difference (a top-up linked to the new version).
  */
 export async function submitVATReturn(
   companyId: string,
@@ -72,30 +76,38 @@ export async function submitVATReturn(
   // not after the journal is posted.
   const clearingDate = nextDayISO(periodEnd);
 
-  // 0. The lifecycle is the record of the VAT201 (§0a.12): a settlement needs a finalised or filed version for
-  //    exactly this period, 409 otherwise. A read, before every other read and every write.
-  const version = await requireVatVersionForSettlement(companyId, periodStart, periodEnd);
-
-  // 1. Idempotency guard
-  const existing = (await sql`
-    SELECT id FROM vat_returns
-    WHERE company_id = ${companyId}::UUID
-      AND period_start = ${periodStart}::DATE
-      AND period_end   = ${periodEnd}::DATE
-      AND status = 'submitted'
-    LIMIT 1
-  `) as Row[];
-
-  if (existing.length > 0) {
-    throw new Error(
-      `VAT return for ${periodStart}–${periodEnd} has already been submitted (id: ${existing[0]!.id}).`,
-    );
+  // 0. The lifecycle is the record of the VAT201 (§0a.12): the live version for exactly this period, row-locked, its
+  //    VAT lock active; no overlapping settlement; and what the period already settled. Reads only, before any write.
+  const basis = await settlementBasis(companyId, periodStart, periodEnd);
+  if (basis.versionSettled) {
+    throw new ReturnRefusal(409,
+      `VAT return for ${periodStart}–${periodEnd} has already been submitted against version ${basis.version.versionNo}.`,
+      'VAT_ALREADY_SETTLED');
   }
 
-  // 2. Compute the period's VAT figures
-  const vatReturn = await getVATReturn(companyId, periodStart, periodEnd);
-  const { totalOutputTax, totalInputTax } = vatReturn;
-  const netVat = totalOutputTax - totalInputTax; // positive = payable, negative = refund
+  // 1. The ledger's figures for the period. They must agree with the version being settled (net within 1c), as a
+  //    filing refuses a drifted version: the version was locked from the VAT201 report, the settlement clears the
+  //    control accounts' movement, and a late claim or a back-dated post would part them.
+  const ledger = await getVATReturn(companyId, periodStart, periodEnd);
+  const ledgerNet = cents(ledger.totalOutputTax - ledger.totalInputTax);
+  if (Math.abs(cents(ledgerNet - basis.version.netVat)) > 0.01) {
+    throw new ReturnRefusal(409,
+      `The ledger's net VAT for ${periodStart} to ${periodEnd} (${ledgerNet}) differs from VAT201 version `
+      + `${basis.version.versionNo} (${basis.version.netVat}). Amend the return and finalise it again, then settle.`,
+      'VAT_SETTLEMENT_DRIFT');
+  }
+
+  // 2. Post only what the period has not settled yet: the whole return the first time, the difference after an amend
+  //    (a top-up linked to the new version). Nothing left to settle is "already submitted".
+  const totalOutputTax = cents(ledger.totalOutputTax - basis.prior.outputTax);
+  const totalInputTax = cents(ledger.totalInputTax - basis.prior.inputTax);
+  const netVat = cents(totalOutputTax - totalInputTax); // positive = payable, negative = refund
+  const topUp = basis.prior.count > 0;
+  if (topUp && Math.abs(totalOutputTax) <= 0.005 && Math.abs(totalInputTax) <= 0.005) {
+    throw new ReturnRefusal(409,
+      `VAT return for ${periodStart}–${periodEnd} has already been submitted in full: version `
+      + `${basis.version.versionNo} has nothing left to settle.`, 'VAT_ALREADY_SETTLED');
+  }
 
   log.info('VAT return figures', { companyId, periodStart, periodEnd, totalOutputTax, totalInputTax, netVat }, 'accounting');
 
@@ -168,7 +180,7 @@ export async function submitVATReturn(
     const je = await createJournalEntry(companyId, {
       // First day of the FOLLOWING period — see the V-05 note in the file header.
       entryDate:   clearingDate,
-      description: `VAT201 submission ${periodStart} to ${periodEnd}`,
+      description: `VAT201 submission ${periodStart} to ${periodEnd}${topUp ? ` (top-up for v${basis.version.versionNo})` : ''}`,
       source:      'auto_vat_submission',
       lines,
     }, safeUserId);
@@ -199,7 +211,7 @@ export async function submitVATReturn(
       ${sarsReference ?? null},
       ${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)
       ${journalEntryId}::UUID,
-      ${version.id}::UUID
+      ${basis.version.id}::UUID
     )
     RETURNING *
   `) as Row[];

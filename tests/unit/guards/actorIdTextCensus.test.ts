@@ -45,7 +45,7 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
   // wave 6 VR: the VAT201 version a settlement is posted against
-  'version.id',
+  'basis.version.id', 'version.id',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
@@ -114,7 +114,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     54: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
   },
   [`${S}reports/vatSubmissionService.ts`]: {
-    190: 'sars_reference, submitted_by, journal_entry_id, return_version_id',
+    202: 'sars_reference, submitted_by, journal_entry_id, return_version_id',
   },
 };
 
@@ -133,7 +133,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 200: '${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)' },
+  [`${S}reports/vatSubmissionService.ts`]: { 212: '${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)' },
 };
 
 /** file:line -> why an actor value is still cast to uuid there. */

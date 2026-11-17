@@ -10,16 +10,25 @@ export interface VatFigures { outputTax: number; inputTax: number; netVat: numbe
 
 const cents = (n: unknown): number => Math.round((Number.isFinite(Number(n)) ? Number(n) : 0) * 100) / 100;
 
-/** The vat_returns row for exactly this period, with `mismatch` against `figures` (null figures: no mismatch). */
+/**
+ * The settlement of exactly this period: its vat_returns rows SUMMED (the first settlement plus any top-up after an
+ * amend), with the latest row's status, reference, time and version, and `mismatch` against `figures` (null figures:
+ * no mismatch).
+ */
 export async function getVatReturnRecord(
   companyId: string, start: string, end: string, figures: VatFigures | undefined,
 ): Promise<VatReturnRecord | null> {
   const rows = (await sql`
-    SELECT vr.status, vr.total_output_tax, vr.total_input_tax, vr.net_vat, vr.sars_reference, vr.submitted_at,
-           v.version_no AS return_version_no
+    SELECT (ARRAY_AGG(vr.status ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS status,
+           SUM(vr.total_output_tax) AS total_output_tax, SUM(vr.total_input_tax) AS total_input_tax,
+           SUM(vr.net_vat) AS net_vat,
+           (ARRAY_AGG(vr.sars_reference ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS sars_reference,
+           MAX(vr.submitted_at) AS submitted_at,
+           (ARRAY_AGG(v.version_no ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS return_version_no
     FROM vat_returns vr
     LEFT JOIN tax_return_versions v ON v.id = vr.return_version_id AND v.company_id = vr.company_id
     WHERE vr.company_id = ${companyId}::UUID AND vr.period_start = ${start}::DATE AND vr.period_end = ${end}::DATE
+    HAVING COUNT(*) > 0
   `) as DbRow[];
   const r = rows[0];
   if (!r) return null;

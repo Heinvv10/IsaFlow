@@ -33,7 +33,7 @@ Balance enforced by `createJournalEntry.validateJournalEntry`. Source tag: `auto
 
 ## Tables
 
-- `vat_returns` (mig 402) — one row per submitted period per company. UNIQUE on `(company_id, period_start, period_end)`. Index on `(company_id, period_start DESC)`. FK to `gl_journal_entries.id` via `journal_entry_id`.
+- `vat_returns` (mig 402, 999g) — one row per settlement: per company, period and VAT201 version (`return_version_id`; rows with none stay one per period). `uq_vat_returns_period_settlement` replaced 402's UNIQUE `(company_id, period_start, period_end)`. Index on `(company_id, period_start DESC)`. FK to `gl_journal_entries.id` via `journal_entry_id`.
 
 ## Gotchas
 
@@ -44,4 +44,6 @@ Balance enforced by `createJournalEntry.validateJournalEntry`. Source tag: `auto
 - **Idempotency**: the UNIQUE constraint on `(company, periodStart, periodEnd)` is the only guard. If the first submission raced against a second, the second will fail at the INSERT (after the journal has been posted in a race window). For safety, run submissions sequentially per period.
 
 ## Settlement needs a finalised VAT201
-- POST is 409 `VAT201_NOT_FINALISED` (ReturnRefusal via `respondReturnRefusal`) unless a finalised or filed VAT201 version exists for exactly the period; checked first, before the idempotency read and every write. The row records `return_version_id`. `vatSubmissionService.ts` was split (pure move): `vatSubmissionSupport.ts` (net-VAT account, clearing date guard) and `vatReturnsList.ts` (record type, `listVATReturns`).
+- POST settles against the live VAT201 version of exactly the period (`settlementBasis`, returns module), judged before any write: 409 `VAT201_NOT_FINALISED`, `VAT201_LOCK_RELEASED`, `VAT_SETTLEMENT_PERIOD_OVERLAP`, then `VAT_ALREADY_SETTLED` (a row already names this version), then `VAT_SETTLEMENT_DRIFT` (the ledger's net, `getVATReturn`, differs from the version's net by more than 1c: amend and finalise again). All are `ReturnRefusal` via `respondReturnRefusal`, so the message reaches the user.
+- After an amend, the new version is settled by a TOP-UP: the journal and the row carry only the difference between the ledger's figures and the period's prior settlements, linked to the new version (`return_version_id`). Nothing left to settle is `VAT_ALREADY_SETTLED`. The VAT control accounts then clear.
+- `vatSubmissionService.ts` is split: `vatSubmissionSupport.ts` (net-VAT account, clearing-date guard) and `vatReturnsList.ts` (record type, `listVATReturns`).

@@ -11,8 +11,8 @@
  * drawer and returns to the Versions button.
  *
  * VR (wave 6): settling the period (POST /vat-returns) is 409 while it has no live version and writes nothing; once
- * filed it settles (first run) or is already settled (later runs), and the drawer shows the settlement with the
- * version it was posted against.
+ * filed it settles (first run) or has nothing left to settle (later runs, 409), and the drawer shows the settlement
+ * with the version it was posted against.
  *
  * Nothing goes to SARS: "Mark filed" records a filing made elsewhere, and the ISV send routes are aborted for the run.
  * The sandbox keeps one VAT period whose chain grows by two versions per run; a live version left by an earlier run is
@@ -130,12 +130,13 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
   await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16B') });
   await expect(status(page)).toHaveText(`Filed (v${n + 1})`);
 
-  // The filed version can be settled once per period: the first run posts it (linked to that version), a later run
-  // finds it already submitted. Either way the drawer names the version the settlement was posted against.
+  // The filed version is settled: the first run posts it (linked to that version); a later run's new version has
+  // nothing left to settle (409 VAT_ALREADY_SETTLED; a top-up only posts a difference). Either way the drawer names
+  // the version the settlement was posted against.
   const settleRes = await api.postRaw('/api/accounting/vat-returns', settleBody);
-  expect([200, 400], `settle: ${JSON.stringify(settleRes.json)}`).toContain(settleRes.status);
+  expect([200, 409], `settle: ${JSON.stringify(settleRes.json)}`).toContain(settleRes.status);
   if (settleRes.status === 200) expect(settleRes.json.data.returnVersionId).toBeTruthy();
-  else expect(JSON.stringify(settleRes.json), 'a later run: already settled').toContain('already been submitted');
+  else expect(JSON.stringify(settleRes.json), 'a later run: nothing left to settle').toContain('VAT_ALREADY_SETTLED');
   expect((await settlement())?.returnVersionNo, 'the settlement names a version').toBeTruthy();
 
   const steps = page.getByRole('list', { name: 'Lifecycle steps' });
