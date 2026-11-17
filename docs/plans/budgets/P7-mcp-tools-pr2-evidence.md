@@ -107,6 +107,102 @@ only, and the app's template import is unchanged by them.
   is back to the round-1 rule (an inactive member only where it holds amounts for that account), pinned by
   `budgetTemplateTool`'s measurement test. The import still accepts a row a person adds for another account.
 
+## South African number formats (after round 5)
+
+The character rule refused the rand formats South African sheets use (they carry quoted or escaped text). They are
+admitted by an EXACT-STRING allowlist (`budgets/budgetFreeformFormats.ts`, `ZA_FORMATS`, 51 codes), compared after
+`normaliseFormat`: whitespace runs (a non-breaking space included) to one space, a LEADING locale-only tag dropped
+(`[$-1C09]` en-ZA, `[$-436]` af-ZA, `[$-409]` en-US: LibreOffice prefixes every format it writes with its locale; a
+locale picks no digits; this is the one normalisation beyond whitespace, and it drops only those three tags), and
+colour names case-folded (`[RED]` = `[Red]`). Every listed format shows the imported value for every number it
+accepts: a negative keeps its minus, the accounting zero shows "-" and imports 0.
+
+**Shown equals imported, generally.** A money cell whose format shows fewer decimals than the cell holds is refused
+(`This cell shows 0 decimal places but holds 1234.5 ...`): a `#,##0` cell shows 1,235 for 1 234.50. This applies to the
+allowlist's no-decimal formats and to the character rule's (built-ins 1, 3, 37, 38, 41 and custom `#,##0` alike), so a
+whole-rand budget in those formats still imports; one with cents is refused, not misread.
+
+**How the list was made.** LibreOffice 24.2.7.2 headless over UNO (`scratchpad .../lo/zafmt/gen.py`): its own en-ZA
+currency formats (`NumberFormats.queryKeys(CURRENCY, en-ZA)`), and Excel's en-ZA strings added in neutral (en-US)
+syntax, as an xlsx stores codes; each applied to cells holding 1 234.50, -1 234.50, 0, 0.07 and 1 000 000; the shown
+text recorded; the workbook saved as xlsx and each cell's numFmt read back. (Adding the Excel strings under the en-ZA
+locale mangled them: that locale reads `,` as the decimal separator, so the neutral syntax was used.) Sources:
+`libreoffice` = LibreOffice's own en-ZA formats as it writes them (verified); `libreoffice-excel` = Excel's strings as
+LibreOffice resaves them (`"R"` becomes `\R`, `"-"` becomes `\-`; verified); `excel` = Excel's en-ZA defaults in
+Excel's own spelling, from Microsoft's documented en-ZA formats: **NOT verified from a file saved by Excel** (no Excel
+on this machine). Kept out, with tests: Excel's and LibreOffice's red-without-minus currency (`"R"#,##0.00;[Red]"R"#,##0.00`:
+a negative shown unsigned), LibreOffice's `.--` cents (Excel shows such a format rounded), its `\ CCC` ISO-code format
+(Excel cannot show it), the spell-out formats, and the same patterns with another currency or locale.
+
+| Format (as allowlisted) | Decimals | Source | LibreOffice shows 1 234.50 / -1 234.50 / 0 |
+|---|---|---|---|
+| `[$-1C09]"R "#,##0;"R-"#,##0` | 0 | libreoffice | R 1 235 / R-1 235 / R 0 |
+| `[$-1C09]"R "#,##0.00;"R-"#,##0.00` | 2 | libreoffice | R 1 234,50 / R-1 234,50 / R 0,00 |
+| `[$-1C09]"R "#,##0;[RED]"R-"#,##0` | 0 | libreoffice | R 1 235 / R-1 235 / R 0 |
+| `[$-1C09]"R "#,##0.00;[RED]"R-"#,##0.00` | 2 | libreoffice | R 1 234,50 / R-1 234,50 / R 0,00 |
+| `[$R-1C09]\ #,##0;[$R-1C09]\-#,##0` | 0 | libreoffice | R 1 235 / R-1 235 / R 0 |
+| `[$R-1C09]\ #,##0.00;[$R-1C09]\-#,##0.00` | 2 | libreoffice | R 1 234,50 / R-1 234,50 / R 0,00 |
+| `[$R-1C09]\ #,##0;[RED][$R-1C09]\-#,##0` | 0 | libreoffice | R 1 235 / R-1 235 / R 0 |
+| `[$R-1C09]\ #,##0.00;[RED][$R-1C09]\-#,##0.00` | 2 | libreoffice | R 1 234,50 / R-1 234,50 / R 0,00 |
+| `[$-409]_-\R* #,##0.00_-;"-R"* #,##0.00_-;_-\R* \-??_-;_-@_-` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R- |
+| `[$-409]_-\R* #,##0_-;"-R"* #,##0_-;_-\R* \-_-;_-@_-` | 0 | libreoffice-excel | R1,235 / -R1,235 / R- |
+| `[$-409]_-* #,##0.00_-;\-* #,##0.00_-;_-* \-??_-;_-@_-` | 2 | libreoffice-excel | 1,234.50 / -1,234.50 / - |
+| `[$-409]_-* #,##0_-;\-* #,##0_-;_-* \-_-;_-@_-` | 0 | libreoffice-excel | 1,235 / -1,235 / - |
+| `[$-409]\R#,##0.00` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R0.00 |
+| `[$-409]\R#,##0` | 0 | libreoffice-excel | R1,235 / -R1,235 / R0 |
+| `[$-409]\R#,##0.00;"-R"#,##0.00` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R0.00 |
+| `[$-409]\R#,##0;"-R"#,##0` | 0 | libreoffice-excel | R1,235 / -R1,235 / R0 |
+| `[$-409]\R#,##0.00;[RED]"-R"#,##0.00` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R0.00 |
+| `[$-409]\R#,##0;[RED]"-R"#,##0` | 0 | libreoffice-excel | R1,235 / -R1,235 / R0 |
+| `[$-409]"R "#,##0.00` | 2 | libreoffice-excel | R 1,234.50 / -R 1,234.50 / R 0.00 |
+| `[$-409]"R "#,##0.00;"-R "#,##0.00` | 2 | libreoffice-excel | R 1,234.50 / -R 1,234.50 / R 0.00 |
+| `[$-409]"R "#,##0.00;[RED]"-R "#,##0.00` | 2 | libreoffice-excel | R 1,234.50 / -R 1,234.50 / R 0.00 |
+| `[$R-en-ZA]\ #,##0.00` | 2 | libreoffice-excel | R 1,234.50 / -R 1,234.50 / R 0.00 |
+| `[$R-1C09]\ #,##0.00` | 2 | libreoffice-excel | R 1,234.50 / -R 1,234.50 / R 0.00 |
+| `[$R-436]\ #,##0.00` | 2 | libreoffice-excel | R 1,234.50 / -R 1,234.50 / R 0.00 |
+| `[$R-1C09]#,##0.00;\-[$R-1C09]#,##0.00` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R0.00 |
+| `_-[$R-1C09]* #,##0.00_-;\-[$R-1C09]* #,##0.00_-;_-[$R-1C09]* \-??_-;_-@_-` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R- |
+| `_-[$R-en-ZA]* #,##0.00_-;\-[$R-en-ZA]* #,##0.00_-;_-[$R-en-ZA]* \-??_-;_-@_-` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R- |
+| `_-[$R-436]* #,##0.00_-;\-[$R-436]* #,##0.00_-;_-[$R-436]* \-??_-;_-@_-` | 2 | libreoffice-excel | R1,234.50 / -R1,234.50 / R- |
+| `_-"R"* #,##0.00_-;\-"R"* #,##0.00_-;_-"R"* "-"??_-;_-@_-` | 2 | excel | not rendered (Excel spelling) |
+| `_-"R"* #,##0_-;\-"R"* #,##0_-;_-"R"* "-"_-;_-@_-` | 0 | excel | not rendered (Excel spelling) |
+| `_-* #,##0.00_-;\-* #,##0.00_-;_-* "-"??_-;_-@_-` | 2 | excel | not rendered (Excel spelling) |
+| `_-* #,##0_-;\-* #,##0_-;_-* "-"_-;_-@_-` | 0 | excel | not rendered (Excel spelling) |
+| `_-[$R-en-ZA]* #,##0.00_-;\-[$R-en-ZA]* #,##0.00_-;_-[$R-en-ZA]* "-"??_-;_-@_-` | 2 | excel | not rendered (Excel spelling) |
+| `_-[$R-en-ZA]* #,##0_-;\-[$R-en-ZA]* #,##0_-;_-[$R-en-ZA]* "-"_-;_-@_-` | 0 | excel | not rendered (Excel spelling) |
+| `_-[$R-1C09]* #,##0.00_-;\-[$R-1C09]* #,##0.00_-;_-[$R-1C09]* "-"??_-;_-@_-` | 2 | excel | not rendered (Excel spelling) |
+| `_-[$R-1C09]* #,##0_-;\-[$R-1C09]* #,##0_-;_-[$R-1C09]* "-"_-;_-@_-` | 0 | excel | not rendered (Excel spelling) |
+| `_-[$R-436]* #,##0.00_-;\-[$R-436]* #,##0.00_-;_-[$R-436]* "-"??_-;_-@_-` | 2 | excel | not rendered (Excel spelling) |
+| `_-[$R-436]* #,##0_-;\-[$R-436]* #,##0_-;_-[$R-436]* "-"_-;_-@_-` | 0 | excel | not rendered (Excel spelling) |
+| `"R"#,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `"R"#,##0` | 0 | excel | not rendered (Excel spelling) |
+| `"R"#,##0.00;\-"R"#,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `"R"#,##0;\-"R"#,##0` | 0 | excel | not rendered (Excel spelling) |
+| `"R"#,##0.00;[Red]\-"R"#,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `"R"#,##0;[Red]\-"R"#,##0` | 0 | excel | not rendered (Excel spelling) |
+| `"R" #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `"R" #,##0.00;\-"R" #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `"R" #,##0.00;[Red]\-"R" #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `[$R-en-ZA] #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `[$R-1C09] #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `[$R-436] #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+| `[$R-en-ZA] #,##0.00;\-[$R-en-ZA] #,##0.00` | 2 | excel | not rendered (Excel spelling) |
+
+(LibreOffice's own en-ZA formats display with its en-ZA separators, a non-breaking space for thousands and `,` for
+decimals; the value is the same.)
+
+Mutation rows (unit, budgetFreeformZaFormats + budgetFreeformRaw + budgetFreeformRaw5; failed / total):
+
+| # | Guard | Mutant | Result |
+|---|---|---|---|
+| Q1 | the allowlist admits the listed formats | the lookup removed | 54/177 |
+| Q2 | a value with more decimals than its format shows is refused | the check removed | 3/177 |
+| Q3 | a leading locale-only tag is dropped before matching | not dropped | 1/177 |
+| Q4 | whitespace normalised | not normalised | 1/177 |
+| Q5 | colour names case-folded | not folded | 1/177 |
+| Q6 | the character rule's formats show their own decimals | always 2 | 1/177 |
+| Q7 | the built-ins' decimals (1, 3, 37, 38, 41 show none) | all 2 | 2/177 |
+
 ## Review round 5: final hardening, and the threat model
 
 **Threat model for the free-form path (fixed after this round).** The caller already holds set_budget_amounts, so a
