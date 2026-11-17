@@ -13,6 +13,7 @@ import type pg from 'pg';
 import { sql } from '@/lib/neon';
 import { uploadAdminPool } from '@/lib/mcp/uploadAdminPool';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { newUploadToken } from '@/lib/mcp/uploadToken';
 import type { DbRow } from '@/lib/neon';
 
@@ -219,21 +220,31 @@ export async function stageUploadBytes(
     if (isStageTimeout(err)) throw new UploadStageLockTimeoutError(err);
     throw err;
   }
+  // R-176, as routeAdminTx: a transaction this function opened is rolled back through rollbackFailed (bounded, the
+  // backend cancelled on a hang), and a connection whose ROLLBACK failed is destroyed (release(true)), never handed to
+  // the next PUT or sweep on this small pool.
+  let opened = false;
+  let unusable = false;
   try {
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
     await client.query(`SET LOCAL lock_timeout = '${STAGE_LOCK_WAIT}'`);
     await client.query(`SET LOCAL statement_timeout = '${STAGE_STATEMENT_TIMEOUT}'`);
     const res = await client.query(STAGE_SQL, [id, companyId, bytes]);
     await client.query('COMMIT');
+    opened = false;
     return res.rowCount === 1;
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr: unknown) => {
-      log.warn('MCP upload stage rollback failed', { message: String(rollbackErr) }, 'mcp-uploads');
-    });
+    if (opened) unusable = await rollbackFailed(client, 'mcp-upload stage');
+    if ((err as { code?: unknown } | null)?.code === '57014') {
+      // Not a held row: the write itself ran past STAGE_STATEMENT_TIMEOUT. Still a retry for the agent, but a slow
+      // database is worth seeing apart from contention.
+      log.warn('MCP upload stage ran past its statement timeout', { uploadId: id, size: bytes.length }, 'mcp-uploads');
+    }
     if (isStageTimeout(err)) throw new UploadStageLockTimeoutError(err);
     throw err;
   } finally {
-    client.release();
+    client.release(unusable);
   }
 }
 
