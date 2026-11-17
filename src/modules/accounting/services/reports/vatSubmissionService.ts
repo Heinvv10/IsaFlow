@@ -197,7 +197,7 @@ export async function submitVATReturn(
       ${totalInputTax},
       ${absNetVat},
       ${sarsReference ?? null},
-      ${safeUserId}::UUID,
+      ${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)
       ${journalEntryId}::UUID,
       ${version.id}::UUID
     )
