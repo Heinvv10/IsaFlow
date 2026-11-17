@@ -20,18 +20,24 @@ export const SALARY_BANK_FILE_FLAG = 'payroll_salary_bank_file';
 
 export type BankFileRefusalReason =
   | 'FEATURE_DISABLED' | 'NOT_FOUND' | 'NOT_FINAL' | 'BANK_HAS_PAID' | 'FILE_EXISTS' | 'INVALID_ACTION_DATE'
-  | 'NO_PAYING_ACCOUNT' | 'EMPLOYEES_NOT_PAYABLE' | 'NOT_GENERATED' | 'STALE';
+  | 'NO_PAYING_ACCOUNT' | 'EMPLOYEES_NOT_PAYABLE' | 'NOT_GENERATED' | 'UNSETTLED_FILE' | 'BANK_DETAILS_CHANGED'
+  | 'RUN_CHANGED_SINCE_APPROVAL' | 'NOT_SENT_REQUIRED';
 
 const STATUS: Record<BankFileRefusalReason, 400 | 403 | 404 | 409> = {
   FEATURE_DISABLED: 403, NOT_FOUND: 404, INVALID_ACTION_DATE: 400, NOT_FINAL: 409, BANK_HAS_PAID: 409, FILE_EXISTS: 409,
-  NO_PAYING_ACCOUNT: 409, EMPLOYEES_NOT_PAYABLE: 409, NOT_GENERATED: 409, STALE: 409,
+  NO_PAYING_ACCOUNT: 409, EMPLOYEES_NOT_PAYABLE: 409, NOT_GENERATED: 409, UNSETTLED_FILE: 409,
+  BANK_DETAILS_CHANGED: 409, RUN_CHANGED_SINCE_APPROVAL: 409, NOT_SENT_REQUIRED: 400,
 };
 
 /** Raised before any write of the request; the route answers it with `status` and `reason`. */
 export class PayrollBankFileRefusal extends Error {
   readonly code = 'PAYROLL_BANK_FILE_REFUSED';
   readonly status: 400 | 403 | 404 | 409;
-  constructor(readonly reason: BankFileRefusalReason, message: string, readonly problems: string[] = []) {
+  constructor(
+    readonly reason: BankFileRefusalReason, message: string, readonly problems: string[] = [],
+    /** UNSETTLED_FILE: the earlier file a person must settle first. */
+    readonly file?: { id: string; sha256: string; totalCents: number; actionDate: string },
+  ) {
     super(message);
     this.name = 'PayrollBankFileRefusal';
     this.status = STATUS[reason];
@@ -108,7 +114,8 @@ export async function bankFileReopenWarnings(companyId: string, runId: string): 
   if (files.some((f) => f.status === 'generated')) {
     warnings.push({
       code: 'BANK_FILE_GENERATED',
-      message: 'A salary bank file was generated for this run and is no longer valid. Do not upload it; void it on the run page.',
+      message: 'A salary bank file was generated for this run before it was reopened. If it was uploaded and the bank paid it, '
+        + 'record that the bank accepted it; if it was never sent, void it saying so. No new file can be made until then.',
     });
   }
   return { warnings };

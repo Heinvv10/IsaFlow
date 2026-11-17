@@ -4,7 +4,7 @@
  * file shows the run as payment-confirmed; the run stays approved and can still be reopened, with a warning.
  * Shown for approved and paid runs; re-read whenever the run's status changes (a reopen makes a file stale).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Banknote, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { todayInSast } from '@/lib/saDateParser';
@@ -20,7 +20,7 @@ const BTN = 'px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50';
 function statusLabel(f: PayrollBankFile): string {
   if (f.status === 'confirmed') return 'Payment confirmed';
   if (f.status === 'voided') return 'Voided';
-  return f.stale ? 'Out of date: the run was reopened' : 'Generated, not yet confirmed';
+  return f.stale ? 'Made before the run was reopened: record it if the bank paid it, or void it' : 'Generated, not yet confirmed';
 }
 
 function download(filename: string, content: string): void {
@@ -39,6 +39,10 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
   const [busy, setBusy] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<{ file: PayrollBankFile; action: 'confirm' | 'void' } | null>(null);
+  const [notSent, setNotSent] = useState(false);
+  const [notice, setNotice] = useState('');
+  const firstButton = useRef<HTMLButtonElement>(null);
+  const ask = (file: PayrollBankFile, action: 'confirm' | 'void') => { setNotSent(false); setPending({ file, action }); };
 
   const load = useCallback(async () => {
     try {
@@ -53,7 +57,7 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
 
   const generate = async () => {
     if (!actionDate) return;
-    setBusy(true); setError(''); setWarnings([]);
+    setBusy(true); setError(''); setWarnings([]); setNotice('');
     try {
       const made = await apiJson(`/api/payroll/runs/${runId}/bank-file`,
         { method: 'POST', body: JSON.stringify({ actionDate }) }, 'Could not generate the bank file - try again');
@@ -72,8 +76,13 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
     if (!pending) return;
     setBusy(true); setError('');
     try {
-      const res = await apiFetch(`/api/payroll/runs/${runId}/bank-file/${pending.file.id}/${pending.action}`, { method: 'POST' });
+      const res = await apiFetch(`/api/payroll/runs/${runId}/bank-file/${pending.file.id}/${pending.action}`,
+        { method: 'POST', body: JSON.stringify(pending.action === 'void' ? { notSentToBank: notSent } : {}) });
       await assertOk(res, `Could not ${pending.action} the bank file - try again`);
+      setWarnings([]);
+      setNotice(pending.action === 'void'
+        ? 'File voided. That file is now dead: never upload it to the bank. Generate a new one if the run still needs paying.'
+        : '');
     } catch (err) {
       setError(apiErrorMessage(err, `Could not ${pending.action} the bank file - try again`));
     } finally {
@@ -82,7 +91,7 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
     }
   };
 
-  const live = state?.files.find((f) => f.status === 'generated' && !f.stale);
+  const live = state?.files.find((f) => f.status === 'generated');
   const confirmed = state?.files.find((f) => f.status === 'confirmed');
   const final = ['approved', 'paid'].includes(runStatus);
   const canGenerate = canManage && !!state?.enabled && !live && !confirmed && final;
@@ -116,14 +125,13 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
             <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="text-[var(--ff-text-primary)]">Action date {formatDisplayDate(f.actionDate)}</span>
               <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(f.totalCents / 100)} · {f.lineCount} {f.lineCount === 1 ? 'payment' : 'payments'}</span>
+              <span className="font-mono text-xs text-[var(--ff-text-secondary)]" title={f.sha256}>sha256 {f.sha256.slice(0, 12)}…</span>
               <span className="text-xs text-[var(--ff-text-secondary)]">{statusLabel(f)}</span>
               {canManage && f.status === 'generated' && (
                 <span className="flex gap-2">
-                  {!f.stale && (
-                    <button type="button" disabled={busy} onClick={() => setPending({ file: f, action: 'confirm' })}
-                      className={`${BTN} bg-success-700 hover:bg-success-800 text-white`}>Bank accepted it</button>
-                  )}
-                  <button type="button" disabled={busy} onClick={() => setPending({ file: f, action: 'void' })}
+                  <button type="button" disabled={busy} onClick={() => ask(f, 'confirm')}
+                    className={`${BTN} bg-success-700 hover:bg-success-800 text-white`}>Bank accepted it</button>
+                  <button type="button" disabled={busy} onClick={() => ask(f, 'void')}
                     className={`${BTN} border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]`}>Void</button>
                 </span>
               )}
@@ -147,22 +155,29 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
           </button>
         </div>
       )}
+      {notice && <p role="status" className="text-sm text-[var(--ff-text-secondary)]">{notice}</p>}
       {warnings.length > 0 && (
         <ul aria-label="Bank file warnings" className="list-disc pl-5 text-sm text-amber-800 dark:text-amber-300">
           {warnings.map((w) => <li key={w}>{w}</li>)}
         </ul>
       )}
-      <Modal open={pending !== null} onClose={() => setPending(null)} size="sm"
+      <Modal open={pending !== null} onClose={() => setPending(null)} size="sm" initialFocusRef={firstButton}
         title={pending?.action === 'confirm' ? 'Record that the bank accepted this file?' : 'Void this bank file?'}>
         <Modal.Body className="text-sm text-[var(--ff-text-secondary)]">
           {pending?.action === 'confirm'
             ? 'Only do this once the bank shows the salaries as accepted. The run is then shown as paid by the bank, and no second file can be made for it.'
-            : 'Void it only if it was never uploaded to the bank. A new file can then be generated.'}
+            : 'Void it only if it was never uploaded to the bank. A voided file is dead and must never be uploaded; a new file can then be generated.'}
+          {pending?.action === 'void' && (
+            <label className="mt-3 flex items-start gap-2 text-[var(--ff-text-primary)]">
+              <input type="checkbox" checked={notSent} onChange={(e) => setNotSent(e.target.checked)} className="mt-0.5" />
+              This file was not sent to the bank.
+            </label>
+          )}
         </Modal.Body>
         <Modal.Footer>
-          <button type="button" disabled={busy} onClick={() => setPending(null)}
+          <button ref={firstButton} type="button" disabled={busy} onClick={() => setPending(null)}
             className={`${BTN} border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]`}>Cancel</button>
-          <button type="button" disabled={busy} onClick={() => void settle()}
+          <button type="button" disabled={busy || (pending?.action === 'void' && !notSent)} onClick={() => void settle()}
             className={`${BTN} text-white ${pending?.action === 'void' ? 'bg-red-700 hover:bg-red-800' : 'bg-success-700 hover:bg-success-800'}`}>
             {pending?.action === 'confirm' ? 'Bank accepted it' : 'Void file'}
           </button>

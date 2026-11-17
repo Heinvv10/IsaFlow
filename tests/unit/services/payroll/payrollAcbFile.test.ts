@@ -66,4 +66,48 @@ describe('buildAcbPaymentFile', () => {
     expect(() => buildAcbPaymentFile(i)).toThrow(AcbFileInputError);
     expect(() => buildAcbPaymentFile(i)).toThrow(msg);
   });
+
+  // Review #1524 (format): what the layout's "must contain" rules refuse, each naming whose field it was.
+  it.each([
+    ['an all-zero homing account (p.4 f7 + p.8 f18: no account)', (i: AcbFileInput) => { i.payments[1]!.accountNumber = '00000000000'; }, /all zeros/, { kind: 'payment', index: 1 }],
+    ['an all-zero paying account', (i: AcbFileInput) => { i.from.accountNumber = '0'; }, /all zeros/, { kind: 'from' }],
+    ['homing branch 000000 (the public-recipient code, p.4 f6)', (i: AcbFileInput) => { i.payments[0]!.branchCode = '000000'; }, /public-recipient/, { kind: 'payment', index: 0 }],
+    ['paying branch 000000', (i: AcbFileInput) => { i.from.branchCode = '000000'; }, /public-recipient/, { kind: 'from' }],
+    ['a name that folds to nothing (p.7 f16)', (i: AcbFileInput) => { i.payments[0]!.accountName = '王小明'; }, /no characters/, { kind: 'payment', index: 0 }],
+    ['a whitespace-only name', (i: AcbFileInput) => { i.payments[1]!.accountName = '   '; }, /no characters/, { kind: 'payment', index: 1 }],
+    ['a reference that folds to nothing (p.7 f14)', (i: AcbFileInput) => { i.payments[0]!.reference = 'Ωμέγα'; }, /no characters/, { kind: 'payment', index: 0 }],
+    ['an unknown account type, even an inherited key', (i: AcbFileInput) => { (i.payments[0] as { accountType: string }).accountType = 'toString'; }, /unknown account type/, { kind: 'payment', index: 0 }],
+  ])('refuses %s, naming its owner', (_name, mutate, msg, owner) => {
+    const i = input();
+    mutate(i);
+    let err: unknown;
+    try { buildAcbPaymentFile(i); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(AcbFileInputError);
+    expect((err as AcbFileInputError).message).toMatch(msg);
+    expect((err as AcbFileInputError).owner).toEqual(owner);
+  });
+
+  it('writes the transmission account type as 3 (p.5)', () => {
+    const i = input();
+    i.payments[0]!.accountType = 'transmission';
+    expect(buildAcbPaymentFile(i).content.split('\r\n')[2]!.slice(46, 47)).toBe('3');
+  });
+
+  it('every field lands at its page position (pp.3-12)', () => {
+    const lines = buildAcbPaymentFile(input()).content.split('\r\n');
+    const t = lines[2]!;
+    expect([t.slice(0, 2), t.slice(2, 8), t.slice(8, 19), t.slice(23, 29), t.slice(29, 35), t.slice(35, 46), t.slice(46, 47), t.slice(47, 58)])
+      .toEqual(['10', '250655', '62000000001', '000001', '632005', '04071234567', '2', '00001834567']);
+    expect([t.slice(58, 70), t.slice(70, 90), t.slice(100, 115), t.slice(130, 150)])
+      .toEqual(['0'.repeat(12), 'Test Co Pty Ltd     ', 'Thandi Mokoena ', '0'.repeat(20)]);
+    expect([lines[4]!.slice(0, 19), lines[4]!.slice(19, 58), lines[4]!.slice(58, 64)]).toEqual(['1225065562000000001', '0'.repeat(39), '261125']);
+  });
+
+  it('100 000 payments keep a 6-digit ascending sequence; 100 001 are refused', () => {
+    const i = input();
+    i.payments = Array(100_000).fill(i.payments[0]);
+    expect(buildAcbPaymentFile(i).content.split('\r\n')[100_001]!.slice(23, 29)).toBe('100000');
+    i.payments = Array(100_001).fill(i.payments[0]);
+    expect(() => buildAcbPaymentFile(i)).toThrow(/at most 100000/);
+  });
 });

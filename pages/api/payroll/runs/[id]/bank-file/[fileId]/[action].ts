@@ -1,6 +1,6 @@
 /**
  * POST /api/payroll/runs/[id]/bank-file/[fileId]/confirm  record that the bank accepted the file (wave 6 BF).
- * POST /api/payroll/runs/[id]/bank-file/[fileId]/void     void a generated file that was never sent.
+ * POST /api/payroll/runs/[id]/bank-file/[fileId]/void     { notSentToBank: true } void a generated file never sent.
  *
  * Owner / admin, a person's own session, never Login-as (payrollBankFileApi). Confirm writes only the file row: the
  * run stays `approved` and reopenable (spec 0a.17). Refusals are judged before the write (payrollBankFileConfirm).
@@ -27,7 +27,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const actor = await bankFileWriter(req, res);
   if (!actor) return;
   try {
-    return apiResponse.success(res, await settleBankFile({ companyId, runId, fileId, action, actor }));
+    const notSentToBank = (req.body as { notSentToBank?: unknown } | undefined)?.notSentToBank === true;
+    return apiResponse.success(res, await settleBankFile({ companyId, runId, fileId, action, actor, notSentToBank }));
   } catch (err) {
     if (respondIfLockTimeout(res, err) || respondIfBankFileRefused(res, err)) return;
     throw err;

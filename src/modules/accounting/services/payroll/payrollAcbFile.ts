@@ -66,9 +66,12 @@ export interface AcbFile {
   warnings: string[];
 }
 
-/** A caller passed something the layout cannot hold. The service judges every one of these first, by name. */
+/** Whose field failed: the paying account (and file-level facts), or payment `index` (0-based) of `payments`. */
+export type AcbFieldOwner = { kind: 'from' } | { kind: 'payment'; index: number } | { kind: 'file' };
+
+/** A caller passed something the layout cannot hold. The service maps `owner` to its own refusal (paying account / employee). */
 export class AcbFileInputError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly owner: AcbFieldOwner = { kind: 'file' }) {
     super(message);
     this.name = 'AcbFileInputError';
   }
@@ -76,14 +79,24 @@ export class AcbFileInputError extends Error {
 
 const zeros = (n: number): string => '0'.repeat(n);
 
-function num(value: string, width: number, what: string): string {
-  if (!/^\d+$/.test(value) || value.length > width) throw new AcbFileInputError(`${what} must be 1 to ${width} digits`);
-  return value.padStart(width, '0');
+/**
+ * An account number (fields 3 / 7): 1 to 11 digits, and not all zeros. p.4 field 7: a zero-filled homing account means
+ * "use the non-standard account (field 18)", which this writer leaves zero (p.8: zero-filled = unused), so all zeros
+ * would name no account at all.
+ */
+function account(value: string, what: string, owner: AcbFieldOwner): string {
+  if (!/^\d+$/.test(value) || value.length > 11) throw new AcbFileInputError(`${what} must be 1 to 11 digits`, owner);
+  if (/^0+$/.test(value)) throw new AcbFileInputError(`${what} cannot be all zeros`, owner);
+  return value.padStart(11, '0');
 }
 
-/** A branch code is exactly 6 digits: a short one zero-padded is no branch at all. */
-function branch(value: string, what: string): string {
-  if (!/^\d{6}$/.test(value)) throw new AcbFileInputError(`${what} must be exactly 6 digits`);
+/**
+ * A branch code is exactly 6 digits: a short one zero-padded is no branch at all. 000000 is the Public Recipient marker
+ * (p.4 field 6), which needs account type 0 and field 18; a cheque, savings or transmission payment never uses it.
+ */
+function branch(value: string, what: string, owner: AcbFieldOwner): string {
+  if (!/^\d{6}$/.test(value)) throw new AcbFileInputError(`${what} must be exactly 6 digits`, owner);
+  if (value === '000000') throw new AcbFileInputError(`${what} 000000 is the public-recipient code, not a bank branch`, owner);
   return value;
 }
 
@@ -92,8 +105,10 @@ export function acbText(value: string): string {
   return value.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function text(value: string, width: number, what: string, warnings: string[]): string {
+/** A text field (p.7 fields 14 and 16 "must contain" a reference / the account name): never blank once folded. */
+function text(value: string, width: number, what: string, warnings: string[], owner: AcbFieldOwner): string {
   const clean = acbText(value);
+  if (clean === '') throw new AcbFileInputError(`${what} "${value}" has no characters the bank file can carry`, owner);
   if (clean !== value.trim()) warnings.push(`${what} "${value}" is written as "${clean.slice(0, width)}" (the bank file takes plain characters only)`);
   else if (clean.length > width) warnings.push(`${what} "${clean}" is cut to ${width} characters in the bank file`);
   return clean.slice(0, width).padEnd(width, ' ');
@@ -116,36 +131,40 @@ export function buildAcbPaymentFile(input: AcbFileInput): AcbFile {
   if (payments.length > ACB_MAX_PAYMENTS) throw new AcbFileInputError(`A bank file holds at most ${ACB_MAX_PAYMENTS} payments`);
   const date = /^\d{2}(\d{2})-(\d{2})-(\d{2})$/.exec(input.actionDate);
   if (!date) throw new AcbFileInputError('Action date must be YYYY-MM-DD');
-  const userBranch = branch(from.branchCode, 'The paying branch code');
-  const userAccount = num(from.accountNumber, 11, 'The paying account number');
+  const FROM: AcbFieldOwner = { kind: 'from' };
+  const userBranch = branch(from.branchCode, 'The paying branch code', FROM);
+  const userAccount = account(from.accountNumber, 'The paying account number', FROM);
   const warnings: string[] = [];
   const records: string[] = [record('02' + zeros(178)), record('04' + zeros(178))];
 
-  let totalCents = 0;
+  let totalCents = 0n;
   payments.forEach((p, i) => {
     const n = i + 1;
+    const owner: AcbFieldOwner = { kind: 'payment', index: i };
     if (!Number.isSafeInteger(p.amountCents) || p.amountCents <= 0 || p.amountCents > ACB_MAX_AMOUNT_CENTS) {
-      throw new AcbFileInputError(`Payment ${n}: the amount must be 1 to ${ACB_MAX_AMOUNT_CENTS} cents`);
+      throw new AcbFileInputError(`Payment ${n}: the amount must be 1 to ${ACB_MAX_AMOUNT_CENTS} cents`, owner);
+    }
+    if (!Object.hasOwn(ACCOUNT_TYPE_CODE, p.accountType)) {
+      throw new AcbFileInputError(`Payment ${n}: unknown account type '${String(p.accountType)}'`, owner);
     }
     const type = ACCOUNT_TYPE_CODE[p.accountType];
-    if (!type) throw new AcbFileInputError(`Payment ${n}: unknown account type '${String(p.accountType)}'`);
-    totalCents += p.amountCents;
+    totalCents += BigInt(p.amountCents);
     records.push(record(
       '10' // 1 Record Identifier (p.3: 10 or 20 for payments)
       + userBranch // 2 User Branch, 3-8
       + userAccount // 3 User Nominated Account, 9-19
       + zeros(4) // 4 Filler, 20-23
       + String(n).padStart(6, '0') // 5 User Sequence Number, 24-29, ascending
-      + branch(p.branchCode, `Payment ${n}: the branch code`) // 6 Homing Branch, 30-35 (p.4)
-      + num(p.accountNumber, 11, `Payment ${n}: the account number`) // 7 Homing Account, 36-46 (p.4)
+      + branch(p.branchCode, `Payment ${n}: the branch code`, owner) // 6 Homing Branch, 30-35 (p.4)
+      + account(p.accountNumber, `Payment ${n}: the account number`, owner) // 7 Homing Account, 36-46 (p.4)
       + type // 8 Type of Account, 47 (p.5)
       + String(p.amountCents).padStart(11, '0') // 9 Amount in cents, 48-58 (p.6)
       + zeros(8) // 10 Filler, 59-66
       + '0' // 11 Tax Code, 67: "should always be zero"
       + zeros(2) + '0' // 12, 13 Fillers, 68-70
-      + text(p.reference, 20, `Payment ${n} reference`, warnings) // 14 To Account Reference, 71-90 (p.7)
+      + text(p.reference, 20, `Payment ${n} reference`, warnings, owner) // 14 To Account Reference, 71-90 (p.7)
       + zeros(10) // 15 Filler, 91-100
-      + text(p.accountName, 15, `Payment ${n} account name`, warnings) // 16 Homing Account Name, 101-115 (p.7)
+      + text(p.accountName, 15, `Payment ${n} account name`, warnings, owner) // 16 Homing Account Name, 101-115 (p.7)
       + zeros(15) // 17 Filler, 116-130
       + zeros(20) // 18 Non-Standard Account Number, 131-150 (p.8): zero-filled when unused
       + zeros(30), // 19 Filler, 151-180
@@ -163,5 +182,7 @@ export function buildAcbPaymentFile(input: AcbFileInput): AcbFile {
   records.push(record('92' + zeros(70) + hashTotal + zeros(96))); // p.11: hash total at 73-84
   records.push(record('94' + zeros(178))); // p.12
 
-  return { content: records.map((r) => `${r}\r\n`).join(''), lineCount: payments.length, totalCents, hashTotal, warnings };
+  // No total field in this layout; the caller records it. Summed exactly, and refused past a safe integer.
+  if (totalCents > BigInt(Number.MAX_SAFE_INTEGER)) throw new AcbFileInputError('The file total is too large to record');
+  return { content: records.map((r) => `${r}\r\n`).join(''), lineCount: payments.length, totalCents: Number(totalCents), hashTotal, warnings };
 }
