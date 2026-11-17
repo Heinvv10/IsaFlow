@@ -85,8 +85,54 @@ describe('group-keyed tables: members read, a writer of a member company writes'
     // UV writes GC (owner of A3) and only reads GA (viewer of A1): GA is visible to it, so only the write check stops the move.
     await F.asAppUser(u.UV, co.A3, async (q) => {
       for (const [table, id] of [['consolidation_adjustments', row.adjC], ['group_accounts', row.gcAcct], ['intercompany_transactions', row.txC]]) {
-        expect(await F.codeOf(q, `UPDATE ${table} SET group_id = $2 WHERE id = $1`, [id, g.GA]), table).toBe(DENIED);
+        // intercompany_transactions is stopped earlier, by its keys-immutable trigger; the other two by the UPDATE policy.
+        expect(await F.codeOf(q, `UPDATE ${table} SET group_id = $2 WHERE id = $1`, [id, g.GA]), table)
+          .toBe(table === 'intercompany_transactions' ? '23514' : DENIED);
       }
+    });
+  });
+});
+
+describe('intercompany_transactions: both parties are current members, the source is one the writer writes', () => {
+  const TXP = `INSERT INTO intercompany_transactions (group_id, source_company_id, target_company_id, source_journal_entry_id, target_journal_entry_id, transaction_type, amount, transaction_date)
+               VALUES ($1, $2, $3, $4, $5, 'loan', 1, '2026-03-02')`;
+  it('a writer records a transaction between two current members, with journals of those companies', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A4, null, null])).toBe('ok');
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A4, row.jeA1, row.jeA4])).toBe('ok');
+    });
+  });
+  it('a company outside the group, or one that has left it, is refused on either side', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A2, null, null])).toBe(DENIED);   // A2 is no member
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.B1, null, null])).toBe(DENIED);   // a foreign tenant
+      expect(await F.codeOf(q, TXP, [g.GA, co.A2, co.A1, null, null])).toBe(DENIED);   // source: A2 is no member
+      await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A4]);   // a member row is written with its own company active
+      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [g.GA, co.A4]);
+      await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A1]);
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A4, null, null])).toBe(DENIED);   // A4 has left
+    });
+  });
+  it('the source must be a company the writer holds a write role in', async () => {
+    await F.asAppUser(u.UW, co.A1, async (q) => {      // UW owns A1, only views A4
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A4, null, null])).toBe('ok');
+      expect(await F.codeOf(q, TXP, [g.GA, co.A4, co.A1, null, null])).toBe(DENIED);
+    });
+  });
+  it('a journal entry must belong to the company it is attached to', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A4, row.jeA4, null])).toBe(DENIED);   // A4's journal on A1's side
+      expect(await F.codeOf(q, TXP, [g.GA, co.A1, co.A4, null, row.jeA1])).toBe(DENIED);   // A1's journal on A4's side
+    });
+  });
+  it('the parties of a stored transaction never change (matching still updates its status)', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      const id = (await q.query(`INSERT INTO intercompany_transactions (group_id, source_company_id, target_company_id, transaction_type, amount, transaction_date)
+        VALUES ($1, $2, $3, 'loan', 1, '2026-03-02') RETURNING id`, [g.GA, co.A1, co.A4])).rows[0].id as string;
+      for (const [set, value] of [['source_company_id', co.A2], ['target_company_id', co.A2], ['group_id', g.GC], ['source_journal_entry_id', row.jeA4]]) {
+        expect(await F.codeOf(q, `UPDATE intercompany_transactions SET ${set} = $2 WHERE id = $1`, [id, value]), set).toBe('23514');
+      }
+      expect(await F.codeOf(q, "UPDATE intercompany_transactions SET match_status = 'matched', matched_at = NOW() WHERE id = $1", [id])).toBe('ok');
     });
   });
 });
@@ -189,10 +235,13 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
     await F.asAppUser(u.UV, co.A3, async (q) => {
       for (const t of ['group_accounts', 'consolidation_adjustments', 'intercompany_transactions']) {
         expect((await q.query(`UPDATE ${t} SET created_at = NOW()`)).rowCount, `update ${t}`).toBe(1);
-        expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(1);
+      }
+      expect((await q.query('DELETE FROM group_accounts')).rowCount).toBe(1);   // the chart is edited and pruned by the app
+      // Nothing else is ever hard-deleted by the app: adjustments are reversed, transactions kept, groups deactivated.
+      for (const t of ['consolidation_adjustments', 'intercompany_transactions', 'company_groups']) {
+        expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
       }
       expect((await q.query('UPDATE company_groups SET created_at = NOW()')).rowCount).toBe(1);
-      expect((await q.query('DELETE FROM company_groups')).rowCount).toBe(1);
     });
   });
 });
@@ -206,7 +255,7 @@ describe('the group services still work as a member writer, through the real ser
       const acct = await createGroupAccount(g.GA, { accountCode: '2000', accountName: 'Interco loan', accountType: 'liability' });
       expect((await getGroupAccounts(g.GA)).map((a) => a.accountCode).sort()).toEqual(['1000', '2000']);
       const tx = await createIntercompanyTransaction({
-        groupId: g.GA, sourceCompanyId: co.A1, targetCompanyId: co.A2, transactionType: 'loan', amount: 50, transactionDate: '2026-03-05',
+        groupId: g.GA, sourceCompanyId: co.A1, targetCompanyId: co.A4, transactionType: 'loan', amount: 50, transactionDate: '2026-03-05',
       });
       const adj = await createEliminationAdjustment(g.GA, {
         adjustmentType: 'interco_balance', description: 'x', periodStart: '2026-03-01', periodEnd: '2026-03-31', sourceIntercompanyId: tx.id,

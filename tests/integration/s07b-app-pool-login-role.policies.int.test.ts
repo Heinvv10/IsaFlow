@@ -19,8 +19,9 @@ const FORGEABLE: RegExp[] = [
   // 999r: the company-group tables. Group standing is derived from the caller's claims (auth.uid()) through
   // read-only definers (rls_user_*), so a forged claim satisfies it exactly as it satisfies company_users' own.
   /(\w+\.)?(?:parent_company_id|child_company_id|group_company_id) (?:= app\.current_company_id\(\)|IN \( SELECT auth\.user_companies\(\) AS user_companies\))/g,
-  /(\w+\.)?(?:group_id|id|company_id|child_company_id) IN \( SELECT rls_user_(?:write_)?(?:group|company)_ids\(\) AS rls_user_\w+\)/g,
+  /(\w+\.)?(?:group_id|id|company_id|child_company_id|source_company_id) IN \( SELECT rls_user_(?:write_)?(?:group|company)_ids\(\) AS rls_user_\w+\)/g,
   /rls_group_may_bootstrap\(group_id\)/g,
+  /rls_intercompany_parties_ok\(group_id, source_company_id, target_company_id, source_journal_entry_id, target_journal_entry_id\)/g,
   /\(created_by\)::text = auth\.uid\(\)/g,
   // These come before the generic patterns below, which would otherwise eat the tail of parent_company_id.
   /(\w+\.)?company_id IN \( SELECT company_users\.company_id FROM company_users WHERE \(company_users\.user_id = auth\.uid\(\)\)\)/g,

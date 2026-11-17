@@ -56,7 +56,7 @@ describe('company_groups: a session reads only the groups it belongs to or creat
   });
   it('a group whose member left is no longer visible to the leaver', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
-      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1', [g.GA]);
+      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [g.GA, co.A1]);
       // UA created GA, so it still sees it; UV (a viewer of A1, not the creator) does not.
       expect(await F.visible(q, 'company_groups', [g.GA])).toEqual([g.GA]);
       await q.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: u.UV })]);
@@ -82,6 +82,13 @@ describe('company_groups writes', () => {
       expect((await q.query("UPDATE company_groups SET name = 'viewer' WHERE id = $1", [g.GA])).rowCount).toBe(0);
     });
     expect((await pool.query('SELECT name FROM company_groups WHERE id = $1', [g.GA])).rows[0].name).toBe('CG999r GA');
+  });
+  it('no session hard-deletes a group (it would cascade to members, chart and transactions): soft delete only', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      expect((await q.query('DELETE FROM company_groups WHERE id = $1', [g.GA])).rowCount).toBe(0);
+      expect((await q.query('DELETE FROM company_groups')).rowCount).toBe(0);
+      expect((await q.query('UPDATE company_groups SET is_active = false WHERE id = $1', [g.GA])).rowCount).toBe(1);
+    });
   });
   it('a writer cannot make a foreign company the holding company', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
@@ -125,6 +132,22 @@ describe('company_group_members: nobody joins a group they have no standing in',
       expect(await F.codeOf(q, ...join(g.GE, co.A2))).toBe(RLS_DENIED);
     });
   });
+  it('a retired member cannot re-join by clearing left_date: the gated INSERT is the only way in', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [g.GA, co.A1]);
+      expect(await F.codeOf(q, 'UPDATE company_group_members SET left_date = NULL WHERE group_id = $1 AND company_id = $2', [g.GA, co.A1])).toBe(NEVER_MOVES);
+    });
+  });
+  it('no session deletes a member row, so the bootstrap cannot be re-opened by deleting the history', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      await q.query(...join(g.GE, co.A1));
+      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1', [g.GE]);   // the group has no current member now
+      expect((await q.query('DELETE FROM company_group_members WHERE group_id = $1', [g.GE])).rowCount).toBe(0);
+      expect((await q.query('DELETE FROM company_group_members')).rowCount).toBe(0);
+      await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A4]);
+      expect(await F.codeOf(q, ...join(g.GE, co.A4))).toBe(RLS_DENIED);   // the retired row is still there: the group has had a member
+    });
+  });
   it('a member row is still written with its own company active (unchanged)', async () => {
     await F.asAppUser(u.UA, co.A2, async (q) => {
       await q.query(...join(g.GA, co.A2));
@@ -157,7 +180,7 @@ describe('the legitimate flows still work through the service layer', () => {
     await asService(u.UA, co.A2, async () => {
       const second = await addMember(g.GA, co.A2, { ownershipPct: 60, consolidationMethod: 'proportionate' });
       expect(second.consolidationMethod).toBe('proportionate');
-      expect((await getGroupMembers(g.GA)).map((m) => m.companyId).sort()).toEqual([co.A1, co.A2].sort());
+      expect((await getGroupMembers(g.GA)).map((m) => m.companyId).sort()).toEqual([co.A1, co.A2, co.A4].sort());
     });
   });
   it('create a group with the active company as holding company: the group and its holding member', async () => {

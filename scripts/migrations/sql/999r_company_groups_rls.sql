@@ -26,8 +26,16 @@
 --     gain its first member otherwise), AND holds a write role in the company being added. The company
 --     check stays the active company, as it was.
 --   - company_group_members.group_id / company_id and company_relationships.parent / child never change
---     (a row is retired with left_date / deleted_at, never moved): a trigger, so UPDATE cannot do what
---     INSERT refuses. Nothing in the app updates them.
+--     (a row is retired with left_date / deleted_at, never moved), and a member row that has left cannot
+--     be re-activated (left_date back to NULL): triggers, so UPDATE cannot do what INSERT refuses. Nothing
+--     in the app does either; a retired company that returns needs a gated INSERT.
+--   - app_user cannot DELETE company_groups (it cascades to members, chart, mappings and transactions;
+--     the app deactivates with is_active), company_group_members (the bootstrap reads "has had a member
+--     row", so the rows must outlive the session), intercompany_transactions or consolidation_adjustments
+--     (the app never deletes either: adjustments are reversed, transactions kept). No policy, no DELETE.
+--   - intercompany_transactions INSERT: the writer of the group, a write role in the SOURCE company, both
+--     parties CURRENT members of the group, and each journal entry (if given) belongs to its own party
+--     (rls_intercompany_parties_ok); the parties, group and journals of a stored row never change.
 --   - company_relationships: read by either end; created only by the parent's active company for a
 --     child the user writes; withdrawn (deleted_at set) by either end; REVIVED only by someone who
 --     writes the child, so a child's withdrawal cannot be undone from the parent's side. No DELETE: the
@@ -99,18 +107,34 @@ AS $$
   )
 $$;
 
+-- Both parties of an intercompany transaction are CURRENT members of its group, and a journal entry named
+-- on a side belongs to that side's company (the route's verifyCompanyInGroup / journalEntryBelongsToCompany).
+CREATE OR REPLACE FUNCTION public.rls_intercompany_parties_ok(p_group uuid, p_source uuid, p_target uuid, p_source_je uuid, p_target_je uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.company_group_members m WHERE m.group_id = p_group AND m.company_id = p_source AND m.left_date IS NULL)
+     AND EXISTS (SELECT 1 FROM public.company_group_members m WHERE m.group_id = p_group AND m.company_id = p_target AND m.left_date IS NULL)
+     AND (p_source_je IS NULL OR EXISTS (SELECT 1 FROM public.gl_journal_entries je WHERE je.id = p_source_je AND je.company_id = p_source))
+     AND (p_target_je IS NULL OR EXISTS (SELECT 1 FROM public.gl_journal_entries je WHERE je.id = p_target_je AND je.company_id = p_target))
+$$;
+
 ALTER FUNCTION public.rls_user_group_ids() OWNER TO migration_admin;
 ALTER FUNCTION public.rls_user_write_group_ids() OWNER TO migration_admin;
 ALTER FUNCTION public.rls_user_write_company_ids() OWNER TO migration_admin;
 ALTER FUNCTION public.rls_group_may_bootstrap(uuid) OWNER TO migration_admin;
+ALTER FUNCTION public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.rls_user_group_ids() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_user_write_group_ids() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_user_write_company_ids() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_group_may_bootstrap(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.rls_user_group_ids() TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_user_write_group_ids() TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_user_write_company_ids() TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_group_may_bootstrap(uuid) TO app_user;
+GRANT EXECUTE ON FUNCTION public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid) TO app_user;
 
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, 'nothing (read)', public.app_definer_hash(v.proc::regprocedure)
@@ -118,7 +142,8 @@ SELECT v.signature, 'nothing (read)', public.app_definer_hash(v.proc::regprocedu
     ('rls_user_group_ids()', 'public.rls_user_group_ids()'),
     ('rls_user_write_group_ids()', 'public.rls_user_write_group_ids()'),
     ('rls_user_write_company_ids()', 'public.rls_user_write_company_ids()'),
-    ('rls_group_may_bootstrap(uuid)', 'public.rls_group_may_bootstrap(uuid)')
+    ('rls_group_may_bootstrap(uuid)', 'public.rls_group_may_bootstrap(uuid)'),
+    ('rls_intercompany_parties_ok(uuid,uuid,uuid,uuid,uuid)', 'public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid)')
   ) v(signature, proc)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
@@ -134,11 +159,15 @@ BEGIN
     RAISE EXCEPTION 'company_group_members: a member row is retired with left_date, never moved to another group or company'
       USING ERRCODE = '23514';
   END IF;
+  IF OLD.left_date IS NOT NULL AND NEW.left_date IS NULL THEN
+    RAISE EXCEPTION 'company_group_members: a company that has left a group cannot be re-activated; re-joining is an INSERT, which checks the group'
+      USING ERRCODE = '23514';
+  END IF;
   RETURN NEW;
 END;
 $$;
 DROP TRIGGER IF EXISTS trg_company_group_member_keys_immutable ON company_group_members;
-CREATE TRIGGER trg_company_group_member_keys_immutable BEFORE UPDATE OF group_id, company_id ON company_group_members
+CREATE TRIGGER trg_company_group_member_keys_immutable BEFORE UPDATE OF group_id, company_id, left_date ON company_group_members
   FOR EACH ROW EXECUTE FUNCTION public.company_group_member_keys_immutable();
 
 CREATE OR REPLACE FUNCTION public.company_relationship_keys_immutable()
@@ -158,6 +187,28 @@ DROP TRIGGER IF EXISTS trg_company_relationship_keys_immutable ON company_relati
 CREATE TRIGGER trg_company_relationship_keys_immutable BEFORE UPDATE OF parent_company_id, child_company_id ON company_relationships
   FOR EACH ROW EXECUTE FUNCTION public.company_relationship_keys_immutable();
 
+-- A stored intercompany transaction keeps its group, parties and journals: matching changes only its status.
+CREATE OR REPLACE FUNCTION public.intercompany_transaction_parties_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.group_id IS DISTINCT FROM OLD.group_id
+     OR NEW.source_company_id IS DISTINCT FROM OLD.source_company_id OR NEW.target_company_id IS DISTINCT FROM OLD.target_company_id
+     OR NEW.source_journal_entry_id IS DISTINCT FROM OLD.source_journal_entry_id
+     OR NEW.target_journal_entry_id IS DISTINCT FROM OLD.target_journal_entry_id THEN
+    RAISE EXCEPTION 'intercompany_transactions: the group, parties and journals of a transaction never change'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_intercompany_transaction_parties_immutable ON intercompany_transactions;
+CREATE TRIGGER trg_intercompany_transaction_parties_immutable
+  BEFORE UPDATE OF group_id, source_company_id, target_company_id, source_journal_entry_id, target_journal_entry_id ON intercompany_transactions
+  FOR EACH ROW EXECUTE FUNCTION public.intercompany_transaction_parties_immutable();
+
 -- ── company_groups ───────────────────────────────────────────────────────────
 
 ALTER TABLE company_groups ENABLE ROW LEVEL SECURITY;
@@ -175,8 +226,7 @@ CREATE POLICY tenant_isolation_insert ON company_groups FOR INSERT TO app_user
 CREATE POLICY tenant_isolation_update ON company_groups FOR UPDATE TO app_user
   USING (id IN (SELECT public.rls_user_write_group_ids()))
   WITH CHECK (holding_company_id IS NULL OR holding_company_id IN (SELECT auth.user_companies()));
-CREATE POLICY tenant_isolation_delete ON company_groups FOR DELETE TO app_user
-  USING (id IN (SELECT public.rls_user_write_group_ids()));
+-- (no DELETE policy for app_user on company_groups: see the header)
 
 -- ── company_group_members ────────────────────────────────────────────────────
 
@@ -196,8 +246,7 @@ CREATE POLICY tenant_isolation_insert ON company_group_members FOR INSERT TO app
 CREATE POLICY tenant_isolation_update ON company_group_members FOR UPDATE TO app_user
   USING (company_id IN (SELECT auth.user_companies()))
   WITH CHECK (company_id = app.current_company_id());
-CREATE POLICY tenant_isolation_delete ON company_group_members FOR DELETE TO app_user
-  USING (company_id IN (SELECT auth.user_companies()));
+-- (no DELETE policy for app_user on company_group_members: see the header)
 
 -- ── group-keyed tables: members read, writers of a member company write ─────
 
@@ -226,12 +275,13 @@ DROP POLICY IF EXISTS tenant_isolation_delete ON intercompany_transactions;
 CREATE POLICY tenant_isolation_select ON intercompany_transactions FOR SELECT TO app_user
   USING (group_id IN (SELECT public.rls_user_group_ids()));
 CREATE POLICY tenant_isolation_insert ON intercompany_transactions FOR INSERT TO app_user
-  WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids()));
+  WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids())
+              AND source_company_id IN (SELECT public.rls_user_write_company_ids())
+              AND public.rls_intercompany_parties_ok(group_id, source_company_id, target_company_id, source_journal_entry_id, target_journal_entry_id));
 CREATE POLICY tenant_isolation_update ON intercompany_transactions FOR UPDATE TO app_user
   USING (group_id IN (SELECT public.rls_user_write_group_ids()))
   WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids()));
-CREATE POLICY tenant_isolation_delete ON intercompany_transactions FOR DELETE TO app_user
-  USING (group_id IN (SELECT public.rls_user_write_group_ids()));
+-- (no DELETE policy for app_user on intercompany_transactions: see the header)
 
 ALTER TABLE consolidation_adjustments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE consolidation_adjustments FORCE ROW LEVEL SECURITY;
@@ -246,8 +296,7 @@ CREATE POLICY tenant_isolation_insert ON consolidation_adjustments FOR INSERT TO
 CREATE POLICY tenant_isolation_update ON consolidation_adjustments FOR UPDATE TO app_user
   USING (group_id IN (SELECT public.rls_user_write_group_ids()))
   WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids()));
-CREATE POLICY tenant_isolation_delete ON consolidation_adjustments FOR DELETE TO app_user
-  USING (group_id IN (SELECT public.rls_user_write_group_ids()));
+-- (no DELETE policy for app_user on consolidation_adjustments: see the header)
 
 -- group_coa_mappings keeps its company check (own companies read; the active company writes) and gains
 -- the group: a mapping is written into a group the user writes.

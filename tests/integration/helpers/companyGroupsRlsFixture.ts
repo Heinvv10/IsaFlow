@@ -3,9 +3,9 @@
  * and one row in every group-keyed table, written as the owner; and an app_user session opened exactly as
  * withAuth opens one. Real PostgreSQL; synthetic rows only.
  *
- *   UA  owner of A1 and A2       UV  viewer of A1, owner of A3
+ *   UA  owner of A1, A2 and A4   UV  viewer of A1, owner of A3   UW  owner of A1, viewer of A4
  *   UB  owner of B1 and B2       UC  owner of C (in no group)
- *   GA  created by UA, member A1   GB  created by UB, members B1 (holding) and B2
+ *   GA  created by UA, members A1 and A4   GB  created by UB, members B1 (holding) and B2
  *   GE  created by UA, never had a member (the bootstrap case)
  *   GC  created by UV, member A3: UV WRITES GC and only READS GA (the move-between-groups case)
  */
@@ -14,24 +14,27 @@ import type { Pool, PoolClient } from 'pg';
 const id = (): string => crypto.randomUUID();
 
 export function groupsFixture(pool: Pool) {
-  const co = { A1: id(), A2: id(), A3: id(), B1: id(), B2: id(), C: id() };
-  const u = { UA: id(), UV: id(), UB: id(), UC: id() };
+  const co = { A1: id(), A2: id(), A3: id(), A4: id(), B1: id(), B2: id(), C: id() };
+  const u = { UA: id(), UV: id(), UW: id(), UB: id(), UC: id() };
   const g = { GA: id(), GB: id(), GE: id(), GC: id() };
   const row = { gaAcct: id(), gbAcct: id(), glA1: id(), glB1: id(), mapB: id(), txB: id(), adjA: id(), adjB: id(),
-    relA: id(), relB: id(), relAtoB: id(), elimA: id(), elimB: id(), adjC: id(), gcAcct: id(), txC: id() };
+    relA: id(), relB: id(), relAtoB: id(), elimA: id(), elimB: id(), adjC: id(), gcAcct: id(), txC: id(), jeA1: id(), jeA4: id() };
 
   async function setup(): Promise<void> {
     for (const [k, v] of Object.entries(co)) await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [v, `CG999r ${k}`]);
     for (const [k, v] of Object.entries(u)) await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [v, `${k}-${v}@test.local`]);
     const members: Array<[string, string, string]> = [
       [co.A1, u.UA, 'owner'], [co.A2, u.UA, 'owner'], [co.A1, u.UV, 'viewer'], [co.A3, u.UV, 'owner'],
+      [co.A4, u.UA, 'owner'], [co.A1, u.UW, 'owner'], [co.A4, u.UW, 'viewer'],
       [co.B1, u.UB, 'owner'], [co.B2, u.UB, 'owner'], [co.C, u.UC, 'owner'],
     ];
     for (const [c, user, role] of members) await pool.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [c, user, role]);
     await pool.query('INSERT INTO company_groups (id, name, holding_company_id, created_by) VALUES ($1, $2, $3, $4::UUID), ($5, $6, $7, $8::UUID), ($9, $10, NULL, $4::UUID)',
       [g.GA, 'CG999r GA', co.A1, u.UA, g.GB, 'CG999r GB', co.B1, u.UB, g.GE, 'CG999r GE']);
-    await pool.query(`INSERT INTO company_group_members (group_id, company_id, is_holding) VALUES ($1, $2, true), ($3, $4, true), ($3, $5, false)`,
-      [g.GA, co.A1, g.GB, co.B1, co.B2]);
+    await pool.query(`INSERT INTO company_group_members (group_id, company_id, is_holding) VALUES ($1, $2, true), ($1, $6, false), ($3, $4, true), ($3, $5, false)`,
+      [g.GA, co.A1, g.GB, co.B1, co.B2, co.A4]);
+    await pool.query(`INSERT INTO gl_journal_entries (id, company_id, entry_date, created_by) VALUES ($1, $2, '2026-03-01', $5), ($3, $4, '2026-03-01', $5)`,
+      [row.jeA1, co.A1, row.jeA4, co.A4, u.UA]);
     await pool.query('INSERT INTO company_groups (id, name, created_by) VALUES ($1, $2, $3::UUID)', [g.GC, 'CG999r GC', u.UV]);
     await pool.query('INSERT INTO company_group_members (group_id, company_id) VALUES ($1, $2)', [g.GC, co.A3]);
     await pool.query(`INSERT INTO group_accounts (id, group_id, account_code, account_name, account_type) VALUES ($1, $2, '1000', 'A bank', 'asset'), ($3, $4, '1000', 'B bank', 'asset'), ($5, $6, '1000', 'C bank', 'asset')`,
@@ -62,6 +65,7 @@ export function groupsFixture(pool: Pool) {
     await pool.query('DELETE FROM company_groups WHERE id = ANY($1)', [gs]);
     await pool.query('DELETE FROM company_relationships WHERE parent_company_id = ANY($1) OR child_company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM intercompany_eliminations WHERE group_company_id = ANY($1)', [cos]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [cos]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1)', [cos]);
