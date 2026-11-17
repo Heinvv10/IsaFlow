@@ -10,9 +10,9 @@
  */
 
 import { fmtDate } from '@/lib/fmtDate';
+import { todayInSast } from '@/lib/saDateParser';
 
 export interface PortalEmployeeStanding { status: string; endDate: string | Date | null }
-
 
 /** The last day a leaver with this end date may sign in (YYYY-MM-DD). */
 export function leaverAccessEnds(endDate: string | Date): string {
@@ -25,8 +25,7 @@ export function leaverAccessEnds(endDate: string | Date): string {
 
 /** Today's date in South Africa (YYYY-MM-DD). */
 export function todaySast(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' })
-    .format(now);
+  return todayInSast(now);
 }
 
 /** The last day of access, or null when there is no limit; 'closed' when the employee may not sign in at all. */
