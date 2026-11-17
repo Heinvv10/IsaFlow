@@ -167,7 +167,7 @@ describe('FZ: a posted journal refuses amount changes', () => {
       'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
       .rejects.toThrow(UNBALANCED);
   }, 60_000);
-  it('session_replication_role = replica skips none of the three GL triggers (all ENABLE ALWAYS)', async () => {
+  it('session_replication_role = replica skips none of the four GL triggers (all ENABLE ALWAYS)', async () => {
     await expect(inReplica((c) => c.query('UPDATE gl_journal_lines SET debit = debit + 1 WHERE journal_entry_id = $1 AND debit > 0', [je])))
       .rejects.toThrow(FROZEN);
     await expect(inReplica((c) => c.query("UPDATE gl_journal_entries SET status = 'draft' WHERE id = $1", [je]))).rejects.toThrow(FROZEN);
