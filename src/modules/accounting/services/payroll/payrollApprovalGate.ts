@@ -214,8 +214,8 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     const regularDirective = await regularDirectiveRefusal(companyId, runId);
     if (regularDirective) return regularDirective;
     if (yearToDate.blocker) return yearToDate.blocker;
-    // Component dates changed since calculation; a leaver with no termination base (payrollRunRecalcGate). Also for a
-    // re-approval onto a journal in force.
+    // Component dates changed since calculation; a leaver with no termination base; a stale SDL month decision
+    // (payrollRunRecalcGate -> payrollSdlMonthGate). Also for a re-approval onto a journal in force.
     const lines = await runLinesRefusal(companyId, runId);
     if (lines) return lines;
     // An hourly or daily employee with no hours, or hours that cannot be trusted, on the stored line (payrollRunHoursGate).

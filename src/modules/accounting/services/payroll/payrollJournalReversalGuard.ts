@@ -99,7 +99,10 @@ const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
 
 interface RunRef { id: string; status: string; linksRoot: boolean; planHash: string | null }
 
-/** The run this journal belongs to: the one linking it, else the one for the period it names. */
+/**
+ * The run this journal belongs to: the one linking it, else the run for the period it names. The description names
+ * a month only, so it is read as the month's regular run, never an off-cycle run of that month (wave 6 FQb1).
+ */
 async function payRunOf(companyId: string, rootId: string, description: string, db: TxSql): Promise<RunRef | null> {
   const period = RUN_JOURNAL.exec(description);
   const rows = (await db`
@@ -107,7 +110,8 @@ async function payRunOf(companyId: string, rootId: string, description: string, 
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND (journal_entry_id = ${rootId}::uuid
-            OR (period_year = ${period ? Number(period[1]) : -1} AND period_month = ${period ? Number(period[2]) : -1}))
+            OR (period_year = ${period ? Number(period[1]) : -1} AND period_month = ${period ? Number(period[2]) : -1}
+                AND run_kind = 'regular' AND pay_frequency = 'monthly'))
      ORDER BY (journal_entry_id = ${rootId}::uuid) DESC NULLS LAST
      LIMIT 1
   `) as DbRow[];
