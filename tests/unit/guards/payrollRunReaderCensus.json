@@ -377,6 +377,11 @@
    {"line":114,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id"},
    {"line":139,"text":"SELECT period_month, period_year, run_date FROM payroll_run_headers","class":"L","owner":"FQb1","why":"by run id; month and run_date are the payslip's labels"}
   ],
+  "src/modules/accounting/services/payroll/payslipSnapshot.ts": [
+   {"line":51,"text":"FROM payroll_run_lines prl JOIN payroll_run_headers h ON h.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id; the run's month feeds the payslip year to date (its month bound is payslipYearToDate.ts:67, FQc)"},
+   {"line":72,"text":"FROM payroll_run_headers h,","class":"S","owner":"FQb1","why":"freeze write by run id"},
+   {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"clear write by run id"}
+  ],
   "src/modules/accounting/services/payroll/payslipYearToDate.ts": [
    {"line":63,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"R","owner":"FQc","why":"payslip year to date bounded by month (F2, :67)"}
   ],
