@@ -6,6 +6,8 @@ import { apiErrorMessage } from '@/lib/apiFetch';
 export function CompanySwitcher() {
   const { activeCompany, companies, switchCompany, loading } = useCompany();
   const [open, setOpen] = useState(false);
+  // Rows whose logo failed to load (404, removed after the list loaded) fall back to the icon.
+  const [brokenLogos, setBrokenLogos] = useState<ReadonlySet<string>>(() => new Set());
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -84,11 +86,12 @@ export function CompanySwitcher() {
                   <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
                     {isActive && activeCompany.logoData ? (
                       <img src={activeCompany.logoData} alt="" className="w-full h-full object-contain" />
-                    ) : c.hasLogo ? (
+                    ) : c.hasLogo && !brokenLogos.has(c.companyId) ? (
                       <img
                         src={`/api/accounting/company-logo?companyId=${encodeURIComponent(c.companyId)}`}
                         alt=""
                         loading="lazy"
+                        onError={() => setBrokenLogos((prev) => new Set(prev).add(c.companyId))}
                         className="w-full h-full object-contain"
                       />
                     ) : (

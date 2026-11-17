@@ -45,7 +45,7 @@ export async function listLiveCompanyMemberships(userId: string): Promise<LiveCo
   const rows = (await sql`
     SELECT cu.company_id, c.name AS company_name, cu.role, cu.is_default,
            COALESCE(c.is_demo, false) AS is_demo,
-           (c.logo_data IS NOT NULL AND c.logo_data <> '') AS has_logo
+           COALESCE(octet_length(c.logo_data), 0) > 0 AS has_logo -- octet_length reads the TOAST header, not the value
     FROM public.company_users cu
     JOIN public.companies c ON c.id = cu.company_id
      AND c.is_active = true

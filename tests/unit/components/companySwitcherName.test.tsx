@@ -40,4 +40,13 @@ describe('CompanySwitcher', () => {
     expect(logoIn('Beta (Pty) Ltd')).toBe('/api/accounting/company-logo?companyId=co-2');
     expect(logoIn('Gamma (Pty) Ltd')).toBeUndefined();
   });
+
+  it('falls back to the icon when a row\'s logo fails to load', () => {
+    render(<CompanySwitcher />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch company/ }));
+    const row = screen.getByText('Beta (Pty) Ltd').closest('button')!;
+    fireEvent.error(row.querySelector('img')!);
+    expect(row.querySelector('img')).toBeNull();
+    expect(row.querySelector('svg')).not.toBeNull();
+  });
 });

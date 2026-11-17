@@ -72,7 +72,7 @@ const sqlMock = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]
     is_default: m.is_default,
     is_demo: live.find((c) => c.id === m.company_id)!.is_demo ?? false,
     // Only when the query computes it, so dropping has_logo from the SELECT turns the logo test red.
-    ...(/logo_data IS NOT NULL AND c\.logo_data <> ''/.test(text)
+    ...(/COALESCE\(octet_length\(c\.logo_data\), 0\) > 0 AS has_logo/.test(text)
       ? { has_logo: Boolean(live.find((c) => c.id === m.company_id)!.logo_data) }
       : {}),
   }));

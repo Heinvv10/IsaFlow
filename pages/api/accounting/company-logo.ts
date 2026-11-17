@@ -31,13 +31,7 @@ const CompanyLogoSchema = z.object({
 });
 
 
-/**
- * AUTH: Uses withAuth (not withAuth) because a user may own/admin multiple companies
- * and this endpoint accepts an explicit companyId in the request body. Tenant scoping is
- * enforced by a membership check against company_users (owner/admin role required) before
- * any write is performed — no cross-tenant write is possible.
- * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
- */
+/** GET: the logo bytes for a live company the caller belongs to (any of theirs, not only the active one). */
 async function getLogo(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const parsed = UUID.safeParse(req.query.companyId);
@@ -59,10 +53,18 @@ async function getLogo(req: NextApiRequest, res: NextApiResponse) {
 
   res.setHeader('Content-Type', mime);
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  // A replaced logo can show in another company's switcher row for up to 5 min; the active company reads its own logoData.
   res.setHeader('Cache-Control', 'private, max-age=300');
   return res.status(200).send(bytes);
 }
 
+/**
+ * AUTH: Uses withAuth (not withAuth) because a user may own/admin multiple companies
+ * and this endpoint accepts an explicit companyId in the request body. Tenant scoping is
+ * enforced by a membership check against company_users (owner/admin role required) before
+ * any write is performed — no cross-tenant write is possible.
+ * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
+ */
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') return getLogo(req, res);
   if (req.method !== 'POST') {

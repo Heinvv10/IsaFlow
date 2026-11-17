@@ -70,6 +70,28 @@ describe('GET company-logo', () => {
     expect(c.res.send).not.toHaveBeenCalled();
   });
 
+  it('404s when the company row is gone', async () => {
+    m.isLive.mockResolvedValue(true);
+    m.sql.mockResolvedValue([]);
+    const c = call();
+    await c.run();
+    expect(apiResponse.notFound).toHaveBeenCalled();
+    expect(c.res.send).not.toHaveBeenCalled();
+  });
+
+  it('serves GIF and WebP with their own type', async () => {
+    m.isLive.mockResolvedValue(true);
+    const gif = Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00;', 'latin1').toString('base64');
+    const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(14)]).toString('base64');
+    for (const [mime, b64] of [['image/gif', gif], ['image/webp', webp]] as const) {
+      m.sql.mockResolvedValueOnce([{ logo_data: `data:${mime};base64,${b64}` }]);
+      const c = call();
+      await c.run();
+      expect(c.headers['Content-Type']).toBe(mime);
+      expect(c.res.status).toHaveBeenCalledWith(200);
+    }
+  });
+
   it('404s on a stored SVG or bytes that do not match the declared type', async () => {
     m.isLive.mockResolvedValue(true);
     for (const logo of ['data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', `data:image/jpeg;base64,${PNG_B64}`]) {
