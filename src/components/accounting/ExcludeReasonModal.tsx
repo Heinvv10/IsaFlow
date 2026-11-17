@@ -75,7 +75,7 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={onClose} aria-label="Close"
             className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] shrink-0"
           >
             <X className="h-4 w-4" />

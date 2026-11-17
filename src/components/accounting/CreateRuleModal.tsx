@@ -133,7 +133,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             <BookmarkPlus className="h-4 w-4 text-yellow-700 dark:text-yellow-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Create Categorisation Rule</h2>
           </div>
-          <button onClick={onClose} disabled={locked} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} aria-label="Close" className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>

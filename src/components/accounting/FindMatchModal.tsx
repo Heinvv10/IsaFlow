@@ -147,7 +147,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
               {fmtCurrency(transaction.amount)}
             </p>
           </div>
-          <button onClick={onClose} disabled={locked} className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} aria-label="Close" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>

@@ -163,7 +163,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             <Plus className="h-4 w-4 text-teal-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">{title}</h2>
           </div>
-          <button onClick={onClose} disabled={locked} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} disabled={locked} aria-label="Close" className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>

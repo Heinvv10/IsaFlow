@@ -76,9 +76,8 @@ describe('BankTxModalShell', () => {
   });
 });
 
-describe('the eight modals use the shell: a named dialog in the body that closes on Escape', () => {
-  const noop = vi.fn();
-  const cases: Array<[string, string, () => JSX.Element]> = [
+const noop = vi.fn();
+const cases: Array<[string, string, () => JSX.Element]> = [
     ['Exclude', 'Exclude transaction', () => <ExcludeReasonModal transaction={TX} onExclude={noop} onClose={noop} /> as never],
     ['Create rule', 'Create a bank rule', () => <CreateRuleModal transaction={TX} bankAccountId="b1" glAccounts={[]} onClose={noop} onCreated={noop} /> as never],
     ['Create entity', 'Create a new record', () => <CreateEntityModal type="supplier" onClose={noop} onCreated={noop} /> as never],
@@ -87,7 +86,9 @@ describe('the eight modals use the shell: a named dialog in the body that closes
     ['Split', 'Split transaction', () => <SplitTransactionModal transaction={TX} glAccounts={[]} onClose={noop} onSplit={noop} /> as never],
     ['Attachments', 'Attachments', () => <BankTxAttachmentsModal bankTransactionId="tx-1" onClose={noop} /> as never],
     ['Find match', 'Find a match', () => <FindMatchModal transaction={TX} onClose={noop} onMatch={noop} /> as never],
-  ];
+];
+
+describe('the eight modals use the shell: a named dialog in the body that closes on Escape', () => {
   it.each(cases)('%s', (_n, name, ui) => {
     noop.mockClear();
     render(ui());
@@ -101,6 +102,16 @@ describe('the eight modals use the shell: a named dialog in the body that closes
   });
 });
 
+
+describe('every button in every shell modal has an accessible name (axe button-name)', () => {
+  const name = (b: HTMLElement) => (b.getAttribute('aria-label') ?? b.getAttribute('aria-labelledby') ?? b.textContent ?? b.getAttribute('title') ?? '').trim();
+  it.each(cases)('%s', (_n, dialogName, ui) => {
+    render(ui());
+    const buttons = Array.from(screen.getByRole('dialog', { name: dialogName }).querySelectorAll<HTMLElement>('button, [role="button"]'));
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.filter(b => name(b) === '').map(b => b.outerHTML.slice(0, 120))).toEqual([]);
+  });
+});
 
 describe('initial focus: the first field, not the close button', () => {
   it('on the shell: a [data-autofocus] element wins, else the first text field, else the first control', () => {
