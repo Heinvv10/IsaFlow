@@ -130,6 +130,23 @@ describe('refusals write nothing', () => {
   });
 });
 
+describe('the plan_hash inside one transaction', () => {
+  it('inside one transaction (the token cannot move) the plan_hash still binds the cells: a save between dry run and apply refuses it', async () => {
+    const v = await salesVersion();
+    const before = await state(v);
+    const sales = (amount: string) => ['set_budget_amounts', { version_id: v, cells: [{ account: 'GS-4000', month: w.months[0], amount }], idempotency_key: key() }] as [string, Record<string, unknown>];
+    const out = await mcpBatch(pool, w.u, [
+      () => sales('1100.00'),
+      () => ['set_budget_drivers', { version_id: v, changes: [cogs()], dry_run: true, idempotency_key: key() }],
+      () => sales('1200.00'),
+      (b) => ['set_budget_drivers', { version_id: v, changes: [cogs()], plan_hash: body(b[1]!).plan_hash, idempotency_key: key() }],
+    ]);
+    expect(body(out[2]!).version_token).toBe(body(out[1]!).version_token);
+    expect(text(out[3]!)).toMatch(/plan changed since your dry run/);
+    expect((await fx.state(v)).drivers).toEqual(before.drivers);
+  });
+});
+
 describe('who may call, keys, replays', () => {
   it('a viewer is fenced before the handler: nothing written, audited rejected', async () => {
     const v = await salesVersion();

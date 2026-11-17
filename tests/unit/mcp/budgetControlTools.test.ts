@@ -37,6 +37,7 @@ import { BudgetVersionError } from '@/modules/accounting/services/budgets/budget
 import { McpRegistry } from '@/lib/mcp/registry';
 import { budgetRemainingTool, budgetTrackingTool } from '@/lib/mcp/tools/budgetControlTools';
 import { submitBudgetForReviewTool } from '@/lib/mcp/tools/budgetSliceTools';
+import { setBudgetDriversTool } from '@/lib/mcp/tools/budgetDriverWrite';
 import { CC1, RENT, VERSION, ctx, json, model, text, version } from './budgetToolsFixture';
 
 const SLICE = '40000000-0000-4000-8000-000000000001';
@@ -150,5 +151,28 @@ describe('submit_budget_for_review', () => {
   it("another company's slice is the shared Not found", async () => {
     vi.mocked(readSlice).mockRejectedValue(new BudgetVersionError('BUDGET_SLICE_NOT_FOUND', 'Budget slice not found'));
     expect(text(await submitBudgetForReviewTool.handler({ slice_id: SLICE, idempotency_key: 'k' }, ctx('manager')))).toBe('Not found');
+  });
+});
+
+describe('PR 3 writes through the real registry: replay and the freed key', () => {
+  const stored = { content: [{ type: 'text' as const, text: '{"saved":true}' }] };
+  it('a stored live result is replayed for the same key without running the handler', async () => {
+    const r = new McpRegistry();
+    const handler = vi.fn();
+    r.register({ ...setBudgetDriversTool, handler });
+    audit.findIdempotentReplay.mockResolvedValueOnce({ status: 'match', result: stored } as never);
+    expect(text(await r.call('set_budget_drivers', { version_id: VERSION, changes: [{ op: 'refresh_headcount' }], idempotency_key: 'k' }, ctx('manager')))).toBe('{"saved":true}');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a dry run (wroteNothing)', { ...stored, wroteNothing: true }, null, 'ok'],
+    ['a refusal', { ...stored, isError: true }, null, 'rejected'],
+    ['a write', stored, 'k', 'ok'],
+  ])('%s is recorded with key %s', async (_n, result, keyStored, status) => {
+    const r = new McpRegistry();
+    r.register({ ...submitBudgetForReviewTool, handler: vi.fn(async () => result) });
+    await r.call('submit_budget_for_review', { slice_id: SLICE, idempotency_key: 'k' }, ctx('manager'));
+    expect(audit.recordToolCall).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: keyStored, status }));
   });
 });
