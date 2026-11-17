@@ -22,6 +22,7 @@ import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { offCyclePayDateRefusal } from './payrollOffCycleGates';
 import { freezePayslipDetails } from './payslipSnapshot';
 
 
@@ -97,6 +98,8 @@ export async function approvePayrollRun(
   if (!locked) throw new PayrollApprovalRefusedError('Payroll run not found');
   // Wave 6 FQa: a run kind, frequency, employee or assignment this release cannot approve; before any write.
   await assertRunKindSupported(companyId, runId, 'approve');
+  const payDate = offCyclePayDateRefusal(locked); // wave 6 OC: never approved after its pay date
+  if (payDate) throw new PayrollApprovalRefusedError(payDate);
   if (locked.journal_entry_id != null) {
     await lockRunJournalForApproval(runId, companyId, String(locked.journal_entry_id));
   }

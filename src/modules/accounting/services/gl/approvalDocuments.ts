@@ -160,7 +160,9 @@ async function findDocument(
     case 'pay_run':
       return first((await sql`
         SELECT COALESCE(total_gross, 0) AS amount,
-               lpad(period_month::text, 2, '0') || '/' || period_year::text AS reference,
+               lpad(period_month::text, 2, '0') || '/' || period_year::text
+                 -- An off-cycle run names its kind (wave 6 OC; the same string as approval_request_document_facts, mig 999X).
+                 || CASE WHEN run_kind = 'off_cycle' THEN ' ' || COALESCE(off_cycle_reason, 'off-cycle') || ' run' ELSE '' END AS reference,
                approval_document_digest(company_id, 'pay_run', id) AS digest
         FROM payroll_run_headers
         WHERE id = ${documentId}::UUID AND company_id = ${companyId}

@@ -16,7 +16,7 @@ import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
 import { fringeNotRecordedResults, runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
-import { prepareRunComponents } from './payrollRunComponents';
+import { prepareRunComponents, type PreparedRunEmployee } from './payrollRunComponents';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
@@ -26,7 +26,8 @@ import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { withEtiPriorMonths } from './etiPriorEmployment';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { payFrequencyOf } from './payrollFrequency';
+import { offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
+import { listOffCycleEmployees, prepareOffCycleComponents, type OffCyclePrepared } from './payrollOffCyclePopulation';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -66,7 +67,11 @@ export async function calculatePayrollRun(
   const readDate = payrollRunReadDate(period);
 
   const payFrequency = payFrequencyOf(run.pay_frequency);
-  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period, payFrequency)); // ET: a rehire continues its ETI months
+  // Wave 6 OC: an off-cycle run pays the employees it was created with, only its bonus or termination pay-outs.
+  const offCycle = runKindOf(run.run_kind) === 'off_cycle' ? offCycleReasonOf(run.off_cycle_reason) : null;
+  if (offCycle === 'unsupported') throw new Error('Off-cycle run with an unknown reason');
+  const employees = await withEtiPriorMonths(companyId, offCycle // ET: a rehire continues its ETI months
+    ? await listOffCycleEmployees(companyId, runId) : await listPayrollRunEmployees(companyId, period, payFrequency));
   // Wave 6 FQa: a run, employee or assignment this release cannot cost is refused here, before the first write
   // (listSeveranceOnlyRunEmployees below frees reversed payments; applyRunLoans commits loan deductions).
   await assertRunKindSupported(companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
@@ -85,7 +90,7 @@ export async function calculatePayrollRun(
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
   // no UIF or SDL (audit 2026-10-18 P3, payrollSeveranceDirective.ts).
-  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period, payFrequency);
+  const severanceOnly = offCycle ? [] : await listSeveranceOnlyRunEmployees(companyId, runId, period, payFrequency);
   const population: Array<{ employee: PayrollEmployee; severanceOnly: boolean }> = [
     ...employees.map(employee => ({ employee, severanceOnly: false })),
     ...severanceOnly.map(employee => ({ employee, severanceOnly: true })),
@@ -94,16 +99,19 @@ export async function calculatePayrollRun(
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
   const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
   // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
-  const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
+  const proRata = offCycle ? [] : await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
-  const prepared = await prepareRunComponents({ companyId, runId, period, readDate, population });
+  const prepared: Array<OffCyclePrepared | (PreparedRunEmployee & { monthEarlier?: undefined })> = offCycle
+    ? await prepareOffCycleComponents({ companyId, runId, period, reason: offCycle, employees })
+    : await prepareRunComponents({ companyId, runId, period, readDate, population });
 
   // Preview all due loans before any payment write. A blocked employee takes none of them.
   const loanComponents = await loadLoanComponents(companyId);
   const withheld: WithheldLoan[] = [];
   const blockedLoans = new Map<string, { applications: ApplyLoanResult[]; rawNet: number }>();
   const preparedByEmployee = new Map(prepared.map((item) => [item.employee.id, item]));
-  const loansByEmployee = await applyRunLoans({
+  // An off-cycle run pays no loan instalment: its line pays only the bonus or the termination pay-outs.
+  const loansByEmployee = offCycle ? new Map<string, ApplyLoanResult[]>() : await applyRunLoans({
     companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate: runOfficialRate(),
     journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
     employeeIds: new Set(employees.map(e => e.id)),
@@ -118,7 +126,8 @@ export async function calculatePayrollRun(
   const withheldResults = withheldLineResults(withheld);
   const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
 
-  for (const { employee, severanceOnly: onlySeverance, components, terminationWarnings, regularPayDirective } of prepared) {
+  for (const item of prepared) {
+    const { employee, severanceOnly: onlySeverance, components, terminationWarnings, regularPayDirective } = item;
     const loanApplications: ApplyLoanResult[] = onlySeverance ? [] : loansByEmployee.get(employee.id) ?? [];
     const componentsWithLoans = appendLoanComponents(components, loanApplications, loanComponents);
 
@@ -131,6 +140,7 @@ export async function calculatePayrollRun(
       ytd: ytdByEmployee.get(employee.id),
       notEmployedInPeriod: onlySeverance,
       regularPayDirective,
+      ...(item.monthEarlier ? { monthEarlier: item.monthEarlier } : {}),
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
