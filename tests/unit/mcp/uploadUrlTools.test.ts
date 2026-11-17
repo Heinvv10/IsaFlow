@@ -59,6 +59,7 @@ const file = (over: Record<string, unknown> = {}) => ({
 const body = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text);
 const intent = (over: Partial<store.UploadIntent> = {}): store.UploadIntent => ({
   id: UP, companyId: ctx().companyId, targetKind: 'bank_transaction', targetId: TX, documentType: null,
+  createdBy: '11111111-1111-1111-1111-111111111111', createdTokenJti: 'j',
   fileName: 'slip.pdf', mimeType: 'application/pdf', declaredSize: PDF.length, sha256: sha(PDF), status: 'uploaded',
   stagedBytes: PDF, resultDocumentId: null, resultDuplicate: null, refusal: null, expiresAt: 'x', expired: false, ...over,
 });
@@ -94,6 +95,7 @@ describe('create_upload_urls', () => {
     expect(res.urls_issued).toBe(1);
     expect(res.uploads[0]).toMatchObject({ status: 'url_issued', upload_id: UP, duplicate: false });
     expect(res.uploads[0].url).toMatch(/\/api\/mcp\/uploads\/T{43}$/);
+    expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![1]).toEqual({ userId: ctx().userId, tokenJti: 'j' });
     expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![2]).toMatchObject({
       targetKind: 'bank_transaction', targetId: TX, sha256: sha(PDF), size: PDF.length });
     expect(store.purgeExpiredIntents).toHaveBeenCalledWith(ctx().companyId);
@@ -203,6 +205,27 @@ describe('finalize_uploads', () => {
     const res = body(await finalizeUploadsTool.handler({ upload_ids: ids, idempotency_key: 'k' }, ctx()));
     expect(res.files.map((f: { status: string }) => f.status)).toEqual(['not_uploaded', 'expired', 'not_found']);
     expect(addBankTxAttachment).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bank-line upload to a token without write:bank-tx, verifying and writing nothing', async () => {
+    vi.mocked(store.lockIntentForFinalize).mockResolvedValue(intent());
+    const res = body(await finalizeUploadsTool.handler({ upload_ids: [UP], idempotency_key: 'k' }, ctx(['write:invoices'])));
+    expect(res.files[0]).toMatchObject({ status: 'refused' });
+    expect(res.files[0].error).toContain('write:bank-tx');
+    expect(addBankTxAttachment).not.toHaveBeenCalled();
+    expect(store.markIntentRefused).not.toHaveBeenCalled();
+    expect(store.markIntentFinalized).not.toHaveBeenCalled();
+  });
+
+  it('finalizes only for the principal that created the upload (same user and same token)', async () => {
+    vi.mocked(store.lockIntentForFinalize)
+      .mockResolvedValueOnce(intent({ createdBy: '33333333-3333-4333-8333-333333333333' }))
+      .mockResolvedValueOnce(intent({ createdTokenJti: 'other-token' }));
+    const ids = [UP, '99999999-9999-4999-8999-999999999993'];
+    const res = body(await finalizeUploadsTool.handler({ upload_ids: ids, idempotency_key: 'k' }, ctx()));
+    expect(res.files.map((f: { status: string }) => f.status)).toEqual(['not_found', 'not_found']);
+    expect(addBankTxAttachment).not.toHaveBeenCalled();
+    expect(store.markIntentFinalized).not.toHaveBeenCalled();
   });
 
   it('refuses a non-uuid upload id before reading anything', async () => {

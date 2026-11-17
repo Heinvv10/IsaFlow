@@ -24,6 +24,7 @@ import {
   lockIntentForFinalize, markIntentFinalized, markIntentRefused, purgeExpiredIntents, sha256Hex, type UploadIntent,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { ok, toolError } from './toolHelpers';
+import { bankLineScopeError } from './writeAttachBankLineDocument';
 import { BANK_UPLOAD_MAX_BYTES, MAX_UPLOAD_ITEMS, findExistingDocument, isBankKind, targetBelongsToCompany } from './uploadTargets';
 
 type FileResult = Record<string, unknown> & { upload_id: string; status: string };
@@ -55,8 +56,18 @@ async function writeDocument(ctx: McpToolContext, i: UploadIntent, bytes: Buffer
 
 async function finalizeOne(ctx: McpToolContext, uploadId: string): Promise<FileResult> {
   const i = await lockIntentForFinalize(ctx.companyId, uploadId);
-  if (!i) return { upload_id: uploadId, status: 'not_found' };
+  // Bound to the principal that asked for the url: the same user AND the same token. Another member's (or another
+  // connection's) id reads as not_found, exactly like another company's.
+  if (!i || i.createdBy !== ctx.userId || i.createdTokenJti !== (ctx.tokenJti ?? null)) {
+    return { upload_id: uploadId, status: 'not_found' };
+  }
   const head = { upload_id: uploadId, file_name: i.fileName, target: { entity_type: i.targetKind, entity_id: i.targetId } };
+  // A bank line needs write:bank-tx on top of write:invoices, at finalize as at create (the token may have lost it, or
+  // the id may come from a call that had it). Refused before any read of the bytes or write; the url stays as it was.
+  if (isBankKind(i.targetKind)) {
+    const scopeRefusal = bankLineScopeError(ctx);
+    if (scopeRefusal) return { ...head, status: 'refused', error: scopeRefusal.content[0]!.text };
+  }
   if (i.status === 'finalized') {
     return { ...head, status: 'finalized', document_id: i.resultDocumentId, duplicate: i.resultDuplicate === true };
   }

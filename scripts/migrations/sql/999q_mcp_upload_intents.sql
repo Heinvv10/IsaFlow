@@ -8,6 +8,8 @@
 --     clears them.
 --     status  pending (URL issued) | uploaded (bytes staged) | finalized (document written or found as a duplicate)
 --             | refused (bytes failed verification at finalize; a new URL is needed).
+--     created_by / created_token_jti  the user and the PAT / OAuth authorisation that asked for the url: finalize is
+--     refused to any other principal, so a url leaked inside the company cannot be finalized by someone else.
 --     A finalized row keeps its sha256 and result_document_id (no bytes), so re-sending the same batch reports
 --     duplicate: true up front. Unfinalized rows past expires_at are purged by the tools (bounded DELETE per call).
 --
@@ -27,7 +29,8 @@ SET LOCAL statement_timeout = '60s';
 CREATE TABLE IF NOT EXISTS public.mcp_upload_intents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
-  created_by TEXT,
+  created_by TEXT NOT NULL,
+  created_token_jti TEXT,
   target_kind TEXT NOT NULL CHECK (target_kind IN (
     'bank_transaction', 'supplier_invoice', 'customer_invoice', 'credit_note', 'supplier_payment', 'customer_payment')),
   target_id UUID NOT NULL,

@@ -137,7 +137,7 @@ describeIfDb('MCP create_upload_urls + finalize_uploads (bank lines)', () => {
     expect(await attachmentCount()).toBe(9);
   });
 
-  it('refuses another company\'s line as Not found, and another company cannot finalize our upload', async () => {
+  it('refuses another company\'s line; only the creating user + token with write:bank-tx can finalize', async () => {
     const f = PDF(200);
     const res = json(await createUploadUrlsTool.handler({ files: [
       { target: { bank_transaction_id: foreignLine }, file_name: 'a.pdf', mime_type: 'application/pdf', size: f.length, sha256: sha(f) },
@@ -151,6 +151,20 @@ describeIfDb('MCP create_upload_urls + finalize_uploads (bank lines)', () => {
     expect(await put(String(up.url), f)).toBe(200);
     const theirs = json(await finalizeUploadsTool.handler({ upload_ids: [up.upload_id], idempotency_key: 'f4' }, ctx(other)));
     expect((theirs.files as Json[])[0]!.status).toBe('not_found');
+    // Same company, another member (or another connection of ours): bound to the principal that asked for the url.
+    const colleague = json(await finalizeUploadsTool.handler({ upload_ids: [up.upload_id], idempotency_key: 'f5' },
+      { ...ctx(fx), userId: other.userId }));
+    expect((colleague.files as Json[])[0]!.status).toBe('not_found');
+    const otherToken = json(await finalizeUploadsTool.handler({ upload_ids: [up.upload_id], idempotency_key: 'f6' },
+      { ...ctx(fx), tokenJti: 'another-token' }));
+    expect((otherToken.files as Json[])[0]!.status).toBe('not_found');
+    const noBankScope = json(await finalizeUploadsTool.handler({ upload_ids: [up.upload_id], idempotency_key: 'f7' },
+      { ...ctx(fx), scopes: ['write:invoices'] }));
+    expect((noBankScope.files as Json[])[0]!.status).toBe('refused');
     expect(await attachmentCount()).toBe(9);
+    // The creator can still finalize it.
+    const mineDone = json(await finalizeUploadsTool.handler({ upload_ids: [up.upload_id], idempotency_key: 'f8' }, ctx(fx)));
+    expect((mineDone.files as Json[])[0]!.status).toBe('finalized');
+    expect(await attachmentCount()).toBe(10);
   });
 });

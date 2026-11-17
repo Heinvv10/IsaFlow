@@ -159,7 +159,7 @@ export const createUploadUrlsTool: McpTool = {
       const existing = await findExistingDocument(ctx.companyId, p.kind, targetId!, p.fileName, p.size, p.sha256);
       if (existing) { uploads.push({ ...head, status: 'duplicate', duplicate: true, document_id: existing }); continue; }
 
-      const intent = await insertUploadIntent(ctx.companyId, ctx.userId, {
+      const intent = await insertUploadIntent(ctx.companyId, { userId: ctx.userId, tokenJti: ctx.tokenJti }, {
         targetKind: p.kind, targetId: targetId!, documentType: p.documentType,
         fileName: p.fileName, mimeType: p.mime, size: p.size, sha256: p.sha256,
       });

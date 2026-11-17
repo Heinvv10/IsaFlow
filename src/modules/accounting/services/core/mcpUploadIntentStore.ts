@@ -30,6 +30,9 @@ export interface UploadIntent {
   targetKind: UploadTargetKind;
   targetId: string;
   documentType: string | null;
+  /** The user and token (PAT id / OAuth authorisation id) that asked for the url; finalize binds to both. */
+  createdBy: string;
+  createdTokenJti: string | null;
   fileName: string;
   mimeType: string;
   declaredSize: number;
@@ -65,6 +68,8 @@ function mapIntent(r: DbRow): UploadIntent {
     targetKind: String(r.target_kind) as UploadTargetKind,
     targetId: String(r.target_id),
     documentType: r.document_type == null ? null : String(r.document_type),
+    createdBy: String(r.created_by),
+    createdTokenJti: r.created_token_jti == null ? null : String(r.created_token_jti),
     fileName: String(r.file_name),
     mimeType: String(r.mime_type),
     declaredSize: Number(r.declared_size),
@@ -90,14 +95,14 @@ export interface NewIntent {
 }
 
 export async function insertUploadIntent(
-  companyId: string, createdBy: string | null, i: NewIntent,
+  companyId: string, by: { userId: string; tokenJti: string | null }, i: NewIntent,
 ): Promise<{ id: string; token: string; expiresAt: string }> {
   const { token, tokenHash } = newUploadToken();
   const [row] = (await sql`
     INSERT INTO mcp_upload_intents
-      (company_id, created_by, target_kind, target_id, document_type, file_name, mime_type, declared_size, sha256,
+      (company_id, created_by, created_token_jti, target_kind, target_id, document_type, file_name, mime_type, declared_size, sha256,
        token_hash, expires_at)
-    VALUES (${companyId}::UUID, ${createdBy}, ${i.targetKind}, ${i.targetId}::UUID, ${i.documentType}, ${i.fileName},
+    VALUES (${companyId}::UUID, ${by.userId}, ${by.tokenJti}, ${i.targetKind}, ${i.targetId}::UUID, ${i.documentType}, ${i.fileName},
             ${i.mimeType}, ${i.size}, ${i.sha256}, ${tokenHash}, now() + make_interval(mins => ${UPLOAD_TTL_MINUTES}))
     RETURNING id, expires_at
   `) as DbRow[];

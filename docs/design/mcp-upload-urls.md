@@ -24,7 +24,10 @@
    target ownership and dedup; write through the existing services (`addBankTxAttachment` / `storeDocumentBytes`,
    extraction off); clear the staged bytes; mark `finalized`; one `audit_log` row per finalize (source, upload_id,
    document_id, sha256, duplicate, token jti). Per-file status: finalized / not_uploaded / expired / refused / not_found.
-   Re-finalizing returns the first result.
+   Re-finalizing returns the first result. Finalize is **bound to the creating principal**: the intent stores
+   `created_by` (user) and `created_token_jti` (PAT id / OAuth authorisation id, stable across token refresh), and an id
+   from any other user or connection reads `not_found`, like another company's. A bank-line upload also needs
+   `write:bank-tx` at finalize (checked before the bytes are read), not only at create.
 
 **Storage.** Migration `999q_mcp_upload_intents.sql`: company-scoped table, `tenant_isolation` RLS for `app_user`,
 `app_service` mirrors via `app_service_sync_policies()`. Finalized rows keep sha256 + result id (no bytes) for dedup.

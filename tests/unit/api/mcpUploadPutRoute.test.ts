@@ -28,6 +28,7 @@ const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const COMPANY = '22222222-2222-2222-2222-222222222222';
 const intent = (over: Partial<UploadIntent> = {}): UploadIntent => ({
   id: 'up-1', companyId: COMPANY, targetKind: 'bank_transaction', targetId: 't', documentType: null,
+  createdBy: 'u', createdTokenJti: 'j',
   fileName: 'slip.pdf', mimeType: 'application/pdf', declaredSize: PDF.length, sha256: sha(PDF), status: 'pending',
   stagedBytes: null, resultDocumentId: null, resultDuplicate: null, refusal: null, expiresAt: 'x', expired: false, ...over,
 });
