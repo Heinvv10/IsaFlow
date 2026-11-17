@@ -43,6 +43,9 @@ export function useFocusTrap(
         // an empty one lets Escape close the overlay as before.
         if (a?.closest('[data-keeps-escape="true"]')) return;
         if (a?.closest('[data-select-panel="true"]') || a?.closest('[data-select-listbox="true"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
+        // An open menu (the kit ActionMenu, portalled) closes itself first, from its items or its trigger: the overlay
+        // stays, and the next Escape (focus back on the closed trigger) closes it.
+        if (a?.closest('[role="menu"]') || a?.closest('[aria-haspopup="menu"][aria-expanded="true"]')) return;
         e.stopPropagation();
         escape.current();
         return;

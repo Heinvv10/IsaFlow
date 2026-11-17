@@ -10,8 +10,9 @@
  * only moves focus to the active item (the browser can open a link only from the link). Escape closes and returns focus
  * to the trigger (from the trigger too). On the trigger it is handled by a NATIVE listener on the button, so it stops at
  * the target: no bubbling listener above (a dialog's React onKeyDown, a native one on #root or document) sees it. A
- * listener in the CAPTURE phase above (useFocusTrap listens on document, capturing) still runs first: no listener on the
- * trigger can stop that. Tab closes and lets focus go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
+ * listener in the CAPTURE phase above runs first and nothing here can stop it, so such a listener must skip an open
+ * menu itself: useFocusTrap does (focus in [role="menu"] or on an open [aria-haspopup="menu"] trigger), so in a dialog
+ * Escape closes the menu and the next one the dialog. Tab closes and lets focus go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
  * menu's own padding keeps focus in it. The menu is fixed to the viewport: its side (down, or up when there is not room
  * below; panelPlacement) is chosen once when it opens, it is kept inside the viewport horizontally by its MEASURED width
  * (8px each side, capped at the viewport less 16px), and it follows its trigger on scroll. If the items change while it
