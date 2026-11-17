@@ -71,6 +71,9 @@ describe('2, 3: fill characters and the escaped space', () => {
     expect(await cellWith('#,##0.00\\ ?', 1.23)).toEqual({ kind: 'value', cents: 123 });
     expect(await cellWith('#,##0.00\\ ?', 1.234)).toEqual({ kind: 'error', raw: '1.234', reason: 'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)' });
   });
+  it('a [...] code after the decimals is not a digit placeholder: 0.00\\ [$R-1C09] shows 2 decimals, so 1.235 rounds to 1.24', async () => {
+    expect(await cellWith('0.00\\ [$R-1C09]', 1.235)).toEqual({ kind: 'value', cents: 124 });
+  });
 });
 
 describe('4: the rounding is IsaFlow\'s own, also at 1e10 and over', () => {
