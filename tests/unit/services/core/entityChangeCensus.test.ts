@@ -68,6 +68,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/seed-phase5-payroll.ts', 'scripts/seed-phase5-wipe.ts', `${S}core/costCentreService.ts`,
     `${S}payroll/equityReportService.ts`, `${S}payroll/payScaleService.ts`, `${S}payroll/payrollBulkEmployeeService.ts`,
     `${S}payroll/payrollEmployeeService.ts`, `${S}payroll/payrollTerminationService.ts`,
+    `${S}payroll/payrollEmployeeEmail.ts`, // PE: the payslip address only (999o); captured like any employee write
   ],
   company_users: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',

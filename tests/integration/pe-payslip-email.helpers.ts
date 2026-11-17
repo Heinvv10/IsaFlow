@@ -6,7 +6,13 @@
 import { SignJWT } from 'jose';
 import type { EmailOptions } from '@/modules/accounting/services/core/emailService';
 import type { Mailer } from '@/modules/accounting/services/payroll/payslipDeliveryService';
-import { payslipEmailRoute } from '@/lib/payslipEmailApi';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { withAuth } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
+import { withNoStore } from '@/lib/auth/withNoStore';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { payslipEmailHandler } from '@/lib/payslipEmailApi';
+import { admitPayslipEmails } from '../../pages/api/payroll/runs/[id]/payslips/email';
 import settings from '../../pages/api/payroll/settings/payslip-email';
 import employeeEmail from '../../pages/api/payroll/employees/[id]/email';
 import { rig, type Res, type Route } from './brkr.helpers';
@@ -26,7 +32,8 @@ export const capture: Mailer = async (o) => {
   captured.push(o);
   return { success: true, messageId: `<pe-${captured.length}@example.invalid>` };
 };
-const sendRoute = payslipEmailRoute(capture) as unknown as Route;
+// The page's exact middleware (pinned by tests/unit/api/payslipEmailRoute.test.ts), around a capture mailer.
+const sendRoute = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(capture, admitPayslipEmails)))))) as unknown as Route;
 
 export const send = (r: R, runId: string, o: Opts & { body?: unknown } = {}) =>
   r.call(sendRoute, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });

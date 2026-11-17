@@ -45,6 +45,7 @@ const CALLERS = [
   `${P}/payrollRunReopen.ts`,
   `${P}/payrollRunRowWrite.ts`,
   `${P}/payrollRunService.ts`,
+  `${P}/payslipDeliveryService.ts`, // PE: getPayslips, so the guard runs before any send
   `${P}/payslipModel.ts`,
   `${P}/payRunApprovalControl.ts`,
 ];

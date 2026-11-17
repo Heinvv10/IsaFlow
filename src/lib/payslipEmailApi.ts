@@ -5,22 +5,18 @@
  * recorded session) is 403 AGENT_FORBIDDEN, as the payslip download route, and a platform admin's Login-as is 403
  * IMPERSONATION_FORBIDDEN (an outbound send is never made under another person's name). Judged before any read.
  *
- * `payslipEmailRoute(mailer)` is the send route, POST /api/payroll/runs/[id]/payslips/email, built around the Mailer it
- * is given: the page's default export passes `sendEmail`; the integration suite passes a capture mailer. Nothing
- * selects the mailer from the environment.
+ * `payslipEmailHandler(mailer)` is the send route's handler, POST /api/payroll/runs/[id]/payslips/email, built around
+ * the Mailer it is given: the page wraps it with `sendEmail`; the integration suite wraps the same handler, in the
+ * same middleware, with a capture mailer. Nothing selects the mailer from the environment.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
-import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
-import { withCsrf } from '@/lib/auth/withCsrf';
-import { withNoStore } from '@/lib/auth/withNoStore';
-import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import type { CompanyAuthedRequest } from '@/lib/auth';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
-import { checkSendRateLimit, getClientIp } from '@/lib/rateLimit';
+import { getClientIp } from '@/lib/rateLimit';
 import { PayslipEmailRefusal } from '@/modules/accounting/services/payroll/payslipDeliveryRefusal';
 import { sendPayslipEmails, type Mailer } from '@/modules/accounting/services/payroll/payslipDeliveryService';
 import type { EmployeeEmailActor } from '@/modules/accounting/services/payroll/payrollEmployeeEmail';
@@ -61,7 +57,10 @@ const Body = z.object({
   resend: z.boolean().optional(),
 }).strict();
 
-export function payslipEmailRoute(mailer: Mailer) {
+/** The send limit, charged for the recipients left after judging (the route supplies it: pages/api/…/email.ts). */
+export type AdmitPayslipEmails = (req: NextApiRequest, companyId: string, count: number) => Promise<boolean>;
+
+export function payslipEmailHandler(mailer: Mailer, admit: AdmitPayslipEmails) {
   async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
     const { companyId } = req as CompanyAuthedRequest;
@@ -74,12 +73,12 @@ export function payslipEmailRoute(mailer: Mailer) {
     try {
       return apiResponse.success(res, await sendPayslipEmails({
         companyId, runId, employeeIds: parsed.data.employeeIds, resend: parsed.data.resend === true, actor, mailer,
-        admit: (count) => checkSendRateLimit(req, companyId, 'payslips', { count, companyMax: 500, dailyMax: 1000 }),
+        admit: (count) => admit(req, companyId, count),
       }));
     } catch (err) {
       if (respondIfLockTimeout(res, err) || respondIfPayslipEmailRefused(res, err)) return;
       throw err;
     }
   }
-  return withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+  return handler;
 }

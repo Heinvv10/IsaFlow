@@ -51,6 +51,7 @@ const REFUNDABLE: Record<string, { kind: 'ai' | 'send'; marksIn: string }> = {
   'accounting/company-invitations.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
   'accounting/ar/dunning/send.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
   'accounting/afs/[documentId]/send-for-signing.ts': { kind: 'send', marksIn: 'pages/api/accounting/afs/[documentId]/send-for-signing.ts' },
+  'payroll/runs/[id]/payslips/email.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
 };
 
 /** Routes that keep their charge whatever happens, and why a refund cannot be proven. */

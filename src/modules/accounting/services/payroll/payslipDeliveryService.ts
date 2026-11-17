@@ -99,12 +99,13 @@ async function record(o: {
   companyId: string; runId: string; employeeId: string; email: string; sha256: string; resend: boolean; sentBy: string;
   result: { messageId: string | null; error: string | null };
 }): Promise<void> {
+  const { companyId, runId, employeeId } = o;
   await sql`
     INSERT INTO payslip_deliveries
       (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend, sent_by)
-    SELECT ${o.companyId}::uuid, h.id, ${o.employeeId}::uuid, COALESCE(h.approved_at, h.approval_grandfathered_at), ${o.email},
+    SELECT ${companyId}::uuid, h.id, ${employeeId}::uuid, COALESCE(h.approved_at, h.approval_grandfathered_at), ${o.email},
            ${o.sha256}, ${o.result.error === null ? 'sent' : 'failed'}, ${o.result.messageId}, ${o.result.error}, ${o.resend}, ${o.sentBy}
-      FROM payroll_run_headers h WHERE h.id = ${o.runId}::uuid AND h.company_id = ${o.companyId}::uuid
+      FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `;
 }
 
