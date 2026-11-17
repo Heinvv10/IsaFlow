@@ -35,7 +35,9 @@ async function net(accountId: string): Promise<number> {
   return Math.round(Number(r!.n) * 100) / 100;
 }
 
-const reverse = async (id: string) => (await inTx(fx, () => reverseJournalEntry(fx.companyId, id, fx.userId))).id;
+// The legacy hand reversal these chains start from: the GL now refuses it while a live line books the journal
+// (bank/liveBankLineReversal), so it is planted through the internal opt-out.
+const reverse = async (id: string) => (await inTx(fx, () => reverseJournalEntry(fx.companyId, id, fx.userId, { bankLinesHandled: true }))).id;
 const contras = async (id: string) => ((await sql`
   SELECT id FROM gl_journal_entries
   WHERE company_id = ${fx.companyId}::UUID AND reversal_of_id = ${id}::UUID AND status = 'posted'`) as Row[]).length;
@@ -142,7 +144,7 @@ describeIfDb('D8 round 3: credit-note cancel and bank reversal take a re-reverse
     return { tx, journal: String(m!.j) };
   }
   const reverseOn = async (id: string, reversalDate: string) =>
-    (await inTx(fx, () => reverseJournalEntry(fx.companyId, id, fx.userId, { reversalDate }))).id;
+    (await inTx(fx, () => reverseJournalEntry(fx.companyId, id, fx.userId, { reversalDate, bankLinesHandled: true }))).id; // legacy plant
 
   it('a re-reversed allocation journal: original_entry_date is the head\'s date, so an undisturbed contra has not moved', async () => {
     const { tx, journal } = await allocatedJournal('D8R6 DATED');

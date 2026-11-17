@@ -144,9 +144,15 @@ export async function plantOppositeOrderLines(pool: Pool, f: SyncFixture): Promi
   return { hi, lo };
 }
 
-/** Reverse a journal through the real reversal service (it stamps reversed_at and posts a contra; status stays 'posted'). Returns the contra's id. */
+/**
+ * Reverse a journal through the real reversal service (it stamps reversed_at and posts a contra; status stays 'posted').
+ * Returns the contra's id. The fixture's bank row stays allocated to the reversed journal: the pre-2026-11-16 GL hand
+ * reversal, which the GL now refuses while a live line books the journal (bank/liveBankLineReversal, decision (a)).
+ * Legacy rows of that shape exist, and the sync must still read them as no source — so the state is planted through
+ * the internal opt-out, as the D8/D10/D12 fixtures do.
+ */
 export async function reverseJournal(pool: Pool, f: SyncFixture, journal: string): Promise<string> {
-  const res = await asToken(pool, f.user, f.c, () => reverseJournalEntry(f.c, journal, f.user));
+  const res = await asToken(pool, f.user, f.c, () => reverseJournalEntry(f.c, journal, f.user, { bankLinesHandled: true }));
   return (res as unknown as { id: string }).id;
 }
 
