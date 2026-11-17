@@ -117,6 +117,14 @@ describe('finalize_uploads hardening', () => {
     expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({ action: 'reject' });
   });
 
+  it('frees the idempotency key when the call changed no upload (all deferred / not uploaded), keeps it otherwise', async () => {
+    vi.mocked(store.lockIntentForFinalize).mockResolvedValueOnce(intent(1, { status: 'pending' }));
+    const idle = await finalizeUploadsTool.handler({ upload_ids: [id(1)], idempotency_key: 'k' }, ctx);
+    expect(idle.wroteNothing).toBe(true);
+    const done = await finalizeUploadsTool.handler({ upload_ids: [id(2)], idempotency_key: 'k2' }, ctx);
+    expect(done.wroteNothing).toBe(false);
+  });
+
   it('runs the global sweep once and never fails on it', async () => {
     vi.mocked(sweepExpiredUploadsQuietly).mockResolvedValueOnce(undefined);
     await run([id(1)]);

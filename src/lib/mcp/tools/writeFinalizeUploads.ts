@@ -36,7 +36,8 @@ import { BANK_UPLOAD_MAX_BYTES, MAX_UPLOAD_ITEMS, findExistingDocument, isBankKi
 export const FINALIZE_MAX_BYTES_PER_CALL = 200 * 1024 * 1024;
 
 type FileResult = Record<string, unknown> & { upload_id: string; status: string };
-type Outcome = { result: FileResult; bytesRead: number };
+/** `changed`: this call moved the intent (finalized or refused it); a call that changed none frees its idempotency key. */
+type Outcome = { result: FileResult; bytesRead: number; changed: boolean };
 
 async function writeDocument(ctx: McpToolContext, i: UploadIntent, bytes: Buffer): Promise<string | { refused: string }> {
   if (isBankKind(i.targetKind)) {
@@ -75,7 +76,7 @@ async function refuse(ctx: McpToolContext, i: UploadIntent, head: Record<string,
 }
 
 async function finalizeOne(ctx: McpToolContext, uploadId: string, budgetLeft: number): Promise<Outcome> {
-  const none = (result: FileResult): Outcome => ({ result, bytesRead: 0 });
+  const none = (result: FileResult): Outcome => ({ result, bytesRead: 0, changed: false });
   const i = await lockIntentForFinalize(ctx.companyId, uploadId);
   // Bound to the principal that asked for the url: the same user AND the same token. Another member's (or another
   // connection's) id reads as not_found, exactly like another company's.
@@ -97,11 +98,11 @@ async function finalizeOne(ctx: McpToolContext, uploadId: string, budgetLeft: nu
   if (i.status === 'pending') return none({ ...head, status: 'not_uploaded', error: 'no bytes were PUT to the url yet' });
   if (i.declaredSize > budgetLeft) {
     return none({ ...head, status: 'deferred',
-      error: `this call's ${FINALIZE_MAX_BYTES_PER_CALL / (1024 * 1024)} MB budget is spent: call finalize_uploads again with this upload_id (within ${FINALIZE_WINDOW_HOURS} hours of its upload)` });
+      error: `this call's ${FINALIZE_MAX_BYTES_PER_CALL / (1024 * 1024)} MB budget is spent: call finalize_uploads again with this upload_id and a new idempotency_key (within ${FINALIZE_WINDOW_HOURS} hours of its upload)` });
   }
 
   const bytes = (await readStagedBytes(ctx.companyId, i.id)) ?? Buffer.alloc(0);
-  const read = (result: FileResult): Outcome => ({ result, bytesRead: i.declaredSize });
+  const read = (result: FileResult): Outcome => ({ result, bytesRead: i.declaredSize, changed: true });
   const bad = uploadBytesRefusal(bytes, i);
   if (bad) return read(await refuse(ctx, i, head, bad, true));
   if (!(await targetBelongsToCompany(ctx.companyId, i.targetKind, i.targetId))) {
@@ -133,7 +134,8 @@ async function finalizeIsolated(ctx: McpToolContext, uploadId: string, budgetLef
       companyId: ctx.companyId, uploadId, error: err instanceof Error ? err.message : String(err),
     }, 'mcp-uploads');
     return { result: { upload_id: uploadId, status: 'error',
-      error: 'finalizing this file failed and nothing was stored for it: call finalize_uploads again with this upload_id' }, bytesRead: 0 };
+      error: 'finalizing this file failed and nothing was stored for it: call finalize_uploads again with this upload_id and a new idempotency_key' },
+      bytesRead: 0, changed: false };
   }
 }
 
@@ -165,9 +167,11 @@ export const finalizeUploadsTool: McpTool = {
     await sweepExpiredUploadsQuietly();
     const files: FileResult[] = [];
     let budget = FINALIZE_MAX_BYTES_PER_CALL;
+    let changedAny = false;
     for (const id of unique) {
-      const { result, bytesRead } = await finalizeIsolated(ctx, id, budget);
+      const { result, bytesRead, changed } = await finalizeIsolated(ctx, id, budget);
       budget -= bytesRead;
+      changedAny ||= changed;
       files.push(result);
     }
 
@@ -178,7 +182,7 @@ export const finalizeUploadsTool: McpTool = {
       companyId: ctx.companyId, files: files.length, finalized: finalized.length, duplicates,
       deferred: count('deferred'), errors: count('error'),
     }, 'mcp-uploads');
-    return ok({
+    return { ...ok({
       files,
       finalized: finalized.length,
       duplicates,
@@ -188,6 +192,6 @@ export const finalizeUploadsTool: McpTool = {
       deferred: count('deferred'),
       errors: count('error'),
       not_found: count('not_found'),
-    });
+    }), wroteNothing: !changedAny };
   },
 };

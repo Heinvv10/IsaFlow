@@ -161,8 +161,10 @@ describe('create_upload_urls', () => {
     expect(res.uploads[1].error).toMatch(/300 uploads outstanding/);
     expect(store.insertUploadIntent).toHaveBeenCalledTimes(1);
     vi.mocked(store.lockAndReadUploadUsage).mockResolvedValue({ count: 0, bytes: 300 * 1024 * 1024 - 1 });
-    const bytes = body(await createUploadUrlsTool.handler({ files: [file()], idempotency_key: 'k' }, ctx()));
-    expect(bytes.uploads[0].error).toMatch(/300 MB/);
+    const refusedAll = await createUploadUrlsTool.handler({ files: [file()], idempotency_key: 'k' }, ctx());
+    expect(body(refusedAll).uploads[0].error).toMatch(/300 MB/);
+    // No url issued: the key is freed so the same call can run once the cap allows.
+    expect(refusedAll.wroteNothing).toBe(true);
   });
 
   it('issues one url when the same bytes are listed twice for one target', async () => {

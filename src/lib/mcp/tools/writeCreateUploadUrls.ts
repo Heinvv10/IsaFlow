@@ -189,12 +189,14 @@ export const createUploadUrlsTool: McpTool = {
         url: `${base}/api/mcp/uploads/${intent.token}`, expires_at: intent.expiresAt });
     }
     const count = (s: string) => uploads.filter((u) => u.status === s).length;
-    return ok({
+    // No url issued (every file a duplicate or refused): the key is freed, so the same call can be re-run once the
+    // refusal is fixed (a cap, a missing scope) instead of replaying this answer.
+    return { ...ok({
       uploads,
       urls_issued: count('url_issued'),
       duplicates: count('duplicate'),
       refused: count('refused'),
       next_step: `PUT each file's bytes to its url within ${UPLOAD_TTL_MINUTES} minutes (curl -sS -T "<file>" "<url>"), then call finalize_uploads with the upload_ids (an uploaded file can be finalized for ${FINALIZE_WINDOW_HOURS} hours).`,
-    });
+    }), wroteNothing: count('url_issued') === 0 };
   },
 };
