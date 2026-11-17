@@ -1,0 +1,261 @@
+/**
+ * The e@syFile IRP5 file's input for one tax year: the employer record and every employee certificate, read from the
+ * company profile and the FINAL runs, plus the warnings the file carries (moved out of
+ * pages/api/payroll/irp5/easyfile-export.ts, unchanged: the EMP501 lifecycle (wave 6 EFb) snapshots the same input).
+ *
+ * Refusals that the route answered directly are thrown as EasyFileInputRefusal with the same status and text.
+ */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
+import {
+  buildCertificateNumber,
+  splitCertificateIncome,
+  type EmployerInput,
+  type EmployeeInput,
+} from '@/modules/accounting/services/payroll/easyFileExportService';
+import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
+import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
+import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
+import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
+import {
+  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
+} from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
+import { allowanceCertificateFields, listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
+import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import {
+  listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
+} from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
+import { splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
+import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
+import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
+
+/** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
+export class EasyFileInputRefusal extends Error {
+  constructor(readonly kind: 'not_found' | 'validation' | 'bad_request', message: string,
+    readonly details: Record<string, unknown> | undefined = undefined) {
+    super(message);
+    this.name = 'EasyFileInputRefusal';
+  }
+}
+
+export interface EasyFileInput {
+  employer: EmployerInput;
+  employees: EmployeeInput[];
+  payeRef: string;
+  /** Capped for the header (capWarningsForHeader). */
+  warnings: string[];
+  warningsTotal: number;
+  unlinkedPaymentIds: string[];
+}
+
+export async function assembleEasyFileInput(companyId: string, taxYear: number): Promise<EasyFileInput> {
+  const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
+  // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
+  // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
+
+  // Lump sums paid under a directive, in a run or outside payroll (own code,
+  // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
+  // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
+  // follow-ups G1). The stand-alone payments are in no run line, so their
+  // gross and PAYE are added to the run totals.
+  const bounds = saTaxYearBounds(taxYear);
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, allowancesByEmployee, regularDirectives] = await Promise.all([
+    sql`
+      SELECT
+        COALESCE(registered_name, name) AS trading_name,
+        paye_reference_number, sdl_reference_number, uif_reference_number, sic7_code,
+        sars_contact_first_name, sars_contact_last_name,
+        sars_contact_telephone, sars_contact_number,
+        email,
+        physical_address_line1, physical_city, physical_province, physical_postal_code
+      FROM companies
+      WHERE id = ${companyId}::uuid
+    ` as Promise<DbRow[]>,
+    sql`
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
+      FROM   payroll_employees
+      WHERE  company_id = ${companyId}::uuid
+      ORDER  BY last_name, first_name
+    ` as Promise<DbRow[]>,
+    loadCertificateAggregates(companyId, { startYear, startMonth, endYear, endMonth }),
+    listCertificateLumpSums(companyId, bounds),
+    listRunAnnualPayments(companyId, bounds),
+    loadMedicalRecord(companyId, bounds),
+    loadRetirementContributions(companyId, bounds),
+    // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
+    listRunNonCashBenefits(companyId, bounds, null, { excludeContractorLines: true }),
+    // 3801 items paid in cash (no flag): in 3601, and said so below.
+    listRunUnflaggedFringe(companyId, bounds),
+    // 3701 (own code, outside 3601) and 4582 (the part of 3701 + 3802 PAYE was withheld on).
+    listRunAllowanceFiling(companyId, bounds),
+    // IRP3(b)/(c) directive numbers the stored lines were taxed by: 3230 alone (BRS V25.3.0 p. 41).
+    listRegularDirectiveNumbers(companyId, bounds),
+  ]);
+
+  const company = companyRows[0];
+  if (!company) {
+    throw new EasyFileInputRefusal('not_found', 'Company');
+  }
+
+  const missing: string[] = [];
+  if (!company.paye_reference_number) missing.push('PAYE reference number');
+  if (!company.sars_contact_first_name) missing.push('SARS contact first name');
+  if (!company.sars_contact_last_name) missing.push('SARS contact surname');
+  if (!company.physical_address_line1) missing.push('Physical address line 1');
+  if (!company.physical_postal_code) missing.push('Physical postal code');
+  if (!(company.sars_contact_telephone || company.sars_contact_number)) {
+    missing.push('SARS contact telephone or cell number');
+  }
+  if (missing.length > 0) {
+    throw new EasyFileInputRefusal(
+      'validation',
+      'Cannot generate e@syFile export — company profile is missing required fields',
+      { missing, fix: 'Accounting → Settings → Company Details' },
+    );
+  }
+
+  const payeRef = String(company.paye_reference_number).trim();
+  const aggMap = new Map<string, DbRow>();
+  aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
+
+  const yoaStart = bounds.start.replaceAll('-', '');
+  const yoaEndInclusive = bounds.end.replaceAll('-', ''); // last day of February, 29th in a leap year
+
+  const employees: EmployeeInput[] = [];
+  const warnings: string[] = [];
+  const paidInCash: Array<{ employee: string; amount: number }> = [];
+  let seq = 0;
+  for (const row of empRows) {
+    const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
+    const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
+    if (!agg) continue;
+    const { salaryGross: gross, annualPayments, income3616 } = splitContractorIncome({
+      totalGross: Number(agg.total_gross ?? 0), contractorGross: Number(agg.contractor_gross ?? 0), contractorAnnual: Number(agg.contractor_annual ?? 0),
+      contractorDirective: Number(agg.contractor_directive ?? 0), contractorNonCash: Number(agg.contractor_noncash ?? 0),
+      annualAll: annualByEmployee.get(String(row.id)) ?? 0, standaloneGross: standalone.gross,
+    });
+    const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
+    const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
+    const split = splitCertificateIncome({
+      gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
+      annualPayments, lumpSums: employeeLumpSums,
+    });
+    const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    // Contractor lines are left out of the allowance totals (their fees, 3701 included, are in 3616), so a year that is part employee,
+    // part contractor keeps the employee months' 3701 / 4582.
+    const allowance = allowanceCertificateFields(allowancesByEmployee.get(String(row.id)), who);
+    split.grossSalary3601 = Math.round((split.grossSalary3601 - allowance.cashAllowances.reduce((n, a) => n + a.amount, 0)) * 100) / 100;
+    warnings.push(...allowance.warnings);
+    // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
+    // certificate. Skipped, not refused for the whole company, unless PAYE was withheld: no
+    // certificate could carry it and 4102 would under-report, so the file is refused, naming it.
+    const incomes = [split.grossSalary3601, income3616, split.annualPayments3605, ...allowance.cashAllowances.map(a => a.amount), ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
+    if (!incomes.some(a => Math.floor(a) >= 1)) {
+      const paye = Math.round((Number(agg.total_paye ?? 0) + standalone.paye) * 100) / 100;
+      if (paye !== 0) {
+        throw new EasyFileInputRefusal('validation', `${who}: ${formatMoney(paye)} of PAYE was withheld this tax year, `
+          + 'but no income code is R1 or more, so no certificate can carry it. Correct the payroll before exporting.');
+      }
+      const uif = Math.round((Number(agg.total_uif_emp ?? 0) + Number(agg.total_uif_empr ?? 0)) * 100) / 100;
+      const sdl = Math.round(Number(agg.total_sdl ?? 0) * 100) / 100;
+      if (uif !== 0 || sdl !== 0) {
+        warnings.push(`${who}: no certificate is written (no income code is R1 or more), but the runs carry UIF ${formatMoney(uif)} `
+          + `and SDL ${formatMoney(sdl)} for this employee. Check the payroll.`);
+      } else if (incomes.some(a => a > 0)) {
+        warnings.push(`${who}: income this tax year is under R1 on every income code, so no certificate is written.`);
+      }
+      continue;
+    }
+    warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
+    // 4005/4116/4120 (easyFileMedicalFields) and what the file cannot carry about them.
+    const medical = medicalByEmployee.get(String(row.id));
+    const age = ageAtYearEnd(taxYear, row.date_of_birth, row.id_number);
+    warnings.push(...medicalCertificateWarnings(who, medical, { age, dateOfBirthMissing: !row.date_of_birth }));
+    const inCash = unflaggedFringe.get(String(row.id));
+    if (inCash) paidInCash.push({ employee: who, amount: inCash });
+    seq += 1;
+    const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
+    const certEndDate = toCCYYMMDD(row.end_date);
+    const periodStart = certStartDate > yoaStart ? certStartDate : yoaStart;
+    const periodEnd = certEndDate && certEndDate < yoaEndInclusive ? certEndDate : yoaEndInclusive;
+
+    employees.push({
+      certificateNumber: buildCertificateNumber(payeRef, taxYear, 2, seq),
+      yearOfAssessment: taxYear,
+      surname: String(row.last_name ?? ''),
+      firstNames: firstTwoNames(String(row.first_name ?? '')),
+      initials: initialsFromName(String(row.first_name ?? '')),
+      idNumber: String(row.id_number ?? ''),
+      taxNumber: row.tax_number ? String(row.tax_number) : null,
+      employmentStartDate: certStartDate,
+      employmentEndDate: certEndDate,
+      periodsInYoA: monthsBetween(periodStart, periodEnd),
+      ...split,
+      cashAllowances: allowance.cashAllowances,
+      ...(allowance.paye4582 !== undefined ? { paye4582: allowance.paye4582 } : {}),
+      ...(income3616 > 0 ? { independentContractor3616: income3616 } : {}),
+      fringeBenefits,
+      lumpSums: employeeLumpSums.map(l => ({
+        sourceCode: l.sourceCode,
+        directiveNumber: l.directiveNumber ?? '',
+        directiveIssuedDate: l.directiveIssuedDate.replace(/-/g, ''),
+        amount: l.amount,
+        paye: l.paye,
+      })),
+      regularDirectiveNumbers: regularDirectives.get(String(row.id)),
+      taxThreshold: taxThresholdFor(taxYear, row.date_of_birth, row.id_number),
+      dateOfBirth: localDay(row.date_of_birth),
+      medical: medical && {
+        fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
+      },
+      // 4001 / 4003 / 4006 (PAYE 4c, easyFileRetirementFields).
+      retirementFund: retirementByEmployee.get(String(row.id)),
+      uifEmployee: Number(agg.total_uif_emp ?? 0),
+      uifEmployer: Number(agg.total_uif_empr ?? 0),
+      sdl4142: Number(agg.total_sdl ?? 0),
+    });
+  }
+
+  if (employees.length === 0) {
+    throw new EasyFileInputRefusal('bad_request', 'No employees with payroll activity in the selected tax year');
+  }
+
+  const employer: EmployerInput = {
+    tradingName: String(company.trading_name),
+    payeReferenceNumber: payeRef,
+    sdlReferenceNumber: company.sdl_reference_number ? String(company.sdl_reference_number) : null,
+    uifReferenceNumber: company.uif_reference_number ? String(company.uif_reference_number) : null,
+    contactFirstName: String(company.sars_contact_first_name),
+    contactSurname: String(company.sars_contact_last_name),
+    contactBusinessPhone: company.sars_contact_telephone ? String(company.sars_contact_telephone) : null,
+    contactCellPhone: company.sars_contact_number ? String(company.sars_contact_number) : null,
+    contactEmail: company.email ? String(company.email) : null,
+    transactionYear: taxYear,
+    reconciliationPeriod: Number(`${taxYear}02`),
+    sic7Code: company.sic7_code ? String(company.sic7_code) : null,
+    physicalStreet: String(company.physical_address_line1),
+    physicalSuburb: company.physical_province ? String(company.physical_province) : null,
+    physicalCity: company.physical_city ? String(company.physical_city) : null,
+    physicalPostalCode: String(company.physical_postal_code),
+  };
+
+  // A directive with no issued date files its effective date as 3231, and a
+  // payment under a directive linked to no employee is on no certificate
+  // (applyTaxDirective now refuses those): both said, naming the directive,
+  // and shown by the IRP5 page.
+  // A payment on no certificate first: the cap below must never hide one. Then a run left out as not final (wave 6 EF).
+  warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
+  warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
+    + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+  // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
+  if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
+  const warningsTotal = warnings.length;
+  warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
+
+  return { employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId) };
+}
