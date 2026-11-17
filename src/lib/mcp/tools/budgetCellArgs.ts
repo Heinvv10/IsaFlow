@@ -44,9 +44,9 @@ export async function resolveRows(ctx: McpToolContext, model: GridReadModel, row
     const ref: ResolvedRef = { glAccountId: found.item.id, cc1Id: null, cc2Id: null, buId: null };
     const kind = named[0];
     if (kind) {
-      const named = refText(r[kind], kind);
-      const value = 'error' in named ? '' : named.ref;
-      const member = 'error' in named ? { ok: false as const, reason: named.error }
+      const memberRef = refText(r[kind], kind);
+      const value = 'error' in memberRef ? '' : memberRef.ref;
+      const member = 'error' in memberRef ? { ok: false as const, reason: memberRef.error }
         : value === '' ? { ok: false as const, reason: `${kind} must be an id or code` } : resolver.member(kind, value);
       if (!member.ok) { out.set(r.index, { reason: member.reason }); continue; }
       ref[kind === 'cc1' ? 'cc1Id' : kind === 'cc2' ? 'cc2Id' : 'buId'] = member.item.id;

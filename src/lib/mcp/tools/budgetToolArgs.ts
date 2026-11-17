@@ -50,12 +50,13 @@ export const randText = (rand: number): string => centsText(Math.round(rand * 10
 
 /**
  * An account, member or cost-centre reference (an id or a code) as the budget tools read it (review round 3, one rule
- * for every tool): a string trimmed; a finite integer as its digits (a numeric code sent as a JSON number); any other
- * number refused as "not a <what> code" (never truncated); anything else '' (absent, for the caller's own wording).
+ * for every tool): a string trimmed; a SAFE integer as its digits (a numeric code sent as a JSON number); any other
+ * number (a fraction, Infinity, NaN, an integer past 2^53 or 1e21, whose digits are not the ones sent) refused as
+ * "not a <what> code", never truncated; anything else '' (the caller words it: absent, or refused where a value is needed).
  */
 export function refText(v: unknown, what = 'account'): { ref: string } | { error: string } {
   if (typeof v === 'string') return { ref: v.trim() };
-  if (typeof v === 'number') return Number.isInteger(v) ? { ref: String(v) } : { error: `${String(v)} is not ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} code` };
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? { ref: String(v) } : { error: `${String(v)} is not ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} code` };
   return { ref: '' };
 }
 

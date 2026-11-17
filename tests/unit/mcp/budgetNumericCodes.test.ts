@@ -69,6 +69,10 @@ describe('refText', () => {
   ])('%s', (v, out) => expect(refText(v)).toEqual(out));
 
   it('names what the code is for', () => expect(refText(1.5, 'cc1')).toEqual({ error: '1.5 is not a cc1 code' }));
+
+  it.each([[9007199254740993], [1e21]])('an integer past the safe range (%s) is refused, never read as rounded digits', (v) => {
+    expect(refText(v)).toEqual({ error: `${String(v)} is not an account code` });
+  });
 });
 
 describe('each tool reads a whole number as its code and refuses a fraction', () => {
@@ -98,6 +102,11 @@ describe('each tool reads a whole number as its code and refuses a fraction', ()
     expect(out.rows).toEqual([]);
     expect(text(await getBudgetTool.handler({ version_id: VERSION, accounts: [6000.5] }, ctx()))).toMatch(/6000\.5 is not an account code/);
     expect(text(await getBudgetTool.handler({ version_id: VERSION, level: 'cc1', member: 1.5 }, ctx()))).toMatch(/1\.5 is not a cc1 code/);
+    // Round 4: an unknown level never words the refusal "undefined code"; a member that is neither text nor a whole
+    // number is refused (never read as absent, which would answer every member's rows).
+    const odd = text(await getBudgetTool.handler({ version_id: VERSION, level: 'region', member: 1.5 }, ctx()));
+    expect(odd).toBe('member needs level cc1, cc2 or bu');
+    expect(text(await getBudgetTool.handler({ version_id: VERSION, level: 'cc1', member: true }, ctx()))).toMatch(/is not one of this company's active CC1 cost centres|must be an id or code/);
   });
 
   it('add_budget_note', async () => {

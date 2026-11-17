@@ -164,6 +164,20 @@ integration (every mcp-budget-*, budget-grid-*, budget-drivers-*, budgets-three-
 file, 68 files) `Test Files  68 passed (68)`, `Tests  568 passed | 1 skipped (569)`; tsc exit 0; eslint 0 errors (2 warnings,
 tools/reports.ts); `agent-docs:check` OK (114).
 
+## Review round 4
+
+Red first: `Tests  3 failed | 18 passed (21)` (the two unsafe integers, get_budget's unknown level / non-text member).
+Mutants (file backed up, mutated, restored from the copy and compared; one commit, so no `git checkout` restore):
+
+| # | Mutant | unit (budgetNumericCodes) |
+|---|---|---|
+| U1 | `refText` back to `Number.isInteger` (9007199254740993 and 1e21 read as digits) | 2 failed / 21 |
+| U2 | get_budget words an unknown level as `${String(args.level)} code` | 1 failed / 21 |
+
+Runs: unit `tests/unit` `Test Files  2580 passed | 47 skipped (2627)`, `Tests  37624 passed | 289 skipped (37913)`; integration
+(the ten mcp-budget-* files) `Test Files  10 passed (10)`, `Tests  74 passed (74)`; tsc exit 0; eslint 0 errors (2 warnings,
+tools/reports.ts); `agent-docs:check` OK (114).
+
 ## Equivalence
 
 - `mcp-budget-drivers-equivalence` (1): one twin version through the app's routes as the owner (PUT a pct_of_line driver,

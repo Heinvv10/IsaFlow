@@ -119,9 +119,13 @@ export const getBudgetTool: McpTool = {
     }
     let memberId: string | null = null;
     if (args.member !== undefined && args.member !== null) {
-      const read = refText(args.member, String(args.level));
+      const level = (['cc1', 'cc2', 'bu'] as const).find((l) => l === args.level);
+      if (level === undefined) return toolError('member needs level cc1, cc2 or bu');
+      // A member that is neither text nor a safe integer is REFUSED: refText's '' resolves to no member (a refusal
+      // naming it), never to "no filter", so it can never answer every member's rows.
+      const read = refText(args.member, level);
       if ('error' in read) return toolError(read.error);
-      const m = resolver.member(args.level as 'cc1', read.ref);
+      const m = resolver.member(level, read.ref);
       if (!m.ok) return toolError(m.reason);
       memberId = m.item.id;
     }
