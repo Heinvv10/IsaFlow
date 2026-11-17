@@ -52,8 +52,11 @@ async function journal(companyId: string, date: string, description: string, amo
 }
 
 async function header(companyId: string, y: number, m: number, status: string, paye: number, eti: number, journalId: string | null = null) {
-  await sql`INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_eti, journal_entry_id)
-            VALUES (${companyId}::UUID, ${y}, ${m}, ${status}, ${paye}, ${eti}, ${journalId}::UUID)`;
+  // An approved/paid run carries its approval time, as approvePayrollRun leaves it (the ETI carry and the EMP201 read
+  // final runs only, wave 6 EF).
+  await sql`INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_eti, journal_entry_id, approved_at)
+            VALUES (${companyId}::UUID, ${y}, ${m}, ${status}::text, ${paye}, ${eti}, ${journalId}::UUID,
+                    CASE WHEN ${status}::text IN ('approved', 'paid') THEN clock_timestamp() END)`;
 }
 
 beforeAll(async () => {

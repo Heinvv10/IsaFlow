@@ -15,6 +15,25 @@ const TRUST_POINTS = [
   'Statement import: CSV, OFX, QFX, QIF, MT940 and PDF',
 ] as const;
 
+/** Phones: holds through the stacked copy and CTAs, then lets go of the bottom water. */
+const MOBILE_SCRIM =
+  'linear-gradient(180deg, rgba(7,26,36,0.68) 0%, rgba(7,26,36,0.58) 22%, rgba(7,26,36,0.62) 74%, '
+  + 'rgba(7,26,36,0.28) 90%, rgba(7,26,36,0.08) 100%)';
+
+/** Wide screens: left wash behind the copy column, clear from 60% (800px floor) across the river. */
+const DESKTOP_SCRIM =
+  'linear-gradient(90deg, rgba(7,26,36,0.90) 0%, rgba(7,26,36,0.74) 30%, '
+  + 'rgba(7,26,36,0.28) max(48%, 620px), rgba(7,26,36,0) max(60%, 800px))';
+
+/**
+ * Ends the desktop wash just below the copy. The copy block is centred 24px below the middle of the
+ * hero and its trust line ends about 282px below it, so the offsets are in px from 50%. Change them
+ * if the copy block's height changes.
+ */
+const DESKTOP_SCRIM_MASK =
+  'linear-gradient(180deg, #000 0%, #000 calc(50% + 200px), rgba(0,0,0,0.5) calc(50% + 300px), '
+  + 'transparent calc(50% + 440px))';
+
 /** Seconds before the intro ends at which the loop starts buffering in full. */
 const LOOP_WARM_SECONDS = 3;
 
@@ -117,16 +136,20 @@ export function LandingHero() {
         </>
       )}
 
-      {/* Scrim in River Deep: left side on wide screens, top and bottom on phones. */}
+      {/* Scrim in River Deep. Phones: a vertical wash that holds through the copy and lets go of
+          the bottom. Wide screens: a left wash masked to end just below the copy, so the river
+          numbers to the right and below stay visible. */}
       <div
         aria-hidden="true"
+        data-hero-scrim="mobile"
         className="absolute inset-0 -z-[5] md:hidden"
-        style={{ background: 'linear-gradient(180deg, rgba(7,26,36,0.82) 0%, rgba(7,26,36,0.55) 45%, rgba(7,26,36,0.88) 100%)' }}
+        style={{ background: MOBILE_SCRIM }}
       />
       <div
         aria-hidden="true"
+        data-hero-scrim="desktop"
         className="absolute inset-0 -z-[5] hidden md:block"
-        style={{ background: 'linear-gradient(90deg, rgba(7,26,36,0.92) 0%, rgba(7,26,36,0.70) 38%, rgba(7,26,36,0) 72%)' }}
+        style={{ background: DESKTOP_SCRIM, maskImage: DESKTOP_SCRIM_MASK, WebkitMaskImage: DESKTOP_SCRIM_MASK }}
       />
 
       <div className="relative mx-auto w-full max-w-7xl px-4 pb-16 pt-28 sm:px-6 lg:px-8">

@@ -22,6 +22,8 @@ import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
 import type { AutoPostSource, SweepResult, SweepWarning } from './autoPostGate';
 import { recordAutoPosted, type AutoPosting } from './codingDecisionLog';
 import { sourceFromStrategy } from './codingDecisionOutcome';
+import { preLockSweepTransfers } from './transferSweepPrelock';
+import { pairedTransferSkip } from './bankContraTransfer';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -91,6 +93,7 @@ export async function sweep(
            suggested_vat_code, suggested_strategy, description, transaction_date, feed_state
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
+    ORDER BY id -- one lock order for every sweep: its transfer lines and their pairs first (transferSweepPrelock), then rows
   `) as unknown as SweepRow[];
 
   const skipped: Array<{ txId: string; reason: string }> = [];
@@ -126,22 +129,31 @@ export async function sweep(
   }
 
   const isImport = source === 'import';
+  const decisions = new Map(postable.map((row) => [row.id, evaluate(
+    { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
+    isImport ? null : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null),
+    settings,
+    isImport ? null : (row.suggested_strategy ?? null),
+  )]));
+  // WP2 row 5: a suggestion onto ANOTHER bank account posts as a transfer (allocateTransaction). The rows that will be
+  // attempted take their lines (id order), then their pairs (sorted), before the first journal — the single path's
+  // line -> pair -> number order (transferSweepPrelock); a row whose line or pair another request holds is skipped.
+  const { contended } = isImport ? { contended: new Set<string>() } : await preLockSweepTransfers(companyId,
+    postable.filter((r) => decisions.get(r.id)!.outcome !== 'skip').map((r) => ({ id: r.id, contra: r.suggested_gl_account_id })));
 
   for (const row of postable) {
-    const confidence = isImport
-      ? null
-      : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);
-
-    const decision = evaluate(
-      { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
-      confidence,
-      settings,
-      isImport ? null : (row.suggested_strategy ?? null),
-    );
+    const decision = decisions.get(row.id)!;
     if (decision.outcome === 'skip') {
       skipped.push({ txId: row.id, reason: decision.reason });
       continue;
     }
+    if (contended.has(row.id)) {
+      skipped.push({ txId: row.id, reason: 'locked by another request — retry' });
+      continue;
+    }
+    const confidence = isImport
+      ? null
+      : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);
 
     // One row per savepoint, exactly as the rule sweep does
     // (bankRulesMatchingService). Every request is ONE PostgreSQL transaction
@@ -217,7 +229,7 @@ export async function sweep(
         }
         const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
         await sql`
-          UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
+          UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID, auto_post_journal_id = ${decision.journalEntryId}::UUID
           WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
         `;
         await recordAutoPosted(companyId, decision); // non-fatal; rolls back with this row's savepoint
@@ -243,7 +255,9 @@ export async function sweep(
       // orphaned-JE case this used to report can no longer arise. It also took
       // back the `bank_auto_post_runs` row if THIS row minted it.
       runId = runIdBeforeRow;
-      const reason = err instanceof BankControlError ? `approval_required: ${err.message}` : err instanceof Error ? err.message : String(err);
+      // WP2 row 5: the second leg of a transfer this run posted was taken by its auto-link — say which transfer.
+      const reason = err instanceof BankControlError ? `approval_required: ${err.message}`
+        : (await pairedTransferSkip(companyId, row.id, err)) ?? (err instanceof Error ? err.message : String(err));
       log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
       skipped.push({ txId: row.id, reason });
     }

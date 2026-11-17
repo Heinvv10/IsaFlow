@@ -11,7 +11,7 @@ import { createReforecastFromActuals } from '@/modules/accounting/services/budge
 import { MAX_NOTE_LENGTH, setGridNote } from '@/modules/accounting/services/budgets/budgetNotes';
 import { BUDGET_VERSION_KINDS } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import type { McpTool, McpToolContext } from '../types';
-import { BUDGET_WRITE_FENCE, randText, isResult, ownVersion, versionView } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, randText, isResult, ownVersion, versionView, ID_OR_CODE } from './budgetToolArgs';
 import { resolveRows } from './budgetCellArgs';
 import { loadModel } from './budgetAmountWrite';
 import { deleteBudgetVersionTool } from './budgetDeleteTool';
@@ -105,7 +105,7 @@ export const addBudgetNoteTool: McpTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      version_id: { type: 'string', format: 'uuid' }, account: { type: 'string', description: 'Id or code.' },
+      version_id: { type: 'string', format: 'uuid' }, account: ID_OR_CODE,
       note: { type: ['string', 'null'], description: `At most ${MAX_NOTE_LENGTH} characters after trimming.` }, idempotency_key: { type: 'string' },
     },
     required: ['version_id', 'account', 'note', 'idempotency_key'],

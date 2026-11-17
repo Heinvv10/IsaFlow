@@ -23,7 +23,11 @@ import type { BankAccountSummary } from './useBankTxSummary';
 
 type Lost = { kind: 'link'; id: string } | { kind: 'gone'; id: string; name: string };
 
-export function useBankTxSelection(accounts: BankAccountSummary[], deepLink: string | string[] | undefined, linkReady = true) {
+export function useBankTxSelection(
+  accounts: BankAccountSummary[], deepLink: string | string[] | undefined, linkReady = true,
+  /** The account chosen when the user has not chosen one (WP4a: the first card in THEIR order); must be stable between renders. */
+  pickDefault: (accounts: BankAccountSummary[]) => string = defaultBankId,
+) {
   const [chosen, setChosen] = useState('');
   const [seen, setSeen] = useState<BankAccountSummary[]>([]);
   const [handled, setHandled] = useState(false);
@@ -35,30 +39,31 @@ export function useBankTxSelection(accounts: BankAccountSummary[], deepLink: str
   let next = chosen;
   let nextLost = lost;
   if (accounts !== seen && accounts.length > 0) {
-    if (nextLost && accounts.some(b => b.id === nextLost!.id)) nextLost = null;
+    if (nextLost && accounts.some(b => b.id === nextLost!.id && (nextLost!.kind !== 'link' || b.isActive))) nextLost = null; // a link to an inactive account stays "not available"
     if (next && !accounts.some(b => b.id === next)) {
       nextLost = { kind: 'gone', id: next, name: seen.find(b => b.id === next)?.accountName ?? 'The selected account' };
-      next = defaultBankId(accounts); // re-pin the fallback so the next loss is again a notice, not a silent drift
+      next = pickDefault(accounts); // re-pin the fallback so the next loss is again a notice, not a silent drift
     }
   }
   if (accounts.length > 0 && linkReady && !handled) {
     const link = typeof deepLink === 'string' ? deepLink : '';
     if (Array.isArray(deepLink) && deepLink.length > 0) nextLost = { kind: 'link', id: '' };
     else if (link !== '') {
-      if (accounts.some(b => b.id === link)) next = link;
+      // An inactive account is never opened from a link (the default is shown instead, with the notice).
+      if (accounts.some(b => b.id === link && b.isActive)) next = link;
       else nextLost = { kind: 'link', id: link };
     }
   }
   const handledNow = handled || (accounts.length > 0 && linkReady);
-  const pinNow = pinned || (accounts.length > 0 && defaultBankId(accounts) !== '');
-  if (pinNow && !pinned && next === '') next = defaultBankId(accounts);
+  const pinNow = pinned || (accounts.length > 0 && pickDefault(accounts) !== '');
+  if (pinNow && !pinned && next === '') next = pickDefault(accounts);
   if (next !== chosen) { setChosen(next); }
   if (nextLost !== lost) { setLost(nextLost); }
   if (handledNow !== handled) { setHandled(handledNow); }
   if (pinNow !== pinned) { setPinned(pinNow); }
   if (accounts !== seen) { setSeen(accounts); }
 
-  const selected = accounts.some(b => b.id === next) ? next : pinNow ? defaultBankId(accounts) : '';
+  const selected = accounts.some(b => b.id === next) ? next : pinNow ? pickDefault(accounts) : '';
   const showing = accounts.find(b => b.id === selected);
   const message = !lost ? '' : lost.kind === 'link'
     ? `That account isn't available${showing ? `; showing ${showing.accountName}` : ''}.`

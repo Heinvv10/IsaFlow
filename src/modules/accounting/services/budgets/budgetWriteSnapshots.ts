@@ -29,6 +29,13 @@ export interface SnapshotRecord {
   cells: SnapshotCell[];
 }
 
+/**
+ * The tool name a set_budget_drivers snapshot records (PR 3): a record of the cells a driver write changed
+ * (recomputed dependents included), never restored (budgetSnapshotRestore refuses it: driver lines, planned
+ * hires and overrides cannot be put back exactly).
+ */
+export const DRIVER_WRITE_TOOL = 'set_budget_drivers';
+
 export const snapshotKey = (c: SnapshotCell): CellKey => cellKey({ glAccountId: c.a, cc1Id: c.c1, cc2Id: c.c2, buId: c.b, month: c.m });
 
 export async function recordSnapshot(companyId: string, s: SnapshotRecord): Promise<string> {

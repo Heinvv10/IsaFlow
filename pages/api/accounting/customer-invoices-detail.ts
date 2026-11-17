@@ -42,6 +42,7 @@ import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 type Row = Record<string, unknown>;
 
 /**
@@ -149,6 +150,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           evidenceDocumentId: null, reversedJournalEntryId,
         });
       } catch (err) {
+        if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
         if (err instanceof InvoiceNotFoundError) return apiResponse.notFound(res, 'Invoice', id);
         if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
         // The GL reversal cannot post into a closed/locked fiscal period; surface

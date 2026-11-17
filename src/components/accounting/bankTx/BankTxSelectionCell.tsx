@@ -85,15 +85,15 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
             className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${TOUCH_PAD} ${
               sel?.entityId
                 ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
-                  ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30'
+                  ? 'text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30'
                   : 'text-[var(--ff-text-primary)] bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)]'
                 : rowType === 'account'
-                  ? 'text-amber-400 bg-amber-500/10 font-medium'
+                  ? 'text-amber-700 dark:text-amber-400 bg-amber-500/10 font-medium'
                   : rowType === 'supplier'
-                    ? 'text-blue-400 bg-blue-500/10 font-medium'
+                    ? 'text-blue-700 dark:text-blue-400 bg-blue-500/10 font-medium'
                     : rowType === 'transfer'
-                      ? 'text-orange-400 bg-orange-500/10 font-medium'
-                      : 'text-purple-400 bg-purple-500/10 font-medium'
+                      ? 'text-orange-700 dark:text-orange-400 bg-orange-500/10 font-medium'
+                      : 'text-purple-700 dark:text-purple-400 bg-purple-500/10 font-medium'
             }`}
           >
             {triggerText}
@@ -122,7 +122,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                   if (!suggested || search) return null;
                   return (
                     <>
-                      <div className="px-3 py-1 text-xs font-semibold text-teal-400 uppercase tracking-wider bg-teal-500/5">
+                      <div className="px-3 py-1 text-xs font-semibold text-teal-700 dark:text-teal-400 uppercase tracking-wider bg-teal-500/5">
                         <SearchCheck className="inline h-3 w-3 mr-1 -mt-0.5" />
                         Suggested{tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}
                       </div>
@@ -133,8 +133,8 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                         }}
                         className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
                       >
-                        {suggested.code && <span className="font-id text-teal-400 w-10 shrink-0">{suggested.code}</span>}
-                        <span className="text-teal-300 truncate font-medium">{suggested.name}</span>
+                        {suggested.code && <span className="font-id text-teal-700 dark:text-teal-400 w-10 shrink-0">{suggested.code}</span>}
+                        <span className="text-teal-700 dark:text-teal-300 truncate font-medium">{suggested.name}</span>
                       </button>
                     </>
                   );
@@ -159,7 +159,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                 <div className="border-t border-[var(--ff-border-light)] p-1.5">
                   <button
                     onClick={() => { onCreateEntity(tx.id, rowType); closePopover(); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-teal-400 hover:bg-teal-500/10 rounded flex items-center gap-1.5"
+                    className="w-full text-left px-3 py-1.5 text-xs text-teal-700 dark:text-teal-400 hover:bg-teal-500/10 rounded flex items-center gap-1.5"
                   >
                     <Plus className="h-3 w-3" />
                     New {rowType === 'account' ? 'Account' : rowType === 'supplier' ? 'Supplier' : 'Customer'}

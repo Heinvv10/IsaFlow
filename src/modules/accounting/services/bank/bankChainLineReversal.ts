@@ -125,13 +125,14 @@ export async function reverseDocumentChainLine(
     let result: BankAllocationUnwindResult;
     let reversal: Awaited<ReturnType<typeof reverseJournalEntry>> | null;
     if (chain.doc.batchId) {
-      const b = await reverseBatchWithLeg(companyId, chain.doc.batchId, userId, chain.rootId, leg, opts);
+      const b = await reverseBatchWithLeg(companyId, chain.doc.batchId, userId, chain.rootId, leg, { ...opts, bankLinesHandled: true });
       result = { invoicesReopened: b.billsReopened, amountUnapplied: b.amountUnapplied, paymentsCancelled: b.membersCancelled };
       reversal = b.reversal;
     } else {
       result = await unwindBankAllocationApplication(companyId, chain.rootId); // payment -> invoices, before the journal
       await lockJournalAndUnmatch(companyId, chain.rootId, leg, chain.doc.label);
-      reversal = leg.alreadyReversed ? null : await reverseJournalEntry(companyId, leg.reverseId, userId, opts);
+      // The bank line's own undo: it resets the line below (liveBankLineReversal).
+      reversal = leg.alreadyReversed ? null : await reverseJournalEntry(companyId, leg.reverseId, userId, { ...opts, bankLinesHandled: true });
     }
     for (const id of new Set([txId, ...allocated])) await resetBankLine(companyId, id, false);
     return {
@@ -142,17 +143,26 @@ export async function reverseDocumentChainLine(
 }
 
 /** The line back to 'imported', out of its allocation batch; `clearProvisional` also drops a dead provisional link. */
-export async function resetBankLine(companyId: string, bankTxId: string, clearProvisional: boolean): Promise<void> {
+export async function resetBankLine(
+  companyId: string, bankTxId: string, clearProvisional: boolean,
+  /** The bank Reverse of a plain journal (WP2 row 10): the line's transfer pointer goes with its allocation (#1518 brk L3). */
+  clearTransfer = false,
+): Promise<void> {
   await sql`
     UPDATE bank_transactions
     SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
         linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
         allocation_rule_id = NULL, allocation_rule_name = NULL,
+        -- A line reversed by hand is no longer part of the auto-post run that posted it: a later undo of that run must
+        -- not reach a re-allocation the person makes (WP6 review F1).
+        auto_post_run_id = NULL, auto_post_journal_id = NULL,
         -- Reversing one line takes it OUT of its batch: the batch no longer
         -- owns a journal here, and a later re-allocation must not be swept
         -- up by reverse_bank_allocation_batch.
         allocation_batch_id = NULL,
         provisional_je_id = CASE WHEN ${clearProvisional} THEN NULL ELSE provisional_je_id END,
+        transfer_journal_entry_id = CASE WHEN ${clearTransfer} THEN NULL ELSE transfer_journal_entry_id END,
+        counterparty_account_id = CASE WHEN ${clearTransfer} THEN NULL ELSE counterparty_account_id END,
         updated_at = NOW()
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
 }

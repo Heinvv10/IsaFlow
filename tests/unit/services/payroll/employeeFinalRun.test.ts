@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const st = vi.hoisted(() => ({ employee: true, hasFinal: false, queries: [] as string[] }));
 
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (strings: TemplateStringsArray) => {
+  sql: Object.assign(vi.fn(async (strings: TemplateStringsArray) => {
     st.queries.push(strings.join('?'));
     return st.employee ? [{ has_bank: false, has_final: st.hasFinal, latest: null }] : [];
-  }),
+  }), { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 
 import { employeeHasFinalRun } from '@/modules/accounting/services/payroll/employeeFinalRun';

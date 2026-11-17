@@ -110,7 +110,9 @@ function payrollRows(input: AttentionInput): AttentionItem[] {
     rows.push({
       key: 'payroll-shortfall', area: 'Payroll', severity: 'due_soon', amount: p.shortfall,
       label: `Cash is short for the ${p.periodLabel} pay run`,
-      detail: `Cash ${formatMoney(input.cash.cash)} against ${formatMoney(p.totalRequired)} (net pay plus PAYE, UIF and SDL, less ETI)${estimate}`,
+      detail: `Cash ${formatMoney(input.cash.cash)} against ${formatMoney(p.totalRequired)}`
+        + `${p.runsCounted > 1 ? ` for this and ${p.runsCounted - 1} earlier pay run${s(p.runsCounted - 1)} still due` : ''}`
+        + ` (net pay plus PAYE, UIF and SDL, less ETI)${estimate}`,
       href: `/payroll/runs/${p.runId}`,
     });
   }

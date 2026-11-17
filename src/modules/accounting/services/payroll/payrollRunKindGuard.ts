@@ -17,6 +17,10 @@
  *   payroll_garnishee_orders(company_id, employee_id, status) and payroll_garnishee_deductions(run_id) (GA). An order
  *   counts unless its status is cancelled, completed, satisfied, withdrawn or ended; a missing key counts (fails closed).
  *   A deduction counts for this company's run (or, with no run_id key, any of this company's: fails closed).
+ *
+ * KNOWN LIMIT (wave 6 EF review): `tax_status` and the employee-frequency clause are judged on the employee's CURRENT
+ * row, not as at the run. An employee moved to weekly after a monthly run makes that old run refuse (fails closed), and
+ * one moved back passes. The FQb/FQd weekly PR must judge the frequency (and the tax status) as at the run.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';

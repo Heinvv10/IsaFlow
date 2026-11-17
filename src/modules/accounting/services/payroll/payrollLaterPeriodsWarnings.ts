@@ -1,6 +1,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { getTaxYear } from './taxTables';
 import type { PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -18,13 +18,12 @@ export async function laterPeriodsWarnings(
   period: PayrollPeriod,
 ): Promise<Map<string, ValidationResult>> {
   const taxYear = getTaxYear(period.month, period.year);
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT l.employee_id, h.period_year, h.period_month
     FROM payroll_run_headers h
     JOIN payroll_run_lines l ON l.run_id = h.id
     WHERE h.company_id = ${companyId}::uuid AND h.id <> ${runId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) > make_date(${period.year}::int, ${period.month}::int, 1)
       AND make_date(h.period_year, h.period_month, 1) <= make_date(${taxYear}::int, 2, 1)
     ORDER BY l.employee_id, h.period_year, h.period_month

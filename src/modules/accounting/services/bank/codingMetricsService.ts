@@ -13,6 +13,9 @@
  *    transaction_date in the period. Excluded and imported lines are not coded.
  *  - "no click" = auto_post_run_id (the confidence gate's sweep, autoPostGateService, tags every line it
  *    posts) or allocation_rule_id (bankRuleAutoPostLine sets it on a rule auto-post).
+ *  - A person's BULK ACCEPT (a run with source 'manual', bankBulkAcceptService) is a click, not "no click": its lines are
+ *    tagged with a run so the batch can be undone, but they do not count as auto-coded (the person's decision is recorded
+ *    as an accepted suggestion by allocateTransaction).
  *  - An undone run does not count: undoRow resets the line to imported (out of both counts) and clears
  *    auto_post_run_id; a reverse / unmatch clears allocation_rule_id with the allocation
  *    (bankTxStatusMutations, bankChainLineReversal).
@@ -33,7 +36,10 @@ export async function loadCodingCounts(companyIds: string[], period: MonthPeriod
   const lines = (await sql`
     SELECT company_id,
            COUNT(*)::int AS lines_coded,
-           COUNT(*) FILTER (WHERE auto_post_run_id IS NOT NULL OR allocation_rule_id IS NOT NULL)::int AS lines_auto_coded
+           COUNT(*) FILTER (WHERE (auto_post_run_id IS NOT NULL
+                                    AND NOT EXISTS (SELECT 1 FROM bank_auto_post_runs r
+                                                    WHERE r.id = bank_transactions.auto_post_run_id AND r.source = 'manual'))
+                              OR allocation_rule_id IS NOT NULL)::int AS lines_auto_coded
     FROM bank_transactions
     WHERE company_id = ANY(${companyIds}::UUID[])
       AND feed_state = 'posted'

@@ -60,7 +60,7 @@ export function BankTxBatchPanel({
       {/* Batch Edit Panel */}
       {showBatchEdit && selectedCount > 0 && (
         <div className="px-6 py-3 border-b border-blue-500/30 bg-blue-500/5 flex items-center gap-3 flex-wrap">
-          <span className="text-xs text-blue-400 font-medium">Batch Edit ({selectedCount} selected):</span>
+          <span className="text-xs text-blue-700 dark:text-blue-400 font-medium">Batch Edit ({selectedCount} selected):</span>
           <Select
             label="Batch allocation type" labelClassName="sr-only" size="sm" className="w-32"
             options={BATCH_TYPES} value={batchType}
@@ -104,14 +104,14 @@ export function BankTxBatchPanel({
       {/* Rule suggestion banner */}
       {rulePrompt && (
         <div className="px-6 py-3 border-b border-yellow-500/30 bg-yellow-500/5 flex items-center gap-3 flex-wrap">
-          <span className="text-xs text-yellow-400 font-medium">
+          <span className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">
             {rulePrompt.matchCount} similar transaction{rulePrompt.matchCount !== 1 ? 's' : ''} found matching
             &ldquo;{extractPattern(rulePrompt.tx.description || '')}&rdquo;.
             Create a rule to auto-categorise them?
           </span>
           <button
             onClick={() => onCreateRule(rulePrompt.tx)}
-            className="px-3 py-1 rounded bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-xs text-yellow-400 font-medium transition-colors"
+            className="px-3 py-1 rounded bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-xs text-yellow-700 dark:text-yellow-400 font-medium transition-colors"
           >
             Create Rule
           </button>

@@ -123,6 +123,24 @@ export async function getSarsCode(code: string, taxYear: number): Promise<SarsCo
   return map.get(code) ?? null;
 }
 
+/**
+ * The code's row for `taxYear`, or, when that year has no row for it (its catalogue not loaded yet, or lagging), the row
+ * of the NEAREST year that has one (a later year on a tie): for labelling and categorising a certificate line only
+ * (wave 6 EF, review L6). Validation keeps `getSarsCode`/`isKnownSarsCode`, exact-year: a code valid only from a
+ * later year must still read unknown for an earlier one. The result's `effectiveYear` says which year answered.
+ */
+export async function getSarsCodeNearest(code: string, taxYear: number): Promise<SarsCode | null> {
+  const exact = await getSarsCode(code, taxYear);
+  if (exact) return exact;
+  const rows = (await sql`
+    SELECT effective_year FROM sars_source_codes
+     WHERE code = ${code}
+     ORDER BY abs(effective_year - ${taxYear}), effective_year DESC
+     LIMIT 1
+  `) as unknown as Array<{ effective_year: number }>;
+  return rows[0] ? getSarsCode(code, Number(rows[0].effective_year)) : null;
+}
+
 export async function isKnownSarsCode(code: string, taxYear: number): Promise<boolean> {
   const map = await loadYear(taxYear);
   return map.has(code);

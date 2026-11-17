@@ -155,13 +155,13 @@ describe('G4: the year-to-date', () => {
     const f = await seedEmployee(pool, fixtures, 'P4fu ytd', 20_000);
     // February 2026 belongs to the PREVIOUS tax year (2026): never in tax year 2027's year-to-date.
     const february = (await pool.query(
-      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 2, 'approved') RETURNING id`,
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2026, 2, 'approved', NOW()) RETURNING id`,
       [f.company])).rows[0]!.id;
     await pool.query(
       `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay)
        VALUES ($1, $2, 99000, 99000, 99000, 0, 30000, 69000)`, [february, f.employee]);
     const run = (await pool.query(
-      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 3, 'approved') RETURNING id`,
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2026, 3, 'approved', NOW()) RETURNING id`,
       [f.company])).rows[0]!.id;
     // A March line from before migration 913 (no split columns): salary 20 000, bonus 10 000 (3605),
     // severance 30 000 under a directive with PAYE 3 000. PAYE 2 115 + 2 192 + 3 000.
@@ -185,7 +185,7 @@ describe('G4: the year-to-date', () => {
     // April: a severance-only line on an approved run (no periodic pay: not a period worked);
     // May: a run only calculated (not declarable: not in it).
     const april = (await pool.query(
-      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 4, 'approved') RETURNING id`,
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2026, 4, 'approved', NOW()) RETURNING id`,
       [f.company])).rows[0]!.id;
     await pool.query(
       `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay, component_breakdown)

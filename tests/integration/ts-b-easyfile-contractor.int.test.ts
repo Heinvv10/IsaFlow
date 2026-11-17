@@ -36,7 +36,7 @@ async function line(month: number, employeeId: string, gross: number, paye: numb
   let run = runs.get(`${of}:${month}`);
   if (!run) {
     run = (await pool.query(
-      `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, $2, 2026, 'approved', 0) RETURNING id`,
+      `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, approved_at) VALUES ($1, $2, 2026, 'approved', 0, clock_timestamp()) RETURNING id`,
       [of, month])).rows[0]!.id as string;
     runs.set(`${of}:${month}`, run);
   }
