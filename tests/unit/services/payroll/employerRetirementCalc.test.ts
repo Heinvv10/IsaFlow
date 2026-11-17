@@ -57,10 +57,10 @@ describe('an employer pension contribution: a fringe benefit and a deemed contri
     expect(line.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_BENEFIT_NOT_DEEMED');
   });
 
-  it('the R430 000 a year cap binds on the total too (R35 833.33 a month)', () => {
+  it('the R430 000 a year cap binds on the total too (R430 000 ÷ F = R35 833.25 a month, AN)', () => {
     const high = run([salary(200_000), ee('4001', 30_000), er('3817', 0.1)]);
     expect(high.retirementContributions).toBe(50_000);
-    expect(high.retirementDeduction).toBe(35_833.33);
+    expect(high.retirementDeduction).toBe(35_833.25); // 430 000 ÷ (365 ÷ 30.4166); × 12: 35 833.33
   });
 });
 
@@ -69,8 +69,9 @@ describe('RFI is the fund base only, never the s11F base [G21 (2027) p. 10]', ()
     // RFI 20 000 -> the employer's 10% = 2 000. Remuneration 20 000 + 10 000 + 2 000 = 32 000; 27.5% = 8 800 >= 8 000.
     const line = run([salary(20_000), commission(10_000), ee('4001', 6_000), er('3817', 0.1)]);
     expect(line.retirementDeduction).toBe(8_000);
-    // (32 000 - 8 000) x 12 = 288 000; 44 118 + 26% x 42 900 = 55 272; less 17 820 = 37 452; / 12.
-    expect(line.paye.monthlyPaye).toBe(3_121);
+    // (32 000 - 8 000) x F = 288 000.63; 44 118 + 26% x 42 900.63 = 55 272.16; less 17 820 = 37 452.16; / F = 3 121.01
+    // (AN, F = 365 / 30.4166; x 12 gave 3 121.00).
+    expect(line.paye.monthlyPaye).toBe(3_121.01);
   });
 });
 

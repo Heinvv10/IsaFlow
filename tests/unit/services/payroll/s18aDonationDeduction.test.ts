@@ -216,12 +216,14 @@ describe('4030 is cumulative over the tax year', () => {
     const given = year(true);
     const without = year(false);
     expect(given.ytd.retirementDeduction).toBe(without.ytd.retirementDeduction);
-    expect(given.ytd.retirementDeduction).toBe(241_000);
+    // AN (F = 365 / 30.4166): AE = 140 000 × F / 7 = 240 000.53; 27.5% × (AE + 1 000 000) − AE comes off the bonus, and
+    // the AE part is weighted 7 ÷ F (140 000): 341 000.14 − 240 000.53 + 140 000 = 240 999.62 (× 12: 241 000).
+    expect(given.ytd.retirementDeduction).toBe(240_999.62);
     // Months 1-6 give R3 000; in month 7 the deduction takes all the periodic pay, so that R500 waits.
-    // Leviable 1 140 000 − 241 000 − 3 000; taxable income for PAYE is the same 896 000.
-    expect(given.ytd.sdlLeviable).toBe(896_000);
+    // Leviable 1 140 000 − 240 999.62 − 3 000; taxable income for PAYE is the same 896 000.38.
+    expect(given.ytd.sdlLeviable).toBe(896_000.38);
     expect(given.ytd.donationDeduction).toBe(3_000);
-    expect(given.ytd.tablePaye).toBeCloseTo(245_653, 2);
+    expect(given.ytd.tablePaye).toBeCloseTo(245_653.16, 2); // AN (× 12: 245 653.00)
   });
 
   it('a clawback past the periodic pay records no take-back the nil floor would swallow; the next line bears it', () => {

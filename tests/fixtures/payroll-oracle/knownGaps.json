@@ -37,15 +37,16 @@
     "case": "offcycle-termination-leave-after-regular",
     "engineActual": {
       "uifEmployee": 100,
-      "uifEmployer": 100
+      "uifEmployer": 100,
+      "paye": 2192.06
     },
-    "reason": "PAYE matches. UIF is costed per line, so the termination run levies 1% of R10 000 although June's regular run already reached the month's ceiling.",
+    "reason": "PAYE is 6c above the ×12 figure (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; over the 5c cap, so pinned here, and that part never closes: a ruled departure). UIF is costed per line, so the termination run levies 1% of R10 000 although June's regular run already reached the month's ceiling.",
     "closedBy": "OC (wave 6): termination runs, the month's UIF ceiling across runs."
   },
   {
     "case": "psp-company-27pct",
     "engineActual": {
-      "paye": 11075.58,
+      "paye": 11075.6,
       "uifEmployee": 177.12,
       "uifEmployer": 177.12
     },
@@ -55,12 +56,22 @@
   {
     "case": "psp-trust-45pct",
     "engineActual": {
-      "paye": 11075.58,
+      "paye": 11075.6,
       "uifEmployee": 177.12,
       "uifEmployer": 177.12
     },
     "reason": "A personal service trust is costed as an employee on the tables with UIF; the case (UNVERIFIED) expects a flat 45% and no UIF.",
     "closedBy": "PSP (wave 6): personal service providers at 45% with no UIF, per SARS PAYE-GEN-01-G01-A06 row 6 and UICA s1 \"remuneration\" (b); re-cite to the 2027 A06 when SARS publishes it."
+  },
+  {
+    "case": "ra-annual-cap-binds-2027",
+    "engineActual": {
+      "paye": 147470.82,
+      "net": 192352.06
+    },
+    "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12: PAYE is 7c above the ×12 figure (the annual equivalent and the s11F cap to date both take F), over the 5c tolerance cap; net follows.",
+    "closedBy": "Never: ruled departure (wave-6 ruling 5)",
+    "parity": true
   },
   {
     "case": "ri-overtime-10h-at-1-5x",
@@ -83,9 +94,9 @@
   {
     "case": "ri-reimbursive-above-prescribed-3702-3722",
     "engineActual": {
-      "paye": 2115,
+      "paye": 2115.02,
       "sdl": 200,
-      "net": 17707.88
+      "net": 17707.86
     },
     "reason": "Business km and the rate do not reach the calculator: neither the R4 950 (3702) nor the taxable R1 050 excess (3722) is costed.",
     "closedBy": "RI (wave 6): reimbursive travel above the prescribed rate (3702/3722)."

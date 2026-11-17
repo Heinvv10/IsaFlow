@@ -38,17 +38,5 @@
     "sdl": 450,
     "eti": 0,
     "net": 35547.28
-  },
-  "tolerance": {
-    "paye": {
-      "cents": 2,
-      "engineActual": 9275.58,
-      "reason": "Sage days annualisation 365/30.4166 (about R540 001.2 for R45 000); the calculator uses the statutory x12, so it is 2c lower"
-    },
-    "net": {
-      "cents": 2,
-      "engineActual": 35547.3,
-      "reason": "Follows the PAYE tolerance (Sage days annualisation 365/30.4166)"
-    }
   }
 }

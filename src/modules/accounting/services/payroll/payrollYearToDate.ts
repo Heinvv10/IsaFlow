@@ -53,12 +53,16 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { getTaxYear } from './taxTables';
-import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
+import type { PayeYearToDate, PayrollPeriod } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
 import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { outsideTablesFlag } from './payrollOutsideTables';
+import { restoreLegacyTaxableSplit, yearToDatePeriods } from './payrollYearToDateLegacy';
+
+export { yearToDatePeriods } from './payrollYearToDateLegacy';
+export { laterPeriodsWarnings } from './payrollLaterPeriodsWarnings';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -191,87 +195,4 @@ export async function loadPayeYearToDate(
       ...sdlYearToDate((r.sdl_lines ?? []) as SdlYearToDateLine[]),
     }];
   }));
-}
-
-function restoreLegacyTaxableSplit(
-  taxableSplits: Record<string, unknown>,
-  legacyTaxableByLine: Record<string, number>,
-): { periodic: number; annual: number; periodicByLine: Record<string, number> } {
-  let periodic = 0;
-  let annual = 0;
-  const periodicByLine: Record<string, number> = {};
-  for (const [lineId, deduction] of Object.entries(legacyTaxableByLine)) {
-    const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
-    // The old calculator floored taxable remuneration at nil, so a contribution
-    // larger than the line's taxable earnings did not reduce PAYE by its full amount.
-    const restorable = Math.min(deduction, Math.max(0, Number(split.originalTaxable)));
-    // The old calculator consumed periodic pay first. Therefore any gap between
-    // the gross 3605 amount and its stored annual amount is the deduction's
-    // excess; only the remainder can be restored to periodic remuneration.
-    const annualGap = Math.max(0, Number(split.annualGross) - Number(split.annual));
-    const annualRestored = Math.min(restorable, annualGap);
-    const periodicRestored = Math.max(0, restorable - annualRestored);
-    annual += annualRestored;
-    periodic += periodicRestored;
-    if (periodicRestored > 0) periodicByLine[lineId] = periodicRestored;
-  }
-  return { periodic, annual, periodicByLine };
-}
-
-/**
- * The periods to date: the lines with stored periodic pay, plus those without
- * whose pre-948 taxable retirement contributions restore periodic pay (the old
- * calculator took deductions off periodic pay first, so a contribution as large
- * as the pay left it nil). A bonus-only or severance-only line stays no period.
- */
-export function yearToDatePeriods(
-  withPeriodicPay: number,
-  unpaidLines: Record<string, unknown>,
-  restoredPeriodicByLine: Record<string, number>,
-): number {
-  const restored = Object.keys(unpaidLines).filter(id => (restoredPeriodicByLine[id] ?? 0) > 0);
-  return withPeriodicPay + restored.length;
-}
-
-/**
- * The warnings for a run calculated while LATER periods of its tax year are
- * already approved or paid (a month back-filled, or reopened and corrected),
- * by employee: only an employee paid in those later runs, whose PAYE there was
- * calculated without this month. The cumulative method trues it up only in the
- * next period calculated after them; if February is among them, nothing does
- * (IsaFlow has no PAYE adjustment), so it stays short until the assessment.
- */
-export async function laterPeriodsWarnings(
-  companyId: string,
-  runId: string,
-  period: PayrollPeriod,
-): Promise<Map<string, ValidationResult>> {
-  const taxYear = getTaxYear(period.month, period.year);
-  const rows = (await sql`
-    SELECT l.employee_id, h.period_year, h.period_month
-    FROM payroll_run_headers h
-    JOIN payroll_run_lines l ON l.run_id = h.id
-    WHERE h.company_id = ${companyId}::uuid AND h.id <> ${runId}::uuid
-      AND ${sql.unsafe(payRunFinalSql('h'))}
-      AND make_date(h.period_year, h.period_month, 1) > make_date(${period.year}::int, ${period.month}::int, 1)
-      AND make_date(h.period_year, h.period_month, 1) <= make_date(${taxYear}::int, 2, 1)
-    ORDER BY l.employee_id, h.period_year, h.period_month
-  `) as DbRow[];
-  const months = new Map<string, string[]>();
-  for (const r of rows) {
-    const key = String(r.employee_id);
-    const list = months.get(key) ?? [];
-    list.push(`${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`);
-    months.set(key, list);
-  }
-  // `periods` is what judgeYearToDateStale matches on; the message is for people.
-  return new Map([...months].map(([employee, list]) => [employee, {
-    code: 'PAYE_LATER_PERIODS_APPROVED',
-    severity: 'warning' as const,
-    periods: list,
-    message: `Later runs of this tax year that pay this employee are already approved (${list.join(', ')}). PAYE is cumulative over `
-      + 'the year, so their PAYE did not include this month: the next run calculated after them corrects it. If February is '
-      + 'among them, nothing follows and IsaFlow has no PAYE adjustment: the difference stays until the employee\'s assessment, '
-      + 'unless those runs are reopened and recalculated in order.',
-  }]));
 }

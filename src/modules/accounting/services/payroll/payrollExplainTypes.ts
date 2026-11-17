@@ -86,6 +86,8 @@ export const SOURCES = {
   medicalCredits: { label: 'SARS medical tax credit rates', href: 'https://www.sars.gov.za/tax-rates/medical-tax-credit-rates/' },
   additionalMedical: { label: 'SARS Guide on the Determination of Medical Tax Credits, Issue 18, p. 21 and 31-32 (s6B(3)(a)(i))' },
   annualEquivalent: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 8, annual equivalent (Fourth Schedule para 9)', href: G21 },
+  /** Not a SARS rule (wave-6 ruling 5): Sage's days basis, followed for vendor parity. */
+  annualisationFactor: { label: 'Sage Payroll days basis, 365 ÷ 30.4166 a month (vendor parity, wave-6 ruling 5; SARS G21 p. 8 uses × 12)' },
   retirement: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 10-11, retirement fund contributions (s11F)', href: G21 },
   donations: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 10, s18A donations', href: G21 },
   annualPayment: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 32-33, annual payments', href: G21 },

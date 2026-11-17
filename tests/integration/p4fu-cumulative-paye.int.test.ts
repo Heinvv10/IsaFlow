@@ -44,13 +44,15 @@ afterAll(async () => {
 });
 
 describe('G4: cumulative PAYE, month by month', () => {
-  it('a flat R20 000 all year: 2 115 every month (= x12); IRP5 4102 = the sum of the run PAYE', async () => {
+  it('a flat R20 000 all year: 2 115 or 2 115.01 a month (AN); IRP5 4102 = the sum of the run PAYE', async () => {
     const f = await seedEmployee(pool, fixtures, 'P4fu flat year', 20_000);
     const paye: number[] = [];
     for (const p of PERIODS) paye.push((await payMonth(f, p.year, p.month)).paye);
-    expect(paye).toEqual(Array(12).fill(2_115));
+    // AN (wave-6 ruling 5, F = 365 / 30.4166): the year is tax(240 000 × F ÷ 12) × 12 ÷ F = 25 380.04, trued up a
+    // cent at a time (× 12: 2 115 every month, 25 380).
+    expect(paye).toEqual([2115, 2115.01, 2115, 2115, 2115.01, 2115, 2115, 2115.01, 2115, 2115, 2115.01, 2115]);
     const row = (await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee })).rows[0]!;
-    expect(row.paye).toBe(25_380);
+    expect(row.paye).toBe(25_380.04);
   });
 
   it('R20 000, R30 000 from September, a R20 000 bonus in February: the increase is spread, the year deducts its liability', async () => {
@@ -62,7 +64,8 @@ describe('G4: cumulative PAYE, month by month', () => {
       const { id, paye } = await payMonth(f, p.year, p.month);
       lines.push({ paye, line: await runLine(pool, id, f.employee) });
     }
-    expect(lines.map(l => l.paye)).toEqual([2115, 2115, 2115, 2115, 2115, 2115, 4477, 4681, 4681, 4681, 4681, 9881]);
+    // AN (F = 365 / 30.4166); × 12 gave 2115 × 6, 4477, 4681 × 4, 9881 (45 772).
+    expect(lines.map(l => l.paye)).toEqual([2115, 2115.01, 2115, 2115, 2115.01, 2115, 4477.03, 4681, 4681.01, 4681.01, 4681.01, 9881]);
     // Each line stores its split for the next period's year-to-date (migration 913).
     const feb = (await pool.query(
       `SELECT periodic_taxable::float8 AS p, annual_taxable::float8 AS a FROM payroll_run_lines l
@@ -70,8 +73,8 @@ describe('G4: cumulative PAYE, month by month', () => {
       [f.employee])).rows[0]!;
     expect(feb).toEqual({ p: 30_000, a: 20_000 });
     const row = (await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee })).rows[0]!;
-    expect(row.paye).toBe(45_772);
-    expect(row.paye).toBe(lines.reduce((t, l) => t + l.paye, 0));
+    expect(row.paye).toBe(45_772.08);
+    expect(row.paye).toBeCloseTo(lines.reduce((t, l) => t + l.paye, 0), 6);
     // UIF, SDL and ETI are untouched: UIF from its own engine, nil SDL (R380 000 a year is under the
     // R500 000 threshold) and nil ETI (born 1980).
     for (const { line } of lines) {
@@ -95,7 +98,8 @@ describe('G4: cumulative PAYE, month by month', () => {
     await bonus(pool, f, 2026, 12, 20_000);
     const paye = [];
     for (const p of PERIODS.slice(0, 10)) paye.push((await payMonth(f, p.year, p.month)).paye);
-    expect(paye[2]).toBe(2_115 + 2_192);
+    // AN (F = 365 / 30.4166): May 4 307.04 (× 12: 2 115 + 2 192), December 7 315.00 (2 115 + 5 200).
+    expect(paye[2]).toBe(4_307.04);
     expect(paye[9]).toBe(2_115 + 5_200);
   });
 
@@ -105,17 +109,18 @@ describe('G4: cumulative PAYE, month by month', () => {
     await setSalary(pool, f, 2026, 8, 40_000);
     const paye = [];
     for (const p of PERIODS.slice(0, 6)) paye.push((await payMonth(f, p.year, p.month)).paye);
-    // August: AE = 170 000 × 12 / 6 = 340 000, 50 972 × 6/12 = 25 486 − 23 054.25 deducted (x12: 7 684.75).
-    expect(paye).toEqual([7684.75, 7684.75, 7684.75, 0, 0, 2431.75]);
+    // August: AE = 170 000 × F / 6 = 340 000.75, 50 972.19 × 6/F = 25 486.04 − 23 054.28 deducted (AN, F = 365 / 30.4166;
+    // × 12: 7 684.75 × 3 and 2 431.75).
+    expect(paye).toEqual([7684.76, 7684.76, 7684.76, 0, 0, 2431.76]);
   });
 
-  it('a mid-year joiner: periods count from the start month, so the first month is x12', async () => {
+  it('a mid-year joiner: periods count from the start month, so the first month is a first period', async () => {
     const f = await seedEmployee(pool, fixtures, 'P4fu joiner', 20_000);
     await pool.query("UPDATE payroll_employees SET start_date = '2026-07-01' WHERE id = $1", [f.employee]);
     await pool.query("UPDATE payroll_employee_components SET effective_from = '2026-07-01' WHERE employee_id = $1", [f.employee]);
     const july = await payMonth(f, 2026, 7);
     const august = await payMonth(f, 2026, 8);
-    expect([july.paye, august.paye]).toEqual([2_115, 2_115]);
+    expect([july.paye, august.paye]).toEqual([2_115, 2_115.01]); // AN (× 12: 2 115, 2 115)
   });
 
   it('the final month of a short tax period: R15 000 × 6, R25 000 in September, leaving 30 September', async () => {
@@ -124,8 +129,9 @@ describe('G4: cumulative PAYE, month by month', () => {
     await pool.query("UPDATE payroll_employees SET end_date = '2026-09-30' WHERE id = $1", [f.employee]);
     const paye = [];
     for (const p of PERIODS.slice(0, 7)) paye.push((await payMonth(f, p.year, p.month)).paye);
-    // G21 p. 8: tax(115 000 × 12 / 7) × 7 / 12 = 10 305, less 6 × 1 215 deducted (x12 would take 3 381).
-    expect(paye).toEqual([1215, 1215, 1215, 1215, 1215, 1215, 3015]);
+    // G21 p. 8 on AN's factor: tax(115 000 × F / 7) × 7 / F = 10 305.02, less 7 290.02 deducted (× 12: 10 305 and
+    // 1 215 a month; the per-period × 12 would take 3 381).
+    expect(paye).toEqual([1215, 1215.01, 1215, 1215, 1215.01, 1215, 3015]);
   });
 
   it('a reopened, recalculated earlier run counts neither itself nor a later run', async () => {
@@ -134,12 +140,12 @@ describe('G4: cumulative PAYE, month by month', () => {
     const march = await payMonth(f, 2026, 3);
     const april = await payMonth(f, 2026, 4);
     const may = await payMonth(f, 2026, 5);
-    // April: AE = 50 000 × 6 = 300 000, 40 572 × 2/12 − 2 115; May: 45 772 × 3/12 − 6 762.
-    expect([march.paye, april.paye, may.paye]).toEqual([2_115, 4_647, 4_681]);
+    // April: AE = 50 000 × F / 2 = 300 000.66, 40 572.12 × 2/F − 2 115; May: 45 772.17 × 3/F − 6 762.01 (AN; × 12: 4 647, 4 681).
+    expect([march.paye, april.paye, may.paye]).toEqual([2_115, 4_647.01, 4_681.01]);
     expect((await reopenRun(f, april.id)).statusCode).toBe(200);
     const calc = await f.call(calculate as Route, 'POST', `/api/payroll/runs/${april.id}/calculate`, april.id);
     expect(calc.statusCode).toBe(200);
-    expect((await runLine(pool, april.id, f.employee)).paye).toBe(4_647);
+    expect((await runLine(pool, april.id, f.employee)).paye).toBe(4_647.01);
   });
 });
 

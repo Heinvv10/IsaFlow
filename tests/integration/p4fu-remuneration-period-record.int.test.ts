@@ -86,7 +86,8 @@ describe('pre-deduction remuneration identity', () => {
     const line = (await pool.query(
       'SELECT paye::float8 AS paye FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2',
       [july, f.employee])).rows[0]!;
-    expect(line.paye).toBe(630);
+    // AE 20 000 × F / 2 = 120 000.26, tax 3 780.05 × 2 ÷ F = 630.01 (AN, F = 365 / 30.4166; × 12: 630).
+    expect(line.paye).toBe(630.01);
   });
 
   it('keeps a fully donated salary in reopen history and accepts its medical credit catch-up record', async () => {
@@ -106,9 +107,10 @@ describe('pre-deduction remuneration identity', () => {
     // Simulate the latest earlier line predating the medical-credit record columns.
     await pool.query('UPDATE payroll_run_lines SET medical_credit = NULL WHERE run_id = $1', [march]);
 
-    // Since calculation version 4 the deduction no longer reduces PAYE, so it takes what the R1 739 of PAYE leaves:
-    // net pay nil, as before, and approvable (a deduction past the pay is refused).
-    await component(f, 'Full taxable deduction', '4018', 'deduction', 18_261, '2026-04-01', '2026-04-30');
+    // Since calculation version 4 the deduction no longer reduces PAYE, so it takes what the R1 739.01 of PAYE leaves
+    // (AN: (43 200.09 − 17 820 − 4 512) × 2 ÷ F − 1 739.00; × 12 it was R1 739): net pay nil, as before, and approvable
+    // (a deduction past the pay is refused).
+    await component(f, 'Full taxable deduction', '4018', 'deduction', 18_260.99, '2026-04-01', '2026-04-30');
     const april = await createRunFor(f, 4);
     await calculateRun(f, april);
     const aprilLine = (await pool.query(

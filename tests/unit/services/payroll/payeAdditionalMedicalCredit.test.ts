@@ -21,6 +21,8 @@
 import { describe, expect, it } from 'vitest';
 import { annualTaxAfterCredits } from '@/modules/accounting/services/payroll/payeEngine';
 import { calculateCumulativePaye } from '@/modules/accounting/services/payroll/payeCumulative';
+/** The method on the statutory × 12 (G21 (2027) Rev 1 p. 8); the line's own factor (wave-6 AN, 365 ÷ 30.4166) is in payeAnnualisation.test.ts. */
+const X12 = 12;
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import type { PayeYearToDate, PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
@@ -68,7 +70,7 @@ describe('the annual credit (payeEngine)', () => {
 });
 
 describe('cumulative PAYE with the credit (payeCumulative)', () => {
-  const month = (ytd: PayeYearToDate, fees = 5_100) => calculateCumulativePaye({
+  const month = (ytd: PayeYearToDate, fees = 5_100) => calculateCumulativePaye({ factor: X12,
     taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0,
     periodicRemuneration: 30_000, annualPaymentRemuneration: 0, medicalSchemeFees: fees, ytd,
   });
@@ -110,7 +112,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
   it('2026 tax year, a year at R30 000 and R5 100, member + 1: 2 297.06 / 2 297.05 / 2 297.06 ..., 4120 adds to 11 652.34', () => {
     // 2026: tax(360 000) = 42 678 + 26% x 122 900 = 74 632; - 17 235 - 9 444 = 47 953; MTC 728 x 12 = 8 736: 39 217.
     // AMTC 33,3% x (61 200 - 3 x 8 736) = 11 652.336: 27 564.664 a year, 2 297.0553 a month.
-    const in2026 = (ytd: PayeYearToDate) => calculateCumulativePaye({
+    const in2026 = (ytd: PayeYearToDate) => calculateCumulativePaye({ factor: X12,
       taxYear: 2026, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0,
       periodicRemuneration: 30_000, annualPaymentRemuneration: 0, medicalSchemeFees: 5_100, ytd,
     });
@@ -126,7 +128,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
 
   it('a single beneficiary (member only), R3 000 fees: 33,3% x (36 000 - 3 x 4 512) = 7 480.512', () => {
     // tax(360 000) = 73 992 - 27 585 - 4 512 = 41 895; - 7 480.512 = 34 414.488 / 12 = 2 867.874.
-    const r = calculateCumulativePaye({
+    const r = calculateCumulativePaye({ factor: X12,
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 1, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 3_000, ytd: NONE,
       periodicRemuneration: 30_000, annualPaymentRemuneration: 0,
     });
@@ -140,7 +142,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
 
   it('no medical aid beneficiaries on the employee (member flag off, no dependants): no additional credit either', () => {
     // 4005 fees but no scheme membership recorded: no MTC, and no AMTC (round 2 review). tax 73 992 - 27 585 = 46 407.
-    const r = calculateCumulativePaye({
+    const r = calculateCumulativePaye({ factor: X12,
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 0, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 5_100, ytd: NONE,
       periodicRemuneration: 30_000, annualPaymentRemuneration: 0,
     });
@@ -148,7 +150,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
   });
 
   it('no periodic pay yet (an annual payment alone): the fees to date are taken as they stand', () => {
-    const r = calculateCumulativePaye({
+    const r = calculateCumulativePaye({ factor: X12,
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 0, annualPayments: 400_000, medicalSchemeFees: 61_200, ytd: NONE,
       periodicRemuneration: 0, annualPaymentRemuneration: 400_000,
     });
@@ -176,8 +178,8 @@ describe('the calculator passes the 4005 fees through', () => {
       components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
     });
     const old = noMembers(1959);
-    // 67: 73 992 - 17 820 - 9 765 = 46 407 / 12, no MTC and no additional credit.
-    expect(old.paye.monthlyPaye).toBe(3_867.25);
+    // 67: 73 992.21 - 17 820 - 9 765 = 46 407.21 / F = 3 867.26 (AN, F = 365 / 30.4166; x 12: 3 867.25), no MTC and no additional credit.
+    expect(old.paye.monthlyPaye).toBe(3_867.26);
     const warning = old.validationResults.find(v => v.code === 'MEDICAL_FEES_WITHOUT_MEMBERSHIP');
     expect(warning?.severity).toBe('warning');
     expect(warning?.message).toMatch(/R5100\.00.*4005.*no medical tax credit.*65.*over-deducted/);
@@ -193,7 +195,7 @@ describe('the calculator passes the 4005 fees through', () => {
       annualPayrollEstimate: 'defer',
       components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
     });
-    expect([at64.paye.monthlyPaye, at64.additionalMedicalCredit]).toEqual([3_929, 0]);
+    expect([at64.paye.monthlyPaye, at64.additionalMedicalCredit]).toEqual([3_929.01, 0]);
   });
 
   it('65 on the last day of the year (born 28 Feb 1962) already qualifies', () => {
@@ -202,12 +204,15 @@ describe('the calculator passes the 4005 fees through', () => {
       annualPayrollEstimate: 'defer',
       components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
     });
-    expect([at65.paye.monthlyPaye, at65.additionalMedicalCredit]).toEqual([2_168.2, 947.05]);
+    expect([at65.paye.monthlyPaye, at65.additionalMedicalCredit]).toEqual([2_168.21, 947.05]);
   });
 
-  it('67 at the year end: 2 168.20 and 947.05 recorded; 64: 3 929 and nil', () => {
-    expect([line(1959).paye.monthlyPaye, line(1959).additionalMedicalCredit]).toEqual([2_168.2, 947.05]);
-    // Born June 1962: 64 on 28 Feb 2027. tax(360 000) = 73 992 - 17 820 - 9 024 = 47 148 / 12 = 3 929.
-    expect([line(1962).paye.monthlyPaye, line(1962).additionalMedicalCredit]).toEqual([3_929, 0]);
+  it('67 at the year end: 2 168.21 and 947.05 recorded; 64: 3 929.01 and nil (AN)', () => {
+    // The line annualises by days (AN, F = 365 / 30.4166): 30 000 x F = 360 000.79, the fees 5 100 x F = 61 200.13.
+    // 67: 73 992.21 - 17 820 - 9 765 - 9 024 = 37 383.21, less 33,3% x (61 200.13 - 27 072) = 11 364.67: 26 018.54 / F = 2 168.21
+    // (x 12: 2 168.20); the credit recorded 11 364.67 / F = 947.05.
+    expect([line(1959).paye.monthlyPaye, line(1959).additionalMedicalCredit]).toEqual([2_168.21, 947.05]);
+    // Born June 1962: 64 on 28 Feb 2027. tax(360 000.79) = 73 992.21 - 17 820 - 9 024 = 47 148.21 / F = 3 929.01 (x 12: 3 929).
+    expect([line(1962).paye.monthlyPaye, line(1962).additionalMedicalCredit]).toEqual([3_929.01, 0]);
   });
 });

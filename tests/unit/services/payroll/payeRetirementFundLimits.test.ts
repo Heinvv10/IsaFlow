@@ -12,6 +12,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { calculateCumulativePaye } from '@/modules/accounting/services/payroll/payeCumulative';
+/** The method on the statutory × 12 (G21 (2027) Rev 1 p. 8); the line's own factor (wave-6 AN, 365 ÷ 30.4166) is in payeAnnualisation.test.ts. */
+const X12 = 12;
 import type { PayeYearToDate } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const NONE: PayeYearToDate = { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
@@ -21,7 +23,7 @@ interface Month { salary: number; contribution: number; bonus?: number; donation
 function year(months: Month[], taxYear = 2027) {
   let ytd: PayeYearToDate = NONE;
   return months.map((m) => {
-    const r = calculateCumulativePaye({
+    const r = calculateCumulativePaye({ factor: X12,
       taxYear, rebateAge: 40, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0,
       regularTaxable: m.salary - (m.donation ?? 0), annualPayments: m.bonus ?? 0,
       periodicRemuneration: m.salary, annualPaymentRemuneration: m.bonus ?? 0,

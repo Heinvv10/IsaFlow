@@ -8,7 +8,8 @@
  *
  * Hand figures (2027 table, payeRetirementFund.test.ts): employee A, R60 000
  * with R2 708.59 to a retirement annuity and four medical beneficiaries,
- * deducts 12 440.49 (Sage: 12 440.51); R20 000 with R8 000 is capped at 27.5%
+ * deducts 12 440.51 under AN's days-based annualisation (wave-6 ruling 5), Sage's own figure (× 12 gave 12 440.49);
+ * R20 000 with R8 000 is capped at 27.5%
  * (5 500) and deducts 1 125, uncapped it would be 675.
  */
 import { describe, expect, it } from 'vitest';
@@ -41,26 +42,26 @@ function line(components: EmployeeComponent[], beneficiaries = 0, uifExcluded = 
 }
 
 describe('PAYE 4c: a retirement fund contribution in the line', () => {
-  it('employee A: R60 000 and a 4006 deduction of R2 708.59, four beneficiaries: PAYE 12 440.49', () => {
+  it('employee A: R60 000 and a 4006 deduction of R2 708.59, four beneficiaries: PAYE 12 440.51, Sage\'s figure (AN)', () => {
     const l = line([{ component: comp('3601'), amount: 60_000 }, { component: deduction('4006'), amount: 2_708.59 }], 4, false);
-    expect(l.paye.monthlyPaye).toBe(12_440.49);
+    expect(l.paye.monthlyPaye).toBe(12_440.51);
     expect([l.retirementContributions, l.retirementDeduction]).toEqual([2_708.59, 2_708.59]);
     // periodicTaxable and taxableIncome are remuneration BEFORE the deduction (review #891: after it, a large
     // contribution stored a negative taxable_income); the deduction is its own figure.
     expect([l.periodicTaxable, l.taxableIncome]).toEqual([60_000, 60_000]);
     expect(l.medicalCredit).toBe(1_260);
-    // Paid through payroll: it comes off net pay. 60 000 − 2 708.59 − 12 440.49 − UIF 177.12.
-    expect(l.netPay).toBe(44_673.8);
+    // Paid through payroll: it comes off net pay. 60 000 − 2 708.59 − 12 440.51 − UIF 177.12.
+    expect(l.netPay).toBe(44_673.78);
   });
 
   it('by code, not by the taxable flag: a 4001 deduction flagged non-taxable is still deducted', () => {
     const l = line([{ component: comp('3601'), amount: 60_000 }, { component: deduction('4001', { isTaxable: false }), amount: 2_708.59 }], 4);
-    expect(l.paye.monthlyPaye).toBe(12_440.49);
+    expect(l.paye.monthlyPaye).toBe(12_440.51);
   });
 
   it('a 4003 provident contribution counts as well', () => {
     const l = line([{ component: comp('3601'), amount: 60_000 }, { component: deduction(' 4003 '), amount: 2_708.59 }], 4);
-    expect([l.paye.monthlyPaye, l.retirementContributions]).toEqual([12_440.49, 2_708.59]);
+    expect([l.paye.monthlyPaye, l.retirementContributions]).toEqual([12_440.51, 2_708.59]);
   });
 
   it('capped, not through the uncapped taxable-deduction path: R20 000 with R8 000 deducts 5 500 and PAYE 1 125', () => {
@@ -103,14 +104,14 @@ describe('PAYE 4c: taxable_income is never negative (review #891)', () => {
 describe('PAYE 4c: a contribution paid outside payroll (paid_outside_payroll, migration 948)', () => {
   // A retirement annuity the employee pays the fund directly (a Sage "Private RA"): counted for the s11F
   // deduction and the certificate, never deducted from pay. Employee A: Sage nett 60 000 − 12 440.51 − 177.12.
-  it('employee A with a private RA: PAYE 12 440.49, net pay not reduced by it (60 000 − 12 440.49 − 177.12)', () => {
+  it('employee A with a private RA: PAYE 12 440.51, net pay not reduced by it (60 000 − 12 440.51 − 177.12)', () => {
     const l = line([
       { component: comp('3601'), amount: 60_000 },
       { component: deduction('4006', { paidOutsidePayroll: true }), amount: 2_708.59 },
     ], 4, false);
-    expect(l.paye.monthlyPaye).toBe(12_440.49);
+    expect(l.paye.monthlyPaye).toBe(12_440.51);
     expect([l.retirementContributions, l.retirementDeduction]).toEqual([2_708.59, 2_708.59]);
-    expect(l.netPay).toBe(47_382.39);
+    expect(l.netPay).toBe(47_382.37);
     // The breakdown says so, so gross − its deductions − PAYE − UIF still explains the net pay.
     expect(l.componentBreakdown.find(i => i.sarsSourceCode === '4006')?.paidOutsidePayroll).toBe(true);
   });
