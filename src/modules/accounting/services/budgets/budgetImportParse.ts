@@ -56,8 +56,12 @@ export interface ImportLine {
   row: number;
   accountCode: string;
   dimensionCode: string | null;
-  /** One per year month, in the year's order. */
-  amounts: Array<{ month: string; cell: ParsedCell }>;
+  /** Set by a caller that named the account by id (the MCP JSON grid): matched by id, never by code. */
+  accountId?: string;
+  /** As `accountId`, for the member at a dimension grain. */
+  memberId?: string;
+  /** One per year month, in the year's order. `keep`: the cell leaves the version's amount as it is (a free-form sheet's blank). */
+  amounts: Array<{ month: string; cell: ParsedCell; keep?: true }>;
 }
 
 /**

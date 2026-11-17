@@ -25,6 +25,11 @@ export interface ParallelRunReportRunInfo {
   periodMonth: number;
   periodYear: number;
   status: string;
+  /**
+   * The month's other non-cancelled runs (an off-cycle bonus or termination run), NOT in this comparison: the report
+   * compares the external payroll with the month's regular run only (wave 6 FQb1). 0 for a month with one run.
+   */
+  otherRunsInMonthExcluded: number;
 }
 
 export interface ParallelRunReport {
@@ -46,12 +51,16 @@ async function findRunForPeriod(
   periodYear: number,
 ): Promise<DbRow | null> {
   const rows = (await sql`
-    SELECT id, period_month, period_year, status
-      FROM payroll_run_headers
-     WHERE company_id = ${companyId}::uuid
-       AND period_month = ${periodMonth}
-       AND period_year = ${periodYear}
-       AND status <> 'cancelled'
+    SELECT h.id, h.period_month, h.period_year, h.status,
+           (SELECT COUNT(*)::int FROM payroll_run_headers o WHERE o.company_id = h.company_id AND o.period_year = h.period_year
+              AND o.period_month = h.period_month AND o.status <> 'cancelled' AND o.id <> h.id) AS other_runs
+      FROM payroll_run_headers h
+     WHERE h.company_id = ${companyId}::uuid
+       AND h.period_month = ${periodMonth}
+       AND h.period_year = ${periodYear}
+       AND h.status <> 'cancelled'
+       -- An external payroll's month is compared with the month's regular run, never an off-cycle one (wave 6 FQb1).
+       AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly'
      LIMIT 1
   `) as DbRow[];
   return rows[0] ?? null;
@@ -59,9 +68,11 @@ async function findRunForPeriod(
 
 async function getRunById(companyId: string, runId: string): Promise<DbRow | null> {
   const rows = (await sql`
-    SELECT id, period_month, period_year, status
-      FROM payroll_run_headers
-     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    SELECT h.id, h.period_month, h.period_year, h.status,
+           (SELECT COUNT(*)::int FROM payroll_run_headers o WHERE o.company_id = h.company_id AND o.period_year = h.period_year
+              AND o.period_month = h.period_month AND o.status <> 'cancelled' AND o.id <> h.id) AS other_runs
+      FROM payroll_run_headers h
+     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
      LIMIT 1
   `) as DbRow[];
   return rows[0] ?? null;
@@ -136,6 +147,7 @@ export async function getParallelRunReport(
       periodMonth: Number(runRow.period_month),
       periodYear: Number(runRow.period_year),
       status: String(runRow.status),
+      otherRunsInMonthExcluded: Number(runRow.other_runs) || 0,
     },
     comparison: compareParallelRun(runLines.lines, payslips),
     loanInstalmentBlocker: runLines.loanBlocker,
