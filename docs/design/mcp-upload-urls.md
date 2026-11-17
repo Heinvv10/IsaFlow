@@ -29,10 +29,14 @@
    magic check and nothing else; this check is the upload path's own, `fileMagic` is unchanged elsewhere). A bad body is
    400 and the URL stays usable for a corrected PUT. A good PUT moves the row's expiry to now() + 2 h (the finalize
    window) and writes an audit row. Rate limits: the client IP seen behind cloudflared / nginx is the proxy's, so a
-   per-IP bucket would be platform-wide. A malformed or unknown token is charged only to a miss bucket (600/min), which
-   refuses misses and never a real token; a token that names an intent is charged per token (20/min), to the global
-   ceiling (3000/min) and per company (600/min), and only then runs the sweep, so junk tokens can neither drain the
-   ceiling nor drive the sweep. A body past its declared size is not drained: the read stops at cap + 1 byte and the
+   per-IP bucket would be platform-wide. Two tiers. Before the lookup: a token hash that missed in the last minute is answered
+   404 from a bounded in-process cache (no query), then a per-token bucket (20/min: one replayed token cannot drive
+   lookups) and a lookup ceiling (3600/min: unique junk cannot drive unbounded lookups). After a real intent resolves:
+   the platform ceiling (3000/min) and per company (600/min), then the sweep. Misses are charged only to a miss bucket
+   (600/min), never the platform ceiling, and never sweep. Known limit: before the lookup a well-formed junk token is
+   indistinguishable from a real one, so a flood of unique junk past the lookup ceiling also refuses real PUTs until
+   the minute turns. Closing that needs a signal checkable without the database, e.g. an HMAC over the token's random
+   part with a server secret (junk then fails in-process); not done here, it needs a secret and a token-format choice. A body past its declared size is not drained: the read stops at cap + 1 byte and the
    connection is closed. Runs on the service pool in two short public-route transactions (no connection held while the body
    streams); the write names the intent's id AND company_id. The token path is redacted from logs
    (`redactShareToken`).
