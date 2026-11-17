@@ -11,12 +11,14 @@
  * drawer and returns to the Versions button.
  *
  * Nothing goes to SARS: "Mark filed" records a filing made elsewhere, and the ISV send routes are aborted for the run.
+ * Wave 6 EFa: each version's filing file is downloaded before it is marked filed (z27 checks the file itself), and the
+ * reference is a SARS payment reference number.
  * The sandbox keeps one VAT period whose chain grows by two versions per run; a live version left by an earlier run is
  * amended first through the API. RETURN_EVIDENCE_DIR=<dir> saves a screenshot per width and theme.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { join } from 'path';
-import { Api, gpRef } from './_api';
+import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, rootTheme, settle } from '../helpers/themeSpec';
@@ -55,6 +57,16 @@ async function settled(page: Page): Promise<void> {
 }
 
 const status = (page: Page) => page.getByTestId('return-lifecycle-status');
+/** A VAT201 payment reference number of the shape the filing route accepts, different each run. */
+const prn = () => `4123456789V${String(Date.now() % 1e8).padStart(8, '0')}`;
+
+/** EFa: download the live version's filing file; the bar then names its sha256 and offers Mark filed. */
+async function downloadFilingFile(page: Page): Promise<void> {
+  const bar = page.getByTestId('return-lifecycle');
+  const [download] = await Promise.all([page.waitForEvent('download'), bar.getByRole('button', { name: 'Filing file (CSV)' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^VAT201_\d{6}_v\d+\.csv$/);
+  await expect(bar.getByTestId('filing-file-status')).toContainText('sha256', { timeout: 30_000 });
+}
 
 async function act(page: Page, button: RegExp, fill?: { label: RegExp | string; value: string }, axeKey?: string): Promise<void> {
   await page.getByTestId('return-lifecycle').getByRole('button', { name: button }).click();
@@ -94,7 +106,8 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
 
   await act(page, new RegExp(`^Finalise( v${n})?$`));
   await expect(status(page)).toHaveText(`Finalised (v${n}), not filed`);
-  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16A') }, 'z16-file-dialog');
+  await downloadFilingFile(page);
+  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: prn() }, 'z16-file-dialog');
   await expect(status(page)).toHaveText(`Filed (v${n})`);
   await act(page, /^Amend$/, { label: /Reason for the amendment/, value: 'z16: a supplier bill was missed' }, 'z16-amend-dialog');
   await expect(status(page)).toHaveText(`Amended: finalise v${n + 1}`);
@@ -113,7 +126,8 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'vat201-stale-refusal-1568.png') });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toBeHidden();
-  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16B') });
+  await downloadFilingFile(page);
+  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: prn() });
   await expect(status(page)).toHaveText(`Filed (v${n + 1})`);
 
   const steps = page.getByRole('list', { name: 'Lifecycle steps' });
