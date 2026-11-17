@@ -107,10 +107,12 @@ describeIfDb('D8 round 2 — a re-reversed batch journal is reversed at its chai
       [batchId])).rows[0].j);
     const leg = String((await q('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2',
       [journal, ids.BANK_GL])).rows[0].id);
+    // Out first, then the line planted on it: the legacy state (a GL reversal that left its line matched). The GL now
+    // refuses that reversal while the line is live (bank/liveBankLineReversal).
+    await reverse(journal);
     const bt = String((await q(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
       description, status, matched_journal_line_id) VALUES ($1, $2, CURRENT_DATE, -150, 'D8R6 batch line', $3, $4) RETURNING id`,
     [ids.A, ids.BANK_GL, status, leg])).rows[0].id);
-    await reverse(journal);
     return { x, batchId, bt };
   }
   const lineOf = async (bt: string) => (await q('SELECT status, matched_journal_line_id FROM bank_transactions WHERE id = $1', [bt])).rows[0];

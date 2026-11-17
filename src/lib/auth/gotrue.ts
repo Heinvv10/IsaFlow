@@ -18,6 +18,8 @@ export interface GoTrueUser {
    * both to the same ISO timestamp.
    */
   email_confirmed_at?: string;
+  /** Null (or absent) until the account first signs in: an invitation placeholder has none. */
+  last_sign_in_at?: string | null;
   user_metadata?: Record<string, unknown>;
   app_metadata?: Record<string, unknown>;
 }

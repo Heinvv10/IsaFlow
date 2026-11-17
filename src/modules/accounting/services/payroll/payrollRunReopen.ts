@@ -15,6 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { clearPayslipDetails } from './payslipSnapshot';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -97,6 +98,7 @@ export async function reopenPayrollRun(opts: {
      RETURNING h.id
   `) as DbRow[];
   if (!reopened[0]) throw new PayrollRunReopenRefusedError('Payroll run changed while it was being reopened — it is no longer approved.');
+  await clearPayslipDetails(opts.companyId, opts.runId); // wave 6 PS3
 
   const reviewedHash = run.approved_plan_hash == null ? GRANDFATHERED_PLAN_HASH : String(run.approved_plan_hash);
   await recordPayRunApprovalAudit({

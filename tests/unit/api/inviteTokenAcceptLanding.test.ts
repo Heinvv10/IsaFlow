@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const h = vi.hoisted(() => ({ live: true, queries: [] as string[] }));
+const h = vi.hoisted(() => ({ live: true, queries: [] as string[], pin: null as string | null }));
 
 vi.mock('@/lib/logger', () => {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -37,7 +37,7 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
         if (/SELECT \$1::uuid::text AS id/.test(text)) return { rows: [{ id: String(params[0]).toLowerCase() }], rowCount: 1 };
         if (/lower\(o\.email\) = lower\(\$2\)/.test(text)) return { rows: [], rowCount: 0 };
         if (/FROM company_invitations/.test(text)) {
-          return { rows: [{ id: 'inv-1', company_id: 'co-joined', email: 'invitee@example.test', role: 'viewer' }], rowCount: 1 };
+          return { rows: [{ id: 'inv-1', company_id: 'co-joined', email: 'invitee@example.test', role: 'viewer', gotrue_user_id: h.pin }], rowCount: 1 };
         }
         return { rows: [], rowCount: 1 };
       },
@@ -48,14 +48,14 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
 
 const { default: handler } = await import('../../../pages/api/invite/[token]');
 
-async function join(): Promise<{ status: number; cookies: string[] }> {
+async function join(): Promise<{ status: number; cookies: string[]; body: unknown }> {
   const headers: Record<string, unknown> = {};
-  const out = { status: 200, cookies: [] as string[] };
+  const out = { status: 200, cookies: [] as string[], body: undefined as unknown };
   const res = {
     setHeader(k: string, v: unknown) { headers[k.toLowerCase()] = v; return this; },
     getHeader(k: string) { return headers[k.toLowerCase()]; },
     status(code: number) { out.status = code; return this; },
-    json() { return this; },
+    json(b: unknown) { out.body = b; return this; },
   } as unknown as NextApiResponse;
   const req = { method: 'POST', query: { token: 'raw-invite-token-0123456789' }, body: {}, headers: {}, cookies: {} } as unknown as NextApiRequest;
   await handler(req, res);
@@ -64,7 +64,7 @@ async function join(): Promise<{ status: number; cookies: string[] }> {
   return out;
 }
 
-beforeEach(() => { h.live = true; h.queries.length = 0; });
+beforeEach(() => { h.live = true; h.queries.length = 0; h.pin = null; });
 
 describe('POST /api/invite/[token] — where the member lands', () => {
   it('in the company just joined, past the onboarding redirect', async () => {
@@ -84,5 +84,23 @@ describe('POST /api/invite/[token] — where the member lands', () => {
     expect(status).toBe(200);
     expect(cookies.some((c) => c.startsWith('active_company_id='))).toBe(false);
     expect(cookies.some((c) => c.startsWith('ff_onboarding_done='))).toBe(false);
+  });
+});
+
+// R7-1 (#1517 review R1): a pinned invitation is accepted only as the pinned GoTrue account.
+describe('POST /api/invite/[token] — a pinned invitation', () => {
+  it('a session that is not the pinned account: 403, no membership, rolled back', async () => {
+    h.pin = 'someone-else';
+    const { status, body } = await join();
+    expect(status).toBe(403);
+    expect(JSON.stringify(body)).toContain('This invitation was sent to a different account');
+    expect(h.queries.some((q) => /INSERT INTO company_users/.test(q))).toBe(false);
+    expect(h.queries).toContain('ROLLBACK');
+  });
+
+  it('the pinned account itself (any letter case of its id): joins', async () => {
+    h.pin = 'U-1';
+    expect((await join()).status).toBe(200);
+    expect(h.queries.some((q) => /INSERT INTO company_users/.test(q))).toBe(true);
   });
 });
