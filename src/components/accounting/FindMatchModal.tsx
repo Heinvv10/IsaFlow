@@ -32,11 +32,11 @@ function fmtCurrency(n: number): string {
 }
 
 const TYPE_META: Record<CandidateType, { label: string; icon: typeof FileText; colour: string }> = {
-  supplier_invoice: { label: 'Supplier Inv', icon: FileText, colour: 'text-blue-400 bg-blue-400/10' },
-  customer_invoice: { label: 'Customer Inv', icon: Users, colour: 'text-teal-400 bg-teal-400/10' },
-  purchase_order: { label: 'PO', icon: ShoppingCart, colour: 'text-amber-400 bg-amber-400/10' },
-  journal_line: { label: 'Journal', icon: BookOpen, colour: 'text-purple-400 bg-purple-400/10' },
-  bank_transfer: { label: 'Transfer', icon: BookOpen, colour: 'text-orange-400 bg-orange-400/10' },
+  supplier_invoice: { label: 'Supplier Inv', icon: FileText, colour: 'text-blue-700 dark:text-blue-400 bg-blue-400/10' },
+  customer_invoice: { label: 'Customer Inv', icon: Users, colour: 'text-teal-700 dark:text-teal-400 bg-teal-400/10' },
+  purchase_order: { label: 'PO', icon: ShoppingCart, colour: 'text-amber-700 dark:text-amber-400 bg-amber-400/10' },
+  journal_line: { label: 'Journal', icon: BookOpen, colour: 'text-purple-700 dark:text-purple-400 bg-purple-400/10' },
+  bank_transfer: { label: 'Transfer', icon: BookOpen, colour: 'text-orange-700 dark:text-orange-400 bg-orange-400/10' },
 };
 
 const GROUP_ORDER: CandidateType[] = ['bank_transfer', 'customer_invoice', 'supplier_invoice', 'purchase_order', 'journal_line'];
@@ -132,7 +132,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)]">
           <div className="p-2 rounded-lg bg-teal-500/10">
-            <Search className="h-4 w-4 text-teal-400" />
+            <Search className="h-4 w-4 text-teal-700 dark:text-teal-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Find &amp; Match</h2>
@@ -141,7 +141,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
             </p>
           </div>
           <div className="text-right mr-2">
-            <p className={`text-base font-bold tabular-nums ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
+            <p className={`text-base font-bold tabular-nums ${transaction.amount < 0 ? 'text-red-700 dark:text-red-400' : 'text-teal-700 dark:text-teal-400'}`}>
               {fmtCurrency(transaction.amount)}
             </p>
           </div>
@@ -174,7 +174,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
           )}
 
           {error && (
-            <div className="text-xs text-red-400 py-4 text-center">{error}</div>
+            <div className="text-xs text-red-700 dark:text-red-400 py-4 text-center">{error}</div>
           )}
 
           {!loading && !error && filtered.length === 0 && (
@@ -219,9 +219,9 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                           <span className="flex-1 text-xs text-[var(--ff-text-primary)] truncate">{c.label}</span>
 
                           {/* Amount */}
-                          <span className={`text-xs tabular-nums font-semibold ${exact ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
+                          <span className={`text-xs tabular-nums font-semibold ${exact ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
                             {fmtCurrency(c.amount)}
-                            {exact && <span className="ml-1 text-xs text-teal-400">exact</span>}
+                            {exact && <span className="ml-1 text-xs text-teal-700 dark:text-teal-400">exact</span>}
                           </span>
                         </div>
 
@@ -229,7 +229,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                         <div className="flex items-center gap-3 mt-1.5">
                           <span className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(c.date)}</span>
                           {c.matchReason && (
-                            <span className="text-xs text-teal-400 truncate">{c.matchReason}</span>
+                            <span className="text-xs text-teal-700 dark:text-teal-400 truncate">{c.matchReason}</span>
                           )}
                           <div className="flex-1 h-1 rounded-full bg-[var(--ff-bg-secondary)] overflow-hidden">
                             <div

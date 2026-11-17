@@ -137,3 +137,14 @@ describe('multi-valued link', () => {
   });
 });
 function useStable<T>(v: T): T { return useState(v)[0]; }
+
+describe('a link to an inactive account', () => {
+  const inactive = () => ({ ...B(), id: 'x', accountName: 'Closed', isActive: false });
+  it('is not opened: the default is shown with the "isn\'t available" notice, and the notice survives an accounts refresh', () => {
+    const h = renderHook(({ accounts }) => useBankTxSelection(accounts, 'x'), { initialProps: { accounts: [A(), B(), inactive()] } });
+    expect(h.result.current.selected).not.toBe('x');
+    expect(h.result.current.notice).toMatch(/isn't available/);
+    h.rerender({ accounts: [A(), B(), inactive()] });
+    expect(h.result.current.notice).toMatch(/isn't available/);
+  });
+});
