@@ -27,7 +27,9 @@ export interface Employee {
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
   paymentMethod?: 'eft' | 'cash';
-  taxStatus?: 'employee' | 'director' | 'independent_contractor';
+  taxStatus?: 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
+  /** Wave 6 PSP (migration 999r): set exactly for a personal service provider. */
+  pspEntityType?: 'company' | 'trust' | null;
   payBasis?: 'monthly' | 'hourly' | 'daily';
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;

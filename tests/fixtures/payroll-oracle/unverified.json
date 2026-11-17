@@ -8,5 +8,15 @@
     "case": "db-fund-12d-category-factor",
     "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page; under the s11F cap the fringe and its deemed contribution cancel, so the engine already gives the hand figure.",
     "wouldVerify": "The Seventh Schedule para 12D text or a SARS 2027 guide page on defined benefit fund fringe benefits, or a Sage payslip with a category factor."
+  },
+  {
+    "case": "psp-company-27pct",
+    "reason": "The engine gives the hand figure (27% x R50 000 = R13 500.00, UIF nil) from SARS PAYE-GEN-01-G01-A06 row 6 (a company including a close corporation) and UIC Act s1 \"remuneration\" (b) (gross income para (cA)), but the A06 read is the 2025 edition (PAYE-GEN-01-G01-A06-2025); no 2026 or 2027 edition is published (tables page read 2026-11-16).",
+    "wouldVerify": "A 2026 or 2027 edition of PAYE-GEN-01-G01-A06 with the personal service provider row, or a Sage or SimplePay payslip for a personal service company or trust."
+  },
+  {
+    "case": "psp-trust-45pct",
+    "reason": "The engine gives the hand figure (45% x R50 000 = R22 500.00, UIF nil) from SARS PAYE-GEN-01-G01-A06 row 6 (a trust) and UIC Act s1 \"remuneration\" (b) (gross income para (cA)), but the A06 read is the 2025 edition (PAYE-GEN-01-G01-A06-2025); no 2026 or 2027 edition is published (tables page read 2026-11-16).",
+    "wouldVerify": "A 2026 or 2027 edition of PAYE-GEN-01-G01-A06 with the personal service provider row, or a Sage or SimplePay payslip for a personal service company or trust."
   }
 ]

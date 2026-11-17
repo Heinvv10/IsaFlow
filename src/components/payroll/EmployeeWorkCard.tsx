@@ -13,12 +13,8 @@ import type { TaxStatus } from '@/modules/accounting/services/payroll/payrollTyp
 import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import type { Employee } from './EmployeeProfileCard';
 import { EmployeeEmailField } from './EmployeeEmailField';
+import { PayrollTaxStatusField } from './PayrollTaxStatusField';
 
-const TAX_STATUS = [
-  { value: 'employee', label: 'Employee' },
-  { value: 'director', label: 'Director' },
-  { value: 'independent_contractor', label: 'Independent contractor' },
-];
 /** ETI Act s6(b): an SA ID number (checked), an asylum seeker permit, or a refugee identity document. */
 const ETI_ID_DOCUMENT = [
   { value: 'sa_id', label: 'SA ID number (on the profile)' },
@@ -31,11 +27,11 @@ const PAY_BASIS = [
   { value: 'daily', label: 'Daily' },
 ];
 
-interface Draft { taxStatus: string; payBasis: string; hoursPerWeek: string; hoursPerDay: string; hourlyRate: string; dailyRate: string; occupation: string; etiIdDocument: string }
+interface Draft { taxStatus: string; pspEntityType: string; payBasis: string; hoursPerWeek: string; hoursPerDay: string; hourlyRate: string; dailyRate: string; occupation: string; etiIdDocument: string }
 
 const text = (n: number | null | undefined) => (n == null ? '' : String(n));
 const draftOf = (e: Employee): Draft => ({
-  taxStatus: e.taxStatus ?? 'employee', payBasis: e.payBasis ?? 'monthly', hoursPerWeek: text(e.hoursPerWeek),
+  taxStatus: e.taxStatus ?? 'employee', pspEntityType: e.pspEntityType ?? '', payBasis: e.payBasis ?? 'monthly', hoursPerWeek: text(e.hoursPerWeek),
   hoursPerDay: text(e.hoursPerDay), hourlyRate: text(e.hourlyRate), dailyRate: text(e.dailyRate), occupation: e.occupation ?? '',
   etiIdDocument: e.etiIdDocument ?? 'sa_id',
 });
@@ -69,7 +65,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
     setError('');
     try {
       const all = {
-        taxStatus: draft.taxStatus, payBasis: draft.payBasis, hoursPerWeek: numberOrNull(draft.hoursPerWeek),
+        taxStatus: draft.taxStatus, pspEntityType: draft.pspEntityType || null, payBasis: draft.payBasis, hoursPerWeek: numberOrNull(draft.hoursPerWeek),
         hoursPerDay: numberOrNull(draft.hoursPerDay), hourlyRate: numberOrNull(draft.hourlyRate),
         dailyRate: numberOrNull(draft.dailyRate), occupation: draft.occupation.trim() || null,
         etiIdDocument: draft.etiIdDocument === 'sa_id' ? null : draft.etiIdDocument,
@@ -97,7 +93,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">Work terms</h3>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Select label="Tax status" options={TAX_STATUS} value={draft.taxStatus} disabled={!canEditPriced} onChange={v => v && set('taxStatus')(v)} />
+        <PayrollTaxStatusField taxStatus={draft.taxStatus} pspEntityType={draft.pspEntityType} disabled={!canEditPriced} onChange={t => setDraft(d => ({ ...d, ...t }))} />
         <Select label="Pay basis" options={PAY_BASIS} value={draft.payBasis} disabled={!canEditPriced} onChange={v => v && set('payBasis')(v)} />
         <Input label="Hours a week" type="number" min={0} max={168} step="0.01" value={draft.hoursPerWeek} onChange={e => set('hoursPerWeek')(e.target.value)} />
         <Input label="Hours a day" type="number" min={0} max={24} step="0.01" value={draft.hoursPerDay} onChange={e => set('hoursPerDay')(e.target.value)} />

@@ -6,7 +6,9 @@ import type { RegularPayDirectiveState } from './directiveRegularPay';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
-export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
+/** A personal service provider's entity (migration 999r): it picks the rate (taxTables personalServiceProviderRates). */
+export type PspEntityType = 'company' | 'trust';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
 export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
@@ -37,6 +39,8 @@ export interface PayrollEmployee {
   paymentMethod?: 'eft' | 'cash';
   /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
+  /** Set exactly when taxStatus is personal_service_provider (migration 999r). */
+  pspEntityType?: PspEntityType | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
@@ -142,7 +146,7 @@ export interface ValidationResult {
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none' | 'directive';
+  treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
   directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */

@@ -4,8 +4,9 @@
  * them yet (TS-b does); `tax_status` is the one source of truth for "director", `employment_type` is display and HR.
  */
 import type { EtiIdDocument, PayBasis, PayrollEmployee, TaxStatus } from './payrollTypes';
+import { judgePspPair, pspEntityOf, pspEntityOfPatch } from './payrollEmployeeTaxStatus';
 
-export const TAX_STATUSES: readonly TaxStatus[] = ['employee', 'director', 'independent_contractor'];
+export const TAX_STATUSES: readonly TaxStatus[] = ['employee', 'director', 'independent_contractor', 'personal_service_provider'];
 export const PAY_BASES: readonly PayBasis[] = ['monthly', 'hourly', 'daily'];
 /** ETI Act s6(b), migration 976 (wave 5 ET). */
 export const ETI_ID_DOCUMENTS: readonly EtiIdDocument[] = ['sa_id', 'asylum_seeker_permit', 'refugee_id'];
@@ -14,12 +15,13 @@ const MAX_RATE = 9_999_999_999.99; // NUMERIC(12,2)
 
 export type EmployeeTerms = Pick<
   PayrollEmployee, 'taxStatus' | 'payBasis' | 'hoursPerWeek' | 'hoursPerDay' | 'hourlyRate' | 'dailyRate' | 'occupation' | 'etiIdDocument'
+  | 'pspEntityType'
 >;
 export const DEFAULT_TERMS: EmployeeTerms = {
   taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null, occupation: null,
-  etiIdDocument: null,
+  etiIdDocument: null, pspEntityType: null,
 };
-export const TERM_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'occupation', 'etiIdDocument'] as const;
+export const TERM_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'occupation', 'etiIdDocument', 'pspEntityType'] as const;
 
 type Body = Record<string, unknown>;
 
@@ -27,7 +29,7 @@ type Body = Record<string, unknown>;
 export const EMPLOYEE_TERM_LOG_KEYS: readonly string[] = [...TERM_KEYS];
 
 /** Status, hours and rates decide what an employee costs and how they are taxed (hours classify the employment, G21 p. 28): only the roles that may redirect net pay may move them. */
-export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument'] as const;
+export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const;
 
 /** Whether a judged patch changes one of the priced terms from `current` (an unchanged value is no change). */
 export function movesPricedTerm(patch: Partial<EmployeeTerms>, current: EmployeeTerms): boolean {
@@ -89,6 +91,7 @@ export function termsOfCreate(body: Body, refuse: Refuse): EmployeeTerms {
     dailyRate: rate(body.dailyRate, 'dailyRate', refuse),
     occupation: occupationOf(body.occupation, refuse),
     etiIdDocument: isBlank(body.etiIdDocument) ? null : oneOf(body.etiIdDocument, ETI_ID_DOCUMENTS, 'etiIdDocument', refuse),
+    pspEntityType: pspEntityOf(body.pspEntityType, 'pspEntityType', refuse),
   }, refuse);
 }
 
@@ -103,6 +106,7 @@ export function judgeTerms(t: EmployeeTerms, refuse: Refuse): EmployeeTerms {
   if (t.hoursPerDay != null && t.hoursPerWeek != null && t.hoursPerDay > t.hoursPerWeek) {
     throw refuse('hoursPerDay cannot be more than hoursPerWeek');
   }
+  judgePspPair(t, refuse);
   return t;
 }
 
@@ -120,6 +124,7 @@ export function termsOfPatch(body: Body, refuse: Refuse, current: EmployeeTerms 
   if (body.dailyRate !== undefined) out.dailyRate = rate(body.dailyRate, 'dailyRate', refuse);
   if (body.occupation !== undefined) out.occupation = occupationOf(body.occupation, refuse);
   if (body.etiIdDocument !== undefined) out.etiIdDocument = isBlank(body.etiIdDocument) ? null : oneOf(body.etiIdDocument, ETI_ID_DOCUMENTS, 'etiIdDocument', refuse);
+  Object.assign(out, pspEntityOfPatch(body, out.taxStatus, refuse));
   // The cross-column rules judge the terms as they would stand after the patch.
   if (Object.keys(out).length > 0) judgeTerms({ ...current, ...out }, refuse);
   return out;
@@ -143,12 +148,14 @@ export function termsFromRow(r: Record<string, unknown>): EmployeeTerms {
     dailyRate: numOrNull(r.daily_rate),
     occupation: r.occupation == null ? null : String(r.occupation),
     etiIdDocument: r.eti_id_document == null ? null : oneOf(r.eti_id_document, ETI_ID_DOCUMENTS, 'eti_id_document', (m) => new Error(`Stored ${m}`)),
+    pspEntityType: pspEntityOf(r.psp_entity_type, 'psp_entity_type', (m) => new Error(`Stored ${m}`)),
   };
 }
 
 const COLUMN_OF: Record<(typeof TERM_KEYS)[number], string> = {
   taxStatus: 'tax_status', payBasis: 'pay_basis', hoursPerWeek: 'hours_per_week', hoursPerDay: 'hours_per_day',
   hourlyRate: 'hourly_rate', dailyRate: 'daily_rate', occupation: 'occupation', etiIdDocument: 'eti_id_document',
+  pspEntityType: 'psp_entity_type',
 };
 
 /** The terms a patch moved, as history rows (old and new as text), for the change log; `only`: the keys the patch carried. */

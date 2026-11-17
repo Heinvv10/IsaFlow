@@ -43,26 +43,6 @@
     "closedBy": "OC (wave 6): termination runs, the month's UIF ceiling across runs."
   },
   {
-    "case": "psp-company-27pct",
-    "engineActual": {
-      "paye": 11075.58,
-      "uifEmployee": 177.12,
-      "uifEmployer": 177.12
-    },
-    "reason": "A personal service company is costed as an employee on the tables with UIF; the case (UNVERIFIED) expects a flat 27% and no UIF.",
-    "closedBy": "PSP (wave 6): personal service providers at 27% with no UIF, per SARS PAYE-GEN-01-G01-A06 row 6 and UICA s1 \"remuneration\" (b); re-cite to the 2027 A06 when SARS publishes it."
-  },
-  {
-    "case": "psp-trust-45pct",
-    "engineActual": {
-      "paye": 11075.58,
-      "uifEmployee": 177.12,
-      "uifEmployer": 177.12
-    },
-    "reason": "A personal service trust is costed as an employee on the tables with UIF; the case (UNVERIFIED) expects a flat 45% and no UIF.",
-    "closedBy": "PSP (wave 6): personal service providers at 45% with no UIF, per SARS PAYE-GEN-01-G01-A06 row 6 and UICA s1 \"remuneration\" (b); re-cite to the 2027 A06 when SARS publishes it."
-  },
-  {
     "case": "ri-overtime-10h-at-1-5x",
     "engineActual": {
       "paye": 243,

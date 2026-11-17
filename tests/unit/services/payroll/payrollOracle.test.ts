@@ -110,7 +110,7 @@ describe('payroll oracle fixtures', () => {
     expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
   });
 
-  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its two signed entries', () => {
+  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
     'db-fund-12d-s11f-cap-binds': 'DBF',
@@ -118,8 +118,6 @@ describe('payroll oracle fixtures', () => {
     'ga-maintenance-outside-cap': 'GA',
     'offcycle-bonus-after-regular-g21': 'OC',
     'offcycle-termination-leave-after-regular': 'OC',
-    'psp-company-27pct': 'PSP',
-    'psp-trust-45pct': 'PSP',
     'ri-overtime-10h-at-1-5x': 'RI',
     'ri-reimbursive-1000km-at-prescribed-3703': 'RI',
     'ri-reimbursive-above-prescribed-3702-3722': 'RI',
@@ -131,7 +129,8 @@ describe('payroll oracle fixtures', () => {
     'weekly-starter-g21-3-of-7-days': 'FQc',
     'weekly-week-53-pay-sunday': 'FQc',
     });
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
+    // PSP closed its two gaps: the engine gives the A06 row 6 hand figure, UNVERIFIED only for the A06 edition (2025).
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'psp-company-27pct', 'psp-trust-45pct']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {

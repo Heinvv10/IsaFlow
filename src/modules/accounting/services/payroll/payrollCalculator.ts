@@ -11,7 +11,7 @@ import { normaliseSarsCode } from './payeAnnualPayment';
 import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
-import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
+import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
@@ -85,6 +85,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     earnings: timeWorked, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate),
   });
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
+  const psp = pspFacts(employee, taxYear); // a personal service provider's entity and rate (wave 6 PSP), else null
   // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.
   // Never on an independent contractor (Hein, #1266 round 2): the line errors instead (contractorDirectiveResult).
   const directiveOnContractor = treatment.paye === 'none' ? input.regularPayDirective?.current ?? null : null;
@@ -140,10 +141,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye })
     : null;
   const capped = directive && directed ? capDirectivePaye(directed, grossPay - uif.employeeContribution - directivePaye, directive) : null;
-  const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, balanceOfRemuneration);
+  const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, balanceOfRemuneration, psp?.rate ?? null);
   const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
-  if (treatment.paye === 'none' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye));
+  if (treatment.paye === 'none' || ((treatment.paye === 'flat_25' || treatment.paye === 'flat_psp') && !directive)) warnings.push(...outsideTablesResult(treatment.paye, psp));
   if (directiveOnContractor) warnings.push(contractorDirectiveResult(directiveOnContractor));
   warnings.push(...(directed?.results ?? []), ...(capped?.result ? [capped.result] : []), ...directiveStateResults(input.regularPayDirective));
 
@@ -170,7 +171,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     employee, components, period, periodDate, runHours: hours,
     notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
   });
-  const eti: EtiResult = lineEti.eti;
+  const eti: EtiResult = psp ? { ...lineEti.eti, ineligibilityReason: PSP_NO_ETI } : lineEti.eti;
   warnings.push(...lineEti.warnings);
 
   const netPay = Math.round(
@@ -201,7 +202,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.
   const explanations = explainPayrollLine({
-    taxYear, periodDate,
+    taxYear, periodDate, psp,
     paye: {
       treatment: treatment.paye, classification, earningParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
       medicalFees: { total: medicalSchemeFees, employee: employeeMedicalFees, employer: employerMedicalFees },
@@ -212,7 +213,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     },
     uif: {
       uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,
-      outsideReason: !treatment.uif ? 'Independent contractor: no UIF' : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
+      outsideReason: !treatment.uif ? (psp ? PSP_NO_UIF : 'Independent contractor: no UIF') : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {
       outsideReason: treatment.sdl ? null : 'Independent contractor: no SDL', sdlApplicable, parts: earningParts, trace: sdlTrace,

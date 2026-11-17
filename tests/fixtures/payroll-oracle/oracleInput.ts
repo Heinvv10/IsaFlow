@@ -2,7 +2,7 @@
  * The oracle's input builders, moved out of oracle.ts unchanged (wave-6 O3, refactor(split)): a case as the
  * calculator's PayrollLineInput. oracle.ts re-exports buildCaseInput, saIdFor and oracleTaxStatus.
  */
-import type { EmployeeComponent, PayeYearToDate, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
+import type { EmployeeComponent, PayeYearToDate, PayrollEmployee, PayrollLineInput, PspEntityType, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
 import { withFringeBenefits } from './fringeInput';
 import type { OracleCase, OraclePriorPeriod } from './oracle';
 import { costRfi, withEmployerRetirement } from './rfiInput';
@@ -29,9 +29,18 @@ function parseDate(s: string): Date {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-/** A fixture's status label as the engine's tax status: only the two it treats differently; every Sage label is an employee. */
+/**
+ * A fixture's status label as the engine's tax status: only those it treats differently; every Sage label is an employee.
+ * personal_service_company / personal_service_trust are a PSP of that entity (wave 6 PSP; pspEntityOf).
+ */
 export function oracleTaxStatus(label: string): TaxStatus {
+  if (pspEntityOf(label)) return 'personal_service_provider';
   return label === 'independent_contractor' || label === 'director' ? label : 'employee';
+}
+
+/** The PSP entity a fixture's status label names, else null. */
+export function pspEntityOf(label: string): PspEntityType | null {
+  return label === 'personal_service_company' ? 'company' : label === 'personal_service_trust' ? 'trust' : null;
 }
 
 const numberOf = (v: unknown): number | null => (typeof v === 'number' ? v : null);
@@ -80,6 +89,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     medicalAidDependantsCount: input.employee.medicalAidDependantsCount,
     s18aReceiptHeld: input.employee.s18aReceiptHeld,
     taxStatus: oracleTaxStatus(input.employee.taxStatus),
+    pspEntityType: pspEntityOf(input.employee.taxStatus),
     payBasis: dayRate != null ? 'daily' : monthlyHours != null ? 'hourly' : 'monthly',
     hoursPerWeek,
     hoursPerDay: numberOf(input.unmodelled?.hoursPerDay),

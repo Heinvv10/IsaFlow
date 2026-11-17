@@ -221,10 +221,11 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     }
   });
 
-  it('an unknown tax status (a PSP) is refused for approve, not for reopen', async () => {
+  // Wave 6 PSP made personal_service_provider known (999r): a status no release writes stands in for an unknown one.
+  it('an unknown tax status is refused for approve, not for reopen', async () => {
     await inRolledBackTx(async (c) => {
       await c.query('ALTER TABLE payroll_employees DROP CONSTRAINT payroll_employees_tax_status_check');
-      await c.query("UPDATE payroll_employees SET tax_status = 'personal_service_provider' WHERE id = $1", [monthlyEmp]);
+      await c.query("UPDATE payroll_employees SET tax_status = 'labour_broker' WHERE id = $1", [monthlyEmp]);
     }, async () => {
       expect(clauses(await refusal('approve'))).toEqual(['tax_status']);
       expect(await refusal('reopen')).toBeNull();

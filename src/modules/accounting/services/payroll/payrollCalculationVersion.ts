@@ -18,5 +18,7 @@
  *    assignment stays cash, migration 975); percent_of_rfi rows are costed on RFI (RF). Master's value + 1 at RF's rebase (DR may take it).
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
+ * 13: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 999r).
+ *    Provisional: master's value + 1 at PSP's rebase (AN takes 13 first).
  */
-export const PAYROLL_CALCULATION_VERSION = 12;
+export const PAYROLL_CALCULATION_VERSION = 13;
