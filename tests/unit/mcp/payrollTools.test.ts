@@ -101,7 +101,7 @@ const EMPLOYEE = {
 const RUN_ROW = {
   id: RUN, companyId: COMPANY, periodMonth: 12, periodYear: 2026, status: 'approved',
   totalGross: 100000, totalPaye: 20000, totalUif: 2000, totalSdl: 1000, totalEti: 0,
-  totalNet: 76000, employeeCount: 4, journalEntryId: null,
+  totalNet: 76000, employeeCount: 4, journalEntryId: null, payFrequency: 'monthly', runKind: 'regular',
 };
 
 /** A plan with every statutory line, so a tool that dropped one is visible. */

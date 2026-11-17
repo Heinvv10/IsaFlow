@@ -18,16 +18,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql } from '@/lib/neon';
-import {
-  PAYE_TAX_YEAR_END_MONTH,
-  PAYE_TAX_YEAR_START_MONTH,
-  payeTaxYearBounds,
-} from '@/modules/accounting/utils/payeTaxYear';
-import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
+import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
 import {
   validateCompanyComponents,
   validateEmployeeIrp5,
@@ -48,91 +42,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
-  const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
-  const bounds = payeTaxYearBounds(taxYear);
-  // The checklist reports on the runs the IRP5 and EMP501 actually declare: FINAL runs (payRunFinalSql, wave 6 EF).
-
-  const [companyRows, empRows, aggRows, monthRows, headerRows, componentRows, empCompRows, directiveRows] =
-    await Promise.all([
-      sql`
-        SELECT
-          paye_reference_number, sdl_reference_number, uif_reference_number, sic7_code,
-          sars_contact_first_name, sars_contact_last_name,
-          sars_contact_telephone, sars_contact_number,
-          physical_address_line1, physical_postal_code,
-          lockdown_enabled, lockdown_date
-        FROM companies
-        WHERE id = ${companyId}::uuid
-      ` as Promise<DbRow[]>,
-      sql`
-        SELECT id, id_number, tax_number
-        FROM   payroll_employees
-        WHERE  company_id = ${companyId}::uuid
-      ` as Promise<DbRow[]>,
-      sql`
-        SELECT
-          prl.employee_id,
-          SUM(prl.gross_pay)                       AS total_gross,
-          SUM(prl.paye)                            AS total_paye,
-          SUM(prl.uif_employee + prl.uif_employer) AS total_uif,
-          SUM(prl.sdl)                             AS total_sdl
-        FROM payroll_run_lines prl
-        JOIN payroll_run_headers prh ON prh.id = prl.run_id
-        WHERE prh.company_id = ${companyId}::uuid
-          AND ${sql.unsafe(payRunFinalSql('prh'))}
-          AND (
-            (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
-            OR
-            (prh.period_year = ${endYear}   AND prh.period_month <= ${endMonth})
-          )
-        GROUP BY prl.employee_id
-      ` as Promise<DbRow[]>,
-      sql`
-        SELECT DISTINCT period_year, period_month
-        FROM   payroll_run_headers
-        WHERE  company_id = ${companyId}::uuid
-          AND  ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}
-          AND  (
-            (period_year = ${startYear} AND period_month >= ${startMonth})
-            OR
-            (period_year = ${endYear}   AND period_month <= ${endMonth})
-          )
-      ` as Promise<DbRow[]>,
-      sql`
-        SELECT period_month, period_year, COALESCE(total_paye, 0) AS emp201_paye
-        FROM   payroll_run_headers
-        WHERE  company_id = ${companyId}::uuid
-          AND  ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}
-          AND (
-            (period_year = ${startYear} AND period_month >= ${startMonth})
-            OR
-            (period_year = ${endYear}   AND period_month <= ${endMonth})
-          )
-      ` as Promise<DbRow[]>,
-      sql`
-        SELECT id, name, sars_source_code, component_type, is_active
-        FROM   payroll_components
-        WHERE  company_id = ${companyId}::uuid
-      ` as Promise<DbRow[]>,
-      sql`
-        SELECT DISTINCT pec.employee_id, pc.sars_source_code
-        FROM   payroll_employee_components pec
-        JOIN   payroll_components pc ON pc.id = pec.component_id
-        JOIN   payroll_employees  pe ON pe.id = pec.employee_id
-        WHERE  pe.company_id = ${companyId}::uuid
-          AND  pc.is_active = TRUE
-      ` as Promise<DbRow[]>,
-
-      sql`
-        SELECT DISTINCT employee_id
-        FROM   tax_directives
-        WHERE  company_id     = ${companyId}::uuid
-          AND  directive_type = 'severance'
-          AND  status         = 'approved'
-          AND  effective_date <= ${bounds.end}::date
-          AND  (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
-      ` as Promise<DbRow[]>,
-    ]);
+  const { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows } =
+    await readYearEndStatusRows(companyId, taxYear);
 
   const employeesWithSeveranceDirective = new Set(
     directiveRows.map((r) => String(r.employee_id)),
@@ -203,8 +114,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   // ─── 5. EMP501 balanced ────────────────────────────────────────────────────
-  const headerMap = new Map<string, number>();
-  headerRows.forEach((r) => headerMap.set(`${r.period_year}-${r.period_month}`, Number(r.emp201_paye)));
 
   const lineMap = new Map<string, number>();
   for (const emp of empRows) {
@@ -216,7 +125,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }
   }
 
-  const totalEmp201 = Array.from(headerMap.values()).reduce((s, v) => s + v, 0);
+  const totalEmp201 = Array.from(emp201ByMonth.values()).reduce((s, v) => s + v, 0);
   const totalIrp5 = empRows.reduce((s, emp) => {
     const agg = aggMap.get(String(emp.id));
     return s + (agg ? Number(agg.total_paye) : 0);
