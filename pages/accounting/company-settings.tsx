@@ -142,16 +142,16 @@ export default function CompanySettingsPage() {
     // Defence in depth: Save is disabled while Lockdown Date is refused, but not every path goes through the button.
     if (!company || lockdownInvalid) return;
     setSaving(true); setError(''); setStale(false); setSaved(false);
+    let companySaved = false;
     try {
       const put = async (url: string, body: unknown, fallback: string) => {
         const r = await apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         await assertOk(r, fallback);
       };
-      const r = await apiFetch('/api/accounting/companies', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(companySavePayload(company, loadedMonth)),
-      });
-      await assertOk(r, 'Could not save the company details - try again')
-        .catch((err: unknown) => { if (err instanceof ApiRequestError && err.status === 409) setStale(true); throw err; });
+      const r = await apiFetch('/api/accounting/companies', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(companySavePayload(company, loadedMonth)) });
+      await assertOk(r, 'Could not save the company details - try again');
+      companySaved = true;
       const row = ((await r.json()) as { data?: Record<string, unknown> | null }).data;
       setLoadedMonth(row ? mapApiCompany(row).financialYearStart : company.financialYearStart); // the month now stored
       const after = 'Company details saved, but some settings could not be saved - try again';
@@ -165,6 +165,7 @@ export default function CompanySettingsPage() {
       setSaved(true);
       afterDelay(() => setSaved(false), 3000);
     } catch (err) {
+      setStale(!companySaved && err instanceof ApiRequestError && err.status === 409); // changed since loaded: offer Reload
       setError(apiErrorMessage(err, 'Could not save the changes - try again'));
     } finally {
       setSaving(false);
