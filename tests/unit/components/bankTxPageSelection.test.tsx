@@ -136,15 +136,17 @@ describe('deep link and all-inactive', () => {
     expect(seen.includes(true)).toBe(false);
   });
 
-  it('a link that arrives after the accounts (router not ready, then ready) is applied', async () => {
+  it('a link that arrives after the accounts (router not ready, then ready) is applied - and nothing is fetched for the default account meanwhile', async () => {
     cap.isReady = false;
     summaries = [() => accts(A(), B(), C())];
     const view = render(<BankTransactionsPage />);
-    await waitFor(() => expect(lastListBank()).toBe('b'));
+    await new Promise(r => setTimeout(r, 100)); // the accounts are in; the router still cannot say what the URL is
+    expect(listUrls()).toHaveLength(0);
     cap.query = { account_id: 'c' };
     cap.isReady = true;
     view.rerender(<BankTransactionsPage />);
     await waitFor(() => expect(lastListBank()).toBe('c'));
+    expect(listUrls().every(u => new URL(u, 'http://x').searchParams.get('bank_account_id') === 'c')).toBe(true);
   });
 
   it('a deep link is applied once: a later summary that lists it does not move the user', async () => {
@@ -194,6 +196,8 @@ describe('"n shown" on the Awaiting-review tile', () => {
     const mark = cap.shownHistory.length;
     await call(cap.cards, 'onSelectBank', 'c');
     await waitFor(() => expect(lastListBank()).toBe('c'));
+    expect(cap.cards.shown).toBeNull(); // the account switch cleared the filter (WP3), so nothing is narrowed yet
+    await call(cap.filters, 'onFromDateChange', '2026-02-01'); // narrow c's list again: its total is in flight
     expect(cap.cards.shown).toBeNull(); // c's list is in flight; b's 3 must not be shown against c
     await act(async () => { release(); });
     await waitFor(() => expect(cap.cards.shown).toBe(9));

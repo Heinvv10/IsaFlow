@@ -29,6 +29,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT, sourceFiles, stripComments, withoutSqlComments } from '../../helpers/sourceCensus';
 import { laterMigrationViolates } from './entityChangeCensusRule';
+import { KNOWN_GRANTS, KNOWN_IN_COMMENTS } from './entityChangeCensusKnown';
 import { SLOT_WRITERS } from '../../helpers/slotWriterCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
@@ -52,10 +53,11 @@ const WRITERS: Record<string, string[]> = {
   ],
   gl_accounts: [
     'pages/api/accounting/bank-accounts.ts', 'scripts/cleanup-demo-data.ts', 'scripts/import-sage-britech.ts',
-    'scripts/large-scale-seed.ts', 'scripts/qa-create-blitz-bank.ts', 'scripts/qa-create-brighttech-bank.ts',
+    'scripts/dev/seed-bank-switcher-qa.ts', 'scripts/large-scale-seed.ts', 'scripts/qa-create-blitz-bank.ts', 'scripts/qa-create-brighttech-bank.ts',
     'scripts/qa-create-velofibre-bank.ts', 'scripts/qa-seed-bank-account.ts', 'scripts/qa-seed-blitz-coa.ts',
     'scripts/qa-seed/coa.ts', 'scripts/qa-seed/reset.ts', 'scripts/qa-test-bank-delete-balance.ts',
-    'scripts/qa-verify-bank-sprint.ts', 'scripts/seed-demo-data.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/stress-test.ts',
+    'scripts/qa-verify-bank-sprint.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/stress-test.ts',
+    'scripts/lib/demoReseed/write.ts', // Demo reseed: generic bank metadata on the Demo bank account (entity_change_capture records it)
     `${S}ap/payingAccountAuthors.ts`, // bank-accounts PUT: bank_details_setters (migration 923)
     `${S}bank/bankOpeningBalanceService.ts`, `${S}core/migrationCoaService.ts`, `${S}core/migrationExecuteService.ts`,
     `${S}core/migrationRollbackService.ts`, `${S}gl/accountMergeService.ts`, `${S}gl/accountReclassifyService.ts`,
@@ -67,6 +69,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/seed-phase5-payroll.ts', 'scripts/seed-phase5-wipe.ts', `${S}core/costCentreService.ts`,
     `${S}payroll/equityReportService.ts`, `${S}payroll/payScaleService.ts`, `${S}payroll/payrollBulkEmployeeService.ts`,
     `${S}payroll/payrollEmployeeService.ts`, `${S}payroll/payrollTerminationService.ts`,
+    `${S}payroll/payrollEmployeeEmail.ts`, // PE: the payslip address only (999o); captured like any employee write
   ],
   company_users: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',
@@ -93,6 +96,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
+    'scripts/lib/demoReseed/write.ts', // Demo reseed: renames the Demo company only (entity_change_capture records it)
     `${S}gl/financialYearEndChangeApply.ts`, `${S}gl/financialYearEndChangeUndo.ts`, // financial_year_start on a change of year end / its undo
     'src/modules/admin/services/adminCompanyMutations.ts', 'src/modules/admin/services/companyLifecycleService.ts',
     'src/modules/admin/services/trialService.ts',
@@ -123,26 +127,6 @@ const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(
  * write the history, or grant ON ALL TABLES / FUNCTIONS (that hands app_user
  * INSERT on the history, or EXECUTE on the capture, back).
  */
-/**
- * Migrations before 888 that match laterMigrationViolates: the schema-wide grants
- * to app_user (348) and platform_admin (352). They ran before entity_changes and
- * the capture existed, so they reach neither. A new one is a reason to look.
- */
-const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql',
-  // 930 (S-07c): names entity_change_capture() only in its list of reviewed definers (with its body's
-  // hash, so a change to the capture is refused on every deploy); it does not touch the history.
-  '930_credential_membership_writes_off_app_pools.sql',
-  // 952 (wave 3 K1): widens the entity_type CHECK and entity_changes_read for payroll_bank_detail and attaches the
-  // capture, ENABLE ALWAYS, to payroll_bank_details. The capture itself is unchanged, so 930's registry is too.
-  '952_payroll_bank_details_tenant_history.sql',
-  // 961/962 (payment terms): new types in the CHECK (962: read policy, projection arm), narrow captures; 964 VALIDATEs that CHECK.
-  '961_company_default_terms_history.sql', '962_due_date_source_and_history.sql', '964_entity_changes_type_check_validate.sql'];
-/**
- * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
- * standard_conforming_strings, 876 why TRUNCATE ... cascade.
- */
-const KNOWN_IN_COMMENTS = ['693_oauth_apps_trust_flags_not_app_writable.sql', '855_retire_data_archiving.sql',
-  '876_supplier_bank_verification.sql'];
 
 describe('entity change history (census)', () => {
   it.each(TRACKED)('every writer of %s is pinned', (t) => {
@@ -153,8 +137,11 @@ describe('entity change history (census)', () => {
 
   it('nothing writes entity_changes, and only entityChangeQuery.ts reads it', () => {
     const touching = nonMigrations().filter(({ file, text }) => /\bentity_changes\b/.test(code(file, text))).map(({ file }) => file);
-    expect(touching).toEqual(['src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts']);
-    const [query] = nonMigrations().filter(({ file }) => file === touching[0]);
+    // The Demo reseed names the table only to classify it as kept (never wiped) and to count the Demo rows that remain.
+    expect([...touching].sort()).toEqual(['scripts/lib/demoReseed/wipePlan.ts', 'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts']);
+    const [query] = nonMigrations().filter(({ file }) => file.endsWith('entityChangeQuery.ts'));
+    const [plan] = nonMigrations().filter(({ file }) => file === 'scripts/lib/demoReseed/wipePlan.ts');
+    expect(writes('entity_changes').test(code(plan!.file, plan!.text))).toBe(false);
     expect(writes('entity_changes').test(code(query!.file, query!.text))).toBe(false);
   });
 
@@ -163,6 +150,7 @@ describe('entity change history (census)', () => {
     const naming = nonMigrations()
       .flatMap(({ file, text }) => [...code(file, text).matchAll(/\bentity_change\w*/g)].map((m) => `${file}: ${m[0]}`));
     expect([...new Set(naming)].sort()).toEqual([
+      'scripts/lib/demoReseed/wipePlan.ts: entity_changes', // kept by the Demo reseed, never written
       'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts: entity_changes',
       'src/modules/accounting/services/core/entityChanges/entityChangeReveal.ts: entity_change',
     ]);

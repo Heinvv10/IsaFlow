@@ -39,7 +39,7 @@ function Field({ label, value }: { label: string; value?: string }) {
   );
 }
 
-function Attachments({ txId }: { txId: string }) {
+function Attachments({ txId, total }: { txId: string; total?: number }) {
   const { data, error, loading } = useDrawerRead<Attachment[]>(
     `/api/accounting/bank-tx-attachments?bankTransactionId=${txId}`, 'Could not load the attachments - try again');
   const [viewIndex, setViewIndex] = useState<number | null>(null);
@@ -49,6 +49,11 @@ function Attachments({ txId }: { txId: string }) {
   const viewable = data.filter(a => previewKind(a.file_url, a.content_type) !== 'none');
   return (
     <>
+      {total !== undefined && total > data.length && (
+        <p data-testid="attachments-truncated" role="status" className="mb-1 text-xs text-amber-700 dark:text-amber-400">
+          Showing newest {data.length} of {total}
+        </p>
+      )}
       <ul className="space-y-1">
         {data.map((a) => (
           <li key={a.id} className="flex items-baseline justify-between gap-3">
@@ -124,7 +129,7 @@ export function BankLineDrawerBody({ tx }: { tx: BankTx }) {
       </div>
       <section>
         <h3 className={HEADING}>Attachments</h3>
-        <Attachments txId={tx.id} />
+        <Attachments txId={tx.id} total={tx.attachmentCount} />
       </section>
       <section>
         <h3 className={HEADING}>Matched journal</h3>

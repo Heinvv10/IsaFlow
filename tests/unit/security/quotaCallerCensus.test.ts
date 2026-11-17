@@ -51,6 +51,7 @@ const REFUNDABLE: Record<string, { kind: 'ai' | 'send'; marksIn: string }> = {
   'accounting/company-invitations.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
   'accounting/ar/dunning/send.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
   'accounting/afs/[documentId]/send-for-signing.ts': { kind: 'send', marksIn: 'pages/api/accounting/afs/[documentId]/send-for-signing.ts' },
+  'payroll/runs/[id]/payslips/email.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
 };
 
 /** Routes that keep their charge whatever happens, and why a refund cannot be proven. */
@@ -62,6 +63,8 @@ const KEEPS_CHARGE: Record<string, string> = {
   'accounting/smart-categorize.ts': 'its LLM pass runs after COMMIT, outside the request, where use cannot be recorded',
   'accounting/vlm-extract.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
   'accounting/document-capture.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
+  'accounting/bank-statements/index.ts': 'its AI read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
+  'accounting/bank-tx-queries/index.ts': 'sends a WhatsApp message, which no quota recorder counts (markQuotaUsed(send) is the email service); the bucket bounds requests',
   'accounting/document-capture-action.ts': "its 'retry' read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded",
 };
 
@@ -98,8 +101,13 @@ function reachable(start: string): Set<string> {
 const code = (file: string) => read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[ \t])\/\/.*$/gm, '');
 /** Leaving the request context by hand. `runAfterCommit` is not here: it forfeits the refund itself. */
 const leavesContext = (source: string) => /\bals\s*\.\s*exit\s*\(|\.exit\s*\(\s*(?:async\s*)?\(\)\s*=>|setImmediate\s*\(|process\.nextTick\s*\(/.test(source);
-/** The one place that may: it is how runAfterCommit detaches work, after forfeiting the refund. */
-const MAY_LEAVE_CONTEXT = ['src/lib/afterCommit.ts'];
+/** The places that may: runAfterCommit (after forfeiting the refund), and an own transaction that records but never sends. */
+const MAY_LEAVE_CONTEXT = [
+  'src/lib/afterCommit.ts',
+  // PE (review #1542 S3): commits the payslip delivery record beside the request. It sends nothing; the send (and its
+  // markQuotaUsed) stays in the request context, so the refund is not lost.
+  'src/lib/auth/companyOwnTx.ts',
+];
 
 /**
  * Registering work to run after the request (`runAfterCommit`) forfeits the

@@ -4,6 +4,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodProbe: async () => null, lineAllocationPeriodRefusal: async () => null, isLineSkipRefusal: () => false, periodLineSkips: async () => new Map(), allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-*.int
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), getPoolForTests: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({

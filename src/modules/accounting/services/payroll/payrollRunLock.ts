@@ -37,6 +37,12 @@
  * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a pool full of
  * waiters for this lock ends with the 5 s lock_timeout and a retryable refusal; any other exhaustion fails the
  * checkout after 15 s with an unclassified error (500 / generic 400). Nothing is written either way.
+ * Also a LEAF: the payslip email (wave 6 PE, payslipDeliveryService) takes the advisory key `payslip_email:<run>`,
+ * that run's header FOR SHARE, then the rows of the <= 20 employees it is about to send to FOR SHARE (no lock 1, ever),
+ * and holds them for its sends (<= ~35 s); its own-transaction records take only the FKs' KEY SHARE, which those let
+ * through. A reopen or calculate waiting on 2 is refused at 5 s. An employee writer (termination edit, PATCH, bulk
+ * update) on one of those rows is NOT refused: it waits (no lock_timeout of its own) until the send request ends,
+ * holding lock 1 meanwhile, so the company's approvals, calculations and reopens are refused at 5 s for that time.
  * One company-wide lock rather than one per tax year (PAYE 4a follow-ups
  * round 2, R2): approvals need the company-wide one anyway
  * (termination_already_paid reads runs of any year), and a calculation holds
@@ -220,7 +226,7 @@ export async function saveCalculatedRunTotals(
       total_eti      = ${t.eti},
       total_net      = ${t.net},
       employee_count = ${t.employeeCount},
-      prepared_by     = ${preparedBy}::uuid,
+      prepared_by     = ${preparedBy},
       approval_plan_hash = NULL,
       approval_revision = gen_random_uuid(),
       updated_at     = NOW(),

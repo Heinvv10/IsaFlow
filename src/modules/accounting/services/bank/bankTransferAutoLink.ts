@@ -10,6 +10,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lineFitsBankLineFragment } from './bankMatchTargetFit';
+import { extensionLinkHoldUser, notHeldExtensionLineFragment } from './bankTransferLinkImporterHold';
 
 type Row = DbRow;
 
@@ -56,12 +57,15 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
   try {
     await withSavepoint('bank_transfer_autolink', async () => {
       const cpAmt = -Number(amount);
+      // Importer != allocator: the request user's own extension line is left for a colleague (see the hold's header).
+      const holdUser = await extensionLinkHoldUser(companyId);
       const cpTxRows = (await sql`
-        SELECT id FROM bank_transactions
+        SELECT bt_new.id FROM bank_transactions bt_new
         WHERE company_id = ${companyId}::UUID
           AND bank_account_id = ${counterpartyAccountId}::UUID
           AND status = 'imported'
           AND feed_state = 'posted'
+          AND ${notHeldExtensionLineFragment('bt_new.id', companyId, holdUser)}
           AND ABS(amount - ${cpAmt}) < 0.01
           AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
                                    AND (${txDate}::DATE + INTERVAL '2 days')
@@ -99,7 +103,7 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
             -- beside a freshly rewritten account.
             allocation_rule_id = NULL, allocation_rule_name = NULL,
             updated_at = NOW(),
-            allocation_batch_id = NULL
+            allocation_batch_id = NULL, auto_post_run_id = NULL, auto_post_journal_id = NULL
         WHERE id = ${cpTxId}::UUID
           AND company_id = ${companyId}::UUID
           AND status = 'imported'

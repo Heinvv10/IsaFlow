@@ -43,9 +43,17 @@ export interface ReconReportData {
   glBalance?: number;
   matchedTransactions: ReconTx[];
   unmatchedTransactions: ReconTx[];
+  /** The lists' true lengths when the lines given are only the first part of them (a hard ceiling was hit): printed as "first N of M". */
+  matchedTotal?: number;
+  unmatchedTotal?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** "12 transactions", or "first 5000 of 7312 transactions" when the list was cut short. */
+export function countLabel(shown: number, total?: number): string {
+  return total !== undefined && total > shown ? `first ${shown} of ${total} transactions` : `${shown} transaction${shown !== 1 ? 's' : ''}`;
+}
 
 /** ZAR currency formatter — 2 decimal places */
 const fmtZAR = (amount: number): string =>
@@ -174,7 +182,8 @@ function paintSection(
   title: string,
   rows: ReconTx[],
   startY: number,
-  includeJournalRef: boolean
+  includeJournalRef: boolean,
+  total?: number,
 ): number {
   const PAGE_W = doc.internal.pageSize.getWidth();
 
@@ -185,7 +194,7 @@ function paintSection(
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 100, 100);
-  doc.text(`(${rows.length} transaction${rows.length !== 1 ? 's' : ''})`, 14 + doc.getTextWidth(title) + 4, startY + 5);
+  doc.text(`(${countLabel(rows.length, total)})`, 14 + doc.getTextWidth(title) + 4, startY + 5);
 
   if (rows.length === 0) {
     doc.setFontSize(8);
@@ -268,10 +277,10 @@ export async function generateReconReport(data: ReconReportData): Promise<Blob> 
   let cursor = paintSummaryBox(doc, data, 37);
 
   // Matched transactions section
-  cursor = paintSection(doc, 'Matched Transactions', data.matchedTransactions, cursor, true);
+  cursor = paintSection(doc, 'Matched Transactions', data.matchedTransactions, cursor, true, data.matchedTotal);
 
   // Unmatched transactions section
-  paintSection(doc, 'Unmatched Transactions', data.unmatchedTransactions, cursor, false);
+  paintSection(doc, 'Unmatched Transactions', data.unmatchedTransactions, cursor, false, data.unmatchedTotal);
 
   // Page numbers across all pages
   paintFooters(doc);

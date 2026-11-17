@@ -15,7 +15,9 @@
  *      left the ledger short (brk-nrfa round 15 L1). A Transfers-page transfer HELD for approval (a draft) counts too
  *      (heldTransferDraft). Residual, stated: a transfer recorded as a manual, recurring, still unapproved or split
  *      journal is not seen, so its statement line allocated as a transfer posts it again — match the
- *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14).
+ *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14). Re-raised
+ *      by brk-1494 LOW 1 (2026-11-16): the lead kept r15 unless a confirm override (428 + resend) could ship with it; the
+ *      allocate route and its screen carry no such confirm today, so the residual stands (stated in bank/.claude.md).
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its
  * amount; a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5
  * L1). Only an imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line
@@ -55,6 +57,8 @@ import type { DbRow } from '@/lib/neon';
 
 /** The ledger already holds the movement: match the line to the existing journal instead (a 400, not a fault). */
 export class DuplicateTransferError extends Error {
+  /** Raised before any write (after the pair lock); MCP shows its message (REFUSAL_CODES). */
+  readonly code = 'DUPLICATE_TRANSFER';
   constructor(message = 'A matching transfer already exists on the counterparty bank for this amount and date. ' +
       'Match the existing journal entry instead of posting a new one.') {
     super(message);
@@ -175,7 +179,10 @@ export async function assertNoDuplicateTransfer(
   const journals = lines.length > 0 ? [] : (await sql`
     SELECT je.id FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NOT NULL
+      AND je.source = 'auto_bank_transfer' AND je.status = 'posted'
+      -- A typed transfer; or a STATEMENT transfer reversed and put back in force by a re-reversal (the chain test below):
+      -- its bank Reverse freed both legs (WP2 row 10), so arm 1 no longer sees it by its lines.
+      AND (je.reference IS NOT NULL OR je.reversed_at IS NOT NULL)
       AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
@@ -216,7 +223,7 @@ export async function assertNoDuplicateTransfer(
  * Banking > Transfers' twin of the guard: a live transfer journal the STATEMENT CREATED (a bank line allocated as a
  * transfer: bankAllocationService writes no `reference`; every Transfers-page journal carries 'Transfer: … -> …'),
  * still MATCHED by a live, posted, imported or feed line of this amount to one of its bank legs (the side the line's
- * sign says),
+ * sign says) — or reversed from the bank and put back in force by a GL re-reversal (WP2 row 10 freed its lines) —
  * moving this amount from `fromAccountId` to `toAccountId` within ten days of `date`. Its entry number, or null.
  * A typed transfer, matched to its statement line or not, never counts. Two real transfers of one amount are
  * legitimate, so the caller asks for a confirmation rather than refusing (brk-nrfa round 3 M2).
@@ -237,7 +244,9 @@ export async function findTransferRecordedFromStatement(
                     AND jl.gl_account_id = ${toAccountId}::UUID AND jl.debit = ${amount})
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                     AND jl.gl_account_id = ${fromAccountId}::UUID AND jl.credit = ${amount})
-      AND EXISTS (SELECT 1 FROM bank_transactions bt
+      -- Recorded from the statement: still matched by a live statement line; or — WP2 row 10, as arm 2 — reversed from
+      -- the bank (which frees both legs) and put back in force by a GL re-reversal, its lines no longer pointing at it.
+      AND (je.reversed_at IS NOT NULL OR EXISTS (SELECT 1 FROM bank_transactions bt
                     JOIN gl_journal_lines bl ON bl.company_id = je.company_id
                       AND bl.journal_entry_id IN (WITH RECURSIVE w AS (
             SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
@@ -249,7 +258,7 @@ export async function findTransferRecordedFromStatement(
                     -- The line may point at a live re-reversal of the journal (brk-nrfa round 10 K2).
                     AND bt.transfer_journal_entry_id = bl.journal_entry_id AND ABS(bt.amount) = ${amount}
                     AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL)
-                    AND bt.status IN ('allocated', 'matched', 'reconciled') AND bt.feed_state = 'posted')
+                    AND bt.status IN ('allocated', 'matched', 'reconciled') AND bt.feed_state = 'posted'))
     ORDER BY je.entry_date, je.entry_number
     LIMIT 1
   `) as DbRow[];

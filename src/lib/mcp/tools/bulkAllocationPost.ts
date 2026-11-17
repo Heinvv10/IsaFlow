@@ -12,8 +12,12 @@ import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
+import { isLineSkipRefusal } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
+import { preLockSweepTransfers } from '@/modules/accounting/services/bank/transferSweepPrelock';
+import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -128,7 +132,7 @@ export function safeLineDetail(err: unknown): string {
  * and the batch cannot continue even for a fault it is entitled to skip — the
  * race path below depends on being able to carry on after a throw.
  *
- * Two outcomes for a throw, and the difference is the whole point:
+ * Three outcomes for a throw, and the difference is the whole point:
  *
  *   - the row was allocated between the pre-check and this post (another
  *     request won the row lock). `allocateTransaction` re-read the settled
@@ -146,7 +150,13 @@ export function safeLineDetail(err: unknown): string {
  *     skipped, reported as retryable, batch continues. Failing 499 good lines
  *     because one row was briefly busy is the opposite of what a bulk tool is
  *     for.
- *   - anything else — a closed period, a missing contra account, a constraint —
+ *   - a refusal about THIS line or its date that the service raises before it writes
+ *     (`isLineSkipRefusal`): a date no open fiscal period covers or can cover, a period that
+ *     closed or went busy after the partition's probe, the ledger-date window, or any other
+ *     `BankAllocationRefusal` the line itself earns (not an imported-status row, a
+ *     sign or refund-ceiling refusal, ...). The line's savepoint has rolled back, so it
+ *     is skipped with the refusal's own text, as the pre-check would have reported it.
+ *   - anything else — a missing contra account, a constraint, an inactive account —
  *     is fatal. It is rethrown as BulkAllocationLineError so the registry's
  *     savepoint unwinds the whole batch AND the agent is told which line did
  *     it. A batch endpoint must never answer a per-line cause with an
@@ -171,8 +181,19 @@ export async function postPreparedLines(
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
   // lines is exactly the thing a caller reading only the summary would miss.
   const vatCoerced: CoercedVatLine[] = [];
+  // WP2 row 5: an account line onto another bank account posts as a TRANSFER (allocateTransaction). The batch's
+  // transfer lines (id order), then their pairs (sorted), are taken before its first journal — the single path's
+  // line -> pair -> number order (transferSweepPrelock); a line whose line or pair another request holds is skipped.
+  const { transfers, contended } = await preLockSweepTransfers(ctx.companyId, ordered
+    .filter(({ line }) => line.allocType === 'account').map(({ txId, line }) => ({ id: txId, contra: line.contraAccountId })));
+  // The VAT prefetch's bank-subtype read, keyed case-insensitively (an agent's UUID may arrive upper-case — rev 5).
+  const bankContras = new Set([...vatFacts.isBank].filter(([, bank]) => bank).map(([id]) => id.toLowerCase()));
 
   for (const { index, txId, line } of ordered) {
+    if (contended.has(txId)) {
+      raced.push({ index, transaction_id: txId, reason: 'locked by another request — retry' });
+      continue;
+    }
     // Sequential, not Promise.all: these share one pg connection, and
     // concurrent statements on it interleave (and corrupt the savepoint stack —
     // postgresql-gotchas §36).
@@ -203,9 +224,23 @@ export async function postPreparedLines(
       });
       if (result.vatCoerced) vatCoerced.push({ index, transaction_id: txId, ...result.vatCoerced });
     } catch (err) {
+      // The movement is already in the ledger (the other bank's leg, or a typed transfer): a state of this line,
+      // write-free, reported — match it to the existing journal.
+      if (err instanceof DuplicateTransferError) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
+        continue;
+      }
+      // A race first, whatever the arm: the line's status the refusal names, through the one mapping (#1494 rev 5 —
+      // a rerouted transfer line's "Transaction already allocated" read as its own reason, not "already allocated").
       const status = racedStatus(err);
       if (status !== null) {
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
+        continue;
+      }
+      // The transfer arm's own pre-write refusals (a bank contra rerouted there): a fact of this line, its savepoint
+      // rolled back — skipped and named, never the whole batch.
+      if (err instanceof BankAllocationRefusal && (transfers.has(txId) || bankContras.has(line.contraAccountId.toLowerCase()))) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }
       // A raw 55P03 is a lock wait that hit its bound — since migration 858 usually the company+year NUMBER lock a
@@ -215,6 +250,13 @@ export async function postPreparedLines(
         raced.push({
           index, transaction_id: txId, reason: 'locked by another request — retry',
         });
+        continue;
+      }
+      // WP2 row 12: a period that closed (or went busy) between the partition's probe and this post is the same fact
+      // the probe reports for a line it sees closed: a skip, with the refusal's own text. The line's savepoint has
+      // rolled back anything it wrote.
+      if (isLineSkipRefusal(err)) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }
       // NEVER err.message verbatim: the registry renders this text, and a pg

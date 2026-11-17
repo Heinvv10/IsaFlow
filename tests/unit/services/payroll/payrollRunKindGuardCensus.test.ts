@@ -19,6 +19,9 @@ const GUARDED: Array<{ file: string; fn: string; action: string }> = [
   { file: `${P}/payslipModel.ts`, fn: 'getPayslips', action: 'payslip' },
   // The R-035 request writer (approval-requests.ts): no request is raised for a run this release cannot approve.
   { file: `${P}/payRunApprovalControl.ts`, fn: 'preparePayRunApprovalRequest', action: 'approve' },
+  // Wave 6 EF: the declarations, called from their own services (grill F4).
+  { file: 'src/modules/accounting/services/reports/emp201Service.ts', fn: 'generateEMP201', action: 'emp201' },
+  { file: `${P}/irp5DataService.ts`, fn: 'getIrp5EmployeeTotals', action: 'irp5' },
 ];
 
 /** The body of `export async function fn(` up to the next top-level `}` line. */
@@ -45,8 +48,21 @@ const CALLERS = [
   `${P}/payrollRunReopen.ts`,
   `${P}/payrollRunRowWrite.ts`,
   `${P}/payrollRunService.ts`,
+  `${P}/payslipDeliveryService.ts`, // PE: getPayslips, so the guard runs before any send
   `${P}/payslipModel.ts`,
   `${P}/payRunApprovalControl.ts`,
+  // Wave 6 EF: the EMP201 (route 409 via respondIfRunKindUnsupported; MCP, Ask, budgets and returns rethrow) and the IRP5.
+  'pages/api/accounting/sars/sars-emp201.ts',
+  'src/lib/mcp/tools/payrollSars.ts',
+  'src/modules/accounting/services/ask/askTax.ts',
+  'src/modules/accounting/services/budgets/threeWay/deriveAssumptions.ts',
+  // The 13-week cash forecast's EMP201 outflow (master 11-16): a refused month becomes its source_unavailable warning
+  // (EMP201_REFUSALS), the rest of the forecast stands.
+  'src/modules/accounting/services/cashForecast13/readSars.ts',
+  `${P}/irp5DataService.ts`,
+  'src/modules/accounting/services/reports/emp201Service.ts',
+  'src/modules/accounting/services/returns/finaliseEmpReturn.ts',
+  'src/modules/accounting/services/returns/returnDrift.ts',
 ];
 
 describe('run-kind guard census (wave 6 FQa, grill F28)', () => {

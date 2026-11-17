@@ -38,8 +38,8 @@ function storedOption(
 
 /** The trigger's amber (a warning) or cyan (input tax claimed) state, painted from its cell. */
 function vatClass(warn: boolean, standard: boolean): string {
-  if (warn) return '[&_[role=combobox]]:!border-amber-500 [&_[role=combobox]]:!text-amber-700 dark:[&_[role=combobox]]:!text-amber-500';
-  return standard ? '[&_[role=combobox]]:!text-cyan-700 dark:[&_[role=combobox]]:!text-cyan-400' : '';
+  if (warn) return '[&_[role=combobox]]:!border-amber-500 [&_[role=combobox]]:!text-amber-700 dark:[&_[role=combobox]]:!text-amber-700 dark:text-amber-500';
+  return standard ? '[&_[role=combobox]]:!text-cyan-700 dark:[&_[role=combobox]]:!text-cyan-700 dark:text-cyan-400' : '';
 }
 
 function fmtCurrency(n: number): string {
@@ -91,7 +91,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
           <>
             <div data-vat-warn={vatWarn ? 'true' : 'false'} className={vatClass(vatWarn, (sel?.vatCode || 'none') === 'standard')}>
               <Select
-                label={`VAT, ${label}`} labelClassName="sr-only" size={selectSize}
+                label={`VAT, ${label}`} labelClassName="sr-only" size={selectSize} touchTarget
                 options={VAT_KIT_OPTIONS} value={sel?.vatCode || 'none'}
                 onChange={v => { if (v) onRowVatChange(tx.id, v as VatCode); }}
                 describedBy={vatWarn || nonSupply ? warnId : undefined}
@@ -122,7 +122,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
           // fell through to "No VAT" over a 15% claim.
           <span
             className={`text-xs ${tx.postedVatCode === 'standard'
-              ? 'text-cyan-400' : 'text-[var(--ff-text-tertiary)]'}`}
+              ? 'text-cyan-700 dark:text-cyan-400' : 'text-[var(--ff-text-tertiary)]'}`}
             title={tx.postedVatAmount
               ? `VAT posted: ${fmtCurrency(tx.postedVatAmount)}` : undefined}
           >
@@ -135,7 +135,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       <td data-label="CC1" className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Cost centre 1, ${label}`} labelClassName="sr-only" size={selectSize} searchable
+            label={`Cost centre 1, ${label}`} labelClassName="sr-only" size={selectSize} touchTarget searchable
             options={cc1Kit} value={toKit(sel?.cc1Id)}
             valueOption={storedOption(sel?.cc1Id, cc1Kit, 'Inactive cost centre', tx.cc1Id, tx.cc1Code, tx.cc1Name)}
             onChange={v => onRowDimensionChange(tx.id, fromKit(v), sel?.cc2Id || '', sel?.buId || '')}
@@ -150,7 +150,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       <td data-label="CC2" className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Cost centre 2, ${label}`} labelClassName="sr-only" size={selectSize} searchable
+            label={`Cost centre 2, ${label}`} labelClassName="sr-only" size={selectSize} touchTarget searchable
             options={cc2Kit} value={toKit(sel?.cc2Id)}
             valueOption={storedOption(sel?.cc2Id, cc2Kit, 'Inactive cost centre', tx.cc2Id, tx.cc2Code, tx.cc2Name)}
             onChange={v => onRowDimensionChange(tx.id, sel?.cc1Id || '', fromKit(v), sel?.buId || '')}
@@ -165,7 +165,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       <td data-label="BU" className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Business unit, ${label}`} labelClassName="sr-only" size={selectSize} searchable
+            label={`Business unit, ${label}`} labelClassName="sr-only" size={selectSize} touchTarget searchable
             options={buKit} value={toKit(sel?.buId)}
             valueOption={storedOption(sel?.buId, buKit, 'Inactive business unit', tx.buId, undefined, tx.buName)}
             onChange={v => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', fromKit(v))}

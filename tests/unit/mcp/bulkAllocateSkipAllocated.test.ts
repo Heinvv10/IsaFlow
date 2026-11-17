@@ -19,6 +19,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+// WP2 row 5: the bank-contra pre-checks read Postgres; open here (proven in bank-contra-transfer-r2.int).
+// #1494 follow-ups: the reversals' counterpart pre-check / pre-lock read Postgres; open here (proven in bank-contra-transfer-reversal-tools.int).
+vi.mock('@/modules/accounting/services/bank/reversalCounterparts', async () => (await import('../helpers/bankControlGateMocks')).reversalCounterpartsOpen());
+vi.mock('@/modules/accounting/services/bank/bankContraLineSkips', async () => (await import('../helpers/bankControlGateMocks')).bankContraOpen());
+vi.mock('@/modules/accounting/services/bank/transferSweepPrelock', async () => (await import('../helpers/bankControlGateMocks')).transferPrelockOpen());
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodProbe: async () => null, lineAllocationPeriodRefusal: async () => null, isLineSkipRefusal: () => false, periodLineSkips: async () => new Map(), allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-*.int
 vi.mock('@/modules/accounting/services/bank/contactControlGuard', async () => (await import('../helpers/bankControlGateMocks')).contactControlOpen());
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());
@@ -84,6 +90,8 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   suppliersBelongToCompany: vi.fn(),
 }));
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { preLockSweepTransfers } from '@/modules/accounting/services/bank/transferSweepPrelock';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import {
   findBankTransactionAllocationStates,
   type BankTransactionAllocationState,
@@ -347,6 +355,22 @@ describe('bulk_allocate_bank_transactions — a line that races the pre-check', 
     );
     expect(payload(res as never).skipped).toEqual([
       { index: 1, transaction_id: TX(2), reason: 'excluded' },
+    ]);
+  });
+
+  it('a rerouted TRANSFER line that races is reported by its status, not the refusal text (#1494 rev 5)', async () => {
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null));
+    vi.mocked(preLockSweepTransfers).mockResolvedValueOnce({ transfers: new Set([TX(2)]), contended: new Set() });
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankAllocationRefusal('Transaction already allocated — cannot allocate');
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2)], idempotency_key: 'k1' }, ctx,
+    );
+    expect(payload(res as never).skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'already allocated' },
     ]);
   });
 

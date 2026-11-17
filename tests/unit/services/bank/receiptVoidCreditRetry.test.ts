@@ -69,7 +69,7 @@ describe('reverseLinesJudged — the bulk reversal judges the receipts on its li
 describe('attemptUndoRow — a receipt refused for credit', () => {
   const tally = (): UndoTally => ({
     reversed: 0, alreadyUndone: 0, handOffsets: [], contention: null,
-    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 },
+    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0, changedSinceRun: 0 },
   });
   const ctx = { companyId: 'co', runId: 'run', txId: 'tx', status: 'allocated' };
   const refuse = async (): Promise<never> => { throw new CustomerVoidCreditRefusal('a refund spent it'); };

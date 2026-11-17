@@ -48,8 +48,8 @@ describe.skipIf(!hasRealDb)('SARS Source Codes (DB-backed lookup)', () => {
     expect(await getSarsCode('4001', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 4003 for medical aid', async () => {
-    expect(await getSarsCode('4003', TAX_YEAR)).not.toBeNull();
+  it('has code 4005 for medical scheme fees (BRS V25.3.0 p.101)', async () => {
+    expect(await getSarsCode('4005', TAX_YEAR)).not.toBeNull();
   });
 
   it('has code 4102 for PAYE', async () => {
@@ -98,9 +98,9 @@ describe.skipIf(!hasRealDb)('IRP5 Source Code Calculation', () => {
     expect(codes.find((c: SourceCodeEntry) => c.code === '3601')?.amount).toBe(360000);
   });
 
-  it('maps overtime to code 3801', async () => {
+  it('maps overtime to code 3607 (BRS V25.3.0 p.82)', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '3801')?.amount).toBe(12000);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3607')?.amount).toBe(12000);
   });
 
   it('maps bonus to code 3605', async () => {
@@ -108,9 +108,9 @@ describe.skipIf(!hasRealDb)('IRP5 Source Code Calculation', () => {
     expect(codes.find((c: SourceCodeEntry) => c.code === '3605')?.amount).toBe(30000);
   });
 
-  it('maps travel allowance to code 3702', async () => {
+  it('maps travel allowance to code 3701 (BRS V25.3.0 p.85)', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '3702')?.amount).toBe(24000);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3701')?.amount).toBe(24000);
   });
 
   it('maps pension contribution to code 4001', async () => {
@@ -118,9 +118,9 @@ describe.skipIf(!hasRealDb)('IRP5 Source Code Calculation', () => {
     expect(codes.find((c: SourceCodeEntry) => c.code === '4001')?.amount).toBe(21600);
   });
 
-  it('maps medical aid to code 4003', async () => {
+  it('maps medical aid to code 4005 (BRS V25.3.0 p.101)', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '4003')?.amount).toBe(18000);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4005')?.amount).toBe(18000);
   });
 
   it('maps PAYE to code 4102', async () => {
@@ -145,7 +145,7 @@ describe.skipIf(!hasRealDb)('IRP5 Source Code Calculation', () => {
 
   it('omits zero-value codes', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '3701')).toBeUndefined();
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3606')).toBeUndefined(); // commission 0
   });
 });
 

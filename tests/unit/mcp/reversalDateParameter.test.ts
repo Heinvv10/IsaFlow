@@ -14,6 +14,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+// #1494 follow-ups: the reversals' counterpart pre-check / pre-lock read Postgres; open here (proven in bank-contra-transfer-reversal-tools.int).
+vi.mock('@/modules/accounting/services/bank/reversalCounterparts', async () => (await import('../helpers/bankControlGateMocks')).reversalCounterpartsOpen());
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());
 

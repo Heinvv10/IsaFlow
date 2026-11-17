@@ -1,6 +1,6 @@
 /** PRD-05 Phase 5 — Provisional Posting Service */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -12,7 +12,9 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { isAllocationVatCode } from '../bank/bankVatCodes';
+import { allocationPeriodFor, isLineSkipRefusal } from '../bank/bankAllocationPeriod';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
+import { isBankContra } from '../bank/bankContraTransfer';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
 type Row = DbRow;
@@ -98,10 +100,30 @@ export async function postProvisional(
   const txDate = fmtDate(tx.transaction_date);
   const description = String(tx.description ?? 'Provisional bank allocation');
 
+  // WP2 row 12: the open period this journal posts on, resolved before anything is written. Without it a date no
+  // period covers or can cover (the statement's, 2001 or 2040) posted with fiscal_period_id NULL, past the closed-period
+  // check, and a closed period left a draft journal behind. A skip with the reason, like every other here.
+  let fiscalPeriodId: string;
+  try {
+    // Its own savepoint: a period lock timeout is a failed statement, and without one the whole transaction stays
+    // aborted ("current transaction is aborted") for the next row of a batch or sweep.
+    fiscalPeriodId = await withSavepoint('provisional_period', () => allocationPeriodFor(companyId, txDate));
+  } catch (err) {
+    if (isLineSkipRefusal(err)) {
+      return { journalEntryId: null, prediction, skipped: err.message };
+    }
+    throw err;
+  }
+
   // Resolve GL account — use predicted or fall back to default_expense
   let expenseAccountId = prediction.glAccountId;
   if (!expenseAccountId) {
     expenseAccountId = await getSystemAccountId('default_expense', companyId);
+  }
+  // WP2 row 5: a BANK account is a transfer — the duplicate guard, the pair lock and the leg pairing live in the
+  // transfer arm, and a provisional journal is not one. Left for a person (or the rule sweep's transfer line).
+  if (await isBankContra(companyId, expenseAccountId)) {
+    return { journalEntryId: null, prediction, skipped: 'bank account: a transfer is allocated, not posted provisionally' };
   }
 
   // THE THIRD UNATTENDED POSTER. This one predicts its own vat code, from the
@@ -149,7 +171,7 @@ export async function postProvisional(
   const placed = await placeCostCentres(companyId, lines);
   const je = await createJournalEntry(
     companyId,
-    { entryDate: txDate, description, source: 'auto_bank_recon', lines: placed.lines },
+    { entryDate: txDate, description, source: 'auto_bank_recon', lines: placed.lines, fiscalPeriodId },
     userId,
     { postingAgent: 'ai-provisional:v1', extractionConfidence: prediction.confidence, sourceDocumentId: undefined },
   );

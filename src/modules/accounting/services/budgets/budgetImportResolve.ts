@@ -13,6 +13,7 @@ import { COLUMN, GRAIN_LABEL, templateRowKey, type TemplateGrain } from './budge
 import { clip, type ImportLine } from './budgetImportParse';
 import { tampered, type BaseLine } from './budgetImportBase';
 import type { GridAccount, GridMember, GridReadModel } from './gridReadTypes';
+import { codeIndex, type Find } from './codeIndex';
 
 export interface ImportIssue {
   /** The sheet row (1-based); 0 for the file as a whole. */
@@ -24,24 +25,14 @@ export interface ImportIssue {
 
 export interface ResolvedLine { line: ImportLine; account: GridAccount; rowKey: string }
 
-/** A code's owner: the item, null when the code (or its trimmed form) belongs to more than one, undefined when to none. */
-type Find<T> = (code: string) => T | null | undefined;
-
-function codeIndex<T extends { code: string }>(items: readonly T[]): Find<T> {
-  const exact = new Map<string, T | null>();
-  const trimmed = new Map<string, T | null>();
-  for (const item of items) {
-    exact.set(item.code, exact.has(item.code) ? null : item);
-    const t = item.code.trim();
-    trimmed.set(t, trimmed.has(t) ? null : item);
-  }
-  return (code) => (exact.has(code) ? exact.get(code) : trimmed.get(code.trim()));
-}
-
-interface Finders { account: Find<GridAccount>; member: Find<GridMember> }
+interface Finders { account: Find<GridAccount>; member: Find<GridMember>; accountById: Map<string, GridAccount>; memberById: Map<string, GridMember> }
 
 function finders(model: GridReadModel, grain: TemplateGrain): Finders {
-  return { account: codeIndex(model.accounts), member: codeIndex(grain === 'company' ? [] : model.dimensions[grain]) };
+  const members = grain === 'company' ? [] : model.dimensions[grain];
+  return {
+    account: codeIndex(model.accounts), member: codeIndex(members),
+    accountById: new Map(model.accounts.map((a) => [a.id, a])), memberById: new Map(members.map((m) => [m.id, m])),
+  };
 }
 
 /** How many other rows a duplicate's message names. */
@@ -58,7 +49,7 @@ export function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: 
   for (const line of lines) {
     const error = (column: string, message: string) => errors.push({ row: line.row, column, message });
     if (line.accountCode.trim() === '') { error(COLUMN.accountCode, 'This row has amounts but no account code.'); continue; }
-    const account = find.account(line.accountCode);
+    const account = line.accountId !== undefined ? find.accountById.get(line.accountId) : find.account(line.accountCode);
     if (account === null) { error(COLUMN.accountCode, `Account code ${clip(line.accountCode)} matches more than one account; fix the chart of accounts first.`); continue; }
     if (account === undefined) {
       error(COLUMN.accountCode, `Account code ${clip(line.accountCode)} is not a revenue or expense account you can budget (unknown, or inactive without a budget).`);
@@ -73,7 +64,7 @@ export function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: 
     }
     let memberId: string | null = null;
     if (grain !== 'company') {
-      const member = find.member(line.dimensionCode ?? '');
+      const member = line.memberId !== undefined ? find.memberById.get(line.memberId) : find.member(line.dimensionCode ?? '');
       if (!member) {
         error(COLUMN.dimensionCode, member === null
           ? `${GRAIN_LABEL[grain]} code ${clip(line.dimensionCode ?? '')} matches more than one ${GRAIN_LABEL[grain]} member.`

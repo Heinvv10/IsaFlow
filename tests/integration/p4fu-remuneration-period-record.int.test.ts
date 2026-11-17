@@ -47,7 +47,7 @@ describe('pre-deduction remuneration identity', () => {
 
     const march = await createRunFor(f, 3);
     await calculateRun(f, march);
-    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1", [march]);
     await pool.query(
       `UPDATE payroll_run_lines
           SET taxable_income = 1000, periodic_taxable = 1000, annual_taxable = 0,
@@ -165,7 +165,7 @@ describe('pre-deduction remuneration identity', () => {
 
     const march = await createRunFor(f, 3);
     await calculateRun(f, march);
-    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1", [march]);
     // Before migration 948 the calculator treated the contribution as an
     // uncapped taxable deduction: R20 000 salary - R10 000 clawback - R15 000,
     // floored at nil. Restoration may add back only the R10 000 that existed.

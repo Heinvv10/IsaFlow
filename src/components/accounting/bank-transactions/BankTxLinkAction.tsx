@@ -5,6 +5,7 @@
  */
 import { Truck } from 'lucide-react';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
+import { TOUCH_ICON, TOUCH_MIN } from '../bankTx/bankTxTouch';
 
 interface Props {
   link?: BankTxLink;
@@ -17,7 +18,7 @@ export function BankTxLinkAction({ link, rowName, onOpen }: Props) {
   if (!link) {
     return (
       <button type="button" onClick={onOpen} title="Link to asset / fuel / service" aria-label={`Link to asset / fuel / service, ${rowName}`}
-        className="p-1 rounded hover:bg-sky-500/10 text-sky-400">
+        className={`${TOUCH_ICON} p-1 rounded hover:bg-sky-500/10 text-sky-700 dark:text-sky-400`}>
         <Truck className="h-3.5 w-3.5" />
       </button>
     );
@@ -25,7 +26,7 @@ export function BankTxLinkAction({ link, rowName, onOpen }: Props) {
   const title = link.assetName && link.kind !== 'asset' ? `${link.assetName} — ${link.label}` : link.label;
   return (
     <button type="button" onClick={onOpen} title={`Linked: ${title} — change or unlink`} aria-label={`Linked to ${title}, ${rowName}`}
-      className="inline-flex items-center gap-1 max-w-[150px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 text-xs hover:bg-sky-500/20">
+      className={`inline-flex items-center gap-1 ${TOUCH_MIN} max-w-[150px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-400 text-xs hover:bg-sky-500/20`}>
       <Truck className="h-3 w-3 shrink-0" />
       <span className="truncate">{link.label}</span>
     </button>

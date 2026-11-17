@@ -47,6 +47,7 @@ import { PREVIEW_CAVEATS, previewBatchApplications } from './bulkAutoApplyPrevie
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ok, strArg, toolError } from './toolHelpers';
 import { dimensionWarningsOrRefusal } from './dimensionArgs';
+import { TRANSFER_DRY_RUN_CAVEAT, batchPostsTransfers } from '@/modules/accounting/services/bank/bankContraLineSkips';
 
 const BULK_TOOL = 'bulk_allocate_bank_transactions';
 
@@ -145,6 +146,8 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       // the opening balances would promise both of them the same bill and then
       // disagree with the batch it is previewing.
       const applications = await previewBatchApplications(ctx.companyId, postable);
+      // WP2 row 5: a line onto another bank posts a transfer; a duplicate the batch itself creates is not previewable.
+      const transfers = await batchPostsTransfers(ctx.companyId, accountLines.map((p) => p.line.contraAccountId));
       // No batch row either: a dry run that left a batch behind would hand the
       // agent an id that reverses nothing.
       const preview = ok({
@@ -156,7 +159,8 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
         ...dimensionWarnings,
         // Only when something was actually previewed as applied: a caveat about
         // applications on a batch that plans none tells the agent nothing.
-        ...(applications.size > 0 ? { preview_caveats: [...PREVIEW_CAVEATS] } : {}),
+        ...(applications.size > 0 || transfers
+          ? { preview_caveats: [...(applications.size > 0 ? PREVIEW_CAVEATS : []), ...(transfers ? [TRANSFER_DRY_RUN_CAVEAT] : [])] } : {}),
         lines: postable.map(({ index, txId, line }) => {
           const applied = applications.get(index);
           return {

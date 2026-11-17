@@ -167,7 +167,8 @@ describe('R1: the exact stale year-to-date gate', () => {
     const nov = ids[8]!;
     const dec = await mk(f, 2026, 12);
     await calcOnly(f, dec);
-    await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [nov]);
+    // Pre-718 shape as production holds it: no approved_at, grandfathered by migration 951 (final; wave 6 EF reads final runs).
+    await pool.query('UPDATE payroll_run_headers SET approved_at = NULL, approval_grandfathered_at = clock_timestamp() WHERE id = $1', [nov]);
     await previewClear(f, dec);
     ok(await reopenRun(f, nov)); // ends an approval with no start: (-infinity, reopened_at)
     ok(await approveRun(f, nov));
@@ -217,7 +218,8 @@ describe('R1: the exact stale year-to-date gate', () => {
     const feb = await mk(f, 2027, 2);
     await calcOnly(f, feb);
     ok(await approveRun(f, feb));
-    await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [feb]);
+    // Pre-718 shape as production holds it: no approved_at, grandfathered by migration 951 (final; wave 6 EF reads final runs).
+    await pool.query('UPDATE payroll_run_headers SET approved_at = NULL, approval_grandfathered_at = clock_timestamp() WHERE id = $1', [feb]);
     const jan = await mk(f, 2027, 1);
     await calcOnly(f, jan);
     expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');

@@ -8,6 +8,8 @@
  * which is all `nextRunMonth` reads. Company-scoped; another company's employee is null (404 at the route).
  */
 import { sql } from '@/lib/neon';
+import { runOrderKeySql } from './payrollRunOrder';
+import { payRunFinalSql } from './payRunFinalSql';
 
 export interface EmployeeReadinessRead {
   bank: 'on-file' | 'none';
@@ -28,12 +30,11 @@ export async function readEmployeeReadiness(companyId: string, employeeId: strin
                 JOIN payroll_run_headers prh ON prh.id = prl.run_id
                WHERE prh.company_id = ${companyId}::uuid
                  AND prl.employee_id = ${employeeId}::uuid
-                 AND prh.status IN ('approved', 'paid')
-                 AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS has_final,
-      (SELECT json_build_object('periodYear', period_year, 'periodMonth', period_month, 'status', status)
-         FROM payroll_run_headers
-        WHERE company_id = ${companyId}::uuid AND status IN ('calculated', 'approved', 'paid')
-        ORDER BY period_year DESC, period_month DESC
+                 AND ${sql.unsafe(payRunFinalSql('prh'))}) AS has_final,
+      (SELECT json_build_object('periodYear', h.period_year, 'periodMonth', h.period_month, 'status', h.status)
+         FROM payroll_run_headers h
+        WHERE h.company_id = ${companyId}::uuid AND h.status IN ('calculated', 'approved', 'paid')
+        ORDER BY ${runOrderKeySql('h')} DESC
         LIMIT 1) AS latest
      WHERE EXISTS (SELECT 1 FROM payroll_employees WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid)
   `) as Row[];

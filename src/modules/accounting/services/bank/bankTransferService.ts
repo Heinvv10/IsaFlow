@@ -28,6 +28,8 @@ import { markManualJournal, newManualJournalGate } from '../gl/manualJournalAppr
 import { requestApproval } from '../gl/approvalDocuments';
 import { findTransferRecordedFromStatement } from './transferDuplicateGuard';
 import { lockTransferPair } from './transferPairLock';
+import { allocationPeriodFor } from './bankAllocationPeriod';
+import { isBankAllocationRefusal } from './bankAllocationRefusal';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import type { JournalEntry } from '../../types/gl.types';
 
@@ -115,12 +117,18 @@ export async function postBankTransfer(
   // instead); and findTransferRecordedFromStatement reads only POSTED auto_bank_transfer journals with NO reference,
   // so the draft is never mistaken for a transfer the statement recorded. While it waits (pending, or approved and
   // not yet posted), transferDuplicateGuard refuses its statement line allocated as a transfer too (heldTransferDraft).
+  // WP2 row 12: the open period it posts on, resolved before the draft exists (a date no period covers or can cover
+  // stored fiscal_period_id NULL, past the closed-period check). A refusal answers the route's 400, nothing written.
+  const fiscalPeriodId = await allocationPeriodFor(companyId, input.transferDate).catch((err: unknown) => {
+    throw isBankAllocationRefusal(err) ? new BankTransferRefusedError(err.message) : err;
+  });
   const draft = await createJournalEntry(companyId, {
     entryDate: input.transferDate,
     description: input.reference || label,
     reference: label,
     source: 'auto_bank_transfer',
     lines,
+    fiscalPeriodId,
   }, userId);
   if (!gate.held) {
     const entry = await postJournalEntry(companyId, draft.id, userId);

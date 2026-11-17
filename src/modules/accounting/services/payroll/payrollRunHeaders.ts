@@ -2,12 +2,13 @@
  * Payroll run headers: the summary shape, listing, creation and lookup.
  * Split out of payrollRunService.ts (which re-exports all of it) to keep that file under the 300-line cap.
  */
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollPeriod } from './payrollTypes';
 import type { OffCycleReason, PayFrequency, RunKind, UnsupportedValue } from './payrollTypesRun';
 import { dateColumnOf, offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
+import { runOrderKeySql } from './payrollRunOrder';
 
 type Row = DbRow;
 
@@ -68,6 +69,19 @@ export async function listPayrollRuns(companyId: string): Promise<PayrollRunSumm
   return rows.map(mapRunRow);
 }
 
+/** The company's latest run in pay order that is not cancelled (the payroll period bar). Null: none yet. */
+export async function latestPayrollRun(companyId: string): Promise<{ id: string; periodMonth: number; periodYear: number; status: string } | null> {
+  const rows = (await sql`
+    SELECT h.id, h.period_month, h.period_year, h.status
+      FROM payroll_run_headers h
+     WHERE h.company_id = ${companyId}::uuid AND h.status <> 'cancelled'
+     ORDER BY ${runOrderKeySql('h')} DESC
+     LIMIT 1
+  `) as Row[];
+  const r = rows[0];
+  return r ? { id: String(r.id), periodMonth: Number(r.period_month), periodYear: Number(r.period_year), status: String(r.status) } : null;
+}
+
 export class PayrollRunDuplicateError extends Error {
   readonly month: number;
   readonly year: number;
@@ -86,23 +100,41 @@ export async function createPayrollRun(
   createdBy?: string,
 ): Promise<PayrollRunSummary> {
   log.info('Creating payroll run', { companyId, period }, 'payrollRunService');
-  const rows = (await sql`
-    INSERT INTO payroll_run_headers (
-      company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end
-    )
-    VALUES (
-      ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}::uuid, 'monthly', 'regular',
-      public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
-      public.payroll_month_period_end(${period.year}::int, ${period.month}::int)
-    )
-    ON CONFLICT (company_id, period_year, period_month) DO NOTHING
-    RETURNING *
-  `) as Row[];
+  const rows = await insertMonthlyRun(companyId, period, createdBy);
   if (rows.length === 0) {
     throw new PayrollRunDuplicateError(period.month, period.year);
   }
   if (!rows[0]) throw new Error('INSERT returned no row');
   return mapRunRow(rows[0]);
+}
+
+/** The per-month unique (company, year, month) that FQx drops; until then it also refuses a month holding an off-cycle run. */
+const MONTH_UNIQUE = 'payroll_run_headers_company_id_period_year_period_month_key';
+
+async function insertMonthlyRun(companyId: string, period: PayrollPeriod, createdBy?: string): Promise<Row[]> {
+  try {
+    // Its own savepoint inside a request transaction (withTransaction nests one), so the refusal below leaves the
+    // request's transaction usable.
+    return await withTransaction(async (tx) => (await tx`
+    INSERT INTO payroll_run_headers (
+      company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end
+    )
+    VALUES (
+      ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular',
+      public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
+      public.payroll_month_period_end(${period.year}::int, ${period.month}::int)
+    )
+    -- The regular-period key (migration 999a), not the per-month unique FQx drops: an off-cycle run of the month is no clash.
+    ON CONFLICT (company_id, pay_frequency, period_start) WHERE run_kind = 'regular' DO NOTHING
+    RETURNING *
+  `) as Row[]);
+  } catch (err) {
+    // Between this release and FQx: a month whose only run is not regular has no regular-key conflict, so the old
+    // per-month unique refuses it. That is the same duplicate, named, not a raw 23505 (review #1507).
+    const e = err as { code?: string; constraint?: string };
+    if (e.code === '23505' && e.constraint === MONTH_UNIQUE) throw new PayrollRunDuplicateError(period.month, period.year);
+    throw err;
+  }
 }
 
 export async function getPayrollRun(

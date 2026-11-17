@@ -24,6 +24,7 @@ import { isExactlyBalanced, isReconciliationNotBalanced, ReconciliationNotBalanc
 import { commitReconciliation } from './bankReconciliationCommit';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
 import { ApprovalRequiredError } from '../gl/approvalGate';
+import { allocationPeriodFor } from './bankAllocationPeriod';
 import { BankRequestRefusal } from './bankRequestRefusal';
 
 
@@ -185,7 +186,10 @@ export async function createAdjustmentEntry(
       `A bank reconciliation adjustment of ${amountText} is a manual journal, and it needs ${role} approval before it can `
       + `be posted (rule: ${rule}). Post it as a journal through Journal Entries, have it approved, then reconcile it.`);
     if (refusal) throw refusal;
+    // WP2 row 12: the open period the adjustment posts on, resolved before the journal exists (the route's 400).
+    const fiscalPeriodId = await allocationPeriodFor(companyId, recon.statementDate);
     const je = await createJournalEntry(companyId, {
+      fiscalPeriodId,
       entryDate: recon.statementDate,
       description: `Bank recon adjustment: ${description}`,
       // source_record_id, NOT source_document_id: the latter FKs to

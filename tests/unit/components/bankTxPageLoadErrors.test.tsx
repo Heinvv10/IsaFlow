@@ -15,8 +15,8 @@ import { summaryAcct } from '../helpers/bankSummaryFixture';
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn(), replace: vi.fn(), pathname: '/accounting/bank-transactions' }) }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'viewer' }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn(), pathname: '/accounting/bank-transactions' }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'viewer' }), useActiveCompanyIdOrUndefined: () => undefined }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -163,7 +163,8 @@ it('an older response arriving while a newer request is pending does not end the
   fireEvent.click(screen.getByRole('button', { name: '3' }));
   releasePage2(txPage('ROW-P2')); // A settles first; B is still in flight
   await new Promise(r => setTimeout(r, 100));
-  expect(screen.getByTestId('list-skeleton')).toBeInTheDocument();
+  // the newer request (page 3) is still in flight: the list stays mounted but marked busy - the older page's rows never show
+  expect(screen.getByTestId('bank-tx-list-frame').getAttribute('aria-busy')).toBe('true');
   expect(screen.queryByText('ROW-P2')).toBeNull();
 
   releasePage3(txPage('ROW-P3'));
@@ -197,4 +198,15 @@ it('a reload past the end never paints "No new transactions": the skeleton holds
   expect(offsets()).toEqual(['0', '50', '25']);
   expect(empty.seen()).toBe(false);
   empty.stop();
+});
+
+it('a 400 for an offset past the bound shows the server\'s "Too many pages - narrow the filters", not a generic failure (WP7)', async () => {
+  const { OffsetTooLargeError } = await import('@/modules/accounting/services/bank/bankTxCursor');
+  const message = new OffsetTooLargeError().message;
+  expect(message).toMatch(/^Too many pages - narrow the filters/);
+  script(offset => (offset === '50' ? json({ success: false, error: { message } }, 400) : txPage('ROW-P1')));
+  render(<BankTransactionsPage />);
+  await screen.findByText('ROW-P1');
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  expect(await screen.findByText(/Too many pages - narrow the filters/)).toBeInTheDocument();
 });

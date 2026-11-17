@@ -5,6 +5,7 @@
  */
 import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
 import { PAYROLL_REFUSAL_CODES } from './payrollRefusalCodes';
+import { BUDGET_REFUSAL_CODES } from './budgetRefusalCodes';
 
 /**
  * The codes this codebase's own refusal classes carry — the complete set of
@@ -48,10 +49,16 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // bank-role holder, two claimants, or a supplied bankAccountId that is not an active bank account of the company). Names
   // only the company's own account codes and names; raised before any write. No MCP tool makes these payments today.
   'BANK_ACCOUNT_REFUSED',
+  // bank/bankBulkAcceptPreview (WP6): a bulk-accept token that is not valid, a confirm while another runs for the account, a batch
+  // that is not found / not a bulk-accept batch / already undone. Fixed sentences naming only the caller's own batch id; pre-write.
+  'BULK_ACCEPT_REFUSED',
   // bank/bankAccountGuard: a request-named bank account that is not an active bank account of the company; pre-write.
   // Another company's account reads as "not found", else names only the company's own account. No MCP tool calls it.
   'BANK_ACCOUNT_GUARD_REFUSED',
   'BANK_ALLOCATION_REFUSED',
+  // bank/transferDuplicateGuard (WP2 row 5): the transfer's movement is already in the ledger (the other bank's leg, a
+  // typed transfer, or its held draft — named by its own entry number). Raised before any write, after the pair lock.
+  'DUPLICATE_TRANSFER',
   // sync_bank_dimensions / the tag write-through (gl/dimensions/dimensionBankSync): a window over the row cap, a bank row
   // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names
   // only the caller's own key, window and counts.
@@ -172,6 +179,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_CLIENT_HAS_ENTRIES',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
+  // bank/liveBankLineReversal: a journal a live statement line is still allocated / matched to, reversed from the
+  // journal screens, MCP reverse_journal_entry, soft delete or another internal reversal. Names the caller's own line
+  // (date, amount, description) and the Bank Transactions undo; raised before any write.
+  'JOURNAL_HAS_LIVE_BANK_LINE',
   // A payroll line's due loan instalments exceed its available pay. Names only the employee and their loans;
   // the payment is refused before any loan balance changes, with a manual-review remedy.
   'LOAN_INSTALMENT_EXCEEDS_PAY',
@@ -265,6 +276,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_REFUSED',
   ...SYSTEM_ROLE_REFUSAL_CODES,
   ...PAYROLL_REFUSAL_CODES,
+  ...BUDGET_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',

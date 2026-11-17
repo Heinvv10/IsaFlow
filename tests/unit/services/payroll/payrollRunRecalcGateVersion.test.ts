@@ -19,12 +19,12 @@ const refusal = async (version: number | null) => {
   return (await recalculateRequiredRefusal('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))?.code ?? null;
 };
 
-describe('calculation version 11: regular-pay directives (DR) on top of RF (10), explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
+describe('calculation version 12: UIF floored at nil (UF) on top of regular-pay directives (DR, 11), RF (10), explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
   it('is the current version', () => {
-    expect(PAYROLL_CALCULATION_VERSION).toBe(11);
+    expect(PAYROLL_CALCULATION_VERSION).toBe(12);
   });
 
-  it('refuses a run calculated by version 10 or unstamped, approves one calculated by version 11', async () => {
-    expect([await refusal(10), await refusal(null), await refusal(11)]).toEqual(['recalculate_required', 'recalculate_required', null]);
+  it('refuses a run calculated by version 11 or unstamped, approves one calculated by version 12', async () => {
+    expect([await refusal(11), await refusal(null), await refusal(12)]).toEqual(['recalculate_required', 'recalculate_required', null]);
   });
 });

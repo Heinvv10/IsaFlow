@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodProbe: async () => null, lineAllocationPeriodRefusal: async () => null, isLineSkipRefusal: () => false, periodLineSkips: async () => new Map(), allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-*.int
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), {
     transaction: vi.fn(),
@@ -787,6 +788,28 @@ describe('write-tool manifest invariants', () => {
       tag_journal_lines: { ...KEY },
       reverse_dimension_tag_batch: { ...KEY },
       sync_bank_dimensions: { ...KEY, date_from: '2026-10-01', date_to: '2026-10-31', dry_run: true },
+      // The budget writes each refuse on a missing required argument (or, for the four human-gated moves, the
+      // scan context's missing owner role) before any service call; behaviour in budgetAmountTools.test.ts,
+      // budgetVersionTools.test.ts and tests/integration/mcp-budget-*.int.test.ts.
+      create_budget_version: { ...KEY },
+      copy_budget_version: { ...KEY },
+      create_reforecast: { ...KEY },
+      add_budget_note: { ...KEY },
+      delete_budget_version: { ...KEY },
+      seed_budget: { ...KEY },
+      set_budget_amounts: { ...KEY },
+      set_budget_annual: { ...KEY },
+      import_budget_workbook: { ...KEY },
+      restore_budget_version: { ...KEY },
+      approve_budget_version: { ...KEY },
+      lock_budget_version: { ...KEY },
+      unlock_budget_version: { ...KEY },
+      set_primary_budget_version: { ...KEY },
+      // PR 3: each refuses a missing required argument before any service (budgetDriverTools / budgetThreeWayTools /
+      // budgetControlTools tests; tests/integration/mcp-budget-drivers*.int.test.ts).
+      set_budget_drivers: { ...KEY },
+      set_three_way_assumptions: { ...KEY },
+      submit_budget_for_review: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

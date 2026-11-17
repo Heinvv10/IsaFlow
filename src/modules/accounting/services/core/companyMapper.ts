@@ -170,6 +170,7 @@ export interface CompanyUser {
   role: string;
   isDefault: boolean;
   isDemo: boolean;
+  hasLogo: boolean;
 }
 
 // ── Mapper ───────────────────────────────────────────────────────────────────

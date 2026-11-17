@@ -22,6 +22,7 @@ import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { freezePayslipDetails } from './payslipSnapshot';
 
 
 type Row = DbRow;
@@ -146,8 +147,8 @@ export async function approvePayrollRun(
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
     SET status      = 'approved',
-        approved_by = ${approvedBy}::uuid,
-        approved_at = clock_timestamp(),
+        approved_by = ${approvedBy},
+        approved_at = CASE WHEN status = 'approved' AND approved_at IS NOT NULL THEN approved_at ELSE clock_timestamp() END,
         lines_confirmed_at = clock_timestamp(),
         approved_plan_hash = ${gate.planHash},
         approval_plan_hash = ${gate.planHash},
@@ -156,6 +157,9 @@ export async function approvePayrollRun(
     RETURNING *
   `) as Row[];
   if (!updatedRows[0]) throw new Error('Status update returned no row');
+  // Wave 6 PS3: the slip's details at this approval (not in the plan hash). A run already approved (re-approved to post
+  // its journal) keeps its approval time above and its snapshot, or reads live without one (review B3).
+  if (String(locked.status) !== 'approved') await freezePayslipDetails(companyId, runId);
 
   // The plan the gate judged and the hash described is the plan that posts —
   // the poster does not build its own (breaker D). Its blockers were judged

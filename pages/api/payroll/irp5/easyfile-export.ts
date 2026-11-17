@@ -19,7 +19,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import {
   buildIrp5File,
   buildCertificateNumber,
@@ -46,6 +45,7 @@ import {
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 import { splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -60,9 +60,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
   const taxYear = taxYearRaw;
   const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
-  // Only approved/paid runs exist in the general ledger; a calculated or
-  // cancelled run declared here would over-state remuneration to SARS.
-  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
+  // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
 
   // Lump sums paid under a directive, in a run or outside payroll (own code,
   // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
@@ -88,7 +87,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
     ` as Promise<DbRow[]>,
-    loadCertificateAggregates(companyId, declarableStatuses, { startYear, startMonth, endYear, endMonth }),
+    loadCertificateAggregates(companyId, { startYear, startMonth, endYear, endMonth }),
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
     loadMedicalRecord(companyId, bounds),
@@ -262,7 +261,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // payment under a directive linked to no employee is on no certificate
     // (applyTaxDirective now refuses those): both said, naming the directive,
     // and shown by the IRP5 page.
-    // A payment on no certificate first: the cap below must never hide one.
+    // A payment on no certificate first: the cap below must never hide one. Then a run left out as not final (wave 6 EF).
+    warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
     warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
     // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.

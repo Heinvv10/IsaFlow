@@ -32,7 +32,8 @@ export async function run(pool: Pool, f: SeveranceFixture, month: number, terms:
   await updatePayrollEmployee(employee, f.company, terms);
   const id = await newRun(pool, f, month);
   await calculatePayrollRun(id, f.company);
-  await pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [id]);
+  // Approved as approvePayrollRun leaves it: with its approval time (the year to date reads final runs, wave 6 EF).
+  await pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [id]);
   return { id, line: await lineOf(pool, id, employee) };
 }
 

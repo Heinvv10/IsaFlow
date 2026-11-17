@@ -27,6 +27,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertBankLineMayRefundCustomer } from './bankLineRefundGate';
 import { assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { stampContraDimensions } from './bankAllocationDimensions';
 import { recordAllocationDecision } from './codingDecisionLog';
@@ -35,6 +36,7 @@ import { assertAllocationInputUsable } from './bankAllocationInputGuard';
 import { buildAllocationArm } from './bankAllocationArms';
 import { invoiceSourceDocumentOf, recordAllocationDocuments } from './bankAllocationDocuments';
 import { assertAllocationVatCode } from './bankVatCodes';
+import { allocationPeriodFor } from './bankAllocationPeriod';
 
 export { splitAllocateTransaction } from './bankSplitAllocate';
 export { reverseReconciledTransaction } from './bankReverseReconciled';
@@ -45,6 +47,7 @@ type Row = DbRow;
 // The allocation shapes live in bankAllocationTypes.ts; re-exported for every existing import site.
 export type { AllocationType, AllocationApplicationResult, SplitLine } from './bankAllocationTypes';
 import type { AllocationType, AllocationApplicationResult } from './bankAllocationTypes';
+import { isBankContra, isBankContraPlan, postsToContraAccount, refuseOwnBankContra } from './bankContraTransfer';
 
 // ── Allocate ──────────────────────────────────────────────────────────────────
 
@@ -54,7 +57,7 @@ import type { AllocationType, AllocationApplicationResult } from './bankAllocati
  */
 export async function allocateTransaction(
   companyId: string, bankTxId: string, contraAccountId: string | null, userId: string,
-  description?: string, allocType: AllocationType = 'account', entityId?: string,
+  description?: string, requestedAllocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
   /**
@@ -108,6 +111,11 @@ export async function allocateTransaction(
     }
   }
 
+  // WP2 row 5 (Hein): the line's own bank as an account contra posts nothing — refused from the locked row
+  // (bankContraTransfer). An account contra that IS a bank account is rerouted below, once the plan has read it.
+  refuseOwnBankContra(requestedAllocType, entityId, contraAccountId, String(tx.bank_account_id));
+  let allocType = requestedAllocType;
+
   // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
   // validates its UUID SHAPE only) and is written into `customer_payments.client_id`
   // below; the only customer read on this path fetches a NAME and falls back to
@@ -133,14 +141,23 @@ export async function allocateTransaction(
   // payment instruction, not bank evidence — refused (409) under an enforced
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
+  // Hein 2026-11-15: money OUT to a customer from a HAND-KEYED line is a refund nobody decided: the same gate, same rules.
+  if (allocType === 'customer' && entityId && isSpent) await assertBankLineMayRefundCustomer(companyId, tx, totalAmount);
   if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
   await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId); // step 2: not the statement's importer (403)
 
   // The contra account, the AP/AR-control refusal, the VAT split and the dimensions: reads only (bankAllocationPlan).
-  const plan = await planAllocationPosting({
-    companyId, bankTxId, allocType, contraAccountId, entityId, vatCode, cc1Id, cc2Id, buId,
+  const planFor = (type: AllocationType) => planAllocationPosting({
+    companyId, bankTxId, allocType: type, contraAccountId, entityId, vatCode, cc1Id, cc2Id, buId,
     bankAccountId, totalAmount, isSpent,
   });
+  let plan = await planFor(allocType);
+  // WP2 row 5: an account contra that is a BANK account is a transfer — the duplicate guard, the pair lock and the leg
+  // pairing apply (bankContraTransfer). Decided from the contra row the plan just read; a transfer re-plans with no SQL.
+  // A supplier/customer call naming no contact posts to the contra too (postsToContraAccount); its plan reads no contra
+  // row, so that rare shape asks the subtype itself.
+  if (isBankContraPlan(allocType, plan.contraRows) || (allocType !== 'account' && postsToContraAccount(allocType, entityId)
+    && await isBankContra(companyId, contraAccountId))) { allocType = 'transfer'; plan = await planFor(allocType); }
   const { allocationDims } = plan;
   // The contra account and the dimensions the account arm stamps, refused typed and before the first write.
   if (allocType === 'account' && contraAccountId) {
@@ -170,8 +187,11 @@ export async function allocateTransaction(
   // like a Transfers-page one: the reference says so (only a journal the statement created is reference-less:
   // reports/journalSourceKinds, bank/transferDuplicateGuard — sec-nrfa r4 M1, brk-nrfa r6 L2).
   const reference = source === 'auto_bank_transfer' && !isBankEvidenced(tx) ? 'No statement or feed line' : undefined;
+  // WP2 row 12: the open period this journal posts on, resolved last before the journal (bankAllocationPeriod) — a
+  // date no period covers or can cover posted with fiscal_period_id NULL, past the closed-period check.
+  const fiscalPeriodId = await allocationPeriodFor(companyId, txDate);
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference,
+    entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference, fiscalPeriodId,
   }, userId, allocationMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
   const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 
@@ -224,7 +244,9 @@ export async function allocateTransaction(
             -- Nor does it pay the purchase order the line paid before (a re-pointed reconciled line): left set, that
             -- PO still counts this cash as paid. The PO match (confirmPurchaseOrderMatch, lane B's #1458) sets it again
             -- AFTER this call.
-            linked_po_id = NULL
+            linked_po_id = NULL,
+            -- Not part of any auto-post run: a run (gate sweep, bulk accept) tags the line AFTER this write (WP6 review F1).
+            auto_post_run_id = NULL, auto_post_journal_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {

@@ -13,86 +13,31 @@
  * tenant boundary: it is INNER and the company predicate lives in WHERE, never
  * in an outer join's ON clause where it would restrict nothing.
  *
- * DECLARABLE RUNS ONLY. A draft or cancelled run is not remuneration anybody
- * was paid, and a certificate built from one would be wrong. The statuses come
- * from `EMP201_DECLARABLE_STATUSES` so the EMP201 and the IRP5 cannot disagree
- * about which runs count. Runs excluded on that basis are COUNTED and named,
- * because "this employee earned nothing" and "this employee's runs were never
- * approved" are different facts.
+ * FINAL RUNS ONLY. A draft or cancelled run is not remuneration anybody
+ * was paid, and a certificate built from one would be wrong. Final is the one
+ * fragment `payRunFinalSql` (approved or paid AND an approval time), the same
+ * the EMP201 uses, so the two cannot disagree about which runs count. Runs
+ * excluded on that basis are COUNTED and named, because "this employee earned
+ * nothing" and "this employee's runs were never approved" are different facts;
+ * an approved run with no approval time is also named in `warnings`.
  *
  * The SA tax year runs 1 March (taxYear − 1) to 28/29 February (taxYear).
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
+import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
-import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
 import { allowanceCertificateFields, listRunAllowanceFiling } from './payrollAllowanceFiling';
-import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning, type NonCashBenefitFiling } from './payrollNonCashFiling';
+import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning } from './payrollNonCashFiling';
+import type { Irp5EmployeeTotals, Irp5Exclusion, Irp5Dataset } from './irp5DataTypes';
 
 type Row = DbRow;
 
-export interface Irp5EmployeeTotals {
-  employeeId: string;
-  employeeNumber: string;
-  firstName: string;
-  lastName: string;
-  /** Masked to the last four digits unless the caller asked to reveal them. */
-  idNumber: string | null;
-  taxNumber: string | null;
-  identityNumbersMasked: boolean;
-  /** Cash only: a non-cash benefit is not in it (fringeBenefits). */
-  grossSalary: number;
-  taxableIncome: number;
-  paye: number;
-  uifEmployee: number;
-  uifEmployer: number;
-  sdl: number;
-  eti: number;
-  netPay: number;
-  runsIncluded: number;
-  /**
-   * Lump sums paid under a SARS directive, in a run (3901 severance, audit
-   * 2026-10-18 P3) or outside payroll (PAYE 4a follow-ups G1). Already inside
-   * grossSalary and paye; the certificate shows them under their own code, the
-   * PAYE under `payeCode`.
-   */
-  lumpSums: LumpSumFiling[];
-  /**
-   * Non-cash fringe benefits (the 3801 loan benefit), NOT in grossSalary; in taxableIncome and
-   * paye. The certificate shows them under their own code (payrollNonCashFiling), so
-   * grossSalary + these is the remuneration.
-   */
-  fringeBenefits: NonCashBenefitFiling[];
-  /** Cash allowances the certificate shows under their own code (3701, whole rand), INSIDE grossSalary (payrollAllowanceFiling). */
-  cashAllowances: NonCashBenefitFiling[];
-  /** 4582: the part of 3701 + 3802 PAYE was withheld on (BRS V25.3.0 p. 105); null when the employee has neither. */
-  paye4582: number | null;
-}
-
-export interface Irp5Exclusion {
-  id: string;
-  reason: string;
-  detail?: string;
-  amount?: number;
-}
-
-export interface Irp5Dataset {
-  taxYear: number;
-  periodStart: string;
-  periodEnd: string;
-  rows: Irp5EmployeeTotals[];
-  rowsTotal: number;
-  universeTotal: number;
-  /** Employees excluded IN TOTAL; `excluded` may carry only a capped sample. */
-  excludedTotal: number;
-  excluded: Irp5Exclusion[];
-  postedThrough: string | null;
-  /** Each employee whose 3801 items were paid in cash (no flag), so are in grossSalary / 3601. */
-  warnings: string[];
-}
+export type { Irp5EmployeeTotals, Irp5Exclusion, Irp5Dataset } from './irp5DataTypes';
 
 /** Excluded employees are listed individually up to this many; beyond it the
  *  envelope reports `excludedTotal` with `truncatedExcludedRows` set. */
@@ -120,7 +65,17 @@ export async function getIrp5EmployeeTotals(
   const { start, end } = saTaxYearBounds(taxYear);
   const reveal = opts.revealIdentityNumbers === true;
   const employeeId = opts.employeeId ?? null;
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+
+  // Wave 6 FQa/EF: every final run the certificates sum is one this release can certify (monthly, regular), or the
+  // whole read is refused by name (409) rather than certified as if it were.
+  const finalRuns = (await sql`
+    SELECT prh.id::text AS id FROM payroll_run_headers prh
+     WHERE prh.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('prh'))}
+       AND make_date(prh.period_year, prh.period_month, 1) BETWEEN ${start}::DATE AND ${end}::DATE
+       AND (${employeeId}::UUID IS NULL
+            OR EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = prh.id AND l.employee_id = ${employeeId}::UUID))
+  `) as Row[];
+  for (const runId of finalRuns.map((r) => String(r.id))) await assertRunKindSupported(companyId, runId, 'irp5');
 
   const rows = (await sql`
     SELECT
@@ -141,7 +96,7 @@ export async function getIrp5EmployeeTotals(
     JOIN payroll_employees e ON e.id = prl.employee_id
     WHERE prh.company_id = ${companyId}::UUID
       AND e.company_id = ${companyId}::UUID
-      AND prh.status = ANY(${declarable}::TEXT[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND make_date(prh.period_year, prh.period_month, 1)
           BETWEEN ${start}::DATE AND ${end}::DATE
       AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
@@ -149,7 +104,7 @@ export async function getIrp5EmployeeTotals(
     ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
 
-  // Employees whose remuneration in this tax year sits ONLY on non-declarable
+  // Employees whose remuneration in this tax year sits ONLY on non-final
   // runs. Their pay is real and does not belong on a certificate, so each is
   // named rather than silently absent.
   //
@@ -170,11 +125,11 @@ export async function getIrp5EmployeeTotals(
     JOIN payroll_employees e ON e.id = prl.employee_id
     WHERE prh.company_id = ${companyId}::UUID
       AND e.company_id = ${companyId}::UUID
-      AND NOT (prh.status = ANY(${declarable}::TEXT[]))
+      AND NOT ${sql.unsafe(payRunFinalSql('prh'))}
       AND make_date(prh.period_year, prh.period_month, 1)
           BETWEEN ${start}::DATE AND ${end}::DATE
       AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
-      -- Anyone who ALSO has a declarable run is already a certificate row, and
+      -- Anyone who ALSO has a final run is already a certificate row, and
       -- counting them on both sides would overstate the universe.
       AND NOT EXISTS (
         SELECT 1
@@ -182,7 +137,7 @@ export async function getIrp5EmployeeTotals(
         JOIN payroll_run_headers dh ON dh.id = d.run_id
         WHERE d.employee_id = e.id
           AND dh.company_id = ${companyId}::UUID
-          AND dh.status = ANY(${declarable}::TEXT[])
+          AND ${sql.unsafe(payRunFinalSql('dh'))}
           AND make_date(dh.period_year, dh.period_month, 1)
               BETWEEN ${start}::DATE AND ${end}::DATE
       )
@@ -196,6 +151,7 @@ export async function getIrp5EmployeeTotals(
   const fringeBenefits = await listRunNonCashBenefits(companyId, { start, end }, employeeId);
   const unflagged = await listRunUnflaggedFringe(companyId, { start, end }, employeeId);
   const allowances = await listRunAllowanceFiling(companyId, { start, end }, employeeId);
+  const notFinal = await listNotFinalDeclaredRuns(companyId, start, end, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -245,7 +201,7 @@ export async function getIrp5EmployeeTotals(
       id: String(r.id),
       reason: 'run_not_declarable',
       detail: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim() +
-        ` (${String(r.employee_number ?? '')}) has pay on ${Number(r.runs) || 0} run(s) in this tax year, none in a declarable status (${declarable.join(', ')}), so none of it is on a certificate.`,
+        ` (${String(r.employee_number ?? '')}) has pay on ${Number(r.runs) || 0} run(s) in this tax year, none of them final (approved or paid, with an approval time), so none of it is on a certificate.`,
       amount: Number(r.gross) || 0,
     }));
 
@@ -289,7 +245,10 @@ export async function getIrp5EmployeeTotals(
     excludedTotal,
     excluded,
     postedThrough,
-    warnings: rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
-      unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
+    warnings: [
+      ...notFinal.map((r) => notFinalRunWarning(r, 'IRP5')),
+      ...rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
+        unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
+    ],
   };
 }

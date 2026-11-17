@@ -28,6 +28,7 @@ import type { SplitLine } from './bankAllocationTypes';
 import { assertAllocationVatCode } from './bankVatCodes';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { splitTotalMismatch } from './bankSplitTotal';
+import { allocationPeriodFor } from './bankAllocationPeriod';
 
 type Row = DbRow;
 
@@ -112,8 +113,9 @@ export async function splitAllocateTransaction(
     ...(opts?.actorType === undefined ? {} : { actorType: opts.actorType }),
     ...(opts?.actorTokenJti === undefined ? {} : { actorTokenJti: opts.actorTokenJti }),
   };
+  const fiscalPeriodId = await allocationPeriodFor(companyId, txDate); // WP2 row 12, as allocateTransaction
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines,
+    entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines, fiscalPeriodId,
   }, userId, splitMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
   const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 
@@ -131,7 +133,7 @@ export async function splitAllocateTransaction(
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
             allocation_type = 'account', allocated_entity_name = ${SPLIT_ALLOCATION_NAME}, updated_at = NOW(),
             allocation_rule_id = NULL, allocation_rule_name = NULL,
-            allocation_batch_id = NULL, linked_po_id = NULL -- a split pays no purchase order
+            allocation_batch_id = NULL, auto_post_run_id = NULL, auto_post_journal_id = NULL, linked_po_id = NULL -- a split pays no purchase order
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     });
   }

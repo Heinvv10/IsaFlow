@@ -6,6 +6,7 @@
  */
 
 import { Paperclip } from 'lucide-react';
+import { TOUCH_ICON } from './bankTxTouch';
 
 interface Props {
   txId: string;
@@ -21,8 +22,8 @@ export function BankTxAttachmentButton({ txId, count, rowName, onOpen }: Props) 
   return (
     <button type="button" onClick={() => onOpen(txId)} title={title} aria-label={`${title}, ${rowName}`}
       className={n > 0
-        ? 'relative mr-1 p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400'
-        : 'p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]'}>
+        ? `${TOUCH_ICON} relative mr-1 p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400`
+        : `${TOUCH_ICON} p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]`}>
       <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
       {n > 1 && (
         <span aria-hidden="true"

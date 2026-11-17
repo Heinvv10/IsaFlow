@@ -15,6 +15,7 @@ import type { McpTool } from '../types';
 import { agentReversalRefusal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { lineAllocationPeriodRefusal } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { ALLOCATION_PROPERTIES, REVERSAL_DATE_PROPERTY, SELECTOR_PROPERTIES } from './allocationSchema';
 import {
   badUuidArg,
@@ -88,6 +89,10 @@ export const allocateBankTransactionTool: McpTool = {
     if (status !== 'imported') {
       return toolError(`Transaction already ${status} — cannot allocate`);
     }
+    // WP2 row 12: a date with no open fiscal period is refused by the service before its journal; asked here so it is
+    // a toolError, not a registry failure (read-only: a year the probe would create is rolled back).
+    const periodRefusal = await lineAllocationPeriodRefusal(ctx.companyId, resolved.id);
+    if (periodRefusal) return toolError(periodRefusal);
 
     // A cost-of-sales line with no project: a warning, or a refusal where the company requires one. Pre-write.
     const cos = line.allocType === 'account' && line.contraAccountId
@@ -96,6 +101,8 @@ export const allocateBankTransactionTool: McpTool = {
       : { warnings: [] };
     if (typeof cos === 'string') return toolError(cos);
 
+    // WP2 row 5: onto its own bank, or a transfer already in the ledger, allocateTransaction refuses before any write
+    // (BANK_ALLOCATION_REFUSED / DUPLICATE_TRANSFER): the registry answers both typed, its savepoint rolled back.
     // No try/catch below this line, deliberately. Anything the service throws
     // must reach the registry's savepoint, which rolls the partial write back
     // and makes the retry safe.

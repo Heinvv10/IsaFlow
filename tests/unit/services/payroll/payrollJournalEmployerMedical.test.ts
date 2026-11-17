@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> = () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values),
+  sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values), { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({
