@@ -74,5 +74,8 @@ export interface CumulativePayeTrace {
   taxedAnnualEquivalent: number; annualBefore: number; annualNow: number; annualAll: number; annualEarlier: number;
   /** Tax on the annual equivalent, with all annual payments to date, and with the earlier ones only. */
   atAE: AnnualTaxAfterCredits; atAll: AnnualTaxAfterCredits; atEarlier: AnnualTaxAfterCredits;
+  /** The tax after rebates on the annual equivalent × n ÷ F; the medical credits it used × n ÷ 12, never past it (wave-6 AN,
+   *  coordinator ruling 2026-11-17: the credits are monthly amounts). */
+  afterRebatesToDate: number; creditsOnAEToDate: number;
   liability: number; ytdTablePaye: number; due: number; annualDue: number;
 }

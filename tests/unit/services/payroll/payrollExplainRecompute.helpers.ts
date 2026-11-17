@@ -116,8 +116,10 @@ function recomputePaye(fig: FigureExplanation): number {
       }
     }
     // The medical credits used on the annual equivalent are monthly amounts: they come off n ÷ 12, the rest n ÷ F.
+    // Never past the tax after rebates to date (MTC then AMTC are each capped by what is left; their sum is the same).
     const creditsAE = taxAfterRebates(r, 'paye.atAE') - taxAE;
-    const liability = Math.max(0, ((taxAE + creditsAE) * n) / f - (creditsAE * n) / 12) + (taxAll - taxAE);
+    const afterRebates = ((taxAE + creditsAE) * n) / f;
+    const liability = afterRebates - Math.min((creditsAE * n) / 12, afterRebates) + (taxAll - taxAE);
     expect(r.amt('paye.liability')).toBeCloseTo(liability, 6);
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));

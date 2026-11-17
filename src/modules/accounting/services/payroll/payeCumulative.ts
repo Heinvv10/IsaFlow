@@ -43,8 +43,8 @@
  * the same n ÷ F. The medical credits are statutory amounts a month (s6A, and
  * s6B's three times the MTC), a period ratio, not an annualisation: the part
  * used on the AE is weighted n ÷ 12, so tax(AE) × n ÷ F above is, exactly,
- * (tax(AE) + C) × n ÷ F − C × n ÷ 12, C = the credits used on the AE, never
- * below nil (coordinator ruling 2026-11-17). Directive PAYE (lump
+ * (tax(AE) + C) × n ÷ F − min(C × n ÷ 12, (tax(AE) + C) × n ÷ F), C = the
+ * credits used on the AE, MTC first (coordinator ruling 2026-11-17). Directive PAYE (lump
  * sums) is outside all of it. Figures use the statutory rate table, not
  * SARS's deduction tables (PAYE-GEN-01-G01-A04 2027: R500 income bands, each
  * taxed at its midpoint, e.g. R335 801–336 301 → 49 945 = tax(336 051)), so
@@ -58,7 +58,8 @@
  * less the credits the employee's earlier lines of the tax year recorded
  * (ytd.medicalCredit). Inside the liability the credit is what "tax" took off,
  * used(x) = min(annual credit, tax after rebates on x), weighted as the
- * liability is: used(AE) × n ÷ 12 + [used(AE + A) − used(AE)]. So the lines of
+ * liability is: used(AE) × n ÷ 12 (never past the tax after rebates to date,
+ * MTC first) + [used(AE + A) − used(AE)]. So the lines of
  * a year add up to the credit inside the year's liability, a line never
  * records a credit its PAYE did not use, and a constant year records the
  * monthly credit each month. The record follows the liability, so it moves as
@@ -193,27 +194,32 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const atAE = credits(taxedAE);
   const atAll = credits(taxedAE + annualAll);
   const atEarlier = credits(taxedAE + annualEarlier);
+  // F de-annualises the tax after rebates on the annual equivalent; the medical credits it used are monthly amounts
+  // (s6A; s6B's three times the MTC) and come off × n ÷ 12, a period ratio (coordinator ruling 2026-11-17), in the
+  // order the tax takes them and never past that tax, so a line never records a credit its PAYE did not use.
+  const afterRebatesToDate = ((atAE.annualTax + atAE.medicalCreditUsed + atAE.additionalMedicalCreditUsed) * periods) / F;
+  const mtcOnAE = Math.min((atAE.medicalCreditUsed * periods) / 12, afterRebatesToDate);
+  const amtcOnAE = Math.min((atAE.additionalMedicalCreditUsed * periods) / 12, afterRebatesToDate - mtcOnAE);
   const traceOf = (paid: boolean, liability: number, due: number, annualDue: number): CumulativePayeTrace => ({
     paid, factor: F, periods, ytdPeriodicTaxable: ytd.periodicTaxable, regularTaxable: Math.max(0, input.regularTaxable),
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,
     annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, annualCap: limits.cap, offPeriodicCeiling,
     offPeriodic, offAnnual, donationSpill, offAnnualLimits, hasPeriodic, capPeriods: Math.max(capPeriods, 1), capToDate, deductionOffPeriodicToDate: periodicToDate,
     taxedAnnualEquivalent: taxedAE,
-    annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, liability, ytdTablePaye: ytd.tablePaye, due, annualDue,
+    annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, afterRebatesToDate, creditsOnAEToDate: mtcOnAE + amtcOnAE,
+    liability, ytdTablePaye: ytd.tablePaye, due, annualDue,
   });
-  // A credit inside the liability to date: the part used on the annual equivalent weighted n ÷ 12 (a period ratio), the
-  // annual payments' part in full.
-  const toDate = (used: (c: typeof atAE) => number) =>
-    (used(atAE) * periods) / 12 + (used(atAll) - used(atAE));
+  // A credit inside the liability to date: its part on the annual equivalent (above), the annual payments' part in full.
+  const mtcToDate = mtcOnAE + atAll.medicalCreditUsed - atAE.medicalCreditUsed;
+  const amtcToDate = amtcOnAE + atAll.additionalMedicalCreditUsed - atAE.additionalMedicalCreditUsed;
   // A period with neither periodic pay nor an annual payment deducts nothing
   // from the tables. It can still reverse an earlier retirement deduction or
   // medical credit when signed corrections reduce the cumulative entitlement.
   if (!hasPeriodic && annualNow <= 0) {
     return {
       regular: { ...regularInfo, monthlyPaye: 0 }, annualPaymentPaye: 0, periods, annualEquivalent,
-      medicalCredit: Math.min(0, round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit)),
-      additionalMedicalCredit: Math.min(
-        0, round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit)),
+      medicalCredit: Math.min(0, round2(mtcToDate - ytd.medicalCredit)),
+      additionalMedicalCredit: Math.min(0, round2(amtcToDate - ytd.additionalMedicalCredit)),
       retirementDeduction: Math.min(0, round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0))),
       retirementOffPeriodicToDate: periodicToDate,
       trace: traceOf(false, 0, 0, 0),
@@ -221,10 +227,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   }
   const taxAE = atAE.annualTax;
   const taxAll = atAll.annualTax;
-  // F de-annualises the tax after rebates; the credits used on the annual equivalent come off n ÷ 12 (see toDate).
-  const creditsAE = atAE.medicalCreditUsed + atAE.additionalMedicalCreditUsed;
-  // Never below nil: where the credits use up the tax after rebates, F ÷ 12 would otherwise leave a fraction of a cent.
-  const liability = Math.max(0, ((taxAE + creditsAE) * periods) / F - (creditsAE * periods) / 12) + (taxAll - taxAE);
+  const liability = afterRebatesToDate - mtcOnAE - amtcOnAE + (taxAll - taxAE);
   const due = Math.max(0, round2(liability - ytd.tablePaye));
   const annualDue = Math.max(0, taxAll - atEarlier.annualTax);
   const annualPaymentPaye = round2(Math.min(due, annualDue));
@@ -233,8 +236,8 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     annualPaymentPaye,
     periods,
     annualEquivalent: round2(annualEquivalent),
-    medicalCredit: round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit),
-    additionalMedicalCredit: round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit),
+    medicalCredit: round2(mtcToDate - ytd.medicalCredit),
+    additionalMedicalCredit: round2(amtcToDate - ytd.additionalMedicalCredit),
     retirementDeduction: round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0)),
     retirementOffPeriodicToDate: periodicToDate,
     trace: traceOf(true, liability, due, annualDue),

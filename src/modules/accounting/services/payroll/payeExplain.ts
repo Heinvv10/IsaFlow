@@ -98,7 +98,7 @@ function liabilityAE(t: CumulativePayeTrace): string {
   const f = annualisationFactorWords(t.factor);
   const c = creditsUsed(t.atAE);
   if (c <= 0) return `${r(t.atAE.annualTax)} × ${t.periods} ÷ (${f})`;
-  return `(${r(t.atAE.annualTax + c)} × ${t.periods} ÷ (${f}) − ${r(c)} × ${t.periods} ÷ 12)`;
+  return `(${r(t.atAE.annualTax + c)} × ${t.periods} ÷ (${f}) − ${r(t.creditsOnAEToDate)})`;
 }
 
 function retirementStep(input: PayeExplainInput): ExplainStep {
@@ -243,7 +243,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   steps.push({
     key: 'paye.liability', label: 'Tax due for the year to date', amount: t.liability,
     formula: `${liabilityAE(t)}${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
-    ...(creditsUsed(t.atAE) > 0 ? { note: 'The medical credits are monthly amounts (s6A): what they took off the tax for the year comes off × periods ÷ 12, the rest × periods ÷ the factor; never below nil.' } : {}),
+    ...(creditsUsed(t.atAE) > 0 ? { note: `The medical credits are monthly amounts (s6A): the tax for the year before them comes off × periods ÷ the factor, and the ${r(creditsUsed(t.atAE))} of credits it used × periods ÷ 12 (${r(t.creditsOnAEToDate)}), never more than that tax.` } : {}),
   });
   steps.push({ key: 'paye.ytdTablePaye', label: 'Less PAYE already deducted this tax year (tables)', amount: t.ytdTablePaye });
   steps.push({ key: 'paye.due', label: 'PAYE this period from the tables', amount: t.due, formula: 'due to date − already deducted, rounded to the cent, never below nil' });

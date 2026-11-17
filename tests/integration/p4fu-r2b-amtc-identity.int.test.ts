@@ -7,7 +7,9 @@
  * fixtures/p4fu-r2b-amtc-identity.golden.json holds every line's PAYE of this
  * fixture's March, April and May runs, written by the code BEFORE the credit
  * was built (`PAYE_GOLDEN_WRITE=1`, at f8d83e209). Every employee except E5
- * must reproduce it to the cent; E5's PAYE falls by exactly the credit.
+ * must reproduce it to the cent, plus the cents wave-6 AN moves it by (AN_CENTS:
+ * days-based annualisation, ruling 5, PAYROLL_CALCULATION_VERSION 13; the golden
+ * stays the × 12 figure); E5's PAYE falls by exactly the credit.
  *
  * Employees (2027 tax year, real routes, cumulative PAYE):
  *   E0 born 1980, no medical aid, R20 000
@@ -33,6 +35,12 @@ import {
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const GOLDEN = join(__dirname, 'fixtures', 'p4fu-r2b-amtc-identity.golden.json');
+// Wave-6 AN: what 365 ÷ 30.4166 moves each × 12 golden figure by, in cents (the tax on pay × F, ÷ F, rounded
+// cumulatively: the year to date alternates a cent). The credit moves none of them.
+const AN_CENTS: Record<string, number> = {
+  'E0 3': 0, 'E0 4': 1, 'E0 5': 0, 'E1 3': 1, 'E1 4': 0, 'E1 5': 1, 'E2 3': 1, 'E2 4': 0, 'E2 5': 1,
+  'E3 3': 1, 'E3 4': 1, 'E3 5': 1, 'E4 3': 1, 'E4 4': 0, 'E4 5': 1, 'E6 3': 1, 'E6 4': 0, 'E6 5': 1,
+};
 let f: SeveranceFixture;
 let paye: Record<string, number> = {};
 
@@ -97,23 +105,26 @@ describe('R3 part 2: the additional medical credit moves only the PAYE it should
     return;
   }
 
-  it('every line of every other employee (under 65, no medical aid, 65+ without or under the excess) is byte-identical', () => {
+  it('every line of every other employee (under 65, no medical aid, 65+ without or under the excess) is the golden plus AN\'s cents', () => {
     const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Record<string, number>;
     expect(Object.keys(paye).sort()).toEqual(Object.keys(golden).sort());
     const others = Object.keys(golden).filter(k => !k.startsWith('E5 '));
     expect(others).toHaveLength(18);
-    for (const k of others) expect(paye[k], k).toBe(golden[k]);
+    expect(Object.keys(AN_CENTS).sort()).toEqual(others.sort());
+    for (const k of others) expect(Math.round(paye[k]! * 100), k).toBe(Math.round(golden[k]! * 100) + AN_CENTS[k]!);
   });
 
   it('E5 (67, R5 100 a month, member + 1): the year\'s tax falls by the credit, 11 364.624, spread cumulatively', () => {
     // 33,3% x (61 200 - 3 x 9 024) = 33,3% x 34 128 = 11 364.624 a year (SARS Guide on the Determination of
     // Medical Tax Credits, Issue 18, p. 31-32). tax(360 000) = 73 992 - 17 820 - 9 765 - 9 024 = 37 383:
     // 3 115.25 a month before. After: 37 383 - 11 364.624 = 26 018.376 a year; cumulatively
-    // March 26 018.376 / 12 = 2 168.198 -> 2 168.20; April 4 336.396 - 2 168.20 = 2 168.196 -> 2 168.20;
-    // May 6 504.594 - 4 336.40 = 2 168.194 -> 2 168.19.
+    // March 26 018.376 / 12 = 2 168.198 -> 2 168.20; April 2 168.20; May 2 168.19 (× 12).
+    // Under AN (wave 6): the tax after rebates on 30 000 × F, 46 407.21, comes off ÷ F (3 867.2595 a month) and the
+    // credits, monthly amounts, ÷ 12 ((9 024 + 11 364.624) ÷ 12 = 1 699.052): 2 168.2075 a month to date, so
+    // 2 168.21, 2 168.20, 2 168.21.
     const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Record<string, number>;
     expect([3, 4, 5].map(m => golden[`E5 ${m}`])).toEqual([3_115.25, 3_115.25, 3_115.25]);
-    expect([3, 4, 5].map(m => paye[`E5 ${m}`])).toEqual([2_168.2, 2_168.2, 2_168.19]);
+    expect([3, 4, 5].map(m => paye[`E5 ${m}`])).toEqual([2_168.21, 2_168.2, 2_168.21]);
   });
 
   it('the certificate: 4120 carries the credit (E5: 947.05 + 947.05 + 947.06), 0.00 for 65+ without an excess, none under 65', async () => {
