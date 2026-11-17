@@ -29,8 +29,11 @@
    magic check and nothing else; this check is the upload path's own, `fileMagic` is unchanged elsewhere). A bad body is
    400 and the URL stays usable for a corrected PUT. A good PUT moves the row's expiry to now() + 2 h (the finalize
    window) and writes an audit row. Rate limits: the client IP seen behind cloudflared / nginx is the proxy's, so a
-   per-IP bucket would be platform-wide; the buckets are a global ceiling (3000/min), per token (20/min) and per company
-   (600/min). Runs on the service pool in two short public-route transactions (no connection held while the body
+   per-IP bucket would be platform-wide. A malformed or unknown token is charged only to a miss bucket (600/min), which
+   refuses misses and never a real token; a token that names an intent is charged per token (20/min), to the global
+   ceiling (3000/min) and per company (600/min), and only then runs the sweep, so junk tokens can neither drain the
+   ceiling nor drive the sweep. A body past its declared size is not drained: the read stops at cap + 1 byte and the
+   connection is closed. Runs on the service pool in two short public-route transactions (no connection held while the body
    streams); the write names the intent's id AND company_id. The token path is redacted from logs
    (`redactShareToken`).
 3. `finalize_uploads` (`upload_ids[]` ≤ 100) — per id, under the company's RLS and in its own savepoint: re-verify
