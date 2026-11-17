@@ -20,23 +20,36 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import {
   assertFinancialYearStartChange, InvalidFinancialYearStartError,
 } from '@/modules/accounting/services/gl/fiscalYearStartChange';
+import { FinancialYearStartLoadedMissingError } from '@/modules/accounting/services/gl/financialYearStartGuard';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 beforeEach(() => { db.calls = 0; });
 
 describe('assertFinancialYearStartChange: what counts as a month', () => {
   it.each([[true], [false], [[6]], ['6'], [''], [0], [13], [6.5], [-1], [Number.NaN], [{}]])('refuses %j with a 400 error before any query', async (raw) => {
-    await expect(assertFinancialYearStartChange(CO, raw)).rejects.toBeInstanceOf(InvalidFinancialYearStartError);
+    await expect(assertFinancialYearStartChange(CO, raw, 3)).rejects.toBeInstanceOf(InvalidFinancialYearStartError);
     expect(db.calls).toBe(0);
   });
 
-  it.each([[undefined], [null]])('treats %j as no change, without a query', async (raw) => {
-    await expect(assertFinancialYearStartChange(CO, raw)).resolves.toBe(false);
+  it.each([[undefined], [null]])('treats %j as no change, without a query (and judges no loaded month)', async (raw) => {
+    await expect(assertFinancialYearStartChange(CO, raw, undefined)).resolves.toBe(false);
     expect(db.calls).toBe(0);
   });
 
   it.each([[1], [6], [12]])('accepts %j and goes on to read the company', async (raw) => {
-    await expect(assertFinancialYearStartChange(CO, raw)).resolves.toBe(false);
+    await expect(assertFinancialYearStartChange(CO, raw, raw)).resolves.toBe(false);
+    expect(db.calls).toBeGreaterThan(0);
+  });
+});
+
+describe('assertFinancialYearStartChange: the month the caller loaded (PR #1551)', () => {
+  it.each([[undefined], [true], ['3'], [13], [-1], [2.5], [[3]]])('refuses a sent month with loaded %j: 400, before any query', async (loaded) => {
+    await expect(assertFinancialYearStartChange(CO, 3, loaded)).rejects.toBeInstanceOf(FinancialYearStartLoadedMissingError);
+    expect(db.calls).toBe(0);
+  });
+
+  it.each([[null], [0], [1], [12]])('accepts loaded %j (NULL and 0 read as March, as the row) and goes on to read the company', async (loaded) => {
+    await expect(assertFinancialYearStartChange(CO, 3, loaded)).resolves.toBe(false);
     expect(db.calls).toBeGreaterThan(0);
   });
 });
