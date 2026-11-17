@@ -16,11 +16,13 @@ vi.mock('@/modules/accounting/services/budgets/priorActuals', () => ({ loadPrior
 vi.mock('@/modules/accounting/services/budgets/budgetRefResolve', async (orig) => ({
   ...(await orig<object>()), explainMissingAccounts: vi.fn(async (_c: string, refs: string[]) => new Map(refs.map((r) => [r, `${r} is not an account of this company`]))),
 }));
+vi.mock('@/lib/als', async (orig) => ({ ...(await orig<object>()), assertTxUsable: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }) }));
 
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { loadGridCells, loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
 import { BudgetVersionStaleError, saveCells, type SaveCell } from '@/modules/accounting/services/budgets/gridSave';
+import { assertTxUsable } from '@/lib/als';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import type { GridCell } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { recordSnapshot } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
@@ -85,7 +87,8 @@ describe('set_budget_amounts: a dry run with refused rows', () => {
     expect(listed.filter((c) => c.status !== 'refused').map((c) => [c.account, c.status, c.after])).toEqual([['7100', 'added', '2.00']]);
     expect(vi.mocked(saveCells).mock.calls.map((c) => c[2].cells.map((x) => [x.glAccountId, x.month]))).toEqual([[[CHILD, '2026-04']]]);
     expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '102.00']);
-    expect(out.next_step).toMatch(/Accounts whose other cells replace would clear are listed once nothing is refused/);
+    expect(out.next_step).toMatch(/Accounts whose other cells replace would clear \(pending.held_accounts\) are listed once nothing is refused/);
+    expect(out.pending).toEqual({ other_cells_unchecked: false, held_accounts: ['6000'] });
   });
 
   it('replace moving an account to another level with a refused row never trial-saves the new level alone', async () => {
@@ -115,8 +118,20 @@ describe('set_budget_amounts: a dry run with refused rows', () => {
     expect(out).toMatchObject({ ready: false, plan_hash: null, totals: null, counts: { added: 0, changed: 0, removed: 0, unchanged: 0, refused: 1 } });
     expect((out.cells as Array<Record<string, unknown>>).map((c) => c.status)).toEqual(['refused']);
     expect(out.next_step).toMatch(/other cells are checked once nothing is refused/);
+    expect(out.pending).toEqual({ other_cells_unchecked: true, held_accounts: [] });
     expect(JSON.stringify(out)).not.toMatch(/one level per version/);
     expect(r.wroteNothing).toBe(true);
+  });
+
+  it('a plain refused dry run carries no pending marker', async () => {
+    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
+    expect(out).not.toHaveProperty('pending');
+  });
+
+  it('the trial save failing on a finished transaction is thrown, never answered', async () => {
+    vi.mocked(saveCells).mockRejectedValue(new BudgetVersionError('BUDGET_GRAIN_CONFLICT', 'one level'));
+    vi.mocked(assertTxUsable).mockImplementationOnce(() => { throw new Error('Request transaction has already finished'); });
+    await expect(amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx())).rejects.toThrow(/already finished/);
   });
 
   it('with nothing refused a save refusal is still answered', async () => {

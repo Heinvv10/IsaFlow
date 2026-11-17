@@ -19,6 +19,7 @@ import { loadGridCells, loadGridReadModel } from '@/modules/accounting/services/
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
+import { assertTxUsable } from '@/lib/als';
 import { cellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { planCellWrites, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
 import { recordSnapshot } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
@@ -27,7 +28,7 @@ import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolled
 import type { McpToolContext, McpToolResult } from '../types';
 import { isResult, ownVersion } from './budgetToolArgs';
 import { planHashRefusal, staleRefusal, STALE_SINCE_DRY_RUN } from './budgetWriteGate';
-import { actualDiff, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
+import { actualDiff, cellLabels, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
 import { ok, toolError } from './toolHelpers';
 
 export { STALE_SINCE_DRY_RUN };
@@ -116,6 +117,7 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
         });
       } catch (err) {
         if (!(err instanceof BudgetVersionError)) throw err;
+        assertTxUsable();
         if (refused === 0) return toolError(`The save would be refused: ${err.message}`);
         unchecked = true;
         entries = entries.filter((e) => e.status === 'refused');
@@ -128,9 +130,13 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
         dry_run: true, ...base, ready: refused === 0, version_token: token, plan_hash: ready ? hash : null, counts: listing.counts,
         cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated, next_offset: listing.next_offset,
         totals: unchecked ? null : sectionTotals(model, before, after),
+        ...(unchecked || held.size > 0 ? { pending: {
+          other_cells_unchecked: unchecked,
+          held_accounts: [...held].map((id) => cellLabels(model).account(id)),
+        } } : {}),
         next_step: refused > 0
-          ? `Fix or remove the refused cells, then dry-run again.${unchecked ? ' The other cells are checked once nothing is refused.'
-            : held.size > 0 ? ' Accounts whose other cells replace would clear are listed once nothing is refused.' : ''}`
+          ? `Fix or remove the refused cells, then dry-run again.${unchecked ? ' The other cells are checked once nothing is refused.' : ''}${
+            held.size > 0 ? ' Accounts whose other cells replace would clear (pending.held_accounts) are listed once nothing is refused.' : ''}`
           : plan.save.length === 0 ? 'Nothing would change.' : `Apply: call ${w.tool} again with the same arguments, dry_run false and this plan_hash.`,
       }),
       wroteNothing: true,
