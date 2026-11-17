@@ -148,7 +148,7 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
             <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="text-[var(--ff-text-primary)]">Action date {formatDisplayDate(f.actionDate)}</span>
               <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(f.totalCents / 100)} · {f.lineCount} {f.lineCount === 1 ? 'payment' : 'payments'}</span>
-              <span className="font-mono text-xs text-[var(--ff-text-secondary)]" title={f.sha256}>sha256 {f.sha256.slice(0, 12)}…</span>
+              <span className="font-id text-xs text-[var(--ff-text-secondary)]" title={f.sha256}>sha256 {f.sha256.slice(0, 12)}…</span>
               <span className="text-xs text-[var(--ff-text-secondary)]">{statusLabel(f)}</span>
               {canManage && f.status === 'generated' && (
                 <span className="flex gap-2">

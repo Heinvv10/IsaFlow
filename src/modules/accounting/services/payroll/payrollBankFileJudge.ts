@@ -28,6 +28,7 @@
  * money-column changes on an approved run's lines and header (after PS3).
  */
 import { sql } from '@/lib/neon';
+import { formatCents } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { validateBankAccount } from '@/modules/accounting/services/ap/eftService';
 import { resolveBankRoleHolder } from '@/modules/accounting/services/gl/bankRoleHolder';
@@ -38,7 +39,7 @@ import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEn
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
 
 const ACB_TYPES: ReadonlySet<string> = new Set<AcbAccountType>(['cheque', 'savings', 'transmission']);
-const rand = (cents: number): string => `R${(cents / 100).toFixed(2)}`;
+const rand = (cents: number): string => formatCents(cents);
 
 export async function judgeExistingFiles(companyId: string, runId: string): Promise<void> {
   const live = (await sql`
