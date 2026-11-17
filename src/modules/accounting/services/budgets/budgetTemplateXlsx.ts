@@ -113,16 +113,20 @@ export function templateMembers(model: GridReadModel, grain: Exclude<TemplateGra
 /**
  * The template's rows: by band, then in the read model's order. An account is offered at `grain`
  * when it is a budget line already at that grain or holding nothing. At a dimension grain each
- * member in `chosen` is a row for every offered account: the read model lists a member when it is
- * active or holds amounts in the version, and the import accepts any member it lists (MCP PR 2
- * review round 2: an inactive member holding amounts lost its rows for the other accounts).
+ * member in `chosen` is a row where it is active, or where the account already budgets it (an
+ * inactive member's other accounts stay out: MCP PR 2 review round 3 measured that offering them
+ * pushed a 7 774-row template to 8 750 rows, past the 8 333-row cap; the import still accepts such
+ * a row when a person adds it).
  */
-export function templateRows(model: GridReadModel, grain: TemplateGrain, chosen: ReadonlySet<string> = new Set()): TemplateRow[] {
+export function templateRows(model: GridReadModel, grain: TemplateGrain, cents: ReadonlyMap<CellKey, number>, chosen: ReadonlySet<string> = new Set()): TemplateRow[] {
+  const heldRows = new Set([...cents.keys()].map(rowKeyOf));
   const offered = model.accounts.filter((a) => isBudgetLine(a) && (a.grain === null || a.grain === grain));
   const ordered = BAND_ORDER.flatMap((band) => offered.filter((a) => a.band === band));
   if (grain === 'company') return ordered.map((account) => ({ account, member: null, rowKey: templateRowKey(account.id, grain, null) }));
   const members = model.dimensions[grain].filter((m) => chosen.has(m.id));
-  return ordered.flatMap((account) => members.map((member) => ({ account, member, rowKey: templateRowKey(account.id, grain, member.id) })));
+  return ordered.flatMap((account) => members
+    .map((member) => ({ account, member, rowKey: templateRowKey(account.id, grain, member.id) }))
+    .filter((r) => r.member.isActive || heldRows.has(r.rowKey)));
 }
 
 /** PY actual (FY, cents) per template row key. */
@@ -169,7 +173,7 @@ export function templateGrid(model: GridReadModel, grain: TemplateGrain, prior: 
   if (grain === 'company' && members) throw inputError('members picks the rows of a CC1, CC2 or BU template, not a company one.');
   const months = model.year.monthKeys;
   const cents = cellsInCents(model);
-  const rows = templateRows(model, grain, grain === 'company' ? undefined : templateMembers(model, grain, prior, members));
+  const rows = templateRows(model, grain, cents, grain === 'company' ? undefined : templateMembers(model, grain, prior, members));
   const cap = templateRowCap(months.length);
   if (rows.length > cap) {
     throw inputError(`This ${GRAIN_LABEL[grain]} template would have ${rows.length} rows (accounts x members); one import holds at most ${cap} rows of ${months.length} months. Pick fewer members (download the template in parts, naming the members of each).`);

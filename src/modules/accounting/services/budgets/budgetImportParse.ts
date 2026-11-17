@@ -112,8 +112,12 @@ function rawOf(value: ExcelJS.CellValue): RawCell {
 
 const textLength = (c: RawCell): number => (c === null ? 0 : typeof c === 'object' ? c.error.length : String(c).length);
 
-/** The normalised sheets' non-blank rows, by name, read by one streaming reader (also the free-form sheet's, budgetImportFreeform). */
-export async function readSheets(zip: Buffer, names: readonly string[], limits: XlsxLimits): Promise<Map<string, SheetRow[]>> {
+/**
+ * The normalised sheets' non-blank rows, by name, read by one streaming reader (also the free-form sheet's,
+ * budgetImportFreeform). `inspect` (the free-form reader's only) may replace a cell's reading from the cell itself
+ * (its number format, say); the template import passes none.
+ */
+export async function readSheets(zip: Buffer, names: readonly string[], limits: XlsxLimits, inspect?: (cell: ExcelJS.Cell) => RawCell | undefined): Promise<Map<string, SheetRow[]>> {
   const reader = new ExcelJS.stream.xlsx.WorkbookReader(readerInput(zip), {
     worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore',
   });
@@ -138,7 +142,8 @@ export async function readSheets(zip: Buffer, names: readonly string[], limits: 
       if (!row.hasValues) continue;
       const cells: RawCell[] = [];
       for (let c = 1; c <= row.cellCount; c++) {
-        const cell = rawOf(row.getCell(c).value);
+        const source = row.getCell(c);
+        const cell = inspect?.(source) ?? rawOf(source.value);
         text += textLength(cell) + 1;
         if (text > limits.maxOutputBytes) {
           throw new SpreadsheetTooLargeError(`This workbook holds more than ${Math.round(limits.maxOutputBytes / 1024 / 1024)} MB of text once read. Split the file and upload each part.`);

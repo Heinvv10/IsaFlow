@@ -75,14 +75,23 @@ describe('get_budget_template, format json (the default)', () => {
     expect((out.rows as Array<Record<string, unknown>>)[0]).toMatchObject({ dimension_id: CC1, dimension_name: 'Centre' });
   });
 
-  it('round 2: an inactive member that holds amounts in the version is a row for every offered account, as the import accepts it', async () => {
+  it('round 3: an inactive member is a row only for the accounts it holds amounts on (every account would push templates past the cap)', async () => {
     const CC1X = '30000000-0000-4000-8000-0000000000ee';
     const held = { glAccountId: SALES, cc1Id: CC1X, cc2Id: null, buId: null, month: '2026-03', amount: 5, source: 'manual' as const };
     vi.mocked(loadGridReadModel).mockResolvedValue(model({
       cells: [...model().cells, held], dimensions: { cc1: [{ id: CC1, code: 'C1', name: 'Centre', isActive: true }, { id: CC1X, code: 'CX', name: 'Closed', isActive: false }], cc2: [], bu: [] },
     }));
     const out = json(await tool.handler({ version_id: VERSION, grain: 'cc1', members: [CC1, CC1X] }, ctx()));
-    expect((out.rows as Row[]).map((r) => `${r.account}/${r.dimension}`)).toEqual(['4000/C1', '4000/CX', '7100/C1', '7100/CX']);
+    expect((out.rows as Row[]).map((r) => `${r.account}/${r.dimension}`)).toEqual(['4000/C1', '4000/CX', '7100/C1']);
+  });
+
+  it('round 3 measurement: 125 accounts x 62 active CC1 members + 8 inactive members holding 3 accounts each is 7 774 rows (under the 8 333 cap); every account x 70 members would be 8 750 (refused)', async () => {
+    const accounts = Array.from({ length: 125 }, (_, i) => ({ ...model().accounts[0]!, id: `a${String(i).padStart(7, '0')}-1111-4111-8111-111111111111`, code: `A${i}` }));
+    const members = Array.from({ length: 70 }, (_, i) => ({ id: `c${String(i).padStart(7, '0')}-1111-4111-8111-111111111111`, code: `M${i}`, name: `M${i}`, isActive: i < 62 }));
+    const cells = members.slice(62).flatMap((m) => accounts.slice(0, 3).map((a) => ({ glAccountId: a.id, cc1Id: m.id, cc2Id: null, buId: null, month: '2026-03', amount: 1, source: 'manual' as const })));
+    vi.mocked(loadGridReadModel).mockResolvedValue(model({ accounts, cells, dimensions: { cc1: members, cc2: [], bu: [] } }));
+    const out = json(await tool.handler({ version_id: VERSION, grain: 'cc1', members: members.map((m) => m.id), limit: 1 }, ctx()));
+    expect([out.rows_total, 125 * 62 + 8 * 3, 125 * 70, Math.floor(100_000 / 12)]).toEqual([7774, 7774, 8750, 8333]);
   });
 
   it.each([

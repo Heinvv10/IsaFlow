@@ -11,14 +11,15 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { freeformLines } from '@/modules/accounting/services/budgets/budgetImportFreeform';
+import { freeformLines, type FreeformSheet } from '@/modules/accounting/services/budgets/budgetImportFreeform';
 import { diffImportLines } from '@/modules/accounting/services/budgets/budgetImportDiff';
 import type { RawCell, SheetRow } from '@/modules/accounting/services/budgets/budgetImportParse';
 import { bandTotals } from '@/modules/accounting/services/budgets/gridTotals';
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { CC1, MONTHS, RENT, SALES, TOKEN, model } from '../../mcp/budgetToolsFixture';
 
-const sheet = (...rows: RawCell[][]): SheetRow[] => rows.map((cells, i) => ({ row: i + 1, cells }));
+const sheet = (...rows: RawCell[][]): FreeformSheet => ({ name: 'Plan', rows: rows.map((cells, i): SheetRow => ({ row: i + 1, cells })), merges: [], typed: new Map() });
+const linesOf = (m: GridReadModel, grain: 'company' | 'cc1', sh: FreeformSheet) => freeformLines(m, grain, sh).lines;
 const NAMES = ['Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026', 'Nov 2026', 'Dec 2026', 'Jan 2027', 'Feb 2027'];
 const vals = (set: Record<number, RawCell> = {}) => MONTHS.map((_, i) => (i in set ? set[i]! : null));
 
@@ -30,7 +31,7 @@ describe('the header row and its columns', () => {
     ['month names alone in a 12-month year, short and long', ['Code', 'March', 'Apr', 'May', 'June', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec', 'January', 'Feb']],
     ['two-digit years', ['Code', ...NAMES.map((n) => n.replace(' 20', '-'))]],
   ])('%s', (_n, header) => {
-    const lines = freeformLines(model(), 'company', sheet(['Budget FY2027'], header as RawCell[], ['6000', ...vals({ 1: 250 })]));
+    const lines = linesOf(model(), 'company', sheet(['Budget FY2027'], header as RawCell[], ['6000', ...vals({ 1: 250 })]));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ row: 3, accountCode: '6000', dimensionCode: null });
     expect(lines[0]!.amounts.map((a) => a.month)).toEqual(MONTHS);
@@ -38,21 +39,21 @@ describe('the header row and its columns', () => {
   });
 
   it('information columns are ignored (Account name, Description, Section, Total, Notes)', () => {
-    const lines = freeformLines(model(), 'company', sheet(['Code', 'Account name', 'Section', ...MONTHS, 'Total', 'Notes'], ['6000', 'Rent', 'Opex', ...vals({ 0: 1 }), 1, 'x']));
+    const lines = linesOf(model(), 'company', sheet(['Code', 'Account name', 'Section', ...MONTHS, 'Total', 'Notes'], ['6000', 'Rent', 'Opex', ...vals({ 0: 1 }), 1, 'x']));
     expect(lines[0]!.amounts[0]!.cell).toEqual({ kind: 'value', cents: 100 });
   });
 
   it.each([
-    ['no account-code column', [['Name', ...MONTHS]], /^First sheet: no header row with an account code column \("Account code", "Code" or "Account"\) in its first 20 rows/],
-    ['two account-code columns', [['Code', 'Code', ...MONTHS]], /^First sheet, row 1, columns A and B: both are an account code column/],
-    ['an extra column', [['Code', ...MONTHS, 'Foo']], /^First sheet, row 1, column N: "Foo" is not an account code, dimension or month column of FY2027/],
-    ['a month missing', [['Code', ...MONTHS.slice(0, 11)]], /^First sheet, row 1: no column for 2027-02 \(every month of FY2027 needs one; leave a cell blank to keep its amount\)/],
-    ['a month twice', [['Code', ...MONTHS, 'Mar 2026']], /^First sheet, row 1, column N: 2026-03 is also column B/],
-    ['a month outside the year', [['Code', ...MONTHS, '2027-03']], /^First sheet, row 1, column N: "2027-03" is not a month of FY2027 \(2026-03 to 2027-02\)/],
-    ['a value under no header', [['Code', ...MONTHS], ['6000', ...vals(), 5]], /^First sheet, row 2, column N: a value under no header/],
-    ['a dimension column on a company import', [['Code', 'CC1', ...MONTHS]], /^First sheet, row 1, column B: "CC1" names a dimension; a company-level import has none \(send grain cc1, cc2 or bu\)/],
+    ['no account-code column', [['Name', ...MONTHS]], /^Sheet "Plan": no header row with an account code column \("Account code", "Code" or "Account"\) in rows 1 to 20 of the sheet/],
+    ['two account-code columns', [['Code', 'Code', ...MONTHS]], /^Sheet "Plan", row 1, columns A and B: both are an account code column/],
+    ['an extra column', [['Code', ...MONTHS, 'Foo']], /^Sheet "Plan", row 1, column N: "Foo" is not an account code, dimension or month column of FY2027/],
+    ['a month missing', [['Code', ...MONTHS.slice(0, 11)]], /^Sheet "Plan", row 1: no column for 2027-02 \(every month of FY2027 needs one; leave a cell blank to keep its amount\)/],
+    ['a month twice', [['Code', ...MONTHS, 'Mar 2026']], /^Sheet "Plan", row 1, column N: 2026-03 is also column B/],
+    ['a month outside the year', [['Code', ...MONTHS, '2027-03']], /^Sheet "Plan", row 1, column N: "2027-03" is not a month of FY2027 \(2026-03 to 2027-02\)/],
+    ['a value under no header', [['Code', ...MONTHS], ['6000', ...vals(), 5]], /^Sheet "Plan", row 2, column N: a value under no header/],
+    ['a dimension column on a company import', [['Code', 'CC1', ...MONTHS]], /^Sheet "Plan", row 1, column B: "CC1" names a dimension; a company-level import has none \(send grain cc1, cc2 or bu\)/],
   ])('refused: %s', (_n, rows, why) => {
-    expect(() => freeformLines(model(), 'company', sheet(...(rows as RawCell[][])))).toThrow(why);
+    expect(() => linesOf(model(), 'company', sheet(...(rows as RawCell[][])))).toThrow(why);
   });
 
   it('a 14-month year: every month by year-qualified name; a month name alone that is two year months is refused as ambiguous', () => {
@@ -60,25 +61,25 @@ describe('the header row and its columns', () => {
     const long = model({ year: { fiscalYear: 2027, startDate: '2026-03-01', endDate: '2027-04-30', kind: 'transition', monthKeys: m14 } as never,
       totals: bandTotals(model().accounts, new Map(), 14) });
     const named = [...NAMES, 'Mar 2027', 'Apr 2027'];
-    expect(freeformLines(long, 'company', sheet(['Code', ...named], ['4000', ...m14.map(() => 1)]))[0]!.amounts).toHaveLength(14);
-    expect(() => freeformLines(long, 'company', sheet(['Code', 'Mar', ...named.slice(1)])))
-      .toThrow(/^First sheet, row 1, column B: "Mar" is 2026-03 or 2027-03 in FY2027; write the year \(Mar 2026\) or YYYY-MM/);
+    expect(linesOf(long, 'company', sheet(['Code', ...named], ['4000', ...m14.map(() => 1)]))[0]!.amounts).toHaveLength(14);
+    expect(() => linesOf(long, 'company', sheet(['Code', 'Mar', ...named.slice(1)])))
+      .toThrow(/^Sheet "Plan", row 1, column B: "Mar" is 2026-03 or 2027-03 in FY2027; write the year \(Mar 2026\) or YYYY-MM/);
   });
 
   it('decision 14: one dimension column at a dimension grain, never two; a dimension grain needs one', () => {
-    const lines = freeformLines(model(), 'cc1', sheet(['Code', 'Cost centre', ...MONTHS], ['4000', 'C1', ...vals({ 0: 3 })]));
+    const lines = linesOf(model(), 'cc1', sheet(['Code', 'Cost centre', ...MONTHS], ['4000', 'C1', ...vals({ 0: 3 })]));
     expect(lines[0]).toMatchObject({ accountCode: '4000', dimensionCode: 'C1' });
-    expect(() => freeformLines(model(), 'cc1', sheet(['Code', 'CC1', 'BU', ...MONTHS])))
-      .toThrow(/^First sheet, row 1, column C: "BU" is a second dimension column; a budget amount carries at most one dimension \(decision 14\)/);
-    expect(() => freeformLines(model(), 'cc1', sheet(['Code', 'CC1', 'Dimension', ...MONTHS]))).toThrow(/second dimension column/);
-    expect(() => freeformLines(model(), 'cc1', sheet(['Code', ...MONTHS]))).toThrow(/^First sheet, row 1: a CC1 import needs a dimension column \("Dimension code", "CC1", "Cost centre"/);
+    expect(() => linesOf(model(), 'cc1', sheet(['Code', 'CC1', 'BU', ...MONTHS])))
+      .toThrow(/^Sheet "Plan", row 1, column C: "BU" is a second dimension column; a budget amount carries at most one dimension \(decision 14\)/);
+    expect(() => linesOf(model(), 'cc1', sheet(['Code', 'CC1', 'Dimension', ...MONTHS]))).toThrow(/second dimension column/);
+    expect(() => linesOf(model(), 'cc1', sheet(['Code', ...MONTHS]))).toThrow(/^Sheet "Plan", row 1: a CC1 import needs a dimension column \("Dimension code", "CC1", "Cost centre"/);
   });
 });
 
 describe('cells: blank keeps, "clear" clears, an amount sets', () => {
   it('against the version as it is (the version token must be the one the sheet was sent with)', () => {
     const m = model({ cells: [...model().cells, { glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null, month: '2026-04', amount: 7, source: 'manual' }] });
-    const lines = freeformLines(m, 'company', sheet(['Code', ...MONTHS], ['6000', ...vals({ 0: 'Clear', 2: '12.50' })], ['4000', ...vals({ 3: 0 })]));
+    const lines = linesOf(m, 'company', sheet(['Code', ...MONTHS], ['6000', ...vals({ 0: 'Clear', 2: '12.50' })], ['4000', ...vals({ 3: 0 })]));
     expect(lines[0]!.amounts.slice(0, 3)).toEqual([
       { month: '2026-03', cell: { kind: 'blank' } }, { month: '2026-04', cell: { kind: 'blank' }, keep: true }, { month: '2026-05', cell: { kind: 'value', cents: 1250 } },
     ]);
@@ -94,8 +95,65 @@ describe('cells: blank keeps, "clear" clears, an amount sets', () => {
 
   it('per-row faults stay per row (the import\'s resolver): an unknown code, a cell that is not an amount', () => {
     const m: GridReadModel = model();
-    const lines = freeformLines(m, 'company', sheet(['Code', ...MONTHS], ['9999', ...vals({ 0: 1 })], ['6000', ...vals({ 1: 'abc' })]));
+    const lines = linesOf(m, 'company', sheet(['Code', ...MONTHS], ['9999', ...vals({ 0: 1 })], ['6000', ...vals({ 1: 'abc' })]));
     const { preview } = diffImportLines(m, { grain: 'company', readAt: TOKEN, base: 'current', lines });
     expect(preview.errors.map((e) => [e.row, e.column])).toEqual([[2, 'Account code'], [3, '2026-04']]);
+  });
+});
+
+describe('review round 3: what a free-form sheet must not read silently', () => {
+  const at = (rows: SheetRow[], extra: Partial<FreeformSheet> = {}): FreeformSheet => ({ name: 'Plan', rows, merges: [], typed: new Map(), ...extra });
+
+  it('the template\'s own header without its hidden sheets is refused (its blanks would keep, not clear)', () => {
+    expect(() => freeformLines(model(), 'company', sheet(['Section', 'Account code', 'Account name', ...MONTHS, 'FY total', 'PY actual'])))
+      .toThrow(/^Sheet "Plan", row 1: this is an IsaFlow budget template without its hidden _meta and _base sheets; download a fresh one/);
+  });
+
+  it('the header is searched in rows 1 to 20 of the sheet, not the first 20 rows that hold something', () => {
+    const rows: SheetRow[] = [{ row: 1, cells: ['Title'] }, { row: 21, cells: ['Code', ...MONTHS] }, { row: 22, cells: ['6000', ...vals({ 0: 1 })] }];
+    expect(() => freeformLines(model(), 'company', at(rows))).toThrow(/no header row .* in rows 1 to 20 of the sheet/);
+  });
+
+  it('rows with no code, total rows and section headings with no amounts are skipped and listed; a section heading with amounts is not', () => {
+    const out = freeformLines(model(), 'company', sheet(['Code', ...MONTHS], ['', ...vals({ 0: 5 })], ['Revenue', ...vals()], ['6000', ...vals({ 0: 1 })],
+      ['Grand total', ...vals({ 0: 6 })], ['SUBTOTAL', ...vals({ 1: 1 })], ['Expenses', ...vals({ 0: 2 })]));
+    expect(out.skipped).toEqual([
+      { row: 2, reason: 'no account code' }, { row: 3, reason: 'not an account, and no amounts (a heading?)' },
+      { row: 5, reason: 'a total row' }, { row: 6, reason: 'a total row' },
+    ]);
+    expect(out.lines.map((l) => l.accountCode)).toEqual(['6000', 'Expenses']); // "Expenses" with an amount reaches the resolver, which refuses it
+  });
+
+  it('a numeric code that lost its leading zero: refused, never guessed; ambiguous when both codes exist', () => {
+    const padded = model({ accounts: [...model().accounts, { ...model().accounts[0]!, id: '20000000-0000-4000-8000-0000000000a1', code: '0400', name: 'Fees' }] });
+    const lost = freeformLines(padded, 'company', sheet(['Code', ...MONTHS], [400, ...vals({ 0: 1 })], ['0400', ...vals({ 0: 1 })]));
+    expect(lost.errors).toEqual([{ row: 2, column: 'Account code', account: '400', message: 'Account code 400 is a number: it lost its leading zero (0400?). Format the code column as text and type the code.' }]);
+    expect(lost.lines.map((l) => l.accountCode)).toEqual(['0400']);
+    const both = model({ accounts: [...padded.accounts, { ...model().accounts[0]!, id: '20000000-0000-4000-8000-0000000000a2', code: '400', name: 'Other' }] });
+    expect(freeformLines(both, 'company', sheet(['Code', ...MONTHS], [400, ...vals({ 0: 1 })])).errors[0]!.message)
+      .toBe('Account code 400 is a number and could be 400 or 0400 (a lost leading zero). Format the code column as text and type the code.');
+  });
+
+  it('a number with more than 2 decimals is refused per cell (the template import rounds; a free-form sheet does not); float noise is not', () => {
+    const [line] = freeformLines(model(), 'company', sheet(['Code', ...MONTHS], ['6000', ...vals({ 0: 1.005, 1: 1.1, 2: 0.07 })])).lines;
+    expect(line!.amounts[0]!.cell).toEqual({ kind: 'error', raw: '1.005', reason: 'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)' });
+    expect(line!.amounts.slice(1, 3).map((a) => a.cell)).toEqual([{ kind: 'value', cents: 110 }, { kind: 'value', cents: 7 }]);
+  });
+
+  it('a boolean or error formula result in a month cell is refused per cell (the reader would give 1 for TRUE)', () => {
+    const typed = new Map([['2:1', 'boolean' as const], ['2:2', 'error' as const]]); // sheet row : 0-based column
+    const [line] = freeformLines(model(), 'company', at([{ row: 1, cells: ['Code', ...MONTHS] }, { row: 2, cells: ['6000', 1, 1, 7] }], { typed })).lines;
+    expect(line!.amounts.slice(0, 3).map((a) => a.cell)).toEqual([
+      { kind: 'error', raw: '', reason: 'This cell is a TRUE / FALSE result, not an amount.' },
+      { kind: 'error', raw: '', reason: 'This formula\'s result is an error, not an amount.' },
+      { kind: 'value', cents: 700 },
+    ]);
+  });
+
+  it('a merged range across month columns is refused (only its first month would be read); one in another column is not', () => {
+    const rows = [{ row: 1, cells: ['Code', 'Description', ...MONTHS] }, { row: 2, cells: ['6000', 'Rent', 120] }] as SheetRow[];
+    expect(() => freeformLines(model(), 'company', at(rows, { merges: [{ ref: 'C2:E2', top: 2, left: 2, bottom: 2, right: 4 }] })))
+      .toThrow(/^Sheet "Plan", cells C2:E2: merged across month columns \(only the first month would be read\); unmerge them and give each month its amount/);
+    expect(freeformLines(model(), 'company', at(rows, { merges: [{ ref: 'A5:B5', top: 5, left: 0, bottom: 5, right: 1 }] })).lines).toHaveLength(1);
   });
 });
