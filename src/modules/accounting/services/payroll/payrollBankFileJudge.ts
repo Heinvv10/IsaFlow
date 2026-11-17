@@ -13,11 +13,13 @@
  *                       slips past, whether or not changes are written as new rows), missing or invalid details, negative net. Nil
  *                       net pay is left out of the file and named in the warnings (coordinator ruling, review #1524).
  *   judgeApprovedTotals fail closed (BRK-3, D-1): the run must link a posted, unreversed journal of ITS OWN (source
- *                       'auto_payroll' and description 'Payroll run YYYY-MM' of the run's period, as
- *                       payrollJournalPostingService writes it: a header repointed at another journal is refused) with net-pay lines
+ *                       'auto_payroll' and payrollRunJournalDescription of the run's period, the one definition the
+ *                       journal plan uses; a header repointed at another run's journal is refused) with net-pay lines
  *                       (JOURNAL_NOT_POSTED otherwise: post it first), and the lines must sum to both the header's
- *                       total_net and that journal's net-pay credit. The header alone is no anchor: app_user can move
- *                       it with the lines; the posted journal it cannot.
+ *                       total_net and that journal's net-pay credit. The header alone is no anchor: app_user can move it
+ *                       with the lines. The journal binds against ROUTED writers only: raw-SQL forging or editing of a
+ *                       posted journal as app_user (review #1524 E-1/E-2) is a residual closed by wave-6 PR FZ
+ *                       (posted gl_journal_lines immutability and the insert-as-posted balance gap).
  *
  * RESIDUAL (security review (b), coordinator ruling C): the anchors are TOTALS. Nothing records each employee's net at
  * approval (the plan hash and the R-035 digest cover journal lines aggregated by account and CC1; the journal has one
@@ -31,6 +33,7 @@ import { validateBankAccount } from '@/modules/accounting/services/ap/eftService
 import { resolveBankRoleHolder } from '@/modules/accounting/services/gl/bankRoleHolder';
 import { salaryReference, type AcbAccount, type AcbAccountType, type AcbPayment } from './payrollAcbFile';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
+import { payrollRunJournalDescription } from './payrollJournalDescription';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
 
 const ACB_TYPES: ReadonlySet<string> = new Set<AcbAccountType>(['cheque', 'savings', 'transmission']);
@@ -135,7 +138,9 @@ export async function readPayments(companyId: string, runId: string): Promise<Ru
   return out;
 }
 
-export async function judgeApprovedTotals(companyId: string, runId: string, linesCents: bigint): Promise<void> {
+export async function judgeApprovedTotals(
+  companyId: string, runId: string, period: { year: number; month: number }, linesCents: bigint,
+): Promise<void> {
   const h = ((await sql`
     SELECT round(h.total_net * 100)::bigint::text AS approved_cents,
            (SELECT round(sum(jl.credit) * 100)::bigint::text FROM gl_journal_lines jl
@@ -143,7 +148,7 @@ export async function judgeApprovedTotals(companyId: string, runId: string, line
       FROM payroll_run_headers h
       LEFT JOIN gl_journal_entries e ON e.id = h.journal_entry_id AND e.company_id = h.company_id
         AND e.status = 'posted' AND e.reversed_at IS NULL AND e.source = 'auto_payroll'
-        AND e.description = 'Payroll run ' || h.period_year || '-' || lpad(h.period_month::text, 2, '0')
+        AND e.description = ${payrollRunJournalDescription(period.year, period.month)}
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   const approved = h?.approved_cents == null ? null : BigInt(String(h.approved_cents));

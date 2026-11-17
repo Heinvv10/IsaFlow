@@ -3,16 +3,19 @@
  *   D-1  fail closed on the approved figures: lines + header total moved together, the journal unlinked or reversed,
  *        are refused (JOURNAL_NOT_POSTED); with the journal still linked the drift is RUN_CHANGED_SINCE_APPROVAL.
  *   D-2  re-activating an older bank row after approval counts as changed details (activated_at, 999h).
- *   D-3  a pre-reopen file confirmed against a re-approval with other figures names the difference, both ways.
+ *   (a)  a header repointed at another run's journal is refused.
+ *   census: app_user's UPDATE columns on payroll_bank_details are exactly {is_active}.
+ * D-3/E-5 (what a confirmed pre-reopen file leaves to settle) are in payroll-bank-file-settlement.int.test.ts.
  * D-4 (claims-based actor restamp) is a documented residual in the 999h header, not a control.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
 import { Pool, type PoolClient } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { payrollRunJournalDescription } from '@/modules/accounting/services/payroll/payrollJournalDescription';
 import { rig } from './brkr.helpers';
 import {
-  act, approvedRun, bank, cleanup, enable, files, generate, payingAccount, reason, status, type R,
+  approvedRun, bank, cleanup, enable, files, generate, payingAccount, reason, type R,
 } from './payroll-bank-file.helpers';
 
 let a: R;
@@ -29,18 +32,6 @@ async function asAppUser(fn: (c: PoolClient) => Promise<void>): Promise<void> {
     await fn(c);
     await c.query('COMMIT');
   } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); await pool.end(); }
-}
-
-/** Reopen, change employee 0's salary, recalculate, reverse the first approval's journal, approve again. */
-async function reapproveAt(run: string, salary: number): Promise<void> {
-  const je = String((await a.header(run)).journal_entry_id);
-  await a.setSalary(emp[0]!.salaryRow, salary);
-  expect((await a.api.reopen(run)).statusCode).toBe(200);
-  expect((await a.api.calculate(run)).statusCode).toBe(200);
-  expect((await a.api.reverse(je)).statusCode).toBe(200);
-  await a.authorise(run);
-  expect((await a.api.approve(run)).statusCode).toBe(200);
-  await a.setSalary(emp[0]!.salaryRow, 25000);
 }
 
 beforeAll(async () => {
@@ -89,6 +80,9 @@ describe('salary bank file, review #1524 round 2', () => {
     const other = await approvedRun(a, 7);
     const run = await approvedRun(a, 8);
     const otherJe = String((await a.header(other)).journal_entry_id);
+    // The binding's one definition is the one the real plan builder and poster wrote.
+    const desc = (await a.pool.query('SELECT description, source FROM gl_journal_entries WHERE id = $1', [otherJe])).rows[0];
+    expect(desc).toEqual({ description: payrollRunJournalDescription(2026, 7), source: 'auto_payroll' });
     expect(Math.round((await a.header(other)).net * 100)).toBe(Math.round((await a.header(run)).net * 100));
     await asAppUser(async (c) => {
       await c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, otherJe]);
@@ -111,21 +105,11 @@ describe('salary bank file, review #1524 round 2', () => {
     await a.pool.query("UPDATE payroll_bank_details SET is_active = true, activated_at = NULL WHERE employee_id = $1 AND account_number = '4071234567'", [emp[0]!.employee]);
   }, 120_000);
 
-  it.each([
-    ['still to pay (the re-approval pays more)', 5, 40000, 1],
-    ['overpaid (the re-approval pays less)', 6, 15000, -1],
-  ])('D-3: a pre-reopen file confirmed against a re-approval names the difference: %s', async (_name, month, salary, sign) => {
-    const run = await approvedRun(a, month);
-    const first = await generate(a, run);
-    expect(first.statusCode).toBe(200);
-    await reapproveAt(run, salary);
-    const currentCents = Math.round((await a.header(run)).net * 100);
-    const diff = currentCents - Number(first.body.data!.totalCents);
-    expect(Math.sign(diff)).toBe(sign);
-    const ok = await act(a, run, String(first.body.data!.id), 'confirm');
-    expect(ok.body.data).toEqual({ id: first.body.data!.id, status: 'confirmed', differenceCents: diff });
-    const st = (await status(a, run)).body.data!;
-    expect(st.files[0]).toMatchObject({ status: 'confirmed', differenceCents: diff });
-    expect(reason(await generate(a, run))).toBe('BANK_HAS_PAID');
-  }, 240_000);
+  it('census: app_user may UPDATE only is_active on payroll_bank_details (the activation stamp relies on it)', async () => {
+    const cols = (await a.pool.query(
+      `SELECT column_name FROM information_schema.column_privileges
+        WHERE table_schema = 'public' AND table_name = 'payroll_bank_details' AND grantee = 'app_user' AND privilege_type = 'UPDATE'
+        ORDER BY 1`)).rows.map((r) => r.column_name);
+    expect(cols).toEqual(['is_active']);
+  });
 });

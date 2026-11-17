@@ -116,10 +116,15 @@ describe('salary bank file money controls (review #1524)', () => {
 
   it('BRK-5: app_user cannot forge a file for an unapproved run, nor name another maker', async () => {
     const run = await a.calculatedRun(6);
-    const forge = (runId: string, by: string) => asAppUser(a.admin, (q) => q(
-      `INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
-       SELECT $1, h.id, 'acb', 'fnb_obe_2023_02', repeat('a', 64), 1, 1, '2099-01-01', COALESCE(h.approved_at, now()), $3
-         FROM payroll_run_headers h WHERE h.id = $2 RETURNING created_by`, [a.company, runId, by]));
+    const forge = (runId: string, by: string) => asAppUser(a.admin, async (q) => {
+      const made = await q(
+        `INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
+         SELECT $1, h.id, 'acb', 'fnb_obe_2023_02', repeat('a', 64), 1, 1, '2099-01-01', COALESCE(h.approved_at, now()), $3
+           FROM payroll_run_headers h WHERE h.id = $2 RETURNING id, created_by`, [a.company, runId, by]);
+      await q('INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents) VALUES ($1, $2, $3, 1)',
+        [a.company, made.rows[0]!.id, emp[0]]);
+      return made;
+    });
     await expect(forge(run, a.admin)).rejects.toThrow(/for an approved run, at its current approval/);
     const approved = await approvedRun(a, 7);
     const made = await forge(approved, 'nobody');

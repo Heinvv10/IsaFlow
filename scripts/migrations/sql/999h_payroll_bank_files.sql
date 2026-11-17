@@ -17,6 +17,12 @@
 --             the bank did pay must still be recordable); void needs void_not_sent.
 --     stamps  created_by / confirmed_by / voided_by are the session user (auth.uid(), as 999c), never what the caller
 --             wrote; no session user is refused. Times are the trigger's clock. The column grants stop the rest.
+--   payroll_bank_file_items  what the file paid each employee (review #1524 E-5): one row per payment, written in the
+--     same transaction as its file and never changed (no UPDATE for anyone; no DELETE granted to app_user). Its guard refuses an item for a file that is not this
+--     company's or not 'generated'; a deferred check at COMMIT refuses a file whose items do not sum to its total_cents
+--     and count to its line_count (checked on the file's insert too, so a file committed without its items is refused). A file foots from its first commit, so any item added later breaks the foot and is
+--     refused: the set is fixed with the file. Read when a pre-reopen file is confirmed against a
+--     re-approval: the difference per employee, never netted across employees.
 --   payroll_bank_details.activated_at  when the row last became active (review #1524 D-2). A BEFORE trigger stamps it
 --     with the trigger's clock on an active INSERT and on an is_active false -> true UPDATE, and keeps it otherwise, so
 --     the caller cannot choose it (app_user may INSERT any column and UPDATE is_active only; a written created_at can
@@ -38,6 +44,9 @@
 --   DROP TRIGGER IF EXISTS payroll_bank_details_activated ON public.payroll_bank_details;
 --   DROP FUNCTION IF EXISTS public.payroll_bank_details_activated();
 --   ALTER TABLE public.payroll_bank_details DROP COLUMN IF EXISTS activated_at;
+--   DROP TABLE IF EXISTS public.payroll_bank_file_items;
+--   DROP FUNCTION IF EXISTS public.payroll_bank_file_items_guard();
+--   DROP FUNCTION IF EXISTS public.payroll_bank_file_items_total();
 --   DROP TABLE IF EXISTS public.payroll_bank_files;
 --   DROP FUNCTION IF EXISTS public.payroll_bank_files_guard();
 --   SELECT public.app_service_sync_policies();
@@ -140,6 +149,76 @@ GRANT SELECT ON public.payroll_bank_files TO app_user;
 GRANT INSERT (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
   ON public.payroll_bank_files TO app_user;
 GRANT UPDATE (status, confirmed_by, confirmed_at, voided_by, voided_at, void_not_sent) ON public.payroll_bank_files TO app_user;
+
+-- ── payroll_bank_file_items (E-5) ─────────────────────────────────────────────
+-- (Created after payroll_bank_files; the file table's deferred foot check below names it.)
+CREATE TABLE IF NOT EXISTS public.payroll_bank_file_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES public.companies(id),
+  file_id UUID NOT NULL REFERENCES public.payroll_bank_files(id),
+  employee_id UUID NOT NULL REFERENCES public.payroll_employees(id),
+  amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+  CONSTRAINT payroll_bank_file_items_one_per_employee UNIQUE (file_id, employee_id)
+);
+COMMENT ON TABLE public.payroll_bank_file_items IS
+  'What each salary bank file paid each employee (999h, review #1524 E-5). Written with the file, never changed.';
+
+CREATE OR REPLACE FUNCTION public.payroll_bank_file_items_guard() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  f record;
+BEGIN
+  -- No UPDATE for anyone. DELETE is not granted to app_user (only an owner tidying a disposable database removes rows).
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'payroll_bank_file_items: an item is never changed' USING ERRCODE = 'check_violation';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  SELECT status INTO f FROM public.payroll_bank_files WHERE id = NEW.file_id AND company_id = NEW.company_id;
+  IF NOT FOUND OR f.status <> 'generated' THEN
+    RAISE EXCEPTION 'payroll_bank_file_items: items belong to a generated file of this company'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS payroll_bank_file_items_guard ON public.payroll_bank_file_items;
+CREATE TRIGGER payroll_bank_file_items_guard BEFORE INSERT OR UPDATE OR DELETE ON public.payroll_bank_file_items
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_guard();
+ALTER TABLE public.payroll_bank_file_items ENABLE ALWAYS TRIGGER payroll_bank_file_items_guard;
+
+-- At COMMIT: the items of a file foot to its total and count (checked once per inserted item; cheap, files are small).
+CREATE OR REPLACE FUNCTION public.payroll_bank_file_items_total() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  ok boolean;
+  fid uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'payroll_bank_files' THEN fid := NEW.id; ELSE fid := NEW.file_id; END IF;
+  SELECT f.total_cents = COALESCE(sum(i.amount_cents), 0) AND f.line_count = count(i.id) INTO ok
+    FROM public.payroll_bank_files f LEFT JOIN public.payroll_bank_file_items i ON i.file_id = f.id
+   WHERE f.id = fid GROUP BY f.id, f.total_cents, f.line_count;
+  IF NOT COALESCE(ok, false) THEN
+    RAISE EXCEPTION 'payroll_bank_file_items: the items of file % do not foot to its total and count', fid
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NULL;
+END $$;
+DROP TRIGGER IF EXISTS payroll_bank_file_items_total ON public.payroll_bank_file_items;
+CREATE CONSTRAINT TRIGGER payroll_bank_file_items_total AFTER INSERT ON public.payroll_bank_file_items
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_total();
+-- And for the file itself: a file committed with no (or short) items is refused too.
+DROP TRIGGER IF EXISTS payroll_bank_files_items_total ON public.payroll_bank_files;
+CREATE CONSTRAINT TRIGGER payroll_bank_files_items_total AFTER INSERT ON public.payroll_bank_files
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_total();
+
+ALTER TABLE public.payroll_bank_file_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payroll_bank_file_items FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON public.payroll_bank_file_items;
+CREATE POLICY tenant_isolation ON public.payroll_bank_file_items FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
+REVOKE ALL ON public.payroll_bank_file_items FROM app_user;
+GRANT SELECT ON public.payroll_bank_file_items TO app_user;
+GRANT INSERT (company_id, file_id, employee_id, amount_cents) ON public.payroll_bank_file_items TO app_user;
 
 -- ── payroll_bank_details.activated_at (D-2) ──────────────────────────────────
 ALTER TABLE public.payroll_bank_details ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ;

@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
+import { fileSettlement, type FileSettlement } from './payrollBankFileSettlement';
 
 /** The platform switch (spec rule 20): generation is refused while it is off for the company. */
 export const SALARY_BANK_FILE_FLAG = 'payroll_salary_bank_file';
@@ -60,10 +61,10 @@ export interface PayrollBankFile {
   /** The run was reopened since this file was made: it pays an approval that has ended. */
   stale: boolean;
   /**
-   * A confirmed file of an earlier approval while the run is approved again (review #1524 D-3): the run's current net
-   * less what the bank paid, in cents. Positive = still to pay separately; negative = overpaid. Null otherwise.
+   * A confirmed file of an earlier approval while the run is approved again (review #1524 D-3/E-5): per employee, what
+   * is still owed and what was overpaid, never netted (payrollBankFileSettlement). Null otherwise.
    */
-  differenceCents: number | null;
+  settlement: FileSettlement | null;
 }
 
 const iso = (v: unknown): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -74,20 +75,19 @@ export async function listRunBankFiles(companyId: string, runId: string): Promis
     SELECT f.id, f.status, f.layout, f.sha256, f.line_count, f.total_cents::text AS total_cents, f.action_date::text AS action_date,
            f.created_at, f.confirmed_at, f.voided_at,
            NOT COALESCE(h.status IN ('approved', 'paid') AND f.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at), false) AS stale,
-           CASE WHEN f.status = 'confirmed' AND h.status IN ('approved', 'paid')
-                 AND f.run_approved_at IS DISTINCT FROM COALESCE(h.approved_at, h.approval_grandfathered_at)
-                THEN (round(h.total_net * 100)::bigint - f.total_cents)::text END AS difference_cents
+           (f.status = 'confirmed' AND h.status IN ('approved', 'paid')
+             AND f.run_approved_at IS DISTINCT FROM COALESCE(h.approved_at, h.approval_grandfathered_at)) AS needs_settlement
       FROM payroll_bank_files f
       JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id
      WHERE f.company_id = ${companyId}::uuid AND f.run_id = ${runId}::uuid
      ORDER BY f.created_at DESC, f.id
   `) as DbRow[];
-  return rows.map((r) => ({
+  return Promise.all(rows.map(async (r) => ({
     id: String(r.id), status: r.status as BankFileStatus, layout: String(r.layout), sha256: String(r.sha256),
     lineCount: Number(r.line_count), totalCents: Number(r.total_cents), actionDate: String(r.action_date),
     createdAt: iso(r.created_at)!, confirmedAt: iso(r.confirmed_at), voidedAt: iso(r.voided_at), stale: r.stale === true,
-    differenceCents: r.difference_cents == null ? null : Number(r.difference_cents),
-  }));
+    settlement: r.needs_settlement === true ? await fileSettlement(companyId, runId, String(r.id)) : null,
+  })));
 }
 
 export interface RunBankFileState {

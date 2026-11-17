@@ -105,7 +105,6 @@ export function acbText(value: string): string {
   return value.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** A text field (p.7 fields 14 and 16 "must contain" a reference / the account name): never blank once folded. */
 /**
  * The To Account Reference (p.7 field 14, 20 characters) of a salary payment: the company, shortened, then the pay
  * period, e.g. "Velocity SAL 2026-10". The period makes two runs' files differ even when their figures and action date
@@ -116,6 +115,7 @@ export function salaryReference(companyName: string, year: number, month: number
   return `${acbText(companyName).slice(0, 20 - suffix.length).trim()}${suffix}`.trim();
 }
 
+/** A text field (p.7 fields 14 and 16 "must contain" a reference / the account name): never blank once folded. */
 function text(value: string, width: number, what: string, warnings: string[], owner: AcbFieldOwner): string {
   const clean = acbText(value);
   if (clean === '') throw new AcbFileInputError(`${what} "${value}" has no characters the bank file can carry`, owner);

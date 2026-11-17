@@ -17,18 +17,26 @@ import type { PayrollBankFile, RunBankFileState } from '@/modules/accounting/ser
 const LOAD_FAILED = 'Could not load the salary bank file - try again';
 const BTN = 'px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50';
 
-/** D-3: a confirmed file of an earlier approval names the difference to the current one. */
-export function confirmedLabel(f: PayrollBankFile): string {
-  const paid = formatCurrency(f.totalCents / 100);
-  if (f.differenceCents == null) return 'Payment confirmed';
-  if (f.differenceCents === 0) return `The bank paid ${paid} on the earlier approval; nothing more to pay`;
-  return f.differenceCents > 0
-    ? `The bank paid ${paid} on the earlier approval; ${formatCurrency(f.differenceCents / 100)} still to pay separately`
-    : `The bank paid ${paid} on the earlier approval; ${formatCurrency(-f.differenceCents / 100)} overpaid`;
+const people = (n: number) => `${n} ${n === 1 ? 'employee' : 'employees'}`;
+
+/**
+ * D-3/E-5: what a confirmed file of an earlier approval leaves to settle, per employee and never netted. Owed and
+ * overpaid are separate sentences, each naming the people; an empty list means the file is for the current approval.
+ */
+export function settlementLines(f: PayrollBankFile): string[] {
+  const s = f.settlement;
+  if (!s) return [];
+  const names = (list: { employeeNumber: string; name: string; cents: number }[]) =>
+    list.map((e) => `${e.name} (${e.employeeNumber}) ${formatCurrency(e.cents / 100)}`).join(', ');
+  const lines: string[] = [];
+  if (s.owedCents > 0) lines.push(`Still to pay ${formatCurrency(s.owedCents / 100)} to ${people(s.owedTo.length)} separately: ${names(s.owedTo)}.`);
+  if (s.overpaidCents > 0) lines.push(`Overpaid ${formatCurrency(s.overpaidCents / 100)} by ${people(s.overpaidBy.length)}: ${names(s.overpaidBy)}.`);
+  if (lines.length === 0) lines.push('Nothing more to pay: every employee was paid their current net.');
+  return lines;
 }
 
 function statusLabel(f: PayrollBankFile): string {
-  if (f.status === 'confirmed') return confirmedLabel(f);
+  if (f.status === 'confirmed') return f.settlement ? 'Paid by the bank on an earlier approval' : 'Payment confirmed';
   if (f.status === 'voided') return 'Voided';
   return f.stale ? 'Made before the run was reopened: record it if the bank paid it, or void it' : 'Generated, not yet confirmed';
 }
@@ -120,10 +128,11 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
       {confirmed && (
         <p role="status" className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          {confirmed.differenceCents == null
+          {!confirmed.settlement
             ? <>The bank has paid this run (file confirmed {confirmed.confirmedAt ? formatDisplayDate(confirmed.confirmedAt.slice(0, 10)) : ''}).
               Reopening the run does not reverse that payment: pay any difference separately.</>
-            : <>{confirmedLabel(confirmed)}.</>}
+            : <span>The bank paid {formatCurrency(confirmed.totalCents / 100)} on the earlier approval.{' '}
+              {settlementLines(confirmed).join(' ')}</span>}
         </p>
       )}
       {state && !state.enabled && state.files.length === 0 && (

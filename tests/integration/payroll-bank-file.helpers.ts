@@ -53,6 +53,7 @@ export const reapprove = async (r: R, runId: string) => {
   if (ap.statusCode !== 200) throw new Error(`re-approve: ${ap.statusCode} ${JSON.stringify(ap.body)}`);
 };
 export const cleanup = async (r: R) => {
+  await r.pool.query('DELETE FROM payroll_bank_file_items WHERE company_id = $1', [r.company]);
   await r.pool.query('DELETE FROM payroll_bank_files WHERE company_id = $1', [r.company]);
   await r.pool.query('DELETE FROM payroll_bank_details WHERE company_id = $1', [r.company]);
   await r.pool.query('DELETE FROM company_feature_overrides WHERE company_id = $1', [r.company]);

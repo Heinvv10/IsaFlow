@@ -110,7 +110,7 @@ export async function generateSalaryBankFile(opts: {
   judgeActionDate(actionDate);
   const from = await payingAccount(companyId);
   const pay = await readPayments(companyId, runId);
-  await judgeApprovedTotals(companyId, runId, pay.linesCents);
+  await judgeApprovedTotals(companyId, runId, { year: Number(run.period_year), month: Number(run.period_month) }, pay.linesCents);
   const file = build(from, actionDate, pay);
   const sha256 = createHash('sha256').update(file.content, 'latin1').digest('hex');
 
@@ -128,6 +128,12 @@ export async function generateSalaryBankFile(opts: {
     if (isLiveFileClash(err)) throw new PayrollBankFileRefusal('FILE_EXISTS', 'A salary bank file was just generated for this run by another request.');
     throw err;
   }
+  // What the file pays each employee (999h payroll_bank_file_items; footed against the file at COMMIT).
+  await sql`
+    INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents)
+    SELECT ${companyId}::uuid, ${id}::uuid, t.employee_id, t.amount_cents
+      FROM unnest(${pay.employeeIds}::uuid[], ${pay.payments.map((p) => String(p.amountCents))}::bigint[]) AS t(employee_id, amount_cents)
+  `;
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'export', entityType: 'payroll_bank_file', entityId: id,
     changes: { fields: [], metadata: { revealed: 'account_number', runId, sha256, employeeIds: pay.employeeIds.join(',') } },

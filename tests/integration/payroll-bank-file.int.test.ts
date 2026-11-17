@@ -72,6 +72,9 @@ describe('salary bank file', () => {
     expect(body.sha256).toBe(createHash('sha256').update(String(body.content), 'latin1').digest('hex'));
     expect(await files(a)).toMatchObject([{ status: 'generated', sha256: body.sha256, line_count: 2, total_cents: String(body.totalCents), created_by: a.admin }]);
     expect(await exports(a)).toBe(1);
+    const items = (await a.pool.query('SELECT employee_id, amount_cents::int AS c FROM payroll_bank_file_items WHERE file_id = $1 ORDER BY amount_cents DESC', [body.id])).rows;
+    expect(items.map((i) => i.employee_id)).toEqual([emp[0], emp[1]]);
+    expect(items.reduce((t, i) => t + i.c, 0)).toBe(body.totalCents);
     expect(reason(await generate(a, run1))).toBe('FILE_EXISTS');
     expect((await files(a)).length).toBe(1);
   });
@@ -103,7 +106,7 @@ describe('salary bank file', () => {
     const [file] = await files(a);
     const before = (await a.pool.query('SELECT status, approved_at, paid_at FROM payroll_run_headers WHERE id = $1', [run1])).rows[0];
     const ok = await act(a, run1, String(file!.id), 'confirm');
-    expect([ok.statusCode, ok.body.data]).toEqual([200, { id: file!.id, status: 'confirmed', differenceCents: null }]);
+    expect([ok.statusCode, ok.body.data]).toEqual([200, { id: file!.id, status: 'confirmed', settlement: null }]);
     expect((await a.pool.query('SELECT status, approved_at, paid_at FROM payroll_run_headers WHERE id = $1', [run1])).rows[0]).toEqual(before);
     expect((await files(a))[0]).toMatchObject({ confirmed_by: a.admin });
     expect((await status(a, run1)).body.data!.paymentConfirmed).toBe(true);
@@ -137,6 +140,8 @@ describe('salary bank file', () => {
         `INSERT INTO payroll_bank_files (company_id, run_id, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
          SELECT company_id, id, 'fnb_obe_2023_02', repeat('b', 64), 1, 1, '2099-01-15', COALESCE(approved_at, approval_grandfathered_at), 'x'
            FROM payroll_run_headers WHERE id = $1`, [run]);
+      await c.query(`INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents)
+                     SELECT company_id, id, $2, 1 FROM payroll_bank_files WHERE run_id = $1`, [run, emp[0]]);
       const pending = generate(a, run); // its judge cannot see the uncommitted row; its insert waits on the unique index
       // Commit only once generate's INSERT is waiting on this transaction's lock, so the mapping is surely reached.
       for (let i = 0; ; i += 1) {
@@ -156,6 +161,22 @@ describe('salary bank file', () => {
 
   it('the table refuses a forged transition, a changed fact, and a write with no session user', async () => {
     const [file] = await files(a);
+    const asSession = async (text: string, values: unknown[], asAppUser = false) => {
+      const c = await a.pool.connect();
+      try {
+        await c.query('BEGIN');
+        if (asAppUser) await c.query('SET LOCAL ROLE app_user');
+        await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin })]);
+        await c.query(text, values);
+        await c.query('COMMIT');
+      } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
+    };
+    // Items: fixed with their file. No change, no removal, no extra item (it breaks the foot at COMMIT).
+    await expect(asSession('UPDATE payroll_bank_file_items SET amount_cents = 1 WHERE file_id = $1', [file!.id])).rejects.toThrow(/never changed/);
+    await expect(asSession('DELETE FROM payroll_bank_file_items WHERE file_id = $1', [file!.id], true)).rejects.toThrow(/permission denied/);
+    const live = (await files(a)).find((f) => f.status === 'generated');
+    await expect(asSession('INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents) VALUES ($1, $2, $3, 1)',
+      [a.company, live!.id, emp[0]])).rejects.toThrow(/do not foot|duplicate key/);
     await expect(a.pool.query("UPDATE payroll_bank_files SET status = 'generated', confirmed_at = NULL, confirmed_by = NULL WHERE id = $1", [file!.id]))
       .rejects.toThrow(/session user|only a generated file/);
     await expect(a.pool.query('UPDATE payroll_bank_files SET total_cents = 1 WHERE id = $1', [file!.id])).rejects.toThrow(/session user|only a generated file/);
