@@ -2,7 +2,7 @@
  * PAYE 4a follow-ups G4, breaker round 1 on PR B, ported: months approved out
  * of order. PAYE is cumulative over the declarable months BEFORE a run, so a
  * January calculated after February was approved leaves February's PAYE short
- * of January, and with nothing after February the year stays short (R340
+ * of January, and with nothing after February the year stays short (R339.95
  * here). Not refused (a back-fill or a correction of an earlier month must
  * stay possible; a paid run cannot be reopened): the late month's lines carry
  * PAYE_LATER_PERIODS_APPROVED, naming the later months and the remedy.
@@ -41,7 +41,7 @@ async function calcApprove(f: SeveranceFixture, id: string): Promise<number> {
 }
 
 describe('G4: months approved out of order', () => {
-  it('January approved after February: the January line warns, naming February; the shortfall is the R340 the warning describes', async () => {
+  it('January approved after February: the January line warns, naming February; the shortfall is the R339.95 the warning describes', async () => {
     const inOrderEmployee = await seedEmployee(pool, fixtures, 'P4fu order: in order', 20_000);
     await setSalary(pool, inOrderEmployee, 2027, 1, 60_000);
     // Every month's run exists (as a draft) before the first is calculated: a later DRAFT must not warn.
@@ -71,7 +71,8 @@ describe('G4: months approved out of order', () => {
     const warning = (await codes(ids['2027-1']!, f.employee)).find(c => c.code === 'PAYE_LATER_PERIODS_APPROVED');
     expect(warning?.message).toMatch(/2027-02/);
     expect((await codes(ids['2027-1']!, leaver)).map(c => c.code)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
-    expect(Math.round((inOrder - total) * 100) / 100).toBe(340);
+    // AN (F = 365 / 30.4166): in order 45 772.08, out of order 45 432.13 (× 12: 45 772 and 45 432, R340).
+    expect(Math.round((inOrder - total) * 100) / 100).toBe(339.95);
   });
 
   it('January and February both calculated before either is approved: February\'s approval is refused until recalculated, then the year is whole', async () => {
@@ -93,8 +94,9 @@ describe('G4: months approved out of order', () => {
     expect(refused.statusCode).toBe(400);
     expect(JSON.stringify(refused.body)).toMatch(/2027-01.*Recalculate the run/);
     total += await calcApprove(f, feb);
-    // R20 000 × 10 + R60 000 × 2 = R320 000: tax(320 000) = 45 772, the whole year's liability (no shortfall).
-    expect(Math.round(total * 100) / 100).toBe(45_772);
+    // R20 000 × 10 + R60 000 × 2 = R320 000: the whole year's liability (no shortfall), tax(320 000 × F ÷ 12) × 12 ÷ F =
+    // 45 772.08 under AN (F = 365 / 30.4166; × 12: tax(320 000) = 45 772).
+    expect(Math.round(total * 100) / 100).toBe(45_772.08);
   });
 
   it('January and February both calculated, February approved first (what a concurrent approval lands as): January is refused until recalculated, then carries the warning', async () => {

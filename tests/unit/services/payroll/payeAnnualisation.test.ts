@@ -12,6 +12,7 @@ import type { PayeYearToDate } from '@/modules/accounting/services/payroll/payro
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import { buildCaseInput, loadCases } from '../../../fixtures/payroll-oracle/oracle';
 import { stepsByKey } from './payrollExplainRecompute.helpers';
+import { figureToExplanation } from '@/components/payroll/lineExplanationModel';
 
 const NONE: PayeYearToDate = { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
 const base = { taxYear: 2027, rebateAge: 46, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0 };
@@ -79,5 +80,12 @@ describe('annualisationFactor (AN)', () => {
     const steps = stepsByKey(line.explanations.paye);
     expect(steps.get('paye.annualisationFactor')!.amount).toBe(SAGE_F);
     expect(steps.get('paye.annualEquivalent')!.formula).toMatch(/50.000\.00 × 365 ÷ 30\.4166 ÷ 1$/);
+  });
+
+  it('the drawer shows the factor to 7 decimals (12.0000263), and whole counts as they are', () => {
+    const line = calculatePayrollLine(buildCaseInput(loadCases().find(c => c.id === 'sage-2027-03-phekis')!));
+    const lines = figureToExplanation(line.explanations.paye, 'Phekis').lines;
+    expect(lines.find(l => l.label === 'Periods in a year (the annualisation factor)')?.value).toBe('12.0000263');
+    expect(lines.find(l => l.label === 'Periods paid, this one included')?.value).toBe('1');
   });
 });

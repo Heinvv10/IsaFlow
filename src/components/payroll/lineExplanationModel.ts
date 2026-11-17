@@ -29,7 +29,8 @@ export function notRecordedMessage(final: boolean, recordedFrom: string | null, 
 function valueOf(step: ExplainStep): string {
   if (step.amount === null) return '';
   if (step.unit === 'percent') return `${Math.round(step.amount * 10_000) / 100}%`;
-  if (step.unit === 'count') return String(step.amount);
+  // A count is whole (periods, months), except the annualisation factor (365 ÷ 30.4166, wave-6 AN): 7 decimals.
+  if (step.unit === 'count') return String(Math.round(step.amount * 1e7) / 1e7);
   return formatMoney(step.amount);
 }
 
