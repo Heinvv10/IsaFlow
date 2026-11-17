@@ -53,6 +53,12 @@ export const settingsTab: Tab = {
       ],
     },
     {
+      section: 'Intercompany',
+      items: [
+        { label: 'Connections', href: '/accounting/settings/intercompany' },
+      ],
+    },
+    {
       section: 'Group Consolidation',
       items: [
         { label: 'Group Dashboard', href: '/accounting/group' },
