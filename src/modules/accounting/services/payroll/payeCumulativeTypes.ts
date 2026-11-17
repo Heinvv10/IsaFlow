@@ -64,6 +64,8 @@ export interface CumulativePayeTrace {
   /** 27.5% × deductionBase (one of the three limits); the deduction allowed a year; and what can come off the annual
    *  equivalent (it, plus periodic donations a year): offPeriodic is the lesser of the last two. */
   shareOfRemuneration: number; annualDeduction: number; offPeriodicCeiling: number;
+  /** The s11F annual cap on the annual-equivalent scale: the statutory cap × F ÷ 12 (wave-6 AN). */
+  annualCap: number;
   offPeriodic: number; offAnnual: number; donationSpill: number;
   /** This period has periodic pay (it counts in n); the periods the cap to date is for; the cap to date; the deduction off periodic pay to date. */
   hasPeriodic: boolean; capPeriods: number; capToDate: number; deductionOffPeriodicToDate: number;

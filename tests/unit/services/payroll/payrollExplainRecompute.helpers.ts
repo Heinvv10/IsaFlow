@@ -80,6 +80,8 @@ function recomputePaye(fig: FigureExplanation): number {
     if (r.has('paye.retirement')) {
       const share = r.amt('paye.retirement.rate') * Math.max(0, r.amt('paye.retirement.base'));
       expect(r.amt('paye.retirement.rateLimit')).toBeCloseTo(share, 6);
+      // The annual cap on the annual-equivalent scale: the s11F cap × F ÷ 12.
+      expect(r.amt('paye.retirement.cap')).toBeCloseTo((r.amt('paye.retirement.statutoryCap') * f) / 12, 6);
       const allowed = Math.max(0, Math.min(r.amt('paye.retirement.annualised'), share, r.amt('paye.retirement.cap')));
       expect(r.amt('paye.retirement.allowed')).toBeCloseTo(allowed, 6);
       off = r.amt('paye.retirement');
@@ -92,7 +94,8 @@ function recomputePaye(fig: FigureExplanation): number {
     let taxAll = taxAE;
     let taxEarlier = taxAE;
     if (r.has('paye.offAnnual')) {
-      const capToDate = (r.amt('paye.retirement.cap') * r.amt('paye.offAnnual.capPeriods')) / f;
+      // The cap to date is a statutory period ratio, n ÷ 12 (G21 p. 10; coordinator ruling 2026-11-17), not ÷ F.
+      const capToDate = (r.amt('paye.retirement.statutoryCap') * r.amt('paye.offAnnual.capPeriods')) / 12;
       expect(r.amt('paye.offAnnual.capToDate')).toBeCloseTo(capToDate, 6);
       expect(r.amt('paye.offAnnual.capLeft')).toBeCloseTo(capToDate - r.amt('paye.offAnnual.offPeriodicToDate'), 6);
       const limits = ['deductionLeft', 'annualPayments', 'contributionsLeft', 'capLeft'].map(k => r.amt(`paye.offAnnual.${k}`));

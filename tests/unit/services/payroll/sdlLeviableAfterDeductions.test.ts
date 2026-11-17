@@ -160,8 +160,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     // Sources: SARS PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
     // Salary R200 000/month; 27.5% = R55 000 > R430 000/12, so the annual cap binds.
     const r = line([salary(200_000), ra(55_000)]);
-    // The cap to date is the annual cap × periods ÷ F (AN, wave-6 ruling 5: F = 365 / 30.4166, not 12).
-    const expectedLeviable = 200_000 - 430_000 / (365 / 30.4166);
+    const expectedLeviable = 200_000 - 430_000 / 12;
     expect(r.sdlLeviable).toBeCloseTo(expectedLeviable, 2);
     expect(r.sdl).toBeCloseTo(expectedLeviable * 0.01, 2);
   });
@@ -169,8 +168,8 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
   it('s11F annual-cap boundary — 2026 tax year (R350 000/12 ≈ R29 167)', () => {
     // Sources: SARS PAYE-GEN-01-G20 (2026) s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
     const r = line([salary(200_000), ra(55_000)], 1_000_000, { period: { month: 6, year: 2025 }, taxYear: 2026 });
-    expect(r.sdlLeviable).toBeCloseTo(200_000 - 350_000 / (365 / 30.4166), 2); // ÷ F (AN)
-    expect(r.sdl).toBeCloseTo((200_000 - 350_000 / (365 / 30.4166)) * 0.01, 2);
+    expect(r.sdlLeviable).toBeCloseTo(200_000 - 350_000 / 12, 2);
+    expect(r.sdl).toBeCloseTo((200_000 - 350_000 / 12) * 0.01, 2);
   });
 
   it('uses the remaining cumulative annual cap for a February catch-up contribution (PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1)', () => {
@@ -183,10 +182,9 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
         sdlApplicable: 2_200_000, sdlLeviable: 1_870_000, sdlRetirementDeduction: 330_000,
       }),
     });
-    // AN: the year's cap to date is R430 000 × 12 ÷ F = R429 999.06 (F = 365 / 30.4166), so February may add
-    // R99 999.06 and R0.94 more is leviable (× 12: exactly R100 000 allowed).
-    expect(r.sdlLeviable).toBe(100_000.94);
-    expect(r.sdl).toBe(1_000.01);
+    // The cap to date stays a statutory period ratio under AN (n ÷ 12, coordinator ruling 2026-11-17): exactly R430 000.
+    expect(r.sdlLeviable).toBe(100_000);
+    expect(r.sdl).toBe(1_000);
   });
 
   it('uses later remuneration headroom for an earlier disallowed contribution (PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1)', () => {

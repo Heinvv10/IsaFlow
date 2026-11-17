@@ -115,7 +115,11 @@ function retirementStep(input: PayeExplainInput): ExplainStep {
               { key: 'paye.retirement.rate', label: 'Share', amount: RETIREMENT_DEDUCTION_RATE, unit: 'percent' },
             ],
           },
-          { key: 'paye.retirement.cap', label: 'Annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap },
+          {
+            key: 'paye.retirement.cap', label: 'Annual cap, on the annual-equivalent scale', amount: t.annualCap,
+            formula: `${r(getTaxYearConfig(taxYear).retirementDeductionCap)} × (${annualisationFactorWords(t.factor)}) ÷ 12`,
+            children: [{ key: 'paye.retirement.statutoryCap', label: 'The s11F annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap }],
+          },
         ],
       },
       { key: 'paye.retirement.ceiling', label: 'The annual equivalent, plus periodic donations a year', amount: t.offPeriodicCeiling },
@@ -149,7 +153,7 @@ function annualPaymentsStep(input: PayeExplainInput): ExplainStep {
           key: 'paye.offAnnual.capLeft', label: 'The cap to date, less that part', amount: t.offAnnualLimits.capLeft,
           formula: `${r(t.capToDate)} − ${r(t.deductionOffPeriodicToDate)}`,
           children: [
-            { key: 'paye.offAnnual.capToDate', label: `Cap to date (the annual cap × periods ÷ (${annualisationFactorWords(t.factor)}))`, amount: t.capToDate },
+            { key: 'paye.offAnnual.capToDate', label: 'Cap to date (the s11F annual cap × periods ÷ 12)', amount: t.capToDate },
             { key: 'paye.offAnnual.capPeriods', label: 'Periods for the cap (periodic pay or an annual payment)', amount: t.capPeriods, unit: 'count' },
             { key: 'paye.offAnnual.offPeriodicToDate', label: 'The deduction off periodic pay to date', amount: t.deductionOffPeriodicToDate },
           ],

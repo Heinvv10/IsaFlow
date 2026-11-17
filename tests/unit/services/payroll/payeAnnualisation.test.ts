@@ -64,17 +64,18 @@ describe('annualisationFactor (AN)', () => {
     expect(cents(identity) - cents(tax(240_000))).toBe(4);
   });
 
-  it('twelve equal months at the cap: the year deducts R429 999.06, R0.94 under the R430 000 s11F cap (ruled departure)', () => {
-    // RULED DEPARTURE (wave-6 ruling 5; coordinator 2026-11-17): the cap to date is cap × n ÷ F, not G21 (2027) Rev 1
-    // p. 10's n ÷ 12. R200 000 a month with R50 000 to an RA: the annual cap binds (2027: R430 000).
+  it('twelve equal months at the cap: the year deducts exactly R430 000 (the cap is a statutory period ratio, n ÷ 12)', () => {
+    // Coordinator ruling 2026-11-17 (statute over unproven parity for period ratios): the cap to date is cap × n ÷ 12
+    // (G21 (2027) Rev 1 p. 10), and on the annual-equivalent scale the cap is cap × F ÷ 12, so the part off periodic pay,
+    // weighted n ÷ F, reaches it exactly. R200 000 a month with R50 000 to an RA: the annual cap binds (2027: R430 000).
     const months = year(200_000, 12, { retirementContributions: 50_000 });
     const cap = getTaxYearConfig(2027).retirementDeductionCap;
     expect(cap).toBe(430_000);
-    expect(months[0]!.trace.capToDate).toBe(cap / SAGE_F);
-    expect(months[11]!.trace.capToDate).toBe((cap * 12) / SAGE_F);
+    expect(months[0]!.trace.capToDate).toBe(cap / 12);
+    expect(months[11]!.trace.capToDate).toBe(cap);
+    expect(months[0]!.trace.annualCap).toBe((cap * SAGE_F) / 12);
     const recorded = months.reduce((t, m) => t + cents(m.retirementDeduction), 0);
-    expect(recorded).toBe(42_999_906); // R429 999.06
-    expect(cents(430_000) - recorded).toBe(94); // R0.94 under the statutory cap
+    expect(recorded).toBe(43_000_000); // exactly R430 000 (cap × 12 ÷ F would be R429 999.06)
   });
 
   it('a monthly line is costed on F, and its explanation states it (phekis: R50 000, Sage PAYE 11 075.60 to the cent)', () => {

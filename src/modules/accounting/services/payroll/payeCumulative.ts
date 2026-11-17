@@ -149,7 +149,9 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const donations = Math.max(0, (ytd.donations ?? 0) + (input.donations ?? 0));
   const annualisedContributions = annualise(contributions);
   const deductionBase = annualEquivalent + annualise(donations) + annualBefore + annualNow;
-  const limits = retirementDeductionLimits(annualisedContributions, deductionBase, input.taxYear);
+  // The statutory cap is a year's amount: on the annual-equivalent scale it is cap × F ÷ 12, so the part off periodic pay
+  // (weighted n ÷ F below) reaches cap × n ÷ 12, G21 (2027) Rev 1 p. 10's period ratio (coordinator ruling 2026-11-17).
+  const limits = retirementDeductionLimits(annualisedContributions, deductionBase, input.taxYear, F / 12);
   const deduction = limits.allowed;
   // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
   // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid), nor
@@ -165,11 +167,10 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const periodicToDate = (offPeriodic * periods) / F;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
-  // RULED DEPARTURE (wave-6 ruling 5, vendor parity with Sage; coordinator 2026-11-17): the cap to date is cap × n ÷ F,
-  // not G21 (2027) p. 10's period ratio n ÷ 12, so twelve months reach R430 000 × 12 ÷ F = R429 999.06, R0.94 under the
-  // s11F cap, and SDL (on pay after this deduction) moves by cents where the cap binds. Pinned by payeAnnualisation.test.ts
-  // ("twelve equal months at the cap"): do not "fix" it back to 12 without a new ruling.
-  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / F;
+  // A STATUTORY PERIOD RATIO, NOT AN ANNUALISATION (coordinator ruling 2026-11-17: statute over unproven parity): the cap
+  // to date is cap × n ÷ 12 (G21 (2027) Rev 1 p. 10, "the same ratio as the period ... bears to a whole year"), never ÷ F,
+  // so twelve months reach exactly R430 000. Pinned by payeAnnualisation.test.ts ("twelve equal months at the cap").
+  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / 12;
   const offAnnualLimits = {
     deductionLeft: deduction - offPeriodic, annualPayments: annualBefore + annualNow,
     contributionsLeft: contributions - periodicToDate, capLeft: capToDate - periodicToDate,
@@ -188,7 +189,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const traceOf = (paid: boolean, liability: number, due: number, annualDue: number): CumulativePayeTrace => ({
     paid, factor: F, periods, ytdPeriodicTaxable: ytd.periodicTaxable, regularTaxable: Math.max(0, input.regularTaxable),
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,
-    annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, offPeriodicCeiling,
+    annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, annualCap: limits.cap, offPeriodicCeiling,
     offPeriodic, offAnnual, donationSpill, offAnnualLimits, hasPeriodic, capPeriods: Math.max(capPeriods, 1), capToDate, deductionOffPeriodicToDate: periodicToDate,
     taxedAnnualEquivalent: taxedAE,
     annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, liability, ytdTablePaye: ytd.tablePaye, due, annualDue,

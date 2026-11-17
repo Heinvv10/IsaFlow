@@ -33,7 +33,7 @@ wave-6 ruling 5). Only the fields that moved are listed with their figures; delt
 | offcycle-termination-leave-after-regular | sars-guide:SARS PAYE-GEN-01-G21 Guide… | paye 2192.0 | paye 2192, net 7708 | paye 2192.06, net 7707.94 | paye +6, net -6 | paye: known gap 6c (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; never closes); net: not asserted |
 | psp-company-27pct | UNVERIFIED | paye 13500.0 | paye 11075.58, net 38747.3 | paye 11075.6, net 38747.28 | paye +2, net -2 | paye: gap engineActual re-pinned 11075.58 → 11075.6; net: not asserted |
 | psp-trust-45pct | UNVERIFIED | paye 22500.0 | paye 11075.58, net 38747.3 | paye 11075.6, net 38747.28 | paye +2, net -2 | paye: gap engineActual re-pinned 11075.58 → 11075.6; net: not asserted |
-| ra-annual-cap-binds-2027 | sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5… | paye 147470.75, net 192352.13 | paye 147470.75, net 192352.13 | paye 147470.82, net 192352.06 | paye +7, net -7 | paye: known gap 7c (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; never closes); net: known gap 7c (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; never closes) |
+| ra-annual-cap-binds-2027 | sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5… | paye 147470.75, net 192352.13 | paye 147470.75, net 192352.13 | paye 147470.79, net 192352.09 | paye +4, net -4 | paye: tolerance 4c (ruling 5: AN 365/30.4166 over G21 p. 8 ×12), engineActual 147470.79; net: tolerance 4c (ruling 5: AN 365/30.4166 over G21 p. 8 ×12), engineActual 192352.09 |
 | rf-employer-contribution-15pct-rfi-cap-binds-on-total | sars-guide:PAYE-GEN-01-G21 Rev 1 p. 1… | paye 1516.5 | paye 1516.5 | paye 1516.5 | 0 | unchanged: no asserted figure moved under AN |
 | ri-overtime-10h-at-1-5x | UNVERIFIED | paye 405.0, net 9990.0 | paye 243, net 9261 | paye 243, net 9261 | 0 | unchanged: no asserted figure moved under AN |
 | ri-reimbursive-1000km-at-prescribed-3703 | sars-guide:SARS PAYE-GEN-01-G21 Guide… | paye 2115, net 22657.88 | paye 2115, net 17707.88 | paye 2115, net 17707.88 | 0 | unchanged: no asserted figure moved under AN |
@@ -74,12 +74,13 @@ wave-6 ruling 5). Only the fields that moved are listed with their figures; delt
 
 64 cases; 20 moved, 44 unchanged.
 
-## Ruled consequence: the s11F cap to date
+## Where F applies and where n ÷ 12 stays
 
-The cap to date takes F too (ruling 5, vendor parity; confirmed by the coordinator 2026-11-17): cap × n ÷ F, not
-G21 (2027) Rev 1 p. 10's n ÷ 12. So twelve months reach R430 000 × 12 ÷ F = **R429 999.06, R0.94 under the statutory
-R430 000**, and SDL (levied on pay after this deduction) moves by cents where the cap binds (a February catch-up
-contribution leaves R100 000.94 leviable, was R100 000). Pinned by `payeAnnualisation.test.ts` ("twelve equal months
-at the cap") and `sdlLeviableAfterDeductions.test.ts`; a departure by ruling, not a defect.
+Coordinator ruling 2026-11-17: statute over unproven parity for period ratios. F annualises income and the
+liability only (AE = P × F ÷ n; liability = tax(AE) × n ÷ F, with what is inside tax: rebates, the MTC and the 65+
+credit). The s11F cap to date is a statutory period ratio (G21 (2027) Rev 1 p. 10) and stays cap × n ÷ 12, so
+twelve months reach exactly R430 000 and SDL does not move; on the annual-equivalent scale the cap is cap × F ÷ 12,
+so the part off periodic pay, weighted n ÷ F, meets it. `ra-annual-cap-binds-2027` therefore moves +4c (AE only),
+within the tolerance cap. Pinned by `payeAnnualisation.test.ts` ("twelve equal months at the cap").
 
 The Sage notes in `sage-2027-03-{phekis,david}.json` still describe the pre-AN engine (× 12, 2c): a source note, not a figure.

@@ -64,16 +64,6 @@
     "closedBy": "PSP (wave 6): personal service providers at 45% with no UIF, per SARS PAYE-GEN-01-G01-A06 row 6 and UICA s1 \"remuneration\" (b); re-cite to the 2027 A06 when SARS publishes it."
   },
   {
-    "case": "ra-annual-cap-binds-2027",
-    "engineActual": {
-      "paye": 147470.82,
-      "net": 192352.06
-    },
-    "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12: PAYE is 7c above the ×12 figure (the annual equivalent and the s11F cap to date both take F), over the 5c tolerance cap; net follows.",
-    "closedBy": "Never: ruled departure (wave-6 ruling 5)",
-    "parity": true
-  },
-  {
     "case": "ri-overtime-10h-at-1-5x",
     "engineActual": {
       "paye": 243,
