@@ -37,11 +37,13 @@ const MAX_SEARCH = 200;
 type Query = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined): string | undefined => (typeof v === 'string' ? v : undefined);
 const pick = <T extends string>(v: string | undefined, allowed: readonly T[]): T | undefined => allowed.find(a => a === v);
-/** A real calendar date: it must survive a round trip (V8 reads 2026-02-31 as March 3rd, which the API would then refuse). */
+/** A real calendar date, checked by the calendar itself (a Date would read 2026-02-31 as March 3rd, and the API then answers 500). */
 const date = (v: string | undefined): string | undefined => {
   if (!v || !ISO_DATE.test(v)) return undefined;
-  const t = Date.parse(`${v}T00:00:00Z`);
-  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v ? v : undefined;
+  const [y, m, d] = v.split('-').map(Number) as [number, number, number];
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  return days !== undefined && d >= 1 && d <= days ? v : undefined;
 };
 const amount = (v: string | undefined): string | undefined => (v && AMOUNT_BOUND_RE.test(v.trim()) ? v.trim() : undefined);
 
