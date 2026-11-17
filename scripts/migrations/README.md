@@ -4,8 +4,10 @@
 
 `NNN_description.sql` — 3-digit zero-padded numeric prefix, snake_case description.
 
-To insert a migration **between** two existing numbers, use a letter suffix:
-`244b_add_missing_index.sql`
+To insert a migration **between** two existing numbers, use a suffix of one or
+two lowercase letters: `244b_add_missing_index.sql`. After `999z_` come
+`999za_` … `999zz_` (versions order by number, then by the letters as a string:
+`999_` < `999a_` < `999az_` < `999b_` < `999z_` < `999za_` < `999zz_` < `1000_`).
 
 ## Identity Rule
 
