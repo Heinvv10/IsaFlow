@@ -16,6 +16,7 @@ import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseResettingProvisionalLine } from './provisionalLineGuard';
 import { isoDay, lockChainLines, peekLineChain, refuseStaleUndo, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { journalReversedNow, lockOtherLegs, takeOtherLegs } from './transferLegReset';
 import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { postingRefOf, recordAutoPostUndone } from './codingDecisionLog';
 
@@ -43,6 +44,8 @@ async function reverseReconciledInner(
   const chain = await peekLineChain(companyId, bankTxId);
   const undoing = opts?.expectedJournalEntryId;
   const chainLines = chain && (chain.doc || undoing) ? await lockChainLines(companyId, chain) : [];
+  // WP2 row 10: the other live legs of a plain journal (a transfer's auto-linked counterpart), locked WITH this line.
+  const legRows = await lockOtherLegs(companyId, bankTxId, chain, Boolean(undoing));
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new BankAllocationRefusal('Transaction not found');
   // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
@@ -51,6 +54,12 @@ async function reverseReconciledInner(
   // Changed since the peek (matched, unmatched or re-matched by another request): a state conflict, nothing written,
   // 409 — before the status refusal, which would otherwise answer an unmatch in between as a 400.
   if (String(tx.matched_journal_line_id ?? '') !== (chain?.lineId ?? '')) {
+    // Freed meanwhile by the reversal of its journal (the transfer's other leg reversed — WP2 row 10 resets both — or
+    // this line's own reverse twice): a retry would only find nothing to undo, so say so (#1518 brk L2).
+    if (chain && !tx.matched_journal_line_id && tx.status === 'imported' && await journalReversedNow(companyId, chain.journalId)) {
+      throw new BankAllocationRefusal('This bank line was already freed: its journal was reversed meanwhile (the reverse '
+        + "of the transfer's other leg, or of this line) and the line reset — there is nothing left to undo.");
+    }
     throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.',
       undefined, { retryable: true });
   }
@@ -63,7 +72,11 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
+  const otherLegs = await takeOtherLegs(companyId, bankTxId, chain, legRows, Boolean(undoing)); // pre-write; reset below
   const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId); // step 2: pre-write; audited after
+  // WP2 row 10: each other leg is reversed by this act too, so the same step-2 judgment applies to it, pre-write.
+  const legClearances = [];
+  for (const leg of otherLegs) legClearances.push({ leg, clearance: await assertMayReverse(companyId, leg, chain?.rootId ?? null, userId) });
   // Learning loop: the line's posting before the reversal, so only an auto-post that IS that posting is undone.
   const postingBefore = postingRefOf(tx);
   if (chain?.doc) {
@@ -73,7 +86,7 @@ async function reverseReconciledInner(
     return docResult;
   }
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
-  // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
+  // exactly when the chain stands. Its other live lines (a transfer's second leg) are reset with it (WP2 row 10).
   const journalEntryId = chain?.rootId ?? null;
   const reverseId = journalEntryId ? await peekReversalTarget(companyId, journalEntryId) : null; // locked after the unwind
   if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate); // read-only, pre-write
@@ -104,7 +117,8 @@ async function reverseReconciledInner(
       await refuseStaleUndo(companyId, bankTxId, chain, undoing); // this savepoint takes the unwind back with it
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
-        const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;
+        // The bank line's own undo: resetBankLine below frees the line in this same savepoint (liveBankLineReversal).
+        const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, { ...opts, bankLinesHandled: true }) : null;
         // Carried out so reverse_bank_allocation / void_receipt can say the contra was dated past a locked VAT
         // period and, with the two dates, that a CLOSED fiscal period moved it to today
         // (2026-10-02: nine April-2025 contras landed in October while the reply
@@ -126,7 +140,8 @@ async function reverseReconciledInner(
     // Reset the bank transaction. If this fails after a successful GL reversal,
     // log the inconsistency; the savepoint then takes the reversal back with it.
     try {
-      await resetBankLine(companyId, bankTxId, deadProvisional);
+      await resetBankLine(companyId, bankTxId, deadProvisional, true); // the transfer pointer too (#1518 brk L3)
+      for (const leg of otherLegs) await resetBankLine(companyId, String(leg.id), false, true); // WP2 row 10: both legs, one savepoint
     } catch (resetErr) {
       log.error('Bank transaction reset failed after GL reversal — rolling the reversal back',
         { bankTxId, journalEntryId, error: resetErr }, 'accounting');
@@ -137,6 +152,10 @@ async function reverseReconciledInner(
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
   await auditedReversal(companyId, bankTxId, userId, clearance, null);
   await recordAutoPostUndone(companyId, bankTxId, userId, postingBefore); // non-fatal
+  for (const { leg, clearance: legClearance } of legClearances) { // WP2 row 10: the other legs' audit and learning record
+    await auditedReversal(companyId, String(leg.id), userId, legClearance, null);
+    await recordAutoPostUndone(companyId, String(leg.id), userId, postingRefOf(leg));
+  }
   // Reported rather than discarded: `void_receipt` delegates to this function
   // and previously had to answer "0 invoices reopened" for the branch that does
   // the MOST work, because the counts were computed here and thrown away. An

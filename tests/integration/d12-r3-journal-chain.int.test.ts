@@ -140,8 +140,10 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(out.status, out.body).toBe(503);
     expect(out.retryAfter).toBe('2');
     expect(await reversedAt(p.je)).toBeNull();
+    // The retry is judged afresh: the line now matched to the journal refuses it (400, bank/liveBankLineReversal, 2026-11-16).
     const retry = await reverse(p.je);
-    expect(retry.status, retry.body).toBe(200);
+    expect(retry.status, retry.body).toBe(400);
+    expect(retry.body).toMatch(/still matched to it/);
   }, 60000);
 
   it('R2-4 the migration wizard re-run reversing a take-on journal a completed reconciliation holds -> 409, nothing written', async () => {
@@ -161,6 +163,21 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);
     const before = await snapshot(c, bank, rec);
     await refused(await call(c, token, openingBalances as Route, body), { bank, rec }, ob, before);
+  }, 60000);
+
+  it('R2-4c (2026-11-16) the re-run over a take-on journal a LIVE matched line books -> 400 naming it, not a 500', async () => {
+    const [sess] = (await sql`INSERT INTO migration_sessions (company_id, source_system, started_by)
+      VALUES (${c.fx.companyId}::UUID, 'sage', ${c.fx.userId}::UUID) RETURNING id`) as Row[];
+    const body = { sessionId: String(sess!.id), effectiveDate: '2026-01-01',
+      balances: [{ accountCode: '1000', debit: 450, credit: 0 }, { accountCode: '3900', debit: 0, credit: 450 }] };
+    const ob = String(((await call(c, token, openingBalances as Route, body)).data as { journalEntryId: string }).journalEntryId);
+    const line = await seedLine(c, c.fx.bankAccountId, -450, '2026-01-01');
+    const jl = await bankLeg(ob, c.fx.bankAccountId);
+    await inTx(c.fx, () => matchTransaction(c.fx.companyId, line, jl));
+    const out = await call(c, token, openingBalances as Route, body);
+    expect(out.status, out.body).toBe(400); // bank/liveBankLineReversal, mapped by apiJournalLiveBankLine
+    expect(out.body).toMatch(/JOURNAL_HAS_LIVE_BANK_LINE/);
+    expect(await reversedAt(ob)).toBeNull();
   }, 60000);
 
   it('R2-4b a re-run over TWO standing take-on entries, the second refused: the first one\'s reversal is not committed', async () => {
