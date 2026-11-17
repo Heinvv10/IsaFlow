@@ -29,7 +29,6 @@ export const TRAVEL_WITHIN_RATE_CODE = '3702';
 export const TRAVEL_NOT_TAXABLE_CODE = '3703';
 export const TRAVEL_EXCESS_CODE = '3722';
 export const OVERTIME_ABOVE_BCEA_THRESHOLD = 'OVERTIME_ABOVE_BCEA_THRESHOLD';
-export const TRAVEL_RATE_NOT_LOADED = 'TRAVEL_RATE_NOT_LOADED';
 const WEEKS_PER_MONTH = 52 / 12;
 
 /**
@@ -76,27 +75,22 @@ export const overtimeHoursOf = (components: EmployeeComponent[]): number =>
  * The line's components with each km row split as SARS treats it: the part within the prescribed rate (3702 / 3703, not
  * taxed, not UIF or SDL remuneration) and the excess (3722, taxed with periodic pay, UIF and SDL). Other rows unchanged.
  */
-export function splitTravelRows(components: EmployeeComponent[], taxYear: number): { components: EmployeeComponent[]; warnings: ValidationResult[] } {
-  if (!components.some(isTravel)) return { components, warnings: [] };
+export function splitTravelRows(components: EmployeeComponent[], taxYear: number): EmployeeComponent[] {
+  if (!components.some(isTravel)) return components;
   const prescribed = getTaxYearConfig(taxYear).reimbursiveRatePerKm;
   const otherCompensation = components.some((c) => c.component.componentType === 'earning' && c.amount !== 0
     && normaliseSarsCode(c.component.sarsSourceCode) === TRAVEL_CODE);
-  const warnings: ValidationResult[] = [];
-  const out = components.flatMap((c): EmployeeComponent[] => {
+  return components.flatMap((c): EmployeeComponent[] => {
     if (!isTravel(c)) return [c];
     const km = Number(c.quantity ?? 0);
-    const withinCents = prescribed == null ? 0 : Math.min(cents(c.amount), Math.round(Math.round(km * 100) * Math.round(prescribed * 100) / 100));
+    const withinCents = Math.min(cents(c.amount), Math.round(Math.round(km * 100) * Math.round(prescribed * 100) / 100));
     const excess = (cents(c.amount) - withinCents) / 100;
     const within = withinCents / 100;
     const code = excess > 0 || otherCompensation ? TRAVEL_WITHIN_RATE_CODE : TRAVEL_NOT_TAXABLE_CODE;
-    if (prescribed == null) {
-      warnings.push({ code: TRAVEL_RATE_NOT_LOADED, severity: 'warning',
-        message: `${c.component.name}: the prescribed rate per km for tax year ${taxYear} is not loaded, so all ${formatMoney(c.amount)} for ${km} km is taxed as remuneration (code 3722).` });
-    }
     const rows: EmployeeComponent[] = [];
     if (within !== 0 || excess === 0) {
       rows.push({ ...c, amount: within, component: { ...c.component, sarsSourceCode: code, isTaxable: false, isUifApplicable: false, isSdlApplicable: false,
-        name: `${c.component.name}: ${km} km within the prescribed ${formatMoney(prescribed ?? 0)} a km` } });
+        name: `${c.component.name}: ${km} km within the prescribed ${formatMoney(prescribed)} a km` } });
     }
     if (excess !== 0) {
       rows.push({ ...c, amount: excess, quantity: null, quantityUnit: null, component: { ...c.component, sarsSourceCode: TRAVEL_EXCESS_CODE,
@@ -104,7 +98,6 @@ export function splitTravelRows(components: EmployeeComponent[], taxYear: number
     }
     return rows;
   });
-  return { components: out, warnings };
 }
 
 /** OVERTIME_ABOVE_BCEA_THRESHOLD: overtime at a multiplier for an employee whose earnings, a year, pass the s6(3) threshold. */

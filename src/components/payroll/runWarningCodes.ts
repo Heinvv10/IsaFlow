@@ -26,7 +26,6 @@ export const GROUP_LABEL: Record<string, string> = {
   LOAN_FRINGE_NOT_RECORDED: 'Loan fringe benefit not recorded — add the 3801 earning under Setup → Pay Components, then recalculate',
   UIF_CLAWBACK: 'A clawback reduced this month\'s UIF pay: check the earlier month\'s UI-19 / EMP201 for an over-declaration',
   OVERTIME_ABOVE_BCEA_THRESHOLD: 'Overtime multiplier paid above the BCEA earnings threshold — the BCEA rates do not bind; check the contract',
-  TRAVEL_RATE_NOT_LOADED: 'No prescribed rate a km loaded for the tax year — the whole travel reimbursement is taxed',
   RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate',
 };
 

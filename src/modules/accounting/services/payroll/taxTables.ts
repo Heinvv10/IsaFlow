@@ -29,9 +29,9 @@ export interface TaxYearConfig {
   nonStandardDailyThreshold: number | null;
   /**
    * The rate per km fixed by the Minister under s8(1)(b)(ii)/(iii): a reimbursive travel allowance within it is not remuneration,
-   * the excess is (code 3722; payrollRunInputUnits). null = not verified for that year: a km row is taxed in full and warned.
+   * the excess is (code 3722; payrollRunInputUnits). Every registered year carries its gazetted rate.
    */
-  reimbursiveRatePerKm: number | null;
+  reimbursiveRatePerKm: number;
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -75,8 +75,9 @@ const TAX_2025: TaxYearConfig = {
   // UNVERIFIED for 2025: the G19 guide (PAYE-GEN-01-G19) could not be fetched, so no daily threshold is stated and a case
   // that turns on it is undetermined (employmentTerms.ts). 2026 is R383 (G20 p. 28).
   nonStandardDailyThreshold: null,
-  // UNVERIFIED for 2025 (R4.84 per secondary sources; Notice 4456, GG 50243 not read): null, so a km row is taxed in full.
-  reimbursiveRatePerKm: null,
+  // 484 cents per km for years of assessment from 1 March 2024: Notice 4456, Government Gazette 50243 (1 March 2024), Schedule
+  // para 4 (gazette p. 21) and para 5 (effective date).
+  reimbursiveRatePerKm: 4.84,
 };
 
 const TAX_2026: TaxYearConfig = {

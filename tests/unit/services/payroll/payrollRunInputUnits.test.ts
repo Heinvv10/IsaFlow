@@ -41,28 +41,25 @@ describe('overtime pricing', () => {
 
 describe('travel km split at the prescribed rate', () => {
   it('within the rate, nothing else paid: one non-taxable 3703 row', () => {
-    const { components, warnings } = splitTravelRows([salary, km(4000, 1000)], 2027);
+    const components = splitTravelRows([salary, km(4000, 1000)], 2027);
     expect(components.slice(1).map((c) => [c.component.sarsSourceCode, c.amount, c.component.isTaxable])).toEqual([['3703', 4000, false]]);
-    expect(warnings).toEqual([]);
   });
 
   it('above the rate: 3702 at km x R4.95 and the excess as taxable 3722', () => {
-    const { components } = splitTravelRows([salary, km(6000, 1000)], 2027);
+    const components = splitTravelRows([salary, km(6000, 1000)], 2027);
     expect(components.slice(1).map((c) => [c.component.sarsSourceCode, c.amount, c.component.isTaxable, c.component.isUifApplicable])).toEqual([
       ['3702', 4950, false, false], ['3722', 1050, true, true],
     ]);
   });
 
   it('within the rate but a 3701 travel allowance is also paid: 3702, still not taxed', () => {
-    const { components } = splitTravelRows([salary, comp('allowance', '3701', 3000), km(4000, 1000)], 2027);
+    const components = splitTravelRows([salary, comp('allowance', '3701', 3000), km(4000, 1000)], 2027);
     expect(components.slice(2).map((c) => [c.component.sarsSourceCode, c.amount, c.component.isTaxable])).toEqual([['3702', 4000, false]]);
   });
 
-  it('tax year 2026 splits at R4.76; 2025 (rate unverified) taxes it all and warns', () => {
-    expect(splitTravelRows([km(6000, 1000)], 2026).components.map((c) => c.amount)).toEqual([4760, 1240]);
-    const y2025 = splitTravelRows([km(6000, 1000)], 2025);
-    expect(y2025.components.map((c) => [c.component.sarsSourceCode, c.amount])).toEqual([['3722', 6000]]);
-    expect(y2025.warnings.map((w) => w.code)).toEqual(['TRAVEL_RATE_NOT_LOADED']);
+  it('tax year 2026 splits at R4.76 and 2025 at R4.84 (Notice 4456, GG 50243 para 4)', () => {
+    expect(splitTravelRows([km(6000, 1000)], 2026).map((c) => c.amount)).toEqual([4760, 1240]);
+    expect(splitTravelRows([km(6000, 1000)], 2025).map((c) => [c.component.sarsSourceCode, c.amount])).toEqual([['3702', 4840], ['3722', 1160]]);
   });
 
   it('on the line: gross pays all of it, PAYE, UIF and SDL see only the excess', () => {
