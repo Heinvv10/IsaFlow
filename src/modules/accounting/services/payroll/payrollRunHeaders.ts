@@ -2,7 +2,7 @@
  * Payroll run headers: the summary shape, listing, creation and lookup.
  * Split out of payrollRunService.ts (which re-exports all of it) to keep that file under the 300-line cap.
  */
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollPeriod } from './payrollTypes';
@@ -108,14 +108,8 @@ export async function createPayrollRun(
   return mapRunRow(rows[0]);
 }
 
-/** The per-month unique (company, year, month) that FQx drops; until then it also refuses a month holding an off-cycle run. */
-const MONTH_UNIQUE = 'payroll_run_headers_company_id_period_year_period_month_key';
-
 async function insertMonthlyRun(companyId: string, period: PayrollPeriod, createdBy?: string): Promise<Row[]> {
-  try {
-    // Its own savepoint inside a request transaction (withTransaction nests one), so the refusal below leaves the
-    // request's transaction usable.
-    return await withTransaction(async (tx) => (await tx`
+  return (await sql`
     INSERT INTO payroll_run_headers (
       company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end
     )
@@ -124,17 +118,10 @@ async function insertMonthlyRun(companyId: string, period: PayrollPeriod, create
       public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
       public.payroll_month_period_end(${period.year}::int, ${period.month}::int)
     )
-    -- The regular-period key (migration 999a), not the per-month unique FQx drops: an off-cycle run of the month is no clash.
+    -- The regular-period key (migration 999a), the only run key since 999p (FQx): an off-cycle run of the month is no clash.
     ON CONFLICT (company_id, pay_frequency, period_start) WHERE run_kind = 'regular' DO NOTHING
     RETURNING *
-  `) as Row[]);
-  } catch (err) {
-    // Between this release and FQx: a month whose only run is not regular has no regular-key conflict, so the old
-    // per-month unique refuses it. That is the same duplicate, named, not a raw 23505 (review #1507).
-    const e = err as { code?: string; constraint?: string };
-    if (e.code === '23505' && e.constraint === MONTH_UNIQUE) throw new PayrollRunDuplicateError(period.month, period.year);
-    throw err;
-  }
+  `) as Row[];
 }
 
 export async function getPayrollRun(

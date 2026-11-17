@@ -1,6 +1,6 @@
 /**
  * Wave 6 FQb1: the run-keyed READERS (census class R, owner FQb1), each with two runs in one month: a regular run and
- * an off-cycle bonus run of the same calendar month (the shape FQx allows), the per-month unique dropped inside the
+ * an off-cycle bonus run of the same calendar month (the shape FQx allows), seeded inside the
  * case's own rolled-back transaction (w6-fqb1.helpers.ts). Company B holds the same shape at 10x, so a reader that
  * leaked across tenants moves A's figure. Seed order puts the run a reader must NOT pick first, so a reader that
  * still leans on the per-month unique takes it (the "latest" readers run in both orders, see BOTH_ORDERS).

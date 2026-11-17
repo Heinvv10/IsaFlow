@@ -200,13 +200,14 @@ describe('what the PDF says', () => {
 });
 
 describe('year to date', () => {
-  it('bounds by period, which is one run: a second run header for the same company and period is refused (23505)', async () => {
-    // payslipYearToDate takes every final run up to AND INCLUDING this period; that is safe only while
-    // UNIQUE (company_id, period_year, period_month) on payroll_run_headers holds.
+  it('bounds by period, which is one regular run: a second monthly regular run for the same company and period is refused (23505)', async () => {
+    // payslipYearToDate takes every final run up to AND INCLUDING this period. Since 999p (FQx) the only run key is
+    // 999a's one regular run per (company, frequency, period start); an off-cycle run in the month is refused
+    // before it can be final (payrollRunKindGuard) until FQc moves this bound onto the run order.
     await expect(r.pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, 2, 2026, 'calculated')`,
       [r.company],
-    )).rejects.toMatchObject({ code: '23505', constraint: 'payroll_run_headers_company_id_period_year_period_month_key' }); // unique_violation
+    )).rejects.toMatchObject({ code: '23505', constraint: 'payroll_run_headers_regular_period_key' }); // unique_violation
   });
 
   it('on the February run equals the IRP5 year totals for the employee, to the cent', async () => {

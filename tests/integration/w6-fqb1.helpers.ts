@@ -1,13 +1,11 @@
 /**
- * Wave 6 FQb1 fixtures: two pay runs in ONE month, which the per-month unique (company_id, period_year,
- * period_month) refuses until FQx drops it. Each case drops it inside its own transaction, seeds there, runs the
+ * Wave 6 FQb1 fixtures: two pay runs in ONE month, which the schema allows since FQx (migration 999p) dropped the
+ * per-month unique (company_id, period_year, period_month). Each case seeds inside its own transaction, runs the
  * service on that transaction's client (als, as a request does) and rolls everything back, so no other suite on
- * this database ever sees the constraint gone or the rows. Disposable fixture DB only.
+ * this database ever sees the rows. Disposable fixture DB only.
  */
 import type { Pool, PoolClient } from 'pg';
 import { als } from '@/lib/als';
-
-export const MONTH_KEY = 'payroll_run_headers_company_id_period_year_period_month_key';
 
 export interface Tenant { company: string; user: string; employee: string }
 
@@ -72,17 +70,13 @@ export async function seedRun(c: PoolClient, t: Tenant, r: RunSpec): Promise<str
   return id;
 }
 
-/**
- * Drop the per-month unique (unless `keepMonthKey`: today's schema), run `seed` then `fn` on one transaction-bound
- * client as `t`, and roll it all back.
- */
+/** Run `seed` then `fn` on one transaction-bound client as `t`, and roll it all back. */
 export async function twoRunsInMonth<T>(
-  pool: Pool, t: Tenant, seed: (c: PoolClient) => Promise<void>, fn: () => Promise<T>, opts: { keepMonthKey?: boolean } = {},
+  pool: Pool, t: Tenant, seed: (c: PoolClient) => Promise<void>, fn: () => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    if (!opts.keepMonthKey) await client.query(`ALTER TABLE payroll_run_headers DROP CONSTRAINT ${MONTH_KEY}`);
     await seed(client);
     return await als.run({ client, userId: t.user, companyId: t.company, claims: { sub: t.user } } as never, fn);
   } finally {

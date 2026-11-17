@@ -1,6 +1,6 @@
 /**
  * Wave 6 FQb1: the run-keyed GATES and WRITERS (census class R, owner FQb1), each with two runs in one month: a
- * regular run and an off-cycle bonus run of the same calendar month, the per-month unique dropped inside the case's
+ * regular run and an off-cycle bonus run of the same calendar month, seeded inside the case's
  * own rolled-back transaction (w6-fqb1.helpers.ts). Company B holds the same shape at 10x.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -119,17 +119,6 @@ describe('creating a regular run beside an off-cycle run of the month', () => {
     });
     expect(created.run).toMatchObject({ periodMonth: 5, periodYear: 2026, runKind: 'regular', payFrequency: 'monthly' });
     expect(created.again).toBeInstanceOf(PayrollRunDuplicateError);
-  });
-
-  it('today\'s schema (month unique kept): a month holding only an off-cycle run is the named duplicate, not a raw 23505', async () => {
-    const got = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, BONUS); }, async () => {
-      const again = await createPayrollRun(A.company, { month: 5, year: 2026 }, A.user).then(() => null, (e: unknown) => e);
-      // Its own savepoint: the request's transaction is still usable after the refusal (review #1507 B5).
-      const after = ((await sql`SELECT 1 AS ok`) as Array<{ ok: number }>)[0]?.ok;
-      return { again, after };
-    }, { keepMonthKey: true });
-    expect(got.again).toBeInstanceOf(PayrollRunDuplicateError);
-    expect(got.after).toBe(1);
   });
 
   it('create_pay_run (MCP) dry run: the bonus is no clash, a regular run is', async () => {
