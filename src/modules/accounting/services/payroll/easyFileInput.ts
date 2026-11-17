@@ -14,8 +14,7 @@ import {
   type EmployerInput,
   type EmployeeInput,
 } from '@/modules/accounting/services/payroll/easyFileExportService';
-import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
-import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
+import { emp501Period, reconciliationPeriodCode, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
@@ -53,8 +52,10 @@ export interface EasyFileInput {
   unlinkedPaymentIds: string[];
 }
 
-export async function assembleEasyFileInput(companyId: string, taxYear: number): Promise<EasyFileInput> {
-  const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
+/** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
+export async function assembleEasyFileInput(companyId: string, taxYear: number, kind: Emp501Kind = 'annual'): Promise<EasyFileInput> {
+  const period = emp501Period(taxYear, kind);
+  const { startMonth, startYear, endMonth, endYear } = period;
   // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
   // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
 
@@ -63,7 +64,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number):
   // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
-  const bounds = saTaxYearBounds(taxYear);
+  const bounds = { start: period.start, end: period.end };
   const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, allowancesByEmployee, regularDirectives] = await Promise.all([
     sql`
       SELECT
@@ -124,7 +125,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number):
   aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
 
   const yoaStart = bounds.start.replaceAll('-', '');
-  const yoaEndInclusive = bounds.end.replaceAll('-', ''); // last day of February, 29th in a leap year
+  // Annual: the last day of February, 29th in a leap year. Interim: 31 August.
+  const yoaEndInclusive = bounds.end.replaceAll('-', '');
 
   const employees: EmployeeInput[] = [];
   const warnings: string[] = [];
@@ -180,12 +182,14 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number):
     if (inCash) paidInCash.push({ employee: who, amount: inCash });
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
-    const certEndDate = toCCYYMMDD(row.end_date);
+    const endDate = toCCYYMMDD(row.end_date);
+    // An interim certificate does not know a leaving date after August (the employee was employed at its end).
+    const certEndDate = endDate && (kind === 'annual' || endDate <= yoaEndInclusive) ? endDate : null;
     const periodStart = certStartDate > yoaStart ? certStartDate : yoaStart;
     const periodEnd = certEndDate && certEndDate < yoaEndInclusive ? certEndDate : yoaEndInclusive;
 
     employees.push({
-      certificateNumber: buildCertificateNumber(payeRef, taxYear, 2, seq),
+      certificateNumber: buildCertificateNumber(payeRef, taxYear, period.mm, seq),
       yearOfAssessment: taxYear,
       surname: String(row.last_name ?? ''),
       firstNames: firstTwoNames(String(row.first_name ?? '')),
@@ -222,7 +226,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number):
   }
 
   if (employees.length === 0) {
-    throw new EasyFileInputRefusal('bad_request', 'No employees with payroll activity in the selected tax year');
+    throw new EasyFileInputRefusal('bad_request', `No employees with payroll activity in the selected ${kind === 'interim' ? 'interim period' : 'tax year'}`);
   }
 
   const employer: EmployerInput = {
@@ -236,7 +240,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number):
     contactCellPhone: company.sars_contact_number ? String(company.sars_contact_number) : null,
     contactEmail: company.email ? String(company.email) : null,
     transactionYear: taxYear,
-    reconciliationPeriod: Number(`${taxYear}02`),
+    reconciliationPeriod: reconciliationPeriodCode(period),
     sic7Code: company.sic7_code ? String(company.sic7_code) : null,
     physicalStreet: String(company.physical_address_line1),
     physicalSuburb: company.physical_province ? String(company.physical_province) : null,

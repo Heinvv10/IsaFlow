@@ -4,8 +4,9 @@
  * Produces a SARS e@syFile IRP5 import file (.irp5 CSV text) per BRS v25.2.
  *
  * Tax year 2026 = Mar 2025 – Feb 2026. Emits an annual (reconciliation
- * period MM=02) certificate. Interim submissions (MM=08) are not yet
- * supported — the page only surfaces annual.
+ * period MM=02) file, or with &period=interim the March–August one (MM=08,
+ * wave 6 EFb). A filing goes through the EMP501 lifecycle
+ * (/api/payroll/emp501/returns), which snapshots this input at finalise.
  *
  * Returns 422 with an explanation when the company is missing the
  * payroll-tax registration fields required by SARS.
@@ -31,10 +32,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
+  const periodRaw = req.query.period ?? 'annual';
+  if (periodRaw !== 'annual' && periodRaw !== 'interim') {
+    return apiResponse.badRequest(res, 'period must be annual or interim');
+  }
 
   let input;
   try {
-    input = await assembleEasyFileInput(companyId, taxYear);
+    input = await assembleEasyFileInput(companyId, taxYear, periodRaw);
   } catch (err) {
     if (!(err instanceof EasyFileInputRefusal)) throw err;
     if (err.kind === 'not_found') return apiResponse.notFound(res, err.message);
@@ -45,7 +50,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   try {
     const fileBody = buildIrp5File({ employer, employees });
-    const filename = `IRP5_${taxYear - 1}_${taxYear}_${payeRef}.irp5`;
+    const filename = `IRP5_${taxYear - 1}_${taxYear}_${payeRef}${periodRaw === 'interim' ? '_08' : ''}.irp5`;
 
     log.info('e@syFile IRP5 export generated', {
       companyId, taxYear, employees: employees.length, bytes: fileBody.length,
