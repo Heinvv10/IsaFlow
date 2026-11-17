@@ -14,13 +14,14 @@
  *
  * At most `limits.maxSends` slips per request, and none started once `limits.budgetMs` has passed (review #1542 A1:
  * a request must finish well inside the proxy's 60 s); the rest are `remaining`, and the caller asks again. Each
- * send's row is committed on its own right after it (payslipDeliveryRecord, S3), so nothing that happens to the
- * request afterwards can make a slip go twice.
+ * send is bracketed by rows committed on their own (payslipDeliveryRecord, S3/D-S1): a claim ('unknown', "may have
+ * been sent") BEFORE the mail leaves, then its outcome; whatever fails after the claim, a plain send never mails the
+ * slip again. The slips' employee rows are share-locked for the request (D-A2), so an address cannot change mid-send.
  *
  * A slip sent to an address other than the one that employee's last payslip went to is NAMED (`addressChanged`).
  * Idempotent per (run, employee, approval): a reopen and re-approval is another document, so it may be sent again.
- * LOCKS: the run's advisory lock (payslip_email:<run>) then its header FOR SHARE, taken in withBoundedLockWait (5 s;
- * a leaf lock, payrollRunLock.ts LOCK ORDER) and held to the end of the request. A second send of the same run, or a
+ * LOCKS: the run's advisory lock (payslip_email:<run>), its header FOR SHARE, then the slips' employee rows FOR SHARE,
+ * each in withBoundedLockWait (5 s; a leaf, payrollRunLock.ts LOCK ORDER) and held to the end of the request. A second send of the same run, or a
  * reopen, arriving meanwhile is refused after 5 s (ROW_LOCK_TIMEOUT, a retry), not queued behind the sends.
  */
 import { sql } from '@/lib/neon';
@@ -34,7 +35,7 @@ import { payslipEmailMessage, payslipPassword, renderEmailPayslip } from './pays
 import { PayslipEmailRefusal } from './payslipDeliveryRefusal';
 import { companyPayslipEmailEnabled, PAYSLIP_EMAIL_FLAG } from './payslipEmailSettings';
 import type { EmployeeEmailActor } from './payrollEmployeeEmail';
-import { lastSentTo, latestAttempts, recordDelivery, type DeliveryStatus } from './payslipDeliveryRecord';
+import { lastSentTo, latestAttempts, recordClaim, recordOutcome, type DeliveryStatus } from './payslipDeliveryRecord';
 
 export type Mailer = (options: EmailOptions) => Promise<EmailResult>;
 
@@ -80,11 +81,19 @@ async function readSlips(companyId: string, runId: string, employeeIds?: string[
 
 
 
-async function recipients(companyId: string, ids: string[]): Promise<Map<string, Recipient>> {
-  const rows = (await sql`
+/**
+ * The slips' employees, share-locked to the end of the request (review #1542 D-A2/D-S2): an address change (or an
+ * employee PATCH) waits until the sends and their records are done, so the address a slip goes to is the address
+ * its record names (the 999o trigger checks it). The records' FK checks take KEY SHARE, which a share lock lets
+ * through. Bounded like the run lock: a row already held is a retryable refusal before anything is sent.
+ */
+async function recipients(companyId: string, runId: string, ids: string[]): Promise<Map<string, Recipient>> {
+  const rows = await withBoundedLockWait(runId, async (tx) => (await tx`
     SELECT id::text AS id, email, id_number, passport_number FROM payroll_employees
      WHERE company_id = ${companyId}::uuid AND id::text = ANY(${ids}::text[])
-  `) as Recipient[];
+     ORDER BY id
+       FOR SHARE
+  `) as Recipient[]);
   return new Map(rows.map((r) => [r.id, r]));
 }
 
@@ -127,7 +136,7 @@ export async function sendPayslipEmails(opts: {
       'This run was approved before payslip details were kept at approval, so its payslips show details as at download. Download them instead.');
   }
   const approvedAt = new Date(header.final_at as string | Date);
-  const people = await recipients(companyId, run.payslips.map((p) => p.employeeId));
+  const people = await recipients(companyId, runId, run.payslips.map((p) => p.employeeId));
   const latest = resend ? new Map<string, DeliveryStatus>() : await latestAttempts(companyId, runId);
   // A whole-run send leaves out a slip whose last try failed (D-I1); naming the employee is the retry.
   const wholeRun = opts.employeeIds === undefined;
@@ -158,12 +167,22 @@ export async function sendPayslipEmails(opts: {
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
     const { filename, pdf, sha256 } = await renderEmailPayslip(run, slip, password.password, approvedAt);
     const message = payslipEmailMessage(run, slip, password.source);
-    const result = await deliver(mailer, {
+    const record = { companyId, runId, employeeId: slip.employeeId, email, subject: message.subject, sha256, resend, actor };
+    // D-S1: "may have been sent" is committed BEFORE the mail leaves; if it cannot be, nothing is sent (it throws).
+    await recordClaim(record);
+    const sentResult = await deliver(mailer, {
       to: email, subject: message.subject, html: message.html,
       attachments: [{ filename, content: pdf, contentType: 'application/pdf' }],
       smtpTimeoutsMs: SMTP_TIMEOUTS_MS, deadlineMs: SEND_DEADLINE_MS,
     });
-    await recordDelivery({ companyId, runId, employeeId: slip.employeeId, email, subject: message.subject, sha256, resend, actor, ...result });
+    // The outcome is appended after; if that fails, the claim stands ("may have been sent": a plain POST skips it),
+    // and the answer says so rather than a retryable 503 that would invite a second send.
+    const result = await recordOutcome({ ...record, ...sentResult }).then(() => sentResult, (err: unknown) => {
+      log.error('Payslip email outcome not recorded; the claim stands as "may have been sent"', {
+        companyId, runId, employeeId: slip.employeeId, error: err instanceof Error ? err.message : String(err),
+      }, 'payslip-email');
+      return { ...sentResult, status: 'unknown' as const };
+    });
     const before = previous.get(slip.employeeId);
     if (result.status === 'sent') out.sent.push({ ...who, sha256, addressChanged: before !== undefined && before !== email });
     else if (result.status === 'unknown') out.uncertain.push(who);

@@ -28,7 +28,11 @@ export const captured: EmailOptions[] = [];
 export const failNext = { count: 0 };
 /** The next N sends hit sendEmail's deadline after the server may have taken them (review #1542 S2). */
 export const maybeNext = { count: 0 };
+/** Runs inside the send, after the message is handed over and before the mailer answers (review #1542 B1/B2). */
+let during: ((o: EmailOptions) => Promise<void>) | null = null;
+export const setDuring = (fn: ((o: EmailOptions) => Promise<void>) | null) => { during = fn; };
 export const capture: Mailer = async (o) => {
+  if (during) await during(o);
   if (failNext.count > 0) {
     failNext.count -= 1;
     return { success: false, error: '550 mailbox unavailable', provablyNotSent: true };
@@ -75,10 +79,11 @@ export const enablePlatform = (r: R) => r.pool.query(
   `INSERT INTO company_feature_overrides (company_id, feature_id, enabled, set_by)
    SELECT $1, id, true, $2 FROM feature_flags WHERE code = 'payroll_payslip_email'`, [r.company, r.admin]);
 
-export const deliveries = async (r: R) => (await r.pool.query(
+/** The outcome rows (the claim written before each send is `claims`; review #1542 D-S1). */
+export const deliveries = async (r: R, opts: { claims?: boolean } = {}) => (await r.pool.query(
   `SELECT employee_id, run_id, recipient_email, pdf_sha256, status, message_id, error, resend, sent_by,
           (run_approved_at = (SELECT COALESCE(approved_at, approval_grandfathered_at) FROM payroll_run_headers h WHERE h.id = d.run_id)) AS current
-     FROM payslip_deliveries d WHERE company_id = $1 ORDER BY created_at, id`, [r.company])).rows;
+     FROM payslip_deliveries d WHERE company_id = $1 AND claim = $2 ORDER BY created_at, id`, [r.company, opts.claims === true])).rows;
 export const audits = async (r: R, entityType: string) => Number((await r.pool.query(
   'SELECT count(*) FROM audit_log WHERE company_id = $1 AND entity_type = $2', [r.company, entityType])).rows[0]!.count);
 

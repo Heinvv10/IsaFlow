@@ -37,9 +37,10 @@
  * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a pool full of
  * waiters for this lock ends with the 5 s lock_timeout and a retryable refusal; any other exhaustion fails the
  * checkout after 15 s with an unclassified error (500 / generic 400). Nothing is written either way.
- * Also a LEAF: the payslip email (wave 6 PE, payslipDeliveryService) takes the advisory key `payslip_email:<run>`
- * then that run's header FOR SHARE (no lock 1, ever) and holds both for its sends; its own-transaction delivery
- * records take only the FK's KEY SHARE on the header. A reopen or calculate waiting on 2 meanwhile is refused at 5 s.
+ * Also a LEAF: the payslip email (wave 6 PE, payslipDeliveryService) takes the advisory key `payslip_email:<run>`,
+ * that run's header FOR SHARE, then its employees' rows FOR SHARE (no lock 1, ever), and holds them for its sends; its
+ * own-transaction delivery records take only the FKs' KEY SHARE, which those share locks let through. A reopen or
+ * calculate waiting on 2, or an employee write waiting on its row, is refused at 5 s meanwhile.
  * One company-wide lock rather than one per tax year (PAYE 4a follow-ups
  * round 2, R2): approvals need the company-wide one anyway
  * (termination_already_paid reads runs of any year), and a calculation holds

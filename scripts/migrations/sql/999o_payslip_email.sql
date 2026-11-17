@@ -18,8 +18,9 @@
 --     whose employee has no line on that run, or whose recipient is not the employee's address on file; it stamps
 --     sent_by from the session user (auth.uid(), as 999i stamps updated_by; app_user has no INSERT on sent_by) and
 --     refuses a write with none: the table cannot hold a delivery the code would never write.
---     The code writes each row in its own short transaction right after the send (companyOwnTx), so a request
---     that later rolls back cannot erase the record of a mail that left.
+--     claim  true on the row written, in its own committed transaction, BEFORE the mail leaves (status 'unknown');
+--            the outcome is a later row. The latest row per (run, employee, approval) is the answer, so whatever fails
+--            after the claim, the slip reads at least "may have been sent" and a plain send never mails it twice.
 --
 -- OLD COLOUR (the release before this one, running against this schema while the deploy switches colours):
 --   insert  employee inserts name their columns; email is NULL and passes the CHECK. Nothing old writes the new
@@ -75,9 +76,11 @@ CREATE TABLE IF NOT EXISTS public.payslip_deliveries (
   message_id TEXT CHECK (char_length(message_id) <= 998),
   error TEXT CHECK (char_length(error) <= 500),
   resend BOOLEAN NOT NULL DEFAULT FALSE,
+  claim BOOLEAN NOT NULL DEFAULT FALSE,
   sent_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK ((status = 'sent') = (error IS NULL))
+  CHECK ((status = 'sent') = (error IS NULL)),
+  CHECK (NOT claim OR status = 'unknown')
 );
 
 CREATE INDEX IF NOT EXISTS payslip_deliveries_run_idx
@@ -127,7 +130,7 @@ CREATE POLICY tenant_isolation ON public.payslip_deliveries FOR ALL TO app_user
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 REVOKE ALL ON public.payslip_deliveries FROM app_user;
 GRANT SELECT ON public.payslip_deliveries TO app_user;
-GRANT INSERT (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend)
+GRANT INSERT (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend, claim)
   ON public.payslip_deliveries TO app_user;
 
 SELECT public.app_service_sync_policies();

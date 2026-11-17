@@ -1,10 +1,11 @@
 /**
  * payslip_deliveries reads and the one write (wave 6 PE, migration 999o).
  *
- * `recordDelivery` runs right after each send, in its OWN short transaction (withOwnCompanyTx; review #1542 S3): the
- * delivery row, its email_log row and its audit_log `export` row (naming the recipient address, S5) commit at once,
- * whatever the request does afterwards, so a request that rolls back can never erase the record of a mail that left
- * and make the next click mail it again. The 999o trigger stamps sent_by from the session user (S4).
+ * Each send is bracketed by rows committed in their OWN short transactions (withOwnCompanyTx; review #1542 S3, D-S1):
+ * `recordClaim` BEFORE the mail leaves (a claim row, 'unknown', and the audit `export` naming the recipient, S5),
+ * `recordOutcome` after it (the outcome row and email_log). Whatever fails after the claim (the request, the outcome
+ * write, a lock), the latest row says at least "may have been sent", so a plain send never mails it twice. The 999o
+ * trigger stamps sent_by from the session user (S4).
  *
  * Status: 'sent' (the server accepted it), 'failed' (provably not sent), 'unknown' (the server may have taken it: a
  * deadline fired; S2). 'sent' and 'unknown' both count as delivered for this approval: a plain send skips them.
@@ -17,10 +18,37 @@ import type { EmployeeEmailActor } from './payrollEmployeeEmail';
 
 export type DeliveryStatus = 'sent' | 'failed' | 'unknown';
 
-export async function recordDelivery(o: {
+interface DeliveryRecord {
   companyId: string; runId: string; employeeId: string; email: string; subject: string; sha256: string; resend: boolean;
-  status: DeliveryStatus; messageId: string | null; error: string | null; actor: EmployeeEmailActor;
-}): Promise<void> {
+  actor: EmployeeEmailActor;
+}
+
+const CLAIM_ERROR = 'Sending: the mail server had not answered when this was recorded';
+
+/**
+ * Before the send (review #1542 D-S1): a claim row, status 'unknown' ("may have been sent"), and the export audit,
+ * committed on their own. Throws if it cannot be written, and then the caller sends nothing.
+ */
+export async function recordClaim(o: DeliveryRecord): Promise<void> {
+  const { companyId, runId, employeeId, actor } = o;
+  await withOwnCompanyTx(async () => {
+    await sql`
+      INSERT INTO payslip_deliveries
+        (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, error, resend, claim)
+      SELECT ${companyId}::uuid, h.id, ${employeeId}::uuid, COALESCE(h.approved_at, h.approval_grandfathered_at), ${o.email},
+             ${o.sha256}, 'unknown', ${CLAIM_ERROR}, ${o.resend}, true
+        FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+    `;
+    await logAuditOrThrow({
+      companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'export', entityType: 'payslip_email', entityId: runId,
+      changes: { fields: [], metadata: { employeeId, recipient: o.email, sha256: o.sha256, resend: String(o.resend) } },
+      ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
+    });
+  });
+}
+
+/** After the send: the outcome row (the latest row is the answer) and the email_log row, committed on their own. */
+export async function recordOutcome(o: DeliveryRecord & { status: DeliveryStatus; messageId: string | null; error: string | null }): Promise<void> {
   const { companyId, runId, employeeId, actor } = o;
   await withOwnCompanyTx(async () => {
     await sql`
@@ -33,13 +61,6 @@ export async function recordDelivery(o: {
     await logEmailAttempt({
       companyId, recipientEmail: o.email, subject: o.subject, emailType: 'other', sentBy: actor.userId,
       status: o.status === 'sent' ? 'sent' : 'failed', errorMessage: o.error === null ? undefined : `${o.status}: ${o.error}`,
-    });
-    await logAuditOrThrow({
-      companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'export', entityType: 'payslip_email', entityId: runId,
-      changes: { fields: [], metadata: {
-        employeeId, recipient: o.email, status: o.status, sha256: o.sha256, resend: String(o.resend),
-      } },
-      ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
     });
   });
 }
@@ -85,7 +106,7 @@ export async function listRunDeliveries(companyId: string, runId: string): Promi
   const rows = (await sql`
     SELECT DISTINCT ON (d.employee_id) d.employee_id::text AS employee_id, e.employee_number, e.first_name, e.last_name,
            d.status, d.recipient_email, d.created_at,
-           count(*) OVER (PARTITION BY d.employee_id) AS attempts
+           count(*) FILTER (WHERE d.claim) OVER (PARTITION BY d.employee_id) AS attempts
       FROM payslip_deliveries d
       JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
       JOIN payroll_employees e ON e.id = d.employee_id AND e.company_id = d.company_id

@@ -13,7 +13,7 @@
  * request already holds a connection of (that deadlocks once the pool is exhausted, R-032). The connection takes the same shape withAuth gives its own: `SET LOCAL ROLE
  * app_user`, `request.jwt.claims` and `app.current_company_id`, so RLS and every stamp trigger apply as in the
  * request. `fn` runs in a fresh owned context bound to that connection, so `sql` and `logAuditOrThrow` inside it join
- * this transaction. lock_timeout is 5 s. It cannot see rows the request has not committed: use it only for writes
+ * this transaction. lock_timeout is 5 s, statement_timeout 10 s. It cannot see rows the request has not committed: use it only for writes
  * that need none. The connection is ended on every path, and a socket error on it is logged, never thrown.
  */
 import pg, { type PoolClient } from 'pg';
@@ -39,6 +39,7 @@ export async function withOwnCompanyTx<T>(fn: () => Promise<T>): Promise<T> {
       await client.query('BEGIN');
       began = true;
       await client.query("SET LOCAL lock_timeout = '5s'");
+      await client.query("SET LOCAL statement_timeout = '10s'"); // review #1542 D-S3
       await client.query('SET LOCAL ROLE app_user');
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
       await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
