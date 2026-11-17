@@ -142,6 +142,21 @@ describe('FZ: a posted journal refuses amount changes', () => {
     })).rejects.toThrow(/final pay run/);
   }, 60_000);
 
+  it('the once-per-journal check is re-armed: a line written after a passed check is checked again', async () => {
+    const n = await postedCount();
+    await expect(asAppUser(async (c) => {
+      const je = (await c.query(
+        `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+         VALUES ($1, '2026-01-25', 'FZ born posted', 'manual', 'posted', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,10,0),($1,$2,$4,0,10)',
+        [je, a.company, expense, bankAcct]);
+      await c.query('SET CONSTRAINTS ALL IMMEDIATE'); // balanced: passes, and takes the journal off the unchecked list
+      await c.query('SET CONSTRAINTS ALL DEFERRED');
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 7, 0)', [je, a.company, expense]);
+    })).rejects.toThrow(UNBALANCED);
+    expect(await postedCount()).toBe(n);
+  }, 60_000);
+
   it('a line added to or removed from a posted journal must leave it balanced', async () => {
     await expect(asAppUser((c) => c.query(
       'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))

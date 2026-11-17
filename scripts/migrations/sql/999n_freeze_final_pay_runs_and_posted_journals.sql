@@ -30,12 +30,17 @@
 --   4. A posted journal that gains or loses a line must balance at COMMIT (a constraint trigger on gl_journal_lines,
 --      DEFERRABLE INITIALLY DEFERRED). That covers a journal INSERTed already posted: its lines arrive after it, and
 --      the year-end and depreciation posters add them in the same transaction. No line count is required (a posted header with no lines is
---      0 = 0), unlike trg_gl_je_balanced on the draft -> posted UPDATE, which is unchanged.
+--      0 = 0), unlike trg_gl_je_balanced on the draft -> posted UPDATE, which is unchanged. The check runs once per
+--      journal per firing, not once per line: an immediate per-row trigger keeps a transaction-local list of journals
+--      written since their last check. Measured (fixture PG16, box load ~100), deferred check of one born-posted
+--      journal as a non-superuser at 500 / 2 000 / 5 000 lines: once per line 46 / 586 / 3 857 ms (O(n^2));
+--      deduped 5 / 7 / 17 ms, with the 5 000-line INSERT itself 167 ms against 146 ms for an exempt superuser.
 --
 -- BOUNDARY (stated, not oversold). These stop a bug, a mis-wired path or one injected statement. Someone running
 -- arbitrary SQL as app_user can still reopen (status -> calculated, as the app does), edit, and re-approve; can delete
 -- a whole run header; and can set app.current_company_id to another tenant before COMMIT so rule 4's RLS-scoped read
--- sees nothing. Rule 4 also admits a BALANCED pair of lines added to a posted journal. Only privileges close those.
+-- sees nothing, or clear isaflow.fz_unchecked_journals after its last line write so rule 4 skips the journal. Rule 4
+-- also admits a BALANCED pair of lines added to a posted journal. Only privileges close those.
 --
 -- OLD COLOUR (the release before this one, against this schema). Writer census in the PR body:
 --   lines    calculate DELETEs and re-INSERTs lines only while the run is not approved/paid/cancelled
@@ -48,18 +53,21 @@
 --            lines in one transaction (year-end, depreciation); merge/late-claim/tagging write account and dimensions.
 --            No app path updates a posted line's amount, deletes a posted line, or moves a journal back to draft.
 --
--- LOCKS. CREATE TRIGGER takes SHARE ROW EXCLUSIVE on each table for an instant; bounded by lock_timeout. No scan,
--- no backfill: existing rows are judged only when next written.
+-- LOCKS. No DROP TRIGGER (which takes ACCESS EXCLUSIVE even when there is nothing to drop): CREATE OR REPLACE
+-- TRIGGER (PG14+), the constraint trigger only when absent, and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
+-- four tables for an instant, bounded by lock_timeout. Measured in pg_locks, first run and re-run alike: exactly
+-- ShareRowExclusiveLock on each of the four, nothing stronger. No scan, no backfill: rows are judged when next written.
 --
 -- Rollback:
 --   DROP TRIGGER IF EXISTS trg_payroll_run_lines_final_frozen ON public.payroll_run_lines;
 --   DROP TRIGGER IF EXISTS trg_payroll_run_headers_final_frozen ON public.payroll_run_headers;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_posted_frozen ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_posted_balanced ON public.gl_journal_lines;
+--   DROP TRIGGER IF EXISTS trg_gl_jl_mark_unchecked ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_not_draft ON public.gl_journal_entries;
 --   DROP FUNCTION IF EXISTS public.payroll_run_is_final(uuid), public.payroll_run_lines_final_frozen(),
 --     public.payroll_run_headers_final_frozen(), public.gl_journal_is_posted(uuid), public.gl_jl_posted_frozen(),
---     public.gl_je_posted_not_draft(), public.gl_posted_journal_balanced();
+--     public.gl_je_posted_not_draft(), public.gl_posted_journal_balanced(), public.gl_jl_mark_unchecked();
 
 SET LOCAL lock_timeout = '5s';
 
@@ -240,6 +248,7 @@ DECLARE
   v_entry uuid;
   v_debit numeric;
   v_credit numeric;
+  v_unchecked text;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
@@ -249,6 +258,13 @@ BEGIN
   ELSE
     v_entry := NEW.journal_entry_id;
   END IF;
+  -- One check per journal per firing: the first queued event checks it and takes it off the unchecked list, the
+  -- rest of that journal's events skip. A line written after that check puts it back (gl_jl_mark_unchecked).
+  v_unchecked := COALESCE(current_setting('isaflow.fz_unchecked_journals', true), '');
+  IF strpos(v_unchecked, v_entry::text) = 0 THEN
+    RETURN NULL;
+  END IF;
+  PERFORM set_config('isaflow.fz_unchecked_journals', replace(v_unchecked, v_entry::text || ',', ''), true);
   IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = v_entry AND e.status = 'posted') THEN
     RETURN NULL;
   END IF;
@@ -261,6 +277,40 @@ BEGIN
   RETURN NULL;
 END
 $$;
+
+-- The unchecked list: every line INSERT or DELETE (immediate, per row) puts its journal on a transaction-local
+-- list, so the deferred check runs once per journal per firing instead of once per line (a 5 000-line journal
+-- went from O(n^2) to O(n); timing in the header). A savepoint rollback reverts the list with the lines it covered.
+CREATE OR REPLACE FUNCTION public.gl_jl_mark_unchecked()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_entry text;
+  v_unchecked text;
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    v_entry := OLD.journal_entry_id::text;
+  ELSE
+    v_entry := NEW.journal_entry_id::text;
+  END IF;
+  v_unchecked := COALESCE(current_setting('isaflow.fz_unchecked_journals', true), '');
+  IF strpos(v_unchecked, v_entry) = 0 THEN
+    PERFORM set_config('isaflow.fz_unchecked_journals', v_unchecked || v_entry || ',', true);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_gl_jl_mark_unchecked
+  AFTER INSERT OR DELETE ON public.gl_journal_lines
+  FOR EACH ROW
+  EXECUTE FUNCTION public.gl_jl_mark_unchecked();
+ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_mark_unchecked;
 
 -- PG has no CREATE OR REPLACE for a constraint trigger, and DROP TRIGGER IF EXISTS would take ACCESS EXCLUSIVE on
 -- gl_journal_lines even when there is nothing to drop. So it is created only when absent (a static statement, no
