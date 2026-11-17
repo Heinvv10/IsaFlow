@@ -5,12 +5,15 @@
  *
  * Claims, against the disposable fixture (each case runs in a transaction that is always rolled back):
  *  1. Every uuid `*_by` column on the payroll, SARS and tax tables is TEXT, and none is left uuid.
- *  2. A non-UUID id creates and prepares a run, saves an EMP201 draft, approves a leave request, writes a UIF
- *     declaration and marks it submitted, records an external payslip import, and is copied from an eFiling event into
- *     its submission. Before 999w the column refused it with 22P02.
- *  3. A UUID-shaped id still works through the same binds, including a pay run approved through the real route by a
+ *  2. Where no pay_run approval rule exists, a non-UUID id creates, prepares and approves a run, saves an EMP201
+ *     draft, approves a leave request, writes a UIF declaration and marks it submitted, records an external payslip
+ *     import, and is copied from an eFiling event into its submission. Before 999w the column refused it with 22P02.
+ *  3. Where the pay_run rule applies (every company's, migration 951), that id is refused as a preparer with 409
+ *     PREPARER_ID_NOT_SUPPORTED before any write (coordinator ruling, option a: approval_requests stays uuid until
+ *     wave 7), and the header keeps its preparer.
+ *  4. A UUID-shaped id still works through the same binds, including a pay run approved through the real route by a
  *     member other than its preparer.
- *  4. approval_document_authors (still uuid[]) names a UUID preparer and fails closed (22P02) on a non-UUID one; it never
+ *  5. approval_document_authors (still uuid[]) names a UUID preparer and fails closed (22P02) on a non-UUID one; it never
  *     drops the preparer from the authors.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -18,6 +21,8 @@ import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { createPayrollRun, calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import { PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
 import { saveDraftSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
 import { createLeaveRequest, createLeaveType, updateLeaveRequest } from '@/modules/accounting/services/payroll/payrollLeaveService';
 import { generateUifDeclaration, markUifSubmitted } from '@/modules/accounting/services/payroll/uifDeclarationService';
@@ -65,11 +70,20 @@ afterAll(async () => {
   await r.teardown();
 }, 60000);
 
-/** `fn` as `user`, on one connection inside a transaction that is always rolled back. */
-async function rolledBack<T>(user: string, fn: () => Promise<T>): Promise<T> {
+/**
+ * `fn` as `user`, on one connection inside a transaction that is always rolled back. `noPolicy` first removes the
+ * company's pay_run approval rule (951 makes it immutable by trigger, so the triggers are bypassed for that one delete):
+ * the state in which no approval is ever raised for a run.
+ */
+async function rolledBack<T>(user: string, fn: () => Promise<T>, noPolicy = false): Promise<T> {
   const c: PoolClient = await r.pool.connect();
   await c.query('BEGIN');
   try {
+    if (noPolicy) {
+      await c.query('SET LOCAL session_replication_role = replica');
+      await c.query("DELETE FROM approval_rules WHERE company_id = $1 AND document_type = 'pay_run'", [r.company]);
+      await c.query('SET LOCAL session_replication_role = origin');
+    }
     return await als.run({ client: c, userId: user, companyId: r.company, claims: { sub: user } } as never, fn);
   } finally {
     await c.query('ROLLBACK');
@@ -78,9 +92,10 @@ async function rolledBack<T>(user: string, fn: () => Promise<T>): Promise<T> {
 }
 
 /** The run, prepared, the EMP201 draft, the leave decision, the UIF declaration and the import, all by `user`. */
-async function actAs(user: string, month: number): Promise<Row> {
+async function actAs(user: string, month: number, approve = false): Promise<Row> {
   const run = await createPayrollRun(r.company, { month, year: 2026 }, user);
   await calculatePayrollRun(run.id, r.company, user);
+  if (approve) await approvePayrollRun(r.company, run.id, user);
   const period = `2026-${String(month).padStart(2, '0')}`;
   const draft = await saveDraftSubmission(r.company, 'EMP201', `${period}-01`, `${period}-28`, { hya: true }, user);
   const type = await createLeaveType(r.company, { name: `HYa ${month}`, bceaType: null, accrualRule: 'none', accrualDays: 0, maxCarryOver: null, isPaid: true } as never);
@@ -98,7 +113,8 @@ async function actAs(user: string, month: number): Promise<Row> {
   await sql`UPDATE sars_submissions SET submitted_by = NULL WHERE id = ${sent.id}::uuid AND company_id = ${r.company}::uuid`;
   await insertEfilingEvent({ companyId: r.company, submissionId: sent.id, eventType: 'submit', efilingStatus: 'sending', createdBy: user });
   await applyPollResult(r.company, sent.id, { submissionStatus: 'draft', efilingStatus: 'sending', sarsReference: null });
-  const [h] = (await sql`SELECT created_by::text AS created_by, prepared_by::text AS prepared_by FROM payroll_run_headers
+  const [h] = (await sql`SELECT created_by::text AS created_by, prepared_by::text AS prepared_by, approved_by::text AS approved_by
+    FROM payroll_run_headers
     WHERE id = ${run.id}::uuid AND company_id = ${r.company}::uuid`) as Row[];
   const client = (als.getStore() as unknown as { client: PoolClient }).client;
   const by = async (table: string, id: string, col: string) =>
@@ -106,6 +122,7 @@ async function actAs(user: string, month: number): Promise<Row> {
   return {
     created_by: h!.created_by,
     prepared_by: h!.prepared_by,
+    ...(approve ? { approved_by: h!.approved_by } : {}),
     emp201_submitted_by: await by('sars_submissions', draft.id, 'submitted_by'),
     efiling_copied_by: await by('sars_submissions', sent.id, 'submitted_by'),
     leave_approved_by: await by('payroll_leave_requests', leave.id, 'approved_by'),
@@ -134,8 +151,26 @@ describe('HYa + HYb: actor ids are bound as text, into TEXT columns', () => {
     expect(left).toEqual([]);
   });
 
-  it('a non-UUID id prepares a run, saves an EMP201 draft, approves leave, files UIF, imports, and is copied from an eFiling event', async () => {
-    expect(await rolledBack(NON_UUID, () => actAs(NON_UUID, 2))).toEqual(everyColumn(NON_UUID));
+  it('with no pay_run approval rule, a non-UUID id prepares and approves a run, saves an EMP201 draft, approves leave, files UIF, imports, and is copied from an eFiling event', async () => {
+    expect(await rolledBack(NON_UUID, () => actAs(NON_UUID, 2, true), true))
+      .toEqual({ ...everyColumn(NON_UUID), approved_by: NON_UUID });
+  }, 90000);
+
+  it('where the pay_run rule applies, a non-UUID preparer is refused with 409 PREPARER_ID_NOT_SUPPORTED before any write', async () => {
+    const out = await rolledBack(NON_UUID, async () => {
+      const run = await createPayrollRun(r.company, { month: 6, year: 2026 }, r.admin);
+      await calculatePayrollRun(run.id, r.company, r.admin);
+      const before = ((await sql`SELECT prepared_by::text AS p, approval_revision::text AS v FROM payroll_run_headers
+        WHERE id = ${run.id}::uuid AND company_id = ${r.company}::uuid`) as Row[])[0];
+      const err = await calculatePayrollRun(run.id, r.company, NON_UUID).then(() => null, (e: unknown) => e);
+      const after = ((await sql`SELECT prepared_by::text AS p, approval_revision::text AS v FROM payroll_run_headers
+        WHERE id = ${run.id}::uuid AND company_id = ${r.company}::uuid`) as Row[])[0];
+      return { err, before, after };
+    });
+    expect(out.err).toBeInstanceOf(PreparerIdNotSupportedError);
+    expect(out.err).toMatchObject({ status: 409, code: 'PREPARER_ID_NOT_SUPPORTED', message: "This account can't prepare pay runs that need approval yet." });
+    expect(out.after).toEqual(out.before);
+    expect(out.after!.p).toBe(r.admin);
   }, 90000);
 
   it('a UUID-shaped id works through the same binds', async () => {
@@ -143,9 +178,11 @@ describe('HYa + HYb: actor ids are bound as text, into TEXT columns', () => {
   }, 90000);
 
   it('approval_document_authors names a UUID preparer and fails closed on a non-UUID one (never drops it)', async () => {
+    // A non-UUID preparer cannot be recorded under the rule any more (above), so it is written directly.
     const authors = (user: string) => rolledBack(user, async () => {
-      const run = await createPayrollRun(r.company, { month: 5, year: 2026 }, user);
-      await calculatePayrollRun(run.id, r.company, user);
+      const run = await createPayrollRun(r.company, { month: 5, year: 2026 }, r.admin);
+      await calculatePayrollRun(run.id, r.company, r.admin);
+      await sql`UPDATE payroll_run_headers SET prepared_by = ${user} WHERE id = ${run.id}::uuid AND company_id = ${r.company}::uuid`;
       return ((await sql`SELECT public.approval_document_authors(${r.company}::uuid, 'pay_run', ${run.id}::uuid)::text[] AS a`) as Row[])[0]!.a;
     }).then((a) => a, (e: { code?: string }) => e.code);
     expect(await authors(r.admin)).toEqual([r.admin]);
