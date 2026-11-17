@@ -37,13 +37,13 @@ interface Props {
   multiplier?: number;
   resetKey: number;
   /** Travel: km recorded this tax year to this month (shown only; tax does not turn on distance). */
-  kmToDate?: number | null;
+  kmThisTaxYear?: number | null;
   /** Hundredths of hours or km (null clears the row), and for travel the rate a km in cents. */
   onCommit: (hundredths: number | null, rateCents: number | null) => void;
   onRefuse: () => void;
 }
 
-export function RunUnitCell({ id, kind, label, quantity, amount, hourlyRate, multiplier, resetKey, kmToDate, onCommit, onRefuse }: Props) {
+export function RunUnitCell({ id, kind, label, quantity, amount, hourlyRate, multiplier, resetKey, kmThisTaxYear, onCommit, onRefuse }: Props) {
   const stored = quantity == null ? null : Math.round(quantity * 100);
   const storedRate = quantity != null && quantity > 0 && amount != null ? Math.round((amount / quantity) * 100) : null;
   const [rateCents, setRateCents] = useState<number | null>(storedRate);
@@ -75,8 +75,8 @@ export function RunUnitCell({ id, kind, label, quantity, amount, hourlyRate, mul
             if (cents != null && typed != null) onCommit(typed, cents);
           }} />
       )}
-      {kind === 'travel' && kmToDate != null && (
-        <p className="text-xs text-[var(--ff-text-secondary)] tabular-nums">{kmToDate.toLocaleString('en-ZA')} km this tax year</p>
+      {kind === 'travel' && kmThisTaxYear != null && (
+        <p className="text-xs text-[var(--ff-text-secondary)] tabular-nums">{kmThisTaxYear.toLocaleString('en-ZA')} km this tax year</p>
       )}
     </div>
   );

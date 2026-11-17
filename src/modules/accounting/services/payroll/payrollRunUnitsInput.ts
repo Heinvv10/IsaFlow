@@ -10,6 +10,7 @@
  */
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { hoursAmountCents } from './payrollRunHours';
@@ -40,7 +41,7 @@ export async function setRunUnits(companyId: string, runId: string, employeeId: 
     throw refuse(travel ? `Enter km of zero or more, to two decimals, at most ${MAX_KM}.` : `Enter overtime hours of zero or more, to two decimals, at most ${MAX_HOURS}.`);
   }
   if (travel && quantity !== null && (ratePerKm == null || !twoDecimals(ratePerKm) || ratePerKm <= 0 || ratePerKm > MAX_RATE_PER_KM)) {
-    throw refuse(`Enter the rate a km the employee is reimbursed, above 0 and at most R${MAX_RATE_PER_KM}, to the cent.`);
+    throw refuse(`Enter the rate a km the employee is reimbursed, above 0 and at most ${formatMoney(MAX_RATE_PER_KM)}, to the cent.`);
   }
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
