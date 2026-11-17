@@ -9,7 +9,8 @@ import Link from 'next/link';
 import { StatusPill } from '@/components/ui';
 import { useDrawerRead } from '@/components/ui/useDrawerRead';
 import type { BankTx } from '@/components/accounting/BankTxTable';
-import type { Attachment } from '@/components/accounting/bankTxAttachmentHelpers';
+import { type Attachment, isSettled } from '@/components/accounting/bankTxAttachmentHelpers';
+import { SettledEvidenceList } from '@/components/accounting/bankTx/SettledEvidenceList';
 import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
 import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
 import { canDownload, previewKind, safeDownloadName } from '@/components/accounting/attachmentPreview';
@@ -41,21 +42,24 @@ function Field({ label, value }: { label: string; value?: string }) {
 
 function Attachments({ txId, total }: { txId: string; total?: number }) {
   const { data, error, loading } = useDrawerRead<Attachment[]>(
-    `/api/accounting/bank-tx-attachments?bankTransactionId=${txId}`, 'Could not load the attachments - try again');
+    `/api/accounting/bank-tx-attachments?bankTransactionId=${txId}&include_settled=1`, 'Could not load the attachments - try again');
   const [viewIndex, setViewIndex] = useState<number | null>(null);
   if (loading) return <p className={MUTED}>Loading attachments…</p>;
   if (error || !data) return <p role="alert" className={FAILED}>{error}</p>;
   if (data.length === 0) return <p className={MUTED}>No attachments.</p>;
-  const viewable = data.filter(a => previewKind(a.file_url, a.content_type) !== 'none');
+  // The line's own files, then (read-only) the documents of the bills / invoices it settles. `total` counts both kinds.
+  const own = data.filter(a => !isSettled(a));
+  const settled = data.filter(isSettled);
+  const viewable = [...own, ...settled].filter(a => previewKind(a.file_url, a.content_type) !== 'none');
   return (
     <>
       {total !== undefined && total > data.length && (
         <p data-testid="attachments-truncated" role="status" className="mb-1 text-xs text-amber-700 dark:text-amber-400">
-          Showing newest {data.length} of {total}
+          Showing newest {own.length} of {total - settled.length}
         </p>
       )}
       <ul className="space-y-1">
-        {data.map((a) => (
+        {own.map((a) => (
           <li key={a.id} className="flex items-baseline justify-between gap-3">
             {canDownload(a.file_url)
               ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={safeDownloadName(a.file_url, a.file_name, a.content_type)} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
@@ -67,6 +71,7 @@ function Attachments({ txId, total }: { txId: string; total?: number }) {
           </li>
         ))}
       </ul>
+      <SettledEvidenceList items={settled} onView={(a) => setViewIndex(viewable.indexOf(a))} />
       {viewIndex !== null && (
         <AttachmentViewer attachments={viewable} startIndex={viewIndex} onClose={() => setViewIndex(null)} />
       )}
