@@ -94,7 +94,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/lib/landing/landingStats.ts': "filtered (the landing-page aggregate moved here from pages/api/landing-stats.ts, 2026-10-20)",
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'src/modules/accounting/services/ap/bankLinePaymentGate.ts': "exempt: reads one line's provenance (feed connection / import batch) by id for the R-035 payment gate; no total or queue scope",
-  'src/modules/accounting/services/bank/bankLineJournalGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch) by id for the R-035 manual-journal gate; no total or queue scope",
+  'src/modules/accounting/services/bank/bankLineHandKeyedSkips.ts': "exempt: reads the named lines' provenance (feed connection / import batch) by id for the MCP bulk classifier's hand-keyed gates (account and customer refund); no total or queue scope",
   'src/modules/accounting/services/bank/bankLineImporterGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch and its importer) by id for the step-2 importer gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankTransferLinkImporterHold.ts': "exempt: reads the named line's provenance (feed connection / extension batch and its importer) by id to hold the transfer auto-link; no total or queue scope",
   'src/modules/accounting/services/bank/bankReversalGate.ts': "exempt: reads the named lines' amount and auto-post run by id for the step-2 reversal gate (MCP pre-check); no total or queue scope",

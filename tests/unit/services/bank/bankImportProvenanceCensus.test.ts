@@ -94,10 +94,10 @@ describe('1. every import path records the importer', () => {
 });
 
 describe('2. every hand-keyed gate site also asks the importer check', () => {
-  const HAND_KEYED = /\b(assertBankLineMayPostToAccounts|assertBankLineMayPaySupplier|handKeyedLineJournalRefusal|manualLinePaymentRefusal|handKeyedAccountLineSkips)\(/;
+  const HAND_KEYED = /\b(assertBankLineMayPostToAccounts|assertBankLineMayPaySupplier|handKeyedLineJournalRefusal|manualLinePaymentRefusal|handKeyedAccountLineSkips|assertBankLineMayRefundCustomer|handKeyedRefundRefusal|handKeyedRefundLineSkips)\(/;
   const IMPORTER = /\b(assertImporterMayAllocate|assertImporterMayAllocateAs|importerAllocationRefusal|importerRefusalForLineId|importerHeldLineSkips)\(/;
   it('the callers of the hand-keyed gates are these, and each asks the importer check too', () => {
-    const DEFINERS = [`src/modules/accounting/services/ap/bankLinePaymentGate.ts`, `${B}bankLineJournalGate.ts`];
+    const DEFINERS = [`src/modules/accounting/services/ap/bankLinePaymentGate.ts`, `${B}bankLineJournalGate.ts`, `${B}bankLineRefundGate.ts`];
     const NO_IMPORT = ['pages/api/accounting/bank-transactions-manual.ts']; // inserts its own hand-keyed line: no batch, no importer
     const callers = filesMatching(HAND_KEYED).filter((f) => !DEFINERS.includes(f));
     expect(callers).toEqual([

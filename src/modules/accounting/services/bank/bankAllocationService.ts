@@ -27,6 +27,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertBankLineMayRefundCustomer } from './bankLineRefundGate';
 import { assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { stampContraDimensions } from './bankAllocationDimensions';
 import { recordAllocationDecision } from './codingDecisionLog';
@@ -134,6 +135,8 @@ export async function allocateTransaction(
   // payment instruction, not bank evidence — refused (409) under an enforced
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
+  // Hein 2026-11-15: money OUT to a customer from a HAND-KEYED line is a refund nobody decided: the same gate, same rules.
+  if (allocType === 'customer' && entityId && isSpent) await assertBankLineMayRefundCustomer(companyId, tx, totalAmount);
   if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
   await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId); // step 2: not the statement's importer (403)
 
