@@ -96,3 +96,7 @@ scripts/**/[Aa]uth.json
 
 # scripts/ci/integration/run.sh keeps the last run's full shard logs here
 .ci-integration-logs/
+
+# Python bytecode (the budget fixture generator under tests/fixtures/budgets/freeform)
+__pycache__/
+*.pyc

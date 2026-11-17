@@ -11,6 +11,7 @@ import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions
 import { BudgetVersionError, type BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
 import { MAX_CENTS, ROUNDING_UNITS, type RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
+import type { CpuSlotBusyError } from '@/lib/withCpuSlot';
 import type { McpToolContext, McpToolResult } from '../types';
 import { NOT_FOUND, toolError } from './toolHelpers';
 
@@ -114,4 +115,17 @@ export function versionView(v: BudgetVersion) {
     approved_by: v.approvedBy, approved_at: v.approvedAt, locked_by: v.lockedBy, locked_at: v.lockedAt,
     unlocked_by: v.unlockedBy, unlocked_at: v.unlockedAt, unlock_reason: v.unlockReason, created_by: v.createdBy, created_at: v.createdAt,
   };
+}
+
+/**
+ * How long an MCP call waits for a BUDGET_SPREADSHEET_SLOT place. The MCP takes the slot inside its request
+ * transaction (it has no outer wrapper, as the routes do), so a waiter holds its pool connection: kept short.
+ */
+export const MCP_SLOT_WAIT_MS = 2_000;
+
+/** The refusal for a call refused a spreadsheet slot (get_budget_template and import_budget_workbook, xlsx). */
+export function spreadsheetBusy(err: CpuSlotBusyError): McpToolResult {
+  return toolError(err.reason === 'owner-limit'
+    ? 'You already have two spreadsheets being read or built; wait for one to finish.'
+    : 'The server is busy reading or building other spreadsheets; try again in a moment (the JSON grid needs none).');
 }

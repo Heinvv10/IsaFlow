@@ -27,14 +27,16 @@ export interface RuleTransferLineInput {
 
 export async function autoPostRuleTransferLine(input: RuleTransferLineInput): Promise<AutoPostOutcome> {
   const { companyId, userId, tx, rule, ruleName, counterpartyBankId } = input;
+  // The period first, from the candidate's date (a line's date is never rewritten): a line it skips takes no row lock
+  // for the rest of the sweep (#1494 brk 4, with bankRuleTransferPrelock leaving it out of the pre-lock).
+  const periodStatus = await getPeriodStatusForDate(companyId, fmtDate(tx.transaction_date));
+  if (periodStatus !== 'open') return { kind: periodStatus === 'no_period' ? 'no_period' : 'closed_period' };
   // The same re-check autoPostRuleLine makes on the locked row: allocated (or moved) since the candidate query.
   const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
   if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id
       || feedStateOf(locked) !== 'posted') {
     return { kind: 'raced' };
   }
-  const periodStatus = await getPeriodStatusForDate(companyId, fmtDate(tx.transaction_date));
-  if (periodStatus !== 'open') return { kind: periodStatus === 'no_period' ? 'no_period' : 'closed_period' };
 
   const totalAmount = Math.abs(Number(tx.amount));
   const description = rule.description_template

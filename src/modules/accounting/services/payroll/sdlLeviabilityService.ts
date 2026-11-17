@@ -79,10 +79,15 @@ function periodIndex(year: number, month: number): number {
   return year * 12 + month;
 }
 
+/**
+ * The employer's annual remuneration estimate for SDLA s4(b), as at `runId`'s month. `currentPeriodRemuneration`: the
+ * figure the calculation is costing now, or 'stored' to take the run's own stored remuneration (the approval-time
+ * re-judgement, payrollSdlMonthGate), so a calculation and its later re-judgement read the month the same way.
+ */
 export async function estimateAnnualRemuneration(
   companyId: string,
   period: PayrollPeriod,
-  currentPeriodRemuneration: number,
+  currentPeriodRemuneration: number | 'stored',
   runId: string,
 ): Promise<number> {
   const index = periodIndex(period.year, period.month);
@@ -90,6 +95,10 @@ export async function estimateAnnualRemuneration(
   const rows = (await sql`
     WITH runs AS (
       SELECT prh.period_year * 12 + prh.period_month AS idx,
+             -- The month's OTHER calculated, approved or paid runs (an off-cycle run beside the regular one): their
+             -- remuneration is this month's too, whatever order they were calculated or paid in (wave 6 FQb1).
+             (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid) AS same_month_other,
+             (prh.id = ${runId}::uuid) AS is_this_run,
              -- The breakdown is read only inside the window: an older run counts only for the first
              -- month of history, which its cash gross decides (a run of benefits alone is not one).
              -- An independent contractor's fees are not remuneration (G21 p. 26): out of the threshold basis (PAYE_OUTSIDE_TABLES, treatment none).
@@ -112,10 +121,13 @@ export async function estimateAnnualRemuneration(
     )
     SELECT COALESCE(SUM(remuneration) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1}), 0)::float8 AS window_remuneration,
            COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
-           MIN(idx)::int AS first_index
+           MIN(idx)::int AS first_index,
+           COALESCE(SUM(remuneration) FILTER (WHERE same_month_other), 0)::float8 AS month_others,
+           (SELECT COALESCE(SUM(t.remuneration), 0) FROM runs t WHERE t.is_this_run)::float8 AS this_run_stored
       FROM runs
      WHERE remuneration > 0
   `) as DbRow[];
+  const current = currentPeriodRemuneration === 'stored' ? Number(rows[0]?.this_run_stored ?? 0) : currentPeriodRemuneration;
 
   const priorRemuneration = Number(rows[0]?.window_remuneration ?? 0);
   const priorPeriods = Number(rows[0]?.window_periods ?? 0);
@@ -128,8 +140,17 @@ export async function estimateAnnualRemuneration(
   const elapsedPeriods = priorPeriods === 0
     ? 1
     : Math.min(TRAILING_PERIODS, Math.max(1, index - firstIndex + 1));
+  // One decision per month (wave 6 FQb1, review #1507 B4/B4b/B4c). The levy is due when the employer's remuneration over
+  // the next twelve months is reasonably expected to exceed R500 000 (SDLA s4(b)); IsaFlow estimates that from the
+  // trailing months' runs plus THIS MONTH's remuneration, and the month's remuneration is every calculated, approved or
+  // paid run of it (regular and off-cycle) plus this run's own figure: so the order runs are calculated or paid in does
+  // not move the decision, and a large bonus raises the estimate from its own month on. Two runs of a month can still
+  // decide differently if one was calculated before the other existed: payrollSdlMonthGate refuses approval until both
+  // are recalculated on the same month total.
+  const monthOthers = Number(rows[0]?.month_others ?? 0);
+  const monthRemuneration = monthOthers + current;
   const annual = Math.round(
-    ((priorRemuneration + currentPeriodRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
+    ((priorRemuneration + monthRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
 
   // The estimate is not stored on the run, and it looks strictly backwards, so
@@ -137,7 +158,11 @@ export async function estimateAnnualRemuneration(
   // Log it or a nil-SDL month cannot be explained after the fact.
   log.info(
     'SDL leviability basis',
-    { runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods },
+    {
+      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers,
+      // Which judgement this is: the run's costing, or the approval gate re-judging its month (payrollSdlMonthGate).
+      source: currentPeriodRemuneration === 'stored' ? 'approval-gate' : 'calculation',
+    },
     'sdlLeviabilityService',
   );
   return annual;

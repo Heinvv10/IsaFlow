@@ -123,6 +123,9 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     runs AS (
       SELECT h.id, h.period_year, h.period_month, h.status, h.approved_at, h.approval_grandfathered_at, h.approval_history, h.approved_taxed_employees,
              make_date(h.period_year, h.period_month, 1) AS period,
+             -- Earlier / later stays the MONTH, as loadPayeYearToDate's bound is (spec F2): a gate that called a run of the
+             -- same month earlier would pass a run whose year to date never read it (review #1507 B2a). FQc moves the gate
+             -- and the figure onto payrollRunOrder together.
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h, tax_year y
       WHERE h.company_id = ${companyId}::uuid
