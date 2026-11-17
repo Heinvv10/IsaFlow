@@ -61,7 +61,7 @@ export function parsePairInput(body: unknown): Parsed<{ value: PairInput }> {
   }
   if (body.cutoverDate !== undefined) {
     const d = body.cutoverDate;
-    if (d !== null && (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !isRealCalendarDate(d))) {
+    if (d !== null && (typeof d !== 'string' || !isRealCalendarDate(d))) {
       return { ok: false, error: 'cutoverDate must be a real date (YYYY-MM-DD) or null' };
     }
     value.cutoverDate = d;

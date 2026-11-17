@@ -14,8 +14,8 @@ import {
   type SideState,
 } from '@/modules/accounting/services/intercompany/connectionValidation';
 
-const U1 = '10000000-0000-4000-8000-000000000001';
-const U2 = '20000000-0000-4000-8000-000000000002';
+const U1 = 'a0000000-0000-4000-8000-00000000000b';
+const U2 = 'c0000000-0000-4000-8000-00000000000d';
 
 describe('parseCreateInput', () => {
   it('takes a UUID partnerCompanyId and lowercases it', () => {

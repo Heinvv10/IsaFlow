@@ -155,6 +155,18 @@ describe('ConnectionCard', () => {
     expect(screen.queryByRole('button', { name: 'Revoke' })).toBeNull();
   });
 
+  it('an open panel goes away when a refresh shows the user can no longer use it', () => {
+    const { rerender } = render(<ConnectionCard {...props()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connection settings' }));
+    expect(screen.getByRole('form', { name: 'Connection settings' })).toBeInTheDocument();
+    rerender(<ConnectionCard {...props({ connection: connection({ canEditSettings: false }) })} />);
+    expect(screen.queryByRole('form', { name: 'Connection settings' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'My settings' }));
+    expect(screen.getByRole('button', { name: 'Save my settings' })).toBeInTheDocument();
+    rerender(<ConnectionCard {...props({ canEdit: false })} />);
+    expect(screen.queryByRole('button', { name: 'Save my settings' })).toBeNull();
+  });
+
   it('opens one panel at a time and closes it again', () => {
     render(<ConnectionCard {...props()} />);
     fireEvent.click(screen.getByRole('button', { name: 'My settings' }));

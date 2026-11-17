@@ -30,10 +30,10 @@ const LINK = `INSERT INTO intercompany_document_links(connection_id, message_id,
 const linkRow = async (l: string) => (await pool.query('SELECT * FROM intercompany_document_links WHERE id = $1', [l])).rows[0];
 
 /** An accepted message from `from` to `to`, with its source (sender's) and target (receiver's) documents. */
-async function acceptedMessage(from: string, to: string, over: { src?: string; tgt?: string } = {}) {
+async function acceptedMessage(from: string, to: string, over: { src?: string; tgt?: string; kind?: string } = {}) {
   const src = over.src ?? (await plantDocument(pool, 'customer_invoice', from));
   const tgt = over.tgt ?? (await plantDocument(pool, 'supplier_invoice', to));
-  const m = await plantMessage(pool, id, from, to, { doc: src, user: from === co.A ? U.a : U.b });
+  const m = await plantMessage(pool, id, from, to, { doc: src, kind: over.kind, user: from === co.A ? U.a : U.b });
   await asAppUser(pool, to === co.A ? U.a : U.b, to, (q) => q.query(
     "UPDATE intercompany_messages SET status = 'accepted', target_doc_type = 'supplier_invoice', target_doc_id = $2 WHERE id = $1", [m, tgt]), true);
   return { m, src, tgt };
@@ -116,9 +116,13 @@ describe('a mirror link', () => {
     });
     // a second message that targets the SAME receiver document, with a new source document: only the receiver's side clashes
     const again = await acceptedMessage(co.A, co.B, { tgt });
-    const side = co.B === low() ? 'a' : 'b';
+    const receiverSide = co.B === low() ? 'a' : 'b';
+    // a third message (another kind) from the SAME source document to a new receiver document: only the sender's side clashes
+    const third = await acceptedMessage(co.A, co.B, { src, kind: 'credit_note' });
+    const senderSide = receiverSide === 'a' ? 'b' : 'a';
     await asAppUser(pool, U.b, co.B, async (q) => {
-      expect(await outcome(q, LINK, mirrorArgs(co.A, again.m, again.src, tgt))).toBe(`23505: duplicate key value violates unique constraint "intercompany_links_doc_${side}_live"`);
+      expect(await outcome(q, LINK, mirrorArgs(co.A, again.m, again.src, tgt))).toBe(`23505: duplicate key value violates unique constraint "intercompany_links_doc_${receiverSide}_live"`);
+      expect(await outcome(q, LINK, mirrorArgs(co.A, third.m, src, third.tgt))).toBe(`23505: duplicate key value violates unique constraint "intercompany_links_doc_${senderSide}_live"`);
     });
     await asAppUser(pool, U.b, co.B, (q) => q.query("UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = $1", [first]), true);
     await asAppUser(pool, U.b, co.B, async (q) => { expect(await outcome(q, LINK, args)).toBe('ok'); });
@@ -187,6 +191,28 @@ describe('a manual pairing', () => {
       // the other company's document is not "own"
       expect(await outcome(q, LINK, pairing(b, crypto.randomUUID(), aType, bType))).toBe(R.docNotOwn);
     });
+    // ... even for a user who belongs to BOTH companies, so that RLS shows them the other company's document of the same type
+    const foreignA = await plantDocument(pool, aType, high());
+    const foreignB = await plantDocument(pool, bType, low());
+    await asAppUser(pool, U.ab, low(), async (q) => {
+      expect(await outcome(q, LINK, pairing(foreignA, b, aType, bType))).toBe(R.docNotOwn);
+      expect(await outcome(q, LINK, pairing(a, b, aType, bType))).toBe('ok');
+    });
+    await asAppUser(pool, U.ab, high(), async (q) => {
+      expect(await outcome(q, LINK, pairing(a, foreignB, aType, bType))).toBe(R.docNotOwn);
+      expect(await outcome(q, LINK, pairing(a, b, aType, bType))).toBe('ok');
+    });
+  });
+
+  it('whatever status or confirmations an insert carries (a role with the grant) are replaced: pending, the inserter confirmed, nothing else', async () => {
+    const a = await plantDocument(pool, 'customer_invoice', low());
+    const b = await plantDocument(pool, 'supplier_invoice', high());
+    const link = await asOwner(pool, U.ab, low(), async (q) => (await q.query(
+      `INSERT INTO intercompany_document_links(connection_id, company_a_id, doc_a_type, doc_a_id, company_b_id, doc_b_type, doc_b_id, origin, status,
+         confirmed_by_a, confirmed_by_b, confirmed_at, unlinked_at, unlinked_by, created_by)
+       VALUES ($1, $2, 'customer_invoice', $3, $4, 'supplier_invoice', $5, 'manual_pairing', 'active', 'x', 'y', now(), now(), 'z', 'w') RETURNING id`,
+      [id, low(), a, high(), b])).rows[0].id as string, true);
+    expect(await linkRow(link)).toMatchObject({ status: 'pending_confirmation', confirmed_by_a: U.ab, confirmed_by_b: null, confirmed_at: null, unlinked_at: null, unlinked_by: null, created_by: U.ab });
   });
 
   it('is confirmed by the OTHER party, then active; a confirmation is made once, by a user with a write role, as the user', async () => {
@@ -204,6 +230,9 @@ describe('a manual pairing', () => {
     await asAppUser(pool, highUser, high(), async (q) => { expect(await outcome(q, confirmB, [link])).toBe('ok'); }, true);
     expect(await linkRow(link)).toMatchObject({ status: 'active', confirmed_by_a: lowUser, confirmed_by_b: highUser });
     expect((await linkRow(link)).confirmed_at).toBeInstanceOf(Date);
+    await asAppUser(pool, lowUser, low(), async (q) => {
+      expect(await outcome(q, "UPDATE intercompany_document_links SET confirmed_by_a = 'x' WHERE id = $1", [link])).toBe(R.linkConfirmed);
+    });
     await asAppUser(pool, highUser, high(), async (q) => {
       expect(await outcome(q, confirmB, [link])).toBe(R.linkConfirmed);
       expect(await outcome(q, "UPDATE intercompany_document_links SET confirmed_by_b = NULL WHERE id = $1", [link])).toBe(R.linkConfirmed);
@@ -247,6 +276,10 @@ describe('a manual pairing', () => {
     });
     const link = await asAppUser(pool, highUser, high(), async (q) => (await q.query(LINK, pairing(crypto.randomUUID(), b))).rows[0].id as string, true);
     expect(await linkRow(link)).toMatchObject({ status: 'pending_confirmation', confirmed_by_a: null, confirmed_by_b: highUser });
+    const viewerOfLow = low() === co.A ? U.va : U.avb;
+    await asAppUser(pool, viewerOfLow, low(), async (q) => {
+      expect(await outcome(q, "UPDATE intercompany_document_links SET confirmed_by_a = 'x' WHERE id = $1", [link])).toBe(R.linkConfirmRole);
+    });
     await asAppUser(pool, lowUser, low(), (q) => q.query("UPDATE intercompany_document_links SET confirmed_by_a = 'x' WHERE id = $1", [link]), true);
     expect(await linkRow(link)).toMatchObject({ status: 'active', confirmed_by_a: lowUser, confirmed_by_b: highUser });
   });

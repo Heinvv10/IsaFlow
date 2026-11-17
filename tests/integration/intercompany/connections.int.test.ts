@@ -213,8 +213,10 @@ describe('4. a group connection needs both companies in one group', () => {
     await api.create(U.ab, co.A, { partnerCompanyId: co.B });
     const after = dataOf<{ items: Array<{ connectionStatus: string | null }> }>(await api.candidates(U.ab, co.A));
     expect(after.items[0]!.connectionStatus).toBe('active');
-    // ua has no role in B: B is not a candidate for them.
+    // ua has no role in B, and avb is only a VIEWER of B: B is not a candidate for either.
     expect(dataOf<{ items: unknown[] }>(await api.candidates(U.a, co.A)).items).toEqual([]);
+    expect(dataOf<{ items: unknown[] }>(await api.candidates(U.avb, co.A)).items).toEqual([]);
+    expect(dataOf<{ items: unknown[] }>(await api.candidates(U.mab, co.A)).items).toHaveLength(1);
   });
 
   it('group-candidates: a partner that has left the group is not offered; neither is the session company having left', async () => {
