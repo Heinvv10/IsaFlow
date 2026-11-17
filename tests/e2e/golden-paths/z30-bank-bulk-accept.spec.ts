@@ -96,17 +96,27 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     if (process.env.BANK_TX_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.BANK_TX_EVIDENCE_DIR, 'bulk-accept-preview.png') });
 
     // Confirm posts the batch.
-    const confirmed = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'POST');
+    const confirmed = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'POST', { timeout: 90_000 });
     await dialog.getByRole('button', { name: /Confirm and post 3/ }).click();
-    runId = (await (await confirmed).json())?.data?.runId ?? '';
-    await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines');
+    const confirmRes = await confirmed;
+    const confirmText = await confirmRes.text().catch(() => '(unreadable)');
+    const confirmKey = confirmRes.request().headers()['idempotency-key'];
+    try { runId = JSON.parse(confirmText)?.data?.runId ?? ''; } catch { runId = ''; }
+    // On a failure the message carries everything that decides it: the POST's status, its key header and body, and what the
+    // dialog itself shows (its alert, its footer), so the cause is read off the report instead of guessed.
+    const shown = async () => `alert: ${await dialog.getByRole('alert').allTextContents().then((t) => t.join(' | ')).catch(() => '?')}; dialog: ${(await dialog.textContent().catch(() => '?'))?.slice(0, 400)}`;
+    try {
+      await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines', { timeout: 60_000 });
+    } catch (err) {
+      throw new Error(`the result screen did not show "Posted 3 lines": confirm POST answered ${confirmRes.status()} (Idempotency-Key ${confirmKey ?? 'MISSING'}) body ${confirmText.slice(0, 600)}; ${await shown()}\n${String(err)}`);
+    }
     const withStatus = async (status: string) => (await api.get<{ transactions: Array<{ id: string }> }>(
       `/api/accounting/bank-transactions?bank_account_id=${bankAccountId}&status=${status}&search=${encodeURIComponent(ref)}`)).transactions.length;
-    expect(await withStatus('allocated')).toBe(3);
+    expect(await withStatus('allocated'), 'the three lines are allocated after Confirm').toBe(3);
 
     // Undo batch reverses exactly that batch: the lines are imported again.
     await dialog.getByRole('button', { name: 'Undo batch' }).click();
-    await expect(dialog.getByText(/Batch undone: 3 lines reversed/)).toBeVisible();
+    await expect(dialog.getByText(/Batch undone: 3 lines reversed/)).toBeVisible({ timeout: 60_000 }); // a cold dev server compiles the reversal path on first use
     undone = true;
     await dialog.getByRole('button', { name: 'Done' }).click();
     expect(await withStatus('imported')).toBe(3);
