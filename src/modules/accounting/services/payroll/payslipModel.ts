@@ -11,6 +11,9 @@
  * Occupation (BCEA s33(1)(b)) and the stored terms of work (hours, rates) come from the employee's profile
  * (migration 967). The EE level or department is not an occupation: with none captured the slip prints
  * "Occupation not recorded".
+ *
+ * Wave 6 PS3: a final run prints the details frozen at its approval (payslipSnapshot), not the live profile, bank
+ * account and company; a final run with no snapshot of its current approval reads live and says "as at download".
  */
 import { sql } from '@/lib/neon';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
@@ -18,6 +21,7 @@ import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantitie
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
 
 export class PayslipNotFound extends Error {
   constructor(what: 'run' | 'employee') {
@@ -58,28 +62,18 @@ export interface PayslipRun {
   runDate: string | null;
   /** R-035 cleared (or grandfathered): false prints DRAFT on every page. */
   final: boolean;
+  /** Wave 6 PS3: 'approval' when every slip prints the details frozen at this approval; else 'download' (live). */
+  detailsAsAt: 'approval' | 'download';
   employer: { name: string; address: string };
   payslips: Payslip[];
 }
 
 interface HeaderRow { period_month: number; period_year: number; run_date: string | Date | null }
 
-interface LineRow {
+interface LineRow extends Omit<DetailsRow, 'details_frozen'> {
+  snapshot_approved_at: string | null;
+  approved_at_us: string | null;
   employee_id: string;
-  employee_number: string;
-  first_name: string;
-  last_name: string;
-  tax_number: string | null;
-  payment_method: string;
-  bank_last_four: string | null;
-  bank_length: string | number | null;
-  bank_name: string | null;
-  occupation: string | null;
-  pay_basis: string;
-  hours_per_week: string | number | null;
-  hours_per_day: string | number | null;
-  hourly_rate: string | number | null;
-  daily_rate: string | number | null;
   gross_pay: string | number;
   paye: string | number;
   uif_employee: string | number;
@@ -109,7 +103,12 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
            RIGHT(btrim(bd.account_number), 4) AS bank_last_four, char_length(btrim(bd.account_number)) AS bank_length, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
            prl.component_breakdown,
-           (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final
+           (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final,
+           prl.payslip_snapshot,
+           -- PS3 (F8): judged in TS (snapshotIsThisApproval), never by a cast that a malformed value would make throw.
+           prl.payslip_snapshot->>'approvedAt' AS snapshot_approved_at,
+           CASE WHEN prh.status IN ('approved', 'paid') AND prh.approved_at IS NOT NULL
+                THEN (extract(epoch FROM prh.approved_at) * 1000000)::bigint::text END AS approved_at_us
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees pe ON pe.id = prl.employee_id AND pe.company_id = prh.company_id
@@ -152,32 +151,37 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   const types = await componentTypes(companyId, lines);
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const company = await getCompanyDetailsFromCompany(companyId);
+  // PS3: all of the run's slips print one approval's details, or all print live ones.
+  const frozen = final && lines.every((l) => snapshotIsThisApproval(l.snapshot_approved_at, l.approved_at_us));
+  const live = { name: company.name, address: company.address };
+  const shown = lines.map((l) => ({ l, ...detailsOf({ ...l, details_frozen: frozen }, live) }));
 
   return {
     runId, periodMonth: run.periodMonth, periodYear: run.periodYear, runDate: dateOnly(header.run_date), final,
-    employer: { name: company.name, address: company.address },
-    payslips: lines.map((l): Payslip => ({
+    detailsAsAt: frozen ? 'approval' : 'download',
+    employer: shown[0]!.employer,
+    payslips: shown.map(({ l, details: d, yearToDate: frozenYtd }): Payslip => ({
       ...itemisePayslip({
         grossPay: Number(l.gross_pay), paye: Number(l.paye), uifEmployee: Number(l.uif_employee),
         uifEmployer: Number(l.uif_employer), sdl: Number(l.sdl), netPay: Number(l.net_pay), breakdown: l.component_breakdown,
       }, types),
       employeeId: l.employee_id,
-      employeeNumber: String(l.employee_number),
-      employeeName: `${l.first_name} ${l.last_name}`.trim(),
-      taxNumber: l.tax_number,
-      paymentMethod: String(l.payment_method),
+      employeeNumber: String(d.employee_number),
+      employeeName: `${d.first_name} ${d.last_name}`.trim(),
+      taxNumber: d.tax_number,
+      paymentMethod: String(d.payment_method),
       // A masked form needs four real characters: a shorter (or blank) number is incomplete, never printed as is.
-      bankLastFour: Number(l.bank_length ?? 0) >= 4 ? l.bank_last_four : null,
-      bankIncomplete: l.bank_length != null && Number(l.bank_length) < 4,
-      bankName: l.bank_name,
+      bankLastFour: Number(d.bank_length ?? 0) >= 4 ? d.bank_last_four : null,
+      bankIncomplete: d.bank_length != null && Number(d.bank_length) < 4,
+      bankName: d.bank_name,
       ...workedOf(l.component_breakdown),
-      occupation: l.occupation,
-      payBasis: String(l.pay_basis),
-      hoursPerWeek: numOrNull(l.hours_per_week),
-      hoursPerDay: numOrNull(l.hours_per_day),
-      hourlyRate: numOrNull(l.hourly_rate),
-      dailyRate: numOrNull(l.daily_rate),
-      yearToDate: ytd.get(l.employee_id)!,
+      occupation: d.occupation,
+      payBasis: String(d.pay_basis),
+      hoursPerWeek: numOrNull(d.hours_per_week),
+      hoursPerDay: numOrNull(d.hours_per_day),
+      hourlyRate: numOrNull(d.hourly_rate),
+      dailyRate: numOrNull(d.daily_rate),
+      yearToDate: frozenYtd ?? ytd.get(l.employee_id)!, // PS3 (B1): the year to date as issued at approval
     })),
   };
 }

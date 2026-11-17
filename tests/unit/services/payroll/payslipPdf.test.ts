@@ -31,8 +31,8 @@ function slipOf(breakdown: object[], types: Map<string, string>, stored: { gross
   };
 }
 
-const runOf = (slip: Payslip, final: boolean, address = '1 Main Road, Durban'): PayslipRun => ({
-  runId: 'r1', periodMonth: 11, periodYear: 2026, runDate: '2026-11-25', final,
+const runOf = (slip: Payslip, final: boolean, address = '1 Main Road, Durban', detailsAsAt: PayslipRun['detailsAsAt'] = 'approval'): PayslipRun => ({
+  runId: 'r1', periodMonth: 11, periodYear: 2026, runDate: '2026-11-25', final, detailsAsAt,
   employer: { name: 'Fixture Payroll (Pty) Ltd', address }, payslips: [slip],
 });
 
@@ -197,5 +197,15 @@ describe('PS2: BCEA s33(1) particulars, formats, payment line', () => {
     const text = await textOf({ ...base(), paymentMethod: 'cheque' });
     expect(text).toContain('Paid by: Cheque');
     expect(text).not.toContain('Paid by: cheque');
+  });
+});
+
+describe('PS3: details as at download', () => {
+  const plain = () => slipOf([], new Map(), { gross: 1000, paye: 0, uif: 10, net: 990 });
+  it('a final slip without details frozen at its approval says so; a frozen one and a DRAFT do not', async () => {
+    const note = 'as at download, not frozen at approval';
+    expect((await pages(await buildPayslipPdf(runOf(plain(), true, undefined, 'download')))).join(' ')).toContain(note);
+    expect((await pages(await buildPayslipPdf(runOf(plain(), true, undefined, 'approval')))).join(' ')).not.toContain(note);
+    expect((await pages(await buildPayslipPdf(runOf(plain(), false, undefined, 'download')))).join(' ')).not.toContain(note);
   });
 });

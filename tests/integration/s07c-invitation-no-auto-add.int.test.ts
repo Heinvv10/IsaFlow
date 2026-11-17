@@ -15,6 +15,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 // No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
 // (#1468); answer the address this suite's sessions carry (signSession).
+// createInvitation looks the address up in GoTrue first (R7-1 pin); this suite has no GoTrue: no account holds it.
+vi.mock('@/lib/auth/gotrue', async (orig) => ({ ...(await orig<Record<string, unknown>>()), findUserByEmail: vi.fn(async () => null) }));
 vi.mock('@/lib/auth/gotrueAdminUser', async () =>
   (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import invitationsRoute from '../../pages/api/accounting/company-invitations';

@@ -205,8 +205,15 @@ export async function setupInviteFixture(): Promise<void> {
         { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (path.startsWith('/admin/users/') && (init?.method ?? 'GET') === 'GET') {
-      // accept.ts reads an existing account's factors before setting a password (MFA gate): none here.
-      return new Response(JSON.stringify({ id: path.split('/').pop(), factors: [] }),
+      // accept.ts reads an existing account's factors before setting a password (MFA gate): none here. It also
+      // reads the account's login email and user_metadata (invitationAccountRole): every account here holds the
+      // address of the invitation pinned to it and was created by that invitation, as POST /api/invitations makes
+      // them (an established one still has to sign in: it has a users row).
+      const id = path.split('/').pop()!;
+      const pinned = (await pool.query(
+        'SELECT id, email FROM company_invitations WHERE gotrue_user_id = $1 ORDER BY created_at DESC LIMIT 1', [id],
+      )).rows[0] as { id: string; email: string } | undefined;
+      return new Response(JSON.stringify({ id, factors: [], email: pinned?.email ?? '', user_metadata: { invite_id: pinned?.id } }),
         { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (path.startsWith('/admin/users/')) {
