@@ -249,5 +249,12 @@
     "paye": 3848.0,
     "uifEmployee": 0,
     "uifEmployer": 0
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 5,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 3848.05
+    }
   }
 }

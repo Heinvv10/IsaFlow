@@ -59,18 +59,20 @@ function lineWithYtd(components: EmployeeComponent[], ytd: Parameters<typeof cal
 }
 
 describe('P3: an annual payment (3605) is taxed by the SARS annual-payment method', () => {
-  it("the guide's October bonus: salary tax 4 161.00 plus bonus tax 3 848.00", () => {
+  it("the guide's October bonus: salary tax 4 161.01 plus bonus tax 3 848.00 (AN)", () => {
+    // AN (F = 365 / 30.4166): AE 28 000 x F = 336 000.74, tax 49 932.19 / F = 4 161.01 (x 12: 4 161.00); the bonus
+    // stays inside the 26% bracket, so 26% x 14 800 = 3 848.
     const l = line([{ component: comp('3601'), amount: 28_000 }, { component: comp('3605'), amount: 14_800 }]);
-    expect(l.payeSplit).toEqual({ regular: 4161, annualPayment: 3848, directive: 0 });
-    expect(l.paye.monthlyPaye).toBe(8009);
+    expect(l.payeSplit).toEqual({ regular: 4161.01, annualPayment: 3848, directive: 0 });
+    expect(l.paye.monthlyPaye).toBe(8009.01);
     expect(l.taxableIncome).toBe(42_800);
   });
 
   it('medical credits are applied once, in the regular calculation', () => {
     // Two beneficiaries: 2 × 376 × 12 = 9 024 a year (taxTables.ts 2027).
-    // Salary: (49 932 − 9 024) / 12 = 3 409.00; the bonus tax is unchanged.
+    // Salary: (49 932.19 − 9 024) / F = 3 409.01 (AN; x 12: 3 409.00); the bonus tax is unchanged.
     const l = line([{ component: comp('3601'), amount: 28_000 }, { component: comp('3605'), amount: 14_800 }], 2);
-    expect(l.payeSplit).toEqual({ regular: 3409, annualPayment: 3848, directive: 0 });
+    expect(l.payeSplit).toEqual({ regular: 3409.01, annualPayment: 3848, directive: 0 });
   });
 
   it('a bonus with no regular pay: tax(120 000) = 21 600 − 17 820 = 3 780', () => {
@@ -79,22 +81,22 @@ describe('P3: an annual payment (3605) is taxed by the SARS annual-payment metho
   });
 
   it('an employee under the threshold until the bonus: only the excess is taxed', () => {
-    // R7 000 × 12 = 84 000, below the R99 000 threshold: no tax.
-    // 84 000 + 30 000 = 114 000: 20 520 − 17 820 = 2 700.
+    // R7 000 × F = 84 000.18 (AN, F = 365 / 30.4166), below the R99 000 threshold: no tax.
+    // 84 000.18 + 30 000 = 114 000.18: 20 520.03 − 17 820 = 2 700.03 (x 12: 2 700).
     const l = line([{ component: comp('3601'), amount: 7_000 }, { component: comp('3605'), amount: 30_000 }]);
-    expect(l.payeSplit).toEqual({ regular: 0, annualPayment: 2700, directive: 0 });
+    expect(l.payeSplit).toEqual({ regular: 0, annualPayment: 2700.03, directive: 0 });
   });
 
   it('leave pay-out and notice pay in a final run are both annual payments', () => {
-    // Salary 21 670 × 12 = 260 040: 44 118 + 0.26 × 14 940 = 48 002.40 − 17 820 = 30 182.40 → 2 515.20 a month.
-    // Plus 30 000: 290 040: 44 118 + 0.26 × 44 940 = 55 802.40 − 17 820 = 37 982.40. Difference 7 800.00.
+    // Salary 21 670 × F = 260 040.57 (AN): 44 118 + 0.26 × 14 940.57 = 48 002.55 − 17 820 = 30 182.55 → / F = 2 515.21
+    // a month (x 12: 2 515.20). Plus 30 000, inside the 26% bracket: difference 7 800.00.
     const l = line([
       { component: comp('3601'), amount: 21_670 },
       { component: { ...comp('3605'), id: 'synthetic:termination:leave-payout' }, amount: 10_000 },
       { component: { ...comp('3605'), id: 'synthetic:termination:notice-pay' }, amount: 20_000 },
     ]);
-    expect(l.payeSplit).toEqual({ regular: 2515.2, annualPayment: 7800, directive: 0 });
-    expect(l.paye.monthlyPaye).toBe(10_315.2);
+    expect(l.payeSplit).toEqual({ regular: 2515.21, annualPayment: 7800, directive: 0 });
+    expect(l.paye.monthlyPaye).toBe(10_315.21);
   });
 
   it('a periodic code is still annualised ×12', () => {
@@ -112,8 +114,9 @@ describe('P3: an annual payment (3605) is taxed by the SARS annual-payment metho
       tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
       retirementContributions: 0, retirementDeduction: 0, donations: 0, sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 0,
     });
-    // Two paid salary periods, R20 000 taxable in total: AE R120 000, tax R3 780 × 2/12 = R630.
-    expect(july.paye.monthlyPaye).toBe(630);
+    // Two paid salary periods, R20 000 taxable in total: AE 20 000 × F / 2 = R120 000.26, tax R3 780.05 × 2 / F = R630.01
+    // (AN, F = 365 / 30.4166; x 12: R630).
+    expect(july.paye.monthlyPaye).toBe(630.01);
   });
 });
 

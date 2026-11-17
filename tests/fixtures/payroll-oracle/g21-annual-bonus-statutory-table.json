@@ -42,5 +42,12 @@
   },
   "expected": {
     "paye": 8009
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 1,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 8009.01
+    }
   }
 }

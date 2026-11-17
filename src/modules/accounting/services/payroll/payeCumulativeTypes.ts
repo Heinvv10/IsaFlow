@@ -26,6 +26,11 @@ export interface CumulativePayeInput {
   retirementContributions?: number;
   /** This period's donations deducted as taxable deductions (4030, s18A), inside regularTaxable; absent = none. */
   donations?: number;
+  /**
+   * F, the periods' worth of pay in a year (annualisationFactor.ts; wave-6 AN, ruling 5): the line passes 365 ÷ 30.4166
+   * for monthly pay. 12 is the statutory × 12 of G21 p. 8, which the method's own tests use to check SARS's examples.
+   */
+  factor: number;
 }
 
 export interface CumulativePayeResult {
@@ -51,6 +56,8 @@ export interface CumulativePayeResult {
 export interface CumulativePayeTrace {
   /** False: neither periodic pay nor an annual payment this period, so the tables took nothing. */
   paid: boolean;
+  /** F, the annualisation factor (annualisationFactor.ts): AE = periodic to date × F ÷ periods. */
+  factor: number;
   periods: number; ytdPeriodicTaxable: number; regularTaxable: number; periodicToDate: number; annualEquivalent: number;
   contributionsToDate: number; donationsToDate: number; annualisedContributions: number; deductionBase: number;
   /** The s11F deduction on annual figures, the part off the annual equivalent, and the part off the annual payments. */

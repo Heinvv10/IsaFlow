@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { calculateCumulativePaye } from '@/modules/accounting/services/payroll/payeCumulative';
+/** The method on the statutory × 12 (G21 (2027) Rev 1 p. 8); the line's own factor (wave-6 AN, 365 ÷ 30.4166) is in payeAnnualisation.test.ts. */
+const X12 = 12;
 import type { PayeYearToDate } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const NONE: PayeYearToDate = {
@@ -29,7 +31,7 @@ interface Period {
 }
 
 function period(ytd: PayeYearToDate, input: Period) {
-  const result = calculateCumulativePaye({
+  const result = calculateCumulativePaye({ factor: X12,
     taxYear: 2027,
     rebateAge: input.age ?? 40,
     monthlyMedicalBeneficiaries: input.beneficiaries ?? 1,
@@ -99,7 +101,7 @@ describe('signed medical scheme fee corrections', () => {
   });
 
   it('combines medical and retirement reversals in a correction-only no-pay month', () => {
-    const result = calculateCumulativePaye({
+    const result = calculateCumulativePaye({ factor: X12,
       taxYear: 2027,
       rebateAge: 67,
       monthlyMedicalBeneficiaries: 1,

@@ -9,6 +9,7 @@
  */
 import { calculateCumulativePaye, type CumulativePayeInput } from './payeCumulative';
 import { s18aDonationForLine } from './s18aDonation';
+import { annualisationFactor } from './annualisationFactor';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import type { PayeYearToDate, ValidationResult } from './payrollTypes';
@@ -19,7 +20,7 @@ export function costPayeWithDonations(input: {
   /** Taxable 4030 deductions (signed). */
   donations: number;
   receiptHeld: boolean;
-  payeInput: Omit<CumulativePayeInput, 'regularTaxable' | 'annualPayments' | 'donations'>;
+  payeInput: Omit<CumulativePayeInput, 'regularTaxable' | 'annualPayments' | 'donations' | 'factor'>;
   ytd: PayeYearToDate | undefined;
 }) {
   const { periodicTaxable, annualPayments, payeInput } = input;
@@ -33,7 +34,10 @@ export function costPayeWithDonations(input: {
       regularTaxable,
       annualTaxable,
       donationOffAnnual,
-      ...calculateCumulativePaye({ ...payeInput, regularTaxable, annualPayments: annualTaxable, donations: deductedDonations }),
+      // Monthly only (wave-6 AN): FQc passes the run's frequency.
+      ...calculateCumulativePaye({
+        ...payeInput, regularTaxable, annualPayments: annualTaxable, donations: deductedDonations, factor: annualisationFactor('monthly'),
+      }),
     };
   };
   const before = costed(0);

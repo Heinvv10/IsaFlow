@@ -65,13 +65,13 @@ describe('the run\'s reading reaches the line as warnings or errors, never silen
   it('a window inside the month, applied or not: DIRECTIVE_PARTIAL_PERIOD', () => {
     const d = { ...pct(0.2), effectiveDate: '2026-08-20', endsOn: '2026-08-25' };
     const r = cost([earn(30_000)], state(null, { partial: [{ directive: d, applied: false }] }));
-    expect(r.paye.monthlyPaye).toBe(4_681);
+    expect(r.paye.monthlyPaye).toBe(4_681.01); // the tables (AN: × 365 ÷ 30.4166)
     expect(r.validationResults.find(v => v.code === 'DIRECTIVE_PARTIAL_PERIOD')?.message).toMatch(/not in force on the pay date/);
   });
   it('two in force: DIRECTIVE_OVERLAP error, the tables apply', () => {
     const r = cost([earn(30_000)], state(null, { overlapping: ['111', '222'] }));
     expect(r.validationResults.find(v => v.code === 'DIRECTIVE_OVERLAP')?.severity).toBe('error');
-    expect(r.paye.monthlyPaye).toBe(4_681);
+    expect(r.paye.monthlyPaye).toBe(4_681.01); // the tables (AN: × 365 ÷ 30.4166)
   });
   it('an unusable row: DIRECTIVE_INVALID error', () => {
     expect(cost([earn(30_000)], state(null, { invalid: ['333'] })).validationResults.find(v => v.code === 'DIRECTIVE_INVALID')?.severity).toBe('error');

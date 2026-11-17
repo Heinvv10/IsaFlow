@@ -11,6 +11,7 @@ import { earningStep } from './earningExplain';
 import type { EarningPart } from './payrollLineAccumulate';
 import { RETIREMENT_DEDUCTION_RATE } from './retirementFund';
 import { getTaxYearConfig } from './taxTables';
+import { annualisationFactorWords } from './annualisationFactor';
 import { NON_STANDARD_RATE, type PayeTreatment } from './taxStatusTreatment';
 import { SOURCES, footed, pct, sourceFor, type ExplainStep, type FigureExplanation } from './payrollExplainTypes';
 
@@ -103,7 +104,7 @@ function retirementStep(input: PayeExplainInput): ExplainStep {
         children: [
           {
             key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions,
-            formula: t.periods > 0 ? 'to date × 12 ÷ periods' : 'no periodic pay yet: taken as it stands',
+            formula: t.periods > 0 ? `to date × ${annualisationFactorWords(t.factor)} ÷ periods` : 'no periodic pay yet: taken as it stands',
             children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006, and the employer\'s 3817, 3825, 3828 deemed paid by the employee)', amount: t.contributionsToDate }],
           },
           {
@@ -148,7 +149,7 @@ function annualPaymentsStep(input: PayeExplainInput): ExplainStep {
           key: 'paye.offAnnual.capLeft', label: 'The cap to date, less that part', amount: t.offAnnualLimits.capLeft,
           formula: `${r(t.capToDate)} − ${r(t.deductionOffPeriodicToDate)}`,
           children: [
-            { key: 'paye.offAnnual.capToDate', label: 'Cap to date (the annual cap × periods ÷ 12)', amount: t.capToDate },
+            { key: 'paye.offAnnual.capToDate', label: `Cap to date (the annual cap × periods ÷ (${annualisationFactorWords(t.factor)}))`, amount: t.capToDate },
             { key: 'paye.offAnnual.capPeriods', label: 'Periods for the cap (periodic pay or an annual payment)', amount: t.capPeriods, unit: 'count' },
             { key: 'paye.offAnnual.offPeriodicToDate', label: 'The deduction off periodic pay to date', amount: t.deductionOffPeriodicToDate },
           ],
@@ -191,15 +192,21 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
       amount: t.periods, unit: 'count',
     },
     {
+      key: 'paye.annualisationFactor', label: 'Periods in a year (the annualisation factor)', amount: t.factor, unit: 'count',
+      formula: annualisationFactorWords(t.factor), source: SOURCES.annualisationFactor,
+      note: 'Days-based, as Sage Payroll annualises a month (365 days ÷ 30.4166), not the × 12 of the SARS guide: a few cents a year apart.',
+    },
+    {
       key: 'paye.annualEquivalent', label: 'Annual equivalent', amount: t.annualEquivalent,
-      formula: t.periods > 0 ? `${r(t.periodicToDate)} × 12 ÷ ${t.periods}` : 'no periodic pay to date: nil', source: sourceFor(SOURCES.annualEquivalent, taxYear),
+      formula: t.periods > 0 ? `${r(t.periodicToDate)} × ${annualisationFactorWords(t.factor)} ÷ ${t.periods}` : 'no periodic pay to date: nil',
+      source: sourceFor(SOURCES.annualEquivalent, taxYear),
       note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it equals the SARS tables; a mid-year change is spread over the rest of the year.',
     },
   ];
   if (input.medicalFees.total !== 0) {
     steps.push(footed({
       key: 'paye.medicalFees', label: 'Medical scheme fees this period (for the medical credits)', amount: input.medicalFees.total,
-      note: 'With the earlier periods\' fees, taken a year (× 12 ÷ periods) inside the tax for the year below.', source: sourceFor(SOURCES.additionalMedical, taxYear),
+      note: `With the earlier periods' fees, taken a year (× ${annualisationFactorWords(t.factor)} ÷ periods) inside the tax for the year below.`, source: sourceFor(SOURCES.additionalMedical, taxYear),
     }, [
       { key: 'paye.medicalFees.employee', label: 'Deducted from the employee (4005)', amount: input.medicalFees.employee },
       ...(input.medicalFees.employer !== 0 ? [{
@@ -221,7 +228,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   }
   steps.push({
     key: 'paye.liability', label: 'Tax due for the year to date', amount: t.liability,
-    formula: `${r(t.atAE.annualTax)} × ${t.periods} ÷ 12${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
+    formula: `${r(t.atAE.annualTax)} × ${t.periods} ÷ (${annualisationFactorWords(t.factor)})${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
   });
   steps.push({ key: 'paye.ytdTablePaye', label: 'Less PAYE already deducted this tax year (tables)', amount: t.ytdTablePaye });
   steps.push({ key: 'paye.due', label: 'PAYE this period from the tables', amount: t.due, formula: 'due to date − already deducted, rounded to the cent, never below nil' });

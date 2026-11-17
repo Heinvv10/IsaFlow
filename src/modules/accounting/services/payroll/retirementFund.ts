@@ -12,8 +12,8 @@
  * p. 10-11 "Retirement fund contributions", and p. 5). The cap is also limited
  * "at any time during the year" to the same fraction of itself as the period
  * remuneration was paid for bears to the year (p. 10): payeCumulative takes
- * the allowed deduction on annualised figures and weights it n ÷ 12, which is
- * that proviso.
+ * the allowed deduction on annualised figures and weights it n ÷ F (F = 365 ÷
+ * 30.4166 a month, wave-6 AN; the statute's ratio is n ÷ 12), which is that proviso.
  *
  * "The higher of remuneration or taxable income": an employer knows only the
  * remuneration it pays, so taxable income before the deduction is that same

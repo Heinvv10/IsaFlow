@@ -15,6 +15,8 @@ import { cents, expectRecomputes, footingProblems, recomputeSdl, stepsByKey } fr
 
 let seed = 12345;
 const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+/** The monthly annualisation factor (wave-6 AN, ruling 5: Sage's 365 ÷ 30.4166, not 12). */
+const F = 365 / 30.4166;
 const pick = <T,>(a: T[]): T => a[Math.floor(rnd() * a.length)]!;
 const amt = (max: number) => Math.round(rnd() * max * 100) / 100;
 const earning = (code: string, amount: number) => ({ code, name: code, type: 'earning' as const, amount, taxable: true, uif: true, sdl: true });
@@ -92,10 +94,10 @@ describe('the lines the review named', () => {
   it('the reviewer\'s line: R2 000 salary, R300 000 bonus, R100 000 RA (Feb 2027): the step shows the lesser of the allowed R89 100 and the AE', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', month: 2, components: [earning('3601', 2000), earning('3605', 300_000), deduction('4006', 100_000)] }));
     const m = stepsByKey(l.explanations.paye);
-    expect(m.get('paye.retirement.allowed')!.amount).toBeCloseTo(89_100, 6); // 27.5% of (24 000 + 300 000)
-    expect(m.get('paye.retirement.rateLimit')!.amount).toBeCloseTo(89_100, 6);
-    expect(m.get('paye.retirement')!.amount).toBeCloseTo(24_000, 6); // the annual equivalent binds
-    expect(m.get('paye.retirement.ceiling')!.amount).toBeCloseTo(24_000, 6);
+    expect(m.get('paye.retirement.allowed')!.amount).toBeCloseTo(0.275 * (2_000 * F + 300_000), 6); // 27.5% of (2 000 × F + 300 000): 89 100.01
+    expect(m.get('paye.retirement.rateLimit')!.amount).toBeCloseTo(0.275 * (2_000 * F + 300_000), 6);
+    expect(m.get('paye.retirement')!.amount).toBeCloseTo(2_000 * F, 6); // the annual equivalent binds (24 000.05)
+    expect(m.get('paye.retirement.ceiling')!.amount).toBeCloseTo(2_000 * F, 6);
     expectRecomputes(l);
   });
 
@@ -135,8 +137,8 @@ describe('the lines the review named', () => {
     }));
     const m = stepsByKey(l.explanations.paye);
     const ae = m.get('paye.annualEquivalent')!.amount!;
-    // + the periodic donations to date (the earlier R2 000 and this line's signed deduction) x 12 / 2
-    expect(m.get('paye.retirement.ceiling')!.amount).toBeCloseTo(ae + ((2_000 + l.donationDeduction) * 12) / 2, 6);
+    // + the periodic donations to date (the earlier R2 000 and this line's signed deduction) x F / 2
+    expect(m.get('paye.retirement.ceiling')!.amount).toBeCloseTo(ae + ((2_000 + l.donationDeduction) * F) / 2, 6);
     expect(m.get('paye.retirement.ceiling')!.amount).toBeGreaterThan(ae + 1);
     expectRecomputes(l);
   });
@@ -243,7 +245,7 @@ describe('the lines the review named', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 5000), earning('3605', 2_000_000), deduction('4006', 100_000)] }));
     const m = stepsByKey(l.explanations.paye);
     const capLeft = m.get('paye.offAnnual.capLeft')!.amount!;
-    expect(capLeft).toBeCloseTo(430_000 / 12 - 5000, 6); // the 2026/27 cap for one period, less the R5 000 off periodic pay
+    expect(capLeft).toBeCloseTo(430_000 / F - 5000, 6); // the 2026/27 cap for one period (÷ F, AN), less the R5 000 off periodic pay
     expect(-m.get('paye.offAnnual')!.amount!).toBeCloseTo(capLeft, 6);
     expectRecomputes(l);
   });

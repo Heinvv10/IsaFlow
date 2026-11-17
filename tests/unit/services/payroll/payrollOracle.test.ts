@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync } from 'node:fs';
 import {
-  caseProblems, gapListProblems, LIST_FILES, loadCases, loadKnownGaps, loadUnverified, ORACLE_DIR,
+  caseProblems, failingFields, gapListProblems, LIST_FILES, runCase, loadCases, loadKnownGaps, loadUnverified, ORACLE_DIR,
 } from '../../../fixtures/payroll-oracle/oracle';
 
 const cases = loadCases();
@@ -120,6 +120,8 @@ describe('payroll oracle fixtures', () => {
     'offcycle-termination-leave-after-regular': 'OC',
     'psp-company-27pct': 'PSP',
     'psp-trust-45pct': 'PSP',
+    // AN (wave-6 ruling 5): 7c from the SARS ×12 figure, over the 5c tolerance cap; a ruled departure, never closed.
+    'ra-annual-cap-binds-2027': 'PARITY',
     'ri-overtime-10h-at-1-5x': 'RI',
     'ri-reimbursive-1000km-at-prescribed-3703': 'RI',
     'ri-reimbursive-above-prescribed-3702-3722': 'RI',
@@ -134,10 +136,28 @@ describe('payroll oracle fixtures', () => {
     expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
   });
 
-  it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {
+  it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are not gaps', () => {
     expect(gaps.map(g => g.case)).not.toContain('sdl-after-para-2-4-deductions');
     expect(gaps.map(g => g.case)).not.toContain('sage-2027-03-phekis');
     expect(gaps.map(g => g.case)).not.toContain('sage-2027-03-david');
+  });
+
+  it('AN: Sage\'s days annualisation closes Phekis and David to the cent, with no tolerance left on any vendor case', () => {
+    for (const id of ['sage-2027-03-phekis', 'sage-2027-03-david']) {
+      const c = cases.find(x => x.id === id)!;
+      expect(c.tolerance, id).toBeUndefined();
+      expect(failingFields(c, runCase(c)), id).toEqual([]);
+    }
+    expect(cases.filter(c => /^(sage|simplepay|both)$/.test(c.source) && c.tolerance).map(c => c.id)).toEqual([]);
+  });
+
+  it('AN: every remaining tolerance is the ruled ×12 departure on a SARS or UNVERIFIED hand figure, at most 5c', () => {
+    const tolerated = cases.flatMap(c => Object.entries(c.tolerance ?? {}).map(([f, t]) => ({ id: c.id, f, source: c.source, ...t })));
+    expect(tolerated.length).toBeGreaterThan(0);
+    for (const t of tolerated) {
+      expect(t.reason, `${t.id}.${t.f}`).toBe('ruling 5: AN 365/30.4166 over G21 p. 8 ×12');
+      expect(/^(sars-guide:|UNVERIFIED$)/.test(t.source), `${t.id}`).toBe(true);
+    }
   });
 });
 

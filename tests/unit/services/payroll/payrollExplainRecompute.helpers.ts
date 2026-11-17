@@ -69,8 +69,11 @@ function recomputePaye(fig: FigureExplanation): number {
     regular = round2(r.amt('paye.flatRate') * Math.max(0, r.amt('paye.balance')));
   } else if (r.has('paye.annualEquivalent')) {
     const n = r.amt('paye.periods');
+    // The factor the explanation states, held to Sage's monthly days basis (wave-6 AN, ruling 5), then used throughout.
+    const f = r.amt('paye.annualisationFactor');
+    expect(f).toBe(365 / 30.4166);
     const toDate = r.amt('paye.ytdPeriodicTaxable') + r.amt('paye.regularTaxable');
-    const ae = n > 0 ? (toDate * 12) / n : 0;
+    const ae = n > 0 ? (toDate * f) / n : 0;
     expect(r.amt('paye.periodicToDate')).toBeCloseTo(toDate, 6);
     expect(r.amt('paye.annualEquivalent')).toBeCloseTo(ae, 6);
     let off = 0;
@@ -89,7 +92,7 @@ function recomputePaye(fig: FigureExplanation): number {
     let taxAll = taxAE;
     let taxEarlier = taxAE;
     if (r.has('paye.offAnnual')) {
-      const capToDate = (r.amt('paye.retirement.cap') * r.amt('paye.offAnnual.capPeriods')) / 12;
+      const capToDate = (r.amt('paye.retirement.cap') * r.amt('paye.offAnnual.capPeriods')) / f;
       expect(r.amt('paye.offAnnual.capToDate')).toBeCloseTo(capToDate, 6);
       expect(r.amt('paye.offAnnual.capLeft')).toBeCloseTo(capToDate - r.amt('paye.offAnnual.offPeriodicToDate'), 6);
       const limits = ['deductionLeft', 'annualPayments', 'contributionsLeft', 'capLeft'].map(k => r.amt(`paye.offAnnual.${k}`));
@@ -103,7 +106,7 @@ function recomputePaye(fig: FigureExplanation): number {
         taxEarlier = taxFromBlock(r, 'paye.atEarlier');
       }
     }
-    const liability = (taxAE * n) / 12 + (taxAll - taxAE);
+    const liability = (taxAE * n) / f + (taxAll - taxAE);
     expect(r.amt('paye.liability')).toBeCloseTo(liability, 6);
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));
