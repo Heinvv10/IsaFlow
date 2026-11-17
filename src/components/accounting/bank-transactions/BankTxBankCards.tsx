@@ -4,6 +4,9 @@
  * sideways (with a fade edge) when they overflow. Below it: the expanded
  * group's worklist, the ungrouped-accounts hint, and the selected account's
  * stats strip, which sits directly above the page's tabs.
+ *
+ * With more than SWITCHER_THRESHOLD accounts the row shows only the pinned cards (at most six, pins kept in the card
+ * order store) and an "All accounts" combobox finds the rest (WP5).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,7 +21,10 @@ import { readLastOpened, writeLastOpened } from './lastOpenedSubAccount';
 import { BankPrimaryCard } from './BankPrimaryCard';
 import { SortableCardRow, type SortableCard } from './SortableCardRow';
 import { applyCardOrder } from './bankCardOrder';
+import { PIN_BOUNDARY, SWITCHER_THRESHOLD, pinnedKeys, togglePin } from './bankCardPins';
+import { BankAccountSwitcher } from './BankAccountSwitcher';
 import { useBankCardOrder } from './useBankCardOrder';
+import { notify } from '@/utils/toast';
 import type { BankAccountSummary } from './useBankTxSummary';
 
 interface Props {
@@ -115,14 +121,36 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
     })),
   ];
   const byKey = new Map(cards.map(c => [c.key, c]));
-  const orderedCards = applyCardOrder(cards.map(c => c.key), order).map(k => byKey.get(k)!);
+  const allKeys = cards.map(c => c.key);
+  const switcher = bankAccounts.length > SWITCHER_THRESHOLD;
+  const pinned = switcher ? pinnedKeys(allKeys, order) : allKeys;
+  const orderedCards = (switcher ? pinned : applyCardOrder(allKeys, order)).map(k => byKey.get(k)!);
+  const selectedCardKey = groups.find(g => g.accounts.some(a => a.id === selectedBank))?.groupId;
+  const currentKey = selectedCardKey ? `group:${selectedCardKey}` : selectedBank;
+  const shownCards = orderedCards.map(c => ({ ...c, current: c.key === currentKey }));
+  const outsideSelection = switcher && !pinned.includes(currentKey) ? bank?.accountName ?? null : null;
+  // The pinned cards in their new order; the unpinned ones keep their place after the boundary.
+  const reorderShown = (keys: string[]) => {
+    if (!switcher) return void reorder(keys);
+    void reorder([...keys, PIN_BOUNDARY, ...applyCardOrder(allKeys, order).filter(k => !keys.includes(k))]);
+  };
+  const onTogglePin = (key: string) => {
+    const r = togglePin(allKeys, order, key);
+    if (r.refused) notify.error(r.refused);
+    else if (r.order) void reorder(r.order);
+  };
 
   return (
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Transactions</h1>
+        {switcher && (
+          <BankAccountSwitcher primaries={primaries} groups={groups} accountCount={bankAccounts.length} selectedBank={selectedBank}
+            pinned={new Set(pinned)} outsideSelection={outsideSelection} onTogglePin={onTogglePin}
+            onPick={(a, groupId) => (groupId ? openSubAccount(groupId, a.id) : selectPrimary(a.id))} />
+        )}
         <p className="text-xs text-[var(--ff-text-secondary)]">
-          Drag cards to reorder (or Alt+←/→)
+          {orderedCards.length > 1 && 'Drag cards to reorder (or Alt+←/→)'}
           {order && (
             <button type="button" onClick={() => void reset()} data-testid="bank-cards-reset-order"
               className="ml-3 text-teal-700 dark:text-teal-400 hover:underline">
@@ -134,7 +162,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
       <div className="relative min-w-0">
         <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
           className="flex items-stretch gap-3 overflow-x-auto pb-2">
-          <SortableCardRow cards={orderedCards} onReorder={keys => void reorder(keys)} />
+          <SortableCardRow cards={shownCards} onReorder={reorderShown} />
         </div>
         {rowMore && (
           <div aria-hidden data-testid="bank-cards-fade"
