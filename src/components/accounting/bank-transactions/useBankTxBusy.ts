@@ -26,8 +26,12 @@ export interface BankTxBusy {
   isRunning: (key: string) => boolean;
   /** Runs `fn` unless `key` is running, or another operation holds one of `rows`; resolves to undefined when refused. */
   run: <T>(key: string, fn: () => Promise<T>, rows?: readonly string[]) => Promise<T | undefined>;
-  /** Marks activity: restarts the silence timer of every running operation (call at each request start and finish). */
-  touch: () => void;
+  /**
+   * Marks activity for the operation(s) it concerns: restarts the silence timer of the operation named by `key`, and of those
+   * holding any of `rows` (a request about a line is activity for whoever holds that line). With neither, nothing is touched:
+   * one operation's requests must not keep another, hung one alive.
+   */
+  touch: (activity?: { key?: string; rows?: readonly string[] }) => void;
   progress: { key: string; done: number; total: number } | null;
   setProgress: (p: { key: string; done: number; total: number } | null) => void;
 }
@@ -62,8 +66,12 @@ export function useBankTxBusy(): BankTxBusy {
     try { return await fn(); }
     finally { clearTimeout(cap); release(); }
   }, []);
-  const touch = useCallback(() => { running.current.forEach(h => h.arm()); }, []);
-  const setProgress = useCallback((p: BankTxBusy['progress']) => { setProgressState(p); touch(); }, [touch]);
+  const touch = useCallback((activity?: { key?: string; rows?: readonly string[] }) => {
+    if (!activity) return;
+    const rows = new Set(activity.rows ?? []);
+    running.current.forEach((h, key) => { if (key === activity.key || h.rows.some(r => rows.has(r))) h.arm(); });
+  }, []);
+  const setProgress = useCallback((p: BankTxBusy['progress']) => { setProgressState(p); if (p) touch({ key: p.key }); }, [touch]);
   const isRunning = useCallback((key: string) => running.current.has(key), []);
   const isBusy = useCallback((key: string) => busy.has(key), [busy]);
   return { busy, isBusy, isRunning, run, touch, progress, setProgress };
