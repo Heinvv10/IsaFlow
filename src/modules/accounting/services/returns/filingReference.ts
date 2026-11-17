@@ -13,6 +13,9 @@ import { ReturnRefusal, type ReturnForm } from './returnVersionTypes';
 const PRN: Record<ReturnForm, { re: RegExp; what: string }> = {
   VAT201: { re: /^4\d{9}[A-Z]\d{8}$/, what: 'your 10-digit VAT number (starting with 4), a letter and 8 digits' },
   EMP201: { re: /^7\d{9}[A-Z]\d{8}$/, what: 'your 10-digit PAYE reference (starting with 7), a letter and 8 digits' },
+  // EMP501 (wave 6 EFb): the e@syFile / eFiling submission reference. UNVERIFIED: SARS publishes no shape for it, so
+  // letters and digits only, 6 to 30 of them (no spaces or punctuation inside).
+  EMP501: { re: /^[A-Z0-9]{6,30}$/, what: '6 to 30 letters and digits, the submission reference e@syFile or eFiling gave you' },
 };
 
 /** The PRN in upper case, or a 400 that says what shape is expected. */
@@ -21,7 +24,9 @@ export function parseFilingReference(form: ReturnForm, raw: string): string {
   const shape = PRN[form];
   if (!shape.re.test(value)) {
     throw new ReturnRefusal(400,
-      `The filing reference must be the payment reference number (PRN) eFiling shows on the ${form}: 19 characters, ${shape.what}.`,
+      form === 'EMP501'
+        ? `The EMP501 filing reference must be ${shape.what}.`
+        : `The filing reference must be the payment reference number (PRN) eFiling shows on the ${form}: 19 characters, ${shape.what}.`,
       'FILING_REFERENCE_SHAPE');
   }
   return value;

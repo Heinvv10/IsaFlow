@@ -15,7 +15,8 @@ import { getVersionForUpdate } from './returnVersionWrites';
 import { ReturnRefusal, type ReturnActor, type ReturnForm } from './returnVersionTypes';
 
 export type FilingFileFormat = 'csv' | 'json' | 'pdf';
-export const FILING_FILE_FORMATS: Record<ReturnForm, readonly FilingFileFormat[]> = { VAT201: ['csv', 'json'], EMP201: ['csv', 'pdf'] };
+// EMP501's e@syFile file has its own payroll-detail service and route (emp501FilingFile, wave 6 EFb): none here.
+export const FILING_FILE_FORMATS: Record<ReturnForm, readonly FilingFileFormat[]> = { VAT201: ['csv', 'json'], EMP201: ['csv', 'pdf'], EMP501: [] };
 const TYPES: Record<FilingFileFormat, string> = { csv: 'text/csv; charset=utf-8', json: 'application/json', pdf: 'application/pdf' };
 
 export interface FilingFile {

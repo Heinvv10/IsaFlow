@@ -17,6 +17,16 @@ const OWN = [
   'pages/api/accounting/sars/returns/[form]/filing-file.ts',
   'pages/api/accounting/sars/returns/[form]/file.ts',
   'src/components/accounting/sars/returns/FilingFileActions.tsx',
+  // EFb (EMP501).
+  'src/modules/accounting/services/returns/emp501FilingFile.ts',
+  'src/modules/accounting/services/returns/emp501Figures.ts',
+  'src/modules/accounting/services/returns/emp501Readiness.ts',
+  'src/modules/accounting/services/returns/finaliseEmp501Return.ts',
+  'src/modules/accounting/services/payroll/easyFileInput.ts',
+  'pages/api/payroll/emp501/returns/index.ts',
+  'pages/api/payroll/emp501/returns/filing-file.ts',
+  'pages/api/payroll/irp5/easyfile-export.ts',
+  'src/components/payroll/emp501/Emp501ReturnSection.tsx',
 ];
 const FORBIDDEN = ['src/modules/accounting/services/reports/sarsEfilingClient.ts',
   'src/modules/accounting/services/reports/sarsEfilingSubmissionService.ts'];

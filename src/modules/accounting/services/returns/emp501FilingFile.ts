@@ -5,9 +5,12 @@
  */
 import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
-import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnVersion } from './returnVersionTypes';
+import { sql, withSavepoint } from '@/lib/neon';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { assertMayActOnReturns } from './returnGuards';
+import { getVersionForUpdate } from './returnVersionWrites';
+import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
 
 export const EMP501_FILE_KIND = 'emp501_easyfile'; // 999v's filing_file_kind CHECK
 
@@ -22,22 +25,37 @@ export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Em
 }
 
 /**
- * Stamp the file on a finalised version (999v: once, by the session user, frozen once filed). A version already
- * stamped is not written again: its stored figures give the same bytes, and a different hash is a defect, raised.
+ * Download an EMP501 version's e@syFile file (wave 6 EFb), as EFa's downloadFilingFile does for VAT201/EMP201: owner/
+ * admin only, Login-as refused, row-locked so concurrent first downloads stamp once; the first download of a finalised
+ * version stamps it (999v) with its audit row in one savepoint; a later download is checked against the stamp
+ * (409 FILING_FILE_MISMATCH); a superseded version is refused (409). Everything is judged before the one write.
  */
-export async function stampEmp501File(companyId: string, v: ReturnVersion, file: Emp501File, userId: string): Promise<void> {
-  if (v.filingFileSha256) {
-    if (v.filingFileSha256 !== file.sha256) throw new Error(`EMP501 version ${v.id}: the filing file no longer matches its stamp`);
-    return;
+export async function downloadEmp501File(companyId: string, versionId: string, actor: ReturnActor): Promise<Emp501File & { stamped: boolean }> {
+  await assertNotImpersonating(); // a stamp names the person
+  assertMayActOnReturns(actor.role, 'file');
+  const v = await getVersionForUpdate(companyId, versionId);
+  if (!v || v.formType !== 'EMP501') throw new ReturnRefusal(404, 'Return version not found.');
+  if (v.status === 'superseded') {
+    throw new ReturnRefusal(409, `Version ${v.versionNo} was superseded by an amend. Download the current version's file.`,
+      STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
-  if (v.status !== 'finalised') {
-    throw new ReturnRefusal(409, `Version ${v.versionNo} was amended. Download the current version's file.`, STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
+  const file = emp501FileOf(v);
+  if (v.filingFileSha256 && v.filingFileSha256 !== file.sha256) {
+    throw new ReturnRefusal(409, `Version ${v.versionNo}'s e@syFile file no longer regenerates to the file stamped on it `
+      + `(${v.filingFileSha256}). Nothing was downloaded; report this to support.`, 'FILING_FILE_MISMATCH');
   }
-  const rows = (await sql`
-    UPDATE tax_return_versions
-    SET filing_file_sha256 = ${file.sha256}, filing_file_kind = ${EMP501_FILE_KIND}, filing_file_at = now(), filing_file_by = ${userId}::TEXT
-    WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID AND status = 'finalised' AND filing_file_sha256 IS NULL
-    RETURNING id
-  `) as DbRow[];
-  if (!rows[0]) throw new Error(`EMP501 version ${v.id} could not be stamped`);
+  const stamp = v.filingFileSha256 === null && v.status === 'finalised';
+  if (stamp) {
+    await withSavepoint('emp501_filing_file', async () => {
+      await sql`UPDATE tax_return_versions
+        SET filing_file_sha256 = ${file.sha256}, filing_file_kind = ${EMP501_FILE_KIND}, filing_file_at = now(), filing_file_by = ${actor.userId}::TEXT
+        WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID AND status = 'finalised' AND filing_file_sha256 IS NULL`;
+      await logAuditOrThrow({
+        companyId, userId: actor.userId, action: 'update', entityType: 'tax_return_version', entityId: v.id,
+        entityRef: `${v.formType} ${v.periodStart} to ${v.periodEnd} v${v.versionNo}`,
+        changes: { fields: [{ field: 'filing_file_sha256', old: null, new: file.sha256, label: 'Filing file' }], metadata: { kind: EMP501_FILE_KIND } },
+      });
+    });
+  }
+  return { ...file, stamped: stamp };
 }

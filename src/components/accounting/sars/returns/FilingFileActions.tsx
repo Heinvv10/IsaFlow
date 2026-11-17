@@ -10,10 +10,14 @@ import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import type { ReturnForm, ReturnVersionView } from './returnLifecycleClient';
 
-const FORMATS: Record<ReturnForm, Array<['csv' | 'json' | 'pdf', string]>> = {
+const FORMATS: Record<ReturnForm, Array<['csv' | 'json' | 'pdf' | 'irp5', string]>> = {
   VAT201: [['csv', 'CSV'], ['json', 'JSON']],
   EMP201: [['csv', 'CSV'], ['pdf', 'PDF']],
+  EMP501: [['irp5', 'e@syFile']], // wave 6 EFb
 };
+/** EMP501 has its own payroll-detail route (its file carries ID and tax numbers; wave 6 EFb). */
+const urlOf = (form: ReturnForm): string => (form === 'EMP501'
+  ? '/api/payroll/emp501/returns/filing-file' : `/api/accounting/sars/returns/${form.toLowerCase()}/filing-file`);
 
 interface Props { form: ReturnForm; version: ReturnVersionView; nameOf: (id: string) => string; onStamped: () => void }
 
@@ -22,10 +26,10 @@ export function FilingFileActions({ form, version, nameOf, onStamped }: Props) {
   const [error, setError] = useState('');
   const stamped = version.filingFileSha256 !== null;
 
-  const download = async (format: 'csv' | 'json' | 'pdf') => {
+  const download = async (format: 'csv' | 'json' | 'pdf' | 'irp5') => {
     setBusy(true); setError('');
     try {
-      const res = await apiFetch(`/api/accounting/sars/returns/${form.toLowerCase()}/filing-file`, {
+      const res = await apiFetch(urlOf(form), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ versionId: version.id, format }),
       });
