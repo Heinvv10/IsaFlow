@@ -94,6 +94,16 @@ async function approved(api: Api, baseURL: string, runId: string): Promise<strin
 async function interceptSend(page: Page, employeeId: string): Promise<unknown[]> {
   const caught: unknown[] = [];
   await page.route('**/api/payroll/runs/*/payslips/email', async (route: Route) => {
+    if (route.request().method() === 'GET') {
+      // Who has been emailed: answered here too, so the card's list shows a sent and an unconfirmed delivery.
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: caught.length === 0 ? [] : [
+        { employeeId, employeeNumber: EMPLOYEE.employeeNumber, employeeName: `${EMPLOYEE.firstName} ${EMPLOYEE.lastName}`,
+          status: 'sent', recipient: ADDRESS, at: '2026-11-17T06:00:00.000Z', attempts: 1 },
+        { employeeId: 'x', employeeNumber: 'Z24-3', employeeName: 'Slow Server', status: 'unknown',
+          recipient: 'z24-slow@example.invalid', at: '2026-11-17T06:00:05.000Z', attempts: 1 },
+      ] }) });
+      return;
+    }
     caught.push(route.request().postDataJSON());
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
       sent: [{ employeeId, employeeNumber: EMPLOYEE.employeeNumber, employeeName: `${EMPLOYEE.firstName} ${EMPLOYEE.lastName}`, sha256: '0'.repeat(64) }],
@@ -138,6 +148,10 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await dialog.getByRole('button', { name: 'Email payslips' }).click();
   await expect(page.getByTestId('payslip-email-outcome')).toContainText('Sent to 1 employee.');
   await expect(page.getByTestId('payslip-email-outcome')).toContainText('Not sent to No Address (Z24-2): no email address on file.');
+  const list = page.getByTestId('payslip-email-deliveries');
+  await expect(list).toContainText(ADDRESS);
+  await expect(list).toContainText('May have been sent (the mail server did not confirm)');
+  await expect(list.getByRole('button', { name: `Send ${EMPLOYEE.firstName} ${EMPLOYEE.lastName}'s payslip again` })).toBeVisible();
   await settle(page);
   for (const width of [1568, 390]) {
     await page.setViewportSize({ width, height: 1000 });
