@@ -41,6 +41,38 @@ No migration: the snapshot table's `tool` column (999l) takes `import_budget_wor
 A template row names one dimension (its grain's member), and a JSON row with any other field (`cc2` on a cc1 grid,
 say) is refused whole, so the import cannot express a second one; the grid save and the constraint stay behind it.
 
+## Review round 2
+
+- **Every live import needs its dry run's plan_hash (MEDIUM).** A one-cell import that was a conflict was written live
+  with no dry run, plan_hash or token, the conflict shown only after the write (the breaker's D1: a colleague's driver
+  move to 50% replaced by an agent's typed override). Now `hashRequired` is always true for import_budget_workbook: the
+  dry run is the preview, as in the app. D1 is permanent (`mcp-budget-excel-drivers.int`).
+- **Free-form sheets (goal requirement).** An .xlsx WITH `_base` keeps the signature check and the 3-way diff; one with
+  `_meta` but no `_base` stays refused as tampered; one with NEITHER is a free-form sheet (`budgetImportFreeform`, a
+  service; the app's import route unchanged): its first sheet, a header row with an account code column ("Account
+  code", "Code" or "Account", any case) in its first 20 rows, a column for every month of the year (YYYY-MM, a date,
+  or a month name that names one year month: "Jan" in the 14-month year Jan 2026 - Feb 2027 is refused as ambiguous),
+  at a cc1/cc2/bu grain one dimension column (two is refused: decision 14), Account name / Name / Description /
+  Section / Total / FY total / PY actual / Notes ignored, anything else refused naming sheet, row and column; rows go
+  through the import's own resolver (unknown, ambiguous, non-P&L, header rows refused per row). It is an explicit
+  OVERWRITE of the version as it is: version_token REQUIRED and equal to the version's token now (dry run and live),
+  the dry run's plan_hash required, the reply's `sheet: "free-form"` and `overwrite` saying it has no base, so any cell
+  it names is set to the sheet's value even if a colleague changed it before the token was read. Size limits, the CPU
+  slot and the xlsx bucket as for the template.
+- **Blank cells on a free-form sheet KEEP the version's amount; the text "clear" (any case) clears the month.**
+  Blank-means-clear on a hand-made sheet would wipe every month the person left empty; the template keeps its
+  blank-clears rule because there a blank was downloaded as a blank, and the `_base` tells a cleared cell from one
+  never filled.
+- **LOWs.** The template offers every account for an inactive member the read model lists (it holds amounts in the
+  version), as the import accepts it (`templateRows`, the template route too). The row base's HMAC covers the year's
+  month list, so a base cannot be read against a year of another shape. Round trips: a 14-month year at the CC1 grain
+  and as the .xlsx; per-member budget_variance for every month at the CC1 grain (12- and 14-month years).
+- **Accepted, documented (B2).** A row whose `base` is swapped for one from a newer read, its months kept from an older
+  read, reverts the cells the newer read saw, with no conflict: it breaks the protocol (send each row with the base it
+  was read with), and the dry run lists every such cell as a change. **The slot's per-owner limit** (2 places) is
+  shared with the person's own UI session (one CpuSlot per process, owner = the user). **The JSON import takes no CPU
+  slot**, by design, like set_budget_amounts: it builds and parses no spreadsheet.
+
 ## TDD
 
 The three unit files were written first and run red before any tool existed (2026-11-17):
@@ -56,6 +88,12 @@ Error: Cannot find package '@/lib/mcp/tools/budgetTemplateTool' imported from ..
 That red only proves the modules were missing; the table below is the evidence that each test fails on its own
 guard's removal.
 
+Review round 2: the new and changed unit tests were written first and run at `4f96d26c60`: `Failed Tests 11` plus the
+free-form service file (module missing): one-cell imports written without a plan_hash (the breaker's P1 among them),
+the free-form tool path, a `_meta`-only file not refused as tampered, the inactive member's rows, and the row base
+without its month list. The D1 and free-form integration suites were first run on the fix (green); Y1 to Y5 below are
+the evidence that they fail on their guards' removal.
+
 Review round 1: the new and changed unit tests were written first and run against the round-0 head (`6a7409dead`):
 `Failed Tests 37` (the row base service missing, `encodeRowBase is not a function`, the JSON rows without bases, the
 base-less workbook accepted, conflicts without members, the old bucket keys and order). The breaker reported its
@@ -64,52 +102,70 @@ test, green here and red under mutant X1.
 
 ## Mutation table
 
-Rerun at the review-round-1 head (`c2f3ce98fc`; every fix committed first). Each guard was mutated in the production
+Rerun at the review-round-2 head (`f29fc0026d`; every fix committed first). Each guard was mutated in the production
 code, the tests named ran, and the mutation was restored with `git apply -R` of its own diff (tree verified clean
 after each; every log ends `[<id>] restored`). Unit = `vitest run <file>` with `DATABASE_URL` empty; int = the file
 against a throwaway PostgreSQL 16 cluster built as `scripts/ci/integration/run.sh` builds its template (baseline +
 this branch's migrations as non-superuser `postgres`), the suites running as `app_user` through the real registry.
 Counts are the runs' own `Tests` lines (failed / total). Files: Grid = budgetImportToolGrid, Xlsx =
-budgetImportToolXlsx, XB = budgetImportToolXlsxBase, Tpl = budgetTemplateTool, RB = budgetTemplateRowBase; int
-excel / rows / eq / rt = mcp-budget-excel, -rows, -equivalence, -roundtrip + -roundtrip14.
+budgetImportToolXlsx, XB = budgetImportToolXlsxBase, FT = budgetImportToolFreeform, FS = budgetImportFreeform
+(service), Tpl = budgetTemplateTool, RB = budgetTemplateRowBase; int excel / rows / eq / rt / ff / drv =
+mcp-budget-excel, -rows, -equivalence, -roundtrip + -roundtrip14, -freeform, -drivers.
 
 | # | Guard | Mutant | Result |
 |---|---|---|---|
-| X1 | JSON rows are diffed against their own base (the HIGH) | the base map left empty | unit Grid 2/23; int excel 3/6 (B-int, the reply-token sequence, replay/restore) |
-| X2 | JSON base required on every row | the requirement removed | unit Grid 1/23 |
-| X2b | the base's HMAC | the signature comparison removed | unit RB + Grid 8/32 |
-| X3 | plan_hash required for more than one changed cell | `hashRequired: false` | unit Xlsx 1/16 |
-| X4 | holder slices (the import's own message pinned) | `assertHolderSlices` not called | unit Xlsx 1/16; int rows 1/5 |
-| X5 | `_meta` signature over `_base` | the check removed | unit Xlsx 1/16 |
-| X6 | file size refused before decoding | the bound removed | unit Xlsx 1/16 |
-| X7 | JSON months exactly the year's | a missing month allowed | unit Grid 1/23 |
-| X8 | at most `MAX_GRID_ROWS` | the bound removed | unit Grid 1/23 |
-| X9 | all or nothing on refused rows | refused rows dropped | unit Xlsx + Grid 2/39; int rows 2/5 (per-row reasons, decision 4) |
-| X10 | xlsx reply fits one read | `XLSX_MAX_BASE64` removed | unit Tpl 1/13 |
+| X1 | JSON rows are diffed against their own base (round 1 HIGH) | the base map left empty | unit Grid 3/24; int excel 3/6 |
+| X2 | JSON base required on every row | the requirement removed | unit Grid 1/24 |
+| X2b | the base's HMAC | the signature comparison removed | unit RB + Grid 8/33 |
+| X4 | holder slices (the import's own message pinned) | `assertHolderSlices` not called | unit Xlsx 1/17; int rows 1/5 |
+| X5 | `_meta` signature over `_base` | the check removed | unit Xlsx 1/17 |
+| X6 | file size refused before decoding | the bound removed | unit Xlsx 1/17 |
+| X7 | JSON months exactly the year's | a missing month allowed | unit Grid 1/24 |
+| X8 | at most `MAX_GRID_ROWS` | the bound removed | unit Grid 1/24 |
+| X9 | all or nothing on refused rows | refused rows dropped | unit Xlsx + Grid 2/41; int rows 2/5 |
+| X10 | xlsx reply fits one read | `XLSX_MAX_BASE64` removed | unit Tpl 1/14 |
 | X11 | JSON template page fits 90 KB | `TEMPLATE_LIMIT_MAX` 50 → 80 | unit readLimitsSizeBudgets 2/11 |
-| X12 / X12b | template buckets (xlsx / json) | rate limit skipped | unit Tpl 2/13 and 1/13 |
-| X13 | import buckets (xlsx and json) | rate limit skipped | unit Xlsx + Grid 2/39 |
-| X13c | the MCP's short slot wait | the default 10 s wait | unit Xlsx 1/16 |
-| X14 / X14b | template cut as the token user (json / xlsx) | `viewerId` undefined | unit Tpl 1/13 each |
-| X15 | plan_hash binds content | comparison removed | unit Xlsx 1/16; int excel 1/6 (one transaction: only the hash catches it) |
-| X16 | unlisted accounts get PR 1's reason | the import's combined reason kept | unit Xlsx 1/16; int rows 1/5 |
-| X17 | an .xlsx without `_base` refused (the MEDIUM) | the refusal removed | unit XB 1/2; int excel 1/6 |
-| X18a / X18b | .xls refused by name / by magic bytes 0xd0 0xcf | each check removed alone | unit Xlsx 1/16 each |
-| X19 | import xlsx work inside the CPU slot | run outside it | unit Xlsx 1/16 |
-| X20 | the import saves exactly the preview's cells | a budgeted zero saved as 0.01 | int eq + rt 5/5 |
-| X21 | 3-way diff (xlsx and JSON) | the base ignored (diffed against the version now) | unit Grid 2/23; int excel 3/6 |
-| X22 / X22b | a row's `account` / `account_id` must be its base's | each check removed | unit Grid 1/23 each |
-| X23 | no dimension on a company grid | the refusal removed | unit Grid 1/23 |
-| X24 | a field no template row has is refused (decision 14 inexpressible) | the refusal removed | unit Grid 1/23; int rows 1/5 |
-| X25 | one source per call | "both" allowed | unit Grid 1/23 |
-| X26 | base64 alphabet | the regex removed | unit Xlsx 1/16 |
-| X27 | base64 length `% 4` | the check removed | unit Xlsx 1/16 |
-| X28 | a conflict names its member | `dimension: null` | unit XB + Grid 2/25 |
-| X29 | the owner-limit refusal | always the busy message | unit Xlsx + Tpl 2/29 |
-| X30 | the account id preferred (a duplicate code resolves) | the line keeps only the code | unit Grid 1/23 |
+| X12 / X12b | template buckets (xlsx / json) | rate limit skipped | unit Tpl 2/14 and 1/14 |
+| X13 | import buckets (xlsx and json) | rate limit skipped | unit Xlsx + Grid 2/41 |
+| X13c | the MCP's short slot wait | the default 10 s wait | unit Xlsx 1/17 |
+| X14 / X14b | template cut as the token user (json / xlsx) | `viewerId` undefined | unit Tpl 1/14 each |
+| X15 | plan_hash binds content | comparison removed | unit Xlsx 1/17; int excel 1/6 (one transaction: only the hash catches it) |
+| X16 | unlisted accounts get PR 1's reason | the import's combined reason kept | unit Xlsx 1/17; int rows 1/5 |
+| X18a / X18b | .xls refused by name / by magic bytes 0xd0 0xcf | each check removed alone | unit Xlsx 1/17 each |
+| X19 | import xlsx work inside the CPU slot | run outside it | unit Xlsx 1/17 |
+| X20 | the import saves exactly the preview's cells | a budgeted zero saved as 0.01 | int eq + rt 7/7 |
+| X21 | 3-way diff (xlsx and JSON) | the base ignored (diffed against the version now) | unit Grid 3/24; int excel 3/6 |
+| X22 / X22b | a row's `account` / `account_id` must be its base's | each check removed | unit Grid 1/24 each |
+| X23 | no dimension on a company grid (JSON) | the refusal removed | unit Grid 1/24 |
+| X24 | a field no template row has is refused (decision 14 inexpressible) | the refusal removed | unit Grid 1/24; int rows 1/5 |
+| X25 | one source per call | "both" allowed | unit Grid 1/24 |
+| X26 / X27 | base64 alphabet / length `% 4` | each check removed | unit Xlsx 1/17 each |
+| X28 | a conflict names its member | `dimension: null` | unit XB + Grid 2/26 |
+| X29 | the owner-limit refusal | always the busy message | unit Xlsx + Tpl 2/31 |
+| X30 | the account id preferred (a duplicate code resolves) | the line keeps only the code | unit Grid 1/24 |
+| Y1 | every live import needs its dry run's plan_hash (round 2 MEDIUM) | `hashRequired: false` | unit Grid + Xlsx + FT 6/46; int drv 1/1 (D1) |
+| Y2 | free-form: version_token required | the requirement removed | unit FT 1/5; int ff 1/2 |
+| Y3 | free-form: refused unless the token is the version's now | the comparison removed | unit FS + FT 2/23; int ff 1/2 |
+| Y4 | free-form: a blank cell keeps the amount | blank clears | unit FS + FT 2/23; int ff 2/2 |
+| Y5 | free-form: "clear" clears | the word not recognised | unit FS + FT 2/23; int ff 1/2 |
+| Y6 | free-form: one account-code column | two allowed | unit FS 1/18 |
+| Y7 | free-form: an unknown column refused with sheet / row / column | ignored | unit FS + FT 2/23 |
+| Y8 | free-form: a month name naming two year months refused | the first taken | unit FS 1/18 |
+| Y9 | free-form: a month twice refused | allowed | unit FS 1/18 |
+| Y10 | free-form: every year month needs a column | missing allowed | unit FS 1/18 |
+| Y11 | free-form: no dimension column on a company import | allowed | unit FS 1/18 |
+| Y12 | free-form: one dimension column (decision 14) | two allowed | unit FS 1/18 |
+| Y13 | free-form: a dimension grain needs a dimension column | none allowed | unit FS 1/18 |
+| Y14 | free-form: a value under no header refused | ignored | unit FS 1/18 |
+| Y15 | an .xlsx with `_meta` but no `_base` refused as tampered | the refusal removed | unit XB 1/2; int excel 1/6 |
+| Y16 | free-form only when NEITHER `_meta` nor `_base` | a `_meta`-only file read as free-form | unit XB 1/2 |
+| Y17 | the row base signs the year's month list | the list left out | unit RB 1/9 |
+| Y18 | template rows for an inactive member the model lists | inactive members dropped | unit Tpl 1/14 |
+| Y19 | free-form: a month header outside the year refused | taken | unit FS 1/18 |
 
-Round 0's X1 (the JSON `version_token` equality) and X2 (`version_token` required) guarded the design the HIGH replaced;
-their tests went with it. X17 and X22 were unused numbers in round 0; they now name the two new guards.
+Retired: X3 (plan_hash only for more than one cell) is Y1's stricter rule; X17 (no `_base` refused) became Y15 (`_meta`
+without `_base`) and Y16 (neither = free-form). Round 0's X1 / X2 (the JSON `version_token` equality and requirement)
+went with the design round 1 replaced.
 
 PR 1's own guards that the import reuses unchanged (`MAX_SAVE_CELLS`, the dry run inside a rolled-back savepoint,
 the snapshot, decision 4 in the grid save, the stale token, the role fence) keep their PR 1 mutation rows; this PR's
