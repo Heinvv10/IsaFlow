@@ -38,6 +38,11 @@ describe('checkSettlementFigures (VR)', () => {
     expect(await run(o - i)).toMatchObject({ status: 409, refusalCode: 'VAT_SETTLEMENT_DRIFT' });
   });
 
+  it('output and input both moved by the same amount (net unchanged): still drift', async () => {
+    report(10885, 5500);
+    expect(await run(5385)).toMatchObject({ status: 409, refusalCode: 'VAT_SETTLEMENT_DRIFT' });
+  });
+
   it('drift is not overridable: an owner acknowledging a gap is still refused', async () => {
     report(10800, 5400);
     expect(await run(5340, OWNER)).toMatchObject({ status: 409, refusalCode: 'VAT_SETTLEMENT_DRIFT',
