@@ -92,8 +92,12 @@ describeIfDb('K-143 undo must not count a row it did not reverse', () => {
   });
 
   it('does not count a row a user already undid by hand', async () => {
-    // Through the product: unmatch leaves auto_post_run_id in place.
+    // Through the product: since WP6 review F1 an unmatch takes the line OUT of its run ...
     await inTx(() => unmatchTransaction(COMPANY, txHandUndone));
+    const cleared = await admin.query('SELECT auto_post_run_id FROM bank_transactions WHERE id = $1', [txHandUndone]);
+    expect(cleared.rows[0].auto_post_run_id).toBeNull();
+    // ... but a tag an older version left behind is still read, and finished, by the undo: put one back.
+    await admin.query('UPDATE bank_transactions SET auto_post_run_id = $2 WHERE id = $1', [txHandUndone, runId]);
     const mid = await admin.query(
       'SELECT matched_journal_line_id, auto_post_run_id FROM bank_transactions WHERE id = $1', [txHandUndone]);
     expect(mid.rows[0].matched_journal_line_id).toBeNull();

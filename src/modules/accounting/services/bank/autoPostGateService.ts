@@ -229,7 +229,7 @@ export async function sweep(
         }
         const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
         await sql`
-          UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
+          UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID, auto_post_journal_id = ${decision.journalEntryId}::UUID
           WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
         `;
         await recordAutoPosted(companyId, decision); // non-fatal; rolls back with this row's savepoint

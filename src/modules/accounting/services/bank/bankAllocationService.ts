@@ -244,7 +244,9 @@ export async function allocateTransaction(
             -- Nor does it pay the purchase order the line paid before (a re-pointed reconciled line): left set, that
             -- PO still counts this cash as paid. The PO match (confirmPurchaseOrderMatch, lane B's #1458) sets it again
             -- AFTER this call.
-            linked_po_id = NULL
+            linked_po_id = NULL,
+            -- Not part of any auto-post run: a run (gate sweep, bulk accept) tags the line AFTER this write (WP6 review F1).
+            auto_post_run_id = NULL, auto_post_journal_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {

@@ -48,6 +48,8 @@ export interface UndoSkips {
   offsetByHand: number;
   /** Cancelling the row's payment or receipt would leave its contact owing the company: a refund already returned that cash. */
   creditCeiling: number;
+  /** The line's current posting is not one this run made (a person re-allocated it): left alone, never reversed. */
+  changedSinceRun: number;
 }
 
 export interface UndoResult {
@@ -84,7 +86,7 @@ export const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
  */
 const POSTED_STATUSES = new Set(['provisional', 'allocated', 'matched', 'reconciled']);
 
-export type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed' | 'reconciled' | 'gone';
+export type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed' | 'reconciled' | 'gone' | 'changedSinceRun';
 
 /** What one row came to; a hand-offset refusal carries the journal it found. */
 export type RowResult = { kind: RowOutcome; lock?: LineLock } | { kind: 'offsetByHand'; offset: HandOffset };
@@ -115,6 +117,13 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
   }
   let outcome: RowOutcome = 'alreadyUndone';
   const jeId = await postingJournalOf(companyId, tx);
+  // Defence in depth (WP6 review F1): the run recorded the journal it posted for this line (mig 999j). A line whose current
+  // posting is another journal - a person re-allocated it - is not the run's to reverse: it leaves the run (so the run
+  // can close on the next undo) and is reported. NULL (a line from before the migration) is judged by the tag alone.
+  if (jeId && tx.auto_post_journal_id != null && String(tx.auto_post_journal_id).toLowerCase() !== jeId.toLowerCase()) {
+    await sql`UPDATE bank_transactions SET auto_post_run_id = NULL, auto_post_journal_id = NULL WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID`;
+    return { kind: 'changedSinceRun' };
+  }
   if (jeId) {
     // ONE path for both shapes — the matched line (bankRuleAutoPostLine) and
     // the provisional JE — so a hand-reversed posting is treated the same on
@@ -176,13 +185,18 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     return { kind: 'unlinked' };
   }
   await sql`
-    UPDATE bank_transactions SET auto_post_run_id = NULL
+    UPDATE bank_transactions SET auto_post_run_id = NULL, auto_post_journal_id = NULL
     WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
   `;
   // Non-fatal; inside the row's savepoint. A reversal above already recorded it; this covers the provisional
   // and reversed-by-hand shapes. Keyed on the posting the locked row carried, never "the latest auto-post".
   await recordAutoPostUndone(companyId, txId, userId, postingRefOf(tx));
   return { kind: outcome };
+}
+
+/** Raised by undoRun for a run that is already closed (a typed refusal, for callers that answer it). */
+export class RunAlreadyUndoneError extends BankRequestRefusal {
+  constructor() { super('Run already undone', 400); this.name = 'RunAlreadyUndoneError'; }
 }
 
 export async function undoRun(companyId: string, runId: string, userId: string): Promise<UndoResult> {
@@ -192,7 +206,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     LIMIT 1
   `) as Row[];
   if (runRows.length === 0) throw new BankRequestRefusal(`Auto-post run ${runId} not found`, 404);
-  if (runRows[0]!.undone_at) throw new BankRequestRefusal('Run already undone', 400); // 400, not 409: the panel reads 409 as "another request is working on this run" and invites a retry
+  if (runRows[0]!.undone_at) throw new RunAlreadyUndoneError(); // 400, not 409: the panel reads 409 as "another request is working on this run" and invites a retry
   const clearance = await assertMayUndoRun(companyId, runId, userId); // step 2 (decision 4): the RUN judged, before any row
 
   const txRows = (await sql`
@@ -204,7 +218,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
 
   const tally: UndoTally = {
     reversed: 0, alreadyUndone: 0, handOffsets: [], contention: null,
-    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 },
+    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0, changedSinceRun: 0 },
   };
   const creditRefused: Row[] = [];
   // Each row under its own savepoint, like the sibling sweep in autoPostGateService: the body posts contra journals
@@ -236,7 +250,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
 
   await auditRunUndo(companyId, runId, userId, clearance, reversed + alreadyUndone);
   const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed + skippedBy.offsetByHand
-    + skippedBy.creditCeiling;
+    + skippedBy.creditCeiling + skippedBy.changedSinceRun;
   const undone = skipped === 0;
   if (undone) {
     await sql`
