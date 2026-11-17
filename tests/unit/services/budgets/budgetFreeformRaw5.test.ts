@@ -123,7 +123,7 @@ describe('6, 7: formats (text amounts too), the tightened allowlist', () => {
     ['built-in 42 ($ accounting)', 42, undefined, false], ['built-in 44 ($ accounting)', 44, undefined, false],
     ['built-in 41 (accounting, no currency)', 41, undefined, true], ['built-in 43', 43, undefined, true], ['built-in 3', 3, undefined, true], ['built-in 40', 40, undefined, true],
     ['R #,##0.00 (a bare R)', 172, 'R #,##0.00', true], ['[$R-1C09] #,##0.00;[Red]-[$R-1C09] #,##0.00', 173, '[$R-1C09] #,##0.00;[Red]-[$R-1C09] #,##0.00', true],
-    ['#,##0.00;(#,##0.00)', 174, '#,##0.00;(#,##0.00)', true], ['_-* #,##0.00_-;-* #,##0.00_-', 175, '_-* #,##0.00_-;-* #,##0.00_-', true],
+    ['R alone (no digit placeholder: the amount is not shown)', 176, 'R', false], ['#,##0.00;(#,##0.00)', 174, '#,##0.00;(#,##0.00)', true], ['_-* #,##0.00_-;-* #,##0.00_-', 175, '_-* #,##0.00_-;-* #,##0.00_-', true],
   ];
   it.each(CASES)('%s', async (_n, id, code, plain) => {
     const cell = await firstAmount({ n: 12.5, s: 1 }, { styles: stylesWith([0, id], code === undefined ? {} : { [id]: code }) });

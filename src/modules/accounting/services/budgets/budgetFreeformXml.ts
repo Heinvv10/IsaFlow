@@ -51,7 +51,6 @@ export function parseXml(part: Buffer, what: string, h: Handlers): void {
   parser.on('opentag', (node) => {
     const parent = stack.at(-1);
     const main = node.uri === MAIN_NS;
-    if (parent === undefined && !main) throw foreign(node.name, node.uri);
     if (parent?.ext) { stack.push({ name: node.local, main, skip: true, ext: true }); return; } // extension data: read past
     if (parent?.skip) {
       if (main) throw foreign(stack.find((e) => e.skip)!.name, 'a foreign element holding SpreadsheetML ones');
@@ -59,7 +58,7 @@ export function parseXml(part: Buffer, what: string, h: Handlers): void {
       return;
     }
     if (!main) {
-      if (stack.length !== 1) throw foreign(node.name, node.uri);
+      if (stack.length !== 1) throw foreign(node.name, node.uri); // the part's root itself (length 0) included
       stack.push({ name: node.name, main, skip: true, ext: false });
       return;
     }
