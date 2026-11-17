@@ -153,6 +153,9 @@ export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // smtpDeadline.ts: an SMTP send cut at its hard deadline. sendEmail catches it and reports a failed send; it is a
   // mail-transport outcome, not a refusal, and never reaches a tool as one.
   'EDEADLINE',
+  // cash13: the 13-week cash forecast refuses when opening cash cannot be read. Only its REST route
+  // (pages/api/accounting/cash-forecast-13.ts, a 503) can raise it; no MCP tool calls getCashForecast13.
+  'CASH_FORECAST_OPENING_UNAVAILABLE',
 ]);
 
 /**

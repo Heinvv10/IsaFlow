@@ -12,7 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { assertJournalAnalysisDimensions } from '../gl/journalCostCentreValidation';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { refuseLinesInCompletedSession } from './reconciliationSessionLock';
 import { ReconciledCashError } from './reconciledCash';
 
@@ -22,7 +22,9 @@ export interface BankTxDimensions { cc1Id?: string; cc2Id?: string; buId?: strin
 export async function saveBankTxDimensions(
   companyId: string, bankTxId: string, dims: BankTxDimensions, userId: string,
 ): Promise<boolean> {
-  await assertJournalAnalysisDimensions(companyId, [dims]);
+  // The same check, its plain-Error refusals typed (DimensionRefusal): the route answers them 400 and a crash 500
+  // (audit WP2 row 9).
+  await assertDocumentDimensions(companyId, [dims]);
   await refuseLinesInCompletedSession(companyId, [bankTxId]); // D12: in a completed session -> the shared 409
   const rows = (await sql`
     UPDATE bank_transactions
@@ -44,12 +46,15 @@ export async function saveBankTxDimensions(
   return true;
 }
 
+/** False when the line is not this company's (the route answers 404): nothing was updated. */
 export async function updateBankTxNotes(
   companyId: string, bankTxId: string, notes: string | undefined, userId: string,
-): Promise<void> {
+): Promise<boolean> {
   const rows = (await sql`
     UPDATE bank_transactions SET notes = ${notes || null}, updated_at = NOW()
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
     RETURNING status`) as Array<{ status: string }>;
+  if (rows.length === 0) return false;
   log.info('Updated bank transaction notes', { bankTxId, userId, status: rows[0]?.status }, 'accounting');
+  return true;
 }

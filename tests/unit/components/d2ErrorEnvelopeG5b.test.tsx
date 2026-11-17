@@ -32,7 +32,8 @@ const okBody = (data: unknown) => new Response(JSON.stringify({ success: true, d
 const fetchPreview = async () => 0;
 const methodOf = (init: unknown) => (init as RequestInit | undefined)?.method;
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('confirm', () => true); // removing an attachment asks first (WP3); these tests answer yes
+});
 afterEach(() => { cleanup(); vi.mocked(apiFetch).mockReset(); });
 
 describe('useBankRules', () => {

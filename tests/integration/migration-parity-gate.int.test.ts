@@ -182,6 +182,16 @@ suite('migration parity gate (real databases)', () => {
       expect(await tables(PROD)).toEqual([]);
     });
 
+    it('applies 1000_ after 999_ and 999b_ (numeric order, not string order)', async () => {
+      const e = mf('999_e.sql', create('t_e'));
+      const f = mf('999b_f.sql', create('t_f'));
+      const probe = mf('1000_probe.sql', create('t_probe'));
+      await seed([A], [A]);
+      expect(await gate([probe, f, A, e], { applyDev: true })).toBe(0);
+      const order = await withDb(DEV, async (c) => (await c.query('SELECT t FROM order_log ORDER BY n')).rows.map((r) => r.t));
+      expect(order).toEqual(['t_e', 't_f', 't_probe']);
+    });
+
     it('runs each migration under the 15-minute apply bound (not the 60s read bound, not unbounded)', async () => {
       await seed([A], [A]);
       const probe = mf('871_probe.sql', "INSERT INTO order_log(t) SELECT current_setting('statement_timeout');");

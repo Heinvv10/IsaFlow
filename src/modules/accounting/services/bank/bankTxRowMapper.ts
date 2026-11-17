@@ -38,7 +38,6 @@ export function mapTxRow(row: Row): BankTransaction {
     notes: row.notes ? String(row.notes) : undefined,
     suggestedGlAccountId: row.suggested_gl_account_id ? String(row.suggested_gl_account_id) : undefined,
     suggestedCategory: row.suggested_category ? String(row.suggested_category) : undefined,
-    suggestedCostCentre: row.suggested_cost_centre ? String(row.suggested_cost_centre) : undefined,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     reviewedAt: row.reviewed_at instanceof Date ? row.reviewed_at.toISOString() : row.reviewed_at ? String(row.reviewed_at) : undefined,
@@ -86,6 +85,7 @@ export function mapTxRow(row: Row): BankTransaction {
     link: bankTxLinkOf(row),
     // Absent (not 0) from queries that do not select it: unknown must not read as "no files".
     attachmentCount: row.attachment_count != null ? Number(row.attachment_count) : undefined,
+    queried: row.has_open_query === true ? true : undefined,
   };
 }
 

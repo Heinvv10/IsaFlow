@@ -13,7 +13,10 @@
  *   - one pre-existing history entry so the detail page has a timeline
  *
  * Run with:
- *   DATABASE_URL=$(...) bun scripts/seed-phase5-payroll.ts
+ *   DATABASE_URL=$(...) bun scripts/seed-phase5-payroll.ts --company 00000000-0000-0000-0000-000000000001
+ *
+ * Refuses any company but the Demo company, and refuses to run without --company.
+ * Training and history dates are relative to today and never after it.
  *
  * Safe to re-run — deletes Phase-5 rows for the demo company before
  * inserting.
@@ -21,6 +24,15 @@
 
 import { createSql, closeSql } from './_pg';
 import { wipePhase5CostCentres } from './seed-phase5-wipe';
+import { demoCompanyOrExit } from './lib/demoReseed/cli';
+
+
+/** A calendar day `n` days before today (never after it). */
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -29,7 +41,7 @@ if (!DATABASE_URL) {
 }
 const sql = createSql(DATABASE_URL);
 
-const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
+const COMPANY_ID = demoCompanyOrExit(process.argv.slice(2));
 const ADMIN_EMAIL = 'admin@isaflow.co.za';
 
 async function main(): Promise<void> {
@@ -202,15 +214,15 @@ async function main(): Promise<void> {
        planned_start, planned_end, cost_planned, cost_actual, status, created_by)
     VALUES
       (${COMPANY_ID}::uuid, ${emps[0]!.id}::uuid, 'short_course', 'Advanced Excel for Finance Teams',
-         'Koenig Solutions', 5, '2026-05-12', '2026-05-16', 8500, 8500, 'completed', ${ADMIN_ID}),
+         'Acacia Skills Academy', 5, ${daysAgo(180)}, ${daysAgo(176)}, 8500, 8500, 'completed', ${ADMIN_ID}),
       (${COMPANY_ID}::uuid, ${emps[1]!.id}::uuid, 'learnership',  'Business Administration NQF 4',
-         'Services SETA Provider', 4, '2026-03-01', '2026-11-30', 42000, 18000, 'in_progress', ${ADMIN_ID}),
+         'Thornveld Learning Partners', 4, ${daysAgo(260)}, ${daysAgo(0)}, 42000, 18000, 'in_progress', ${ADMIN_ID}),
       (${COMPANY_ID}::uuid, ${emps[2]!.id}::uuid, 'bursary',      'B.Com Accounting (Part-time)',
-         'UNISA', 7, '2026-02-01', '2026-11-30', 45000, 22000, 'in_progress', ${ADMIN_ID}),
+         'Saltbush Distance College', 7, ${daysAgo(290)}, ${daysAgo(0)}, 45000, 22000, 'in_progress', ${ADMIN_ID}),
       (${COMPANY_ID}::uuid, ${emps[3]!.id}::uuid, 'workshop',     'Leadership Fundamentals',
-         'USB Executive Development', 6, '2026-06-10', '2026-06-11', 4500, 0, 'planned', ${ADMIN_ID}),
+         'Summit Ridge Leadership School', 6, ${daysAgo(150)}, ${daysAgo(149)}, 4500, 4500, 'completed', ${ADMIN_ID}),
       (${COMPANY_ID}::uuid, ${emps[4]!.id}::uuid, 'aet',          'AET Level 4 — Literacy',
-         'Edge Learning Media', 1, '2026-04-01', '2026-10-31', 12000, 4000, 'in_progress', ${ADMIN_ID})
+         'Brightfield Short Courses', 1, ${daysAgo(220)}, ${daysAgo(16)}, 12000, 4000, 'in_progress', ${ADMIN_ID})
   `;
   console.log('[training-events] 5 events seeded (short course, learnership, bursary, workshop, AET)');
 
@@ -220,9 +232,9 @@ async function main(): Promise<void> {
       (company_id, employee_id, field_name, old_value, new_value, effective_from, change_reason, changed_by)
     VALUES
       (${COMPANY_ID}::uuid, ${emps[0]!.id}::uuid, 'employment_type', 'contract', 'permanent',
-         '2026-01-01', 'Converted to permanent after probation', ${ADMIN_ID}),
+         ${daysAgo(320)}, 'Converted to permanent after probation', ${ADMIN_ID}),
       (${COMPANY_ID}::uuid, ${emps[1]!.id}::uuid, 'cost_centre_id',  NULL, ${centreByCode.OPS},
-         '2026-03-01', 'Moved from Unassigned to Operations', ${ADMIN_ID})
+         ${daysAgo(260)}, 'Moved from Unassigned to Operations', ${ADMIN_ID})
   `;
   console.log('[history] 2 timeline entries seeded');
 

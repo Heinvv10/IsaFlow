@@ -88,7 +88,7 @@ const routes = [
   { name: 'soft-delete PUT (undo delete)', handler: softDeleteRoute, method: 'PUT',
     body: { entityType: 'customer_invoice', entityId: ID }, service: () => vi.mocked(undoDelete), ordinary: 500 },
   { name: 'bank-auto-post undo', handler: bankAutoPost, method: 'POST',
-    body: { action: 'undo', runId: ID }, service: () => vi.mocked(undoRun), ordinary: 400 },
+    body: { action: 'undo', runId: ID }, service: () => vi.mocked(undoRun), ordinary: 500 }, // WP2 row 9: a bare Error is a fault
   { name: 'bank-auto-post undoAnyway', handler: bankAutoPost, method: 'POST',
     body: { action: 'undoAnyway', runId: ID, transactionId: ID2, offsetJournalId: ID3 }, service: () => vi.mocked(undoAnyway),
     ordinary: 500 },

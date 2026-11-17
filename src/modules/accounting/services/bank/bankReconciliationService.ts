@@ -24,6 +24,7 @@ import { isExactlyBalanced, isReconciliationNotBalanced, ReconciliationNotBalanc
 import { commitReconciliation } from './bankReconciliationCommit';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
 import { ApprovalRequiredError } from '../gl/approvalGate';
+import { BankRequestRefusal } from './bankRequestRefusal';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -123,7 +124,7 @@ export async function completeReconciliation(
   try {
     // D12: the header FOR UPDATE first (every line writer holds it FOR SHARE): status and figures are read under it.
     const session = await lockSessionForHeaderChange(companyId, id);
-    if (!session) throw new Error(`Reconciliation ${id} not found`);
+    if (!session) throw new BankRequestRefusal(`Reconciliation ${id} not found`, 404); // pre-write: nothing locked or written yet
     refuseCompletedSession(session);
     // Sign off against the ledger as it stands NOW, not the start snapshot: a
     // line reversed or a journal back-dated mid-session moves the GL, and the
@@ -167,12 +168,12 @@ export async function createAdjustmentEntry(
     // D12 round 2: FOR SHARE, not FOR UPDATE — this posts a journal (see reconciliationSessionLock's header).
     refuseCompletedSession(await shareLockSession(companyId, reconciliationId));
     const recon = await getReconciliationById(companyId, reconciliationId);
-    if (!recon) throw new Error(`Reconciliation ${reconciliationId} not found`);
+    if (!recon) throw new BankRequestRefusal(`Reconciliation ${reconciliationId} not found`, 404);
     // updateReconciledBalance recomputes from the reconciliation's OWN bank
     // account, so an adjustment posted to a different one would post a journal
     // and silently leave the difference untouched.
     if (bankAccountId !== recon.bankAccountId) {
-      throw new Error('Adjustment bank account does not match the reconciliation');
+      throw new BankRequestRefusal('Adjustment bank account does not match the reconciliation');
     }
     // Its contra may not be AP/AR control: that moves the control with no payment/receipt document (contactControlGuard).
     await assertNotContactControl(companyId, contraAccountId, 'A bank reconciliation adjustment', 'adjustment');
