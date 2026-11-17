@@ -269,12 +269,11 @@ describe('review round 1', () => {
     render(ui(many(8)));
     const search = await open();
     const trigger = screen.getByTestId('bank-switcher-trigger');
-    await act(async () => {
-      fireEvent.mouseDown(trigger);
-      fireEvent.blur(search, { relatedTarget: null }); // the button took no focus
-      fireEvent.mouseUp(trigger);
-      fireEvent.click(trigger);
-    });
+    // One act per event: each browser event is its own task, and the click must see the blur's state change.
+    await act(async () => { fireEvent.mouseDown(trigger); });
+    await act(async () => { fireEvent.blur(search, { relatedTarget: null }); }); // the button took no focus
+    await act(async () => { fireEvent.mouseUp(trigger); });
+    await act(async () => { fireEvent.click(trigger); });
     expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
   });
 
