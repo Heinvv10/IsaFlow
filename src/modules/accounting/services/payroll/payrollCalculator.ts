@@ -65,7 +65,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   const acc = accumulateComponents(components);
   const { grossPay, allEarnings, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings, earningParts, employeeMedicalFees } = acc;
-  warnings.push(...travel.warnings, ...overtimeThresholdWarnings(components, `${period.year}-${String(period.month).padStart(2, '0')}-28`));
+  warnings.push(...travel.warnings, ...overtimeThresholdWarnings(input.components, `${period.year}-${String(period.month).padStart(2, '0')}-28`));
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration

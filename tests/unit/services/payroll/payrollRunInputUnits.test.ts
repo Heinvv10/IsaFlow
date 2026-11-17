@@ -102,6 +102,11 @@ describe('OVERTIME_ABOVE_BCEA_THRESHOLD (BCEA s6(3)): a warning, never a refusal
     expect(at(22400, [ot])).toEqual([]);
     expect(at(22500, [])).toEqual([]);
   });
+  it('a travel reimbursement is not earnings: R22 400 with R6 000 of km (R1 050 above the rate) does not warn', () => {
+    const line = calculatePayrollLine({ employee: employee(), components: [comp('b', '3601', 22400), ot, km(6000, 1000)], period: { year: 2026, month: 11 }, taxYear: 2027, annualPayrollEstimate: 10_000_000 });
+    expect(line.validationResults.map((v) => v.code)).not.toContain('OVERTIME_ABOVE_BCEA_THRESHOLD');
+  });
+
   it('reaches the line as a warning', () => {
     const line = calculatePayrollLine({ employee: employee(), components: [comp('b', '3601', 30000), ot], period: { year: 2026, month: 11 }, taxYear: 2027, annualPayrollEstimate: 10_000_000 });
     expect(line.validationResults.find((v) => v.code === 'OVERTIME_ABOVE_BCEA_THRESHOLD')?.severity).toBe('warning');

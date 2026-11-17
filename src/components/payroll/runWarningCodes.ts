@@ -25,6 +25,8 @@ export const GROUP_LABEL: Record<string, string> = {
   LOAN_DEDUCTION_MISSING: 'Loan instalment not taken — no active LOAN deduction; add it under Setup → Pay Components, then recalculate',
   LOAN_FRINGE_NOT_RECORDED: 'Loan fringe benefit not recorded — add the 3801 earning under Setup → Pay Components, then recalculate',
   UIF_CLAWBACK: 'A clawback reduced this month\'s UIF pay: check the earlier month\'s UI-19 / EMP201 for an over-declaration',
+  OVERTIME_ABOVE_BCEA_THRESHOLD: 'Overtime multiplier paid above the BCEA earnings threshold — the BCEA rates do not bind; check the contract',
+  TRAVEL_RATE_NOT_LOADED: 'No prescribed rate a km loaded for the tax year — the whole travel reimbursement is taxed',
   RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate',
 };
 
@@ -33,6 +35,7 @@ export const OWN_FIGURES: ReadonlySet<string> = new Set([
   'DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEEDS_PAY', 'LOAN_DEDUCTION_MISSING', 'LOAN_FRINGE_NOT_RECORDED',
   'RECURRING_NEEDS_PRO_RATA', // the component and its dates
   'UIF_CLAWBACK', // the clawback and the UIF pay left
+  'OVERTIME_ABOVE_BCEA_THRESHOLD', // the employee's earnings a year
 ]);
 
 /** Line results the approval gate refuses on (payrollLineBlockers, payrollRecurringProRata): blocking, not warnings. */
