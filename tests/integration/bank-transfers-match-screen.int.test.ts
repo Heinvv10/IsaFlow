@@ -39,7 +39,7 @@ const lineState = async (id: string) => ((await sql`SELECT status, matched_journ
 describeIfDb('the match screen offers the transfer guard\'s remedy, and only the right transfer leg', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedDateFixture('MSCR', DATABASE_URL!);
+    c = await seedDateFixture('MSCR', DATABASE_URL!, [2027, 2028, 2029, 2030, 2031, 2032]);
     token = await seedRouteUser(c.fx, 'mscr');
     bankA = c.fx.bankAccountId;
     bankB = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,

@@ -125,7 +125,6 @@ describe('payroll oracle fixtures', () => {
     'ri-reimbursive-above-prescribed-3702-3722': 'RI',
     'ri-sunday-8h-at-2x': 'RI',
     'sage-2027-03-marco': 'PARITY',
-    'uif-clawback-larger-than-pay-nil': 'UF',
     'weekly-6000-fourth-week-month-uif-ceiling': 'FQc',
     'weekly-6000-third-week-month-uif-ceiling': 'FQc',
     'weekly-starter-fourth-week-averaged': 'FQc',
