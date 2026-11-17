@@ -47,6 +47,15 @@ describe('rule 2: no hidden or merged layout anywhere on the sheet read', () => 
     await expect(linesOf(await book(sheetBody(HEAD + row2(['6000', 5]) + rowXml(3, [null, 9]), `<mergeCells count='1'><mergeCell ref='${ref}'/></mergeCells>`))))
       .rejects.toThrow(new RegExp(`^Sheet "Budget" has merged cells \\(${ref.replace(/\$/g, '\\$')}\\) on or below its header row`));
   });
+
+  it('round 7: the merge reaching lowest decides, whatever order the merges are written in; an unreadable range refuses', async () => {
+    const two = sheetBody(rowXml(1, ['Budget']) + rowXml(2, ['Code', ...MONTHS]) + rowXml(3, ['6000', 5]) + rowXml(4, ['4000', 7]), "<mergeCells count='2'><mergeCell ref='A1:N1'/><mergeCell ref='B4:C4'/></mergeCells>");
+    await expect(linesOf(await book(two))).rejects.toThrow(/^Sheet "Budget" has merged cells \(B4:C4\) on or below its header row/);
+    const junk = sheetBody(rowXml(1, ['Budget']) + rowXml(2, ['Code', ...MONTHS]) + rowXml(3, ['6000', 5]), "<mergeCells count='1'><mergeCell ref='A1:ZZZZ1'/></mergeCells>");
+    await expect(linesOf(await book(junk))).rejects.toThrow(/^Sheet "Budget" has merged cells \(A1:ZZZZ1\) on or below its header row/);
+    const title = sheetBody(rowXml(1, ['Budget']) + rowXml(2, ['Code', ...MONTHS]) + rowXml(3, ['6000', 5]), "<mergeCells count='1'><mergeCell ref='A1:N1'/></mergeCells>");
+    expect((await linesOf(await book(title))).lines.map((l) => l.row)).toEqual([3]);
+  });
 });
 
 describe('rule 1: every money cell is accounted for', () => {
