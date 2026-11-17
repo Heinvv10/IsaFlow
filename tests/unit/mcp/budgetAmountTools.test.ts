@@ -268,3 +268,11 @@ describe('plan_hash refusal wording, one rule per tool', () => {
       .toBe(`plan_hash is required for every annual write (its dry run is the preview)${tail('set_budget_annual')}`);
   });
 });
+
+describe('set_budget_amounts: one cell in merge mode needs no plan_hash', () => {
+  it('a live single-cell merge write without plan_hash proceeds to the save', async () => {
+    const r = await amounts.handler({ ...KEY, cells: [cell('6000', '2026-04', '1')] }, ctx());
+    expect(text(r)).not.toMatch(/plan_hash is required/);
+    expect(saveCells).toHaveBeenCalledTimes(1);
+  });
+});
