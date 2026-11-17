@@ -22,7 +22,7 @@ const loadTransactions = vi.fn();
 const sel = { type: 'account', entityId: 'gl-1', label: '6000 Rent', vatCode: 'none' };
 
 const actions = (selected = ['t1'], rowSelections: Record<string, unknown> = {}) => buildBankTxActions({
-  transactions: [], glAccounts: [], selectedBank: 'bank-1', selectedIds: new Set(selected), rowSelections, batchType: 'account',
+  transactions: selected.map((id) => ({ id })), glAccounts: [], selectedBank: 'bank-1', selectedIds: new Set(selected), rowSelections, batchType: 'account',
   excludingTxId: null, createEntityTxId: null, setSmartRunning: vi.fn(), setRowSelections: vi.fn(), setTransactions: vi.fn(),
   setSelectedIds: vi.fn(), setShowBatchEdit: vi.fn(), setRulePrompt: vi.fn(), setExcludingTxId: vi.fn(),
   loadTransactions, refreshBankAccounts: vi.fn(),
