@@ -44,3 +44,41 @@ export function signatureMatches(meta: SignedMeta, digest: string, given: string
   const actual = /^[0-9a-f]{64}$/.test(given) ? Buffer.from(given, 'hex') : Buffer.alloc(0);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
+
+/**
+ * The JSON template's per-row base (MCP budget tools PR 2, review round 1): a row's month values as read (cents,
+ * null = not budgeted), signed with the same key as `_meta` over the version, financial year, grain, the year's month
+ * list (round 2: the values are by position, so a year whose shape changed cannot misalign them) and the row's
+ * account and member, so the JSON grid gets the .xlsx's 3-way diff (a row read on any page, at any token, is
+ * compared with what IT was read with). Text: `v1:<account id>:<member id or ->:<cents,…>:<hmac hex>`.
+ */
+export interface RowBaseMeta { versionId: string; fiscalYear: number; grain: string; months: readonly string[] }
+export interface RowBase { accountId: string; memberId: string | null; cents: Array<number | null> }
+
+const ROW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ROW_CENTS = /^-?\d{1,16}$/;
+
+function rowSignature(meta: RowBaseMeta, accountId: string, memberId: string | null, values: string): Buffer {
+  return createHmac('sha256', key()).update(['row-base:v1', meta.versionId.toLowerCase(), meta.fiscalYear, meta.grain, meta.months.join(','), accountId, memberId ?? '', values].join('|')).digest();
+}
+
+export function encodeRowBase(meta: RowBaseMeta, row: RowBase): string {
+  const accountId = row.accountId.toLowerCase();
+  const memberId = row.memberId === null ? null : row.memberId.toLowerCase();
+  const values = row.cents.map((c) => (c === null ? '' : String(c))).join(',');
+  return `v1:${accountId}:${memberId ?? '-'}:${values}:${rowSignature(meta, accountId, memberId, values).toString('hex')}`;
+}
+
+/** The row `text` encodes, or null when it is malformed, of another version, year, grain or month list, or altered. */
+export function decodeRowBase(meta: RowBaseMeta, text: string): RowBase | null {
+  const parts = text.split(':');
+  if (parts.length !== 5 || parts[0] !== 'v1') return null;
+  const [, accountId, member, values, sig] = parts as [string, string, string, string, string];
+  const memberId = member === '-' ? null : member;
+  if (!ROW_ID.test(accountId) || (memberId !== null && !ROW_ID.test(memberId)) || !/^[0-9a-f]{64}$/.test(sig)) return null;
+  const raw = values.split(',');
+  if (raw.length !== meta.months.length || raw.some((v) => v !== '' && !ROW_CENTS.test(v))) return null;
+  const expected = rowSignature(meta, accountId, memberId, values);
+  if (!timingSafeEqual(Buffer.from(sig, 'hex'), expected)) return null;
+  return { accountId, memberId, cents: raw.map((v) => (v === '' ? null : Number(v) + 0)) }; // + 0: never -0
+}
