@@ -8,11 +8,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { Building2, Save, Loader2, CheckCircle2 } from 'lucide-react';
+import { apiErrorMessage, apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument, documentsFromList } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
+import { companySavePayload } from '@/components/accounting/settings/companySavePayload';
+import { SettingsErrorBanner } from '@/components/accounting/settings/SettingsErrorBanner';
 import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
 import { parseTabId, settingsTabTitle, type TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
@@ -40,6 +42,9 @@ export default function CompanySettingsPage() {
   const [saving, setSaving] = useState(false);
   const [lockdownInvalid, setLockdownInvalid] = useState(false);
   const [error, setError] = useState('');
+  const [loadedMonth, setLoadedMonth] = useState(3); // the financial year start the form was loaded with (companySavePayload)
+  const [stale, setStale] = useState(false); // the save found it changed since (409): offer Reload
+  const [reloads, setReloads] = useState(0); // Reload remounts General, so its year panel reads the year again too
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('details');
 
@@ -73,7 +78,8 @@ export default function CompanySettingsPage() {
       await assertOk(res, 'Could not load company - try again');
       const json = await res.json();
       const c = json.data;
-      if (c) setCompany(mapApiCompany(c as Record<string, unknown>));
+      const mapped = c ? mapApiCompany(c as Record<string, unknown>) : null;
+      if (mapped) { setCompany(mapped); setLoadedMonth(mapped.financialYearStart); }
     } catch (err) {
       setCompany(null);
       setError(apiErrorMessage(err, 'Could not load company - try again'));
@@ -135,13 +141,19 @@ export default function CompanySettingsPage() {
   const handleSave = async () => {
     // Defence in depth: Save is disabled while Lockdown Date is refused, but not every path goes through the button.
     if (!company || lockdownInvalid) return;
-    setSaving(true); setError(''); setSaved(false);
+    setSaving(true); setError(''); setStale(false); setSaved(false);
+    let companySaved = false;
     try {
       const put = async (url: string, body: unknown, fallback: string) => {
         const r = await apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         await assertOk(r, fallback);
       };
-      await put('/api/accounting/companies', company, 'Could not save the company details - try again');
+      const r = await apiFetch('/api/accounting/companies', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(companySavePayload(company, loadedMonth)) });
+      await assertOk(r, 'Could not save the company details - try again');
+      companySaved = true;
+      const row = ((await r.json()) as { data?: Record<string, unknown> | null }).data;
+      setLoadedMonth(row ? mapApiCompany(row).financialYearStart : company.financialYearStart); // the month now stored
       const after = 'Company details saved, but some settings could not be saved - try again';
       await Promise.all([
         docNumbers.length > 0 && put('/api/accounting/company-settings?type=document-numbers',
@@ -153,6 +165,7 @@ export default function CompanySettingsPage() {
       setSaved(true);
       afterDelay(() => setSaved(false), 3000);
     } catch (err) {
+      setStale(!companySaved && err instanceof ApiRequestError && err.status === 409); // changed since loaded: offer Reload
       setError(apiErrorMessage(err, 'Could not save the changes - try again'));
     } finally {
       setSaving(false);
@@ -174,7 +187,7 @@ export default function CompanySettingsPage() {
       case 'general':
         return (
           <>
-            <GeneralTab key={activeCompany?.id} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />
+            <GeneralTab key={`${activeCompany?.id}:${reloads}`} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />
             <DefaultPaymentTermsCard key={`terms-${activeCompany?.id}`} />
           </>
         );
@@ -246,9 +259,9 @@ export default function CompanySettingsPage() {
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-center gap-2 text-red-500 text-sm">
-            <AlertCircle className="h-4 w-4" /> {error}
-          </div>
+          <SettingsErrorBanner message={error} onReload={stale && activeCompany?.id ? () => {
+            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id);
+          } : undefined} />
         )}
         {saved && (
           <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3 flex items-center gap-2 text-teal-500 text-sm">
