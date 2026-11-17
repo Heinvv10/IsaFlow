@@ -14,8 +14,7 @@
  *   - nothing from D, nothing for the run two years ahead.
  *
  * Company E has cash of 1 000, last month's run approved at 400 (covered) and
- * this month's approved at 5 000: the shortfall row is this month's, 4 400 (the
- * 400 paid first leaves 600 of the 1 000; review #1549 L1).
+ * this month's approved at 5 000: the shortfall row is this month's, 4 000.
  * A read of the earliest window run only would report nothing.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -119,7 +118,7 @@ describeIfDb('dashboard attention list: pay runs anchored on the current period'
     const data = await attentionFor(E);
     expect(data.items.find((i) => i.key === 'payroll-shortfall')).toMatchObject({
       label: `Cash is short for the ${MONTH_NAME[T_MONTH - 1]} ${T_YEAR} pay run`,
-      amount: 4400,
+      amount: 4000,
       href: `/payroll/runs/${RUN.eNow}`,
     });
   });

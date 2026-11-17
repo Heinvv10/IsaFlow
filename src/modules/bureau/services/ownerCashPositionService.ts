@@ -36,6 +36,8 @@ export interface PayrollRunRow {
   total_uif: string | number;
   total_sdl: string | number;
   total_eti: string | number;
+  /** The run's pay date, COALESCE(run_date, period_end) as YYYY-MM-DD; absent means still due. */
+  pay_date?: string | null;
 }
 
 export interface CashPositionPayroll {
@@ -105,23 +107,33 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
 }
 
 /**
- * Which run of the window to report. Cash pays the runs in pay order, so each run is judged against what the runs
- * before it left (review #1549 L1: never the whole balance once per run). The first run the remainder cannot cover is
- * reported, its `totalRequired` the runs up to and including it and its shortfall that sum less cash; when every run
- * is covered, the latest run with totals, against all of them. A run with no totals yet (a draft) needs nothing and
- * never hides a shortfall on another run; with no totals at all, the earliest run.
+ * Which run of the window to report. A run whose pay date is today or later is STILL DUE, and cash pays the due runs
+ * in pay order: each is judged against what the due runs before it left (review #1549 L1), so `totalRequired` is the
+ * due runs up to and including it and `runsCounted` how many. A run whose pay date has passed is judged on its own, as
+ * before: nothing marks a run paid (no writer sets 'paid'; a bank-file confirmation exists only where the platform
+ * flag is on), so last month's approved run still sits in the window after its salaries left the bank, and adding it
+ * would report a false shortfall (review #1549 N-H1). The first run cash cannot cover is reported; when every run is
+ * covered, the latest run with totals. A run with no totals yet (a draft) needs nothing and never hides a shortfall
+ * on another run; with no totals at all, the earliest run. No `asAt`: every run is due.
  */
-export function pickPayrollRun(runs: PayrollRunRow[], cash: number): CashPositionPayroll | null {
-  const shaped = runs.map((r) => shapePayrollAffordability(r, cash)!);
-  const withTotals = shaped.filter((p) => p.totalRequired > 0);
+export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
+  const due = (r: PayrollRunRow): boolean => asAt === undefined || r.pay_date == null || String(r.pay_date).slice(0, 10) >= asAt;
   let required = 0;
-  for (const [i, p] of withTotals.entries()) {
-    required = r2(required + p.totalRequired);
-    if (cash < required) return { ...p, totalRequired: required, canPay: false, shortfall: r2(required - cash), runsCounted: i + 1 };
+  let counted = 0;
+  let latest: CashPositionPayroll | null = null;
+  for (const r of runs) {
+    const own = shapePayrollAffordability(r, cash)!;
+    if (own.totalRequired <= 0) continue;
+    let judged = own;
+    if (due(r)) {
+      required = r2(required + own.totalRequired);
+      counted += 1;
+      judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
+    }
+    if (!judged.canPay) return judged;
+    latest = judged;
   }
-  const last = withTotals[withTotals.length - 1];
-  if (last) return { ...last, totalRequired: required, canPay: true, shortfall: 0, runsCounted: withTotals.length };
-  return shaped[0] ?? null;
+  return latest ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
 }
 
 // ── Private section helpers ───────────────────────────────────────────────────
@@ -138,14 +150,15 @@ async function nextPayrollSection(
   const cur = Number(asAt.slice(0, 4)) * 12 + Number(asAt.slice(5, 7));
   const rows = (await sql`
     SELECT id, period_month, period_year, status,
-           total_net, total_paye, total_uif, total_sdl, total_eti
+           total_net, total_paye, total_uif, total_sdl, total_eti,
+           COALESCE(run_date, period_end)::text AS pay_date
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')
        AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
      ORDER BY ${runOrderKeySql('payroll_run_headers')}
   `) as unknown as PayrollRunRow[];
-  return pickPayrollRun(rows, cash);
+  return pickPayrollRun(rows, cash, asAt);
 }
 
 async function vatSection(companyId: string, today: Date): Promise<CashPositionVat | null> {

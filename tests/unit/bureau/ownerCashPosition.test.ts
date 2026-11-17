@@ -58,6 +58,16 @@ describe('pickPayrollRun', () => {
     expect(p).toMatchObject({ runId: 'cur', canPay: false, shortfall: 4400, totalRequired: 5400, runsCounted: 2 });
   });
 
+  it('with asAt, a run whose pay date has passed is judged alone, never added to the runs still due (review #1549 N-H1)', () => {
+    const paid = { ...prev, pay_date: '2026-05-25' };
+    const due = { ...cur, pay_date: '2026-06-30' };
+    expect(pickPayrollRun([paid, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: true, totalRequired: 5000, runsCounted: 1 });
+    expect(pickPayrollRun([paid, due], 4000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, shortfall: 1000, runsCounted: 1 });
+    expect(pickPayrollRun([paid, due], 300, '2026-06-11')).toMatchObject({ runId: 'prev', canPay: false, shortfall: 100 });
+    // A pay date of today is still due.
+    expect(pickPayrollRun([{ ...paid, pay_date: '2026-06-11' }, due], 5000, '2026-06-11')).toMatchObject({ runId: 'cur', canPay: false, runsCounted: 2 });
+  });
+
   it('cash that covers each run alone but not both is short on the second', () => {
     expect(pickPayrollRun([prev, cur], 5000)).toMatchObject({ runId: 'cur', canPay: false, shortfall: 400, runsCounted: 2 });
     expect(pickPayrollRun([prev, cur], 5400)).toMatchObject({ runId: 'cur', canPay: true, shortfall: 0, totalRequired: 5400, runsCounted: 2 });

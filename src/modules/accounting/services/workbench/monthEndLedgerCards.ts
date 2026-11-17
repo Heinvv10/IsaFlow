@@ -117,7 +117,7 @@ export async function buildVatCard(companyId: string, periodStart: string, perio
 const runName = (r: DbRow): string => `${r.run_kind === 'off_cycle' ? String(r.off_cycle_reason ?? 'off-cycle') : 'regular'} run`;
 
 /**
- * The month's pay runs, all of them (wave 6 FQb2): a month may hold an off-cycle bonus beside its regular run. The card
+ * The month's pay runs, all but cancelled ones (wave 6 FQb2; review #1549 N-L1): a month may hold an off-cycle bonus beside its regular run. The card
  * is ready only when every run is final (payRunFinalSql, the R-035 rule the EMP201 declares by; review #1549 L3), shows
  * their gross together and the people paid across them (review L2), and names the runs not final yet. One run reads as
  * before, except that readiness is finality, so a paid run is ready and an unstamped approved one is not.
@@ -129,9 +129,11 @@ export async function buildPayrollCard(companyId: string, period: string): Promi
            COUNT(*) OVER () AS runs,
            (SELECT COUNT(DISTINCT l.employee_id) FROM payroll_run_lines l
               JOIN payroll_run_headers m ON m.id = l.run_id
-             WHERE m.company_id = ${companyId}::uuid AND m.period_year = ${year}::int AND m.period_month = ${month}::int) AS employees
+             WHERE m.company_id = ${companyId}::uuid AND m.period_year = ${year}::int AND m.period_month = ${month}::int
+               AND m.status <> 'cancelled') AS employees
       FROM payroll_run_headers h
      WHERE h.company_id = ${companyId}::uuid AND h.period_year = ${year}::int AND h.period_month = ${month}::int
+       AND h.status <> 'cancelled'
      ORDER BY ${runOrderKeySql('h')}
   `) as DbRow[];
   if (runs.length === 0) {

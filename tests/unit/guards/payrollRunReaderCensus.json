@@ -26,7 +26,7 @@
  },
  "consumers": [
   {"file":"src/lib/mcp/tools/writePayroll.ts","line":68,"text":"const clash = existing.rows.find((r) => r.periodMonth === month && r.runKind === 'regular' && r.payFrequency === 'monthly');","class":"S","owner":"FQb1","why":"FQb1 converted (R): the clash is the month's regular monthly run (the 999a key); an off-cycle run is none"},
-  {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":147,"text":"const notFinal = runs.filter(r => r.final !== true);","class":"S","owner":"FQb2","why":"FQb2 converted (R; review #1549 L3): every run of the month judged by payRunFinalSql; the runs not final are named"},
+  {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":149,"text":"const notFinal = runs.filter(r => r.final !== true);","class":"S","owner":"FQb2","why":"FQb2 converted (R; review #1549 L3): every run of the month judged by payRunFinalSql; the runs not final are named"},
   {"file":"src/modules/accounting/services/gl/integrityChecks/payrollChecks.ts","line":59,"text":"const monthRuns = headers.filter((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);","class":"S","owner":"FQb2","why":"FQb2 converted (R): the month is pre-ET when ANY of its runs is"},
   {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"R","owner":"FQc","why":"pro-rata takes the run's month, not its dates (F2)"},
   {"file":"src/modules/accounting/services/payroll/payrollYearToDate.ts","line":119,"text":"AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)","class":"R","owner":"FQc","why":"the year-to-date month bound (F2)"},
@@ -476,14 +476,14 @@
   ],
   "src/modules/accounting/services/workbench/monthEndLedgerCards.ts": [
    {"line":131,"text":"JOIN payroll_run_headers m ON m.id = l.run_id","class":"S","owner":"FQb2","why":"people paid across the month's run lines, COUNT DISTINCT, company-scoped through the header (review #1549 L2)"},
-   {"line":133,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"every run of the month, each with its final flag, in pay order"}
+   {"line":134,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"every run of the month, each with its final flag, in pay order"}
   ],
   "src/modules/bureau/services/bureauWorkAggregatorService.ts": [
    {"line":47,"text":"FROM payroll_run_headers pr","class":"S","owner":"FQb2","why":"list of open runs"}
   ],
   "src/modules/bureau/services/ownerCashPositionService.ts": [
-   {"line":142,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
-   {"line":146,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+   {"line":155,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
+   {"line":159,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
   ]
  }
 }

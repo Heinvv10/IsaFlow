@@ -213,9 +213,9 @@ describe('shapeAttention: salary shortfall', () => {
 
   it('names the earlier open runs the required total includes (review #1549 L1)', () => {
     const two = shapeAttention(input({ cash: { cash: 30000, payroll: payroll({ runsCounted: 2 }), vat: null } }));
-    expect(two[0]!.detail).toBe(`Cash ${formatMoney(30000)} against ${formatMoney(50000)} for this and 1 earlier open pay run (net pay plus PAYE, UIF and SDL, less ETI)`);
+    expect(two[0]!.detail).toBe(`Cash ${formatMoney(30000)} against ${formatMoney(50000)} for this and 1 earlier pay run still due (net pay plus PAYE, UIF and SDL, less ETI)`);
     const three = shapeAttention(input({ cash: { cash: 30000, payroll: payroll({ runsCounted: 3 }), vat: null } }));
-    expect(three[0]!.detail).toContain(' for this and 2 earlier open pay runs (');
+    expect(three[0]!.detail).toContain(' for this and 2 earlier pay runs still due (');
   });
 
   it('says it is an estimate only for an unapproved run', () => {

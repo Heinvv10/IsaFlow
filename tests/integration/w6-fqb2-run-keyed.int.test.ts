@@ -79,11 +79,12 @@ describe('integrity check: PAYE payable differs from the EMP201 (calculation ver
 });
 
 describe('owner cash position: the next pay run', () => {
-  const today = new Date('2026-05-29T10:00:00Z');
-  const position = (flip: boolean, cash: number) => {
+  // 20 May: both May runs (paid on the 25th and the 28th) are still due.
+  const today = new Date('2026-05-20T10:00:00Z');
+  const position = (flip: boolean, cash: number, when: Date = today) => {
     let ids: string[] = [];
     return twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
-      async () => ({ got: await getOwnerCashPosition(A.company, cash, today), ids: ordered(ids, flip) }));
+      async () => ({ got: await getOwnerCashPosition(A.company, cash, when), ids: ordered(ids, flip) }));
   };
 
   it.each(BOTH_ORDERS)('cash covers both: the latest run of the month is the bonus, against both (seeded reversed: %s)', async (flip) => {
@@ -99,20 +100,27 @@ describe('owner cash position: the next pay run', () => {
     const { got, ids } = await position(flip, 22_000);
     expect(got.payroll).toMatchObject({ runId: ids[1], canPay: false, shortfall: 3000, totalRequired: 25000, runsCounted: 2 });
     const items = shapeAttention({
-      asAt: '2026-05-29', today, counts: { billsOverdue: 0, billsDueNext7Days: 0 } as never,
+      asAt: '2026-05-20', today, counts: { billsOverdue: 0, billsDueNext7Days: 0 } as never,
       overdueInvoices: { count: 0, amount: 0 }, unreconciledBankTxns: 0, openPriorPeriods: 0, payRuns: [], work: [], cash: got,
     });
     expect(items.find((i) => i.key === 'payroll-shortfall')).toMatchObject({
-      amount: 3000, detail: expect.stringContaining('for this and 1 earlier open pay run (net pay'),
+      amount: 3000, detail: expect.stringContaining('for this and 1 earlier pay run still due (net pay'),
     });
   });
 
-  it('across months on today\'s schema too: April 20 000 and May 5 000 open, cash 22 000 is short 3 000 on May', async () => {
+  // Review #1549 N-H1: nothing marks a run paid, so last month's approved run is still open after its salaries left
+  // the bank. Its pay date has passed: it is judged on its own, never added to this month's requirement.
+  it('a monthly-only company (today\'s schema): April paid on the 25th + May 20 000, cash 30 000 on 29 May: May is payable', async () => {
     let ids: string[] = [];
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      ids = await seedBoth(c, [{ ...REGULAR, month: 4, runDate: '2026-04-25' }, { year: 2026, month: 5, runDate: '2026-05-25', gross: 5000, paye: 700 }]);
-    }, () => getOwnerCashPosition(A.company, 22_000, today), { keepMonthKey: true });
-    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: false, shortfall: 3000, runsCounted: 2 });
+      ids = await seedBoth(c, [{ ...REGULAR, month: 4, runDate: '2026-04-25' }, { ...REGULAR, runDate: '2026-05-31' }]);
+    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z')), { keepMonthKey: true });
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, shortfall: 0, totalRequired: 20000, runsCounted: 1 });
+  });
+
+  it.each(BOTH_ORDERS)('27 May: the regular run (paid on the 25th) is judged alone; only the bonus is still due (seeded reversed: %s)', async (flip) => {
+    const { got, ids } = await position(flip, 22_000, new Date('2026-05-27T10:00:00Z'));
+    expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, totalRequired: 5000, runsCounted: 1 });
   });
 
   it.each(BOTH_ORDERS)('cash covers neither: the earliest short run is the regular run (seeded reversed: %s)', async (flip) => {
@@ -163,6 +171,15 @@ describe('month-end workbench: the payroll card', () => {
       await payOther(c, A, term!);
     }, () => buildPayrollCard(A.company, '2026-05'));
     expect(card).toMatchObject({ status: 'ready', secondary: '2 employees · 2 runs, all final' });
+  });
+
+  // Review #1549 N-L1: a cancelled run is no run: neither not-final, nor gross, nor people.
+  it('a cancelled bonus run is left out: the regular run reads as one run', async () => {
+    const card = await twoRunsInMonth(pool, A, async (c) => {
+      const [, bonus] = await seedBoth(c, [REGULAR, { ...BONUS, status: 'cancelled', approvedAt: null }]);
+      await payOther(c, A, bonus!);
+    }, () => buildPayrollCard(A.company, '2026-05'));
+    expect(card).toMatchObject({ status: 'ready', primary: `${formatMoney(20000)} gross`, secondary: '1 employees · approved' });
   });
 
   it('one run (a monthly-only company, today\'s schema): exactly as before', async () => {
