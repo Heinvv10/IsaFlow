@@ -50,8 +50,10 @@ export interface AmountWrite {
   dryRun: boolean;
   versionToken: string | null;
   planHash: string | null;
-  /** True for a write of more than one cell: the live call must carry the dry run's plan_hash. */
+  /** True when the live call must carry the dry run's plan_hash. */
   hashRequired: boolean;
+  /** The caller's own rule for the refusal text: "plan_hash is required <hashWhy>: ...". */
+  hashWhy: string;
   page: DiffPage;
   notices?: RoundingNotice[];
   /** Fields the tool adds to every reply (import_budget_workbook: the file's own counts, warnings and conflicts). */
@@ -120,7 +122,7 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
     return toolError(refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused));
   }
   if (plan.save.length === 0) return { ...ok({ ...base, saved: 0, deleted: 0, version_token: token, note: 'Nothing changed: every cell already holds its amount.' }), wroteNothing: true };
-  const planRefused = planHashRefusal({ tool: w.tool, given: w.planHash, hash, required: w.hashRequired, why: 'for a write of more than one cell' });
+  const planRefused = planHashRefusal({ tool: w.tool, given: w.planHash, hash, required: w.hashRequired, why: w.hashWhy });
   if (planRefused) return planRefused;
 
   let saved;

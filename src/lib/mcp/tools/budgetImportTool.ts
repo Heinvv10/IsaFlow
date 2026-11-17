@@ -190,7 +190,7 @@ export const importBudgetWorkbookTool: McpTool = {
     const possibleRevert = preview.changes.filter((c) => c.possibleRevert).length;
     return runAmountWrite(ctx, {
       tool: 'import_budget_workbook', model, mode: 'merge', inputs, rowRefusals, dryRun: args.dry_run === true, versionToken, planHash,
-      hashRequired: true, page: listPage(args, DIFF_LIST_DEFAULT, DIFF_LIST_MAX), // round 2: every import is previewed by its dry run first, as in the app
+      hashRequired: true, hashWhy: 'for every import (its dry run is the preview)', page: listPage(args, DIFF_LIST_DEFAULT, DIFF_LIST_MAX), // round 2: every import is previewed by its dry run first, as in the app
       extra: {
         format: bytes ? 'xlsx' : 'json', ...(sheet ? { sheet } : {}),
         ...(freeform ? { sheet_name: freeform.name, overwrite: FREEFORM_OVERWRITE, skipped_rows: freeform.skipped.slice(0, SKIPPED_LISTED), skipped_count: freeform.skipped.length,
