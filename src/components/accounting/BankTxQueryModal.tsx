@@ -12,6 +12,7 @@ import { useCompanyRoleOrNull } from '@/contexts/CompanyContext';
 import { canDirectBankQueries } from '@/lib/auth/writeRoles';
 import { X, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { notify } from '@/utils/toast';
 import { composeBankTxQueryMessage } from '@/modules/accounting/services/capture/bankTxQueryMessage';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -154,6 +155,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
 
       await assertOk(res, 'Could not send the query - try again');
 
+      notify.success(`Query sent to ${phone.trim()}`);
       onSent?.();
       onClose();
     } catch (err) {
@@ -205,10 +207,11 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
 
           {/* Phone input */}
           <div>
-            <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
+            <label htmlFor="query-whatsapp-number" className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
               WhatsApp number <span className="text-red-400">*</span>
             </label>
             <input
+              id="query-whatsapp-number"
               type="tel"
               required
               value={phone}
@@ -228,10 +231,11 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
 
           {/* Message textarea */}
           <div>
-            <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
+            <label htmlFor="query-message" className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
               Message
             </label>
             <textarea
+              id="query-message"
               rows={5}
               maxLength={1000}
               value={message}

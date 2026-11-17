@@ -60,6 +60,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const [total, setTotal] = useState(0);
   const totalRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const deleting = useRef(new Set<string>());
 
   // ── Fetch attachment list ──────────────────────────────────────────────────
   // keepList: a refresh after an upload leaves the list on screen instead of blanking it to "Loading…".
@@ -152,6 +153,10 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   // A linked captured document is unlinked from the line (its copy goes with it); anything else is deleted.
   const handleDelete = async (att: Attachment) => {
     const { id, file_name: name } = att;
+    // A removal cannot be taken back (the file is deleted, not hidden), so it asks first; a second click while it runs is ignored.
+    if (deleting.current.has(id)) return; // the same file twice; two DIFFERENT files may overlap
+    if (!window.confirm(att.document_id ? `Unlink "${name}" from this line?` : `Remove "${name}"? This cannot be undone.`)) return;
+    deleting.current.add(id);
     setDeletingId(id);
     try {
       const url = att.document_id
@@ -175,6 +180,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));
     } finally {
+      deleting.current.delete(id);
       setDeletingId(null);
     }
   };
