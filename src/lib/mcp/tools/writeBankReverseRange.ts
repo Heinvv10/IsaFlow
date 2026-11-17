@@ -188,8 +188,9 @@ export const reverseAllocationsTool: McpTool = {
     // of what remains, under the locks.
     const lockedIds = new Set(rows.map((r) => r.id.toLowerCase()));
     await preLockReversalLines(ctx.companyId, rows.map((r) => r.id));
-    rows = (await findAllocatedInRange(ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE))
-      .filter((r) => lockedIds.has(r.id.toLowerCase()));
+    const reread = await findAllocatedInRange(ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE);
+    rows = reread.filter((r) => lockedIds.has(r.id.toLowerCase()));
+    const leftForRerun = reread.length - rows.length; // allocated into the range after the first read: not locked here
     const lockedAgentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
     if (lockedAgentRefusal) return toolError(lockedAgentRefusal.message);
     const lockedRefusal = await counterpartRefusal(ctx.companyId, rows.map((r) => r.id));
@@ -209,6 +210,9 @@ export const reverseAllocationsTool: McpTool = {
       reversed: rows.length,
       transactions: previewOf(rows), // #1545 r2 M2: what was reversed, from the re-read, not the first read
       rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
+      // Said, never silent (#1545 r2 LOW): allocations that entered the range while this call waited were not reversed.
+      ...(leftForRerun > 0 ? { left_for_rerun: leftForRerun,
+        note: `${leftForRerun} allocation(s) entered this range while the call ran and were not reversed — run it again.` } : {}),
     });
   },
 };

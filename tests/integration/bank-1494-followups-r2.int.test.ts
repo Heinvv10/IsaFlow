@@ -71,8 +71,9 @@ describe('M1 / M2: what the range call locked is what it reverses and reports', 
     await release(holder);
     const out = await call;
     expect(out.isError, out.content[0]!.text).toBeFalsy();
-    const body = JSON.parse(out.content[0]!.text) as RangeOut;
+    const body = JSON.parse(out.content[0]!.text) as RangeOut & { left_for_rerun?: number; note?: string };
     expect({ reversed: body.reversed, listed: body.transactions.map((t) => t.transaction_id) }).toEqual({ reversed: 1, listed: [x] });
+    expect(body).toMatchObject({ left_for_rerun: 1, note: expect.stringMatching(/entered this range .* run it again/) });
     expect({ x: await lineStatus(pool, x), z: await lineStatus(pool, z) }).toEqual({ x: 'imported', z: 'allocated' });
   }, 30000);
 
