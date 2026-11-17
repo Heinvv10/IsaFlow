@@ -15,7 +15,7 @@ import { decodeRowBase } from '@/modules/accounting/services/budgets/budgetTempl
 import { templateRowKey, type TemplateGrain } from '@/modules/accounting/services/budgets/budgetTemplateXlsx';
 import type { ParsedCell } from '@/modules/accounting/services/budgets/grid/pasteParse';
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
-import { parseMoney } from './budgetToolArgs';
+import { parseMoney, refText } from './budgetToolArgs';
 
 /** Rows one call takes: ~1 KB each sent back whole (base, months, names), so ~2 MB under the 3 MB MCP body limit. */
 export const MAX_GRID_ROWS = 2000;
@@ -31,12 +31,16 @@ function cellOf(value: unknown): ParsedCell {
   return { kind: 'value', cents: money.cents };
 }
 
-/** A reference (`account`, `account_id`, …) that, when given, must name `id` (by id, or by `code`). */
+/**
+ * A reference (`account`, `account_id`, …) that, when given, must name `id` (by id, or by `code`). A code may be a
+ * whole number (PR 3's `refText` convention: 6000 is "6000"); a number with a fraction is refused before this.
+ */
 const names = (ref: unknown, id: string, code: string | undefined): boolean => {
   if (ref === undefined || ref === null) return true;
-  if (typeof ref !== 'string') return false;
-  const t = ref.trim();
-  return (UUID_RE.test(t) && t.toLowerCase() === id) || (code !== undefined && (ref === code || t === code.trim()));
+  if (typeof ref !== 'string' && typeof ref !== 'number') return false;
+  const r = refText(ref);
+  if ('error' in r) return false;
+  return (UUID_RE.test(r.ref) && r.ref.toLowerCase() === id) || (code !== undefined && (ref === code || r.ref === code.trim()));
 };
 
 export interface GridSource { lines: ImportLine[]; base: Map<string, ReadonlyArray<number | null>> }
@@ -67,6 +71,10 @@ export function gridLines(model: GridReadModel, grain: TemplateGrain, rows: unkn
     }
     const account = accounts.get(read.accountId);
     const member = read.memberId === null ? undefined : members.get(read.memberId);
+    for (const [ref, what] of [[o.account, 'account'], [o.dimension, grain]] as const) {
+      const r = typeof ref === 'number' ? refText(ref, what) : null;
+      if (r !== null && 'error' in r) return `row ${n}: ${r.error}`;
+    }
     if (!names(o.account, read.accountId, account?.code)) return `row ${n}: account ${String(o.account).slice(0, 40)} is not the account its base was read for (${account?.code ?? read.accountId})`;
     if (!names(o.account_id, read.accountId, undefined)) return `row ${n}: account_id ${String(o.account_id).slice(0, 40)} is not the account its base was read for (${read.accountId})`;
     if (read.memberId !== null && !names(o.dimension, read.memberId, member?.code)) return `row ${n}: dimension ${String(o.dimension).slice(0, 40)} is not the member its base was read for (${member?.code ?? read.memberId})`;

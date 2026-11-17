@@ -33,7 +33,7 @@ import type { GridReadModel } from '@/modules/accounting/services/budgets/gridRe
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { McpTool, McpToolResult } from '../types';
 import {
-  BUDGET_WRITE_FENCE, isMonth, isResult, MCP_SLOT_WAIT_MS, planHashArg, spreadsheetBusy, versionTokenArg,
+  BUDGET_WRITE_FENCE, DIM_REF, ID_OR_CODE, isMonth, isResult, MCP_SLOT_WAIT_MS, planHashArg, spreadsheetBusy, versionTokenArg,
 } from './budgetToolArgs';
 import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
 import { listPage } from './budgetPaging';
@@ -81,10 +81,10 @@ export const importBudgetWorkbookTool: McpTool = {
           properties: {
             ...Object.fromEntries(GRID_ROW_KEYS.map((k) => [k, {}])),
             base: { type: 'string', description: 'The row\'s base exactly as get_budget_template returned it.' },
-            account: { type: 'string', description: 'Optional: the base\'s account (code or id).' },
+            account: { ...ID_OR_CODE, description: 'Optional: the base\'s account (code or id; a numeric code may be a whole number).' },
             account_id: { type: 'string', format: 'uuid', description: 'Optional: the base\'s account id.' },
             dimension_id: { type: 'string', format: 'uuid', description: 'Optional, cc1 / cc2 / bu grid: the base\'s member id.' },
-            dimension: { type: ['string', 'null'], description: 'Optional, cc1 / cc2 / bu grid: the base\'s member (code or id).' },
+            dimension: { ...DIM_REF, description: 'Optional, cc1 / cc2 / bu grid: the base\'s member (code or id; a whole number for a numeric code); absent or null: none.' },
             months: { type: 'object', additionalProperties: { type: ['string', 'null'] }, description: 'Every YYYY-MM of the year: a decimal string, or null (not budgeted).' },
           },
           required: ['base', 'months'],
