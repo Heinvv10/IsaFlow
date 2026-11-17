@@ -19,6 +19,8 @@ import { listRunAnnualPayments, listRunLumpSums } from '@/modules/accounting/ser
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
+import { getDeclarablePayRun } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { readPayroll } from '@/modules/accounting/services/cashForecast13/readPayroll';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -153,5 +155,12 @@ describe('one final-run population across the EMP201, IRP5 and UI-19', () => {
     const ytd = (await loadPayeYearToDate(C, run.nov!, { month: 11, year: 2028 } as never, [emp.x!])).get(emp.x!)!;
     expect(ytd.medicalSchemeFees).toBe(500);   // September's only
     expect(ytd.tablePaye).toBe(5_000);         // was 6 000: the unstamped October's PAYE counted
+  });
+
+  it('L1 the run a statutory figure is taken from, and the cash forecast\'s runs, are final runs: October is neither', async () => {
+    expect(await getDeclarablePayRun(C, { year: 2028, month: 10 })).toBeNull();
+    expect((await getDeclarablePayRun(C, { year: 2028, month: 9 }))?.id).toBe(run.sep);
+    const read = await readPayroll(C);
+    expect(read.runs.map((r) => r.id)).toEqual([run.nov, run.sep]);
   });
 });
