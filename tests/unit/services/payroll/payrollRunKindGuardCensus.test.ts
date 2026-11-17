@@ -48,6 +48,7 @@ const CALLERS = [
   `${P}/payrollRunReopen.ts`,
   `${P}/payrollRunRowWrite.ts`,
   `${P}/payrollRunService.ts`,
+  `${P}/payslipDeliveryService.ts`, // PE: getPayslips, so the guard runs before any send
   `${P}/payslipModel.ts`,
   `${P}/payRunApprovalControl.ts`,
   // Wave 6 EF: the EMP201 (route 409 via respondIfRunKindUnsupported; MCP, Ask, budgets and returns rethrow) and the IRP5.

@@ -2,6 +2,7 @@
 import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getDeclarablePayRun } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { otherFinalRuns } from './askPayRunMonth';
 import { getCompanyVatCycle, type VatCycle } from '@/modules/accounting/services/reports/companyVatCycle';
 import { defaultVatQuickPeriod } from '@/modules/bureau/services/vatPeriodHelper';
 import type { AskIntent } from './askIntents';
@@ -67,6 +68,9 @@ export async function lastPayRun(intent: AskIntent, companyId: string, today: st
   const t = p ? monthOf(p, today, 'this') : null;
   const run = await getDeclarablePayRun(companyId, t ? { year: t.y, month: t.m } : null);
   if (!run) return reply(t ? `There is no approved or paid pay run for ${MONTH_NAMES[t.m - 1]} ${t.y}.` : 'There are no approved or paid pay runs yet.', null, [], href, 'Open pay runs');
-  return reply(`The ${t ? '' : 'latest '}pay run for ${run.periodYear}-${pad(run.periodMonth)} (${run.status}) has gross pay of ${rand(run.totalGross)} and net pay of ${rand(run.totalNet)}.`,
+  const others = await otherFinalRuns(companyId, run.id, run.periodYear, run.periodMonth);
+  const also = others.count === 0 ? ''
+    : ` The month has ${others.count} other final run${others.count === 1 ? '' : 's'} (${rand(r2(run.totalGross + others.gross))} gross combined).`;
+  return reply(`The ${t ? '' : 'latest '}pay run for ${run.periodYear}-${pad(run.periodMonth)} (${run.status}) has gross pay of ${rand(run.totalGross)} and net pay of ${rand(run.totalNet)}.${also}`,
     r2(run.totalGross), [{ label: 'Net pay', value: r2(run.totalNet) }, { label: 'PAYE', value: r2(run.totalPaye) }], `/payroll/runs/${run.id}`, 'Open the pay run');
 }

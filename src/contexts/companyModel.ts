@@ -52,6 +52,8 @@ export interface CompanyUser {
   isDefault: boolean;
   /** The seeded demo tenant (`companies.is_demo`). Absent on an older API answer. */
   isDemo?: boolean;
+  /** A logo is stored; the switcher loads it from GET /api/accounting/company-logo. */
+  hasLogo?: boolean;
 }
 
 export const COMPANY_STORAGE_KEY = 'isaflow_active_company';
@@ -107,6 +109,7 @@ export function mapCompanyUsers(raw: unknown): CompanyUser[] {
     role: c.role as string,
     isDefault: Boolean(c.isDefault ?? c.is_default ?? false),
     isDemo: Boolean(c.isDemo ?? c.is_demo ?? false),
+    hasLogo: Boolean(c.hasLogo ?? c.has_logo ?? false),
   }));
 }
 
