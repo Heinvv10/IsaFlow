@@ -6,6 +6,7 @@
  * come in here first (Smart Categorize, New transaction): nothing is out of reach while something is selected.
  */
 
+import Router from 'next/router';
 import { ChevronDown, Download, FileText, Plus, Upload, Zap } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/ActionMenu';
 
@@ -22,14 +23,16 @@ interface Props {
 }
 
 const ICON = 'h-3.5 w-3.5';
+/** Enter / Space on a link item (a click follows the <a> itself). */
+const go = (href: string) => { void Router.push(href); };
 
 export function BankTxMoreMenu({ selectedBank, onExport, onExportAll, onDownloadReport, pageActions }: Props) {
   const items: ActionMenuItem[] = [
     ...(pageActions ? [
       { label: pageActions.smartRunning ? 'Categorizing...' : 'Smart Categorize', icon: <Zap className={ICON} />, onClick: pageActions.onApplyRules, disabled: pageActions.applyDisabled },
-      { label: 'New transaction', icon: <Plus className={ICON} />, href: NEW_TX_HREF },
+      { label: 'New transaction', icon: <Plus className={ICON} />, href: NEW_TX_HREF, onClick: () => go(NEW_TX_HREF) },
     ] : []),
-    { label: 'Import bank statements', icon: <Upload className={ICON} />, href: IMPORT_HREF },
+    { label: 'Import bank statements', icon: <Upload className={ICON} />, href: IMPORT_HREF, onClick: () => go(IMPORT_HREF) },
     { label: 'Export this page', icon: <Download className={ICON} />, onClick: onExport },
     { label: 'Export all accounts', icon: <Download className={ICON} />, onClick: onExportAll },
     { label: 'Recon report', icon: <FileText className={ICON} />, onClick: onDownloadReport, disabled: !selectedBank },

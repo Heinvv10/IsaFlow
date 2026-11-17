@@ -14,7 +14,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import Router from 'next/router';
 import { MoreVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { chooseSide, placePanel, type PanelPlacement } from './panelPlacement';
@@ -22,9 +21,12 @@ import { chooseSide, placePanel, type PanelPlacement } from './panelPlacement';
 export interface ActionMenuItem {
   label: string;
   icon?: React.ReactNode;
-  /** A navigation: the item is a real link (new tab, middle-click and copy-link work); Enter / Space follow it. */
+  /**
+   * A navigation: the item renders as a real link (new tab, middle-click and copy-link work; a click follows it natively).
+   * `onClick` is still what Enter / Space run, so it should navigate to the same place.
+   */
   href?: string;
-  onClick?: () => void;
+  onClick: () => void;
   disabled?: boolean;
   tone?: 'default' | 'destructive';
 }
@@ -111,8 +113,7 @@ export function ActionMenu({
   const pick = (item: ActionMenuItem) => {
     if (item.disabled) return;
     close(true);
-    if (item.href) void Router.push(item.href);
-    else item.onClick?.();
+    item.onClick();
   };
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
