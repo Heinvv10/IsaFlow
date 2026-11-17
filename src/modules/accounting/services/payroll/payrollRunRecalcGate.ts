@@ -24,6 +24,7 @@ import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { EMPLOYMENT_TERMS_BLOCKING_CODES } from './validationEngine';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { sdlMonthSplitRefusal } from './payrollSdlMonthGate';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
 export const FRINGE_BENEFIT_NOT_APPLIED = 'FRINGE_BENEFIT_NOT_APPLIED';
@@ -45,7 +46,10 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
   };
 }
 
-/** Component dates changed after calculation, or a leaver with no termination base. Null when neither. */
+/**
+ * Component dates changed after calculation, a leaver with no termination base, a blocking terms or fringe-benefit
+ * line, or a run of the month costed on a stale SDL decision (payrollSdlMonthGate, wave 6 FQb1). Null when none.
+ */
 export async function runLinesRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const head = ((await sql`
     SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
@@ -170,5 +174,6 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
         + 'or is not taxable, so PAYE is understated. Fix the component or the vehicle record (see the line\'s validation message) and recalculate.',
     };
   }
-  return null;
+  // A run of the month costed on an SDL decision the month, judged now, no longer gives (payrollSdlMonthGate, wave 6 FQb1).
+  return sdlMonthSplitRefusal(companyId, runId);
 }

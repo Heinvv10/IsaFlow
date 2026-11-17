@@ -21,13 +21,7 @@ import {
   PAYE_TAX_YEAR_START_MONTH,
   payeTaxPeriodNumber,
 } from '@/modules/accounting/utils/payeTaxYear';
-
-interface RunRow {
-  id: string;
-  period_month: number;
-  period_year: number;
-  status: string;
-}
+import { latestPayrollRun } from '@/modules/accounting/services/payroll/payrollRunHeaders';
 
 interface CompanyRow {
   name: string;
@@ -51,13 +45,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
   const company = companyRows[0]!;
 
-  const runRows = (await sql`
-    SELECT id, period_month, period_year, status
-      FROM payroll_run_headers
-     WHERE company_id = ${companyId}
-     ORDER BY period_year DESC, period_month DESC
-     LIMIT 1
-  `) as unknown as RunRow[];
+  const latest = await latestPayrollRun(companyId);
 
   const today = new Date();
   let periodMonth: number;
@@ -65,12 +53,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   let runId: string | null = null;
   let status: string;
 
-  if (runRows.length > 0) {
-    const r = runRows[0]!;
-    periodMonth = r.period_month;
-    periodYear = r.period_year;
-    runId = r.id;
-    status = r.status;
+  if (latest) {
+    periodMonth = latest.periodMonth;
+    periodYear = latest.periodYear;
+    runId = latest.id;
+    status = latest.status;
   } else {
     periodMonth = today.getMonth() + 1;
     periodYear = today.getFullYear();
