@@ -523,3 +523,45 @@ describe('one undo key per run until an answer (L2)', () => {
     expect(keys[4]).not.toBe(keys[0]); // answered: the rest of the batch is its own request
   });
 });
+
+describe('Confirm with the real preview answer (z30 regression)', () => {
+  /** Exactly the field set the route returns for a preview (copied from previewBulkAccept's return and PreviewLine). */
+  const REAL_LINE = (n: number) => ({
+    id: `0000000${n}-0000-4000-8000-000000000000`, date: '2026-11-17', description: `GP-BULK zq ${n}`, amount: -110 * n,
+    glAccountId: 'gl-1', glAccountCode: '6100', glAccountName: 'Fuel', vatCode: 'none', confidence: 0.95, strategy: 'rule',
+    version: '2026-11-17T08:00:00.000000', effectiveVatCode: 'none', netAmount: 110 * n, vatAmount: 0,
+    cc1Id: null, cc2Id: null, buId: null, cc1Code: null, cc2Code: null, buCode: null,
+  });
+  const REAL = {
+    bankAccountId: 'b1', minConfidence: 0.8, lines: [1, 2, 3].map(REAL_LINE), totalIn: 0, totalOut: 660,
+    byAccount: [{ glAccountId: 'gl-1', code: '6100', name: 'Fuel', count: 3, totalIn: 0, totalOut: 660 }],
+    truncated: false, totalEligibleAtLeast: 3, scanTruncated: false, nextScanAfter: null, needsAttention: [], needsAttentionCount: 0,
+    excluded: { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, noPeriod: 0, vatLocked: 0, vatCode: 0 }, previewToken: 'eyJ2IjoxfQ',
+  };
+
+  it('Confirm is enabled once the preview shows, and one click sends a POST of {action, previewToken} with a key, credentials included', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(REAL)).mockResolvedValueOnce(ok({ runId: 'r', posted: REAL.lines.map((l) => ({ txId: l.id, journalEntryId: 'j' })), refused: [], totalPosted: 660 }));
+    open();
+    const confirmBtn = await screen.findByRole('button', { name: /Confirm and post 3/ });
+    expect((confirmBtn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(confirmBtn);
+    const result = await screen.findByTestId('bulk-result');
+    expect(result.textContent).toMatch(/Posted 3 lines/);
+    const [url, init] = vi.mocked(apiFetch).mock.calls[1]!;
+    expect(String(url)).toBe('/api/accounting/bank-bulk-accept');
+    expect(init?.method).toBe('POST');
+    expect(init?.credentials).toBe('include');
+    expect(JSON.parse(String(init?.body))).toEqual({ action: 'confirm', previewToken: 'eyJ2IjoxfQ' });
+    expect((init?.headers as Record<string, string>)['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('with a slow answer the dialog shows "Posting…" (not a dead button) and the result lands when it arrives', async () => {
+    const gate = deferred<Response>();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(REAL)).mockReturnValueOnce(gate.promise);
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
+    await screen.findByRole('button', { name: 'Posting…' });
+    gate.resolve(ok({ runId: 'r', posted: [], refused: [], totalPosted: 0 }));
+    await screen.findByTestId('bulk-result');
+  });
+});

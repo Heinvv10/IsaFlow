@@ -22,7 +22,7 @@ import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_
 const SANDBOX_NAME = '0GP Golden Bank Bulk Accept Sandbox';
 const SANDBOX_ONBOARDING_ID = '5d8e1a3c-7b24-4f69-9a0e-3c6b2d1f8e57';
 
-test.setTimeout(180_000);
+test.setTimeout(420_000); // the dump below must always get to print: the budget is never what ends a failing run
 
 test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, context }) => {
   const api = await Api.login(baseURL!);
@@ -80,6 +80,13 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
 
     // The page: the button names the count, the preview lists the three lines and their totals.
     await page.setViewportSize({ width: 1568, height: 1000 });
+    // Everything the browser says from here on, so a failure after Confirm can be read off the report.
+    const consoleErrors: string[] = [];
+    const requests: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleErrors.push(`${m.type()}: ${m.text().slice(0, 300)}`); });
+    page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e).slice(0, 300)}`));
+    page.on('request', (r) => { if (r.url().includes('/api/')) requests.push(`${r.method()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}`); });
+    page.on('requestfailed', (r) => requests.push(`FAILED ${r.method()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}: ${r.failure()?.errorText}`));
     const countRead = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'GET', { timeout: 90_000 });
     await page.goto(`/accounting/bank-transactions?account_id=${bankAccountId}`);
     const read = await countRead;
@@ -95,20 +102,26 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     await expect(dialog.getByTestId('bulk-totals')).toContainText(/Total out.*660/);
     if (process.env.BANK_TX_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.BANK_TX_EVIDENCE_DIR, 'bulk-accept-preview.png') });
 
-    // Confirm posts the batch.
-    const confirmed = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'POST', { timeout: 90_000 });
-    await dialog.getByRole('button', { name: /Confirm and post 3/ }).click();
-    const confirmRes = await confirmed;
+    // Confirm posts the batch. Every wait here is short and ends in a dump, so a failure is read, not timed out.
+    const confirmButton = dialog.getByRole('button', { name: /Confirm and post 3/ });
+    const dump = async (what: string) => `${what}\n  Confirm: enabled=${await confirmButton.isEnabled().catch(() => '?')} visible=${await confirmButton.isVisible().catch(() => '?')}`
+      + `\n  dialog alert: ${await dialog.getByRole('alert').allTextContents().then((t) => t.join(' | ')).catch(() => '?')}`
+      + `\n  dialog text: ${(await dialog.textContent().catch(() => '?'))?.slice(0, 500)}`
+      + `\n  console: ${consoleErrors.slice(-8).join(' || ') || '(none)'}`
+      + `\n  api requests: ${requests.slice(-14).join(' | ')}`;
+    const postSeen = page.waitForRequest((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.method() === 'POST', { timeout: 20_000 }).catch(() => null);
+    try { await confirmButton.click({ timeout: 15_000 }); } catch (err) { throw new Error(await dump(`Confirm could not be clicked: ${String(err).split('\n')[0]}`)); }
+    const req = await postSeen;
+    if (!req) throw new Error(await dump('Confirm was clicked but NO POST to bank-bulk-accept was sent within 20 s'));
+    const confirmRes = await req.response().then((r) => r, () => null) ?? await page.waitForResponse((r) => r.request() === req, { timeout: 40_000 }).catch(() => null);
+    if (!confirmRes) throw new Error(await dump(`the confirm POST was sent (Idempotency-Key ${req.headers()['idempotency-key'] ?? 'MISSING'}) but no answer came within 40 s`));
     const confirmText = await confirmRes.text().catch(() => '(unreadable)');
-    const confirmKey = confirmRes.request().headers()['idempotency-key'];
+    const confirmKey = req.headers()['idempotency-key'];
     try { runId = JSON.parse(confirmText)?.data?.runId ?? ''; } catch { runId = ''; }
-    // On a failure the message carries everything that decides it: the POST's status, its key header and body, and what the
-    // dialog itself shows (its alert, its footer), so the cause is read off the report instead of guessed.
-    const shown = async () => `alert: ${await dialog.getByRole('alert').allTextContents().then((t) => t.join(' | ')).catch(() => '?')}; dialog: ${(await dialog.textContent().catch(() => '?'))?.slice(0, 400)}`;
     try {
-      await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines', { timeout: 60_000 });
+      await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines', { timeout: 30_000 });
     } catch (err) {
-      throw new Error(`the result screen did not show "Posted 3 lines": confirm POST answered ${confirmRes.status()} (Idempotency-Key ${confirmKey ?? 'MISSING'}) body ${confirmText.slice(0, 600)}; ${await shown()}\n${String(err)}`);
+      throw new Error(await dump(`the result screen did not show "Posted 3 lines": confirm POST answered ${confirmRes.status()} (Idempotency-Key ${confirmKey ?? 'MISSING'}) body ${confirmText.slice(0, 600)}\n${String(err).split('\n')[0]}`));
     }
     const withStatus = async (status: string) => (await api.get<{ transactions: Array<{ id: string }> }>(
       `/api/accounting/bank-transactions?bank_account_id=${bankAccountId}&status=${status}&search=${encodeURIComponent(ref)}`)).transactions.length;
