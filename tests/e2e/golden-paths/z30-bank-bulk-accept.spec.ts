@@ -105,6 +105,14 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleErrors.push(`${m.type()}: ${m.text().slice(0, 300)}`); });
     page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e).slice(0, 300)}`));
     page.on('request', (r) => { if (r.url().includes('/api/')) requests.push(`${r.method()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}`); });
+    // A fresh page mount after Confirm (the dialog gone, the page's mount requests again) is a NAVIGATION: record every one, with
+    // who asked for it (the request that preceded it), and crashes and closes.
+    const navigations: string[] = [];
+    page.on('framenavigated', (f) => { if (f === page.mainFrame()) { navigations.push(`+${((Date.now() - t0) / 1000).toFixed(1)}s ${f.url().replace(/^https?:\/\/[^/]+/, '')}`); step(`NAVIGATED ${f.url()}`); } });
+    page.on('crash', () => { navigations.push('PAGE CRASHED'); step('PAGE CRASHED'); });
+    page.on('close', () => step('PAGE CLOSED'));
+    page.on('domcontentloaded', () => step('domcontentloaded (a document was loaded)'));
+    page.on('response', (r) => { if (r.request().resourceType() === 'document') step(`document ${r.status()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}`); });
     page.on('requestfailed', (r) => requests.push(`FAILED ${r.method()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}: ${r.failure()?.errorText}`));
     const countRead = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'GET', { timeout: 90_000 });
     await page.goto(`/accounting/bank-transactions?account_id=${bankAccountId}`);
@@ -129,6 +137,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
       + `\n  dialog alert: ${await dialog.getByRole('alert').allTextContents().then((t) => t.join(' | ')).catch(() => '?')}`
       + `\n  dialog present: ${await dialog.count().catch(() => '?')}; text: ${(await dialog.textContent({ timeout: 2_000 }).catch(() => '(none within 2s)'))?.slice(0, 500)}`
       + `\n  console: ${consoleErrors.slice(-8).join(' || ') || '(none)'}`
+      + `\n  navigations: ${navigations.join(' | ') || '(none)'}`
       + `\n  api requests: ${requests.slice(-14).join(' | ')}`;
     const postSeen = page.waitForRequest((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.method() === 'POST', { timeout: 20_000 }).catch(() => null);
     try { await confirmButton.click({ timeout: 15_000 }); } catch (err) { { const d = await dump(`Confirm could not be clicked: ${String(err).split('\n')[0]}`); console.log(d); throw new Error(d); } }
