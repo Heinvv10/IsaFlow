@@ -38,6 +38,9 @@ const INDIRECT: Record<string, [number, string]> = {
   'scripts/ci/golden/cloneCompany.ts': [2, 'golden-path sandbox cloner: copies the table by name for a clone company, dev/CI only'],
   'scripts/lib/demoReseed/types.ts': [1, 'Demo reseed: the insert order names the table; rows are fixed-amount Basic Salary assignments of the fictional employees, inserted with them'],
   'scripts/lib/demoReseed/wipePlan.ts': [2, 'Demo reseed: a Demo-scoped DELETE step (via payroll_employees.employee_id), and that comment-free table name again in its via list'],
+  // Wave 6 EF: read-only routes that read the table and splice the final-run fragment (sql.unsafe(payRunFinalSql(...))).
+  'pages/api/payroll/irp5/summary.ts': [1, 'read-only: the one sql.unsafe is payRunFinalSql (final runs), no write'],
+  'pages/api/payroll/year-end/status.ts': [3, 'read-only: the three sql.unsafe are payRunFinalSql (final runs), no write'],
 };
 
 /** Migration files that write the table in a statement or a function body. None today. */

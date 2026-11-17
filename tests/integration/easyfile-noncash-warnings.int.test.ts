@@ -44,7 +44,7 @@ async function profiledCompany(id: string, name: string): Promise<void> {
 
 async function marchRun(of: string): Promise<(employeeId: string, gross: number, paye: number, items: unknown[], uif?: number, sdl?: number) => Promise<unknown>> {
   const run = (await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, 3, 2026, 'approved', 0) RETURNING id`,
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, approved_at) VALUES ($1, 3, 2026, 'approved', 0, clock_timestamp()) RETURNING id`,
     [of])).rows[0]!.id;
   return (employeeId, gross, paye, items, uif = 0, sdl = 0) => pool.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown)

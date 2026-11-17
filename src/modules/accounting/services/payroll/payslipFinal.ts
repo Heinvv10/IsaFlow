@@ -10,14 +10,16 @@
  * Not a column of its own: code running on the other blue/green colour, or after a code-only
  * rollback, approves through the same two columns and so stays correct.
  * A failed read is a thrown error (a 500), never a slip that silently says DRAFT.
+ * The predicate is the one fragment every final-run reader splices (`payRunFinalSql.ts`, wave 6 EF).
  */
 import { sql } from '@/lib/neon';
+import { payRunFinalSql } from './payRunFinalSql';
 
 export async function isPayRunFinal(companyId: string, runId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM payroll_run_headers
      WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-       AND status IN ('approved', 'paid') AND COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL
+       AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}
   `) as unknown[];
   return rows.length > 0;
 }

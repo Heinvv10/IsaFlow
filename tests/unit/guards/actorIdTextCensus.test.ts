@@ -34,7 +34,7 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   // company
   'companyId', 'ctx.companyId', 'evt.companyId', 'opts.companyId',
   // payroll runs, employees, leave
-  'runId', 'opts.runId', 'scope.runId', 'employeeId', 'employeeIds', 'input.employeeId', 'ins.employeeId',
+  'runId', 'opts.runId', 'scope.runId', 'runIds', 'employeeId', 'employeeIds', 'input.employeeId', 'ins.employeeId',
   'scope.employeeId', 'filters.employeeId ?? null', 'movedEnd', 'input.leaveTypeId', 'importId',
   // tax directives, UIF, SARS submissions
   'directiveId', 'directive.id', 'l.directiveId', 'filter.directiveId ?? null', 'onlyStandalone', 'standaloneIds',
@@ -81,9 +81,9 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     193: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
-    90: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
-    224: 'status, submitted_by, updated_at',
-    264: 'submitted_by = ${submittedByUserId},',
+    93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
+    229: 'status, submitted_by, updated_at',
+    269: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     47: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
@@ -115,7 +115,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollRunHeaders.ts`]: { 94: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
-  [`${S}payroll/uifDeclarationService.ts`]: { 229: "'draft', ${generatedByUserId}, NOW()" },
+  [`${S}payroll/uifDeclarationService.ts`]: { 234: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
     126: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },

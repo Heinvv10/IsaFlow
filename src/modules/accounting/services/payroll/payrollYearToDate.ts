@@ -2,7 +2,7 @@
  * An employee's earlier periods of the tax year, for the cumulative PAYE
  * (payeCumulative.ts; PAYE 4a follow-ups G4).
  *
- * From the employee's lines on DECLARABLE runs (EMP201_DECLARABLE_STATUSES:
+ * From the employee's lines on FINAL runs (payRunFinalSql, wave 6 EF; formerly EMP201_DECLARABLE_STATUSES:
  * approved, paid) of the same SA tax year (March to February) whose period is
  * BEFORE the run being calculated, so the run itself, a reopened run (no longer
  * declarable) and any later period are never in it. Lines are what the
@@ -50,7 +50,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
@@ -71,7 +71,6 @@ export async function loadPayeYearToDate(
 ): Promise<Map<string, PayeYearToDate>> {
   if (employeeIds.length === 0) return new Map();
   const taxYear = getTaxYear(period.month, period.year);
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH split AS (
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
@@ -115,7 +114,7 @@ export async function loadPayeYearToDate(
       ) b
       WHERE h.company_id = ${companyId}::uuid
         AND h.id <> ${runId}::uuid
-        AND h.status = ANY(${declarable}::text[])
+        AND ${sql.unsafe(payRunFinalSql('h'))}
         AND make_date(h.period_year, h.period_month, 1) >= make_date(${taxYear - 1}::int, ${PAYE_TAX_YEAR_START_MONTH}::int, 1)
         AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)
         AND l.employee_id = ANY(${employeeIds}::uuid[])
@@ -248,13 +247,12 @@ export async function laterPeriodsWarnings(
   period: PayrollPeriod,
 ): Promise<Map<string, ValidationResult>> {
   const taxYear = getTaxYear(period.month, period.year);
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT l.employee_id, h.period_year, h.period_month
     FROM payroll_run_headers h
     JOIN payroll_run_lines l ON l.run_id = h.id
     WHERE h.company_id = ${companyId}::uuid AND h.id <> ${runId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) > make_date(${period.year}::int, ${period.month}::int, 1)
       AND make_date(h.period_year, h.period_month, 1) <= make_date(${taxYear}::int, 2, 1)
     ORDER BY l.employee_id, h.period_year, h.period_month

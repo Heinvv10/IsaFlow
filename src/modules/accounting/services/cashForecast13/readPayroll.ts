@@ -12,7 +12,7 @@
 import { formatCents } from '@/lib/money/formatMoney';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { payDateOf, payDatesInHorizon, type PayDay } from './payDates';
 import { toCents } from './lines';
 import { addDays } from './weeks';
@@ -50,11 +50,11 @@ export function toMonthlyRun(r: DbRow): MonthlyRun {
 }
 
 export async function readPayroll(companyId: string): Promise<PayrollRead> {
-  const statuses: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT id, period_year, period_month, status, pay_frequency, total_net, total_paye, total_eti, total_uif, total_sdl
     FROM payroll_run_headers
-    WHERE company_id = ${companyId}::UUID AND status = ANY(${statuses}::text[]) AND run_kind = 'regular'
+    -- FINAL runs only (payRunFinalSql, wave 6 EF): the runs the EMP201 declares.
+    WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AND run_kind = 'regular'
     ORDER BY period_year DESC, period_month DESC, id
   `) as DbRow[];
   const runs = rows.filter((r) => r.pay_frequency === 'monthly').map(toMonthlyRun);

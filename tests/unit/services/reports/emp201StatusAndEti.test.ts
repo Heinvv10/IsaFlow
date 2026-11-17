@@ -17,7 +17,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
   listStandaloneDirectivePayments: vi.fn(async () => []),
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined), isRunKindUnsupported: () => false }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
+vi.mock('@/modules/accounting/services/payroll/payRunNotFinal', () => ({
+  listNotFinalDeclaredRuns: vi.fn(async () => []),
+  notFinalRunWarning: vi.fn(() => 'not final'),
+}));
+vi.mock('@/modules/accounting/services/reports/emp201LineUif', () => ({
+  loadRunLineUif: vi.fn(async () => new Map()),
+  uifSplitMismatchWarning: vi.fn(() => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -28,6 +38,7 @@ import {
   PAYROLL_RUN_STATUSES,
   EMP201_DECLARABLE_STATUSES,
 } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 
 const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -82,24 +93,17 @@ describe('emp201Service — V-09 payroll run status vocabulary', () => {
     expect([...EMP201_DECLARABLE_STATUSES].sort()).toEqual(['approved', 'paid']);
   });
 
-  it('binds the declarable statuses to the payroll_run_headers query', async () => {
+  it('selects runs by the one final-run fragment (wave 6 EF), never a status string of its own', async () => {
     mockRun([headerRow()]);
     await generateEMP201(COMPANY_ID, '2026-03-01', '2026-03-31');
 
     const { text, values } = mainQuery();
 
-    // The status predicate must be a bound parameter, not an inlined literal.
+    // No status literal or status array of its own: finality is payRunFinalSql's (status AND approval time).
     expect(text).not.toContain("'calculated'");
     expect(text).not.toContain("'approved'");
-
-    const statusArg = values.find((v) => Array.isArray(v)) as string[] | undefined;
-    expect(statusArg).toBeDefined();
-    expect([...statusArg!].sort()).toEqual(['approved', 'paid']);
-
-    // Nothing that is not finalised may reach the declaration.
-    expect(statusArg).not.toContain('draft');
-    expect(statusArg).not.toContain('calculated');
-    expect(statusArg).not.toContain('cancelled');
+    expect(values.find((v) => Array.isArray(v))).toBeUndefined();
+    expect(values).toContainEqual({ unsafe: payRunFinalSql('prh') });
   });
 
   it('aggregates a full approved year — the demo company 2026 PAYE figure', async () => {

@@ -80,8 +80,11 @@ export async function reopenPayrollRun(opts: {
            approval_plan_hash = NULL,
            approval_revision = gen_random_uuid(),
            reopened_at = c.now,
+           -- A run with neither stamp was never final (payRunFinalSql, wave 6 EF): no approval is kept, so the gate never
+           -- believes a later month read it. A grandfathered run (no approved_at) keeps the range unbounded below.
            approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)
-             + tstzmultirange(tstzrange(CASE WHEN h.approved_at > c.now THEN c.now ELSE h.approved_at END, c.now, '[)')),
+             + CASE WHEN h.approved_at IS NULL AND h.approval_grandfathered_at IS NULL THEN '{}'::tstzmultirange
+                    ELSE tstzmultirange(tstzrange(CASE WHEN h.approved_at > c.now THEN c.now ELSE h.approved_at END, c.now, '[)')) END,
            -- Whom the approval it ends taxed from the tables, added to every earlier one's (migration 925).
            -- Unknown stays unknown: a history with no set was reopened before the column existed.
            approved_taxed_employees = CASE WHEN h.approval_history IS NOT NULL AND h.approved_taxed_employees IS NULL THEN NULL

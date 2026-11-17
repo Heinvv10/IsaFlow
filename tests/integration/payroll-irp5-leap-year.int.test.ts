@@ -38,8 +38,8 @@ beforeAll(async () => {
   // An approved January 2028 run, so the employee has remuneration in the 2028 year.
   const run = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO payroll_run_headers(id, company_id, period_month, period_year, status, total_gross, total_paye)
-     VALUES ($1, $2, 1, 2028, 'approved', 20000, 2115)`, [run, f.company]);
+    `INSERT INTO payroll_run_headers(id, company_id, period_month, period_year, status, total_gross, total_paye, approved_at)
+     VALUES ($1, $2, 1, 2028, 'approved', 20000, 2115, clock_timestamp())`, [run, f.company]);
   await pool.query(
     `INSERT INTO payroll_run_lines(run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, net_pay)
      VALUES ($1, $2, 20000, 20000, 2115, 0, 0, 0, 17885)`, [run, f.employee]);
@@ -111,8 +111,8 @@ describe('the tax year ends on 29 February in a leap year', () => {
     // The directive is effective after 2027 ended: for that year the employee has run pay but no directive in force.
     const dec = crypto.randomUUID();
     await pool.query(
-      `INSERT INTO payroll_run_headers(id, company_id, period_month, period_year, status, total_gross, total_paye)
-       VALUES ($1, $2, 12, 2026, 'approved', 20000, 2115)`, [dec, f.company]);
+      `INSERT INTO payroll_run_headers(id, company_id, period_month, period_year, status, total_gross, total_paye, approved_at)
+       VALUES ($1, $2, 12, 2026, 'approved', 20000, 2115, clock_timestamp())`, [dec, f.company]);
     await pool.query(
       `INSERT INTO payroll_run_lines(run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, net_pay)
        VALUES ($1, $2, 20000, 20000, 2115, 0, 0, 0, 17885)`, [dec, f.employee]);
@@ -140,8 +140,8 @@ describe('the tax year ends on 29 February in a leap year', () => {
       const id = crypto.randomUUID();
       extra.push(id);
       await pool.query(
-        `INSERT INTO payroll_run_headers(id, company_id, period_month, period_year, status, total_gross, total_paye)
-         VALUES ($1, $2, $3, 2028, 'approved', $4, $5)`, [id, f.company, month, gross, paye]);
+        `INSERT INTO payroll_run_headers(id, company_id, period_month, period_year, status, total_gross, total_paye, approved_at)
+         VALUES ($1, $2, $3, 2028, 'approved', $4, $5, clock_timestamp())`, [id, f.company, month, gross, paye]);
       await pool.query(
         `INSERT INTO payroll_run_lines(run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, net_pay)
          VALUES ($1, $2, $3, $3, $4, 0, 0, 0, $3)`, [id, f.employee, gross, paye]);

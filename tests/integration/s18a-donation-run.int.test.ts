@@ -41,7 +41,7 @@ async function run(f: SeveranceFixture, month: number) {
     `INSERT INTO payroll_run_headers (id, company_id, period_month, period_year, status) VALUES ($1, $2, $3, 2026, 'draft')`,
     [id, f.company, month]);
   await calculatePayrollRun(id, f.company);
-  await pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [id]);
+  await pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [id]);
   return (await pool.query(
     `SELECT taxable_income::float8 AS taxable, sdl_leviable::float8 AS leviable, donation_receipted::float8 AS receipted,
             donation_base::float8 AS base, donation_deduction::float8 AS deduction, validation_results AS warnings
