@@ -143,6 +143,27 @@ Runs at 702b9cf494: unit `tests/unit` `Test Files  2576 passed | 47 skipped (262
 `Test Files  67 passed (67)`, `Tests  560 passed | 1 skipped (561)`; tsc exit 0; eslint 0 errors (the 2 warnings in
 tools/reports.ts); `agent-docs:check` OK (114).
 
+## Mutation table, review round 3 (head ec9a993d0f, after the master merge c52d603064)
+
+Red first: `Tests  19 failed | 33 passed (52)` (`budgetNumericCodes.test.ts` before `refText`). The call-order test (the bucket
+before the grid read) passed at once: it pins round 2's L-2 fix; S8 shows it catches its regression.
+
+| # | Mutant | unit |
+|---|---|---|
+| S1 | `refText` truncates a fraction instead of refusing it | 9 failed / 19 |
+| S2 | `refText` ignores numbers (the old string-only rule) | 14 failed / 19 |
+| S3 | resolveRows (set_budget_amounts / annual / note) reads accounts string-only | 4 failed / 19 |
+| S4 | seed_budget drops the refusal of a fractional code | 1 failed / 19 |
+| S5 | get_budget drops the refusal of a fractional account | 1 failed / 19 |
+| S6 | set_budget_drivers' cost centre drops the refusal | 1 failed / 19 |
+| S7 | budget_remaining treats a fractional account as missing | 1 failed / 19 |
+| S8 | set_budget_drivers reads the grid before charging its bucket | 1 failed / 33 |
+
+Runs at ec9a993d0f: unit `tests/unit` `Test Files  2580 passed | 47 skipped (2627)`, `Tests  37622 passed | 289 skipped (37911)`;
+integration (every mcp-budget-*, budget-grid-*, budget-drivers-*, budgets-three-way-*, budget-tracking-* and budgets-p5-remaining
+file, 68 files) `Test Files  68 passed (68)`, `Tests  568 passed | 1 skipped (569)`; tsc exit 0; eslint 0 errors (2 warnings,
+tools/reports.ts); `agent-docs:check` OK (114).
+
 ## Equivalence
 
 - `mcp-budget-drivers-equivalence` (1): one twin version through the app's routes as the owner (PUT a pct_of_line driver,
