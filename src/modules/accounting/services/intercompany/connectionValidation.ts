@@ -3,17 +3,15 @@
  * auto-accept rule (group only), the ordered company pair, and the per-side setup checklist.
  */
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
-import type { Checklist, ChecklistItem, ConnectionKind, SideInput, SideState } from './connectionTypes';
+import type { Checklist, ChecklistItem, ConnectionKind, PairInput, PairSettings, SideInput, SideState } from './connectionTypes';
 
 export type { SideState } from './connectionTypes';
 
 export type Parsed<T> = ({ ok: true } & T) | { ok: false; error: string };
 
-const SIDE_KEYS = [
-  'customerId', 'supplierId', 'settlementMode', 'loanAccountId', 'defaultExpenseAccountId',
-  'autoAccept', 'cutoverDate', 'interestRatePct',
-] as const;
+const SIDE_KEYS = ['customerId', 'supplierId', 'loanAccountId', 'defaultExpenseAccountId', 'autoAccept'] as const;
 const UUID_KEYS = ['customerId', 'supplierId', 'loanAccountId', 'defaultExpenseAccountId'] as const;
+const PAIR_KEYS = ['settlementMode', 'cutoverDate', 'interestRatePct'] as const;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -25,14 +23,15 @@ export function parseCreateInput(body: unknown): Parsed<{ partnerCompanyId: stri
   return { ok: true, partnerCompanyId: body.partnerCompanyId.toLowerCase() };
 }
 
+const unknownKey = (body: Record<string, unknown>, known: readonly string[]): string | undefined =>
+  Object.keys(body).find((k) => !known.includes(k));
+
 /** The settings of one side. Types only; ownership of the ids and the account rules are the service's. */
 export function parseSideInput(body: unknown): Parsed<{ value: SideInput }> {
   if (!isObject(body)) return { ok: false, error: 'A JSON object body is required' };
-  const known = new Set<string>(SIDE_KEYS);
-  const extra = Object.keys(body).find((k) => !known.has(k));
+  const extra = unknownKey(body, SIDE_KEYS);
   if (extra) return { ok: false, error: `Unknown field: ${extra}` };
   const value: SideInput = {};
-
   for (const k of UUID_KEYS) {
     const v = body[k];
     if (v === undefined) continue;
@@ -40,24 +39,32 @@ export function parseSideInput(body: unknown): Parsed<{ value: SideInput }> {
     if (!isUuidParam(v)) return { ok: false, error: `${k} must be a valid UUID or null` };
     value[k] = v.toLowerCase();
   }
+  if (body.autoAccept !== undefined) {
+    if (typeof body.autoAccept !== 'boolean') return { ok: false, error: 'autoAccept must be true or false' };
+    value.autoAccept = body.autoAccept;
+  }
+  if (Object.keys(value).length === 0) return { ok: false, error: 'Nothing to update' };
+  return { ok: true, value };
+}
+
+/** The pair's agreement: settlement mode, cut-over date, interest rate. Types and ranges only. */
+export function parsePairInput(body: unknown): Parsed<{ value: PairInput }> {
+  if (!isObject(body)) return { ok: false, error: 'A JSON object body is required' };
+  const extra = unknownKey(body, PAIR_KEYS);
+  if (extra) return { ok: false, error: `Unknown field: ${extra}` };
+  const value: PairInput = {};
   if (body.settlementMode !== undefined) {
     if (body.settlementMode !== 'cash' && body.settlementMode !== 'loan') {
       return { ok: false, error: "settlementMode must be 'cash' or 'loan'" };
     }
     value.settlementMode = body.settlementMode;
   }
-  if (body.autoAccept !== undefined) {
-    if (typeof body.autoAccept !== 'boolean') return { ok: false, error: 'autoAccept must be true or false' };
-    value.autoAccept = body.autoAccept;
-  }
   if (body.cutoverDate !== undefined) {
-    if (body.cutoverDate !== null) {
-      if (typeof body.cutoverDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.cutoverDate)
-          || !isRealCalendarDate(body.cutoverDate)) {
-        return { ok: false, error: 'cutoverDate must be a real date (YYYY-MM-DD) or null' };
-      }
+    const d = body.cutoverDate;
+    if (d !== null && (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !isRealCalendarDate(d))) {
+      return { ok: false, error: 'cutoverDate must be a real date (YYYY-MM-DD) or null' };
     }
-    value.cutoverDate = body.cutoverDate;
+    value.cutoverDate = d;
   }
   if (body.interestRatePct !== undefined) {
     const r = body.interestRatePct;
@@ -83,14 +90,13 @@ export function orderedPair(a: string, b: string): { low: string; high: string }
   return x < y ? { low: x, high: y } : { low: y, high: x };
 }
 
-/** What is still to set up on one side. A side never saved is all undone. */
-export function computeChecklist(side: SideState | null): Checklist {
-  const loan = side?.settlementMode === 'loan';
+/** What is still to set up on one side: its own links, plus the pair's cut-over date (and the loan account in loan mode). */
+export function computeChecklist(side: SideState | null, pair: Pick<PairSettings, 'settlementMode' | 'cutoverDate'>): Checklist {
   const items: ChecklistItem[] = [
     { key: 'customer', label: 'Customer linked (who the partner is when you invoice them)', required: true, done: Boolean(side?.customerId) },
     { key: 'supplier', label: 'Supplier linked (who the partner is when they invoice you)', required: true, done: Boolean(side?.supplierId) },
-    { key: 'loanAccount', label: 'Loan account set (needed when settling through a loan)', required: loan, done: Boolean(side?.loanAccountId) },
-    { key: 'cutover', label: 'Cut-over date set', required: true, done: Boolean(side?.cutoverDate) },
+    { key: 'loanAccount', label: 'Loan account set (needed when settling through a loan)', required: pair.settlementMode === 'loan', done: Boolean(side?.loanAccountId) },
+    { key: 'cutover', label: 'Cut-over date set', required: true, done: Boolean(pair.cutoverDate) },
   ];
   return { items, complete: items.every((i) => !i.required || i.done) };
 }

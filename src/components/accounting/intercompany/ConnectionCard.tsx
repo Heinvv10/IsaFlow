@@ -4,6 +4,8 @@ import { Loader2, Link2 } from 'lucide-react';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import type { ConnectionView, SideOptions } from '@/modules/accounting/services/intercompany/connectionTypes';
 import { ChecklistBadges } from './ChecklistBadges';
+import { formatDisplayDate } from '@/utils/dateFormat';
+import { PairSettingsForm } from './PairSettingsForm';
 import { SideForm } from './SideForm';
 
 interface Props {
@@ -14,6 +16,8 @@ interface Props {
   onNotice: (message: string, ok: boolean) => void;
 }
 
+type Panel = 'side' | 'pair';
+
 const KIND_LABEL = { group: 'Group company', external: 'External company' } as const;
 const STATUS_TONE = {
   active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
@@ -22,9 +26,11 @@ const STATUS_TONE = {
 } as const;
 
 export function ConnectionCard({ connection, options, canEdit, onChanged, onNotice }: Props) {
-  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<'side' | 'pair' | null>(null);
   const [revoking, setRevoking] = useState(false);
   const live = connection.status !== 'revoked';
+  const toggle = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
+  const { settings } = connection;
 
   async function revoke() {
     if (!confirm(`End the connection with ${connection.partnerName}? Nothing new will be exchanged. Either company can later reconnect.`)) return;
@@ -55,9 +61,15 @@ export function ConnectionCard({ connection, options, canEdit, onChanged, onNoti
         <div className="ml-auto flex gap-2">
           {live && canEdit && (
             <>
-              <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+              {connection.canEditSettings && (
+                <button type="button" onClick={() => toggle('pair')} aria-expanded={panel === 'pair'}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
+                  {panel === 'pair' ? 'Close' : 'Connection settings'}
+                </button>
+              )}
+              <button type="button" onClick={() => toggle('side')} aria-expanded={panel === 'side'}
                 className="px-3 py-1.5 text-sm rounded-lg border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
-                {open ? 'Close' : 'My settings'}
+                {panel === 'side' ? 'Close' : 'My settings'}
               </button>
               <button type="button" onClick={() => void revoke()} disabled={revoking}
                 className="px-3 py-1.5 text-sm rounded-lg text-red-600 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50 inline-flex items-center gap-2">
@@ -68,8 +80,19 @@ export function ConnectionCard({ connection, options, canEdit, onChanged, onNoti
           )}
         </div>
       </div>
+      {live && (
+        <p className="text-xs text-ink-muted" data-testid="pair-summary">
+          Settlement: {settings.settlementMode === 'loan' ? 'through an intercompany loan' : 'cash'}
+          {' · '}Cut-over: {settings.cutoverDate ? formatDisplayDate(settings.cutoverDate) : 'not set'}
+          {' · '}Interest: {settings.interestRatePct == null ? 'none' : `${settings.interestRatePct}% a year`}
+        </p>
+      )}
       {live && <ChecklistBadges checklist={connection.checklist} />}
-      {live && open && canEdit && (
+      {live && panel === 'pair' && canEdit && connection.canEditSettings && (
+        <PairSettingsForm connection={connection} onSaved={(c) => { onChanged(c); onNotice('Connection settings saved', true); }}
+          onError={(m) => onNotice(m, false)} />
+      )}
+      {live && panel === 'side' && canEdit && (
         <SideForm connection={connection} options={options} onSaved={(c) => { onChanged(c); onNotice('Settings saved', true); }}
           onError={(m) => onNotice(m, false)} />
       )}

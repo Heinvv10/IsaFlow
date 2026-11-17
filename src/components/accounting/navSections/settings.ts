@@ -55,7 +55,7 @@ export const settingsTab: Tab = {
     {
       section: 'Intercompany',
       items: [
-        { label: 'Connections', href: '/accounting/settings/intercompany' },
+        { label: 'Intercompany connections', href: '/accounting/settings/intercompany' },
       ],
     },
     {

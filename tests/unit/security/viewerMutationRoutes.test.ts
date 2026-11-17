@@ -56,6 +56,7 @@ const ROUTES: Array<[string, string[]]> = [
   ['asset-locations', ['POST', 'PATCH', 'DELETE']],
   ['intercompany/connections', ['POST']],
   ['intercompany/connections/[id]', ['PUT', 'DELETE']],
+  ['intercompany/connections/[id]/settings', ['PUT']],
 ];
 const CASES = ROUTES.flatMap(([route, methods]) => methods.map((m) => [route, m] as const));
 const ID = '33333333-3333-4333-8333-333333333333';

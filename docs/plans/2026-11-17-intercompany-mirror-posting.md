@@ -77,6 +77,34 @@ draft is created either in the receiver's own `withAuth` request (Accept) or by 
 `withCompanyContext(receiverCompanyId)` with the receiver's GUCs — never with the sender's. Payload is
 the sender's own data only; the sender never reads the receiver's ledger.
 
+## Revised after P1 review (2026-11-17)
+
+These supersede the Data model above wherever they differ (migration 999p carries them).
+
+- **Pair-level agreement.** `settlement_mode`, `cutover_date` and `interest_rate_pct` live on `intercompany_connections`, not on a
+  side: they are one agreement between the two companies. A group connection's change needs a write role in BOTH companies (service and
+  DB guard). Per side stay: customer, supplier, loan account, default expense account, default dimensions, `auto_accept`.
+  A customer or supplier is linked to one connection per company (partial unique index), which also serves P2's "who is this sender" lookup.
+- **Links are the authoritative pair record.** `intercompany_document_links` carries `message_id`, `status`
+  (`pending_confirmation` | `active` | `unlinked`), `confirmed_by_a/b`, `confirmed_at`, `unlinked_at/by`. A `mirror` link is made by the receiver
+  of an accepted message and joins exactly that message's source and target documents (active at once); a `manual_pairing` is pending until the
+  other party confirms (a user with a write role in both companies of a group may confirm both); either party may unlink. Document types are a
+  closed list (`customer_invoice`, `supplier_invoice`, `credit_note`). `intercompany_transactions` is written only for GROUP pairs, to feed
+  eliminations; the links, not that table, are what allocation mirroring and reconciliation read.
+- **Group detection uses `company_groups` only.** Two companies are a group pair when both are current members (`left_date IS NULL`) of one
+  `company_groups` row. `company_relationships` is intentionally not used.
+- **Membership is checked for the life of a group connection, by registered SECURITY DEFINER helpers.** `intercompany_in_one_group(a, b)` answers
+  whatever the caller's RLS shows; it is used on create / re-activate, on message insert and when a side turns auto-accept on. A trigger on
+  `company_group_members` revokes a leaving company's active group connections. P2's auto-accept worker re-checks membership through the same
+  helper before it writes in the receiver's books, and P6's connection-key lookup will be a registered definer too (the caller must not read
+  another company's key row). Every definer is listed in `app_definer_reviews` (migration 930).
+- **External connections are not available until P6.** The connections guard refuses `kind = 'external'` on INSERT. Pair uniqueness is a partial
+  unique index over non-revoked rows; creating a group connection on a revoked pair re-activates that row (group only).
+- **Connection keys** are 32-byte random values, shown once and stored as a SHA-256 hex hash (`company_connection_keys.key_hash`).
+- **Messages.** `handled_via` (`user` | `auto`) is set server-side; the payload is at most 256 KiB; a dismissed message can be restored to
+  pending; a message is accepted only while its connection is active. For the `allocation` and `payment` kinds `source_doc` is the allocation /
+  payment ROW id, so a repeat event is a distinct message. `error` holds a generic sentence for a person, never raw SQL or exception text.
+
 ## Phases (each = one PR, TDD, blind `/review`; GL-writing PRs get the adversarial ledger reviewer)
 
 | # | PR | Depends on | Contents |

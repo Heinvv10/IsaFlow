@@ -79,7 +79,6 @@ import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/finan
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 import type { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
-
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
  * Matching is by pathname only — `apiJson` does not know the HTTP verb. A
@@ -284,12 +283,18 @@ type MatchQuery<U extends string> = {
     : never;
 }[keyof QueryRoutes];
 
-/** The registered route key for a concrete request URL, or `never` (which `ResponseFor` maps to `unknown`). */
+/**
+ * Resolve a concrete request URL to its registered route key, or `never` when
+ * the route is not registered (which `ResponseFor` maps to `unknown`).
+ */
 export type RouteFor<U extends string> = [MatchQuery<U>] extends [never]
   ? MatchStatic<Path<U>> | MatchDynamic<Path<U>>
   : MatchQuery<U>;
 
-/** The unwrapped `data` payload for a request URL, or `unknown` when the route is not registered. */
+/**
+ * The unwrapped `data` payload for a given request URL — or `unknown` when the
+ * route is not registered.
+ */
 export type ResponseFor<U extends string> = [RouteFor<U>] extends [never]
   ? unknown
   : ApiRouteMap[RouteFor<U>];

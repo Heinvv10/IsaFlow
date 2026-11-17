@@ -8,7 +8,7 @@ import { DEFAULT_WRITE_ROLES } from '@/lib/auth/writeRoles';
 import { toIsoTimestamp } from '@/lib/dateUtils';
 import { computeChecklist } from './connectionValidation';
 import type {
-  ConnectionKind, ConnectionStatus, ConnectionView, GroupCandidate, NamedRef, OwnSide, SettlementMode,
+  ConnectionKind, ConnectionStatus, ConnectionView, GroupCandidate, NamedRef, OwnSide, PairSettings, SettlementMode,
 } from './connectionTypes';
 
 type Row = Record<string, unknown>;
@@ -23,12 +23,9 @@ function toSide(r: Row): OwnSide | null {
   return {
     customerId: text(r.customer_id),
     supplierId: text(r.supplier_id),
-    settlementMode: String(r.settlement_mode) as SettlementMode,
     loanAccountId: text(r.loan_account_id),
     defaultExpenseAccountId: text(r.default_expense_account_id),
     autoAccept: r.auto_accept === true,
-    cutoverDate: text(r.cutover_date),
-    interestRatePct: r.interest_rate_pct == null ? null : Number(r.interest_rate_pct),
     customer: ref(r.customer_id, text(r.customer_name)),
     supplier: ref(r.supplier_id, text(r.supplier_name)),
     loanAccount: account(r.loan_account_id, r.loan_code, r.loan_name),
@@ -38,6 +35,11 @@ function toSide(r: Row): OwnSide | null {
 
 function toView(r: Row): ConnectionView {
   const side = toSide(r);
+  const settings: PairSettings = {
+    settlementMode: String(r.settlement_mode) as SettlementMode,
+    cutoverDate: text(r.cutover_date),
+    interestRatePct: r.interest_rate_pct == null ? null : Number(r.interest_rate_pct),
+  };
   return {
     id: String(r.id),
     kind: String(r.kind) as ConnectionKind,
@@ -47,8 +49,10 @@ function toView(r: Row): ConnectionView {
     invitedByCompanyId: String(r.invited_by_company_id),
     createdAt: toIsoTimestamp(r.created_at as Date | string) ?? '',
     revokedAt: toIsoTimestamp(r.revoked_at as Date | string | null),
+    settings,
+    canEditSettings: r.can_edit_settings === true,
     side,
-    checklist: computeChecklist(side),
+    checklist: computeChecklist(side, settings),
   };
 }
 
@@ -56,10 +60,11 @@ function toView(r: Row): ConnectionView {
 export async function listConnections(companyId: string, connectionId?: string): Promise<ConnectionView[]> {
   const rows = (await sql`
     SELECT c.id, c.kind, c.status, c.invited_by_company_id, c.created_at, c.revoked_at,
+           c.settlement_mode, to_char(c.cutover_date, 'YYYY-MM-DD') AS cutover_date, c.interest_rate_pct::float8 AS interest_rate_pct,
+           public.intercompany_user_can_write(c.company_low_id) AND public.intercompany_user_can_write(c.company_high_id) AS can_edit_settings,
            p.partner_company_id, pc.name AS partner_name,
-           s.id AS side_id, s.customer_id, s.supplier_id, s.settlement_mode, s.loan_account_id,
-           s.default_expense_account_id, s.auto_accept, to_char(s.cutover_date, 'YYYY-MM-DD') AS cutover_date,
-           s.interest_rate_pct::float8 AS interest_rate_pct,
+           s.id AS side_id, s.customer_id, s.supplier_id, s.loan_account_id,
+           s.default_expense_account_id, s.auto_accept,
            cu.name AS customer_name, su.name AS supplier_name,
            la.account_code AS loan_code, la.account_name AS loan_name,
            ea.account_code AS exp_code, ea.account_name AS exp_name
@@ -102,7 +107,7 @@ export async function listGroupCandidates(userId: string, companyId: string): Pr
         WHERE cu.company_id = other.company_id AND cu.user_id = ${userId}
           AND cu.role = ANY(${[...DEFAULT_WRITE_ROLES]}::TEXT[])
       )
-    ORDER BY other.company_id, g.name
+    ORDER BY other.company_id, (CASE WHEN ic.status IS NULL THEN 2 WHEN ic.status = 'revoked' THEN 1 ELSE 0 END), g.name
   `) as Row[];
   return rows
     .map((r) => ({

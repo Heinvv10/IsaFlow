@@ -8,21 +8,30 @@ export type SettlementMode = 'cash' | 'loan';
 export interface SideInput {
   customerId?: string | null;
   supplierId?: string | null;
-  settlementMode?: SettlementMode;
   loanAccountId?: string | null;
   defaultExpenseAccountId?: string | null;
   autoAccept?: boolean;
+}
+
+/** The pair's agreement, edited by a user who can write in both companies. An absent key is unchanged; null clears. */
+export interface PairInput {
+  settlementMode?: SettlementMode;
   cutoverDate?: string | null;
   interestRatePct?: number | null;
+}
+
+/** The pair facts every party reads. */
+export interface PairSettings {
+  settlementMode: SettlementMode;
+  cutoverDate: string | null;
+  interestRatePct: number | null;
 }
 
 /** The parts of a side the setup checklist reads. */
 export interface SideState {
   customerId: string | null;
   supplierId: string | null;
-  settlementMode: SettlementMode;
   loanAccountId: string | null;
-  cutoverDate: string | null;
 }
 
 export type ChecklistKey = 'customer' | 'supplier' | 'loanAccount' | 'cutover';
@@ -30,7 +39,7 @@ export type ChecklistKey = 'customer' | 'supplier' | 'loanAccount' | 'cutover';
 export interface ChecklistItem {
   key: ChecklistKey;
   label: string;
-  /** False for the loan account while the side settles in cash. */
+  /** False for the loan account while the pair settles in cash. */
   required: boolean;
   done: boolean;
 }
@@ -47,7 +56,6 @@ export interface NamedRef { id: string; label: string }
 export interface OwnSide extends SideState {
   autoAccept: boolean;
   defaultExpenseAccountId: string | null;
-  interestRatePct: number | null;
   customer: NamedRef | null;
   supplier: NamedRef | null;
   loanAccount: NamedRef | null;
@@ -63,6 +71,10 @@ export interface ConnectionView {
   invitedByCompanyId: string;
   createdAt: string;
   revokedAt: string | null;
+  /** The pair's agreement: the same for both companies. */
+  settings: PairSettings;
+  /** True when the session user can write in BOTH companies, which is what changing `settings` needs. */
+  canEditSettings: boolean;
   /** Null until this company first saves its side. */
   side: OwnSide | null;
   checklist: Checklist;
@@ -72,16 +84,8 @@ export interface GroupCandidate {
   companyId: string;
   companyName: string;
   groupName: string;
-  /** The status of an existing connection with this company, or null when there is none. */
+  /** The status of the latest connection with this company, or null when there is none. */
   connectionStatus: ConnectionStatus | null;
-}
-
-/** A refusal the route answers with its status: nothing was written. */
-export class ConnectionRefusal extends Error {
-  constructor(readonly status: 400 | 403 | 404 | 409, message: string) {
-    super(message);
-    this.name = 'ConnectionRefusal';
-  }
 }
 
 /** What the side form offers to pick from: this company's own customers, suppliers and postable accounts. */
@@ -91,4 +95,12 @@ export interface SideOptions {
   accounts: NamedRef[];
   /** True when a list was cut at its limit: the person is told, not left to wonder where a name went. */
   truncated: boolean;
+}
+
+/** A refusal the route answers with its status: nothing was written. */
+export class ConnectionRefusal extends Error {
+  constructor(readonly status: 400 | 403 | 404 | 409, message: string) {
+    super(message);
+    this.name = 'ConnectionRefusal';
+  }
 }

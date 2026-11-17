@@ -1,10 +1,9 @@
 /**
- * Edit THIS company's side of a connection (customer, supplier, settlement mode, loan and expense accounts,
- * auto-accept, cut-over date, interest rate). A company never touches its partner's side: the row is keyed by
- * (connection, session company), RLS refuses any other, and every referenced customer, supplier and account
- * must be this company's own.
+ * Edit THIS company's side of a connection (customer, supplier, loan account, default expense account,
+ * auto-accept). A company never touches its partner's side: the row is keyed by (connection, session company),
+ * RLS refuses any other, and every referenced customer, supplier and account must be this company's own.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { customerBelongsToCompany, supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { isHeaderSql } from '@/modules/accounting/services/budgets/headerSql';
 import { listConnections } from './connectionRead';
@@ -12,6 +11,8 @@ import { autoAcceptRefusal } from './connectionValidation';
 import { ConnectionRefusal, type ConnectionView, type SideInput } from './connectionTypes';
 
 type Row = Record<string, unknown>;
+
+let sideSeq = 0;
 
 /** An active, non-header (postable) account of this company. */
 async function postableAccountOf(companyId: string, accountId: string): Promise<boolean> {
@@ -46,13 +47,19 @@ function merged(current: ConnectionView['side'], input: SideInput) {
   return {
     customerId: pick('customerId', current?.customerId ?? null) ?? null,
     supplierId: pick('supplierId', current?.supplierId ?? null) ?? null,
-    settlementMode: pick('settlementMode', current?.settlementMode ?? 'cash') ?? 'cash',
     loanAccountId: pick('loanAccountId', current?.loanAccountId ?? null) ?? null,
     defaultExpenseAccountId: pick('defaultExpenseAccountId', current?.defaultExpenseAccountId ?? null) ?? null,
     autoAccept: pick('autoAccept', current?.autoAccept ?? false) ?? false,
-    cutoverDate: pick('cutoverDate', current?.cutoverDate ?? null) ?? null,
-    interestRatePct: pick('interestRatePct', current?.interestRatePct ?? null) ?? null,
   };
+}
+
+/** A customer or supplier already linked on another connection of this company (the unique indexes of 999p). */
+function linkedElsewhere(err: unknown): ConnectionRefusal | null {
+  const e = err as { code?: string; constraint?: string };
+  if (e.code !== '23505') return null;
+  if (e.constraint === 'intercompany_sides_customer_uq') return new ConnectionRefusal(409, 'That customer is already linked to another intercompany connection.');
+  if (e.constraint === 'intercompany_sides_supplier_uq') return new ConnectionRefusal(409, 'That supplier is already linked to another intercompany connection.');
+  return null;
 }
 
 export async function updateOwnSide(companyId: string, connectionId: string, input: SideInput): Promise<ConnectionView> {
@@ -64,19 +71,24 @@ export async function updateOwnSide(companyId: string, connectionId: string, inp
   await refuseForeignRefs(companyId, input);
 
   const next = merged(conn.side, input);
-  await sql`
-    INSERT INTO intercompany_connection_sides
-      (connection_id, company_id, partner_company_id, customer_id, supplier_id, settlement_mode, loan_account_id,
-       default_expense_account_id, auto_accept, cutover_date, interest_rate_pct)
-    VALUES (${connectionId}::UUID, ${companyId}::UUID, ${conn.partnerCompanyId}::UUID, ${next.customerId}::UUID,
-            ${next.supplierId}::UUID, ${next.settlementMode}, ${next.loanAccountId}::UUID,
-            ${next.defaultExpenseAccountId}::UUID, ${next.autoAccept}, ${next.cutoverDate}::DATE,
-            ${next.interestRatePct}::NUMERIC)
-    ON CONFLICT (connection_id, company_id) DO UPDATE SET
-      customer_id = EXCLUDED.customer_id, supplier_id = EXCLUDED.supplier_id,
-      settlement_mode = EXCLUDED.settlement_mode, loan_account_id = EXCLUDED.loan_account_id,
-      default_expense_account_id = EXCLUDED.default_expense_account_id, auto_accept = EXCLUDED.auto_accept,
-      cutover_date = EXCLUDED.cutover_date, interest_rate_pct = EXCLUDED.interest_rate_pct
-  `;
-  return (await listConnections(companyId, connectionId))[0]!;
+  try {
+    // A savepoint: a refused write must not poison the request's transaction.
+    await withSavepoint(`ic_side_${++sideSeq}`, async () => sql`
+      INSERT INTO intercompany_connection_sides
+        (connection_id, company_id, partner_company_id, customer_id, supplier_id, loan_account_id,
+         default_expense_account_id, auto_accept)
+      VALUES (${connectionId}::UUID, ${companyId}::UUID, ${conn.partnerCompanyId}::UUID, ${next.customerId}::UUID,
+              ${next.supplierId}::UUID, ${next.loanAccountId}::UUID, ${next.defaultExpenseAccountId}::UUID, ${next.autoAccept})
+      ON CONFLICT (connection_id, company_id) DO UPDATE SET
+        customer_id = EXCLUDED.customer_id, supplier_id = EXCLUDED.supplier_id, loan_account_id = EXCLUDED.loan_account_id,
+        default_expense_account_id = EXCLUDED.default_expense_account_id, auto_accept = EXCLUDED.auto_accept
+    `);
+  } catch (err) {
+    const known = linkedElsewhere(err);
+    if (known) throw known;
+    throw err;
+  }
+  const [view] = await listConnections(companyId, connectionId);
+  if (!view) throw new ConnectionRefusal(404, 'Connection not found');
+  return view;
 }

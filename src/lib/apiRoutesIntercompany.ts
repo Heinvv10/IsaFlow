@@ -15,4 +15,6 @@ export interface IntercompanyStaticRoutes {
 export interface IntercompanyDynamicRoutes {
   // PUT (edit this company's side) and DELETE (revoke) both answer with the connection.
   '/api/accounting/intercompany/connections/{}': ConnectionView;
+  // PUT the pair's agreement (mode, cut-over, interest): answers with the connection.
+  '/api/accounting/intercompany/connections/{}/settings': ConnectionView;
 }

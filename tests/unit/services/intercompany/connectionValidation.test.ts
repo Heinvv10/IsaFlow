@@ -9,6 +9,7 @@ import {
   computeChecklist,
   orderedPair,
   parseCreateInput,
+  parsePairInput,
   parseSideInput,
   type SideState,
 } from '@/modules/accounting/services/intercompany/connectionValidation';
@@ -31,52 +32,56 @@ describe('parseCreateInput', () => {
 
 describe('parseSideInput', () => {
   it('accepts a full valid body and normalises ids', () => {
-    const r = parseSideInput({
-      customerId: U1.toUpperCase(), supplierId: null, settlementMode: 'loan', loanAccountId: U2,
-      defaultExpenseAccountId: null, autoAccept: true, cutoverDate: '2026-12-01', interestRatePct: 10.5,
-    });
-    expect(r).toEqual({
-      ok: true,
-      value: {
-        customerId: U1, supplierId: null, settlementMode: 'loan', loanAccountId: U2,
-        defaultExpenseAccountId: null, autoAccept: true, cutoverDate: '2026-12-01', interestRatePct: 10.5,
-      },
-    });
+    const r = parseSideInput({ customerId: U1.toUpperCase(), supplierId: null, loanAccountId: U2, defaultExpenseAccountId: null, autoAccept: true });
+    expect(r).toEqual({ ok: true, value: { customerId: U1, supplierId: null, loanAccountId: U2, defaultExpenseAccountId: null, autoAccept: true } });
   });
 
   it('leaves absent keys out (unchanged) and keeps explicit null (clear)', () => {
-    expect(parseSideInput({ cutoverDate: null })).toEqual({ ok: true, value: { cutoverDate: null } });
+    expect(parseSideInput({ loanAccountId: null })).toEqual({ ok: true, value: { loanAccountId: null } });
   });
 
   it.each([
-    ['empty body', {}],
-    ['not an object', 'x'],
+    ['empty body', {}], ['not an object', 'x'], ['array', []], ['null', null],
     ['unknown key', { companyId: U1 }],
-    ['unknown key beside a valid one', { cutoverDate: '2026-12-01', companyId: U1 }],
+    ['unknown key beside a valid one', { autoAccept: true, companyId: U1 }],
+    ['a pair setting (it moved to the connection)', { settlementMode: 'loan' }],
+    ['a pair setting: cutoverDate', { cutoverDate: '2026-12-01' }],
     ['customerId number', { customerId: 5 }],
     ['customerId not uuid', { customerId: 'nope' }],
     ['supplierId array', { supplierId: [U1] }],
     ['loanAccountId not uuid', { loanAccountId: '1; DROP' }],
     ['defaultExpenseAccountId empty string', { defaultExpenseAccountId: '' }],
-    ['settlementMode unknown', { settlementMode: 'barter' }],
-    ['settlementMode not string', { settlementMode: 1 }],
     ['autoAccept string', { autoAccept: 'true' }],
     ['autoAccept null', { autoAccept: null }],
-    ['cutoverDate not a string', { cutoverDate: 20261201 }],
-    ['cutoverDate wrong shape', { cutoverDate: '01/12/2026' }],
-    ['cutoverDate impossible day', { cutoverDate: '2026-02-31' }],
-    ['interest string', { interestRatePct: '5' }],
-    ['interest negative', { interestRatePct: -0.01 }],
-    ['interest over 100', { interestRatePct: 100.01 }],
-    ['interest NaN', { interestRatePct: Number.NaN }],
-    ['interest Infinity', { interestRatePct: Number.POSITIVE_INFINITY }],
   ])('refuses %s', (_n, body) => {
     expect(parseSideInput(body)).toMatchObject({ ok: false });
   });
+});
 
+describe('parsePairInput', () => {
+  it('accepts a full valid body', () => {
+    expect(parsePairInput({ settlementMode: 'loan', cutoverDate: '2026-12-01', interestRatePct: 10.5 }))
+      .toEqual({ ok: true, value: { settlementMode: 'loan', cutoverDate: '2026-12-01', interestRatePct: 10.5 } });
+  });
+  it('leaves absent keys out and keeps explicit null', () => {
+    expect(parsePairInput({ cutoverDate: null })).toEqual({ ok: true, value: { cutoverDate: null } });
+  });
+  it.each([
+    ['empty body', {}], ['not an object', 'x'], ['array', []],
+    ['unknown key', { companyId: U1 }], ['unknown key beside a valid one', { cutoverDate: '2026-12-01', companyId: U1 }],
+    ['a side field', { customerId: null }],
+    ['settlementMode unknown', { settlementMode: 'barter' }], ['settlementMode not string', { settlementMode: 1 }],
+    ['cutoverDate not a string', { cutoverDate: 20261201 }], ['cutoverDate wrong shape', { cutoverDate: '01/12/2026' }],
+    ['cutoverDate impossible day', { cutoverDate: '2026-02-31' }],
+    ['interest string', { interestRatePct: '5' }], ['interest negative', { interestRatePct: -0.01 }],
+    ['interest over 100', { interestRatePct: 100.01 }], ['interest NaN', { interestRatePct: Number.NaN }],
+    ['interest Infinity', { interestRatePct: Number.POSITIVE_INFINITY }],
+  ])('refuses %s', (_n, body) => {
+    expect(parsePairInput(body)).toMatchObject({ ok: false });
+  });
   it.each([0, 100, 7.5])('accepts interest %s and null', (v) => {
-    expect(parseSideInput({ interestRatePct: v })).toEqual({ ok: true, value: { interestRatePct: v } });
-    expect(parseSideInput({ interestRatePct: null })).toEqual({ ok: true, value: { interestRatePct: null } });
+    expect(parsePairInput({ interestRatePct: v })).toEqual({ ok: true, value: { interestRatePct: v } });
+    expect(parsePairInput({ interestRatePct: null })).toEqual({ ok: true, value: { interestRatePct: null } });
   });
 });
 
@@ -98,34 +103,40 @@ describe('orderedPair', () => {
   });
 });
 
-const side = (over: Partial<SideState> = {}): SideState => ({
-  customerId: null, supplierId: null, settlementMode: 'cash', loanAccountId: null, cutoverDate: null, ...over,
-});
+const side = (over: Partial<SideState> = {}): SideState => ({ customerId: null, supplierId: null, loanAccountId: null, ...over });
+const CASH = { settlementMode: 'cash', cutoverDate: '2026-12-01' } as const;
+const LOAN = { settlementMode: 'loan', cutoverDate: '2026-12-01' } as const;
+const NO_CUTOVER = { settlementMode: 'cash', cutoverDate: null } as const;
 
 describe('computeChecklist', () => {
   it('a missing side is all undone, and not complete', () => {
-    const c = computeChecklist(null);
+    const c = computeChecklist(null, NO_CUTOVER);
     expect(c.complete).toBe(false);
     expect(c.items.filter((i) => i.required && !i.done).map((i) => i.key)).toEqual(['customer', 'supplier', 'cutover']);
   });
 
   it('cash mode: the loan item is not required', () => {
-    const c = computeChecklist(side({ customerId: U1, supplierId: U1, cutoverDate: '2026-12-01' }));
+    const c = computeChecklist(side({ customerId: U1, supplierId: U1 }), CASH);
     expect(c.complete).toBe(true);
     expect(c.items.find((i) => i.key === 'loanAccount')).toMatchObject({ required: false });
   });
 
-  it('loan mode: a loan account is required', () => {
-    const base = { customerId: U1, supplierId: U1, cutoverDate: '2026-12-01', settlementMode: 'loan' as const };
-    expect(computeChecklist(side(base)).complete).toBe(false);
-    expect(computeChecklist(side(base)).items.find((i) => i.key === 'loanAccount')).toMatchObject({ required: true, done: false });
-    expect(computeChecklist(side({ ...base, loanAccountId: U2 })).complete).toBe(true);
+  it('loan mode (the PAIR\'s): a loan account is required', () => {
+    const base = side({ customerId: U1, supplierId: U1 });
+    expect(computeChecklist(base, LOAN).complete).toBe(false);
+    expect(computeChecklist(base, LOAN).items.find((i) => i.key === 'loanAccount')).toMatchObject({ required: true, done: false });
+    expect(computeChecklist({ ...base, loanAccountId: U2 }, LOAN).complete).toBe(true);
   });
 
-  it.each(['customer', 'supplier', 'cutover'] as const)('missing %s keeps it incomplete', (key) => {
-    const full = { customerId: U1, supplierId: U1, cutoverDate: '2026-12-01' };
-    const broken = { customer: { customerId: null }, supplier: { supplierId: null }, cutover: { cutoverDate: null } }[key];
-    const c = computeChecklist(side({ ...full, ...broken }));
+  it('the cut-over date is the pair\'s: set on the pair, done for a side that was never saved', () => {
+    expect(computeChecklist(null, CASH).items.find((i) => i.key === 'cutover')).toMatchObject({ done: true });
+    expect(computeChecklist(side({ customerId: U1, supplierId: U1 }), NO_CUTOVER).complete).toBe(false);
+  });
+
+  it.each(['customer', 'supplier'] as const)('missing %s keeps it incomplete', (key) => {
+    const full = { customerId: U1, supplierId: U1 };
+    const broken = { customer: { customerId: null }, supplier: { supplierId: null } }[key];
+    const c = computeChecklist(side({ ...full, ...broken }), CASH);
     expect(c.complete).toBe(false);
     expect(c.items.find((i) => i.key === key)?.done).toBe(false);
   });
