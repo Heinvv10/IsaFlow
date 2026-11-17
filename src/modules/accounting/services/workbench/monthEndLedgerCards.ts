@@ -149,6 +149,7 @@ export async function buildPayrollCard(companyId: string, period: string): Promi
   const notFinal = runs.filter(r => r.final !== true);
   const status: CardStatus = notFinal.length === 0 ? 'ready' : 'in_progress';
   const gross = runs.reduce((t, r) => t + (Number(r.total_gross) || 0), 0);
+  // People with a line on the month's runs (not the header's employee_count): a run with no lines yet counts 0.
   const employees = Number(runs[0]!.employees) || 0;
   const state = runs.length === 1
     ? String(runs[0]!.status)

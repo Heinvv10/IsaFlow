@@ -15,4 +15,3 @@ export async function otherFinalRuns(companyId: string, runId: string, year: num
   `) as DbRow[];
   return { count: Number(row?.n) || 0, gross: Number(row?.gross) || 0 };
 }
-
