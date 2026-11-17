@@ -58,7 +58,8 @@ async function lockRun(companyId: string, runId: string): Promise<DbRow | null> 
   return withBoundedLockWait(runId, async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_bank_file:${runId}`}, 0))`;
     return ((await tx`
-      SELECT id, period_year, period_month, status, COALESCE(approved_at, approval_grandfathered_at) AS final_at
+      SELECT id, period_year, period_month, status, COALESCE(approved_at, approval_grandfathered_at) AS final_at,
+             pay_frequency, run_kind, off_cycle_reason, run_date, period_end
         FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
        FOR SHARE
     `) as DbRow[])[0] ?? null;
@@ -110,7 +111,7 @@ export async function generateSalaryBankFile(opts: {
   judgeActionDate(actionDate);
   const from = await payingAccount(companyId);
   const pay = await readPayments(companyId, runId);
-  await judgeApprovedTotals(companyId, runId, { year: Number(run.period_year), month: Number(run.period_month) }, pay.linesCents);
+  await judgeApprovedTotals(companyId, runId, run, pay.linesCents);
   const file = build(from, actionDate, pay);
   const sha256 = createHash('sha256').update(file.content, 'latin1').digest('hex');
 

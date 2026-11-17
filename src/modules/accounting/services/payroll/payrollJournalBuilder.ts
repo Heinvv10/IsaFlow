@@ -48,7 +48,7 @@ import {
 } from './payrollJournalParts';
 import { netPayLine, resolveNetPayTarget, sharedNetPayAccountBlocker } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
-import { payrollRunJournalDescription } from './payrollJournalDescription';
+import { runJournalDescriptionOf } from './payrollJournalDescription';
 import { runEmployerFundedCosts } from './payrollJournalEmployerRetirement';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
@@ -231,7 +231,7 @@ export async function buildPayrollJournalPlan(
     lineCount: Number(hdr.line_count) || 0,
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
     entryDate,
-    description: payrollRunJournalDescription(periodYear, periodMonth),
+    description: runJournalDescriptionOf(hdr), // wave 6 FQc: a weekly, fortnightly or off-cycle run's names its kind and pay date
     reference: `PAY-${periodYear}-${mm}`,
     lines,
     totalDebit,

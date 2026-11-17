@@ -19,5 +19,7 @@
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
  * 13: PAYE annualises a month by days, 365 ÷ 30.4166 (Sage parity, wave-6 ruling 5), not × 12: the annual equivalent, the liability's n ÷ F, the s11F cap to date and the medical fees a year (AN).
+ * 14: weekly and fortnightly runs: × 52 / × 26 over the periods worked (a starter's part period by its days), UIF capped on the month to
+ *    date across the month's runs, ETI claimed on the month's last run, the year to date and once-offs keyed by run (FQc).
  */
-export const PAYROLL_CALCULATION_VERSION = 13;
+export const PAYROLL_CALCULATION_VERSION = 14;
