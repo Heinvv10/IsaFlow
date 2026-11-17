@@ -179,3 +179,44 @@ describe('while the saved order loads, the page is loading - not empty', () => {
   });
 });
 
+describe('a link that cannot be opened never fetches while the order is pending', () => {
+  async function openLinked(link: string) {
+    cap.companyId = 'co-1'; prefs = { 'bank_card_order:co-1': JSON.stringify(['b', 'a']) };
+    accounts = [summaryAcct('a'), summaryAcct('x', { isActive: false }), summaryAcct('b')];
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (u, i) => { if (String(u).includes('/api/auth/preferences')) await gate; return inner(u, i); });
+    cap.router = makeFakeRouter({ account_id: link });
+    render(<BankTransactionsPage />);
+    await waitFor(() => expect(urls('bank-account-summaries').length).toBeGreaterThan(0));
+    await settle();
+    return release;
+  }
+  it.each([['an INACTIVE account', 'x'], ['an account of ANOTHER company', 'foreign-1']])('%s: no list fetch until the order is known, then the default, and that id is never fetched', async (_n, link) => {
+    const release = await openLinked(link);
+    expect(listUrls()).toHaveLength(0);
+    release();
+    await waitFor(() => expect(listUrls().length).toBeGreaterThan(0));
+    expect(lastParams().get('bank_account_id')).toBe('b'); // the first card in the saved order
+    expect(listUrls().some(u => params(u).get('bank_account_id') === link)).toBe(false);
+    expect(await screen.findByText(/isn't available/)).toBeTruthy();
+  });
+
+  it('a client navigation to the bare page while the order is pending keeps the chosen account (it is not blanked)', async () => {
+    cap.companyId = 'co-1'; prefs = { 'bank_card_order:co-1': JSON.stringify(['b', 'a']) };
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (u, i) => { if (String(u).includes('/api/auth/preferences')) await gate; return inner(u, i); });
+    cap.router = makeFakeRouter({ account_id: 'a' });
+    render(<BankTransactionsPage />);
+    await waitFor(() => expect(lastParams().get('bank_account_id')).toBe('a')); // linked: fetched without waiting
+    await act(async () => { await cap.router!.navigate({}); }); // the bare page, order still pending
+    await settle();
+    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+    expect(ids().length).toBeGreaterThan(0); // the rows of the chosen account stay
+    release();
+  });
+});
+

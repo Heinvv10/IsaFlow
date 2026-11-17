@@ -8,6 +8,10 @@
  *    one render, so one list fetch. The reset used to be an effect that ran after the render that had already fetched.
  *  - A change made FROM the URL (restore, Back) must not be reset as if the user had switched: it carries its own filters.
  * The URL is never written before the account is known, or a deep link naming one would be lost.
+ * Residual (accepted): the early clear of `written` (a router that collapsed X -> Y -> X into one render) keys on the owned
+ * query alone, so an UNRELATED query change (e.g. `line` added) that lands while the newest written key is the one on screen
+ * also clears it. The cost is one own write mistaken for navigation at most, never a lost view; telling the two apart would
+ * need the router's own transition events.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
