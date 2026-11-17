@@ -20,9 +20,17 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReferences: vi.fn(async () => new Map()),
 }));
+vi.mock('@/modules/accounting/services/bank/bankLineShaDuplicate', () => ({ findBankLineShaDuplicate: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/bankLineDocumentRouting', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/accounting/services/core/bankLineDocumentRouting')>();
+  return { ...real, findBankLineDuplicate: vi.fn() };
+});
 
 import { addBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { findBankTransactionsByReferences } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/bankLineShaDuplicate';
+import { findBankLineDuplicate } from '@/modules/accounting/services/core/bankLineDocumentRouting';
+import { createHash } from 'crypto';
 import { ATTACH_MAX_BYTES, attachDocumentTool } from '@/lib/mcp/tools/writeAttachDocument';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -38,6 +46,8 @@ const base = { transaction_id: TX, file_name: 'slip.png', mime_type: 'image/png'
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(findBankLineShaDuplicate).mockResolvedValue(null);
+  vi.mocked(findBankLineDuplicate).mockResolvedValue(null);
   vi.mocked(addBankTxAttachment).mockResolvedValue({
     ok: true,
     attachment: { id: 'a1', bankTransactionId: TX, fileName: 'slip.png', fileSize: PNG.length, mimeType: 'image/png', createdAt: 'now' },
@@ -98,7 +108,7 @@ describe('attach_document', () => {
     const cases: Array<[Parameters<typeof addBankTxAttachment>[1] extends never ? never : string, string]> = [
       ['bank_tx_not_found', 'Not found'],
       ['type_mismatch', 'do not match mime_type'],
-      ['too_large', 'exceeds the 750 KB limit'],
+      ['too_large', 'exceeds the 2 MB limit'],
       ['empty', 'zero bytes'],
     ];
     for (const [reason, text] of cases) {
@@ -107,5 +117,34 @@ describe('attach_document', () => {
       expect(res.isError).toBe(true);
       expect(res.content[0]!.text).toContain(text);
     }
+  });
+
+  it('caps the file at 2 MB, the bank store\'s own limit, before any lookup or write', async () => {
+    expect(ATTACH_MAX_BYTES).toBe(2 * 1024 * 1024);
+    const big = Buffer.concat([PNG, Buffer.alloc(ATTACH_MAX_BYTES)]);
+    const res = await attachDocumentTool.handler({ ...base, content: big.toString('base64') }, ctx);
+    expect(res.content[0]!.text).toContain('exceeds the 2 MB limit');
+    expect(addBankTxAttachment).not.toHaveBeenCalled();
+  });
+
+  it('returns duplicate: true for the same bytes already on the line and stores nothing', async () => {
+    vi.mocked(findBankLineShaDuplicate).mockResolvedValue('a-old');
+    const res = await attachDocumentTool.handler({ ...base, content: PNG.toString('base64') }, ctx);
+    expect(findBankLineShaDuplicate).toHaveBeenCalledWith(ctx.companyId, TX, createHash('sha256').update(PNG).digest('hex'));
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ attachment_id: 'a-old', duplicate: true });
+    expect(addBankTxAttachment).not.toHaveBeenCalled();
+  });
+
+  it('returns duplicate: true for the same name and size on the line (a re-run sync) and stores nothing', async () => {
+    vi.mocked(findBankLineDuplicate).mockResolvedValue({ id: 'a-name', documentName: 'slip.png' } as never);
+    const res = await attachDocumentTool.handler({ ...base, content: PNG.toString('base64') }, ctx);
+    expect(findBankLineDuplicate).toHaveBeenCalledWith(ctx.companyId, TX, 'slip.png', PNG.length);
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ attachment_id: 'a-name', duplicate: true });
+    expect(addBankTxAttachment).not.toHaveBeenCalled();
+  });
+
+  it('marks a fresh attachment duplicate: false', async () => {
+    const res = await attachDocumentTool.handler({ ...base, content: PNG.toString('base64') }, ctx);
+    expect(JSON.parse(res.content[0]!.text).duplicate).toBe(false);
   });
 });
