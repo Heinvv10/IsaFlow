@@ -10,6 +10,11 @@
  * which would reintroduce the double count with no sign of it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import {
   C2170, COMPANY, HEADER, OTHER_2170, RUN, VELOCITY, PAYROLL_ACCOUNTS, bank, acc, liability, on, rig, routeMock, sqlStub, type GlAccountRow,

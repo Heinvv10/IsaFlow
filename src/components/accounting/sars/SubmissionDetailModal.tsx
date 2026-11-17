@@ -5,7 +5,8 @@
  */
 
 import { useEffect, useId } from 'react';
-import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
+import { X } from 'lucide-react';
+import { submissionStatusBadge } from './sarsStatusBadge';
 import { formatDate } from '@/utils/formatters';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
@@ -20,6 +21,8 @@ export interface SubmissionDetail {
   formData: Record<string, unknown>;
   submissionReference: string | null;
   submittedAt: string | null;
+  /** 'isv' when IsaFlow sent it to SARS; decides the status label (submissionStatusBadge). */
+  efilingChannel?: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -31,26 +34,6 @@ const formatDateTime = (d: string) => {
   if (!d) return '—';
   return formatDisplayDateTime(d);
 };
-
-function StatusBadge({ status }: { status: string }) {
-  const configs: Record<string, { icon: typeof CheckCircle2; className: string }> = {
-    submitted: { icon: CheckCircle2, className: 'bg-emerald-500/10 text-emerald-400' },
-    accepted:  { icon: CheckCircle2, className: 'bg-emerald-500/10 text-emerald-400' },
-    draft:     { icon: Clock,        className: 'bg-amber-500/10 text-amber-400' },
-    generated: { icon: Clock,        className: 'bg-blue-500/10 text-blue-400' },
-    rejected:  { icon: XCircle,      className: 'bg-red-500/10 text-red-400' },
-  };
-  const cfg = configs[status] || { icon: AlertTriangle, className: 'bg-gray-500/10 text-gray-400' };
-  const Icon = cfg.icon;
-  const label = status === 'submitted'
-    ? 'Filed on eFiling'
-    : status.charAt(0).toUpperCase() + status.slice(1);
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}>
-      <Icon className="h-3 w-3" /> {label}
-    </span>
-  );
-}
 
 interface SubmissionDetailModalProps {
   detail: SubmissionDetail | null;
@@ -104,7 +87,7 @@ export function SubmissionDetailModal({ detail, onClose }: SubmissionDetailModal
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Status</p>
-              <StatusBadge status={detail.status} />
+              {submissionStatusBadge(detail.status, detail.efilingChannel)}
             </div>
             <div>
               <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">SARS Reference</p>

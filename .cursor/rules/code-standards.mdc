@@ -19,7 +19,7 @@ alwaysApply: true
 - **Dates**: pg returns `Date` objects from timestamp columns — handle both `Date` and `string` shapes.
 - **Customer invoices**: Use `COALESCE(ci.client_id, ci.customer_id)` — both columns exist.
 - **Nav**: Update `src/components/accounting/accountingNavConfig.ts` for every new page.
-- **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`. Use the next unused 3-digit prefix; never reuse. Use `244b_` suffix style if inserting between existing numbers.
+- **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`. Use the next unused numeric prefix (`1000_` follows `999_`); never reuse. Use `244b_` suffix style if inserting between existing numbers.
 
 ## Verification (TDD enforced)
 

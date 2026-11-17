@@ -74,6 +74,8 @@ export interface BankTx {
   needsEvidence?: boolean;
   /** Files in bank_transaction_attachments for this line; > 0 highlights its paperclip. */
   attachmentCount?: number;
+  /** A client query about this line is open: the Ask-client button is marked. */
+  queried?: boolean;
   /** LLM tier: categorization strategy used ('llm' | 'rule' | 'history' | ...) */
   suggestedStrategy?: string;
   /**
@@ -125,7 +127,9 @@ export interface BankTxTableProps {
   selectedIds: Set<string>;
   rowSelections: Record<string, RowSelection>;
   allSelected: boolean;
-  tab: 'new' | 'reviewed' | 'excluded';
+  /** Keys of mutations running (`accept:<id>`, `unmatch:<id>`, ...): the row's button is disabled while its own runs. */
+  busyIds?: ReadonlySet<string>;
+  tab: import('../bank-transactions/BankTxTabs').BankTxTab;
   onToggleSelect: (id: string) => void;
   onSelectAll: () => void;
   onRowTypeChange: (txId: string, type: AllocType) => void;

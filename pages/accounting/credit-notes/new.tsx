@@ -12,10 +12,11 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { localISODate } from '@/lib/dateUtils';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP } from '@/components/accounting/formActionBar';
 
 interface Client { id: string; company_name: string }
 
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
+const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors max-lg:min-h-11';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
@@ -85,8 +86,8 @@ export default function NewCreditNotePage() {
           className="mb-0"
         />
 
-        <form onSubmit={handleSubmit} className="p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
+        <form onSubmit={handleSubmit} className={`p-6 xl:p-8 ${FORM_PHONE_ACTION_PAD}`}>
+          <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
             <div className="flex-1 min-w-0 space-y-5">
               {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
 
@@ -95,7 +96,7 @@ export default function NewCreditNotePage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">1</span>
                   Credit Note Details
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="credit-notes-new-type" className={lbl}>Type *</label>
                     <select id="credit-notes-new-type" name="type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))} className={inp}>
@@ -114,13 +115,13 @@ export default function NewCreditNotePage() {
                     </div>
                   ) : (
                     <div>
-                      <label className={lbl}>Supplier *</label>
-                      <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
+                      <label htmlFor="credit-notes-new-supplier" className={lbl}>Supplier *</label>
+                      <SupplierSelect id="credit-notes-new-supplier" required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
                     </div>
                   )}
 
                   <div>
-                    <DateField label="Credit Date" required name="creditDate" value={form.creditDate || null}
+                    <DateField label="Credit Date" required name="creditDate" value={form.creditDate || null} className={PHONE_TAP}
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
@@ -135,7 +136,7 @@ export default function NewCreditNotePage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                   Amounts
                 </h3>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label htmlFor="credit-notes-new-subtotal" className={lbl}>Subtotal (excl. VAT) *</label>
                     <input id="credit-notes-new-subtotal" type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
@@ -152,8 +153,8 @@ export default function NewCreditNotePage() {
               </div>
             </div>
 
-            <div className="w-72 shrink-0">
-              <div className="sticky top-6">
+            <div className="w-full lg:w-72 shrink-0">
+              <div className="lg:sticky lg:top-6">
                 <div className={`${card} p-5`}>
                   <div className="flex items-center gap-2 mb-5">
                     <Receipt className="w-4 h-4 text-amber-500" />
@@ -174,9 +175,11 @@ export default function NewCreditNotePage() {
                       <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || form.subtotal <= 0} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <div className={FORM_PHONE_ACTION_BAR}>
+                  <button type="submit" disabled={isSubmitting || form.subtotal <= 0} className={`w-full mt-6 py-3 ${FORM_PHONE_SUBMIT} bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm`}>
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Credit Note</>}
                   </button>
+                  </div>
                 </div>
               </div>
             </div>

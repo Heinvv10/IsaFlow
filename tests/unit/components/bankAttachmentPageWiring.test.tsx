@@ -16,12 +16,12 @@ vi.mock('next/dynamic', async () => {
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({
-  useBankTxRefData: (s: { setBankAccounts: (v: unknown[]) => void; setSelectedBank: (f: () => string) => void; setRefDataLoaded: (v: boolean) => void }) => {
-    useEffect(() => { s.setBankAccounts([{ id: 'b1', accountCode: '1100', accountName: 'Bank' }]); s.setSelectedBank(() => 'b1'); s.setRefDataLoaded(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return { refreshBankAccounts: vi.fn() };
-  },
-}));
+vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({ useBankTxRefData: () => undefined }));
+vi.mock('@/components/accounting/bank-transactions/useBankTxSummary', async () => {
+  const { summaryAcct } = await import('../helpers/bankSummaryFixture');
+  const state = { accounts: [summaryAcct('b1', { accountCode: '1100', accountName: 'Bank' })], status: 'ready', error: '', stale: false, refresh: async () => undefined };
+  return { useBankTxSummary: () => state };
+});
 vi.mock('@/components/accounting/bank-transactions/useBankTxActions', () => ({ buildBankTxActions: () => ({}) }));
 vi.mock('@/components/accounting/bank-transactions/BankTxBankCards', () => ({ BankTxBankCards: () => null }));
 vi.mock('@/components/accounting/bank-transactions/BankTxFilters', () => ({ BankTxFilters: () => null }));
@@ -59,6 +59,7 @@ function serve(files: ReturnType<typeof file>[]) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('confirm', () => true); // removing an attachment asks first (WP3); these tests answer yes
   vi.mocked(apiFetch).mockReset();
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test/1');
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);

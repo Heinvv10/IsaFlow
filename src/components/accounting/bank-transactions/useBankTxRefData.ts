@@ -1,20 +1,18 @@
 /**
  * useBankTxRefData — Loads all reference/lookup data needed by the bank transactions page
- * (bank accounts, chart of accounts, suppliers, customers, cost centres, business units).
+ * (chart of accounts, suppliers, customers, cost centres, business units).
  * All requests fire in parallel via Promise.all.
  */
 
-import { useEffect, useCallback } from 'react';
-import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { useEffect } from 'react';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
-import type { BankAcct } from './BankTxBankCards';
 
 interface RefData {
-  bankAccounts: BankAcct[];
   glAccounts: SelectOption[];
   suppliers: SelectOption[];
   customers: SelectOption[];
@@ -24,34 +22,21 @@ interface RefData {
 }
 
 type Setters = {
-  setBankAccounts: (v: BankAcct[]) => void;
   setGlAccounts: (v: SelectOption[]) => void;
   setSuppliers: (v: SelectOption[]) => void;
   setCustomers: (v: SelectOption[]) => void;
   setCc1Options: (v: SelectOption[]) => void;
   setCc2Options: (v: SelectOption[]) => void;
   setBuOptions: (v: SelectOption[]) => void;
-  setSelectedBank: (fn: (prev: string) => string) => void;
-  setRefDataLoaded?: (v: boolean) => void;
   /** Reports the supplier list state so the page can say so: loaded, failed, or cut at the cap. */
   setSuppliersStatus?: (v: 'ok' | 'failed' | 'truncated') => void;
 };
 
-export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () => void } {
+/** The bank accounts are not here: useBankTxSummary owns them (and the default selection). */
+export function useBankTxRefData(setters: Setters): void {
   const {
-    setBankAccounts, setGlAccounts, setSuppliers, setCustomers,
-    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersStatus,
+    setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus,
   } = setters;
-
-  const refreshBankAccounts = useCallback(() => {
-    apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again').then(data => {
-      const bankList: BankAcct[] = Array.isArray(data) ? data : [];
-      setBankAccounts(bankList);
-    }).catch((err) => {
-      log.error('Failed to refresh bank accounts', { error: err }, 'accounting-ui');
-      notify.error('Could not refresh bank accounts — the balances shown may be out of date');
-    });
-  }, [setBankAccounts]);
 
   // Suppliers page through the whole list, so they load on their own: a slow or
   // failing supplier walk must not hold back bank accounts and the chart.
@@ -91,23 +76,17 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     };
 
     Promise.allSettled([
-      apiFetch('/api/accounting/bank-accounts'),
       apiFetch('/api/accounting/chart-of-accounts'),
       apiFetch('/api/accounting/customers'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true'),
       apiFetch('/api/accounting/cost-centres?active=true'),
-    ]).then(async ([bankRes, coaRes, clientRes, cc1Res, cc2Res, deptRes]) => {
-      const [bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
-        json(bankRes), json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
+    ]).then(async ([coaRes, clientRes, cc1Res, cc2Res, deptRes]) => {
+      const [coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
+        json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
       ]);
 
-      if ([bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson].some(j => j === null)) notify.error(LISTS_FAILED);
-
-      const bankRaw = bankJson?.data ?? bankJson;
-      const bankList: BankAcct[] = Array.isArray(bankRaw) ? bankRaw : [];
-      setBankAccounts(bankList);
-      if (bankList.length > 0) setSelectedBank(prev => prev || bankList[0]!.id);
+      if ([coaJson, clientJson, cc1Json, cc2Json, deptJson].some(j => j === null)) notify.error(LISTS_FAILED);
 
       const coaRaw = coaJson?.data ?? coaJson;
       const coaList: Array<SelectOption & { accountSubtype?: string; accountCode?: string; accountName?: string; defaultVatCode?: string; vatInputDenied?: boolean }> = Array.isArray(coaRaw) ? coaRaw : [];
@@ -133,11 +112,9 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     }).catch((err) => {
       log.error('Failed to load bank transaction reference data', { error: err }, 'accounting-ui');
       notify.error(LISTS_FAILED);
-    }).finally(() => { setRefDataLoaded?.(true); });
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  return { refreshBankAccounts };
 }
 
 export type { RefData };

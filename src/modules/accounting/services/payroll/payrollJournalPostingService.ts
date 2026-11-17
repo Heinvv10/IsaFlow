@@ -21,6 +21,7 @@ import type { PayrollJournalPlan } from './payrollJournalBuilder';
 import { assertPayRunApproved } from './payRunApprovalControl';
 import { readApprovedPlan } from './payrollApprovedPlan';
 import { lockPayrollRunHeader } from './payrollRunLock';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 
 type Row = DbRow;
 
@@ -87,6 +88,8 @@ export async function postPayrollRunJournal(
     if (!read) throw new Error(`Payroll run ${runId} not found`);
     ({ header: locked, plan } = read);
   }
+  // Wave 6 FQa: refused under the lock, before anything is written (post_payroll_journal reaches here directly).
+  await assertRunKindSupported(companyId, runId, 'post');
 
   // Re-checked under the lock: a link the plan did not see (a plan built before the lock, or handed in by a caller
   // that did not hold it) means a peer posted first. Refused before anything is written.

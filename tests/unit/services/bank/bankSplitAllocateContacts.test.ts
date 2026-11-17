@@ -14,6 +14,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/modules/accounting/services/bank/bankAllocationInputGuard', () => ({ assertAllocationInputUsable: vi.fn() })); // reads Postgres; proven in bank-catchall-allocation.int
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ assertBankLineMayPostToAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/bankLinePaymentGate', () => ({
   assertBankLineMayPaySupplier: vi.fn(), isBankEvidenced: vi.fn(() => true),

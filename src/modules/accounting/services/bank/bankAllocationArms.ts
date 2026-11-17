@@ -168,7 +168,7 @@ export async function buildAllocationArm(input: AllocationArmInput): Promise<All
       }
     }
   } else {
-    if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
+    if (!contraAccountId) throw new BankAllocationRefusal('contraAccountId is required for account allocation');
     allocEntityName = contraRows.length > 0
       ? `${String(contraRows[0]!.account_code)} ${String(contraRows[0]!.account_name)}` : null;
     entryDesc = description || String(tx.description || 'Bank allocation');
