@@ -200,7 +200,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
       key: 'paye.annualEquivalent', label: 'Annual equivalent', amount: t.annualEquivalent,
       formula: t.periods > 0 ? `${r(t.periodicToDate)} × ${annualisationFactorWords(t.factor)} ÷ ${t.periods}` : 'no periodic pay to date: nil',
       source: sourceFor(SOURCES.annualEquivalent, taxYear),
-      note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it equals the SARS tables; a mid-year change is spread over the rest of the year.',
+      note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it is within cents of the SARS tables; a mid-year change is spread over the rest of the year.',
     },
   ];
   if (input.medicalFees.total !== 0) {
