@@ -1,6 +1,6 @@
 // golden:dev-only
 /**
- * Golden path (z31): the bank transactions page shows the list, not its chrome (WP4b layout).
+ * Golden path (z32): the bank transactions page shows the list, not its chrome (WP4b layout).
  *
  * Dev only (it measures layout, and needs the Demo company's New tab to hold more than a screen of lines). Read-only.
  *  - At 1920x1080 at least 12 rows, and at 1366x768 at least 8, are fully on screen and not covered by anything (the

@@ -6,7 +6,7 @@
  * sub-account last opened from this group in this browser.
  */
 
-import { CreditCard, ChevronDown, CornerDownRight } from 'lucide-react';
+import { Check, CreditCard, ChevronDown, CornerDownRight } from 'lucide-react';
 import { fmtCents } from './bankCents';
 import { ToCodeLine } from './ToCodeLine';
 import { MiddleTruncate } from './MiddleTruncate';
@@ -35,6 +35,7 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle, re
       <button onClick={onToggle} aria-expanded={expanded} aria-current={containsSelection ? 'true' : undefined} className="block w-full px-4 py-1.5 text-left">
         <div className="flex items-start gap-2">
           <CreditCard className={`mt-0.5 h-4 w-4 shrink-0 ${active ? 'text-teal-600 dark:text-teal-400' : 'text-[var(--ff-text-tertiary)]'}`} />
+          {containsSelection && <Check data-testid="card-selected-mark" aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-teal-700 dark:text-teal-400" />}
           <MiddleTruncate name={group.groupName} testId="card-name"
             className={`flex-1 text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`} />
           <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)] transition-transform ${expanded ? 'rotate-180' : ''}`} />

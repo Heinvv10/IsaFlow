@@ -160,7 +160,7 @@ describe('ActionMenu round 3 (WP4b review)', () => {
     render(<ActionMenu triggerLabel="M" items={[{ label: 'A', onClick: vi.fn() }, { label: 'B', onClick: vi.fn() }]} />);
     fireEvent.click(screen.getByRole('button', { name: 'M' }));
     // The menu is focusable (tabIndex -1), so a click on its padding moves focus INTO it, not to <body>. happy-dom
-    // focuses any element, so the attribute is asserted here; the click itself is checked in Chromium (z31 / the report).
+    // focuses any element, so the attribute is asserted here; the click itself is checked in Chromium (z32 / the report).
     expect(menu().getAttribute('tabindex')).toBe('-1');
     fireEvent.mouseDown(menu());
     menu().focus();
