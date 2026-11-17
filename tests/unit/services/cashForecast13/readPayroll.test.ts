@@ -8,7 +8,7 @@ import { payrollItems, readPayroll, toMonthlyRun, type PayrollRead } from '@/mod
 import type { ForecastWarning } from '@/modules/accounting/services/cashForecast13/types';
 
 const row = (over: Record<string, unknown>) => ({
-  id: 'r1', period_year: 2026, period_month: 10, status: 'approved', pay_frequency: 'monthly',
+  id: 'r1', period_year: 2026, period_month: 10, status: 'approved', pay_frequency: 'monthly', run_kind: 'regular', off_cycle_reason: null, run_date: null,
   total_net: '9000.00', total_paye: '1500.00', total_eti: '0.00', total_uif: '200.00', total_sdl: '100.00', ...over,
 });
 const TODAY = '2026-11-18';
@@ -67,5 +67,36 @@ describe('cash13 payroll', () => {
     const zero = toMonthlyRun(row({ total_net: '0.00' }));
     expect(payrollItems({ latest: zero, runs: [zero], unsupportedFrequency: false }, 25, TODAY, END, [])).toEqual([]);
     expect(payrollItems({ latest: null, runs: [], unsupportedFrequency: false }, 25, TODAY, END, [])).toEqual([]);
+  });
+
+  describe('off-cycle runs (wave 6 OC)', () => {
+    const offRow = (over: Record<string, unknown>) => row({ id: 'bonus', period_month: 11, run_kind: 'off_cycle', off_cycle_reason: 'bonus', run_date: '2026-11-28', total_net: '3000.00', ...over });
+
+    it('are read beside the regular runs, never as the month\'s run', async () => {
+      rows.mockResolvedValue([offRow({}), row({ id: 'nov', period_month: 11 }), row({})]);
+      const read = await readPayroll('co');
+      expect(read.latest?.id).toBe('nov');
+      expect(read.runs.map((r) => r.id)).toEqual(['nov', 'r1']);
+      expect(read.offCycle?.map((r) => [r.id, r.reason, r.runDate, r.netCents])).toEqual([['bonus', 'bonus', '2026-11-28', 300_000]]);
+    });
+
+    it('a two-run month: the regular net on its pay day AND the bonus net on its own pay date, once', async () => {
+      rows.mockResolvedValue([offRow({}), row({ id: 'nov', period_month: 11, total_net: '9500.00' })]);
+      const items = payrollItems(await readPayroll('co'), 25, TODAY, END, []);
+      expect(items.map((i) => [i.date, i.amountCents, i.ref])).toEqual([
+        ['2026-11-25', -950_000, 'nov:2026-11-25'],
+        ['2026-11-28', -300_000, 'bonus:2026-11-28'],
+        ['2026-12-25', -950_000, 'nov:2026-12-25'],
+        ['2027-01-25', -950_000, 'nov:2027-01-25'],
+      ]);
+    });
+
+    it('an off-cycle run whose pay date has passed is assumed paid and listed, not forecast', async () => {
+      rows.mockResolvedValue([offRow({ run_date: '2026-11-10' }), row({ id: 'nov', period_month: 11 })]);
+      const warnings: ForecastWarning[] = [];
+      const items = payrollItems(await readPayroll('co'), 25, TODAY, END, warnings);
+      expect(items.some((i) => i.ref.startsWith('bonus:'))).toBe(false);
+      expect(warnings[0]!.message).toContain(`2026-11 bonus on 2026-11-10 ${formatCents(300_000)}`);
+    });
   });
 });

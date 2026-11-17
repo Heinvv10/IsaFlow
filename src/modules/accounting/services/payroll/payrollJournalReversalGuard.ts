@@ -95,7 +95,7 @@ async function etiPeriodReversalRefusal(
 }
 
 /** The description postPayrollRunJournal gives a run's journal (payrollJournalBuilder). */
-const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
+const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})( [a-z-]+)?$/;
 
 interface RunRef { id: string; status: string; linksRoot: boolean; planHash: string | null }
 
@@ -104,7 +104,9 @@ interface RunRef { id: string; status: string; linksRoot: boolean; planHash: str
  * a month only, so it is read as the month's regular run, never an off-cycle run of that month (wave 6 FQb1).
  */
 async function payRunOf(companyId: string, rootId: string, description: string, db: TxSql): Promise<RunRef | null> {
-  const period = RUN_JOURNAL.exec(description);
+  // An off-cycle run's journal ("Payroll run 2026-10 bonus", wave 6 OC) is read by its link only: never as the regular run.
+  const named = RUN_JOURNAL.exec(description);
+  const period = named && named[3] === undefined ? named : null;
   const rows = (await db`
     SELECT id, status, (journal_entry_id = ${rootId}::uuid) AS links_root, approved_plan_hash
       FROM payroll_run_headers

@@ -152,6 +152,7 @@ export async function judgeApprovedTotals(
                AND je.status = 'posted' AND je.reversed_at IS NULL AND je.source = 'auto_payroll'
                AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
                AND je.description = ${payrollRunJournalDescription(period.year, period.month)}
+                                    || CASE WHEN h.run_kind = 'off_cycle' THEN ' ' || COALESCE(h.off_cycle_reason, 'off-cycle') ELSE '' END
                AND jl.description IN (${NET_PAY_DESCRIPTION}, ${NET_PAY_CLEARING_DESCRIPTION})) AS journal_cents
       FROM payroll_run_headers h
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
