@@ -116,3 +116,60 @@ describe('focus (M2)', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('grid')));
   });
 });
+
+describe('the number reaches the label when the page keeps moving (z30 regression)', () => {
+  /** The REAL preview answer shape the route returns (every field the service sends). */
+  const REAL = {
+    bankAccountId: 'b1', minConfidence: 0.8,
+    lines: [1, 2, 3].map((n) => ({ id: `0000000${n}-0000-4000-8000-000000000000`, date: '2026-11-17', description: `GP-BULK zq ${n}`, amount: -110 * n, glAccountId: 'g', glAccountCode: '6100', glAccountName: 'Fuel',
+      vatCode: 'none', confidence: 0.95, strategy: 'rule', version: '2026-11-17T08:00:00.000000', effectiveVatCode: 'none', netAmount: 110 * n, vatAmount: 0, cc1Id: null, cc2Id: null, buId: null, cc1Code: null, cc2Code: null, buCode: null })),
+    totalIn: 0, totalOut: 660, byAccount: [{ glAccountId: 'g', code: '6100', name: 'Fuel', count: 3, totalIn: 0, totalOut: 660 }],
+    truncated: false, totalEligibleAtLeast: 3, scanTruncated: false, nextScanAfter: null, needsAttention: [], needsAttentionCount: 0,
+    excluded: { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, noPeriod: 0, vatLocked: 0, vatCode: 0 }, previewToken: 'tok',
+  };
+
+  it('a refreshKey that moves while the first read is in flight does not drop its answer', async () => {
+    let resolveRead!: (r: Response) => void;
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>((r) => { resolveRead = r; }));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={0} />);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={14} />); // the list finished loading
+    resolveRead(ok(REAL));
+    expect(await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' })).toBeTruthy();
+    expect(apiFetch).toHaveBeenCalledTimes(1); // the change waits out the gap: a trailing read later, not now
+  });
+
+  it('shows the number from the real answer shape', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(REAL));
+    render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={14} />);
+    expect(await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' })).toBeTruthy();
+  });
+
+  it('an answer for the account the user has left is not applied to the new one', async () => {
+    let first!: (r: Response) => void;
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>((r) => { first = r; })).mockResolvedValueOnce(ok({ ...REAL, lines: REAL.lines.slice(0, 1), bankAccountId: 'b2' }));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    rerender(<BulkAcceptButton bankAccountId="b2" active onChanged={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'Accept 1 high-confidence suggestion' })).toBeTruthy();
+    first(ok(REAL)); // the slow answer for b1 arrives late
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByRole('button', { name: 'Accept 1 high-confidence suggestion' })).toBeTruthy();
+  });
+
+  it('a change that arrives during a read gets one trailing read after the gap', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let resolveRead!: (r: Response) => void;
+      vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>((r) => { resolveRead = r; })).mockResolvedValue(ok({ ...REAL, lines: REAL.lines.slice(0, 2) }));
+      const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={0} />);
+      await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+      rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={1} />);
+      resolveRead(ok(REAL));
+      await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+      expect(await screen.findByRole('button', { name: 'Accept 2 high-confidence suggestions' })).toBeTruthy();
+      expect(apiFetch).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+});
