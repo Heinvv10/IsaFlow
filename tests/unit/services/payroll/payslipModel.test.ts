@@ -20,7 +20,7 @@ const db = vi.hoisted(() => ({
 
 vi.mock('@/lib/neon', () => ({
   withSavepoint: vi.fn(),
-  sql: vi.fn(async (strings: TemplateStringsArray) => {
+  sql: Object.assign(vi.fn(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('FROM payroll_run_headers') && !q.includes('payroll_run_lines')) return db.header ? [db.header] : [];
     if (q.includes('FROM payroll_run_lines prl') && q.includes('component_breakdown')) {
@@ -35,7 +35,7 @@ vi.mock('@/lib/neon', () => ({
     if (q.includes('quantity')) return db.hoursEverywhere ? [HOURS_ROW] : []; // a live reader of hours finds them only when the flag is set
     if (db.hoursEverywhere) return [{ employee_id: EMP, component_id: 'c-salary', sars_source_code: '3601', quantity: 99, quantity_unit: 'hour', quantityUnit: 'hour' }];
     throw new Error(`unexpected query: ${q.slice(0, 120)}`);
-  }),
+  }), { unsafe: (text: string) => text }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/pdfShared', async (actual) => ({

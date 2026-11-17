@@ -128,7 +128,7 @@ export async function loadPayeYearToDate(
         AND h.id <> ${runId}::uuid
         AND ${sql.unsafe(payRunFinalSql('h'))}
         AND make_date(h.period_year, h.period_month, 1) >= make_date(${taxYear - 1}::int, ${PAYE_TAX_YEAR_START_MONTH}::int, 1)
-        AND ${runIsBeforeSql('h', companyId, runId)}
+        AND ${runIsBeforeSql('h', companyId, runId, period)}
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
@@ -166,8 +166,8 @@ export async function loadPayeYearToDate(
   // The same lines' medical scheme fees and retirement fund contributions, by the one rule for each (a line
   // before 926 / 948 from its breakdown): the tax year's runs before this one in pay order.
   const before = { start: `${taxYear - 1}-03-01`, end: `${taxYear}-02-01` };
-  const fees = await loadMedicalRecord(companyId, before, employeeIds, { tablesOnly: true, beforeRun: runId });
-  const retirement = await loadRetirementRecord(companyId, before, employeeIds, { tablesOnly: true, beforeRun: runId });
+  const fees = await loadMedicalRecord(companyId, before, employeeIds, { tablesOnly: true, beforeRun: { runId, period } });
+  const retirement = await loadRetirementRecord(companyId, before, employeeIds, { tablesOnly: true, beforeRun: { runId, period } });
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
     const taxableSplits = (r.taxable_splits ?? {}) as Record<string, unknown>;

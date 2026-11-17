@@ -19,6 +19,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
 }));
+// Wave 6 FQc: so does the frequency guard; its own tests are payrollFrequencyGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollFrequencyGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollFrequencyGuard')>(),
+  assertFrequencyCostable: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollEmployeeService')>(),
   listPayrollRunEmployees: vi.fn(async () => []),

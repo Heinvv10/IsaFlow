@@ -11,7 +11,7 @@
  *   5. id                                        a deterministic last resort only.
  * For a monthly company with one run a month it orders exactly as (period_year, period_month) did. Wave 6 FQc moved the
  * year to date, the later-periods warning, the YTD gate and the payslip year to date onto this key together (spec F2):
- * "earlier" is `runOrderKeySql('h') < runOrderKeyOfSql(...)`, never a month comparison.
+ * "earlier" is runIsBeforeSql (the row key below that run's), never a month comparison.
  */
 import { sql } from '@/lib/neon';
 
@@ -32,12 +32,20 @@ const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 /**
  * `<alias's key> < the key of run `runId` (this company's)`: the runs before it in pay order (wave 6 FQc). A row
- * compared with a subquery of the same five columns; NULL (no row matches) when the run is not this company's.
- * One sql.unsafe fragment like runOrderKeySql: an id is inlined only when it is UUID-shaped (hex and dashes, so nothing
- * else can reach the text); any other value becomes NULL, which matches no run (as its ::uuid cast would refuse it).
+ * compared with a subquery of the same five columns. One sql.unsafe fragment like runOrderKeySql: an id is inlined only
+ * when it is UUID-shaped (hex and dashes, so nothing else can reach the text); any other value becomes NULL, which
+ * matches no run (as its ::uuid cast would refuse it).
+ * When no such run exists (not this company's, or not created yet): with `ifMissing`, the runs whose period starts
+ * before that month, which is exactly where a new monthly regular run of the month would sit; without it, NULL (none).
  */
-export function runIsBeforeSql(alias: string, companyId: string, runId: string) {
+export function runIsBeforeSql(alias: string, companyId: string, runId: string, ifMissing?: { year: number; month: number }) {
   const literal = (id: string) => (UUID_SHAPE.test(id) ? `'${id}'::uuid` : 'NULL::uuid');
-  return sql.unsafe(`(${columns(alias, 'runIsBeforeSql')}) < (SELECT ${columns('order_ref', 'runIsBeforeSql')} `
-    + `FROM payroll_run_headers order_ref WHERE order_ref.id = ${literal(runId)} AND order_ref.company_id = ${literal(companyId)})`);
+  const ref = `FROM payroll_run_headers order_ref WHERE order_ref.id = ${literal(runId)} AND order_ref.company_id = ${literal(companyId)}`;
+  const before = `(${columns(alias, 'runIsBeforeSql')}) < (SELECT ${columns('order_ref', 'runIsBeforeSql')} ${ref})`;
+  if (!ifMissing) return sql.unsafe(`(${before})`);
+  const year = Math.trunc(Number(ifMissing.year));
+  const month = Math.trunc(Number(ifMissing.month));
+  if (!Number.isFinite(year) || !Number.isFinite(month)) throw new Error('runIsBeforeSql: ifMissing is not a year and month');
+  return sql.unsafe(`(CASE WHEN EXISTS (SELECT 1 ${ref}) THEN ${before} `
+    + `ELSE ${alias}.period_start < make_date(${year}, ${month}, 1) END)`);
 }

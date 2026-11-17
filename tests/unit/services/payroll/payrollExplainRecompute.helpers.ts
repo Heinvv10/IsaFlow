@@ -69,9 +69,10 @@ function recomputePaye(fig: FigureExplanation): number {
     regular = round2(r.amt('paye.flatRate') * Math.max(0, r.amt('paye.balance')));
   } else if (r.has('paye.annualEquivalent')) {
     const n = r.amt('paye.periods');
-    // The factor the explanation states, held to Sage's monthly days basis (wave-6 AN, ruling 5), then used throughout.
+    // The factor the explanation states: Sage's monthly days basis (wave-6 AN, ruling 5), or 52 / 26 for weekly and
+    // fortnightly (ruling 16, FQc); nothing else. Then used throughout.
     const f = r.amt('paye.annualisationFactor');
-    expect(f).toBe(365 / 30.4166);
+    expect([365 / 30.4166, 52, 26]).toContain(f);
     const toDate = r.amt('paye.ytdPeriodicTaxable') + r.amt('paye.regularTaxable');
     const ae = n > 0 ? (toDate * f) / n : 0;
     expect(r.amt('paye.periodicToDate')).toBeCloseTo(toDate, 6);
@@ -119,7 +120,9 @@ function recomputePaye(fig: FigureExplanation): number {
 function recomputeUif(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('uif.none')) return 0;
-  const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling'))); // UIC Act 4 of 2002 s6(1): never below nil (UF)
+  // UIC Act 4 of 2002 s6(1): never below nil (UF); the ceiling is the month's, less earlier runs' pay this month (FQc).
+  const room = Math.max(0, r.amt('uif.ceiling') - (r.has('uif.monthToDate') ? r.amt('uif.monthToDate') : 0));
+  const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), room));
   expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
   const each = round2(leviable * r.amt('uif.rate'));
   expect(cents(r.amt('uif.employer'))).toBe(cents(each));

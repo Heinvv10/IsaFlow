@@ -216,7 +216,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         regular: directed.regular, annual: directed.annualPayment, capRoom: capped.capRoom }, taxYear) } : {}),
     },
     uif: {
-      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,
+      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts, monthToDate: cadence.uifMonthToDate,
       outsideReason: !treatment.uif ? 'Independent contractor: no UIF' : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {

@@ -47,7 +47,7 @@ export async function loadMedicalRecord(
   bounds: { start: string; end: string },
   employeeIds: string[] | null = null,
   /** `beforeRun` (wave 6 FQc, the year to date): only the runs before that run in pay order (payrollRunOrder), not `bounds.end`. */
-  opts: { tablesOnly?: boolean; beforeRun?: string } = {},
+  opts: { tablesOnly?: boolean; beforeRun?: { runId: string; period: { year: number; month: number } } } = {},
 ): Promise<Map<string, MedicalRecord>> {
   // The cumulative PAYE's year to date leaves out a month whose PAYE was not taken from the tables; the certificate does not.
   const tablesOnly = opts.tablesOnly === true;
@@ -74,7 +74,7 @@ export async function loadMedicalRecord(
     WHERE h.company_id = ${companyId}::uuid
       AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) >= ${bounds.start}::date
-      AND ${opts.beforeRun ? runIsBeforeSql('h', companyId, opts.beforeRun) : sql`make_date(h.period_year, h.period_month, 1) <= ${bounds.end}::date`}
+      AND ${opts.beforeRun ? runIsBeforeSql('h', companyId, opts.beforeRun.runId, opts.beforeRun.period) : sql`make_date(h.period_year, h.period_month, 1) <= ${bounds.end}::date`}
       AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
       AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))
     GROUP BY l.employee_id

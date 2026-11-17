@@ -27,6 +27,8 @@ function leviableStep(leviable: number, pay: number): ExplainStep {
 
 export function explainUif(input: {
   taxYear: number; uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null;
+  /** Wave 6 FQc: UIF remuneration the month's earlier weekly or fortnightly runs paid (uifWithLeviable); absent or 0 = none. */
+  monthToDate?: number;
 }): FigureExplanation {
   const { uif, taxYear, leviable } = input;
   const base = { figure: 'uif' as const, title: 'How UIF was calculated', result: uif.employeeContribution, resultLabel: 'UIF, employee (the employer pays the same)' };
@@ -39,6 +41,10 @@ export function explainUif(input: {
       footed({ key: 'uif.remuneration', label: 'Pay that UIF applies to this period', amount: input.uifRemuneration, note: 'Earnings flagged as UIF-applicable.' },
         input.parts.filter((p) => p.uif).map((p, i) => earningStep(`uif.earning.${i}`, p))),
       { key: 'uif.ceiling', label: 'Monthly ceiling', amount: getTaxYearConfig(taxYear).uifCeiling, source: sourceFor(SOURCES.uif, taxYear) },
+      ...(input.monthToDate && input.monthToDate > 0 ? [{
+        key: 'uif.monthToDate', label: 'Already paid this month on earlier runs', amount: input.monthToDate,
+        note: 'The ceiling is on the remuneration paid during the month (UIC Act s6(1)(a)), so this run uses only what is left of it.',
+      }] : []),
       leviableStep(leviable, input.uifRemuneration),
       { key: 'uif.rate', label: 'Rate, each of employee and employer', amount: UIF_RATE, unit: 'percent' },
       { key: 'uif.employee', label: 'Employee contribution', amount: uif.employeeContribution, formula: `${pct(UIF_RATE)} × ${r(leviable)}, rounded to the cent` },
