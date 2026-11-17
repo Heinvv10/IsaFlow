@@ -16,7 +16,7 @@ const FILES = [
     readdirSync(join(ROOT, d)).filter(f => f.endsWith('.tsx')).map(f => `${d}/${f}`)),
   ...readdirSync(join(ROOT, 'src/components/accounting')).filter(f => /^BankTx.*\.tsx$/.test(f)).map(f => `src/components/accounting/${f}`),
   // The modals and rows the page opens (not named BankTx*):
-  ...['ExcludeReasonModal', 'FindMatchModal', 'SplitLineRow', 'SplitTransactionModal', 'CreateRuleModal'].map(n => `src/components/accounting/${n}.tsx`),
+  ...['ExcludeReasonModal', 'FindMatchModal', 'SplitLineRow', 'SplitTransactionModal', 'CreateRuleModal', 'CreateEntityModal'].map(n => `src/components/accounting/${n}.tsx`),
 ];
 
 const WARM = 'orange|amber|yellow|lime'; // -500 of these is too pale on white as well
@@ -45,7 +45,7 @@ describe('the detector', () => {
 describe('the page and its components', () => {
   it('scans real files, the modals the page opens among them', () => {
     expect(FILES.length).toBeGreaterThan(40);
-    for (const n of ['FindMatchModal', 'SplitTransactionModal', 'ExcludeReasonModal', 'CreateRuleModal', 'SplitLineRow', 'BankTxLinkModal', 'BankTxSelectionCell', 'AutoPostRunsPanel']) {
+    for (const n of ['FindMatchModal', 'SplitTransactionModal', 'ExcludeReasonModal', 'CreateRuleModal', 'SplitLineRow', 'BankTxLinkModal', 'BankTxSelectionCell', 'AutoPostRunsPanel', 'CreateEntityModal']) {
       expect(FILES.some(f => f.endsWith(`/${n}.tsx`)), n).toBe(true);
     }
   });
