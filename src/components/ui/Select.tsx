@@ -58,6 +58,8 @@ interface SelectBaseProps {
   describedBy?: string;
   /** `sm` is a compact trigger (32px, text-xs) for grid cells; `xs` is the densest (24px, the WCAG 2.5.8 minimum); the default is the form size. */
   size?: 'xs' | 'sm' | 'md';
+  /** Below lg the trigger is at least 44px tall: set it where the select sits in a touch layout (the bank card list). */
+  touchTarget?: boolean;
 }
 
 const CREATE_VALUE = '__select_create_new__';
@@ -83,7 +85,7 @@ export type SelectProps = SingleSelectProps | MultiSelectProps;
 // WORKING: Select component (single and multi-select)
 export function Select(props: SelectProps) {
   const { options, placeholder = 'Select…', label, error, disabled = false, required = false, clearable = false, className, id: externalId } = props;
-  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName, describedBy, size = 'md' } = props;
+  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName, describedBy, size = 'md', touchTarget = false } = props;
   const searchable = props.searchable === true || onSearch !== undefined;
 
   const autoId = useId();
@@ -225,6 +227,7 @@ export function Select(props: SelectProps) {
         className={cn(
           'flex w-full cursor-pointer items-center gap-2 rounded-lg border transition-colors ff-focus-ring',
           size === 'xs' ? 'min-h-[24px] px-2 py-0 text-xs' : size === 'sm' ? 'min-h-[32px] px-2.5 py-1 text-xs' : 'min-h-[40px] px-3 py-2 text-sm',
+          touchTarget && 'max-lg:min-h-11',
           'bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100',
           error ? 'border-red-400 dark:border-red-500' : 'border-gray-300 dark:border-gray-600',
           !disabled && 'hover:border-teal-400 dark:hover:border-teal-500',
