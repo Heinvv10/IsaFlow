@@ -15,13 +15,14 @@ vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib
 vi.mock('@/components/accounting/CreateRuleModal', async (orig) => ({ ...(await orig<typeof import('@/components/accounting/CreateRuleModal')>()) }));
 
 import { apiFetch } from '@/lib/apiFetch';
-import { BUSY_RELEASE_MS } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BUSY_RELEASE_MS, UPLOAD_RELEASE_MS } from '@/components/accounting/bank-transactions/BankTxModalShell';
 import { CreateRuleModal } from '@/components/accounting/CreateRuleModal';
 import { CreateEntityModal } from '@/components/accounting/CreateEntityModal';
 import { BankTxQueryModal } from '@/components/accounting/BankTxQueryModal';
 import { BankTxLinkModal } from '@/components/accounting/bank-transactions/BankTxLinkModal';
 import { SplitTransactionModal } from '@/components/accounting/SplitTransactionModal';
 import { FindMatchModal } from '@/components/accounting/FindMatchModal';
+import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachmentsModal';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 
 const TX = { id: 'tx-1', transactionDate: '2026-06-01', description: 'WOOLWORTHS', amount: -115, status: 'imported' } as BankTx;
@@ -115,6 +116,46 @@ describe('a request in flight holds the dialog, in every modal', () => {
     fireEvent.click(screen.getByRole('button', { name: /Split & Allocate/ }));
     await waitFor(() => expect(dialog().getAttribute('aria-busy')).toBe('true'));
     await expectHeld(); await expectFreeAfter();
+  });
+});
+
+const png = () => new File([new Uint8Array([137, 80, 78, 71])], 'slip.png', { type: 'image/png' });
+async function startUpload(onCountChange = vi.fn()) {
+  hold((u, i) => i?.method === 'POST', () => []);
+  const { container } = render(<BankTxAttachmentsModal bankTransactionId="tx-1" onCountChange={onCountChange} onClose={onClose} />);
+  // vi.waitFor, not RTL's: it keeps working under fake timers
+  await vi.waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
+  fireEvent.change(container.ownerDocument.querySelector('input[type="file"]')!, { target: { files: [png()] } });
+  await vi.waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(c => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(true), { timeout: 3000 });
+  expect(dialog().getAttribute('aria-busy')).toBe('true');
+  return onCountChange;
+}
+
+describe('Attachments: an upload in flight holds the dialog', () => {
+  it('Escape, the backdrop and the close button wait; when it answers the dialog is free', async () => {
+    await startUpload();
+    await expectHeld(); await expectFreeAfter();
+  });
+  it('an upload is NOT released at the ordinary 30 s limit, only at the longer upload limit, with a warning', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await startUpload();
+    await act(async () => { await vi.advanceTimersByTimeAsync(BUSY_RELEASE_MS + 1000); });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(UPLOAD_RELEASE_MS - BUSY_RELEASE_MS); });
+    expect(toast.warning).toHaveBeenCalledWith('This is taking too long', expect.any(String));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+  it('the result is still reported after the dialog was release-closed (the row count updates)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const onCount = await startUpload();
+    await act(async () => { await vi.advanceTimersByTimeAsync(UPLOAD_RELEASE_MS + 1000); });
+    const { unmount } = { unmount: () => cleanup() };
+    unmount(); // the parent closed it
+    onCount.mockClear();
+    await act(async () => { answer(ok({ id: 'a1' })); await vi.advanceTimersByTimeAsync(10); });
+    await vi.waitFor(() => expect(onCount).toHaveBeenCalled());
   });
 });
 

@@ -21,7 +21,7 @@ import { type Attachment, MAX_BYTES, ACCEPT, ACCEPTED_MIME, readFileAsDataUrl, a
 import { BankTxAttachmentRow } from './BankTxAttachmentRow';
 import { AttachmentViewer } from './AttachmentViewer';
 import { previewKind } from './attachmentPreview';
-import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, UPLOAD_RELEASE_MS, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   // The list renders in the shared shell (BankTxModalShell: Tab stays in, Escape closes, focus returns). While the viewer
   // replaces the list the shell is unmounted (the viewer has its own trap) and a fresh one takes focus into the list when
   // the viewer closes: the View button that opened the viewer unmounted with the list.
-  const locked = useModalBusy(uploading || deletingId !== null);
+  const locked = useModalBusy(uploading || deletingId !== null, UPLOAD_RELEASE_MS);
   // Refs, so a parent's inline callback does not re-create fetchAttachments (and re-fetch) on every render.
   const countRef = useRef(onCountChange);
   useEffect(() => { countRef.current = onCountChange; });

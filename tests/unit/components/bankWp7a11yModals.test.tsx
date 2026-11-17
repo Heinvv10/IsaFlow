@@ -2,7 +2,7 @@
  * WP7 accessibility: the seven modals the bank-transactions page opens share ONE shell (BankTxModalShell: kit
  * useFocusTrap, named modal dialog, Escape, focus return, portal to the body, busy guard), and the real modals use it.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +11,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }), useCompanyRoleOrNull: () => 'owner' }));
 
-import { BankTxModalShell } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, useTrackLastClick } from '@/components/accounting/bank-transactions/BankTxModalShell';
 import { ExcludeReasonModal } from '@/components/accounting/ExcludeReasonModal';
 import { CreateRuleModal } from '@/components/accounting/CreateRuleModal';
 import { CreateEntityModal } from '@/components/accounting/CreateEntityModal';
@@ -124,6 +124,7 @@ describe('initial focus: the first field, not the close button', () => {
 describe('focus goes back where the user was', () => {
   function Page({ returnFocus }: { returnFocus?: () => HTMLElement | null }) {
     const [open, setOpen] = useState(false);
+    useTrackLastClick();
     return (
       <div>
         <div data-testid="bank-tx-table"><button data-testid="row-btn" onClick={() => setOpen(true)}>row action</button></div>
@@ -157,5 +158,58 @@ describe('focus goes back where the user was', () => {
     screen.getByTestId('row-btn').remove();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.activeElement).toBe(screen.getByTestId('bank-tx-table'));
+  });
+});
+
+
+describe('the last-click tracker lives only while its page does', () => {
+  it('one document listener for any number of callers, removed with the last', () => {
+    const add = vi.spyOn(document, 'addEventListener'), remove = vi.spyOn(document, 'removeEventListener');
+    const clicks = (spy: typeof add) => spy.mock.calls.filter(c => c[0] === 'click').length;
+    const a = renderHook(() => useTrackLastClick()), b = renderHook(() => useTrackLastClick());
+    expect(clicks(add)).toBe(1);
+    a.unmount(); expect(clicks(remove)).toBe(0);
+    b.unmount(); expect(clicks(remove)).toBe(1);
+    add.mockRestore(); remove.mockRestore();
+  });
+  it('without a tracker (the page is gone) the shell does not remember an old click', () => {
+    function Bare() {
+      const [open, setOpen] = useState(false);
+      return <div><button data-testid="b" onClick={() => setOpen(true)}>b</button>{open && <BankTxModalShell label="T" onClose={() => setOpen(false)}><input aria-label="f" /></BankTxModalShell>}</div>;
+    }
+    render(<Bare />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.click(screen.getByTestId('b'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).not.toBe(screen.getByTestId('b'));
+  });
+});
+
+describe('fields that appear after an async load', () => {
+  it('focus moves to the first field when it appears, if focus is still on the dialog chrome', async () => {
+    function Late() {
+      const [ready, setReady] = useState(false);
+      return <BankTxModalShell label="L" onClose={vi.fn()}><button aria-label="Close">x</button>{ready && <input aria-label="late field" />}<button onClick={() => setReady(true)}>load</button></BankTxModalShell>;
+    }
+    render(<Late />);
+    expect(document.activeElement).toBe(screen.getByLabelText('Close'));
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('late field')));
+  });
+  it('...but never steals focus the user has moved elsewhere', async () => {
+    function Late() {
+      const [ready, setReady] = useState(false);
+      return <BankTxModalShell label="L" onClose={vi.fn()}><button aria-label="Close">x</button><button onClick={() => setReady(true)}>load</button>{ready && <input aria-label="late field" />}</BankTxModalShell>;
+    }
+    render(<Late />);
+    const load = screen.getByText('load');
+    load.focus(); // the user moved on
+    fireEvent.click(load);
+    await Promise.resolve();
+    expect(document.activeElement).toBe(load);
+  });
+  it('Link opens on its asset search field, not the close button', () => {
+    render(<BankTxLinkModal tx={TX} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(document.activeElement?.id).toBe('link-asset-search');
   });
 });

@@ -21,27 +21,39 @@ import { notify } from '@/utils/toast';
 
 /** A hung request releases the dialog after this long. */
 export const BUSY_RELEASE_MS = 30_000;
+/** An upload sends up to 2 MB and may take longer on a slow link: it holds the dialog this long. */
+export const UPLOAD_RELEASE_MS = 120_000;
 
 /** The control last clicked: where focus goes back to when the browser never focused it (Safari, macOS Firefox). */
 let lastClicked: HTMLElement | null = null;
-if (typeof document !== 'undefined') {
-  document.addEventListener('click', (e) => {
-    const t = e.target instanceof Element ? e.target.closest<HTMLElement>('button, a[href], [role="button"], [tabindex]') : null;
-    if (t) lastClicked = t;
-  }, true);
+const onDocClick = (e: MouseEvent) => {
+  const t = e.target instanceof Element ? e.target.closest<HTMLElement>('button, a[href], [role="button"], [tabindex]') : null;
+  if (t) lastClicked = t;
+};
+let trackers = 0;
+/**
+ * Records the last clicked control for as long as the calling component is mounted (refcounted: one document listener for
+ * any number of callers, removed with the last). The page that hosts the modals calls it, because the click that opens a
+ * modal happens BEFORE the modal mounts, so the shell itself cannot listen for it.
+ */
+export function useTrackLastClick(): void {
+  useEffect(() => {
+    if (trackers++ === 0) document.addEventListener('click', onDocClick, true);
+    return () => { if (--trackers === 0) { document.removeEventListener('click', onDocClick, true); lastClicked = null; } };
+  }, []);
 }
 
 /** `busy`, released after BUSY_RELEASE_MS with a warning: pass the result to the shell's `busy` and to the close buttons' `disabled`. */
-export function useModalBusy(busy: boolean): boolean {
+export function useModalBusy(busy: boolean, releaseMs: number = BUSY_RELEASE_MS): boolean {
   const [expired, setExpired] = useState(false);
   useEffect(() => {
     if (!busy) { setExpired(false); return undefined; }
     const t = setTimeout(() => {
       setExpired(true);
       notify.warning('This is taking too long', 'You can close this window. If it did go through, refresh the list to see it.');
-    }, BUSY_RELEASE_MS);
+    }, releaseMs);
     return () => clearTimeout(t);
-  }, [busy]);
+  }, [busy, releaseMs]);
   return busy && !expired;
 }
 
@@ -75,8 +87,22 @@ export function BankTxModalShell({ label, onClose, busy = false, closeOnBackdrop
   useFocusTrap(ref, true, () => { if (!busy) onClose(); });
   // After the trap took focus in (declared after it, so it runs after): the first field instead of the close button.
   useEffect(() => {
-    const el = ref.current?.querySelector<HTMLElement>('[data-autofocus]') ?? ref.current?.querySelector<HTMLElement>(FIELD);
-    el?.focus();
+    const root = ref.current;
+    if (!root) return undefined;
+    const field = () => root.querySelector<HTMLElement>('[data-autofocus]') ?? root.querySelector<HTMLElement>(FIELD);
+    const first = field();
+    if (first) { first.focus(); return undefined; }
+    // No field yet (a list or form that loads after opening): focus the first one that appears, but only while focus is still
+    // where the trap put it (on a control of the dialog's own chrome) - never steal it from where the user has moved.
+    const parked = document.activeElement;
+    const watch = new MutationObserver(() => {
+      const f = field();
+      if (!f) return;
+      watch.disconnect();
+      if (document.activeElement === parked) f.focus();
+    });
+    watch.observe(root, { childList: true, subtree: true });
+    return () => watch.disconnect();
   }, []);
   // On close, after the trap's own restore: if focus is nowhere, put it where the user was.
   useEffect(() => () => {
