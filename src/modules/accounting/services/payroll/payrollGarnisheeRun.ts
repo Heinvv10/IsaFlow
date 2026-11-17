@@ -12,7 +12,7 @@
  *  - reopen (payrollRunReopen): restoreRunGarnishees, after the header leaves 'approved', unmarks them and puts the
  *    balance back ('satisfied' returns to 'active').
  * Every step runs under the company's payroll approval lock and the run's header lock, which the three callers take
- * first, so two approvals cannot move one order's balance at once. The 999q triggers hold the balance to
+ * first, so two approvals cannot move one order's balance at once. The 999z triggers hold the balance to
  * total_debt - applied, and refuse an applied flag the run's status does not allow.
  */
 import { sql } from '@/lib/neon';

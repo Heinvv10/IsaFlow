@@ -1,4 +1,4 @@
--- 999q: garnishee orders (wave 6 GA). Court orders an employer must deduct from an employee's pay and hold for a creditor.
+-- 999z: garnishee orders (wave 6 GA). Court orders an employer must deduct from an employee's pay and hold for a creditor.
 --
 -- WHAT.
 --   payroll_garnishee_orders  one row per order on an employee: kind (emolument_attachment = Magistrates' Courts Act
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_garnishee_orders (
   CONSTRAINT payroll_garnishee_orders_satisfied CHECK (status <> 'satisfied' OR balance = 0)
 );
 COMMENT ON TABLE public.payroll_garnishee_orders IS
-  'Garnishee orders on an employee (999q, wave 6 GA). balance = total_debt less the deductions applied at approval (trigger-held).';
+  'Garnishee orders on an employee (999z, wave 6 GA). balance = total_debt less the deductions applied at approval (trigger-held).';
 CREATE INDEX IF NOT EXISTS payroll_garnishee_orders_company_employee ON public.payroll_garnishee_orders (company_id, employee_id);
 
 CREATE TABLE IF NOT EXISTS public.payroll_garnishee_deductions (
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_garnishee_deductions (
   CONSTRAINT payroll_garnishee_deductions_one_per_run UNIQUE (run_id, order_id)
 );
 COMMENT ON TABLE public.payroll_garnishee_deductions IS
-  'What each pay run took for a garnishee order (999q, wave 6 GA). balance_applied: the run''s approval moved the order''s balance.';
+  'What each pay run took for a garnishee order (999z, wave 6 GA). balance_applied: the run''s approval moved the order''s balance.';
 CREATE INDEX IF NOT EXISTS payroll_garnishee_deductions_company_run ON public.payroll_garnishee_deductions (company_id, run_id);
 CREATE INDEX IF NOT EXISTS payroll_garnishee_deductions_order ON public.payroll_garnishee_deductions (order_id);
 

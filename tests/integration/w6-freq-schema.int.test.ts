@@ -259,7 +259,7 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
   });
 
   it('GA lifted the garnishee clauses: a run whose employee has an active order, carrying a deduction, is refused nothing', async () => {
-    // 999q's real tables (GA). The order's own guard trigger needs a session user and a payable: seeded as the owner.
+    // 999z's real tables (GA). The order's own guard trigger needs a session user and a payable: seeded as the owner.
     await inRolledBackTx(async (c) => {
       await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
       const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)

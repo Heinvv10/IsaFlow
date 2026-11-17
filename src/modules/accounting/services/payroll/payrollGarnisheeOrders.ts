@@ -4,7 +4,7 @@
  *
  * Every refusal is judged before the first write (spec rule 12). Entering a company's first order creates its garnishee
  * payable account in the same transaction, under the company's role-write lock (payrollGarnisheeAccount, F13). An
- * order's facts never change once entered (the 999q trigger); a wrong order is ended and entered again. Its balance
+ * order's facts never change once entered (the 999z trigger); a wrong order is ended and entered again. Its balance
  * moves only when a run that deducted from it is approved or reopened (payrollGarnisheeRun).
  */
 import { sql } from '@/lib/neon';

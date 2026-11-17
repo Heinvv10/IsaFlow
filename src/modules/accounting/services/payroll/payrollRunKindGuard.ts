@@ -15,7 +15,7 @@
  * Each later PR lifts exactly its own clause, in its own release. Contract for those PRs (the names read here):
  *   payroll_employee_components.db_member_category_factor / .rate_multiplier (DBF, RI), quantity_unit 'km' (RI).
  * Lifted: the garnishee clauses (an active order refused costing; a deduction on the run refused every action), by GA
- * (migration 999q), which costs, approves, posts and reopens garnishee orders. A rollback past GA reaches a release that
+ * (migration 999z), which costs, approves, posts and reopens garnishee orders. A rollback past GA reaches a release that
  * still has them.
  *
  * KNOWN LIMIT (wave 6 EF review): `tax_status` and the employee-frequency clause are judged on the employee's CURRENT
