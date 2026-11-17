@@ -42,6 +42,10 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
   // The entry Enter picks: the first, until the arrows move it. Typing starts again from the first match.
   const [active, setActive] = useState(0);
   useEffect(() => { setActive(0); }, [search, isOpen]);
+  // The entry the arrows reached must stay visible in the list (max-h-48 scrolls).
+  useEffect(() => {
+    if (isOpen) document.getElementById(`bank-choice-${tx.id}-${active}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [active, isOpen, tx.id]);
   const pick = (o: { id: string; name: string; code?: string | null }) => {
     onRowEntityChange(tx.id, o.id, o.code ? `${o.code} ${o.name}` : o.name);
     closePopover();
@@ -49,7 +53,8 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
   const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const to = nextPopoverIndex(e.key, active, choices.length);
     if (to !== null) { e.preventDefault(); setActive(to); return; }
-    if (e.key === 'Enter' && choices.length > 0) { e.preventDefault(); e.stopPropagation(); pick(choices[Math.min(active, choices.length - 1)]!); }
+    // Enter that confirms an IME composition (CJK, accents) is the composition's, not a pick.
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229 && choices.length > 0) { e.preventDefault(); e.stopPropagation(); pick(choices[Math.min(active, choices.length - 1)]!); }
   };
   const place = useBankTxSelectionPlacement(toggleRef, isOpen, options.length + 1, !!onCreateEntity && rowType !== 'transfer');
   /** The grid's row: where keys go once the popover is closed (a removed option would drop focus to the body). */

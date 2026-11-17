@@ -13,7 +13,7 @@
  * reach the grid's hotkeys, which post.
  */
 
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Drawer } from '@/components/ui/Drawer';
 import type { BankTx } from '@/components/accounting/BankTxTable';
@@ -42,6 +42,18 @@ interface Props {
 
 export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, children }: Props) {
   const loading = isLoading || (!error && empty && pastEnd);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const hadRows = useRef(false);
+  const showsRows = !loading && !error && !empty;
+  const showsEmpty = !loading && !error && empty;
+  // The last row was accepted: the grid that held the keyboard focus is gone, so the empty state takes it (not <body>).
+  useEffect(() => {
+    if (showsRows) hadRows.current = true;
+    else if (showsEmpty && hadRows.current) {
+      hadRows.current = false;
+      if (!document.activeElement || document.activeElement === document.body) frameRef.current?.focus();
+    }
+  }, [showsRows, showsEmpty]);
   return (
     <>
       {relinkFailed && (
@@ -54,7 +66,7 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
           <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
         </div>
       )}
-      <div data-testid="bank-tx-list-frame" style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}>
+      <div data-testid="bank-tx-list-frame" ref={frameRef} tabIndex={-1} className="outline-none" style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}>
         {loading ? (
           <BankTxLoading />
         ) : error ? (

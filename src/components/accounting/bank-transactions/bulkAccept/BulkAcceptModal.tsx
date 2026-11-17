@@ -14,7 +14,7 @@ interface Props { open: boolean; bankAccountId: string | null; onClose: () => vo
 
 export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged }: Props) {
   const { state, load, confirm, undo, reset, handOffDecided } = useBulkAccept(bankAccountId);
-  const { phase, preview, refreshing, confirmed, undone, names, error, tokenDead, changed } = state;
+  const { phase, preview, refreshing, confirmed, undone, names, error, tokenDead, recovered, changed } = state;
   // Focus lands on a control that is always enabled (Cancel while previewing, Done on the result), never on a disabled Confirm.
   const focusRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (open) void load(); else reset(); }, [open, load, reset]);
@@ -37,7 +37,7 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged }: Pro
           <div role="alert" className="mb-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             <p>{error}</p>
             {tokenDead && phase === 'preview' && (
-              <button type="button" onClick={() => void load()} className="mt-1 underline">Reload preview</button>
+              <button type="button" onClick={() => void load()} className="mt-1 underline">Refresh preview</button>
             )}
           </div>
         )}
@@ -48,7 +48,9 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged }: Pro
         {(phase === 'result' || phase === 'undoing') && confirmed && (
           <div>
             <p className="text-sm text-[var(--ff-text-primary)]" data-testid="bulk-result">
-              Posted {confirmed.posted.length} line{confirmed.posted.length === 1 ? '' : 's'} ({formatMoney(confirmed.totalPosted)}).
+              {recovered
+                ? `The answer was lost, but a batch of ${recovered.postedCount} line${recovered.postedCount === 1 ? '' : 's'} (${formatMoney(confirmed.totalPosted)}) was posted.`
+                : <>Posted {confirmed.posted.length} line{confirmed.posted.length === 1 ? '' : 's'} ({formatMoney(confirmed.totalPosted)}).</>}
               {refused.length > 0 && ` ${refused.length} not posted.`}
             </p>
             {refused.length > 0 && (

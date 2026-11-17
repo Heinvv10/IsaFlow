@@ -1,5 +1,5 @@
 /** WP6 UI: the bulk-accept modal - preview (rows, totals, by account, what was left out), confirm result, undo batch. */
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
@@ -280,13 +280,13 @@ describe('paging, held lines, a dead token, nothing posted', () => {
     expect(screen.getByText(/60 held for a colleague/)).toBeTruthy();
   });
 
-  it('a failed confirm kills the token: Confirm is disabled until Reload preview brings a fresh one', async () => {
+  it('a failed confirm kills the token: Confirm is disabled until Refresh preview brings a fresh one', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(bad('The previewed line changed', 400)).mockResolvedValueOnce(ok({ ...PREVIEW, previewToken: 'fresh' }));
     open();
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
     await screen.findByRole('alert');
     expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Reload preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' }));
     await waitFor(() => expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(false));
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -299,5 +299,65 @@ describe('paging, held lines, a dead token, nothing posted', () => {
     expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('a lost answer, a double click, a stale answer', () => {
+  const RUN = (over = {}) => ({ id: 'run-9', source: 'manual', postedCount: 2, totalAmount: 150, createdAt: new Date().toISOString(), undoneAt: null, ...over });
+
+  it('after a dropped confirm the batch is looked up, so the result and Undo are still there', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(ok({ runs: [RUN({ id: 'old', createdAt: '2020-01-01T00:00:00Z' }), RUN()] }))
+      .mockResolvedValueOnce(ok({ reversed: 2, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    const { onChanged } = open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    expect((await screen.findByTestId('bulk-result')).textContent).toMatch(/answer was lost, but a batch of 2 lines/);
+    fireEvent.click(screen.getByRole('button', { name: 'Undo batch' }));
+    await screen.findByText(/Batch undone: 2 lines reversed/);
+    expect(bodies()[3]).toEqual({ action: 'undo', runId: 'run-9' });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('a dropped confirm with no batch found kills the old token: Confirm disabled until Refresh preview', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok({ runs: [] }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByRole('alert');
+    expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Refresh preview' })).toBeTruthy();
+  });
+
+  it('two clicks batched into one update send one confirm', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValue(ok({ runId: 'r', posted: [], refused: [], totalPosted: 0 }));
+    open();
+    const btn = await screen.findByRole('button', { name: /Confirm and post 2/ });
+    act(() => { fireEvent.click(btn); fireEvent.click(btn); });
+    await screen.findByTestId('bulk-result');
+    expect(bodies().filter((b) => b?.action === 'confirm')).toHaveLength(1);
+  });
+
+  it('two Undo clicks batched into one update send one undo', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok({ runId: 'r', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 }))
+      .mockResolvedValue(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    const undoBtn = await screen.findByRole('button', { name: 'Undo batch' });
+    act(() => { fireEvent.click(undoBtn); fireEvent.click(undoBtn); });
+    await screen.findByText(/Batch undone/);
+    expect(bodies().filter((b) => b?.action === 'undo')).toHaveLength(1);
+  });
+
+  it('an answer to a confirm that a newer load has overtaken is dropped', async () => {
+    const gate = deferred<Response>();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockReturnValueOnce(gate.promise).mockResolvedValueOnce(ok({ ...PREVIEW, lines: [line(4, -9)], previewToken: 'other' }));
+    const view = render(<BulkAcceptModal open bankAccountId="b1" onClose={vi.fn()} onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    view.rerender(<BulkAcceptModal open bankAccountId="b2" onClose={vi.fn()} onChanged={vi.fn()} />); // another account: a new load
+    await screen.findByText('LINE 4');
+    gate.resolve(ok({ runId: 'late', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.queryByTestId('bulk-result')).toBeNull();
+    expect(screen.getByText('LINE 4')).toBeTruthy();
   });
 });

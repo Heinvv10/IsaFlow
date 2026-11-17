@@ -154,3 +154,61 @@ describe('J and K never act on a chord or inside a popover (L2)', () => {
     expect(rows()[1]).not.toHaveAttribute('data-focused');
   });
 });
+
+describe('J/K enter the stream from the grid itself (brk M2)', () => {
+  const grid = () => screen.getByRole('group', { name: /Bank transactions/ });
+  it.each([['j', 0], ['J', 0], ['k', 0]] as const)('%s on the grid, with nothing held, focuses the first row', (key, at) => {
+    render(<BankTxTable {...tableProps()} />);
+    fireEvent.keyDown(grid(), { key });
+    expect(rows()[at]).toHaveAttribute('data-focused', 'true');
+  });
+  it('on the grid with a row held, J moves on like ArrowDown', () => {
+    render(<BankTxTable {...tableProps()} />);
+    fireEvent.click(rows()[0]!);
+    fireEvent.keyDown(grid(), { key: 'j' });
+    expect(rows()[1]).toHaveAttribute('data-focused', 'true');
+  });
+  it('other letters on the grid still do nothing', () => {
+    const p = tableProps();
+    render(<BankTxTable {...p} />);
+    fireEvent.click(rows()[0]!);
+    fireEvent.keyDown(grid(), { key: 'x' });
+    expect(p.onExclude).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Selection popover details', () => {
+  const openOn = () => { const p = tableProps(); render(<BankTxTable {...p} />); fireEvent.click(rows()[0]!); fireEvent.keyDown(rows()[0]!, { key: 'e' }); return p; };
+
+  it('Enter that confirms an IME composition does not pick', () => {
+    const p = openOn();
+    fireEvent.keyDown(search(), { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(search(), { key: 'Process', keyCode: 229 });
+    fireEvent.keyDown(search(), { key: 'Enter', keyCode: 229 });
+    expect(p.onRowEntityChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(search(), { key: 'Enter' });
+    expect(p.onRowEntityChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('the option the arrows reach is scrolled into view', () => {
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      openOn();
+      scroll.mockClear();
+      fireEvent.keyDown(search(), { key: 'ArrowDown' });
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+      expect((scroll.mock.contexts.at(-1) as HTMLElement).id).toBe(search().getAttribute('aria-activedescendant'));
+    } finally { Element.prototype.scrollIntoView = original; }
+  });
+
+  it('typing moves the active entry back to the first match', () => {
+    const p = openOn();
+    fireEvent.change(search(), { target: { value: '0' } }); // 6100 and 7000
+    fireEvent.keyDown(search(), { key: 'ArrowDown' });      // on 7000
+    fireEvent.change(search(), { target: { value: '00' } }); // both still match: the highlight starts again at the first
+    fireEvent.keyDown(search(), { key: 'Enter' });
+    expect(p.onRowEntityChange).toHaveBeenCalledWith('a', 'g1', '6100 Entertainment');
+  });
+});
