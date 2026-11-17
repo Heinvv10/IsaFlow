@@ -115,9 +115,12 @@ describeIfDb('EFa: filing files through the routes', () => {
   it('a version filed before 999v (no stamp) still downloads its file, and nothing is written (the trigger freezes the stamps once filed)', async () => {
     const id = await version(a, 2, 'filed'); // finalised and filed before the cut-off, as the table owner
     const before = await row(id);
+    const trail = async () => Number(((await sql`SELECT COUNT(*)::INT AS n FROM audit_log WHERE entity_id = ${id}::UUID`) as Row[])[0]!.n);
+    const audited = await trail();
     const r = await genFile(id, 'emp201', 'csv');
     expect(r.status).toBe(200);
     expect((r.body as unknown as Buffer).toString('utf8')).toContain('"Return","Form","EMP201"');
     expect(await row(id)).toEqual(before);
+    expect(await trail()).toBe(audited); // no stamp, so no stamp audit row
   });
 });
