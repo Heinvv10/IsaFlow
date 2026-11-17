@@ -2,7 +2,7 @@
  * WP7 accessibility: the seven modals the bank-transactions page opens share ONE shell (BankTxModalShell: kit
  * useFocusTrap, named modal dialog, Escape, focus return, portal to the body, busy guard), and the real modals use it.
  */
-import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +11,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }), useCompanyRoleOrNull: () => 'owner' }));
 
-import { BankTxModalShell, useTrackLastClick } from '@/components/accounting/bank-transactions/BankTxModalShell';
+import { BankTxModalShell, FIELD_WAIT_MS, useTrackLastClick } from '@/components/accounting/bank-transactions/BankTxModalShell';
 import { ExcludeReasonModal } from '@/components/accounting/ExcludeReasonModal';
 import { CreateRuleModal } from '@/components/accounting/CreateRuleModal';
 import { CreateEntityModal } from '@/components/accounting/CreateEntityModal';
@@ -218,6 +218,22 @@ describe('fields that appear after an async load', () => {
     fireEvent.click(load);
     await Promise.resolve();
     expect(document.activeElement).toBe(load);
+  });
+  it('stops watching after FIELD_WAIT_MS: a field that appears later is not focused', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      function Late() {
+        const [ready, setReady] = useState(false);
+        return <BankTxModalShell label="L" onClose={vi.fn()}><button aria-label="Close">x</button><button onClick={() => setReady(true)}>load</button>{ready && <input aria-label="late field" />}</BankTxModalShell>;
+      }
+      render(<Late />);
+      const close = screen.getByLabelText('Close');
+      act(() => { vi.advanceTimersByTime(FIELD_WAIT_MS + 100); });
+      fireEvent.click(screen.getByText('load'));
+      expect(screen.getByLabelText('late field')).toBeTruthy();
+      await Promise.resolve(); await Promise.resolve(); // the observer's callback is a microtask
+      expect(document.activeElement).toBe(close);
+    } finally { vi.useRealTimers(); }
   });
   it('Link opens on its asset search field, not the close button', () => {
     render(<BankTxLinkModal tx={TX} onClose={vi.fn()} onDone={vi.fn()} />);

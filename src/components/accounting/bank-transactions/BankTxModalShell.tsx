@@ -57,6 +57,9 @@ export function useModalBusy(busy: boolean, releaseMs: number = BUSY_RELEASE_MS)
   return busy && !expired;
 }
 
+/** How long the shell waits for a field to appear after opening before it stops watching. */
+export const FIELD_WAIT_MS = 5000;
+
 const FIELD = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 
 interface Props {
@@ -102,7 +105,8 @@ export function BankTxModalShell({ label, onClose, busy = false, closeOnBackdrop
       if (document.activeElement === parked) f.focus();
     });
     watch.observe(root, { childList: true, subtree: true });
-    return () => watch.disconnect();
+    const giveUp = setTimeout(() => watch.disconnect(), FIELD_WAIT_MS); // nothing appeared: stop watching
+    return () => { clearTimeout(giveUp); watch.disconnect(); };
   }, []);
   // On close, after the trap's own restore: if focus is nowhere, put it where the user was.
   useEffect(() => () => {

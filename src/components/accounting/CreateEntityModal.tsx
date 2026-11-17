@@ -160,7 +160,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md mx-4">
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
           <div className="flex items-center gap-2">
-            <Plus className="h-4 w-4 text-teal-400" />
+            <Plus className="h-4 w-4 text-teal-700 dark:text-teal-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">{title}</h2>
           </div>
           <button onClick={onClose} disabled={locked} aria-label="Close" className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
