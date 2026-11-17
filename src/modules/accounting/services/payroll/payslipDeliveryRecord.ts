@@ -44,15 +44,20 @@ export async function recordDelivery(o: {
   });
 }
 
-/** Employees this run's slip went (or may have gone) to at its current approval. */
-export async function alreadyDelivered(companyId: string, runId: string): Promise<Set<string>> {
+/**
+ * Each employee's LATEST attempt of this run at its current approval: 'sent' and 'unknown' mean delivered (a plain
+ * send skips them); 'failed' means the last try was refused (a plain send of the whole run skips it too, review
+ * #1542 D-I1, so a batch never re-tries the same bad address ahead of everyone else; naming the employee retries).
+ */
+export async function latestAttempts(companyId: string, runId: string): Promise<Map<string, DeliveryStatus>> {
   const rows = (await sql`
-    SELECT DISTINCT d.employee_id::text AS employee_id
+    SELECT DISTINCT ON (d.employee_id) d.employee_id::text AS employee_id, d.status
       FROM payslip_deliveries d JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
-     WHERE d.company_id = ${companyId}::uuid AND d.run_id = ${runId}::uuid AND d.status IN ('sent', 'unknown')
+     WHERE d.company_id = ${companyId}::uuid AND d.run_id = ${runId}::uuid
        AND d.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at)
-  `) as Array<{ employee_id: string }>;
-  return new Set(rows.map((r) => r.employee_id));
+     ORDER BY d.employee_id, d.created_at DESC, d.id DESC
+  `) as Array<{ employee_id: string; status: DeliveryStatus }>;
+  return new Map(rows.map((r) => [r.employee_id, r.status]));
 }
 
 /** Where each employee's last payslip email went (any run), for naming a changed address. */

@@ -61,3 +61,12 @@ export function deliveriesOf(d: unknown): Delivery[] {
     return [{ ...who(x)!, status, recipient: text(x, 'recipient') ?? '', at: text(x, 'at') ?? '', attempts: Number(x.attempts) || 1 }];
   });
 }
+
+/**
+ * Whether the card asks again after this answer (review #1542 D-I1): something is left, and the round made progress:
+ * it sent something, or what remains fell. A round that sent nothing while nothing fell stops the loop.
+ */
+export function shouldContinue(next: EmailOutcome, remainingBefore: number): boolean {
+  if (next.remaining === 0) return false;
+  return next.sent.length > 0 || next.remaining < remainingBefore;
+}

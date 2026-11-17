@@ -7,8 +7,9 @@
  * approved or paid with an approval time, else NOT_FINAL), the run-kind guard (getPayslips), the slips' details frozen
  * at this approval (PS3; a run approved before PS3 prints details as at download and is DETAILS_NOT_FROZEN), then
  * every recipient: no address (NO_EMAIL), neither ID nor passport number to protect the PDF with (NO_ID_OR_PASSPORT,
- * never sent unprotected), or already delivered for this approval (ALREADY_SENT: sent, or 'unknown' because the mail
- * server may have taken it; unless `resend`). Those are skipped and named, never refused. Then the rate limit for
+ * never sent unprotected), already delivered for this approval (ALREADY_SENT: sent, or 'unknown' because the mail
+ * server may have taken it; unless `resend`), or, in a whole-run send, a last try that failed (LAST_SEND_FAILED: a
+ * request names the employee to retry; review #1542 D-I1). Those are skipped and named, never refused. Then the rate limit for
  * the count this request will send (`admit`; RATE_LIMITED 429).
  *
  * At most `limits.maxSends` slips per request, and none started once `limits.budgetMs` has passed (review #1542 A1:
@@ -33,7 +34,7 @@ import { payslipEmailMessage, payslipPassword, renderEmailPayslip } from './pays
 import { PayslipEmailRefusal } from './payslipDeliveryRefusal';
 import { companyPayslipEmailEnabled, PAYSLIP_EMAIL_FLAG } from './payslipEmailSettings';
 import type { EmployeeEmailActor } from './payrollEmployeeEmail';
-import { alreadyDelivered, lastSentTo, recordDelivery, type DeliveryStatus } from './payslipDeliveryRecord';
+import { lastSentTo, latestAttempts, recordDelivery, type DeliveryStatus } from './payslipDeliveryRecord';
 
 export type Mailer = (options: EmailOptions) => Promise<EmailResult>;
 
@@ -43,7 +44,7 @@ const SMTP_TIMEOUTS_MS = { connection: 5_000, greeting: 5_000, socket: 10_000 };
 export const SEND_LIMITS = { maxSends: 20, budgetMs: 20_000 } as const;
 export type SendLimits = { maxSends: number; budgetMs: number };
 
-export type SkipReason = 'NO_EMAIL' | 'NO_ID_OR_PASSPORT' | 'ALREADY_SENT';
+export type SkipReason = 'NO_EMAIL' | 'NO_ID_OR_PASSPORT' | 'ALREADY_SENT' | 'LAST_SEND_FAILED';
 interface Who { employeeId: string; employeeNumber: string; employeeName: string }
 export interface PayslipEmailOutcome {
   sent: Array<Who & { sha256: string; addressChanged: boolean }>;
@@ -127,7 +128,9 @@ export async function sendPayslipEmails(opts: {
   }
   const approvedAt = new Date(header.final_at as string | Date);
   const people = await recipients(companyId, run.payslips.map((p) => p.employeeId));
-  const done = resend ? new Set<string>() : await alreadyDelivered(companyId, runId);
+  const latest = resend ? new Map<string, DeliveryStatus>() : await latestAttempts(companyId, runId);
+  // A whole-run send leaves out a slip whose last try failed (D-I1); naming the employee is the retry.
+  const wholeRun = opts.employeeIds === undefined;
 
   const out: PayslipEmailOutcome = { sent: [], failed: [], uncertain: [], skipped: [], remaining: 0 };
   const queue: Array<{ slip: PayslipRun['payslips'][number]; email: string; password: NonNullable<ReturnType<typeof payslipPassword>> }> = [];
@@ -137,7 +140,8 @@ export async function sendPayslipEmails(opts: {
     const password = p ? payslipPassword({ idNumber: p.id_number, passportNumber: p.passport_number }) : null;
     if (!p?.email) out.skipped.push({ ...who, reason: 'NO_EMAIL' });
     else if (!password) out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' });
-    else if (done.has(slip.employeeId)) out.skipped.push({ ...who, reason: 'ALREADY_SENT' });
+    else if (latest.get(slip.employeeId) === 'sent' || latest.get(slip.employeeId) === 'unknown') out.skipped.push({ ...who, reason: 'ALREADY_SENT' });
+    else if (wholeRun && latest.get(slip.employeeId) === 'failed') out.skipped.push({ ...who, reason: 'LAST_SEND_FAILED' });
     else queue.push({ slip, email: p.email, password });
   }
   if (queue.length === 0) return out;

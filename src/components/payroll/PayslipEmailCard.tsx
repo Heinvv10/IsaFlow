@@ -14,7 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { PayslipEmailDeliveries } from './PayslipEmailDeliveries';
 import {
-  deliveriesOf, mergeOutcomes, outcomeOf, stateOf, type Delivery, type EmailOutcome, type EmailState,
+  deliveriesOf, mergeOutcomes, outcomeOf, shouldContinue, stateOf, type Delivery, type EmailOutcome, type EmailState,
 } from './payslipEmailPayloads';
 
 /** Spec §0a.18 and review #1542 S7: said plainly, on the card and in the confirmation. */
@@ -23,6 +23,7 @@ export const WEAK_PROTECTION = 'Each PDF is protected with the employee\'s ID nu
 const SKIP_LABEL: Record<string, string> = {
   NO_EMAIL: 'no email address on file', NO_ID_OR_PASSPORT: 'no ID or passport number to protect the PDF with',
   ALREADY_SENT: 'already sent (or may have been) for this approval',
+  LAST_SEND_FAILED: 'the last send failed; check the address, then use Send again',
 };
 /** A send loop stops after this many requests whatever the server says, so a fault can never spin. */
 const MAX_ROUNDS = 50;
@@ -76,12 +77,14 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
     setBusy(true);
     setError('');
     let total: EmailOutcome | null = null;
+    let before = Number.POSITIVE_INFINITY;
     try {
       for (let round = 0; round < MAX_ROUNDS; round += 1) {
         const next = outcomeOf(await apiJson(url, { method: 'POST', body: JSON.stringify(body) }, 'Could not email the payslips - try again'));
         total = total ? mergeOutcomes(total, next) : next;
         setOutcome(total);
-        if (next.remaining === 0 || next.sent.length + next.failed.length + next.uncertain.length === 0) break;
+        if (!shouldContinue(next, before)) break;
+        before = next.remaining;
       }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not email the payslips - try again'));

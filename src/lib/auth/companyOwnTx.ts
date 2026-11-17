@@ -8,9 +8,9 @@
  * would mail it again.
  *
  * Only from inside a company request: the claims and the company are the REQUEST CONTEXT's, never the caller's, and
- * with no company context it throws. It runs outside that context (`als.exit`) on a ONE-OFF connection to
- * DATABASE_URL, never a second one from the auth pool the request already holds a connection of (that deadlocks once
- * the pool is exhausted, R-032). The connection takes the same shape withAuth gives its own: `SET LOCAL ROLE
+ * with no company context it throws. It runs outside that context (`als.exit`) on a ONE-OFF connection built from
+ * the request pool's own `authConnection()` (same URL, same login), never a second one from the auth pool the
+ * request already holds a connection of (that deadlocks once the pool is exhausted, R-032). The connection takes the same shape withAuth gives its own: `SET LOCAL ROLE
  * app_user`, `request.jwt.claims` and `app.current_company_id`, so RLS and every stamp trigger apply as in the
  * request. `fn` runs in a fresh owned context bound to that connection, so `sql` and `logAuditOrThrow` inside it join
  * this transaction. lock_timeout is 5 s. It cannot see rows the request has not committed: use it only for writes
@@ -21,21 +21,15 @@ import { als, type RequestContext } from '@/lib/als';
 import { drainAfterCommit, runOwnedContext } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { rollbackError } from '@/lib/rollbackFailed';
-
-function sslOpt() {
-  return process.env.DATABASE_SSL === 'strict'
-    ? { rejectUnauthorized: true }
-    : process.env.DATABASE_SSL === 'disable' ? false : { rejectUnauthorized: false };
-}
+import { authConnection } from './authPool';
 
 export async function withOwnCompanyTx<T>(fn: () => Promise<T>): Promise<T> {
   const request = als.getStore();
   if (!request?.companyId) throw new Error('withOwnCompanyTx: no company request context');
   const { userId, claims, companyId } = request;
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL required');
+  const connection = authConnection(); // the request pool's own URL and login (review #1542 D-I2), not the service pool's
   return als.exit(async () => {
-    const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 5000, ssl: sslOpt() });
+    const client = new pg.Client({ ...connection, connectionTimeoutMillis: 5000 });
     client.on('error', (err: Error) => {
       log.error('withOwnCompanyTx: connection error', { message: err.message }, 'Auth');
     });

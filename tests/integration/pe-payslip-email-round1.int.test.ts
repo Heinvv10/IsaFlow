@@ -5,6 +5,8 @@
  *  - S3: a request that rolls back AFTER its sends keeps their delivery rows (each committed on its own), so the next
  *    POST sends nothing again;
  *  - A1: at most `limits.maxSends` per request; the rest is `remaining`, and the next request sends it;
+ *  - D-I1: with a mail server refusing everything, a whole-run send moves on past the refused slips (they are skipped
+ *    as LAST_SEND_FAILED, not retried ahead of the rest), so every slip is tried once and `remaining` reaches 0;
  *  - A5: GET lists each employee's latest delivery at this approval;
  *  - S4: the table stamps sent_by from the session, refuses a caller-named sent_by, a write with no session user and
  *    a recipient other than the address on file;
@@ -15,7 +17,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig } from './brkr.helpers';
 import {
-  approvedRun, asAppUser, captured, cleanup, deliveries, enablePlatform, listDeliveries, maybeNext, person, putSetting,
+  approvedRun, asAppUser, captured, cleanup, deliveries, enablePlatform, failNext, listDeliveries, maybeNext, person, putSetting,
   reason, send, sendVariant, type R,
 } from './pe-payslip-email.helpers';
 
@@ -94,6 +96,27 @@ describe('payslip email, review round 1', () => {
       [emp.one, 'sent', 'one@example.invalid', 1], [emp.three, 'sent', 'three@example.invalid', 1],
       [emp.two, 'sent', 'two@example.invalid', 1]].sort());
     expect((await listDeliveries(a, run, { user: await a.addUser('viewer') })).statusCode).toBe(403);
+  });
+
+  it('D-I1: refused slips are not re-queued ahead of the rest; every slip is tried once, then nothing remains', async () => {
+    const run = await approvedRun(a, 10);
+    const limits = { maxSends: 2, budgetMs: 60_000 };
+    failNext.count = 99;
+    try {
+      const r1 = (await sendVariant(a, run, { limits })).body.data!;
+      expect([r1.failed.length, r1.remaining]).toEqual([2, 1]);
+      const r2 = (await sendVariant(a, run, { limits })).body.data!;
+      expect([r2.failed.length, r2.remaining]).toEqual([1, 0]);
+      expect(ids([...r1.failed, ...r2.failed])).toEqual([emp.one, emp.two, emp.three].sort());
+      expect(r2.skipped.map((s: { reason: string }) => s.reason)).toEqual(['LAST_SEND_FAILED', 'LAST_SEND_FAILED']);
+      const r3 = (await sendVariant(a, run, { limits })).body.data!;
+      expect([r3.failed.length, r3.sent.length, r3.remaining]).toEqual([0, 0, 0]);
+    } finally {
+      failNext.count = 0;
+    }
+    // Naming the employee is the retry.
+    const retry = await send(a, run, { body: { employeeIds: [emp.three] } });
+    expect(ids(retry.body.data!.sent)).toEqual([emp.three]);
   });
 
   it('S4: the table stamps sent_by from the session and refuses what the code never writes', async () => {

@@ -1,6 +1,6 @@
 /** PE card payloads (review #1542 A1/S2): answers checked at run time, and a batch loop folded into one outcome. */
 import { describe, expect, it } from 'vitest';
-import { deliveriesOf, mergeOutcomes, outcomeOf, stateOf } from '@/components/payroll/payslipEmailPayloads';
+import { deliveriesOf, mergeOutcomes, outcomeOf, shouldContinue, stateOf } from '@/components/payroll/payslipEmailPayloads';
 
 const w = (n: number) => ({ employeeId: `e${n}`, employeeNumber: `E-${n}`, employeeName: `Name ${n}` });
 
@@ -28,5 +28,13 @@ describe('payslip email payloads', () => {
   it('reads deliveries, refusing an unknown status', () => {
     expect(deliveriesOf([{ ...w(1), status: 'unknown', recipient: 'a@example.invalid', at: '2026-11-17T08:00:00Z', attempts: 2 },
       { ...w(2), status: 'bogus' }])).toEqual([{ ...w(1), status: 'unknown', recipient: 'a@example.invalid', at: '2026-11-17T08:00:00Z', attempts: 2 }]);
+  });
+
+  it('D-I1: the loop goes on only while something is left and the round made progress', () => {
+    const o = (sent: number, remaining: number) => outcomeOf({ sent: Array.from({ length: sent }, (_, i) => w(i)), remaining });
+    expect(shouldContinue(o(2, 1), Number.POSITIVE_INFINITY)).toBe(true);
+    expect(shouldContinue(o(0, 0), 3)).toBe(false);
+    expect(shouldContinue(o(0, 1), 3)).toBe(true); // nothing sent, but fewer left (failures moved on)
+    expect(shouldContinue(o(0, 1), 1)).toBe(false); // nothing sent, nothing fell: stop
   });
 });
