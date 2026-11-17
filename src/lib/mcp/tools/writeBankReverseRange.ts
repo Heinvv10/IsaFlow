@@ -136,7 +136,7 @@ export const reverseAllocationsTool: McpTool = {
     // The preview carries the RULE behind each allocation, because the reason
     // an agent reverses a range is usually that a rule was wrong — and the rule
     // is what it has to fix next, or the next import re-creates all of this.
-    const preview = rows.map((r) => ({
+    const previewOf = (list: typeof rows) => list.map((r) => ({
       transaction_id: r.id,
       date: r.transactionDate,
       amount: r.amount,
@@ -166,7 +166,7 @@ export const reverseAllocationsTool: McpTool = {
           bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
           dry_run: true,
           would_reverse: rows.length,
-          transactions: preview,
+          transactions: previewOf(rows),
           // Named so an agent can go straight to fixing the cause.
           rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
         }),
@@ -183,8 +183,15 @@ export const reverseAllocationsTool: McpTool = {
     // itself (WP2 row 10, transferLegReset), as for the screen and reverse_bank_allocation: one mechanism.
     // Every line and counterpart locked in one id order before the first reversal (brk), then the range re-read and the
     // counterparts re-judged under those locks: a line freed meanwhile drops out instead of aborting the call.
+    // #1545 r2 M1: only rows this call LOCKED are reversed — one that moved INTO the range after the first read was not
+    // pre-locked (it would be locked out of order) and is left for a re-run — and the step-2 agent refusal is asked again
+    // of what remains, under the locks.
+    const lockedIds = new Set(rows.map((r) => r.id.toLowerCase()));
     await preLockReversalLines(ctx.companyId, rows.map((r) => r.id));
-    rows = await findAllocatedInRange(ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE);
+    rows = (await findAllocatedInRange(ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE))
+      .filter((r) => lockedIds.has(r.id.toLowerCase()));
+    const lockedAgentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (lockedAgentRefusal) return toolError(lockedAgentRefusal.message);
     const lockedRefusal = await counterpartRefusal(ctx.companyId, rows.map((r) => r.id));
     if (lockedRefusal) return toolError(lockedRefusal);
     await reverseLinesJudged(ctx.companyId, rows, (id) =>
@@ -200,7 +207,7 @@ export const reverseAllocationsTool: McpTool = {
       bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
       dry_run: false,
       reversed: rows.length,
-      transactions: preview,
+      transactions: previewOf(rows), // #1545 r2 M2: what was reversed, from the re-read, not the first read
       rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
     });
   },

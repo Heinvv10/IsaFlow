@@ -9,6 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { reconciliationLockOf, type LineLock } from './reconciledCash';
 
 /**
@@ -29,6 +30,8 @@ export async function peekCounterpartIds(companyId: string, txId: string): Promi
 
 export async function lockTransferCounterparts(
   companyId: string, tx: DbRow, journalEntryId: string,
+  /** The legs undoRow peeked and locked WITH the row: one found now outside them appeared since — a typed retry. */
+  peeked?: readonly string[],
 ): Promise<{ ids: string[]; lock: LineLock | null }> {
   // Every allocation type (#1494 rev): a reconciled second line of ANY journal is refused by the reversal's leg reset
   // (WP2 row 10), so the undo's skip judges the same set.
@@ -39,6 +42,12 @@ export async function lockTransferCounterparts(
       AND bt.id <> ${String(tx.id)}::UUID AND bt.status IN ('allocated', 'matched', 'reconciled')
   `) as DbRow[];
   if (found.length === 0) return { ids: [], lock: null };
+  // #1545 r2 LOW 1, as transferLegReset.takeOtherLegs: a leg matched after the peek was not locked in id order with the
+  // row — refused retryable before any write (the undo counts it contended), never locked out of order.
+  if (peeked && found.some((r) => !peeked.some((p) => p.toLowerCase() === String(r.id).toLowerCase()))) {
+    throw new BankAllocationRefusal('Another bank line was matched to this journal while it was being undone — '
+      + 'retry in a moment.', undefined, { retryable: true });
+  }
   const rows = await lockBankTransactionsInIdOrder(companyId, found.map((r) => String(r.id)));
   for (const row of rows) {
     const lock = await reconciliationLockOf(companyId, row);

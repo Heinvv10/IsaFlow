@@ -23,7 +23,8 @@ import { peekReversalTarget } from './reversalDatePostable';
 
 export const OTHER_LEG = "The other bank's line of this transfer";
 
-async function otherLegs(companyId: string, bankTxId: string, chain: LineChain | null): Promise<string[]> {
+/** The other live legs reversing this line's journal chain takes the cash of — THE leg set (the batch / range pre-lock asks it too). */
+export async function otherLegs(companyId: string, bankTxId: string, chain: LineChain | null): Promise<string[]> {
   if (!chain || chain.doc) return [];
   const head = await peekReversalTarget(companyId, chain.rootId);
   if (!head) return [];

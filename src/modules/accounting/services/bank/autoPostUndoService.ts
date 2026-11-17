@@ -144,7 +144,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     // WP2 row 5 round 2: a transfer's other-bank line, auto-linked to the same journal — locked here so a reconciliation
     // holding it is this row's reconciled SKIP. Freed by reverseReconciledTransaction (WP2 row 10) when the undo reverses;
     // by the reset below only when the posting was already reversed by hand (no reversal runs then).
-    const legs = await lockTransferCounterparts(companyId, tx, jeId);
+    const legs = await lockTransferCounterparts(companyId, tx, jeId, peekedLegs);
     if (legs.lock) return { kind: 'reconciled', lock: legs.lock };
     if (state === 'none') {
       const offset = await handOffsetOf(companyId, tx); // R-079: never reversed on top of a person's correction

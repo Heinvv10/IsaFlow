@@ -12,20 +12,26 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
-import { OTHER_LEG } from './transferLegReset';
+import { OTHER_LEG, otherLegs } from './transferLegReset';
+import { peekLineChain } from './bankChainLineReversal';
 
-/** The other live lines matched to the journals `lineIds` are matched to, outside `lineIds`. Unlocked; ascending id. */
+/**
+ * The other live legs of every line in `lineIds`, outside the call — by the SAME rule reverseReconciledTransaction's
+ * leg reset uses (transferLegReset.otherLegs: the chain head's `liveLinesLosingCash`; a document chain has none), so
+ * the pre-lock and the refusal cover exactly the lines each reversal will reset (#1545 r2 LOW 2). Unlocked rows.
+ */
 export async function counterpartRows(companyId: string, lineIds: readonly string[]): Promise<DbRow[]> {
-  if (lineIds.length === 0) return [];
+  const inCall = new Set(lineIds.map((id) => id.toLowerCase()));
+  const legs = new Set<string>();
+  for (const id of lineIds) {
+    for (const leg of await otherLegs(companyId, id, await peekLineChain(companyId, id))) {
+      if (!inCall.has(leg.toLowerCase())) legs.add(leg.toLowerCase());
+    }
+  }
+  if (legs.size === 0) return [];
   return (await sql`
-    SELECT DISTINCT o.id::TEXT AS id, o.status, o.reconciliation_id
-    FROM bank_transactions t
-    JOIN gl_journal_lines tl ON tl.id = t.matched_journal_line_id AND tl.company_id = t.company_id
-    JOIN gl_journal_lines ol ON ol.journal_entry_id = tl.journal_entry_id AND ol.company_id = t.company_id
-    JOIN bank_transactions o ON o.matched_journal_line_id = ol.id AND o.company_id = t.company_id
-    WHERE t.company_id = ${companyId}::UUID AND t.id = ANY(${[...lineIds]}::UUID[])
-      AND NOT o.id = ANY(${[...lineIds]}::UUID[]) AND o.status IN ('allocated', 'matched', 'reconciled')
-    ORDER BY 1
+    SELECT id::TEXT AS id, status, reconciliation_id FROM bank_transactions
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${[...legs]}::UUID[]) ORDER BY 1
   `) as DbRow[];
 }
 
@@ -41,8 +47,11 @@ export async function counterpartRefusal(companyId: string, lineIds: readonly st
   return null;
 }
 
-/** Before the first reversal: the lines and their counterparts, locked together in id order. */
+/**
+ * Before the first reversal: the lines and their counterparts, locked together in id order, sessions first, under ONE
+ * 5 s deadline for the whole set (#1545 r2 LOW 3), not 5 s per line.
+ */
 export async function preLockReversalLines(companyId: string, lineIds: readonly string[]): Promise<void> {
   const legs = await counterpartRows(companyId, lineIds);
-  await lockBankTransactionsInIdOrder(companyId, [...lineIds, ...legs.map((l) => String(l.id))]);
+  await lockBankTransactionsInIdOrder(companyId, [...lineIds, ...legs.map((l) => String(l.id))], { deadline: Date.now() + 5000 });
 }
