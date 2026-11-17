@@ -98,6 +98,20 @@ export async function repointPeriodToItsYear(companyId: string, periodId: string
   `;
 }
 
+/**
+ * Lock order companies -> fiscal_periods -> fiscal_years. A settings save
+ * UPDATEs companies and its trigger (fiscal_years_confirm_declared_month,
+ * migration 940) then UPDATEs fiscal_years; apply and undo write fiscal_years
+ * and later companies.financial_year_start. Taking the company row first makes
+ * a save in flight finish (or wait) before any fiscal row is touched, instead
+ * of the two deadlocking (40P01). FOR NO KEY UPDATE, the lock the save's
+ * UPDATE takes: it does not block the FK inserts (FOR KEY SHARE) every other
+ * writer for the company makes.
+ */
+export async function lockCompanyForYearChange(companyId: string): Promise<void> {
+  await sql`SELECT id FROM companies WHERE id = ${companyId}::UUID FOR NO KEY UPDATE`;
+}
+
 export async function applyYearEndChange(
   companyId: string, userId: string, input: YearEndChangeApplyInput, today: string = todayLocal(),
 ): Promise<YearEndChangeResult> {
@@ -110,7 +124,9 @@ export async function applyYearEndChange(
   // closed concurrently is either seen by the assessment (a 409) or waits. In
   // (fiscal_year, period_number, id) order, the order every period locker uses
   // (periodCloseGate), so this and a close over the same periods cannot deadlock.
+  // The company row comes before any fiscal row (lockCompanyForYearChange).
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
+  await lockCompanyForYearChange(companyId);
   await sql`
     SELECT fp.id FROM fiscal_periods fp
      WHERE fp.company_id = ${companyId}::UUID
