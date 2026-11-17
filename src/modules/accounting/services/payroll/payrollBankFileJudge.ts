@@ -18,6 +18,12 @@
  *                       (JOURNAL_NOT_POSTED otherwise: post it first), and the lines must sum to both the header's
  *                       total_net and that journal's net-pay credit. The header alone is no anchor: app_user can move
  *                       it with the lines; the posted journal it cannot.
+ *
+ * RESIDUAL (security review (b), coordinator ruling C): the anchors are TOTALS. Nothing records each employee's net at
+ * approval (the plan hash and the R-035 digest cover journal lines aggregated by account and CC1; the journal has one
+ * net-pay line), so net moved between employees with the total unchanged is not caught here. What holds today is this
+ * total anchor plus the run's R-035 approval. The structural fix is wave-6 PR FZ: a database trigger refusing
+ * money-column changes on an approved run's lines and header (after PS3).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
