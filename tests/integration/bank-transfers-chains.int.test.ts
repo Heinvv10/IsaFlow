@@ -45,7 +45,7 @@ const lineState = async (id: string) => ((await sql`SELECT status, matched_journ
 describeIfDb('the transfer guard on reversal chains', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedDateFixture('CHAIN', DATABASE_URL!);
+    c = await seedDateFixture('CHAIN', DATABASE_URL!, [2029]);
     token = await seedRouteUser(c.fx, 'chain');
     bankA = c.fx.bankAccountId;
     bankB = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
@@ -71,7 +71,7 @@ describeIfDb('the transfer guard on reversal chains', () => {
   // cross-tenant reversal_of_id on the pointer journal does not drop the line (the duplicate is still refused), and a
   // forged reversal loop does not hang the allocation.
   it('a forged reversal_of_id (cross-tenant, or a loop) neither drops the line nor hangs arm 1', async () => {
-    const other = await seedDateFixture('PAIRX', DATABASE_URL!);
+    const other = await seedDateFixture('PAIRX', DATABASE_URL!, [2029]);
     const foreign = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, source,
       created_by) VALUES (${other.fx.companyId}::UUID, '2029-03-01', 'PAIRX other tenant', 'draft', 'manual',
       ${other.fx.userId}::UUID) RETURNING id`) as Row[])[0]!.id);
