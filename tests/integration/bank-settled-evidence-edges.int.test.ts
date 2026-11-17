@@ -184,6 +184,13 @@ describeIfDb('bank line settled evidence: edges', () => {
     await alloc(pOwn, bOwn, 120); const dOwn = uuid(); await doc(dOwn, bOwn, 'prv-own.pdf');
     await q('UPDATE bank_transactions SET provisional_je_id=$1 WHERE id=$2', [l.je, own.id]);
     expect((await listSettledDocuments(co, own.id)).map((r) => r.documentId)).toEqual([dOwn]);
+    // the settled line itself, matched to an UNRELATED journal: only that journal's bill, not the provisional's (Q1)
+    const elsewhere = await line(-50); const bX = await bill('PRV-X', 50); const pX = await pay(elsewhere.je, 'PRVX', 50);
+    await alloc(pX, bX, 50); const dX = uuid(); await doc(dX, bX, 'prv-x.pdf');
+    await q('UPDATE bank_transactions SET matched_journal_line_id=NULL WHERE id=$1', [elsewhere.id]);
+    await q('UPDATE bank_transactions SET matched_journal_line_id=$1 WHERE id=$2', [elsewhere.leg, l.id]);
+    expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId)).toEqual([dX]);
+    await q('UPDATE bank_transactions SET matched_journal_line_id=NULL WHERE id=$1', [l.id]);
     expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId)).toEqual([d]);
     // matched later to its own provisional leg: keeps its evidence, counted once (no other source reaches this payment)
     await q('UPDATE bank_transactions SET matched_journal_line_id=$1 WHERE id=$2', [l.leg, l.id]);
