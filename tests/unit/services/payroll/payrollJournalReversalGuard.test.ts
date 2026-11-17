@@ -15,7 +15,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const db = vi.hoisted(() => ({ run: null as null | Record<string, unknown>, calls: [] as unknown[][] }));
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (_s: TemplateStringsArray, ...values: unknown[]) => { db.calls.push(values); return db.run ? [db.run] : []; }),
+  sql: Object.assign(vi.fn(async (_s: TemplateStringsArray, ...values: unknown[]) => { db.calls.push(values); return db.run ? [db.run] : []; }),
+    { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
   MAX_CHAIN_JOURNALS: 25,
@@ -91,6 +92,16 @@ describe('payrollReversalRefusal (the decision, read-only)', () => {
     await payrollReversalRefusal('c1', PAYROLL);
     expect(db.calls.at(-1)).toEqual(expect.arrayContaining([-1]));
     expect(db.calls.at(-1)).not.toContain(2026);
+  });
+
+  it('wave 6 FQc: a run-keyed description is looked up by its month, kind and pay date; the monthly form binds no kind', async () => {
+    chain('in_force', { description: 'Payroll run 2026-05 bonus, paid 2026-05-28' }); linkedRun('calculated');
+    await payrollReversalRefusal('c1', PAYROLL);
+    expect(db.calls.at(-1)).toEqual(expect.arrayContaining([2026, 5, 'bonus', '2026-05-28']));
+    chain('in_force', { description: 'Payroll run 2026-05' });
+    await payrollReversalRefusal('c1', PAYROLL);
+    expect(db.calls.at(-1)).toEqual(expect.arrayContaining([2026, 5, null]));
+    expect(db.calls.at(-1)).not.toContain('bonus');
   });
 
   it('allows an auto_payroll journal no run claims (a UIF or tax-directive payment)', async () => {
