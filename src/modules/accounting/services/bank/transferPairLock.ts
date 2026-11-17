@@ -21,7 +21,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention, isLockNotAvailable } from '../core/lockContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
-import { RowLockTimeoutError, currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
+import { RowLockTimeoutError, currentLockTimeout, restoreLockTimeout, tightenLockTimeout } from '../core/rowLockBudget';
 
 /** The key both legs (and the typed transfer) take: company + the two accounts in sorted order. */
 export function transferPairKey(companyId: string, accountA: string, accountB: string): string {
@@ -54,13 +54,18 @@ export function isContendedLock(err: unknown): boolean {
   return err instanceof RowLockTimeoutError || isLockContention(err) || isHeldRowError(err);
 }
 
-/** The wait left before `deadline`, ms, never below 1 — past it every lock is tried as good as NOWAIT. */
-export const remainingWaitMs = (deadline: number): number => Math.max(1, deadline - Date.now());
+/**
+ * The wait left before `deadline`, ms. Past it every remaining lock still gets a short FLOOR (#1494 rev 4): at 1 ms a
+ * line or pair a peer held for an instant (a single statement's lock) was skipped as contended; 50 ms rides that out,
+ * while a lock held for real still costs the batch at most 50 ms per remaining item.
+ */
+export const PRELOCK_FLOOR_MS = 50;
+export const remainingWaitMs = (deadline: number): number => Math.max(PRELOCK_FLOOR_MS, deadline - Date.now());
 
 /**
  * Every pair a multi-journal request will post, taken in SORTED key order before its first journal (see the header).
  * ONE total budget for all of them (`deadline`, default 5 s from now — brk-1494 LOW 2: 5 s per held pair, serially,
- * cost 10 s for two): each waits only what is left, and once it is spent the rest are tried at 1 ms. Each in its own
+ * cost 10 s for two): each waits only what is left, and once it is spent the rest get the 50 ms floor (PRELOCK_FLOOR_MS). Each in its own
  * savepoint, so a pair another request holds (or a deadlock that picks this request as its victim, 40P01) leaves the
  * request usable: its key comes back in the returned set, and the caller must SKIP every line of that pair (counted
  * as held) — attempting one would wait on the pair while holding the number lock, the cycle this exists to prevent.
@@ -81,7 +86,7 @@ export async function preLockTransferPairs(
       try {
         await withSavepoint('transfer_pair_prelock', async () => {
           // lockTransferPair keeps a TIGHTER caller value (tighten-only), so this is the wait it gets.
-          if (client) await client.query("SELECT set_config('lock_timeout', $1, true)", [`${remainingWaitMs(deadline)}ms`]);
+          if (client) await tightenLockTimeout(client, remainingWaitMs(deadline)); // never looser than the caller's (rev 1)
           await lockTransferPair(companyId, a, b);
         });
       } catch (err) {

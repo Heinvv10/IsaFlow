@@ -20,7 +20,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention } from '../core/lockContention';
-import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
+import { currentLockTimeout, restoreLockTimeout, tightenLockTimeout } from '../core/rowLockBudget';
 import { shareLockStampedSessions, stampHeld } from './reconciliationSessionLock';
 
 /**
@@ -109,7 +109,7 @@ export async function lockBankTransactionForUpdate(
   assertTxUsable();
   const previousLockTimeout = await currentLockTimeout(client);
   if (opts.lockTimeoutMs === undefined) await client.query("SET LOCAL lock_timeout = '5s'");
-  else await client.query("SELECT set_config('lock_timeout', $1, true)", [`${Math.min(5000, Math.max(1, Math.floor(opts.lockTimeoutMs)))}ms`]);
+  else await tightenLockTimeout(client, Math.min(5000, opts.lockTimeoutMs)); // a pre-lock's budget, never looser than the caller's
   let failure: unknown = null;
   try {
     // D12: the session the line is stamped with, FOR SHARE, BEFORE the line — session row -> bank line is the lock
