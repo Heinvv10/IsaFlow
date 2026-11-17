@@ -26,7 +26,7 @@ export function CodingMetricsStrip() {
     return () => { live = false; };
   }, []);
 
-  if (error) return <p role="alert" className="mb-2 text-xs text-red-400">{error}</p>;
+  if (error) return <p role="alert" className="mb-2 text-xs text-red-700 dark:text-red-400">{error}</p>;
   if (!data) return null;
   const { metrics, minDecisions } = data;
   return (

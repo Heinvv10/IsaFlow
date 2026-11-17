@@ -42,6 +42,8 @@ const listUrls = () => vi.mocked(apiFetch).mock.calls.map(c => String(c[0])).fil
 const lastParams = () => new URL(listUrls().at(-1)!, 'http://x').searchParams;
 const call = (obj: Record<string, unknown>, name: string, ...args: unknown[]) => act(async () => { (obj[name] as (...a: unknown[]) => unknown)(...args); });
 const selectedProp = () => [...(cap.table.selectedIds as Set<string>)].sort();
+/** The list frame's busy mark: set while the SAME list reloads (its rows stay mounted), clear once the latest load ends. */
+const frameBusy = () => screen.getByTestId('bank-tx-list-frame').getAttribute('aria-busy');
 const bar = () => screen.getByTestId('bank-tx-selected-count').textContent;
 
 let list: (url: string) => Response | Promise<Response>;
@@ -167,14 +169,14 @@ describe('the AI poll reloads silently', () => {
     let release!: () => void;
     list = () => new Promise<Response>(resolve => { release = () => resolve(ok({ transactions: [row('p1a'), row('p1b'), row('late')], total: 60 })); });
     await act(async () => { void cap.poll!(); });
-    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+    expect(frameBusy()).toBeNull();
     expect((cap.table.transactions as unknown[]).length).toBe(3); // the old rows are still there
     await act(async () => { release(); });
     await waitFor(() => expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toContain('late'));
     // a visible reload (Refresh) does blank to the skeleton
     list = () => new Promise<Response>(resolve => { release = () => resolve(ok({ transactions: [row('p1a')], total: 1 })); });
     await call(cap.filters, 'onRefresh');
-    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await waitFor(() => expect(frameBusy()).toBe('true')); // the same list reloading stays mounted, marked busy
     await act(async () => { release(); });
   });
 
@@ -198,11 +200,11 @@ describe('overlapping loads: the LATEST load ends the skeleton, silent or not', 
     await loaded();
     const r = pending();
     await call(cap.filters, 'onRefresh'); // visible: skeleton up
-    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await waitFor(() => expect(frameBusy()).toBe('true')); // the same list reloading stays mounted, marked busy
     await act(async () => { void cap.poll!(); }); // silent tick bumps the sequence
     await act(async () => { r[0]!(['old']); }); // the visible (now stale) one resolves
     await act(async () => { r[1]!(['p1a', 'p1b', 'new']); }); // then the silent one
-    await waitFor(() => expect(screen.queryByTestId('list-skeleton')).toBeNull());
+    await waitFor(() => expect(frameBusy()).toBeNull());
     expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toContain('new');
   });
 
@@ -210,12 +212,12 @@ describe('overlapping loads: the LATEST load ends the skeleton, silent or not', 
     await loaded();
     const r = pending();
     await call(cap.filters, 'onRefresh');
-    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await waitFor(() => expect(frameBusy()).toBe('true')); // the same list reloading stays mounted, marked busy
     await act(async () => { void cap.poll!(); });
     await act(async () => { r[1]!(['p1a', 'new']); });
-    await waitFor(() => expect(screen.queryByTestId('list-skeleton')).toBeNull());
+    await waitFor(() => expect(frameBusy()).toBeNull());
     await act(async () => { r[0]!(['old']); });
-    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+    expect(frameBusy()).toBeNull();
     expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toEqual(['p1a', 'new']);
   });
 
@@ -235,12 +237,12 @@ describe('overlapping loads: the LATEST load ends the skeleton, silent or not', 
     const pendingVisible: Array<() => void> = [];
     list = () => new Promise<Response>(resolve => { pendingVisible.push(() => resolve(ok({ transactions: [row('p2a')], total: 60 }))); });
     fireEvent.click(screen.getByRole('button', { name: '2' })); // a visible load for page 2
-    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await waitFor(() => expect(frameBusy()).toBe('true')); // the same list reloading stays mounted, marked busy
     list = () => new Response(JSON.stringify({ success: false, error: { message: 'tick failed' } }), { status: 500 });
     await act(async () => { await cap.poll!(); }); // the silent tick supersedes it and fails
     await act(async () => { pendingVisible.forEach(r => r()); }); // the stale visible one resolving changes nothing
     expect(await screen.findByText(/tick failed|Could not load transactions/)).toBeTruthy();
-    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+    expect(frameBusy()).toBeNull();
     expect(screen.getByTestId('bank-tx-selected-count').textContent).toBe('0 selected'); // and no stale rows left to tick
   });
 });

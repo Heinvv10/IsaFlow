@@ -43,6 +43,8 @@ const listUrls = () => vi.mocked(apiFetch).mock.calls.map(c => String(c[0])).fil
 const lastParams = () => new URL(listUrls().at(-1)!, 'http://x').searchParams;
 const call = (obj: Record<string, unknown>, name: string, ...args: unknown[]) => act(async () => { (obj[name] as (...a: unknown[]) => unknown)(...args); });
 const selectedProp = () => [...(cap.table.selectedIds as Set<string>)].sort();
+/** The list frame's busy mark: set while the SAME list reloads (its rows stay mounted), clear once the latest load ends. */
+const frameBusy = () => screen.getByTestId('bank-tx-list-frame').getAttribute('aria-busy');
 const bar = () => screen.getByTestId('bank-tx-selected-count').textContent;
 
 let list: (url: string) => Response | Promise<Response>;
@@ -72,10 +74,10 @@ describe('post-mutation reloads and the skeleton', () => {
     const rel: Array<() => void> = [];
     list = () => new Promise<Response>(resolve => { rel.push(() => resolve(ok({ transactions: [row('p1a'), row('late')], total: 60 }))); });
     await call(cap.filters, 'onRefresh');
-    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await waitFor(() => expect(frameBusy()).toBe('true')); // the same list reloading stays mounted, marked busy
     await act(async () => { void cap.poll!(); });
     await act(async () => { rel.forEach(r => r()); });
-    await waitFor(() => expect(screen.queryByTestId('list-skeleton')).toBeNull());
+    await waitFor(() => expect(frameBusy()).toBeNull());
   });
 
   /** A bulk Delete held open at the server, so the user can move before it finishes. */
