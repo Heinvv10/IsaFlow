@@ -48,6 +48,14 @@ export function setGotrueEmail(id: string, email: string): void {
   accounts.set(email.trim().toLowerCase(), id);
   logins.set(id, email);
 }
+/** user_metadata GoTrue stored on the accounts it created (POST /admin/users): invite_id names the invitation. */
+const metadata = new Map<string, unknown>();
+/** Accounts that have signed in (seedUser's real users, and any password grant): confirmed, last_sign_in_at set. */
+const signedIn = new Set<string>();
+/** Accounts whose email is confirmed though nobody has signed in yet (confirmEmail). */
+const confirmed = new Set<string>();
+/** GoTrue confirms `id`'s address (email_confirmed_at) without a sign-in. */
+export function confirmEmail(id: string): void { confirmed.add(id); }
 /** GoTrue users whose password an accept route set (PUT /admin/users/<id>). */
 export const passwordSets: string[] = [];
 let ipSeq = 0;
@@ -62,6 +70,7 @@ export async function seedUser(opts: { memberOf?: readonly string[]; email?: str
   created.push(id);
   accounts.set(email.trim().toLowerCase(), id);
   logins.set(id, email);
+  signedIn.add(id);
   await pool.query(`INSERT INTO users (id, email, role, is_active, status) VALUES ($1, $2, 'viewer', true, 'active')`, [id, email]);
   for (const company of opts.memberOf ?? []) {
     await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, id]);
@@ -151,14 +160,18 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
     created.push(id);
     accounts.set(email.trim().toLowerCase(), id);
     logins.set(id, email);
-    return Promise.resolve(json({ id, email }));
+    metadata.set(id, body.user_metadata ?? {});
+    return Promise.resolve(json({ id, email, user_metadata: metadata.get(id) }));
   }
   if (path.startsWith('/admin/users/') && method === 'GET') {
     // GoTrue parses the id as a UUID, so any letter case names the same (lower-case) account.
     const id = decodeURIComponent(path.split('/').pop()!).toLowerCase();
     if (gotrueDown.has(id)) return Promise.resolve(json({ msg: 'unavailable' }, 503));
     const email = logins.get(id);
-    return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404) : json({ id, email, factors: [] }));
+    return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404)
+      : json({ id, email, factors: [], user_metadata: metadata.get(id) ?? {},
+        ...(signedIn.has(id) || confirmed.has(id) ? { email_confirmed_at: '2026-01-01T00:00:00Z' } : {}),
+        ...(signedIn.has(id) ? { last_sign_in_at: '2026-01-02T00:00:00Z' } : {}) }));
   }
   if (path.startsWith('/admin/users/')) {
     const id = path.split('/').pop()!;
@@ -168,6 +181,7 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
   if (path === '/token') {
     const id = accounts.get(String(body.email).trim().toLowerCase());
     if (!id) return Promise.resolve(json({ error: 'invalid_grant' }, 400));
+    signedIn.add(id);
     return Promise.resolve(json({
       access_token: 'disposable-access', refresh_token: 'disposable-refresh', expires_in: 3600, token_type: 'bearer',
       user: { id, email: body.email },

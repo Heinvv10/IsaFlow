@@ -14,8 +14,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 // No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
 // (#1468); answer the address this suite's sessions carry (signSession).
-vi.mock('@/lib/auth/gotrueAdminUser', async () =>
-  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
+// Revoke reads the pinned account's invite_id through it too (`stamped`: what the stub stamped on create).
+const stamped = vi.hoisted(() => new Map<string, unknown>());
+vi.mock('@/lib/auth/gotrueAdminUser', async () => ({ adminGetUser: async (id: string) => ({ id, email: `${id}@test.local`,
+  ...(stamped.has(id) ? { user_metadata: stamped.get(id) } : {}) }) }));
 import invitationsRoute from '../../pages/api/accounting/company-invitations';
 import inviteApiRoute from '../../pages/api/invitations/index';
 import revokeRoute from '../../pages/api/invitations/revoke/[id]';
@@ -94,6 +96,8 @@ const invite = (sub: string, email: string, role: string) =>
   callRoute(invitationsRoute, { sub, method: 'POST', companyId: company, body: { email, role } });
 
 describe('S-07c: /api/accounting/company-invitations and /invite/<token>', () => {
+  // createInvitation looks the address up in GoTrue first (R7-1 pin): no account holds these addresses.
+  beforeEach(() => { stubGotrue(({ method, path }) => (method === 'GET' && path.startsWith('/admin/users?filter=') ? json(200, { users: [] }) : undefined)); });
   it('creates (migration_admin INSERT), mails the token, and stamps email_sent_at', async () => {
     const u = await newUser();
     expect(await invite(me, u.email, 'viewer')).toMatchObject({ status: 200, body: { data: { emailSent: true } } });
@@ -139,8 +143,10 @@ describe('S-07c: /api/accounting/company-invitations and /invite/<token>', () =>
 describe('S-07c: /api/invitations, revoke and the password accept route (GoTrue stubbed)', () => {
   /** GoTrue: POST /admin/users creates `gid`; PUT /admin/users/gid and the password grant sign it in; DELETE removes it. */
   function gotrueFor(gid: string, email: string) {
-    return stubGotrue(({ method, path }) => {
-      if (method === 'POST' && path === '/admin/users') return json(200, { id: gid, email });
+    return stubGotrue(({ method, path, body }) => {
+      if (method === 'POST' && path === '/admin/users') { // invite_id stamped: revoke deletes only its own account
+        stamped.set(gid, (body as { user_metadata?: unknown } | null)?.user_metadata ?? {}); return json(200, { id: gid, email });
+      }
       if (method === 'PUT' && path === `/admin/users/${gid}`) return json(200, { id: gid, email });
       if (method === 'DELETE' && path === `/admin/users/${gid}`) return json(200, {});
       if (method === 'GET' && path === '/user') return json(200, { id: gid, factors: [] }); // accept's MFA gate
