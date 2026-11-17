@@ -9,7 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_OUTSIDE_TABLES } from './taxStatusTreatment';
 import { formatField, UsageError } from './easyFileFields';
 
@@ -20,14 +20,13 @@ export const MAX_DIRECTIVE_NUMBERS = 5;
 export async function listRegularDirectiveNumbers(
   companyId: string, bounds: { start: string; end: string }, employeeId: string | null = null,
 ): Promise<Map<string, string[]>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT l.employee_id, v->'directive'->>'number' AS number, MIN(make_date(h.period_year, h.period_month, 1)) AS first_used
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(l.validation_results) = 'array' THEN l.validation_results ELSE '[]'::jsonb END) v
     WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND v->>'code' = ${PAYE_OUTSIDE_TABLES} AND v->>'treatment' = 'directive'

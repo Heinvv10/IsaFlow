@@ -55,8 +55,8 @@ async function marchRun(lines: Array<{ employeeId: string; components: EmployeeC
   }));
   const gross = costed.reduce((s, c) => s + c.line.grossPay, 0);
   const run = (await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, total_paye)
-     VALUES ($1, 3, 2026, 'approved', $2, $3) RETURNING id`,
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, total_paye, approved_at)
+     VALUES ($1, 3, 2026, 'approved', $2, $3, clock_timestamp()) RETURNING id`,
     [of, gross, costed.reduce((s, c) => s + c.line.paye.monthlyPaye, 0)])).rows[0]!.id;
   for (const { employeeId, line } of costed) {
     await pool.query(

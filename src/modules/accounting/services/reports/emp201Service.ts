@@ -10,7 +10,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { listNotFinalDeclaredRuns, notFinalRunWarning } from '@/modules/accounting/services/payroll/payRunNotFinal';
+import { loadRunLineUif, uifSplitMismatchWarning } from './emp201LineUif';
+import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { etiCarryLedger, etiMonthsOf, summariseCarry, type EtiCarry } from '@/modules/accounting/services/payroll/etiCarry';
 import { loadEarlierEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
@@ -34,6 +37,12 @@ export interface EMP201Data {
   etiCarry: EtiCarry;
   /** ETI the ledger has not booked as the EMP201 declares it, by name (review L3: an unbooked August/February refund). */
   etiWarnings: string[];
+  /**
+   * Runs the EMP201 leaves out or cannot reconcile, by name: an approved/paid run that is not final (no approval
+   * time; payRunNotFinal), and a run whose lines' UIF split does not add up to its header total (emp201LineUif).
+   */
+  runWarnings: string[];
+  /** The lines' own uif_employee / uif_employer sums over the final runs (wave 6 EF; it was half of totalUIF). */
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -86,11 +95,9 @@ function roundCents(n: number): number {
 }
 
 /**
- * Generate EMP201 (monthly PAYE/UIF/SDL) data from Phase 1 payroll_run_headers.
- *
- * Note on UIF split: payroll_run_headers stores total_uif as a single combined
- * value (employee + employer). Phase 4 will aggregate per-line employee/employer
- * UIF from payroll_run_lines. Until then we approximate 50/50.
+ * Generate EMP201 (monthly PAYE/UIF/SDL) data from the FINAL runs' payroll_run_headers (payRunFinalSql: approved or
+ * paid AND an approval time; never a status string alone). The UIF total is the headers' total_uif (what the journal
+ * credited to 2150); its employee/employer split is the lines' own sums (emp201LineUif).
  */
 export async function generateEMP201(
   companyId: string,
@@ -107,6 +114,7 @@ export async function generateEMP201(
     payePayable: 0,
     etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 },
     etiWarnings: [],
+    runWarnings: [],
     totalUIF_employee: 0,
     totalUIF_employer: 0,
     totalUIF: 0,
@@ -141,10 +149,6 @@ export async function generateEMP201(
   try {
     const startDate = periodStart.slice(0, 10);
     const endDate = periodEnd.slice(0, 10);
-    // Bound as an array rather than inlined literals so the vocabulary lives in
-    // exactly one place (@/lib/constants/payrollRunStatuses).
-    const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
-
     const runs = (await sql`
       SELECT
         prh.id,
@@ -170,11 +174,14 @@ export async function generateEMP201(
         ARRAY(SELECT DISTINCT l.employee_id::text FROM payroll_run_lines l WHERE l.run_id = prh.id) AS employee_ids
       FROM payroll_run_headers prh
       WHERE prh.company_id = ${companyId}::uuid
-        AND prh.status = ANY(${declarableStatuses}::text[])
+        AND ${sql.unsafe(payRunFinalSql('prh'))}
         AND make_date(prh.period_year, prh.period_month, 1) >= ${startDate}::date
         AND make_date(prh.period_year, prh.period_month, 1) <= ${endDate}::date
       ORDER BY prh.period_year, prh.period_month
     `) as Row[];
+
+    // Wave 6 FQa/EF: a run this release cannot declare (weekly, off-cycle, ...) is refused by name, never summed as monthly.
+    for (const runId of runs.map((r: Row) => String(r.id))) await assertRunKindSupported(companyId, runId, 'emp201');
 
     const standalone = await listStandaloneDirectivePayments(companyId, { start: startDate, end: endDate });
     const directivePayments: EMP201DirectivePayment[] = standalone.map(p => ({
@@ -192,11 +199,15 @@ export async function generateEMP201(
     const etiLedger = etiCarryLedger(from, to, months);
     const etiCarry = summariseCarry(etiLedger, from);
     const etiWarnings = await unbookedRefundWarnings(companyId, etiLedger, from);
-    if (runs.length === 0 && directivePayments.length === 0) return { ...emptyResult, etiCarry, etiWarnings };
+    const runWarnings = (await listNotFinalDeclaredRuns(companyId, startDate, endDate)).map((r) => notFinalRunWarning(r, 'EMP201'));
+    if (runs.length === 0 && directivePayments.length === 0) return { ...emptyResult, etiCarry, etiWarnings, runWarnings };
+    const lineUif = await loadRunLineUif(companyId, runs.map((r: Row) => String(r.id)));
 
     let totalPAYE = directivePayments.reduce((t, p) => t + p.paye, 0);
     let totalETI = 0;
     let totalUIF = 0;
+    let uifEmployee = 0;
+    let uifEmployer = 0;
     let totalSDL = 0;
     let totalGross = directivePayments.reduce((t, p) => t + p.gross, 0);
     let totalNonCash = 0;
@@ -224,6 +235,11 @@ export async function generateEMP201(
       for (const id of (r.employee_ids as string[] | null) ?? []) paid.add(id);
 
       const month = String(r.period_month).padStart(2, '0');
+      const split = lineUif.get(String(r.id)) ?? { employee: 0, employer: 0 };
+      uifEmployee += split.employee;
+      uifEmployer += split.employer;
+      const mismatch = uifSplitMismatchWarning(`${r.period_year}-${month}`, uif, split);
+      if (mismatch) runWarnings.push(mismatch);
       return {
         id: String(r.id),
         runDate: `${r.period_year}-${month}-01`,
@@ -235,12 +251,6 @@ export async function generateEMP201(
         sdl: roundCents(sdl),
       };
     });
-
-    // Phase 1 aggregates total_uif as combined employee+employer.
-    // Phase 4 will split these by summing payroll_run_lines per employee/employer UIF.
-    // Meanwhile, approximate 50/50.
-    const uifEmployee = roundCents(totalUIF / 2);
-    const uifEmployer = roundCents(totalUIF / 2);
 
     // ETI is an offset against the month's PAYE, never below zero; the excess carries into the next month and is
     // claimed as a refund at the end of the reconciliation period (ETI Act s9(1), s10; payroll/etiCarry).
@@ -254,8 +264,9 @@ export async function generateEMP201(
       payePayable,
       etiCarry,
       etiWarnings,
-      totalUIF_employee: uifEmployee,
-      totalUIF_employer: uifEmployer,
+      runWarnings,
+      totalUIF_employee: roundCents(uifEmployee),
+      totalUIF_employer: roundCents(uifEmployer),
       totalUIF: roundCents(totalUIF),
       totalSDL: roundCents(totalSDL),
       employeeCount: paid.size,
@@ -267,6 +278,8 @@ export async function generateEMP201(
       directivePayments,
     };
   } catch (err) {
+    // A run this release cannot declare is a typed refusal (409), not an error to log (wave 6 EF review).
+    if (isRunKindUnsupported(err)) throw err;
     // Never convert a failure into a valid-looking nil declaration (R0 PAYE/UIF/SDL).
     log.error('Error generating EMP201 from payroll data', { error: err, companyId }, 'emp201Service');
     throw err;
