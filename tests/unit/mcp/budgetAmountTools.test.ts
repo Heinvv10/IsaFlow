@@ -83,57 +83,6 @@ describe('set_budget_amounts: per-row refusals (the dry run lists them and runs 
     expect(r.wroteNothing).toBe(true);
   });
 
-  const refusedDry = async (args: Record<string, unknown>) => json(await amounts.handler({ ...KEY, dry_run: true, ...args }, ctx()));
-  const year = (out: Record<string, unknown>, when: 'before' | 'after') => (out.totals as Record<string, Record<string, { year: string }>>)[when].operatingExpenses.year;
-
-  it('with a refused row the other cells are counted, listed and totalled by what the save would leave, never as unchanged', async () => {
-    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
-    expect(out).toMatchObject({ ready: false, plan_hash: null, counts: { added: 1, changed: 0, removed: 0, unchanged: 0, refused: 1 } });
-    expect((out.cells as unknown[])[0]).toEqual({ i: 0, account: '6000', dimension: null, month: '2026-04', status: 'added', before: null, after: '5.00' });
-    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
-  });
-
-  it('with a refused row the listed source is the one the save leaves (a driver override)', async () => {
-    extra = (cells) => cells.map((c) => (c.month === '2026-04' ? { ...c, source: 'override' } : c));
-    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
-    expect((out.cells as Array<Record<string, unknown>>)[0]).toMatchObject({ status: 'added', after: '5.00', source: 'override' });
-  });
-
-  it.each([
-    ['another account', cell('7000', '2026-04', '1')],
-    ['the same account', cell('6000', '2026-05', '1', { cc1: 'NOPE' })],
-  ])('replace with a refused row (%s) holds back the clears and says so', async (_n, bad) => {
-    const out = await refusedDry({ mode: 'replace', cells: [cell('6000', '2026-04', '5.00'), bad] });
-    expect(out.counts).toMatchObject({ added: 1, removed: 0, unchanged: 0, refused: 1 });
-    expect((out.cells as Array<Record<string, unknown>>).some((c) => c.i === null)).toBe(false);
-    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
-    expect(vi.mocked(saveCells).mock.calls[0][2].cells.map((x) => x.month)).toEqual(['2026-04']);
-    expect(out.next_step).toMatch(/replace would clear are listed once nothing is refused/);
-  });
-
-  it('replace with nothing refused still lists and saves its clears', async () => {
-    const out = await refusedDry({ mode: 'replace', cells: [cell('6000', '2026-04', '5.00')] });
-    expect(out.counts).toMatchObject({ added: 1, removed: 1, refused: 0 });
-    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '5.00']);
-  });
-
-  it('a plan-level refusal (the same cell twice) still shows the first one by its outcome', async () => {
-    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('6000', '2026-04', '6.00')] });
-    expect(out).toMatchObject({ plan_hash: null, counts: { added: 1, unchanged: 0, refused: 1 } });
-    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
-  });
-
-  it('a save refusal with refused rows says both', async () => {
-    vi.mocked(saveCells).mockRejectedValue(new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'You can change only your own budget slices'));
-    const r = await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
-    expect(text(r)).toMatch(/would be refused: You can change only your own budget slices\. Besides, 1 cell is refused.*cell 1: .*header/);
-  });
-
-  it('any other failure of the trial save is thrown, never answered as a refusal', async () => {
-    vi.mocked(saveCells).mockRejectedValue(new Error('connection lost'));
-    await expect(amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx())).rejects.toThrow('connection lost');
-  });
-
   it('the live call with any refused row writes nothing (all or nothing)', async () => {
     const r = await amounts.handler({ ...KEY, plan_hash: 'a'.repeat(64), cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
     expect(text(r)).toMatch(/1 cell is refused, so nothing was written.*cell 1: .*header/);

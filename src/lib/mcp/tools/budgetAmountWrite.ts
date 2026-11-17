@@ -96,12 +96,14 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
   if (w.dryRun) {
     // The save runs (rolled back) on the cells that are not refused, so even with refused rows the other
     // cells, their sources and the totals are what the save would actually leave, under every save rule.
-    // Replace's clears of an account's unlisted cells are left out while any row is refused: a refused row
-    // may be the very cell the caller meant to keep, so those clears are not known yet.
+    // While any row is refused, a replace's accounts that would clear unlisted cells are held back whole: a
+    // refused row may be the very cell the caller meant to keep, and the account's new cells without those
+    // clears could break the one-level rule, a refusal the full request would not get.
     const holdClears = refused > 0 && w.mode === 'replace';
-    const clears = new Set(holdClears ? plan.entries.filter((e) => e.index === null).map((e) => e.key) : []);
-    const entries = plan.entries.filter((e) => !clears.has(e.key));
-    const trial = plan.save.filter((c) => !clears.has(cellKey(c)));
+    const accountOf = (key: string) => key.slice(0, key.indexOf('|'));
+    const held = new Set(holdClears ? plan.entries.filter((e) => e.index === null).map((e) => accountOf(e.key)) : []);
+    const entries = plan.entries.filter((e) => e.status === 'refused' || !held.has(accountOf(e.key)));
+    const trial = plan.save.filter((c) => !held.has(accountOf(cellKey(c))));
     let after: CellMap = before;
     if (trial.length > 0) {
       try {
@@ -122,7 +124,7 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
         cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated, next_offset: listing.next_offset,
         totals: sectionTotals(model, before, after),
         next_step: refused > 0
-          ? `Fix or remove the refused cells, then dry-run again.${holdClears ? ' The cells replace would clear are listed once nothing is refused.' : ''}`
+          ? `Fix or remove the refused cells, then dry-run again.${held.size > 0 ? ' Accounts whose other cells replace would clear are listed once nothing is refused.' : ''}`
           : plan.save.length === 0 ? 'Nothing would change.' : `Apply: call ${w.tool} again with the same arguments, dry_run false and this plan_hash.`,
       }),
       wroteNothing: true,
