@@ -277,6 +277,34 @@ describe('review round 1', () => {
     expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
   });
 
+  const mouseOpen = async () => {
+    const trigger = screen.getByTestId('bank-switcher-trigger');
+    await act(async () => { fireEvent.mouseDown(trigger); });
+    await act(async () => { fireEvent.mouseUp(trigger); });
+    await act(async () => { fireEvent.click(trigger); });
+    return screen.getByTestId('bank-switcher-search');
+  };
+
+  it('opened with the mouse, a later blur to nowhere (Tab to the browser chrome) still closes it', async () => {
+    render(ui(many(8)));
+    const search = await mouseOpen();
+    await act(async () => { fireEvent.blur(search, { relatedTarget: null }); });
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+  });
+
+  it('press the trigger, Escape, reopen by keyboard: Tab out still closes it', async () => {
+    render(ui(many(8)));
+    const trigger = screen.getByTestId('bank-switcher-trigger');
+    await act(async () => { fireEvent.mouseDown(trigger); });
+    await act(async () => { fireEvent.click(trigger); }); // no mouseup reached the page (released elsewhere)
+    await key(screen.getByTestId('bank-switcher-search'), 'Escape');
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+    await key(trigger, 'ArrowDown');
+    const search = screen.getByTestId('bank-switcher-search');
+    await act(async () => { fireEvent.blur(search, { relatedTarget: null }); });
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+  });
+
   it('a press on the search box keeps its default (caret, selection); a press elsewhere in the popup does not', async () => {
     render(ui(many(8)));
     const search = await open();

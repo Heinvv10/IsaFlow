@@ -58,6 +58,8 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
   const current = options[Math.min(active, options.length - 1)];
 
   useEffect(() => {
+    // Opening or closing ends whatever press began it: the mouseup listener below only exists while open.
+    pressInside.current = false;
     if (!open) return undefined;
     input.current?.focus();
     const away = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
