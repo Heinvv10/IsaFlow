@@ -58,7 +58,10 @@ export const diff = (a: Record<string, number>, b: Record<string, number>) =>
 export async function buildChain(c: Ctx, root: string, k: number): Promise<string[]> {
   const ids = [root];
   for (let i = 0; i < k; i++) {
-    ids.push((await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, ids[ids.length - 1]!, c.fx.userId))).id);
+    // A chain with a live bank line on it is the pre-2026-11-16 hand-reversed state (the GL now refuses that reversal,
+    // bank/liveBankLineReversal): planted through the internal opt-out. With no line on it, the flag changes nothing.
+    ids.push((await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, ids[ids.length - 1]!, c.fx.userId,
+      { bankLinesHandled: true }))).id);
   }
   return ids;
 }
