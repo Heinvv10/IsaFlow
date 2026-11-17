@@ -128,19 +128,23 @@ describe('LOW2: the counterpart check judges the leg set the reversal resets', (
 });
 
 describe('LOW3: one deadline for the whole pre-lock', () => {
-  it('two held lines cost the call ~5 s in all, not 5 s each', async () => {
+  it('a line freed after 4 s then a line held for good cost the call ~5 s in all, not 4 s + 5 s', async () => {
     const f = await bankCompany(pool, [[a, 'admin']], companies);
-    const x1 = await lineOn(f, f.bank, -117, 'R2 D1');
-    const x2 = await lineOn(f, f.bank, -118, 'R2 D2');
-    await allocate(f, x1, f.expA);
-    await allocate(f, x2, f.expA);
-    const holder = await holdRows([x1, x2]);
+    const [id1, id2] = [crypto.randomUUID(), crypto.randomUUID()].sort() as [string, string];
+    for (const [id, amt] of [[id1, -117], [id2, -118]] as const) {
+      await pool.query(`INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status)
+        VALUES($1,$2,$3,$4::DATE,$5,'R2 D','imported')`, [id, f.c, f.bank, DAY, amt]);
+      await allocate(f, id, f.expA);
+    }
+    const first = await holdRows([id1]); // the lower id: the pre-lock waits on it first
+    const second = await holdRows([id2]);
     const t0 = Date.now();
+    const freeFirst = sleep(4000).then(() => release(first));
     let out: Reply;
-    try { out = await range(f); } finally { await release(holder); }
+    try { out = await range(f); } finally { await freeFirst; await release(second); }
     const ms = Date.now() - t0;
     expect(out!.isError).toBe(true); // contended: retryable, nothing reversed
-    expect(ms, `waited ${ms} ms`).toBeLessThan(8000); // 5 s per line would be ~10 s
-    expect({ x1: await lineStatus(pool, x1), x2: await lineStatus(pool, x2) }).toEqual({ x1: 'allocated', x2: 'allocated' });
+    expect(ms, `waited ${ms} ms`).toBeLessThan(7000); // 5 s per line would be ~9 s
+    expect({ x1: await lineStatus(pool, id1), x2: await lineStatus(pool, id2) }).toEqual({ x1: 'allocated', x2: 'allocated' });
   }, 40000);
 });
