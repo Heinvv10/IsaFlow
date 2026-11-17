@@ -81,7 +81,7 @@ export default function IntercompanyConnectionsPage() {
           <h1 className="text-2xl font-semibold text-[var(--ff-text-primary)]">Intercompany connections</h1>
           <p className="text-sm text-ink-muted mt-1">
             Link this company to another company in your group so invoices between them can be mirrored instead of captured twice.
-            The connection's settings are one agreement for both companies; you set up your own side only.
+            The connection&apos;s settings are one agreement for both companies; you set up your own side only.
           </p>
         </div>
 
