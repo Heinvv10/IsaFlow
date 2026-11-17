@@ -2,12 +2,16 @@
  * Settled-document evidence for a bank line, as SQL: the documents filed against every bill, invoice and offsetting
  * credit note the line's payment settles. READ-ONLY evidence for display and audit; nothing is copied onto the line.
  *
- * Path: bank line `bt` → its OWN bank leg (`matched_journal_line_id`, gated on `gl_account_id = bt.bank_account_id`:
- * a hand match can name any journal line) whose journal is POSTED → the payment carrying that journal:
- *  - a supplier / customer payment whose `gl_journal_entry_id` is it (bank allocation with or without a named bill,
- *    FIFO auto-application, split, provisional settlement, a payment processed / confirmed from its screen), or
- *  - the members of a supplier payment BATCH whose `supplier_payment_batches.gl_journal_entry_id` is it (a batch posts
- *    one journal and its member payments carry none);
+ * Path: bank line `bt` → its OWN bank leg (gated on `gl_account_id = bt.bank_account_id`: a hand match can name any
+ * journal line) whose journal is POSTED → the payment that journal belongs to:
+ *  - the leg is `matched_journal_line_id`, and a supplier / customer payment's `gl_journal_entry_id` is its journal
+ *    (bank allocation with or without a named bill, FIFO auto-application, split, a payment processed / confirmed
+ *    from its screen), or
+ *  - the leg is `matched_journal_line_id`, and a PROCESSED supplier payment BATCH carries its journal
+ *    (`supplier_payment_batches.gl_journal_entry_id`; a batch posts one journal, its member payments carry none), or
+ *  - a bank-first provisional line (`provisional_je_id`, no matched line): the leg is the provisional journal's bank
+ *    line, and the supplier payment that settled it names it (`settles_provisional_je_id`, R-127; that payment's own
+ *    journal is the reclass, which has no bank leg);
  * → its allocation rows (`payment_allocations` / `customer_payment_allocations`) → the bill / invoice (not cancelled)
  * → that entity's documents: the entity store, filed directly or cross-linked except PO/GRN paperwork, and a usable
  * source captured document (core/documentPresenceSql's definition). Credit notes applied to a settled bill / invoice
@@ -16,6 +20,8 @@
  * Gates: the line is in a settling status (`allocated`, `matched`, `reconciled`) and moves money the payment's way
  * (a supplier payment pays OUT, a customer receipt comes IN); the payment is live (supplier `processed` / `reconciled`,
  * customer `confirmed` / `reconciled`) and positive (a refund is not a settlement of the bill it is allocated to).
+ * `outstanding` is the bill's total less the larger of (its live allocations + applied credit notes) and its own
+ * `amount_paid` (a settlement recorded outside allocations, e.g. an import, still settles it).
  * NOT covered: a gateway receipt (journalled to the gateway's clearing account, so the payout line never reaches it).
  *
  * NOT a supporting document of the line itself: bank/bankLineDocumentSql.hasBankLineDocumentSql (the VAT input
@@ -37,6 +43,8 @@ type Alias = 'bt';
 const list = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(', ');
 
 interface Source {
+  /** Which journal line of `bt` is its bank leg `bl` (the bank-account gate is added for every source). */
+  leg: (bt: Alias) => string;
   /** Joins from the bank leg `bl` (and its posted journal) to the payment `p`, fenced to `bt`'s company. */
   payment: (bt: Alias) => string;
   payments: string; allocations: string; invoices: string; inv: 'si' | 'ci';
@@ -50,15 +58,22 @@ const SUPPLIER = {
   liveStatuses: ['processed', 'reconciled'], direction: '<',
 } as const;
 
+const MATCHED_LEG = (bt: Alias): string => `bl.id = ${bt}.matched_journal_line_id`;
+
 const SOURCES: readonly Source[] = [
-  { ...SUPPLIER, payment: (bt) => ` JOIN supplier_payments p ON p.gl_journal_entry_id = bl.journal_entry_id`
+  { ...SUPPLIER, leg: MATCHED_LEG, payment: (bt) => ` JOIN supplier_payments p ON p.gl_journal_entry_id = bl.journal_entry_id`
     + ` AND p.company_id = ${bt}.company_id` },
-  { ...SUPPLIER, payment: (bt) => ` JOIN supplier_payment_batches sb ON sb.gl_journal_entry_id = bl.journal_entry_id`
-    + ` AND sb.company_id = ${bt}.company_id AND sb.status <> 'cancelled'`
-    + ` JOIN supplier_payments p ON p.batch_id = sb.id AND p.company_id = ${bt}.company_id` },
+  { ...SUPPLIER, leg: MATCHED_LEG,
+    payment: (bt) => ` JOIN supplier_payment_batches sb ON sb.gl_journal_entry_id = bl.journal_entry_id`
+      + ` AND sb.company_id = ${bt}.company_id AND sb.status = 'processed'`
+      + ` JOIN supplier_payments p ON p.batch_id = sb.id AND p.company_id = ${bt}.company_id` },
+  { ...SUPPLIER,
+    leg: (bt) => `bl.journal_entry_id = ${bt}.provisional_je_id AND ${bt}.matched_journal_line_id IS NULL`,
+    payment: (bt) => ` JOIN supplier_payments p ON p.settles_provisional_je_id = bl.journal_entry_id`
+      + ` AND p.company_id = ${bt}.company_id` },
   { payments: 'customer_payments', allocations: 'customer_payment_allocations', invoices: 'customer_invoices', inv: 'ci',
     invoiceType: 'customer_invoice', creditType: 'customer', paymentKind: 'customer_payment',
-    liveStatuses: ['confirmed', 'reconciled'], direction: '>',
+    liveStatuses: ['confirmed', 'reconciled'], direction: '>', leg: MATCHED_LEG,
     payment: (bt) => ` JOIN customer_payments p ON p.gl_journal_entry_id = bl.journal_entry_id`
       + ` AND p.company_id = ${bt}.company_id` },
 ];
@@ -77,24 +92,27 @@ function chain(s: Source, bt: Alias, joins = ''): { from: string; where: string 
       + ` JOIN ${s.invoices} ${s.inv} ON ${s.inv}.id = a.invoice_id AND ${s.inv}.company_id = ${bt}.company_id`
       + ` AND ${s.inv}.status IS DISTINCT FROM 'cancelled'`
       + joins,
-    where: `bl.id = ${bt}.matched_journal_line_id AND bl.gl_account_id = ${bt}.bank_account_id`
+    where: `${s.leg(bt)} AND bl.gl_account_id = ${bt}.bank_account_id`
       + ` AND bl.company_id = ${bt}.company_id AND ${bt}.status IN (${list(SETTLING_LINE_STATUSES)})`
       + ` AND ${bt}.amount ${s.direction} 0`
       + ` AND p.status IN (${list(s.liveStatuses)}) AND p.total_amount > 0`,
   };
 }
 
-/** What the invoice aliased `s.inv` still has outstanding after every live payment and applied credit note. */
+/**
+ * What the invoice aliased `s.inv` still has outstanding: its total less the LARGER of (every live allocation +
+ * applied credit note) and its own `amount_paid` (a settlement recorded outside allocations still settles it).
+ */
 function outstandingSql(s: Source): string {
   const inv = s.inv;
-  return `(${inv}.total_amount`
-    + ` - COALESCE((SELECT SUM(a2.amount_allocated) FROM ${s.allocations} a2 JOIN ${s.payments} p2 ON p2.id = a2.payment_id`
+  return `(${inv}.total_amount - GREATEST(COALESCE(${inv}.amount_paid, 0),`
+    + ` COALESCE((SELECT SUM(a2.amount_allocated) FROM ${s.allocations} a2 JOIN ${s.payments} p2 ON p2.id = a2.payment_id`
     + ` AND p2.company_id = ${inv}.company_id AND p2.status IN (${list(s.liveStatuses)}) AND p2.total_amount > 0`
     + ` WHERE a2.invoice_id = ${inv}.id), 0)`
-    + ` - COALESCE((SELECT SUM(c2.amount_allocated) FROM credit_note_allocations c2 JOIN credit_notes n2`
+    + ` + COALESCE((SELECT SUM(c2.amount_allocated) FROM credit_note_allocations c2 JOIN credit_notes n2`
     + ` ON n2.id = c2.credit_note_id AND n2.company_id = ${inv}.company_id AND n2.type = '${s.creditType}'`
     + ` AND n2.status NOT IN ('draft', 'cancelled')`
-    + ` WHERE c2.invoice_id = ${inv}.id AND c2.company_id = ${inv}.company_id), 0))`;
+    + ` WHERE c2.invoice_id = ${inv}.id AND c2.company_id = ${inv}.company_id), 0)))`;
 }
 
 /**

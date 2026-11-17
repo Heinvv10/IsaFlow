@@ -158,8 +158,32 @@ describeIfDb('bank line settled evidence: edges', () => {
     expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId).sort()).toEqual([d1, d2].sort());
     const page = await listTransactionsWithoutDocuments(co, { ...W, strict: true });
     expect(page.rows.find((r) => r.id === l.id)?.evidence).toBe('settled_document');
-    await q("UPDATE supplier_payment_batches SET status='cancelled' WHERE id=$1", [sb]);
+    for (const status of ['reversed', 'cancelled']) {
+      await q('UPDATE supplier_payment_batches SET status=$2 WHERE id=$1', [sb, status]);
+      expect(await listSettledDocuments(co, l.id)).toEqual([]);
+    }
+  });
+
+  it('a bank-first provisional line reaches the payment that settled its provisional journal (R-127)', async () => {
+    const l = await line(-300); const b = await bill('PRV-A', 300);
+    const reclass = uuid(); // the settling payment's own journal: the reclass, with no bank leg
+    await q('INSERT INTO gl_journal_entries(id,company_id,entry_date,created_by,status) VALUES($1,$2,$3,$4,$5)',
+      [reclass, co, '2026-11-02', user, 'posted']);
+    await q(`UPDATE bank_transactions SET provisional_je_id=$1, matched_journal_line_id=NULL, status='matched' WHERE id=$2`, [l.je, l.id]);
+    const p = await pay(reclass, 'PRVP', 300);
+    await q('UPDATE supplier_payments SET settles_provisional_je_id=$1 WHERE id=$2', [l.je, p]); await alloc(p, b, 300);
+    const d = uuid(); await doc(d, b, 'prv.pdf');
+    expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId)).toEqual([d]);
+    // still provisional (no evidence yet, not settled) or the provisional journal unposted: nothing
+    await q(`UPDATE bank_transactions SET status='provisional' WHERE id=$1`, [l.id]);
     expect(await listSettledDocuments(co, l.id)).toEqual([]);
+  });
+
+  it('a bill whose own amount_paid says it is settled is not part-paid', async () => {
+    const l = await line(-600); const b = await bill('PAID-A', 1000); const p = await pay(l.je, 'PAIDP', 600); await alloc(p, b, 600);
+    await q('UPDATE supplier_invoices SET amount_paid=1000 WHERE id=$1', [b]);
+    await doc(uuid(), b, 'paid.pdf');
+    expect((await listSettledDocuments(co, l.id))[0]!.settles).toMatchObject({ applied: 600, partial: false, outstanding: 0 });
   });
 
   it('the evidence totals partition the scope, and exclude_transfers keeps real supplier payments', async () => {
@@ -175,5 +199,25 @@ describeIfDb('bank line settled evidence: edges', () => {
     const d = await listTransactionsWithoutDocuments(co, W);
     expect(s.rowsTotal).toBe(d.withSettledDocument + d.noEvidence);
     expect(d.rowsTotal).toBe(d.noEvidence);
+  });
+
+  // Last: it adds a real transfer, which the tests above assume does not exist.
+  it('exclude_transfers treats an account holding statement lines as a money account, whatever its subtype', async () => {
+    const paycard = uuid();
+    await q(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
+      VALUES($1,$2,'PC1','Paycard (no subtype)','asset',NULL,'debit')`, [paycard, co]);
+    await q(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+      VALUES($1,$2,$3,'2026-10-01',-5,'paycard statement line','imported')`, [uuid(), co, paycard]);
+    const je = uuid(); const leg = uuid(); const id = uuid();
+    await q('INSERT INTO gl_journal_entries(id,company_id,entry_date,created_by,status) VALUES($1,$2,$3,$4,$5)', [je, co, '2026-11-03', user, 'posted']);
+    await q(`INSERT INTO gl_journal_lines(id,journal_entry_id,company_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$4,0,77),($5,$2,$3,$6,77,0)`,
+      [leg, je, co, bank, uuid(), paycard]);
+    await q(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id)
+      VALUES($1,$2,$3,'2026-11-03',-77,'top up paycard','allocated',$4)`, [id, co, bank, leg]);
+    const all = await listTransactionsWithoutDocuments(co, W);
+    const ex = await listTransactionsWithoutDocuments(co, { ...W, excludeTransfers: true });
+    expect(all.rows.some((r) => r.id === id)).toBe(true);
+    expect(ex.rows.some((r) => r.id === id)).toBe(false);
+    expect(ex.universeTotal).toBe(all.universeTotal - 1);
   });
 });

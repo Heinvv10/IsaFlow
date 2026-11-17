@@ -146,6 +146,8 @@ export type SettledDocumentWire = ReturnType<typeof settledDocumentWire>;
 export function settledAttachmentRow(d: SettledDocument, bankTxId: string) {
   return {
     ...settledDocumentWire(d),
+    // The in-app viewer needs the link itself, so a stored data: URL is kept HERE (rendered only through SAFE_HREF /
+    // previewKind's inert types); the MCP listing (settledDocumentWire) omits it.
     id: `settled:${d.documentId}:${d.settles.entityId}:${d.via.paymentId}`,
     bank_transaction_id: bankTxId,
     file_url: d.fileUrl ?? '',
