@@ -48,10 +48,13 @@ afterAll(async () => { await cleanup(a); });
 describe('salary bank file, review #1524 round 2', () => {
   it('D-1: lines and header moved together with the journal unlinked are refused JOURNAL_NOT_POSTED', async () => {
     const run = await approvedRun(a, 1);
-    await asAppUser(async (c) => {
+    const drift = async (c: Pick<PoolClient, 'query'>) => {
       await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 50000 WHERE run_id = $1 AND employee_id = $2', [run, emp[0]!.employee]);
       await c.query('UPDATE payroll_run_headers SET total_net = total_net + 50000, journal_entry_id = NULL WHERE id = $1', [run]);
-    });
+    };
+    // Migration 999n refuses the drift for app_user; the fixture's superuser still writes it, so the file's check is proven too.
+    await expect(asAppUser(drift)).rejects.toThrow(/final pay run/);
+    await drift(a.pool);
     const res = await generate(a, run);
     expect([res.statusCode, reason(res)]).toEqual([409, 'JOURNAL_NOT_POSTED']);
     expect(String(res.body.error.message)).toMatch(/Post the payroll journal first/);
@@ -59,10 +62,12 @@ describe('salary bank file, review #1524 round 2', () => {
 
   it('D-1b: the same drift with the journal still linked is RUN_CHANGED_SINCE_APPROVAL', async () => {
     const run = await approvedRun(a, 2);
-    await asAppUser(async (c) => {
+    const drift = async (c: Pick<PoolClient, 'query'>) => {
       await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 50000 WHERE run_id = $1 AND employee_id = $2', [run, emp[0]!.employee]);
       await c.query('UPDATE payroll_run_headers SET total_net = total_net + 50000 WHERE id = $1', [run]);
-    });
+    };
+    await expect(asAppUser(drift)).rejects.toThrow(/final pay run/);
+    await drift(a.pool);
     expect(reason(await generate(a, run))).toBe('RUN_CHANGED_SINCE_APPROVAL');
   }, 120_000);
 
@@ -84,9 +89,9 @@ describe('salary bank file, review #1524 round 2', () => {
     const desc = (await a.pool.query('SELECT description, source FROM gl_journal_entries WHERE id = $1', [otherJe])).rows[0];
     expect(desc).toEqual({ description: payrollRunJournalDescription(2026, 7), source: 'auto_payroll' });
     expect(Math.round((await a.header(other)).net * 100)).toBe(Math.round((await a.header(run)).net * 100));
-    await asAppUser(async (c) => {
-      await c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, otherJe]);
-    });
+    const repoint = (c: Pick<PoolClient, 'query'>) => c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, otherJe]);
+    await expect(asAppUser(async (c) => { await repoint(c); })).rejects.toThrow(/final pay run/);
+    await repoint(a.pool);
     const res = await generate(a, run);
     expect([res.statusCode, reason(res)]).toEqual([409, 'JOURNAL_NOT_POSTED']);
     expect(String(res.body.error.message)).toMatch(/of its own/);
