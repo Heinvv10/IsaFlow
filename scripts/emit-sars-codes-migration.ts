@@ -14,9 +14,22 @@ import { resolve } from 'node:path';
 import { parseSarsCodesXlsxFile, type ParsedSarsRow } from '../src/modules/admin/services/sarsCodesParser';
 
 export const SARS_MIGRATION_FILE = 'scripts/migrations/sql/999m_sars_source_codes_2024_2025.sql';
+export const OVERRIDES_FILE = 'scripts/data/sars-codes/description-overrides.json';
+/** Corrected descriptions, read off the BRS PDFs: year -> code -> { description, page (PDF page in that BRS), brs }. */
+export type DescriptionOverrides = Record<string, Record<string, { description: string; page: number; brs: string }>>;
+export function loadOverrides(root: string): DescriptionOverrides {
+  return JSON.parse(readFileSync(resolve(root, OVERRIDES_FILE), 'utf8')) as DescriptionOverrides;
+}
 export const SARS_MIGRATION_SOURCES = [
   { year: 2024, brs: 'v22.1.2', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2024-from-BRS.xlsx' },
   { year: 2025, brs: 'v23.0.0', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2025-from-BRS.xlsx' },
+] as const;
+
+/** Every year whose descriptions the overrides cover; 2026 and 2027 are corrected in place by an UPDATE. */
+export const QUALITY_CHECK_SOURCES = [
+  ...SARS_MIGRATION_SOURCES,
+  { year: 2026, brs: 'v25.2.0', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2026-complete.xlsx' },
+  { year: 2027, brs: 'v25.3.0', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2027-complete.xlsx' },
 ] as const;
 
 const COLS = ['code', 'effective_year', 'category', 'description', 'status', 'foreign_code', 'code_pair',
@@ -51,12 +64,18 @@ WHERE ${cmp('sars_source_codes.')} IS DISTINCT FROM ${cmp('EXCLUDED.')};
 
 export async function buildSarsCodesMigration(root: string): Promise<string> {
   const blocks: string[] = [];
+  const overrides = loadOverrides(root);
   for (const s of SARS_MIGRATION_SOURCES) {
     const { rows, errors } = await parseSarsCodesXlsxFile(resolve(root, s.file));
     if (errors.length) throw new Error(`${s.file}: ${errors.join('; ')}`);
-    blocks.push(yearBlock(rows, s.year, s.brs));
+    const fixes = overrides[String(s.year)] ?? {};
+    blocks.push(yearBlock(rows.map((r) => (fixes[r.code] ? { ...r, description: fixes[r.code]!.description } : r)), s.year, s.brs));
   }
-  const releases = SARS_MIGRATION_SOURCES.map((s) => `(${s.year}, '${s.brs}', now(), false)`).join(', ');
+  const releases = SARS_MIGRATION_SOURCES.map((s) =>
+    `(${s.year}, '${s.brs}', now(), ${lit(`SARS PAYE Employer Reconciliation BRS ${s.brs.toUpperCase()}; full code set loaded by migration 999m`)}, false)`).join(',\n  ');
+  const fixed = QUALITY_CHECK_SOURCES.filter((s) => s.year >= 2026).flatMap((s) =>
+    Object.entries(overrides[String(s.year)] ?? {}).sort(([a], [b]) => a.localeCompare(b))
+      .map(([code, o]) => `  (${lit(code)}, ${s.year}, ${lit(o.description)})`));
   return `-- Migration 999m: SARS IRP5/IT3(a) source codes for the 2024 and 2025 years of assessment.
 --
 -- Production still held the 19-row legacy seed for both years (wrong meanings for 4003-4005, no 4006, no 3696-3699),
@@ -68,11 +87,23 @@ export async function buildSarsCodesMigration(root: string): Promise<string> {
 -- Idempotent: a row is rewritten only when its content differs, so a second run changes nothing. Data only, no DDL,
 -- no DELETE: the old colour keeps working while it runs. sars_code_releases.is_current is never touched.
 -- Rollback: the previous rows cannot be restored from the app role; they were the legacy seed (19 rows per year).
+-- After rolling back past 999m, restart both colours (bash scripts/deploy/restart-colours.sh): sarsCodesService
+-- caches each year it has read, so a running colour keeps serving that year until restarted.
 
 ${blocks.join('\n')}
-INSERT INTO sars_code_releases (effective_year, brs_version, released_at, is_current) VALUES ${releases}
-ON CONFLICT (effective_year) DO UPDATE SET brs_version = EXCLUDED.brs_version
-WHERE sars_code_releases.brs_version IS DISTINCT FROM EXCLUDED.brs_version;
+INSERT INTO sars_code_releases (effective_year, brs_version, released_at, notes, is_current) VALUES
+  ${releases}
+ON CONFLICT (effective_year) DO UPDATE SET brs_version = EXCLUDED.brs_version, notes = EXCLUDED.notes
+WHERE (sars_code_releases.brs_version, sars_code_releases.notes) IS DISTINCT FROM (EXCLUDED.brs_version, EXCLUDED.notes);
+
+-- 2026 and 2027 were loaded with PDF-extraction fragments as descriptions (3835 = 'null', 3809 = 'Taxable', ...).
+-- Correct the description only, from the BRS page recorded per code in ${OVERRIDES_FILE}. A year whose rows are
+-- not loaded yet is untouched (this matches nothing); every other column of those rows is left alone.
+UPDATE sars_source_codes t SET description = v.description
+FROM (VALUES
+${fixed.join(',\n')}
+) AS v(code, effective_year, description)
+WHERE t.code = v.code AND t.effective_year = v.effective_year AND t.description IS DISTINCT FROM v.description;
 `;
 }
 
