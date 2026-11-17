@@ -81,6 +81,19 @@ describe('set_budget_amounts: per-row refusals (dry run lists them, the save is 
     expect(r.wroteNothing).toBe(true);
   });
 
+  it('a dry run with a refused row counts and lists the other cells by what they would do, not as unchanged', async () => {
+    const r = await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
+    const out = json(r);
+    const counts = out.counts as Record<string, number>;
+    expect([counts.unchanged, counts.added + counts.changed, counts.refused]).toEqual([0, 1, 1]);
+    const good = (out.cells as Array<{ i: number; status: string; after?: string }>).find((c) => c.i === 0)!;
+    expect([good.status === 'added' || good.status === 'changed', good.after]).toEqual([true, '5.00']);
+    const totals = out.totals as { before: Record<string, { year: string }>; after: Record<string, { year: string }> };
+    expect(totals.after.netProfit.year).not.toBe(totals.before.netProfit.year);
+    expect(saveCells).not.toHaveBeenCalled();
+    expect(r.wroteNothing).toBe(true);
+  });
+
   it('the live call with any refused row writes nothing (all or nothing)', async () => {
     const r = await amounts.handler({ ...KEY, plan_hash: 'a'.repeat(64), cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
     expect(text(r)).toMatch(/1 cell is refused, so nothing was written.*cell 1: .*header/);

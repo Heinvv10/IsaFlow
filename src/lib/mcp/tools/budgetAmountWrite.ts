@@ -26,7 +26,7 @@ import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolled
 import type { McpToolContext, McpToolResult } from '../types';
 import { isResult, ownVersion } from './budgetToolArgs';
 import { planHashRefusal, staleRefusal, STALE_SINCE_DRY_RUN } from './budgetWriteGate';
-import { actualDiff, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
+import { actualDiff, cellMap, diffListing, plannedAfter, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
 import { ok, toolError } from './toolHelpers';
 
 export { STALE_SINCE_DRY_RUN };
@@ -88,7 +88,8 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
   const readAfter = async (): Promise<CellMap> => cellMap((await loadGridCells(ctx.companyId, { versionId }, ctx.userId)).cells);
 
   if (w.dryRun) {
-    let after: CellMap = before;
+    // Refused rows stop the save, so the other cells are shown by what the plan would leave.
+    let after: CellMap = refused > 0 ? plannedAfter(plan.entries, before) : before;
     if (refused === 0 && plan.save.length > 0) {
       try {
         await inRolledBackSavepoint('mcp_budget_dry_run', async () => {

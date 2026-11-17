@@ -55,6 +55,21 @@ export function actualDiff(entries: readonly PlanEntry[], before: CellMap, after
   return out;
 }
 
+/**
+ * The cells the PLAN would leave, for a dry run whose refused rows stop the save from running: so the other
+ * cells are counted and listed, and the totals shown, by what they would do (a driver's recomputes are
+ * unknown until the save runs).
+ */
+export function plannedAfter(entries: readonly PlanEntry[], before: CellMap): CellMap {
+  const after = new Map(before);
+  for (const e of entries) {
+    if (e.status === 'refused' || e.status === 'unchanged') continue;
+    if (e.after === null) after.delete(e.key);
+    else after.set(e.key, { cents: e.after, source: 'manual' });
+  }
+  return after;
+}
+
 /** The snapshot of a write: the PLANNED cells the save changed, before and after with their sources. */
 export function snapshotCells(diff: readonly ActualDiff[]): SnapshotCell[] {
   const money = (c: CurrentCell | undefined) => (c === undefined ? null : centsText(c.cents));
