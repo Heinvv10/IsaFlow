@@ -104,6 +104,23 @@ describe('employee portal reads', () => {
     expect((await getSlip(jars.two!, run1)).statusCode).toBe(200);
   });
 
+  it('a run that is not final is not shown, even with its approval time and snapshot still in place', async () => {
+    // A reopen clears approved_at, so the snapshot rule alone would hide it; this proves the finality rule on its own.
+    const setStatus = async (s: string) => {
+      await a.pool.query('ALTER TABLE payroll_run_headers DISABLE TRIGGER USER');
+      try { await a.pool.query('UPDATE payroll_run_headers SET status = $2 WHERE id = $1', [run1, s]); }
+      finally { await a.pool.query('ALTER TABLE payroll_run_headers ENABLE TRIGGER USER'); }
+    };
+    await setStatus('draft');
+    try {
+      expect(await runs(jars.two!)).toEqual([run2]);
+      expect((await getSlip(jars.two!, run1)).statusCode).toBe(404);
+    } finally {
+      await setStatus('approved');
+    }
+    expect(await runs(jars.two!)).toEqual([run2, run1]);
+  });
+
   it('a final slip whose details were not frozen at this approval (a run approved before PS3) is not shown', async () => {
     expect(await runs(jars.two!)).toContain(run2);
     await a.pool.query('ALTER TABLE payroll_run_lines DISABLE TRIGGER USER');
