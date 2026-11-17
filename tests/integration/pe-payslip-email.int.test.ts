@@ -41,6 +41,8 @@ beforeAll(async () => {
   b = await rig('payslip-email-b');
   await a.setup();
   await b.setup();
+  // The send limit's buckets (per IP, per company) outlive a run on a reused disposable database: start empty.
+  await a.pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'send:payslips:%'");
   emp.idOnly = await person(a, 25000, { email: 'thandi@example.invalid', idNumber: ID });
   emp.noEmail = await person(a, 18000, { email: null, idNumber: '9002025009081' });
   emp.noId = await person(a, 17000, { email: 'no-id@example.invalid' });
