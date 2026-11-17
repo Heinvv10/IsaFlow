@@ -42,8 +42,9 @@ describe('findOpenQuery', () => {
     const call = sqlCalls[0]!;
     expect(call.values).toContain(COMPANY_ID);
     expect(call.values).toContain('+27821234567');
-    expect(call.sql).toMatch(/status IN \('sent',\s*'replied'\)/);
-    expect(call.sql).toContain('ORDER BY');
+    // an UNCONFIRMED send may have gone out, so a reply still matches it (WP7)
+    expect(call.sql).toMatch(/status IN \('sent',\s*'replied',\s*'unconfirmed'\)/);
+    expect(call.sql).toMatch(/ORDER BY \(status = 'unconfirmed'\) ASC,\s*\(status = 'sent'\) DESC,\s*sent_at DESC/);
   });
 
   it('returns null when nothing is open', async () => {
@@ -179,7 +180,7 @@ describe('markQueryReplied', () => {
     routeMock([{ match: 'UPDATE bank_tx_queries', rows: [] }]);
     await markQueryReplied(COMPANY_ID, QUERY_ID, 'late reply', null);
     const upd = sqlCalls.find((c) => c.sql.includes('UPDATE bank_tx_queries'))!;
-    expect(upd.sql).toMatch(/status IN \('sent',\s*'replied'\)/);
+    expect(upd.sql).toMatch(/status IN \('sent',\s*'replied',\s*'unconfirmed'\)/); // a reply to an unconfirmed send is a reply
   });
 
   it('caps reply_text growth with LEFT(..., 10000)', async () => {

@@ -11,6 +11,9 @@
  * Otherwise it refuses saying why (the cells that differ now, capped). A plan carries `planHash`
  * (budgetPlanHash) so a live restore applies exactly the plan its dry run showed.
  *
+ * PR 3: restore undoes AMOUNT writes only. A set_budget_drivers snapshot is refused, and so is an amount write once the
+ * version's drivers changed at or after its transaction (`driverChangesSince`, the drivers' own audit rows).
+ *
  * `restoreSnapshot` writes the before-values back through the grid save (`saveCells`: every rule of a
  * person's save, its audit row as the restoring user), a cell that was a driver's computed value before as
  * a clear (the driver recomputes it), then checks every cell holds its before-value again, and a former override
@@ -25,7 +28,8 @@ import { loadGridCells } from './gridReadModel';
 import { BudgetVersionError } from './budgetVersionTypes';
 import { budgetPlanHash } from './budgetPlanHash';
 import { listDriverLines } from './drivers/driverRepository';
-import { latestSnapshot, markRestored, snapshotKey, type SnapshotCell } from './budgetWriteSnapshots';
+import { DRIVER_WRITE_TOOL, latestSnapshot, markRestored, snapshotKey, type SnapshotCell } from './budgetWriteSnapshots';
+import { driverChangesSince } from './budgetVersionActivity';
 
 export interface CellState { cents: number; source: string }
 export interface CurrentState {
@@ -74,6 +78,24 @@ export async function planRestore(
   }
   if (latest.createdBy !== actor.userId && !RESTORERS.has(actor.role ?? '')) {
     return { ok: false, reason: 'Only the person whose connection made that write, or an owner or admin, can restore it' };
+  }
+  // PR 3: restore undoes AMOUNT writes. A driver write's snapshot records the cells it changed, but its driver
+  // lines, planned hires and overrides cannot be put back exactly, so it is refused rather than half-undone.
+  if (latest.tool === DRIVER_WRITE_TOOL) {
+    return {
+      ok: false,
+      reason: `The most recent MCP write of this version (snapshot ${latest.id}) was set_budget_drivers: restore_budget_version undoes amount writes only `
+        + '(set_budget_amounts, set_budget_annual), never driver lines, planned hires, overrides or a headcount refresh. Nothing was restored; '
+        + 'set the drivers back with set_budget_drivers (its reply listed each driver line and planned hire as it was before)',
+    };
+  }
+  if (await driverChangesSince(companyId, versionId, latest.tokenAfter) > 0) {
+    return {
+      ok: false,
+      reason: `The drivers of this version changed since that write (snapshot ${latest.id}): a driver line, planned hire, override reset or headcount `
+        + 'refresh at or after that write\'s transaction: in a later request, or anywhere in the same request, including before the write (one request\'s '
+        + 'changes share a time). Restoring its cells would recompute them under other drivers, so nothing was restored; change the cells by hand instead',
+    };
   }
   if (current.statusMovedAt !== null && current.statusMovedAt > latest.createdAt) {
     return { ok: false, reason: `The version's status changed since that write (snapshot ${latest.id}: approved, locked or unlocked after it). Nothing was restored; change the cells by hand instead` };

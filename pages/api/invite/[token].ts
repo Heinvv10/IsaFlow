@@ -125,7 +125,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // as /api/invitations/[token]/accept and an admin's deleteUser (which cancels it) take it. Locking it first
     // deadlocked (40P01) against both: they hold the membership and users rows when they reach the invitation.
     const rows = (await client.query(
-      `SELECT id, company_id, email, role
+      `SELECT id, company_id, email, role, gotrue_user_id
          FROM company_invitations
         WHERE token = $1
           AND accepted_at IS NULL
@@ -146,6 +146,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       unusable = await rollbackFailed(client, 'invite accept');
       opened = false;
       return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
+    }
+    // A pinned invitation (POST /api/invitations; Settings since R7-1) is accepted only as the GoTrue account
+    // that held the address when it was sent: another account that took the address since is refused, not
+    // made a second identity. A pin is written with a new token (a re-send, which the mark below re-checks) or
+    // for a token not mailed yet (POST /api/invitations step 3), so the one read here belongs to this token.
+    const pinned = inv.gotrue_user_id as string | null;
+    if (pinned !== null && pinned.toLowerCase() !== userId) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return apiResponse.forbidden(res, 'This invitation was sent to a different account');
     }
 
     // Insert into company_users.

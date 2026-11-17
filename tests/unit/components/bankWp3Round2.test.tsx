@@ -54,9 +54,9 @@ describe('useBankTxBusy: a hung request cannot hold its lines for good', () => {
     act(() => {
       done = result.current.run('batch-allocate', async () => {
         for (let i = 0; i < 4; i += 1) {
-          result.current.touch(); // request i starts (callAction touches the hook)
+          result.current.touch({ rows: ['t1', 't2', 't3', 't4'] }); // request i starts (callAction touches the hook)
           await wait(25_000);
-          result.current.touch(); // ... and finishes
+          result.current.touch({ key: 'batch-allocate' }); // ... and finishes
           result.current.setProgress({ key: 'batch-allocate', done: i + 1, total: 4 });
         }
       }, ['t1', 't2', 't3', 't4']);

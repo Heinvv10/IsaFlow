@@ -13,7 +13,7 @@ export interface BankTxQueryRow {
   bank_transaction_id: string;
   to_number: string;
   message_body: string;
-  status: 'sent' | 'replied' | 'resolved' | 'cancelled';
+  status: 'sent' | 'replied' | 'resolved' | 'cancelled' | 'unconfirmed';
   reply_text: string | null;
   sent_at: string | null;
   replied_at: string | null;
@@ -31,12 +31,13 @@ export interface BankTxQueryRow {
 export function StatusBadge({ status }: { status: BankTxQueryRow['status'] }) {
   const cls: Record<string, string> = {
     sent: 'bg-amber-900/40 text-amber-300 border-amber-700/40',
+    unconfirmed: 'bg-red-900/30 text-red-300 border-red-700/40',
     replied: 'bg-teal-900/40 text-teal-300 border-teal-700/40',
     resolved: 'bg-neutral-800 text-neutral-400 border-neutral-700/40',
     cancelled: 'bg-zinc-800/60 text-zinc-500 border-zinc-700/40',
   };
   const label: Record<string, string> = {
-    sent: 'Sent', replied: 'Replied', resolved: 'Resolved', cancelled: 'Cancelled',
+    sent: 'Sent', unconfirmed: 'Send not confirmed', replied: 'Replied', resolved: 'Resolved', cancelled: 'Cancelled',
   };
   return (
     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium border ${cls[status] ?? cls.cancelled}`}>
@@ -91,7 +92,7 @@ export function QueryRowActions({ row, acting, onViewSlips, onResolve, onCancel 
           <Paperclip className="h-3.5 w-3.5" />View slips ({row.attachment_count})
         </button>
       )}
-      {(row.status === 'sent' || row.status === 'replied') && (
+      {(row.status === 'sent' || row.status === 'replied' || row.status === 'unconfirmed') && (
         <button
           onClick={() => onResolve(row.id)}
           disabled={busy}
@@ -103,7 +104,7 @@ export function QueryRowActions({ row, acting, onViewSlips, onResolve, onCancel 
           Resolve
         </button>
       )}
-      {row.status === 'sent' && (
+      {(row.status === 'sent' || row.status === 'unconfirmed') && (
         <button
           onClick={() => onCancel(row.id, row.tx_description)}
           disabled={busy}

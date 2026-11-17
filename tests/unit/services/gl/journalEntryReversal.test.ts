@@ -44,6 +44,8 @@ vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
     sql: sqlMock,
+    // The reversal's claim and its refusals run in one savepoint (#1518): run the body straight through here.
+    withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
   };
 });
 vi.mock('@/lib/alsTransaction', async () => {
