@@ -23,7 +23,7 @@
 import { contractorLineFlag } from './payrollOutsideTables';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface NonCashBenefitFiling {
@@ -46,7 +46,6 @@ export async function listRunNonCashBenefits(
   employeeId: string | null = null,
   opts: { excludeContractorLines?: boolean } = {},
 ): Promise<Map<string, NonCashBenefitFiling[]>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   // An independent contractor's benefits are 3616 income, never 38xx (easyFileContractor): the e@syFile export leaves those lines out.
   const excludeContractor = opts.excludeContractorLines === true;
   const rows = (await sql`
@@ -59,7 +58,7 @@ export async function listRunNonCashBenefits(
     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array'
       THEN l.component_breakdown ELSE '[]'::jsonb END) AS item
     WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->>'isNonCash' = 'true'
@@ -86,7 +85,6 @@ export async function listRunUnflaggedFringe(
   bounds: { start: string; end: string },
   employeeId: string | null = null,
 ): Promise<Map<string, number>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT l.employee_id, SUM((item->>'amount')::numeric)::numeric AS amount
     FROM payroll_run_lines l
@@ -95,7 +93,7 @@ export async function listRunUnflaggedFringe(
     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array'
       THEN l.component_breakdown ELSE '[]'::jsonb END) AS item
     WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3801'

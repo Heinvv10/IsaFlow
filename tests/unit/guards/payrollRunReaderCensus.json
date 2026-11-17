@@ -42,7 +42,8 @@
    {"line":47,"text":"'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +","class":"L","owner":"FQb1","why":"tool description text"}
   ],
   "src/modules/accounting/services/cashForecast13/readPayroll.ts": [
-   {"line":56,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast: a gap for FQb2 to close (a bonus run's net pay and statutory payments are not forecast), not a month lookup"}
+   {"line":55,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast: a gap for FQb2 to close (a bonus run's net pay and statutory payments are not forecast), not a month lookup"},
+   {"line":57,"text":"WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AND run_kind = 'regular'","class":"S","owner":"FQb2","why":"the final-run filter of the query above (the alias argument names the table); regular monthly runs only, as that row says"}
   ],
   "src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts": [
    {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"R","owner":"FQc","why":"by run id; the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
@@ -83,6 +84,7 @@
    {"line":64,"text":"SELECT id, period_year, period_month, journal_entry_id, total_paye, total_eti FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): the month's in-force run journals (inForceRunHeaders), summed per month; a run can leave itself out (etiForRun)"}
   ],
   "src/modules/accounting/services/payroll/etiCarryRead.ts": [
+   {"line":33,"text":"${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final","class":"S","owner":"FQb2/EF","why":"per-row final flag of the query below (the alias argument names the table); rows summed per month by etiCarryLedger"},
    {"line":34,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2/EF","why":"rows summed per month by etiCarryLedger"}
   ],
   "src/modules/accounting/services/payroll/etiPeriodGuard.ts": [
@@ -94,10 +96,11 @@
    {"line":47,"text":"SELECT journal_entry_id FROM payroll_run_headers","class":"S","owner":"FQb1","why":"any in-force run journal of the month (loops every row)"}
   ],
   "src/modules/accounting/services/payroll/irp5DataService.ts": [
-   {"line":140,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"},
-   {"line":169,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"},
-   {"line":182,"text":"JOIN payroll_run_headers dh ON dh.id = d.run_id","class":"S","owner":"FQb2/EF","why":"EXISTS over the year"},
-   {"line":264,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"employee universe over the year"}
+   {"line":72,"text":"SELECT prh.id::text AS id FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"list of every final run in the tax year, each run-kind-guarded by run id"},
+   {"line":95,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"},
+   {"line":124,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"},
+   {"line":137,"text":"JOIN payroll_run_headers dh ON dh.id = d.run_id","class":"S","owner":"FQb2/EF","why":"EXISTS over the year"},
+   {"line":220,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb2/EF","why":"employee universe over the year"}
   ],
   "src/modules/accounting/services/payroll/payPackageService.ts": [
    {"line":289,"text":"INSERT INTO payroll_employee_components","class":"S","owner":"FQb1","why":"assignment write; effective window, no run"}
@@ -114,6 +117,9 @@
   ],
   "src/modules/accounting/services/payroll/payRunDecision.ts": [
    {"line":53,"text":"FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
+  ],
+  "src/modules/accounting/services/payroll/payRunNotFinal.ts": [
+   {"line":29,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"list of not-final approved/paid runs in a window, each named by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollAllowanceFiling.ts": [
    {"line":47,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"}
@@ -163,7 +169,8 @@
    {"line":92,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"R","owner":"FQc","why":"same query (:59): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
   ],
   "src/modules/accounting/services/payroll/payrollEmp201Paye.ts": [
-   {"line":16,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): EMP201 PAYE summed per month over every run (was a header per month in a Map; EMP501 reconciliation and year-end)"}
+   {"line":15,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): EMP201 PAYE summed per month over every run (was a header per month in a Map; EMP501 reconciliation and year-end)"},
+   {"line":17,"text":"AND  ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"FQb1","why":"the final-run filter of the summed-per-month query above (the alias argument names the table)"}
   ],
   "src/modules/accounting/services/payroll/payrollEmployeeComponentService.ts": [
    {"line":135,"text":"INSERT INTO payroll_employee_components (","class":"S","owner":"FQb1","why":"assignment insert"},
@@ -368,7 +375,8 @@
    {"line":140,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"lines joined by run id"}
   ],
   "src/modules/accounting/services/payroll/payslipFinal.ts": [
-   {"line":18,"text":"SELECT 1 FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":20,"text":"SELECT 1 FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":22,"text":"AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"FQb1","why":"the final-run filter of the by-run-id read above (the alias argument names the table)"}
   ],
   "src/modules/accounting/services/payroll/payslipHistory.ts": [
    {"line":38,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"list ordered by month, created_at"}
@@ -417,12 +425,16 @@
    {"line":107,"text":"UPDATE uif_declarations SET journal_entry_id = ${entry.id}::uuid, updated_at = NOW()","class":"S","owner":"FQb1","why":"write by id"}
   ],
   "src/modules/accounting/services/payroll/yearEndStatusReads.ts": [
-   {"line":79,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum per employee"},
-   {"line":91,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"DISTINCT months that have a declarable run"},
-   {"line":108,"text":"FROM   payroll_employee_components pec","class":"S","owner":"FQb1","why":"employee components; no run"}
+   {"line":46,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum per employee"},
+   {"line":58,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"DISTINCT months that have a declarable run"},
+   {"line":60,"text":"AND  ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"FQb1","why":"the final-run filter of the DISTINCT-months query above (the alias argument names the table)"},
+   {"line":75,"text":"FROM   payroll_employee_components pec","class":"S","owner":"FQb1","why":"employee components; no run"}
   ],
   "src/modules/accounting/services/reports/emp201FieldDrill.ts": [
    {"line":102,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"every line of every run in the window"}
+  ],
+  "src/modules/accounting/services/reports/emp201LineUif.ts": [
+   {"line":27,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"UIF line sums grouped by run id"}
   ],
   "src/modules/accounting/services/reports/emp201Service.ts": [
    {"line":126,"text":"AND table_name IN ('payroll_run_headers', 'payroll_run_lines')","class":"L","owner":"FQb2/EF","why":"information_schema table check"},

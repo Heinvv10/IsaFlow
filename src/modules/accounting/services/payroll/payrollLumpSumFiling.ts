@@ -23,7 +23,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { LUMP_SUM_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 
 export interface LumpSumFiling {
@@ -79,7 +79,6 @@ export async function listRunAnnualPayments(
   companyId: string,
   bounds: { start: string; end: string },
 ): Promise<Map<string, number>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   // Netted per run LINE and floored at nil there, as the calculator does: a line
   // whose 3605 nets negative was taxed as regular pay, so it stays in 3601.
   const rows = (await sql`
@@ -91,7 +90,7 @@ export async function listRunAnnualPayments(
       JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
       CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
       WHERE h.company_id = ${companyId}::uuid
-        AND h.status = ANY(${declarable}::text[])
+        AND ${sql.unsafe(payRunFinalSql('h'))}
         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
         AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
         AND (item->>'isTaxable')::boolean
@@ -109,7 +108,6 @@ export async function listRunLumpSums(
   employeeId: string | null = null,
 ): Promise<Map<string, LumpSumFiling[]>> {
   const { start, end } = bounds;
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT l.employee_id, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS source_code,
            d.id AS directive_id, d.directive_number, d.effective_date, d.issued_date,
@@ -121,7 +119,7 @@ export async function listRunLumpSums(
     CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
     JOIN tax_directives d ON d.id = (item->'directive'->>'id')::uuid AND d.company_id = h.company_id
     WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->'directive' IS NOT NULL

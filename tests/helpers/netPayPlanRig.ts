@@ -9,7 +9,9 @@ export type { GlAccountRow };
 export type SqlImpl = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
 
 export const rig: { impl: SqlImpl; loanAccounts: Set<string> } = { impl: () => Promise.resolve([]), loanAccounts: new Set<string>() };
-export const sqlStub = (strings: TemplateStringsArray, ...values: unknown[]) => rig.impl(strings, ...values);
+// `unsafe`: a spliced fragment (payRunFinalSql, wave 6 EF) reaches the plan through the ETI carry read.
+export const sqlStub = Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => rig.impl(strings, ...values),
+  { unsafe: (text: string) => ({ unsafe: text }) });
 
 export const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 export const OTHER = 'cccccccc-cccc-cccc-cccc-cccccccccccc';

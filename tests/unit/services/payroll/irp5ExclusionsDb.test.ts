@@ -118,7 +118,8 @@ describe('irp5_data completeness identity', async () => {
           LIMIT 1
         `) as Array<{ id: string; period_year: number; period_month: number }>;
         const run = runs[0]!;
-        await sql`UPDATE payroll_run_headers SET status = 'approved' WHERE id = ${String(run.id)}::uuid`;
+        // Approved as approvePayrollRun leaves it: with its approval time (the IRP5 reads final runs, wave 6 EF).
+        await sql`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = ${String(run.id)}::uuid`;
 
         // One run per (company, year, month), so the shadow run needs a
         // different month. Months 1 and 2 both belong to the tax year NAMED by

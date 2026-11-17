@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const st = vi.hoisted(() => ({ queries: [] as string[], employees: 0 }));
 
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (strings: TemplateStringsArray) => {
+  sql: Object.assign(vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     st.queries.push(text.replace(/\s+/g, ' ').trim().slice(0, 60));
     if (text.includes('FROM sars_source_codes')) {
@@ -21,7 +21,7 @@ vi.mock('@/lib/neon', () => ({
       }));
     }
     return [];
-  }),
+  }), { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 
 import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';

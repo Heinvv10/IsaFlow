@@ -10,46 +10,13 @@ import {
   PAYE_TAX_YEAR_START_MONTH,
   payeTaxYearBounds,
 } from '@/modules/accounting/utils/payeTaxYear';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { emp201PayeByMonth } from './payrollEmp201Paye';
-
-export interface YearEndStatus {
-  taxYear: number;
-  companyProfile: {
-    complete: boolean;
-    missing: string[];
-  };
-  employees: {
-    total: number;
-    withPayroll: number;
-  };
-  payrollRuns: {
-    monthsCovered: number; // count of months in the tax year with at least one run
-    totalPaye: number;
-  };
-  readiness: {
-    errors: number;
-    warnings: number;
-    componentIssues: number;
-    certificatesReady: number;
-  };
-  emp501: {
-    balanced: boolean;
-    totalEmp201: number;
-    totalIrp5: number;
-    totalVariance: number;
-  };
-  periodLock: {
-    locked: boolean;
-    lockdownDate: string | null;
-  };
-}
 
 export async function readYearEndStatusRows(companyId: string, taxYear: number) {
   const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
   const bounds = payeTaxYearBounds(taxYear);
-  // The checklist reports on the runs the IRP5 and EMP501 actually declare.
-  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // The checklist reports on the runs the IRP5 and EMP501 actually declare: FINAL runs (payRunFinalSql, wave 6 EF).
 
   const [companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows] =
     await Promise.all([
@@ -78,7 +45,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
         FROM payroll_run_lines prl
         JOIN payroll_run_headers prh ON prh.id = prl.run_id
         WHERE prh.company_id = ${companyId}::uuid
-          AND prh.status = ANY(${declarableStatuses}::text[])
+          AND ${sql.unsafe(payRunFinalSql('prh'))}
           AND (
             (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
             OR
@@ -90,7 +57,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
         SELECT DISTINCT period_year, period_month
         FROM   payroll_run_headers
         WHERE  company_id = ${companyId}::uuid
-          AND  status = ANY(${declarableStatuses}::text[])
+          AND  ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}
           AND  (
             (period_year = ${startYear} AND period_month >= ${startMonth})
             OR

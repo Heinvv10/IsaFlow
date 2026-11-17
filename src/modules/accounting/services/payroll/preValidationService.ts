@@ -4,8 +4,8 @@
  * ID number is found during the year instead of at the EMP501. Read-only: it writes nothing and blocks nothing.
  *
  * Final is the wave-5 FS rule (`payslipFinal.isPayRunFinal`): `status IN ('approved','paid') AND
- * COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL`, never a status string alone. Inlined here until
- * EF's single fragment (`payRunFinalSql.ts`) lands; EF owns the IRP5 and EMP201 services this wave.
+ * COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL`, never a status string alone: the one fragment
+ * `payRunFinalSql.ts` (wave 6 EF), spliced in `preValidationReads.ts`.
  *
  * Three scopes: the whole tax year; one employee; or one run (its employees, its tax year, and its own lines counted
  * with the final ones, so run approval previews the year as it will stand once the run is approved). Every query

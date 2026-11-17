@@ -18,21 +18,18 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
-import { readYearEndStatusRows, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusReads';
+import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
 import {
   validateCompanyComponents,
   validateEmployeeIrp5,
   type ComponentConfig,
-  type ValidationMessage,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { countSeverity, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
-export type { YearEndStatus };
-
-function countSeverity(msgs: ValidationMessage[], severity: 'error' | 'warning'): number {
-  return msgs.filter((m) => m.severity === severity).length;
-}
+export type { YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -162,6 +159,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalVariance,
     },
     periodLock: { locked: lockedAtYearEnd, lockdownDate: lockDate },
+    runWarnings: await notFinalRunWarnings(companyId, bounds, 'year-end check'),
   };
 
   return apiResponse.success(res, payload);

@@ -4,11 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const st = vi.hoisted(() => ({ employee: true, hasFinal: false, queries: [] as string[] }));
 
 vi.mock('@/lib/neon', () => ({
-  // unsafe: the pay-order key fragment (payrollRunOrder) the latest-run read interpolates.
   sql: Object.assign(vi.fn(async (strings: TemplateStringsArray) => {
     st.queries.push(strings.join('?'));
     return st.employee ? [{ has_bank: false, has_final: st.hasFinal, latest: null }] : [];
-  }), { unsafe: (text: string) => text }),
+  }), { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 
 import { employeeHasFinalRun } from '@/modules/accounting/services/payroll/employeeFinalRun';
