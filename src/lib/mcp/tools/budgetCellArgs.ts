@@ -20,9 +20,12 @@ const DIMS: readonly DimensionKind[] = ['cc1', 'cc2', 'bu'];
 /** A reference as the agent wrote it, for messages (a refused one keeps its digits too). */
 const text = (v: unknown): string => (typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim() : '');
 
+/** The dimensions a row names: a cc1 / cc2 / bu that is absent or null names none (the one rule for every budget tool). */
+export const namedDimensions = (r: Partial<Record<DimensionKind, unknown>>): DimensionKind[] => DIMS.filter((d) => r[d] !== undefined && r[d] !== null);
+
 /** The dimension a row names, as the agent wrote it (for messages), or null. */
 export function dimensionLabel(r: RowRef): string | null {
-  const kind = DIMS.find((d) => r[d] !== undefined && r[d] !== null);
+  const kind = namedDimensions(r)[0];
   return kind ? `${kind} ${text(r[kind]) || String(r[kind])}` : null;
 }
 
@@ -36,7 +39,7 @@ export async function resolveRows(ctx: McpToolContext, model: GridReadModel, row
     if ('error' in acc) { out.set(r.index, { reason: acc.error }); continue; }
     const account = acc.ref;
     if (account === '') { out.set(r.index, { reason: 'account is required (an account id or code)' }); continue; }
-    const named = DIMS.filter((d) => r[d] !== undefined && r[d] !== null);
+    const named = namedDimensions(r);
     if (named.length > 1) { out.set(r.index, { reason: 'A budget amount carries at most one dimension: cc1, cc2 or bu (decision 14)' }); continue; }
     const found = resolver.account(account);
     if (found === null) { missing.set(r.index, account); continue; }

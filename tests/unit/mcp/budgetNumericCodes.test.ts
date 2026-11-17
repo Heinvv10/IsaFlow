@@ -89,7 +89,7 @@ describe('every code field a handler reads through refText declares ["string", "
   });
 });
 
-describe('the UUID-only fields stay type "string" (round 6: a widening of them turns red)', () => {
+describe('every *_id field stays a UUID string (round 6: a widening of one turns red)', () => {
   /** Every property of a schema, nested objects and array items included, with its path. */
   function walk(schema: unknown, path: string, out: Array<[string, Record<string, unknown>]>): void {
     if (!schema || typeof schema !== 'object') return;
@@ -100,13 +100,34 @@ describe('the UUID-only fields stay type "string" (round 6: a widening of them t
     }
     if (o.items) walk(o.items, `${path}[]`, out);
   }
-  it('version_id, hire_id, slice_id, snapshot_id, source_version_id and every format uuid field of every budget tool', async () => {
+  it('every key ending in _id, and every format uuid field, of every budget tool is type "string" with format uuid', async () => {
     const { BUDGET_READ_TOOLS, BUDGET_WRITE_TOOLS } = await import('@/lib/mcp/tools/budgetToolSet');
     const fields: Array<[string, Record<string, unknown>]> = [];
     for (const t of [...BUDGET_READ_TOOLS, ...BUDGET_WRITE_TOOLS]) walk(t.inputSchema, t.name, fields);
-    const uuidOnly = fields.filter(([path, f]) => f.format === 'uuid' || /\.(version_id|hire_id|slice_id|snapshot_id|source_version_id)$/.test(path));
+    const uuidOnly = fields.filter(([path, f]) => f.format === 'uuid' || /_id$/.test(path));
     expect(uuidOnly.map(([p]) => p)).toEqual(expect.arrayContaining(['set_budget_drivers.version_id', 'set_budget_drivers.changes[].hire_id', 'restore_budget_version.snapshot_id', 'submit_budget_for_review.slice_id']));
-    expect(uuidOnly.filter(([, f]) => f.type !== 'string').map(([p, f]) => `${p}: ${JSON.stringify(f.type)}`)).toEqual([]);
+    expect(uuidOnly.filter(([, f]) => f.type !== 'string' || f.format !== 'uuid').map(([p, f]) => `${p}: ${JSON.stringify(f.type)} ${String(f.format)}`)).toEqual([]);
+  });
+});
+
+describe('a dimension sent as null is absent, in the handlers (final round)', () => {
+  it('set_budget_amounts: cc1 null and bu null name no dimension (not two, not one)', async () => {
+    await setBudgetAmountsTool.handler({ ...base, cells: [{ account: '6000', cc1: null, bu: null, month: MONTHS[1], amount: '5.00' }] }, ctx());
+    expect(vi.mocked(saveCells).mock.calls[0]![2].cells).toEqual([expect.objectContaining({ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null })]);
+  });
+
+  it('set_budget_drivers: cc1 null is a company-level row', async () => {
+    const dry = json(await setBudgetDriversTool.handler({ ...base, dry_run: true, changes: [
+      { op: 'set_driver', account: '6000', cc1: null, bu: null, kind: 'fixed', amount: '5.00', from_month: MONTHS[0], to_month: MONTHS[1] },
+    ] }, ctx()));
+    expect(dry.ready).toBe(true);
+    expect(vi.mocked(saveDriver).mock.calls[0]![3]).toMatchObject({ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null });
+  });
+
+  it('budget_remaining: cc1 null and bu null map to no dimension', async () => {
+    const out = json(await budgetRemainingTool.handler({ lines: [{ account: '6000', cc1: null, bu: null, month: '2026-03' }] }, ctx('manager', ['read:reports'])));
+    expect(out).toMatchObject({ answered: 1, refused: 0 });
+    expect(vi.mocked(remainingFor).mock.calls[0]![1]).toEqual([{ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null, month: '2026-03' }]);
   });
 });
 

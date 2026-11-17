@@ -19,6 +19,7 @@ import { ALERT_LIST_LIMIT, listBudgetAlerts, type BudgetAlertItem } from '@/modu
 import type { McpTool } from '../types';
 import { BUDGET_READ_SCOPE, DIM_REF, ID_OR_CODE, randText, refText } from './budgetToolArgs';
 import { offsetArg } from './budgetPaging';
+import { namedDimensions } from './budgetCellArgs';
 import { remainingLimit } from './budgetToolRateLimits';
 import { clampLimit, ok, toolError } from './toolHelpers';
 
@@ -70,8 +71,7 @@ export const budgetRemainingTool: McpTool = {
       const account = refs.account(r.account.ref);
       if (!account.ok) { refused.set(r.index, account.reason); continue; }
       const ids: Record<(typeof DIMS)[number], string | null> = { cc1: null, cc2: null, bu: null };
-      const bad = DIMS.flatMap((d) => {
-        if (r.dims[d] === undefined || r.dims[d] === null) return [];
+      const bad = namedDimensions(r.dims).flatMap((d) => {
         const read = refText(r.dims[d], d);
         if ('error' in read) return [read.error];
         const m = refs.member(d, read.ref);
