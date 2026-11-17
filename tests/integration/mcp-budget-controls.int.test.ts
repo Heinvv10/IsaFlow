@@ -80,22 +80,25 @@ describe('the control reads answer what the app answers', () => {
     const v = await fx.version(w, { primary: true });
     await fx.amount(w, v, w.rent, w.months[0]!, 1234.56);
     await fx.amount(w, v, w.child1, w.months[0]!, 50, { cc1: w.cc1 });
+    await fx.amount(w, v, w.child2, w.months[0]!, 70, { bu: w.bu });
     // Review round 1 (F1): a line with a cc1 AND a bu, and a balance-sheet account, as a document line carries them.
     const lines = [{ glAccountId: w.rent, month: w.months[0] }, { glAccountId: w.child1, cc1Id: w.cc1, month: w.months[0] }, { glAccountId: w.child1, month: w.months[0] },
-      { glAccountId: w.child1, cc1Id: w.cc1, buId: w.bu, month: w.months[0] }, { glAccountId: w.asset, month: w.months[0] }];
+      { glAccountId: w.child1, cc1Id: w.cc1, buId: w.bu, month: w.months[0] }, { glAccountId: w.asset, month: w.months[0] },
+      { glAccountId: w.child2, cc1Id: w.cc1, buId: w.bu, month: w.months[0] }];
     const ui = await remaining.call(manager, 'POST', { lines });
     expect(ui.status, JSON.stringify(ui.body).slice(0, 300)).toBe(200);
     const app = dataOf<{ lines: Array<{ budget: number | null; actual: number; committed: number; remaining: number | null; offSlice: boolean; unassigned: boolean; grain: string | null }> }>(ui).lines;
     const out = body(await mcp(pool, manager, 'budget_remaining', { lines: [
       { account: 'BR-5000', month: w.months[0] }, { account: 'GS-6100', cc1: 'GS-C1', month: w.months[0] }, { account: 'GS-6100', month: w.months[0] },
       { account: 'GS-6100', cc1: 'GS-C1', bu: 'GS-BU', month: w.months[0] }, { account: 'GS-1000', month: w.months[0] },
+      { account: 'GS-6200', cc1: 'GS-C1', bu: 'GS-BU', month: w.months[0] },
     ] }, { role: 'manager', scopes: ['read:reports'] }));
     const money = (x: number | null) => (x === null ? null : x.toFixed(2));
     expect((out.lines as Array<Record<string, unknown>>).map((l) => [l.budget, l.actual, l.committed, l.remaining, l.off_slice, l.unassigned, l.grain]))
       .toEqual(app.map((l) => [money(l.budget), money(l.actual), money(l.committed), money(l.remaining), l.offSlice, l.unassigned, l.grain]));
     expect(app[0]!.budget).toBe(1234.56);
     expect(app[2]!.budget).toBeNull();
-    expect([app[3]!.budget, app[4]!.budget]).toEqual([50, null]);
+    expect([app[3]!.budget, app[4]!.budget, app[5]!.budget]).toEqual([50, null, 70]);
     expect(out.refused).toBe(0);
   });
 
