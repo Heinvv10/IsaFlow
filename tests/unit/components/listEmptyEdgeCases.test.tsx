@@ -165,9 +165,9 @@ describe('the demo banner never goes by name', () => {
     vi.resetModules();
     vi.doMock('@/contexts/CompanyContext', () => ({
       useCompany: () => ({
-        activeCompany: { id: 'd', name: 'ISAFlow Demo (Pty) Ltd', isDemo: true }, switchCompany: vi.fn(),
+        activeCompany: { id: 'd', name: 'IsaFlow Demo (Pty) Ltd', isDemo: true }, switchCompany: vi.fn(),
         companies: [
-          { companyId: 'd', companyName: 'ISAFlow Demo (Pty) Ltd', role: 'owner', isDefault: false, isDemo: true },
+          { companyId: 'd', companyName: 'IsaFlow Demo (Pty) Ltd', role: 'owner', isDefault: false, isDemo: true },
           { companyId: 'dp', companyName: 'Demo Plumbing', role: 'owner', isDefault: true, isDemo: false },
         ],
       }),
