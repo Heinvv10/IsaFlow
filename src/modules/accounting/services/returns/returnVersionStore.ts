@@ -28,6 +28,10 @@ export function mapVersion(r: DbRow): ReturnVersion {
     amendedBy: text(r.amended_by),
     amendReason: text(r.amend_reason),
     amendedAt: r.amended_at == null ? null : iso(r.amended_at),
+    filingFileSha256: text(r.filing_file_sha256),
+    filingFileKind: text(r.filing_file_kind),
+    filingFileAt: r.filing_file_at == null ? null : iso(r.filing_file_at),
+    filingFileBy: text(r.filing_file_by),
   };
 }
 

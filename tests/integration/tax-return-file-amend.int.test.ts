@@ -79,22 +79,22 @@ describeIfDb('file and amend a return, against a real ledger', () => {
   });
 
   it('a clean period files: the version moves to filed with its submission, reference and who', async () => {
-    const r = await fileV(String(v1.id), { reference: 'SARS-VAT-0001' });
+    const r = await fileV(String(v1.id), { reference: '4123456789V00000001' });
     expect(r.status).toBe(200);
     const out = (r.body as { data: { version: Row; submission: Row } }).data;
-    expect(out.version).toMatchObject({ status: 'filed', filedReference: 'SARS-VAT-0001', filedBy: rf.admin.userId });
+    expect(out.version).toMatchObject({ status: 'filed', filedReference: '4123456789V00000001', filedBy: rf.admin.userId });
     expect(out.version.sarsSubmissionId).toBe(out.submission.id);
-    expect(out.submission).toMatchObject({ status: 'submitted', submissionReference: 'SARS-VAT-0001', formType: 'VAT201' });
+    expect(out.submission).toMatchObject({ status: 'submitted', submissionReference: '4123456789V00000001', formType: 'VAT201' });
     expect(await submissions()).toBe(1);
     // SEC-L2: the filing is audited in the same transaction, with its reference
     const trail = await audits(String(v1.id));
     expect(trail).toHaveLength(1);
     expect(trail[0]).toMatchObject({ action: 'update' });
-    expect(JSON.stringify(trail[0]!.changes)).toMatch(/SARS-VAT-0001/);
+    expect(JSON.stringify(trail[0]!.changes)).toMatch(/4123456789V00000001/);
   });
 
   it('filing it again: 409, still one submission', async () => {
-    const again = await fileV(String(v1.id), { reference: 'REF-2' });
+    const again = await fileV(String(v1.id), { reference: '4123456789V00000003' });
     expect(again.status).toBe(409);
     expect((again.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('ALREADY_FILED');
     expect(await submissions()).toBe(1);
@@ -150,7 +150,7 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     const v2 = versionOf(await fin(CLEAN));
     expect(v2).toMatchObject({ versionNo: 2, amendsVersionId: v1.id, status: 'finalised' });
     expect(v2.vatPeriodLockId).not.toBe(v1.vatPeriodLockId);
-    const filed = await fileV(String(v2.id), { reference: 'SARS-VAT-0002' });
+    const filed = await fileV(String(v2.id), { reference: '4123456789V00000002' });
     expect(filed.status).toBe(200);
     const sub2 = String((filed.body as { data: { submission: Row } }).data.submission.id);
     const sub1 = String((await row(String(v1.id))).sars_submission_id);

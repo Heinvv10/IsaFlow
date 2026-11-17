@@ -18,6 +18,7 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { driftOf } from './returnDrift';
+import { parseFilingReference } from './filingReference';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
@@ -56,7 +57,7 @@ export async function markReturnFiled(
   const { overrideReason } = opts;
   await assertNotImpersonating(); // R-032: a filing is refused to a Login-as session
   assertMayActOnReturns(actor.role, 'file');
-  const ref = visibleText(reference, 'A filing reference');
+  const ref = parseFilingReference(form, reference); // wave 6 EFa: SARS's PRN, nothing else
   const v = await getVersionForUpdate(companyId, versionId);
   if (!v || v.formType !== form) throw new ReturnRefusal(404, 'Return version not found.');
   if (v.status !== 'finalised') {
@@ -64,6 +65,11 @@ export async function markReturnFiled(
       ? `Version ${v.versionNo} is already filed (${v.filedReference ?? 'no reference'}). Amend it to file a correction.`
       : `Version ${v.versionNo} was superseded by an amend. File the current version.`,
     v.status === 'filed' ? STALE_RETURN_REFUSAL.ALREADY_FILED : STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
+  }
+  // Wave 6 EFa: filed from the file IsaFlow generated for this version (999v's trigger holds the same for new versions).
+  if (!v.filingFileSha256) {
+    throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
+      'FILING_FILE_REQUIRED');
   }
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,

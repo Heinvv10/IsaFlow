@@ -18,6 +18,7 @@ const E1 = {
   postedThrough: '2026-10-28', vatPeriodLockId: null, sarsSubmissionId: null, filedReference: null, amendsVersionId: null,
   finalisedBy: 'u-owner', finalisedAt: '2026-11-02T10:00:00Z', filedBy: null, filedAt: null,
   amendedBy: null, amendReason: null, amendedAt: null,
+  filingFileSha256: 'b'.repeat(64), filingFileKind: 'emp201_capture_csv', filingFileAt: '2026-11-02T11:00:00Z', filingFileBy: 'u-owner',
   drift: { drifted: false, fields: [], changed: [], unfinalRuns: 0 }, lockRemoved: false,
 };
 const bar = () => render(<ReturnLifecycleBar form="EMP201" {...M} role="owner" />);

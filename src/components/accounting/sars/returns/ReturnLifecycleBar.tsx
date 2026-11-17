@@ -8,6 +8,7 @@ import { CheckCircle2, FileCheck2, History, PencilLine } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { formatDate } from '@/utils/formatters';
+import { FilingFileActions } from './FilingFileActions';
 import { ReturnActionDialog } from './ReturnActionDialog';
 import { ReturnVersionsDrawer } from './ReturnVersionsDrawer';
 import { availableActions, isImpersonating, lifecycleSteps, liveVersion, type LifecycleStep } from './returnLifecycleModel';
@@ -112,6 +113,7 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
         </div>
       )}
 
+      {settled && live && acts.amend && <FilingFileActions form={form} version={live} nameOf={nameOf} onStamped={() => void reload()} />}
       {settled && (acts.finalise || acts.file || acts.amend) && (
         <div className="flex flex-wrap gap-2">
           {acts.finalise && <Button size="sm" onClick={open('finalise')}>Finalise v{nextNo}</Button>}

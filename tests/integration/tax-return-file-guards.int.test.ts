@@ -43,7 +43,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     const e = versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, period));
     await sql`UPDATE payroll_run_headers SET total_paye = 9100 WHERE company_id = ${c()}::UUID AND period_month = 9`;
     const subs = await submissions();
-    const r = await fileV(String(e.id), { reference: 'EMP-DRIFT' }, rf.admin.token, 'emp201');
+    const r = await fileV(String(e.id), { reference: '7123456789L00000001' }, rf.admin.token, 'emp201');
     expect(r.status).toBe(409);
     expect(JSON.stringify(r.body)).toMatch(/totalPAYE/);
     expect(await submissions()).toBe(subs);
@@ -57,7 +57,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     const e = await fin(6);
     await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data)
       VALUES (${c()}::UUID, 'EMP201', ${per(6).periodStart}::DATE, ${per(6).periodEnd}::DATE, 'draft', ${JSON.stringify({ totalPAYE: 99999, note: 'page' })}::jsonb)`;
-    const r = await fileV(String(e.id), { reference: 'EMP-FIG' }, rf.admin.token, 'emp201');
+    const r = await fileV(String(e.id), { reference: '7123456789L00000002' }, rf.admin.token, 'emp201');
     expect(r.status).toBe(200);
     const fd = (r.body as { data: { submission: { formData: Row } } }).data.submission.formData;
     expect(fd).toMatchObject({ ...(e.figures as Row), returnVersionId: e.id, versionNo: 1, pageDraft: { totalPAYE: 99999, note: 'page' } });
@@ -67,7 +67,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     const inflight = String(((await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data,
       efiling_correlation_id) VALUES (${c()}::UUID, 'EMP201', ${per(5).periodStart}::DATE, ${per(5).periodEnd}::DATE, 'draft', '{"k":1}'::jsonb,
       'corr-1') RETURNING id`) as Row[])[0]!.id);
-    expect((await fileV(String(e2.id), { reference: 'EMP-ISV' }, rf.admin.token, 'emp201')).status).toBe(409);
+    expect((await fileV(String(e2.id), { reference: '7123456789L00000003' }, rf.admin.token, 'emp201')).status).toBe(409);
     expect((await row(String(e2.id))).status).toBe('finalised');
     expect(((await sql`SELECT status, form_data FROM sars_submissions WHERE id = ${inflight}::UUID`) as Row[])[0]).toEqual({ status: 'draft', form_data: { k: 1 } });
   });
@@ -80,7 +80,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     const subs = async () => ((await sql`SELECT id, status FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP201'
       AND period_start = ${per.periodStart}::DATE ORDER BY status`) as Row[]);
     const before = await subs();
-    const r = await fileV(String(e.id), { reference: 'EMP-LEG' }, rf.admin.token, 'emp201');
+    const r = await fileV(String(e.id), { reference: '7123456789L00000004' }, rf.admin.token, 'emp201');
     expect(r.status).toBe(409);
     expect(JSON.stringify(r.body)).toMatch(/LEGACY_SUBMISSION_EXISTS/);
     expect(JSON.stringify(r.body)).toContain(legacyRow);
@@ -88,19 +88,19 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     expect([...(r.body as { error: { details: { legacySubmissionIds: string[] } } }).error.details.legacySubmissionIds].sort())
       .toEqual([legacyRow, legacyRow2].sort());
     // the wrong id, and the right id with no reason
-    const wrong = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: ['00000000-0000-4000-8000-000000000077'], reason: 'because' }, rf.admin.token, 'emp201');
+    const wrong = await fileV(String(e.id), { reference: '7123456789L00000004', correctsLegacySubmissionIds: ['00000000-0000-4000-8000-000000000077'], reason: 'because' }, rf.admin.token, 'emp201');
     expect(wrong.status).toBe(409);
-    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow, legacyRow2] }, rf.admin.token, 'emp201')).status).toBe(400);
-    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow, legacyRow2], reason: INVISIBLE }, rf.admin.token, 'emp201')).status).toBe(400);
+    expect((await fileV(String(e.id), { reference: '7123456789L00000004', correctsLegacySubmissionIds: [legacyRow, legacyRow2] }, rf.admin.token, 'emp201')).status).toBe(400);
+    expect((await fileV(String(e.id), { reference: '7123456789L00000004', correctsLegacySubmissionIds: [legacyRow, legacyRow2], reason: INVISIBLE }, rf.admin.token, 'emp201')).status).toBe(400);
     expect(await subs()).toEqual(before);
     expect((await row(String(e.id))).status).toBe('finalised');
     // two legacy rows and only one named: still 409, and the answer lists the current set
-    const partial = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow], reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
+    const partial = await fileV(String(e.id), { reference: '7123456789L00000004', correctsLegacySubmissionIds: [legacyRow], reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
     expect(partial.status).toBe(409);
     expect(JSON.stringify(partial.body)).toContain(legacyRow2);
     expect(await subs()).toEqual(before);
     // acknowledged: the legacy row is superseded, ONE live submitted row remains, and the audit names both
-    const ok = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow, legacyRow2], reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
+    const ok = await fileV(String(e.id), { reference: '7123456789L00000004', correctsLegacySubmissionIds: [legacyRow, legacyRow2], reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
     expect(ok.status).toBe(200);
     const after = (await sql`SELECT id, status, notes FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP201'
       AND period_start = ${per.periodStart}::DATE`) as Row[];
@@ -142,7 +142,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
       await approver.query('BEGIN');
       await approver.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`payroll_approval:${c()}`]);
       await approver.query(`UPDATE payroll_run_headers SET total_paye = 9100 WHERE company_id = $1 AND period_month = 7`, [c()]);
-      const filing = fileV(String(e.id), { reference: 'EMP-LOCK' }, rf.admin.token, 'emp201');
+      const filing = fileV(String(e.id), { reference: '7123456789L00000005' }, rf.admin.token, 'emp201');
       await new Promise((r) => setTimeout(r, 500));
       await approver.query('COMMIT');
       const r = await filing;
@@ -180,7 +180,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     expect(r.status).toBe(200);
     const e1 = versionOf(r);
     const ov = await overrides();
-    const f1 = await fileV(String(e1.id), { reference: 'EMP-0001' }, rf.admin.token, 'emp201');
+    const f1 = await fileV(String(e1.id), { reference: '7123456789L00000006' }, rf.admin.token, 'emp201');
     expect(f1.status).toBe(200);
     expect(await overrides()).toBe(ov); // no VAT gate for an EMP201
     // No VAT lock is involved, so the amend's own Login-as guard is the only one in the way.
@@ -191,7 +191,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     const e2 = versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' },
       { periodStart: '2026-08-01', periodEnd: '2026-08-31' }));
     expect(e2).toMatchObject({ versionNo: 2, amendsVersionId: e1.id });
-    expect((await fileV(String(e2.id), { reference: 'EMP-0002' }, rf.admin.token, 'emp201')).status).toBe(200);
+    expect((await fileV(String(e2.id), { reference: '7123456789L00000007' }, rf.admin.token, 'emp201')).status).toBe(200);
   });
 
   it('both routes answer 429 once a user is over the rate limit (checked before any lookup or write)', async () => {
