@@ -5,9 +5,8 @@
  */
 import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
-import { sql, withSavepoint } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { stampFilingFile } from './filingFileService';
 import { assertMayActOnReturns } from './returnGuards';
 import { getVersionForUpdate } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
@@ -45,17 +44,6 @@ export async function downloadEmp501File(companyId: string, versionId: string, a
       + `(${v.filingFileSha256}). Nothing was downloaded; report this to support.`, 'FILING_FILE_MISMATCH');
   }
   const stamp = v.filingFileSha256 === null && v.status === 'finalised';
-  if (stamp) {
-    await withSavepoint('emp501_filing_file', async () => {
-      await sql`UPDATE tax_return_versions
-        SET filing_file_sha256 = ${file.sha256}, filing_file_kind = ${EMP501_FILE_KIND}, filing_file_at = now(), filing_file_by = ${actor.userId}::TEXT
-        WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID AND status = 'finalised' AND filing_file_sha256 IS NULL`;
-      await logAuditOrThrow({
-        companyId, userId: actor.userId, action: 'update', entityType: 'tax_return_version', entityId: v.id,
-        entityRef: `${v.formType} ${v.periodStart} to ${v.periodEnd} v${v.versionNo}`,
-        changes: { fields: [{ field: 'filing_file_sha256', old: null, new: file.sha256, label: 'Filing file' }], metadata: { kind: EMP501_FILE_KIND } },
-      });
-    });
-  }
+  if (stamp) await stampFilingFile(companyId, v, file.sha256, EMP501_FILE_KIND, 'irp5', actor.userId);
   return { ...file, stamped: stamp };
 }
