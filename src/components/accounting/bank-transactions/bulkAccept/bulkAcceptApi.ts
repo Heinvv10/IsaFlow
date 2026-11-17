@@ -2,7 +2,7 @@
  * The three calls of the bulk-accept route (WP6): preview, confirm, undo. The route is registered as one union, so each
  * call narrows by a field only its own answer carries - a wrong shape is an error here, not a blank screen.
  */
-import { apiFetch, apiJson, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 
 const URL = '/api/accounting/bank-bulk-accept';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -48,7 +48,7 @@ export const isDefinitiveFailure = (err: unknown): boolean => err instanceof Api
  */
 export async function findRecentBatch(since: number): Promise<{ id: string; postedCount: number; totalAmount: number } | null> {
   const res = await apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' });
-  if (!res.ok) return null;
+  await assertOk(res, 'Could not look up the batch'); // the caller treats a failed look-up as "no batch found"
   const json = (await res.json()) as { data?: { runs?: Array<{ id: string; source: string; postedCount: number; totalAmount: number; createdAt: string; undoneAt: string | null }> } };
   const runs = (json.data?.runs ?? []).filter((r) => r.source === 'manual' && !r.undoneAt && Date.parse(r.createdAt) >= since - 60_000 && r.postedCount > 0);
   runs.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
