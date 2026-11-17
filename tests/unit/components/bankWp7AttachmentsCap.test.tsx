@@ -26,7 +26,7 @@ beforeEach(() => {
   vi.mocked(apiFetch).mockReset();
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x'); vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('attachmentTotal', () => {
   const r = (v: string | null) => ({ headers: { get: () => v } });
@@ -59,6 +59,8 @@ describe('modal', () => {
 });
 
 describe('modal: delete on a cut list', () => {
+  // Removing an attachment asks first (window.confirm, WP3): answer yes; afterEach unstubs it.
+  beforeEach(() => { vi.stubGlobal('confirm', () => true); });
   it('when older rows exist (total > list), a delete refetches so the next-older rows appear', async () => {
     let gets = 0;
     vi.mocked(apiFetch).mockImplementation(async (u, init) => {
