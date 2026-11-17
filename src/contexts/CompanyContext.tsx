@@ -288,6 +288,15 @@ export function useCompanyRoleOrNull(): string | null {
   return useContext(CompanyContext)?.companyRole ?? null;
 }
 
+/**
+ * The active company's id: `undefined` outside a CompanyProvider (a caller that can do without a company, e.g. a page test,
+ * carries on), `null` inside one that has no active company yet, else the id.
+ */
+export function useActiveCompanyIdOrUndefined(): string | null | undefined {
+  const ctx = useContext(CompanyContext);
+  return ctx === undefined ? undefined : (ctx.activeCompany?.id ?? null);
+}
+
 export function useCompany() {
   const context = useContext(CompanyContext);
   if (context === undefined) {

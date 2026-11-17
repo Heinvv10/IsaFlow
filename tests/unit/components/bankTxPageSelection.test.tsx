@@ -136,15 +136,17 @@ describe('deep link and all-inactive', () => {
     expect(seen.includes(true)).toBe(false);
   });
 
-  it('a link that arrives after the accounts (router not ready, then ready) is applied', async () => {
+  it('a link that arrives after the accounts (router not ready, then ready) is applied - and nothing is fetched for the default account meanwhile', async () => {
     cap.isReady = false;
     summaries = [() => accts(A(), B(), C())];
     const view = render(<BankTransactionsPage />);
-    await waitFor(() => expect(lastListBank()).toBe('b'));
+    await new Promise(r => setTimeout(r, 100)); // the accounts are in; the router still cannot say what the URL is
+    expect(listUrls()).toHaveLength(0);
     cap.query = { account_id: 'c' };
     cap.isReady = true;
     view.rerender(<BankTransactionsPage />);
     await waitFor(() => expect(lastListBank()).toBe('c'));
+    expect(listUrls().every(u => new URL(u, 'http://x').searchParams.get('bank_account_id') === 'c')).toBe(true);
   });
 
   it('a deep link is applied once: a later summary that lists it does not move the user', async () => {
