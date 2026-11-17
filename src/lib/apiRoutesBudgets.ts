@@ -21,6 +21,9 @@ import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, 
 import type { StoredAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsRepo';
 import type { AssumptionsView, CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import type { getCashForecast13 } from '@/modules/accounting/services/cashForecast13/cashForecast13Service';
+import type { StoredCashItem } from '@/modules/accounting/services/cashForecast13/itemsRepo';
+import type { StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
+import type { PayDaySetting } from '@/modules/accounting/services/cashForecast13/payDaySetting';
 
 export interface BudgetStaticRoutes {
   // Budget versions (mig 947): GET the list, POST the new draft (the list and the item of one resource, a union).
@@ -56,6 +59,11 @@ export interface BudgetStaticRoutes {
   '/api/accounting/budget-three-way/compare': CompareView;
   // 13-week cash forecast (cash13 PR 1): GET only, money in cents.
   '/api/accounting/cash-forecast-13': Awaited<ReturnType<typeof getCashForecast13>>;
+  // Its stored inputs (#1509): GET the list; items POST/PUT answer the item, DELETE `{ id }`; overrides PUT answers
+  // `{ override, created }`, DELETE `{ id }`; pay day GET/PUT the setting.
+  '/api/accounting/cash-forecast-13/items': { items: StoredCashItem[] } | StoredCashItem | { id: string };
+  '/api/accounting/cash-forecast-13/overrides': { overrides: StoredOverride[] } | { override: StoredOverride; created: boolean } | { id: string };
+  '/api/accounting/cash-forecast-13/pay-day': PayDaySetting;
 }
 
 export interface BudgetDynamicRoutes {

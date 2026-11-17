@@ -36,6 +36,7 @@ const runs = {
   paid: crypto.randomUUID(),
   priorYear: crypto.randomUUID(),
   otherCompany: crypto.randomUUID(),
+  unstamped: crypto.randomUUID(),
 };
 let token = '';
 
@@ -59,8 +60,9 @@ async function insertRun(
   opts: { year?: number; companyId?: string; employeeId?: string } = {},
 ) {
   await pool.query(
-    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye)
-     VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    // An approved/paid run carries its approval time, as approvePayrollRun leaves it (declared runs are final, wave 6 EF).
+    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye,approved_at)
+     VALUES($1,$2,$3,$4,$5::text,$6,$7,CASE WHEN $5::text IN ('approved','paid') THEN clock_timestamp() END)`,
     [id, opts.companyId ?? company, month, opts.year ?? 2025, status, gross, paye],
   );
   await pool.query(
@@ -104,6 +106,9 @@ beforeAll(async () => {
   await insertRun(runs.otherCompany, 3, 'approved', 800000, 350000, {
     companyId: otherCompany, employeeId: otherEmployee,
   });
+  // July: approved by status alone, neither stamp (hand-edit shape, wave 6 EF): not final, on no surface, and named.
+  await insertRun(runs.unstamped, 7, 'approved', 600000, 250000);
+  await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [runs.unstamped]);
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -183,4 +188,22 @@ it('rejects a malformed taxYear with 400 rather than a Postgres 22P02', async ()
     const out = await call(handler as never, `/api/payroll/${name}`, '9999');
     expect(out.status, name).toBe(400);
   }
+});
+
+it('an approved run with no approval time is on no annual surface and each names it (wave 6 EF)', async () => {
+  const named = (ws: unknown) => (ws as string[]).filter((w) => w.includes('2025-07') && w.includes('not final'));
+  const summary = await call<Irp5SummaryPayload & { runWarnings: string[] }>(irp5Summary, '/api/payroll/irp5/summary');
+  expect(summary.data.totalPayeSubmitted).toBe(3000);
+  expect(named(summary.data.runWarnings)).toHaveLength(1);
+  const status = await call<YearEndStatus>(yearEndStatus, '/api/payroll/year-end/status');
+  expect(status.data.payrollRuns).toMatchObject({ monthsCovered: 2, totalPaye: 3000 });
+  expect(named(status.data.runWarnings)).toHaveLength(1);
+  const recon = await call<Emp501Summary>(reconciliation, '/api/payroll/emp501/reconciliation');
+  expect(recon.data.totalEmp201).toBe(3000);
+  expect(named(recon.data.runWarnings)).toHaveLength(1);
+  const file = textResponse();
+  await easyfileExport(get('/api/payroll/irp5/easyfile-export', { taxYear: '2026' }), file.res);
+  expect(String(file.state.body).split(/\r?\n/)).toContain('3601,30000');
+  const header = JSON.parse(decodeURIComponent(String(file.state.getHeader('X-IsaFlow-Warnings') ?? '%5B%5D')));
+  expect(named(header)).toHaveLength(1);
 });

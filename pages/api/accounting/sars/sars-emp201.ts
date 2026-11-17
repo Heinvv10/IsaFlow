@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -41,6 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!canWrite((req as CompanyAuthedRequest).companyRole)) emp201.directivePayments = [];
       return apiResponse.success(res, emp201);
     } catch (err) {
+      if (respondIfRunKindUnsupported(res, err)) return;
       log.error('Failed to generate EMP201', { error: err }, 'sars-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to generate EMP201');
     }
@@ -72,6 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, submission, 'EMP201 draft saved');
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
+      if (respondIfRunKindUnsupported(res, err)) return;
       if (err instanceof SubmissionNotOpenError) return apiResponse.conflict(res, err.message);
       log.error('Failed to save EMP201 draft', { error: err }, 'sars-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to save draft');

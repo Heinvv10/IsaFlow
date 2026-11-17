@@ -8,15 +8,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const st = vi.hoisted(() => ({ rows: [] as unknown[], failWith: null as unknown, queries: [] as string[], params: [] as unknown[][] }));
 
-vi.mock('@/lib/neon', () => ({
-  withSavepoint: vi.fn(),
-  sql: vi.fn(async (strings: TemplateStringsArray, ...vals: unknown[]) => {
-    if (st.failWith) throw st.failWith;
-    st.queries.push(strings.join('?'));
-    st.params.push(vals);
-    return st.rows;
-  }),
-}));
+type Unsafe = { unsafe: string };
+vi.mock('@/lib/neon', () => {
+  const isUnsafe = (v: unknown): v is Unsafe => typeof v === 'object' && v !== null && 'unsafe' in v;
+  return {
+    withSavepoint: vi.fn(),
+    // A spliced fragment (sql.unsafe, the one final-run rule payRunFinalSql) is inlined in the recorded text.
+    sql: Object.assign(vi.fn(async (strings: TemplateStringsArray, ...vals: unknown[]) => {
+      if (st.failWith) throw st.failWith;
+      st.queries.push(strings.reduce((t, part, i) => t + part + (i < vals.length ? (isUnsafe(vals[i]) ? vals[i].unsafe : '?') : ''), ''));
+      st.params.push(vals.filter((v) => !isUnsafe(v)));
+      return st.rows;
+    }), { unsafe: (text: string): Unsafe => ({ unsafe: text }) }),
+  };
+});
 
 import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
 
@@ -33,8 +38,8 @@ describe('isPayRunFinal: the approval time decides', () => {
   it('reads one company-scoped statement on status and approval time, never the approval guard', async () => {
     await isPayRunFinal('co-1', 'run-1');
     expect(st.queries).toHaveLength(1);
-    expect(st.queries[0]).toContain('COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL');
-    expect(st.queries[0]).toContain("status IN ('approved', 'paid')");
+    expect(st.queries[0]).toContain('COALESCE(payroll_run_headers.approved_at, payroll_run_headers.approval_grandfathered_at) IS NOT NULL');
+    expect(st.queries[0]).toContain("payroll_run_headers.status IN ('approved', 'paid')");
     expect(st.params[0]).toEqual(['run-1', 'co-1']);
   });
 

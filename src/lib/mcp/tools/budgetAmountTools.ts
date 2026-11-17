@@ -81,7 +81,7 @@ export const setBudgetAmountsTool: McpTool = {
     const { inputs, refusals } = await parseAmountCells(ctx, model, args.cells);
     return runAmountWrite(ctx, {
       tool: 'set_budget_amounts', model, mode, inputs, rowRefusals: refusals, dryRun: args.dry_run === true, versionToken, planHash,
-      hashRequired: !(args.cells.length === 1 && mode !== 'replace'), page: page(args),
+      hashRequired: !(args.cells.length === 1 && mode !== 'replace'), hashWhy: 'for a write of more than one cell or in replace mode', page: page(args),
     });
   },
 };
@@ -193,7 +193,7 @@ export const setBudgetAnnualTool: McpTool = {
     }
     return runAmountWrite(ctx, {
       tool: 'set_budget_annual', model, mode: 'merge', inputs, rowRefusals: refusals, dryRun: args.dry_run === true, versionToken, planHash,
-      hashRequired: true, page: page(args), notices,
+      hashRequired: true, hashWhy: 'for every annual write (its dry run is the preview)', page: page(args), notices,
     });
   },
 };

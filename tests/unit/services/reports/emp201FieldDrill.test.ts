@@ -7,12 +7,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], directives: [] as unknown[], sql: vi.fn() }));
-vi.mock('@/lib/neon', () => ({ sql: mocks.sql }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(mocks.sql, { unsafe: (text: string) => ({ unsafe: text }) }) }));
 vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
   listStandaloneDirectivePayments: vi.fn(async () => mocks.directives),
 }));
 
 import { emp201FieldDrill } from '@/modules/accounting/services/reports/emp201FieldDrill';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 
 const run = (id: string, month: number, over: Record<string, unknown> = {}) => ({
   run_id: id, period_year: 2026, period_month: month, status: 'approved',
@@ -32,11 +33,12 @@ describe('emp201FieldDrill', () => {
     mocks.rows = [line(r, 'a'), line(r, 'b')];
   });
 
-  it('binds this company and only the approved and paid statuses', async () => {
+  it('binds this company and splices the one final-run fragment (the EMP201\'s runs, wave 6 EF)', async () => {
     await emp201FieldDrill('co-a', '2026-05-01', '2026-05-31', 'paye');
     const values = mocks.sql.mock.calls[0]!.slice(1);
     expect(values).toContain('co-a');
-    expect(values).toContainEqual(['approved', 'paid']);
+    expect(values).toContainEqual({ unsafe: payRunFinalSql('prh') });
+    expect(values.find((v: unknown) => Array.isArray(v))).toBeUndefined();
   });
 
   it('lists per employee per run, and the lines add to the header', async () => {
