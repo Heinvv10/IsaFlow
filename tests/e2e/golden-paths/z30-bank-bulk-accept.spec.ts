@@ -13,7 +13,7 @@
  * Dev-only: a sandbox company and writes, so the post-deploy run against production never loads it (a red production run
  * rolls the deploy back). BANK_TX_EVIDENCE_DIR=<dir> saves a screenshot of the preview.
  */
-import { expect, test } from '@playwright/test';
+import { expect, request as pwRequest, test } from '@playwright/test';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { Api, gpRef, today } from './_api';
@@ -21,6 +21,45 @@ import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_
 
 const SANDBOX_NAME = '0GP Golden Bank Bulk Accept Sandbox';
 const SANDBOX_ONBOARDING_ID = '5d8e1a3c-7b24-4f69-9a0e-3c6b2d1f8e57';
+/** The dialog's name once Confirm has answered: the title changes, so the preview's locator ("Accept 3 ...") no longer finds it. */
+const RESULT_TITLE = 'High-confidence suggestions: result';
+
+const NIL_ID = '00000000-0000-0000-0000-000000000000';
+const PAGE = '/accounting/bank-transactions';
+// Every route the page asks for while it is open (the shell, the page's mount reads and panels, the bulk-accept route
+// the count, preview, confirm and undo share). GET only: a POST-only route answers 405, which is enough to compile it.
+const WARM_APIS = [
+  '/api/auth/me', `/api/accounting/companies?id=${NIL_ID}`, '/api/features/check?code=budgets_three_way', '/api/announcements/active',
+  '/api/accounting/notifications', '/api/track/event', '/api/auth/preferences', '/api/accounting/accounting-settings?key=enable_cost_centres',
+  '/api/accounting/bank-account-summaries', `/api/accounting/bank-transactions?bank_account_id=${NIL_ID}&status=imported`,
+  '/api/accounting/chart-of-accounts', '/api/accounting/customers', '/api/accounting/cost-centres?active=true',
+  '/api/accounting/suppliers-list?limit=1&page=1', '/api/accounting/bank-relink-transfers', '/api/accounting/bank-auto-post',
+  '/api/accounting/coding-metrics', `/api/accounting/bank-transfer-links?bankAccountId=${NIL_ID}`,
+  `/api/accounting/bank-bulk-accept?bankAccountId=${NIL_ID}`,
+];
+
+/**
+ * `next dev` compiles a route on its first request and then tells every open page to do a full reload (see z13 and y1).
+ * Each hosted chunk piece starts a fresh dev server, so the page and its panels' routes may be cold when z30 opens it.
+ * Requesting them once before any page is open makes every compile happen with no page to reload.
+ */
+test.beforeAll(async () => {
+  test.setTimeout(300_000); // up to twenty cold compiles: longer than the config's 90 s test timeout
+  const { baseURL, storageState } = test.info().project.use;
+  if (!storageState) throw new Error('z30 warm-up needs the golden session (use.storageState); refusing to warm up unauthenticated');
+  const ctx = await pwRequest.newContext({ baseURL, storageState });
+  try {
+    // No redirects: a stale session would 302 to /login and must fail here, not be mistaken for a warm route.
+    const page = await ctx.get(PAGE, { timeout: 120_000, maxRedirects: 0 });
+    expect(page.status(), `warm-up ${PAGE} (a 3xx means the session is not valid)`).toBe(200);
+    for (const path of WARM_APIS) {
+      const res = await ctx.get(path, { timeout: 120_000, maxRedirects: 0 });
+      expect(res.status(), `warm-up ${path}: the route must answer, even with a refusal`).toBeLessThan(500);
+    }
+  } finally {
+    await ctx.dispose();
+  }
+});
 
 const t0 = Date.now();
 /** One line per step with the seconds since the start, written at once: the job log shows how far a run got even if a later step hangs. */
@@ -136,6 +175,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     const dump = async (what: string) => `[z30 +${((Date.now() - t0) / 1000).toFixed(1)}s] ${what}\n  Confirm: enabled=${await confirmButton.isEnabled().catch(() => '?')} visible=${await confirmButton.isVisible().catch(() => '?')}`
       + `\n  dialog alert: ${await dialog.getByRole('alert').allTextContents().then((t) => t.join(' | ')).catch(() => '?')}`
       + `\n  dialog present: ${await dialog.count().catch(() => '?')}; text: ${(await dialog.textContent({ timeout: 2_000 }).catch(() => '(none within 2s)'))?.slice(0, 500)}`
+      + `\n  dialogs on screen (by name): ${await page.locator('[role="dialog"]').evaluateAll((els) => els.map((e) => `"${e.getAttribute('aria-label')}": ${(e.textContent ?? '').slice(0, 200)}`).join(' || ')).catch(() => '?') || '(none)'}`
       + `\n  console: ${consoleErrors.slice(-8).join(' || ') || '(none)'}`
       + `\n  navigations: ${navigations.join(' | ') || '(none)'}`
       + `\n  api requests: ${requests.slice(-14).join(' | ')}`;
@@ -149,8 +189,9 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     const confirmText = await confirmRes.text().catch(() => '(unreadable)');
     const confirmKey = req.headers()['idempotency-key'];
     try { runId = JSON.parse(confirmText)?.data?.runId ?? ''; } catch { runId = ''; }
+    const result = page.getByRole('dialog', { name: RESULT_TITLE });
     try {
-      await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines', { timeout: 30_000 });
+      await expect(result.getByTestId('bulk-result')).toContainText('Posted 3 lines', { timeout: 30_000 });
     } catch (err) {
       const d = await dump(`the result screen did not show "Posted 3 lines": confirm POST answered ${confirmRes.status()} (Idempotency-Key ${confirmKey ?? 'MISSING'}) body ${confirmText.slice(0, 600)}\n${String(err).split('\n')[0]}`);
       console.log(d);
@@ -162,10 +203,11 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     expect(await withStatus('allocated'), 'the three lines are allocated after Confirm').toBe(3);
 
     // Undo batch reverses exactly that batch: the lines are imported again.
-    await dialog.getByRole('button', { name: 'Undo batch' }).click();
-    await expect(dialog.getByText(/Batch undone: 3 lines reversed/)).toBeVisible({ timeout: 60_000 }); // a cold dev server compiles the reversal path on first use
+    await result.getByRole('button', { name: 'Undo batch' }).click();
+    await expect(result.getByText(/Batch undone: 3 lines reversed/)).toBeVisible({ timeout: 60_000 });
     undone = true;
-    await dialog.getByRole('button', { name: 'Done' }).click();
+    await result.getByRole('button', { name: 'Done' }).click();
+    await expect(result).toHaveCount(0);
     expect(await withStatus('imported')).toBe(3);
     expect(await withStatus('allocated')).toBe(0);
   } finally {
