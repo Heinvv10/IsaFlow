@@ -163,6 +163,16 @@ describe('attach_document', () => {
     expect(addBankTxAttachment).toHaveBeenCalledTimes(1);
   });
 
+  it('takes a file of exactly 2 MB and refuses 2 MB + 1 byte', async () => {
+    const exact = Buffer.concat([PNG, Buffer.alloc(ATTACH_MAX_BYTES - PNG.length)]);
+    const ok2 = await attachDocumentTool.handler({ ...base, content: exact.toString('base64') }, ctx);
+    expect(ok2.isError).toBeFalsy();
+    expect(vi.mocked(addBankTxAttachment).mock.calls[0]![1].bytes.length).toBe(ATTACH_MAX_BYTES);
+    const over = await attachDocumentTool.handler({ ...base, content: Buffer.concat([exact, Buffer.from([0])]).toString('base64') }, ctx);
+    expect(over.content[0]!.text).toContain('exceeds the 2 MB limit');
+    expect(addBankTxAttachment).toHaveBeenCalledTimes(1);
+  });
+
   it('marks a fresh attachment duplicate: false', async () => {
     const res = await attachDocumentTool.handler({ ...base, content: PNG.toString('base64') }, ctx);
     expect(JSON.parse(res.content[0]!.text).duplicate).toBe(false);

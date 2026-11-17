@@ -12,8 +12,17 @@ const logs = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), d
 vi.mock('@/lib/logger', () => ({ log: logs, apiLogger: logs, default: logs }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/publicRouteTx', () => ({ withPublicRouteTransaction: async (_l: string, fn: () => Promise<unknown>) => fn() }));
-const limiter = vi.hoisted(() => ({ allow: true }));
-vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => limiter.allow), getClientIp: () => '1.2.3.4' }));
+// A counting limiter: each key admits `max` calls (the real bucket's shape within one window).
+const limiter = vi.hoisted(() => ({ allow: true, deny: new Set<string>(), counts: new Map<string, number>() }));
+vi.mock('@/lib/rateLimit', () => ({
+  checkRateLimit: vi.fn(async (key: string, opts: { max: number }) => {
+    if (!limiter.allow || limiter.deny.has(key)) return false;
+    const n = (limiter.counts.get(key) ?? 0) + 1;
+    limiter.counts.set(key, n);
+    return n <= opts.max;
+  }),
+  getClientIp: () => '1.2.3.4',
+}));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsQuietly: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentStore', async (importOriginal) => {
@@ -59,6 +68,8 @@ async function put(bytes: Buffer, over: Record<string, unknown> = {}, stream?: R
 beforeEach(() => {
   vi.clearAllMocks();
   limiter.allow = true;
+  limiter.deny = new Set();
+  limiter.counts = new Map();
   vi.mocked(findIntentByToken).mockResolvedValue(intent());
   vi.mocked(stageUploadBytes).mockResolvedValue(true);
 });
@@ -139,15 +150,46 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF)).statusCode).toBe(409);
   });
 
-  it('is PUT only and rate-limited per token and per company (the client IP is the proxy\'s), under a global ceiling', async () => {
+  it('is PUT only and rate-limited per token, globally and per company (the client IP is the proxy\'s)', async () => {
     expect((await put(PDF, { method: 'POST' })).statusCode).toBe(405);
     await put(PDF);
     const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
     expect(keys).toEqual([
-      'mcp-upload:all', `mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`, `mcp-upload-company:${COMPANY}`]);
+      `mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`, 'mcp-upload:all', `mcp-upload-company:${COMPANY}`]);
     expect(keys.some((k) => k.includes('1.2.3.4'))).toBe(false);
     limiter.allow = false;
     expect((await put(PDF)).statusCode).toBe(429);
-    expect(findIntentByToken).toHaveBeenCalledTimes(1);
+    expect(stageUploadBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('charges a malformed or unknown token only to the miss bucket, never the global one, and does not sweep', async () => {
+    expect((await put(PDF, { query: { token: 'short' } })).statusCode).toBe(404);
+    vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
+    expect((await put(PDF)).statusCode).toBe(404);
+    expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0])).toEqual(['mcp-upload:miss', 'mcp-upload:miss']);
+    expect(sweepExpiredUploadsQuietly).not.toHaveBeenCalled();
+    limiter.deny = new Set(['mcp-upload:miss']);
+    vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
+    expect((await put(PDF)).statusCode).toBe(429);
+  });
+
+  it('a flood of junk tokens (past every bucket size) never blocks a real upload', async () => {
+    for (let n = 0; n < 3001; n += 1) await put(PDF, { query: { token: `junk${n}` } });
+    vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
+    await put(PDF);
+    const r = await put(PDF);
+    expect(r.statusCode).toBe(200);
+    expect(stageUploadBytes).toHaveBeenCalledTimes(1);
+    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops pulling the body at the first byte past the declared size (nothing drained or buffered past it)', async () => {
+    let pulled = 0;
+    async function* flood() { for (let n = 0; n < 1000; n += 1) { pulled += 1; yield Buffer.alloc(1024, 0x41); } }
+    const r = await put(PDF, {}, Readable.from(flood()));
+    expect(r.statusCode).toBe(413);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(pulled).toBeLessThan(100);
+    expect(stageUploadBytes).not.toHaveBeenCalled();
   });
 });

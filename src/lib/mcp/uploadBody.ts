@@ -4,7 +4,8 @@
  *   - too_large: past `cap` bytes (the declared size) reading stops at once;
  *   - stalled: no data for uploadReadLimits.idleMs, or the whole body not in by uploadReadLimits.totalMs;
  *   - aborted: the client closed or errored the stream before it ended.
- * On any stop the listeners are dropped and nothing read is kept; the caller answers and stages nothing.
+ * On any stop the listeners are dropped, the stream is paused (never drained: nothing past cap + 1 byte is pulled)
+ * and nothing read is kept; the caller answers, closes the connection and stages nothing.
  */
 import type { Readable } from 'stream';
 
@@ -41,9 +42,7 @@ export function readUploadBody(req: Readable, cap: number): Promise<Buffer> {
       if (settled) return;
       cleanup();
       chunks.length = 0;
-      // Too large: drain and discard the rest so the response can still be written. Stalled or aborted: stop reading.
-      if (why === 'too_large') req.resume();
-      else req.pause();
+      req.pause();
       reject(new UploadBodyError(why));
     };
     const armIdle = () => {

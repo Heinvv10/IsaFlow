@@ -167,6 +167,22 @@ describe('create_upload_urls', () => {
     expect(refusedAll.wroteNothing).toBe(true);
   });
 
+  it('caps size per target kind (bank 2 MB, entity 10 MB) and the file name at 200 characters', async () => {
+    const mb = 1024 * 1024;
+    const entity = { target: { entity_type: 'supplier_invoice', entity_id: BILL } };
+    const res = body(await createUploadUrlsTool.handler({ files: [
+      file({ size: 2 * mb }), file({ size: 2 * mb + 1, sha256: 'a'.repeat(64) }),
+      file({ ...entity, size: 10 * mb }), file({ ...entity, size: 10 * mb + 1, sha256: 'b'.repeat(64) }),
+      file({ file_name: `${'n'.repeat(196)}.pdf`, sha256: 'c'.repeat(64) }),
+      file({ file_name: `${'n'.repeat(197)}.pdf`, sha256: 'd'.repeat(64) }),
+    ], idempotency_key: 'k' }, ctx()));
+    expect(res.uploads.map((u: { status: string }) => u.status))
+      .toEqual(['url_issued', 'refused', 'url_issued', 'refused', 'url_issued', 'refused']);
+    expect(res.uploads[1].error).toContain('2 MB limit');
+    expect(res.uploads[3].error).toContain('10 MB limit');
+    expect(res.uploads[5].error).toContain('200 characters');
+  });
+
   it('issues one url when the same bytes are listed twice for one target', async () => {
     const res = body(await createUploadUrlsTool.handler({ files: [file(), file({ file_name: 'copy.pdf' })], idempotency_key: 'k' }, ctx()));
     expect(res.urls_issued).toBe(1);

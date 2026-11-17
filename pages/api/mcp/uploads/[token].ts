@@ -14,9 +14,10 @@
  *
  * Not a withAuth route: there is no user. The lookup and the staging write (with its audit row) each run in their own
  * short public-route transaction on the service pool (the body is read between them, holding no connection), and the
- * write names the intent's id AND company_id. Rate limits: the client IP is the proxy's (cloudflared / nginx), so the
- * buckets are a platform ceiling, one per token and one per company, never per IP. Each PUT also runs the global sweep
- * of expired uploads.
+ * write names the intent's id AND company_id. Rate limits: the client IP is the proxy's (cloudflared / nginx), so no
+ * bucket is per IP. A malformed or unknown token is charged ONLY to its own miss bucket (which can refuse misses but
+ * never a real token); a token that names an intent is charged per token, to the platform ceiling and per company,
+ * and only then runs the global sweep of expired uploads. So junk can neither drain the ceiling nor drive the sweep.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -35,8 +36,10 @@ import {
 export const config = { api: { bodyParser: false } };
 
 const WINDOW = 60;
-/** Every PUT, all companies: far above any real batch, low enough to bound a flood. */
+/** Every PUT that names a real intent, all companies: far above any real batch, low enough to bound a flood. */
 const GLOBAL_PER_MINUTE = 3000;
+/** Malformed or unknown tokens, all callers (they share the proxy's IP). Gates misses only. */
+const MISS_PER_MINUTE = 600;
 /** One url is one file; retries after a refused body are the only repeats. */
 const TOKEN_PER_MINUTE = 20;
 /** A company's agent may PUT a 100-file batch several times a minute. */
@@ -44,21 +47,22 @@ const COMPANY_PER_MINUTE = 600;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
-  if (!(await checkRateLimit('mcp-upload:all', { max: GLOBAL_PER_MINUTE, windowSecs: WINDOW }))) {
-    return apiResponse.tooManyRequests(res);
-  }
   const token = typeof req.query.token === 'string' ? req.query.token : '';
-  if (!TOKEN_RE.test(token)) return apiResponse.notFound(res, 'Upload');
-  if (!(await checkRateLimit(`mcp-upload-token:${hashUploadToken(token).slice(0, 32)}`, { max: TOKEN_PER_MINUTE, windowSecs: WINDOW }))) {
-    return apiResponse.tooManyRequests(res);
+  const intent = TOKEN_RE.test(token)
+    ? await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token))
+    : null;
+  if (!intent) {
+    if (!(await checkRateLimit('mcp-upload:miss', { max: MISS_PER_MINUTE, windowSecs: WINDOW }))) {
+      return apiResponse.tooManyRequests(res);
+    }
+    return apiResponse.notFound(res, 'Upload');
   }
+  const admitted = await checkRateLimit(`mcp-upload-token:${hashUploadToken(token).slice(0, 32)}`, { max: TOKEN_PER_MINUTE, windowSecs: WINDOW })
+    && await checkRateLimit('mcp-upload:all', { max: GLOBAL_PER_MINUTE, windowSecs: WINDOW })
+    && await checkRateLimit(`mcp-upload-company:${intent.companyId}`, { max: COMPANY_PER_MINUTE, windowSecs: WINDOW });
+  if (!admitted) return apiResponse.tooManyRequests(res);
   await sweepExpiredUploadsQuietly();
 
-  const intent = await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token));
-  if (!intent) return apiResponse.notFound(res, 'Upload');
-  if (!(await checkRateLimit(`mcp-upload-company:${intent.companyId}`, { max: COMPANY_PER_MINUTE, windowSecs: WINDOW }))) {
-    return apiResponse.tooManyRequests(res);
-  }
   if (intent.status !== 'pending') return apiResponse.conflict(res, 'This upload url was already used');
   if (intent.expired) return apiResponse.conflict(res, 'This upload url has expired: create a new one');
 
@@ -72,6 +76,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     bytes = await readUploadBody(req, intent.declaredSize);
   } catch (err) {
     if (!(err instanceof UploadBodyError)) throw err;
+    // The rest of the body is never read: close the connection rather than leave it half-consumed.
+    res.setHeader('Connection', 'close');
     if (err.stop === 'too_large') return apiResponse.error(res, ErrorCode.PAYLOAD_TOO_LARGE, tooLarge);
     log.warn('MCP upload body not completed', { uploadId: intent.id, stop: err.stop }, 'mcp-uploads');
     return apiResponse.badRequest(res, err.stop === 'stalled'
