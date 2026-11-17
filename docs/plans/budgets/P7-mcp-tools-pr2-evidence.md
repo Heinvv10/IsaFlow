@@ -4,6 +4,10 @@ Branch `feat/mcp-budget-tools-excel-20261117`, stacked on PR 1 (#1513). Tools an
 in `src/lib/mcp/.claude.md` ("Budget Excel tools") and `src/modules/accounting/services/budgets/.claude.md` ("PR 2").
 No migration: the snapshot table's `tool` column (999l) takes `import_budget_workbook` as it is.
 
+**How to read this doc.** The round sections are history, in the order the rounds ran. Where a later round changed
+a rule, the earlier text is marked **SUPERSEDED** with what replaced it. The current behaviour is in the guarantee
+below and in the module docs (`src/lib/mcp/.claude.md`, `src/modules/accounting/services/budgets/.claude.md`).
+
 ## The free-form guarantee (round 8, decided)
 
 The free-form import promises VALUES, not appearance. Matching what a spreadsheet shows cannot be guaranteed for
@@ -62,6 +66,9 @@ say) is refused whole, so the import cannot express a second one; the grid save 
 
 ## Review round 2
 
+**SUPERSEDED in part:** the free-form sheet read is the one the workbook opens on (round 7), not "its first sheet";
+its layout, format and cell rules are round 4's to round 9's.
+
 - **Every live import needs its dry run's plan_hash (MEDIUM).** A one-cell import that was a conflict was written live
   with no dry run, plan_hash or token, the conflict shown only after the write (the breaker's D1: a colleague's driver
   move to 50% replaced by an agent's typed override). Now `hashRequired` is always true for import_budget_workbook: the
@@ -94,6 +101,9 @@ say) is refused whole, so the import cannot express a second one; the grid save 
 
 ## Review round 3
 
+**SUPERSEDED:** round 4 replaced this round's readers (regex scanners, `readSheets`' inspect hook,
+`xlsxNormalise.workbookSheets`: all deleted); round 7 reads the sheet the workbook opens on, not the first visible one.
+
 The breaker held the controls and found parsing traps that read the wrong data with no sign of it; all are free-form
 only, and the app's template import is unchanged by them.
 - **F1 (MEDIUM).** The free-form path read `wb.sheets[0]` even when hidden or very hidden (`normaliseXlsx` ignores
@@ -108,7 +118,8 @@ only, and the app's template import is unchanged by them.
   refuses those cells per cell, as a plain date cell is refused. Nothing in `rawOf` / `amountOf` changed, so the UI's
   template import reads such cells as before (TRUE as 1.00 there; a template is IsaFlow's own sheet).
 - **F4.** A free-form number with more than 2 decimals (beyond float noise, |v x 100 - round(v x 100)| < 1e-6) is refused
-  per cell, "round it to cents in the sheet". The app's template import keeps rounding numbers to cents: a template's
+  per cell, "round it to cents in the sheet" (SUPERSEDED: round 7 rounds under a 2-decimal format and lists the cell;
+  round 9 decides on the value's 15 significant digits, not this tolerance). The app's template import keeps rounding numbers to cents: a template's
   cells are formatted `#,##0.00`, so what a person sees there is the rounded amount; a free-form sheet's format is
   unknown, so it is not rounded for them.
 - **F5.** A range merged across month columns (read from the sheet XML's mergeCells) refuses the sheet: only its first
@@ -134,8 +145,8 @@ admitted by an EXACT-STRING allowlist (`budgets/budgetFreeformFormats.ts`, `ZA_F
 dropped (round 5: only `[$-1C09]`, `[$-436]`, `[$-409]` at the very start; round 7: any `[$-hex]` at the start of each
 section, before every check, not only this one. LibreOffice writes the tag when the format's Language is set, in the
 dialog or by the locale the format was made in, NOT on every format it writes: General typed in a fresh sheet is
-written plain), and colour names case-folded (`[RED]` = `[Red]`). Every listed format shows the imported value for every number it
-accepts: a negative keeps its minus, the accounting zero shows "-" and imports 0.
+written plain), and colour names case-folded (`[RED]` = `[Red]`). No listed format changes a number's value or
+sign: a negative keeps its minus, the accounting zero is drawn "-" and is 0.
 
 **IsaFlow rounds only under 2 decimals.** A money cell whose format shows fewer decimals than the cell holds is
 refused (`This cell shows 0 decimal places but holds 1234.5 ...`; a `#,##0` cell draws 1,235 for 1 234.50). This applies to the
@@ -358,8 +369,8 @@ own renderer) draws 1500 / 250 as `2` / `0` under the condition's `#,##0,`, and 
 | rounding-en-za | H2 | `[$-1C09]0.00` | `-2,68` | imports -2.68 |
 | rounding-en-za | I2 | `[$-1C09]0.00` | `1234,50` | imports 1234.50 |
 | rounding-en-za | J2 | `[$-409]_-\R* #,##0.00_-;"-R"* #,##0.00_-;_-\R* \-??_-;_-@_-` | ` R0.13 ` | imports 0.13 |
-| rounding-en-za | C3 | `General` | `0,333333333333333` | refused: has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you) |
-| rounding-en-za | D3 | `[$-1C09]0.000` | `0,333` | refused: has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you) |
+| rounding-en-za | C3 | `General` | `0,333333333333333` | refused: has more than 2 decimals, and IsaFlow rounds to cents only under a format showing exactly 2 (this one is General ... |
+| rounding-en-za | D3 | `[$-1C09]0.000` | `0,333` | refused: has more than 2 decimals, and IsaFlow rounds to cents only under a format showing exactly 2 (this one is General ... |
 | rounding-en-za | E3 | `[$-1C09]#,##0` | `83` | refused: This cell shows 0 decimal places but holds 83.3333333333333; IsaFlow rounds to cents only under a for ... |
 | rounding-en-za | F3 | `[$-1C09]0.0` | `83,3` | refused: This cell shows 1 decimal place but holds 83.3333333333333; IsaFlow rounds to cents only under a form ... |
 | short-row-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (row 3): unhide every row and column, and clear any filter (IsaFlow reads no cell you cannot reach ... |
@@ -439,7 +450,48 @@ Unit: budgetFreeformLibreOffice, -Round7, -Raw, -Raw5, -ZaFormats, budgetImportF
 | S31 | half away from zero (5 rounds up) | only above 5 | 9/276 |
 | S32 | a tag after a colour is dropped | only at the very start | 1/276 |
 
-## Review round 8 (final): the guarantee, conditional formats, fill characters
+## Review round 9: blind code review (REQUEST_CHANGES, no HIGH)
+
+Fixed test first (red at `989c56128e`, committed `977d83c17e`: `Tests 8 failed | 8 passed (16)` in
+`budgetFreeformRound9.test.ts`; the four structural-guard tests passed on the old code, guards that had no test, and
+R4 to R7 show each fails without its guard):
+- **M1:** whether a value holds more than cents was a float tolerance on value x 100, which refused exact cents above
+  about 2^27 (134221993.55; 169762805.95 x 100 = 16976280594.999998). It is now decided on the value's 15 significant
+  digits, the same digits `roundToCents` rounds (`digits15`). Pinned at about R1.5e8, at 1e10, and by a sweep of
+  20 000 random cent values below 1e11 (General, 2 decimals, and whole tenths under 1 decimal).
+- **M2:** tests for rows out of order, a cell not where its row says (a second `<c r="B2">` would have overwritten
+  the first), a sheet that is not a plain worksheet, and styles where no program writes them.
+- **M3:** the PR 2 parts of both module docs rewritten to the current state with a pointer here; superseded
+  sections of this doc marked.
+- **Low:** a format's decimals are those of the section that draws the value (a negative: the second section when
+  there is one; zero has no fraction, so no section's decimals matter for it and the zero section never counts):
+  `#,##0.00;-#,##0.00;0` reads 1.50, `0.00;-0.0` reads 1.25 and refuses -1.25, `0.000;-0.00` rounds -1.234 and
+  refuses 1.234. The lost-leading-zero refusals name their sheet, row and column; an error value in the dimension
+  column is refused as one; NOT_CENTS says IsaFlow rounds only under 2 decimals; the tool description and the
+  unknown-header refusal list every ignored header; `get_budget_template` builds and signs only the page's rows
+  (its JSON for company and cc1 pages byte-identical before and after); `make_fixtures.py` split (`lo_uno.py`; all
+  25 regenerated fixtures byte-identical in their sheet, style, workbook and string parts); the committed
+  `__pycache__` removed and ignored; `FreeformSheet`'s optional fields never null; stale comments and test titles.
+
+### Round 9 mutation rows
+
+Unit: the 9 free-form test files and `budgetTemplateTool` (342 tests, baseline 342 / 342); failed / total, every
+mutant restored.
+
+| # | Guard | Mutant | Result |
+|---|---|---|---|
+| R1 | more than cents decided on 15 digits | the float tolerance on value x 100 | 3/342 |
+| R2 | a negative uses the format's second section | always the first | 2/342 |
+| R3 | the second section draws negatives with 2 sections too | only with 3 | 2/342 |
+| R4 | rows out of order refuse | not checked | 1/342 |
+| R5 | a cell where its row says (no second B2, no cell of another row) | not checked | 2/342 |
+| R6 | a sheet that is not a plain worksheet refuses | not checked | 1/342 |
+| R7 | styles / shared strings where no program writes them refuse | not checked | 1/342 |
+| R8 | an error value in the dimension column is refused as one | read as a blank code | 1/342 |
+| R9 | get_budget_template builds only the page | builds all, slices one row too many | 1/342 |
+| R10 | roundToCents pads a short fraction | not padded | 2/342 |
+
+## Review round 8: the guarantee, conditional formats, fill characters
 
 The real-file breaker showed that display fidelity cannot be guaranteed for xlsx, so the guarantee was changed (top of
 this doc): values, not appearance. Claims that the reader matches what a spreadsheet shows were removed from the code,
@@ -493,7 +545,7 @@ Unit: the 8 free-form test files (311 tests, baseline 311 / 311); failed / total
 | T18 | [...] codes are no placeholders | counted | 1/311 |
 | T19 | a cfRule names a styled dxf | ignored | 11/311 |
 
-## Review round 5: final hardening, and the threat model
+## Review round 5: hardening, and the threat model
 
 **Threat model for the free-form path (fixed after this round).** The caller already holds set_budget_amounts, so a
 crafted file gives no capability beyond it. The dry run's diff, listing every cell, is the authoritative view a person
@@ -526,6 +578,7 @@ result; unconfirmed whether a saved file can differ, documented, not fixed).
    conditions are refused outright rather than allowed when every section is plain (a condition decides which section
    shows, so reading it exactly is guessing), and so is an unsigned negative section (`0;0` shows -5 as 5).
 8. A column narrower than 0.5, a row lower than 1pt, and such a default width or height (or `zeroHeight`) are hidden.
+   **SUPERSEDED (round 7):** under 1 character wide or under 3pt high.
 9. A size refusal (SpreadsheetTooLargeError) raised inside a parse handler surfaces as itself.
 10. A total row with amounts stays skipped and listed, now with the amounts it held (`skipped_rows[].amounts`); the
     description tells the agent to check them.
@@ -571,6 +624,10 @@ cells); the reader refuses them because a person would not see them.
 
 ## Review round 4: the free-form class closed
 
+**SUPERSEDED in part:** saxes is now declared in package.json (5.0.1) and runs with namespaces (round 5); the
+character allowlist and built-ins are round 5's (built-ins 0-4, 37-40, 41, 43), with Text (`@`, 49) as General since
+round 7; a merge above the header is allowed and the sheet read is the one the workbook opens on (round 7).
+
 Three rounds of free-form traps (hidden sheets, rows and filters; codes skipped with money in their row; error codes;
 merges; regex scanners beaten by single quotes, long tags or case; date formats outside a denylist; look-alike sheet
 names) had one cause: the reader guessed. Round 4 replaces guessing with rules.
@@ -583,7 +640,7 @@ names) had one cause: the reader guessed. Round 4 replaces guessing with rules.
    of height 0, `sheetFormatPr zeroHeight`, a hidden or zero-width column, and any `mergeCell` in any form (lower-case,
    $-anchored, single-quoted) refuses the file. A code merged down rows (A2:A3) is one of these.
 3. **Parsed, not scanned.** workbook.xml, its rels, styles, shared strings and the sheet are read by an XML parser:
-   saxes, the one exceljs parses with (a transitive dependency through exceljs 4.4.0, NOT added to package.json),
+   saxes, the one exceljs parses with (a transitive dependency through exceljs 4.4.0, NOT added to package.json; SUPERSEDED: declared since round 5),
    after the repo's own `checkXmlPart` (depth, attribute count, no DOCTYPE). Element and attribute names are compared
    by local name, case-folded; sheet state, cell type and boolean attributes case-folded (`state="Hidden"`,
    `hidden='1'`, `hidden="true"`); a tag of any length; anything the parser cannot read, a cell type it does not
@@ -593,7 +650,8 @@ names) had one cause: the reader guessed. Round 4 replaces guessing with rules.
 4. **Number formats by allowlist.** A numeric money cell (value or formula result) is an amount only when its
    format is General or a plain number / currency / accounting one (`isPlainNumberFormat`): digit placeholders,
    digits, `,` `.` spaces, the R symbol (also `[$R-...]`), quoted or escaped literals, `_` / `*` padding, sections,
-   colour codes and `@`, with at least one digit placeholder; built-in ids 0-8 and 37-44 only. Everything else is
+   colour codes and `@`, with at least one digit placeholder; built-in ids 0-8 and 37-44 only (SUPERSEDED, round 5:
+   0-4, 37-40, 41 and 43; no literals; round 7: `@` / 49 read as General). Everything else is
    refused per cell: bbbb, aaa, ids 14, 27-36, 50-58, yyyy-mm, [h]:mm, %, E+, fractions, conditions, `[$-409]`,
    `@` alone. Header cells formatted as dates read as their date (the 1900 or 1904 system).
 5. **Sheet names** are compared after NFKC, with format / zero-width characters (`\p{Cf}`) and spaces stripped, entities
@@ -602,7 +660,7 @@ names) had one cause: the reader guessed. Round 4 replaces guessing with rules.
    A name that decodes to exactly `_meta` through an entity goes to the template path, whose own lookup does not match
    it and refuses ("not an IsaFlow budget template").
 6. **The sheet read is the one Excel opens on.** The first visible sheet must be `workbookView activeTab`; otherwise
-   the file is refused. The reply names the sheet read (`sheet_name`).
+   the file is refused (SUPERSEDED, round 7: the open sheet is read whatever its position, refused only when hidden). The reply names the sheet read (`sheet_name`).
 
 The app's template path is unchanged: `budgetImportParse` is master's reader again (it differs only by the
 `ImportLine` fields PR 2 added for the JSON grid and the free-form `keep`).
@@ -621,6 +679,10 @@ Error: Cannot find package '@/lib/mcp/tools/budgetTemplateTool' imported from ..
 
 That red only proves the modules were missing; the table below is the evidence that each test fails on its own
 guard's removal.
+
+Review round 9: `budgetFreeformRound9.test.ts` was written first and run at `989c56128e` (committed `977d83c17e`):
+`Tests 8 failed | 8 passed (16)`; the 8 passing are the four structural-guard tests (guards with no test until then;
+R4 to R7 below) and pins of unchanged behaviour.
 
 Review round 8: the six `cond-*` LibreOffice fixtures, their tests and `budgetFreeformRound8.test.ts` were written
 first and run at `228cdad1ca` (committed as `9f2bc8d9ee`): `Tests 22 failed | 32 passed (54)` (every styled
