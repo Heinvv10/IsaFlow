@@ -10,7 +10,8 @@ import { apiFetch } from '@/lib/apiFetch';
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ activeCompany: { id: 'company-a' }, loading: false }), useCompanyRoleOrNull: () => 'owner',
 }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: 'details' } }) }));
+const route = vi.hoisted(() => ({ tab: 'details' }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: route.tab } }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
@@ -20,6 +21,7 @@ let stored = 1;        // financial_year_start in the "database"
 let refuse = true;     // the company PUT answers 409
 
 beforeEach(() => {
+  route.tab = 'details';
   stored = 1;
   refuse = true;
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
@@ -80,4 +82,20 @@ it('another failure (not 409) shows the message without Reload', async () => {
   fireEvent.click(save());
   await screen.findByText('vatPeriod is wrong');
   expect(screen.queryByRole('button', { name: /Reload settings/ })).toBeNull();
+});
+
+it('Reload re-reads the whole General tab: the year panel loads again, not only the company', async () => {
+  route.tab = 'general';
+  const yearReads = () => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('financial-year-end-change')).length;
+  render(<CompanySettingsPage />);
+  await waitFor(() => expect(save().disabled).toBe(false));
+  await waitFor(() => expect(yearReads()).toBeGreaterThan(0));
+  fireEvent.click(save());
+  await screen.findByText(STALE);
+  const before = yearReads();
+  stored = 6;
+  refuse = false;
+  fireEvent.click(screen.getByRole('button', { name: /Reload settings/ }));
+  await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
+  await waitFor(() => expect(yearReads(), 'the year panel kept its pre-Reload year').toBe(before + 1));
 });
