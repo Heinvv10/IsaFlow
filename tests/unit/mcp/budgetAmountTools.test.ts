@@ -60,7 +60,7 @@ const cell = (account: string, month: string, amount: unknown, dims: Record<stri
 const TWO = [cell('6000', '2026-04', '1'), cell('6000', '2026-05', '1')];
 const dryHash = async (args: Record<string, unknown>) => String(json(await amounts.handler({ ...KEY, ...args, dry_run: true }, ctx())).plan_hash);
 
-describe('set_budget_amounts: per-row refusals (dry run lists them, the save is never reached)', () => {
+describe('set_budget_amounts: per-row refusals (the dry run lists them and runs the rolled-back save on the other cells only)', () => {
   it.each([
     ['a number, not a decimal string', cell('6000', '2026-04', 12.5), /decimal strings/],
     ['three decimals', cell('6000', '2026-04', '1.005'), /at most 2 decimals/],
@@ -99,10 +99,21 @@ describe('set_budget_amounts: per-row refusals (dry run lists them, the save is 
     expect((out.cells as Array<Record<string, unknown>>)[0]).toMatchObject({ status: 'added', after: '5.00', source: 'override' });
   });
 
-  it('replace with a refused row shows the cleared cells removed and the totals without them', async () => {
-    const out = await refusedDry({ mode: 'replace', cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
-    expect(out.counts).toMatchObject({ added: 1, removed: 1, unchanged: 0, refused: 1 });
-    expect((out.cells as Array<Record<string, unknown>>).find((c) => c.i === null)).toMatchObject({ month: '2026-03', status: 'removed', before: '100.00', after: null });
+  it.each([
+    ['another account', cell('7000', '2026-04', '1')],
+    ['the same account', cell('6000', '2026-05', '1', { cc1: 'NOPE' })],
+  ])('replace with a refused row (%s) holds back the clears and says so', async (_n, bad) => {
+    const out = await refusedDry({ mode: 'replace', cells: [cell('6000', '2026-04', '5.00'), bad] });
+    expect(out.counts).toMatchObject({ added: 1, removed: 0, unchanged: 0, refused: 1 });
+    expect((out.cells as Array<Record<string, unknown>>).some((c) => c.i === null)).toBe(false);
+    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
+    expect(vi.mocked(saveCells).mock.calls[0][2].cells.map((x) => x.month)).toEqual(['2026-04']);
+    expect(out.next_step).toMatch(/replace would clear are listed once nothing is refused/);
+  });
+
+  it('replace with nothing refused still lists and saves its clears', async () => {
+    const out = await refusedDry({ mode: 'replace', cells: [cell('6000', '2026-04', '5.00')] });
+    expect(out.counts).toMatchObject({ added: 1, removed: 1, refused: 0 });
     expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '5.00']);
   });
 
@@ -115,7 +126,12 @@ describe('set_budget_amounts: per-row refusals (dry run lists them, the save is 
   it('a save refusal with refused rows says both', async () => {
     vi.mocked(saveCells).mockRejectedValue(new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'You can change only your own budget slices'));
     const r = await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
-    expect(text(r)).toMatch(/would be refused: You can change only your own budget slices \(and 1 cell is refused besides\)/);
+    expect(text(r)).toMatch(/would be refused: You can change only your own budget slices\. Besides, 1 cell is refused.*cell 1: .*header/);
+  });
+
+  it('any other failure of the trial save is thrown, never answered as a refusal', async () => {
+    vi.mocked(saveCells).mockRejectedValue(new Error('connection lost'));
+    await expect(amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx())).rejects.toThrow('connection lost');
   });
 
   it('the live call with any refused row writes nothing (all or nothing)', async () => {
