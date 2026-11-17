@@ -174,18 +174,8 @@ describe('run population and the guard (grill F3)', () => {
     expect(await snapshot(runId)).toBe(before);
   });
 
-  it('an off-cycle run is refused by calculate, 409, with no row changed', async () => {
-    await pool.query("UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1", [runId]);
-    try {
-      const before = await snapshot(runId);
-      const r = await call(calculate as Route, 'POST', `/api/payroll/runs/${runId}/calculate`, runId);
-      expect(r.statusCode).toBe(409);
-      expect(JSON.stringify(r.body)).toContain('off-cycle run');
-      expect(await snapshot(runId)).toBe(before);
-    } finally {
-      await pool.query("UPDATE payroll_run_headers SET run_kind = 'regular', off_cycle_reason = NULL WHERE id = $1", [runId]);
-    }
-  });
+  // Wave 6 OC lifted the off-cycle clause: an off-cycle run is costed from payroll_off_cycle_employees
+  // (tests/integration/w6-oc-off-cycle.int.test.ts); the guard's other clauses are unchanged.
 
   it('a locked (approved) run that is also off-cycle gets the lock refusal, as the dry run reports it (review #1483)', async () => {
     await pool.query("UPDATE payroll_run_headers SET status = 'approved', run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1", [runId]);

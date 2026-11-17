@@ -131,9 +131,10 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   if (row.pay_frequency !== 'monthly') {
     reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly runs are supported` });
   }
-  if (row.run_kind !== 'regular') {
-    const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
-    reasons.push({ clause: 'run_kind', detail: `it is ${kind} run, and only regular runs are supported` });
+  // Wave 6 OC lifts the off-cycle clause: a monthly off-cycle (bonus or termination) run is costed, approved, posted,
+  // reopened and printed by this release (payrollOffCycle*.ts). Any other kind is still refused.
+  if (row.run_kind !== 'regular' && row.run_kind !== 'off_cycle') {
+    reasons.push({ clause: 'run_kind', detail: `it is a '${String(row.run_kind)}' run, and only regular and off-cycle runs are supported` });
   }
   if (Number(row.garnishee_deductions) > 0) {
     reasons.push({ clause: 'garnishee_deduction', detail: 'it carries garnishee deductions' });

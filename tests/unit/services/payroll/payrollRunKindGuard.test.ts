@@ -26,11 +26,16 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({})).toEqual([]);
   });
 
-  it('refuses a weekly or fortnightly run, and an off-cycle run, for every action', () => {
+  it('refuses a weekly or fortnightly run, and a run kind it does not know, for every action', () => {
     expect(refusedBy({ pay_frequency: 'weekly' })).toEqual(ALL);
     expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual(ALL);
-    expect(refusedBy({ run_kind: 'off_cycle' })).toEqual(ALL);
-    expect(judgeRunKind({ ...OK, run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle run');
+    expect(refusedBy({ run_kind: 'supplementary' })).toEqual(ALL);
+    expect(judgeRunKind({ ...OK, run_kind: 'supplementary' }, 'reopen')[0]!.detail).toContain("'supplementary' run");
+  });
+
+  it('wave 6 OC lifted the off-cycle clause: a monthly off-cycle run passes every action; a weekly one still does not', () => {
+    expect(refusedBy({ run_kind: 'off_cycle' })).toEqual([]);
+    expect(refusedBy({ run_kind: 'off_cycle', pay_frequency: 'weekly' })).toEqual(ALL);
   });
 
   it('refuses garnishee deductions on the run for every action, reopen included (grill F8)', () => {
@@ -52,7 +57,7 @@ describe('judgeRunKind: the clause matrix', () => {
   });
 
   it('reports every clause that holds, in order', () => {
-    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'off_cycle', odd_assignments: ['E1'] }, 'approve')
+    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'correction', odd_assignments: ['E1'] }, 'approve')
       .map((r) => r.clause)).toEqual(['frequency', 'run_kind', 'assignment']);
   });
 });
@@ -96,7 +101,7 @@ describe('a value a later release added (review #1483): listed, then refused', (
   it('the guard refuses such a run for every action, by its database value', () => {
     expect(refusedBy({ pay_frequency: 'biweekly' })).toEqual(ALL);
     expect(refusedBy({ run_kind: 'correction' })).toEqual(ALL);
-    expect(judgeRunKind({ ...OK, run_kind: 'correction' }, 'approve')[0]!.detail).toBe("it is a 'correction' run, and only regular runs are supported");
+    expect(judgeRunKind({ ...OK, run_kind: 'correction' }, 'approve')[0]!.detail).toBe("it is a 'correction' run, and only regular and off-cycle runs are supported");
   });
 });
 
