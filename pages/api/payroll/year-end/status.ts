@@ -32,46 +32,10 @@ import {
   validateCompanyComponents,
   validateEmployeeIrp5,
   type ComponentConfig,
-  type ValidationMessage,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { countSeverity, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
-export interface YearEndStatus {
-  taxYear: number;
-  companyProfile: {
-    complete: boolean;
-    missing: string[];
-  };
-  employees: {
-    total: number;
-    withPayroll: number;
-  };
-  payrollRuns: {
-    monthsCovered: number; // count of months in the tax year with at least one run
-    totalPaye: number;
-  };
-  readiness: {
-    errors: number;
-    warnings: number;
-    componentIssues: number;
-    certificatesReady: number;
-  };
-  emp501: {
-    balanced: boolean;
-    totalEmp201: number;
-    totalIrp5: number;
-    totalVariance: number;
-  };
-  periodLock: {
-    locked: boolean;
-    lockdownDate: string | null;
-  };
-  /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
-  runWarnings: string[];
-}
-
-function countSeverity(msgs: ValidationMessage[], severity: 'error' | 'warning'): number {
-  return msgs.filter((m) => m.severity === severity).length;
-}
+export type { YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
