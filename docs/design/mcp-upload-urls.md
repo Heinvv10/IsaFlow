@@ -40,7 +40,8 @@
    (a tool error) and the route answers 404: never an unkeyed token. Deploys: both blue/green colours share
    JWT_SECRET, so a url minted by one verifies on the other; a url issued before a deploy that changes the token
    format or the key (this PR's, or a JWT_SECRET rotation) fails closed with 404, which is acceptable for a 30-minute
-   url (create a new one). A body past its declared size is not drained: the read stops at cap + 1 byte and the
+   url (create a new one). Optional hardening (ops, Hein): an edge rate limit for /api/mcp/uploads/ at
+   nginx/Cloudflare, where the real client IP is known. A body past its declared size is not drained: the read stops at cap + 1 byte and the
    connection is closed. Runs on the service pool in two short public-route transactions (no connection held while the body
    streams); the write names the intent's id AND company_id. The token path is redacted from logs
    (`redactShareToken`).

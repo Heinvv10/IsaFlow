@@ -23,7 +23,8 @@
  *   - the per-token bucket (20/min: a replayed url cannot drive lookups);
  *   - the lookup; a miss (an expired and deleted intent) charges only the miss bucket and answers 404;
  *   - for a real intent: the platform ceiling, then the per-company bucket, then the global sweep.
- * No bucket is per IP: behind cloudflared / nginx every caller has the proxy's IP.
+ * No bucket is per IP: behind cloudflared / nginx every caller has the proxy's IP. Optional hardening (ops): an edge
+ * rate limit for /api/mcp/uploads/ at nginx/Cloudflare, where the real client IP is known.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
