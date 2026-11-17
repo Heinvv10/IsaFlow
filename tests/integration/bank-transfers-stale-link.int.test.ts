@@ -42,6 +42,10 @@ const bankLine = async (account: string, date: string, amount: number, desc: str
   RETURNING id`) as Row[])[0]!.id);
 const allocTransfer = (line: string, contra: string) => callRoute(c.fx, token, bankTxAction,
   { action: 'allocate', bankTransactionId: line, allocationType: 'transfer', contraAccountId: contra });
+/** A GL reversal that leaves its statement line as it was: the pre-2026-11-16 state, which the GL now refuses while the
+ *  line books the journal (bank/liveBankLineReversal), planted through the internal opt-out. */
+const handReverse = async (je: string) => String((await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId,
+  { bankLinesHandled: true }))).id);
 const lineOf = async (je: string, acct: string) => String(((await sql`SELECT id FROM gl_journal_lines
   WHERE journal_entry_id = ${je}::UUID AND gl_account_id = ${acct}::UUID AND company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.id);
 const flags = async (start: string, end: string) => (await getUnusualJournals(c.fx.companyId, { start, end })).flags
@@ -206,28 +210,29 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
     expect(await glMovement(bankA, '2027-01-01', '2027-01-08')).toBe(-1500);
   }, 60000);
 
-  // brk-nrfa round 6 L1: once both legs of a statement transfer are reversed from the bank, the movement can be
-  // allocated again — a reversed journal holds nothing, and a dead line pairs nothing.
+  // brk-nrfa round 6 L1: once a statement transfer is reversed from the bank, the movement can be allocated again — a
+  // reversed journal holds nothing, and a dead line pairs nothing. WP2 row 10 (2026-11-16): reversing ONE leg resets
+  // BOTH (it used to leave the auto-linked leg allocated to the reversed journal until it was reversed too).
   it('both legs of a reversed transfer can be allocated again', async () => {
     const aLine = await bankLine(bankA, '2027-02-22', -2300, 'H2b OUT');
     const bLine = await bankLine(bankB, '2027-02-22', 2300, 'H2b IN');
     expect((await allocTransfer(aLine, bankB)).statusCode).toBe(200);
-    for (const id of [aLine, bLine]) {
-      expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: id })).statusCode).toBe(200);
-    }
+    expect((await lineState(bLine))!.status).toBe('allocated');
+    expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: aLine })).statusCode).toBe(200);
+    expect({ a: (await lineState(aLine))!.status, b: (await lineState(bLine))!.status }).toEqual({ a: 'imported', b: 'imported' });
     expect(await glMovement(bankB, '2027-02-20', '2027-02-28')).toBe(0);
     const again = await allocTransfer(aLine, bankB);
     expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
     expect(await glMovement(bankB, '2027-02-20', '2027-02-28')).toBe(2300);
   }, 60000);
 
-  // brk-nrfa round 6 L1: a transfer journal reversed in the GL leaves its statement line allocated and matched to it;
-  // the other bank's line of that movement is not refused against a journal that no longer holds it.
+  // brk-nrfa round 6 L1: a transfer journal reversed in the GL left its statement line allocated and matched to it (legacy:
+  // the GL refuses that now, bank/liveBankLineReversal); the other bank's line of that movement is not refused against a journal that no longer holds it.
   it('a transfer reversed in the GL does not refuse the other leg', async () => {
     const aLine = await bankLine(bankA, '2027-03-10', -2400, 'GLREV OUT');
     expect((await allocTransfer(aLine, bankB)).statusCode).toBe(200);
     const j1 = String((await lineState(aLine))!.ptr);
-    expect((await callRoute(c.fx, token, journalEntriesAction, { id: j1, action: 'reverse' })).statusCode).toBe(200);
+    await handReverse(j1);
     expect((await lineState(aLine))!.status).toBe('allocated'); // still matched to the reversed journal
     const bLine = await bankLine(bankB, '2027-03-11', 2400, 'GLREV IN');
     const b = await allocTransfer(bLine, bankA);
@@ -244,7 +249,7 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
   it('a re-reversed transfer holds the movement: arm 1, arm 2 and the 428', async () => {
     const a = await bankLine(bankA, '2027-04-08', -4200, 'RR1 OUT');
     expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
-    await glReverse(await glReverse(String((await lineState(a))!.ptr)));
+    await glReverse(await handReverse(String((await lineState(a))!.ptr))); // the re-reversal restores the line's cash: allowed
     expect((await allocTransfer(await bankLine(bankB, '2027-04-09', 4200, 'RR1 IN'), bankA)).statusCode).toBe(400);
 
     const t = await journal('2027-05-06', bankB, bankA, 5300, 'auto_bank_transfer', 'Transfer: A -> B');
@@ -253,7 +258,7 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
 
     const a3 = await bankLine(bankA, '2027-06-10', -6400, 'RR3 OUT');
     expect((await allocTransfer(a3, bankB)).statusCode).toBe(200);
-    await glReverse(await glReverse(String((await lineState(a3))!.ptr)));
+    await glReverse(await handReverse(String((await lineState(a3))!.ptr)));
     expect((await callRoute(c.fx, token, bankTransfers,
       { fromAccountId: bankA, toAccountId: bankB, amount: 6400, transferDate: '2027-06-11' })).statusCode).toBe(428);
   }, 90000);

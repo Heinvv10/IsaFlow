@@ -21,6 +21,23 @@ export interface SendResult {
   sent: boolean;
   reason?: string;
   sid?: string;
+  /**
+   * Only with `sent: false`. True when the failure does NOT prove the message stayed in: a timeout, a connection
+   * reset, a 5xx or 408 from the provider (it may have been accepted before the answer was lost). False or absent: a
+   * definite refusal (not configured, a 4xx validation error), the message did not go. Callers that do not care (the
+   * chase, the inbound replies) ignore it.
+   */
+  ambiguous?: boolean;
+}
+
+/** The provider call is cut off after this long: a hung connection must not hold the request (and its row lock) open. */
+export const TWILIO_TIMEOUT_MS = 10_000;
+
+/** Whether a failed provider call leaves open that the message went out. Twilio's RestException carries the HTTP `status`. */
+export function isAmbiguousSendFailure(err: unknown): boolean {
+  const status = typeof err === 'object' && err !== null ? (err as { status?: unknown }).status : undefined;
+  if (typeof status !== 'number') return true; // no HTTP answer at all: network, DNS, reset, timeout
+  return status >= 500 || status === 408;
 }
 
 // ─── Pure composer ────────────────────────────────────────────────────────────
@@ -89,7 +106,7 @@ export async function sendWhatsAppMessage(
 
   // Lazy-import Twilio so the app boots cleanly without env vars
   const twilioMod = await import('twilio');
-  const client = twilioMod.default(accountSid, authToken);
+  const client = twilioMod.default(accountSid, authToken, { timeout: TWILIO_TIMEOUT_MS });
 
   try {
     const msg = await client.messages.create({ from, to, body });
@@ -100,6 +117,6 @@ export async function sendWhatsAppMessage(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     log.warn('sendWhatsAppMessage: send failed', { to, reason }, 'whatsapp-reply');
-    return { sent: false, reason };
+    return { sent: false, reason, ambiguous: isAmbiguousSendFailure(err) };
   }
 }

@@ -41,7 +41,7 @@ const fmtDateTime = (s: string | Date | null) => {
 
 const TABS: { id: StatusFilter; label: string; param: string | null; empty: string }[] = [
   { id: 'replied', label: 'Replied', param: 'replied', empty: 'No replies waiting — all caught up.' },
-  { id: 'sent',    label: 'Open',    param: 'sent',    empty: 'No open queries awaiting a reply.' },
+  { id: 'sent',    label: 'Open',    param: 'open',    empty: 'No open queries awaiting a reply.' },
   { id: 'resolved', label: 'Resolved', param: 'resolved', empty: 'No resolved queries yet.' },
   { id: 'all',     label: 'All',     param: null,      empty: 'No client queries have been sent yet.' },
 ];

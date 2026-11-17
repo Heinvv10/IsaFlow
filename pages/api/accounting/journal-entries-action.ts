@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 import { apiResponse } from '@/lib/apiResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
@@ -108,6 +109,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books it: 400 at warn, pre-write
     if (respondIfBankControlRefused(res, err)) return; // step 2: a bank allocation's journal, raised before any write
     if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
     // A pay run's journal (`PayrollRunBusyError`: the guard's wait ran out before anything was written) and the

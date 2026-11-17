@@ -180,6 +180,7 @@ describe('the detector', () => {
     expect(gated("const opts = { allowedRoles: ['viewer'] };\nexport default withAuth(withWriteAccess(handler, opts));")).toBe(false);
     expect(gated(exp('withAuth(withWriteAccess(handler, { ...OPEN }))'))).toBe(false);
     expect(gated(exp('withAuth(withWriteAccess(handler, { allowedRoles: DEFAULT_WRITE_ROLES }))'))).toBe(true);
+    expect(gated(exp('withAuth(withWriteAccess(handler, { allowedRoles: BANK_QUERY_ADMIN_ROLES }))'))).toBe(true); // owner/admin only (writeRoles.ts)
     expect(gated(exp('withAuth(withWriteAccess(withFlowMeter(a, b)(handler) as never))'))).toBe(true);
   });
 

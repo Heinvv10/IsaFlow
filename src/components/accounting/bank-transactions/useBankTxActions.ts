@@ -12,6 +12,7 @@ import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { fetchReconReport } from './reconReportFetch';
 import { buildSaveActions } from './bankTxSaveActions';
 import { buildBulkActions } from './bankTxBulkActions';
 import { selectedOnScreen } from './bankTxSelectionView';
@@ -231,11 +232,12 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleDownloadReport = async (bankAccountCode: string | undefined) => {
     if (!selectedBank) return;
     try {
-      const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
-      await assertOk(res, 'Could not build the reconciliation report - try again');
-      const json = await res.json();
+      const report = await fetchReconReport(selectedBank);
+      if (report.matchedTotal !== undefined || report.unmatchedTotal !== undefined) {
+        notify.warning('The report is very long and lists only its first lines', 'The PDF says how many of how many it lists.');
+      }
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
-      const blob = await generateReconReport(json.data || json);
+      const blob = await generateReconReport(report);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `recon-report-${bankAccountCode || 'bank'}.pdf`;

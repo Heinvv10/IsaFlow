@@ -1,6 +1,7 @@
 /**
  * Bank Transactions API
  * GET /api/accounting/bank-transactions - List transactions (with filters)
+ * bank_account_id / reconciliation_id must be UUIDs (400); an offset beyond MAX_BANK_TX_OFFSET is a 400 (page by cursor).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -10,6 +11,8 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { parseReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
+import { OffsetTooLargeError } from '@/modules/accounting/services/bank/bankTxCursor';
+import { UUID } from '@/lib/schemas/common';
 import { AMOUNT_BOUND_RE } from '@/modules/accounting/utils/bankAmountBound';
 import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 
@@ -19,6 +22,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+
+  // Ids are checked before the query: a malformed one used to reach the ::UUID cast and answer 500.
+  for (const key of ['bank_account_id', 'bankAccountId', 'reconciliation_id', 'reconciliationId'] as const) {
+    const v = req.query[key];
+    if (v !== undefined && v !== '' && !UUID.safeParse(v).success) return apiResponse.badRequest(res, `${key} must be a valid UUID`);
+  }
 
   // An amount bound that is not a number is a 400 (it reached ::NUMERIC and answered 500).
   for (const key of ['from_amount', 'fromAmount', 'to_amount', 'toAmount'] as const) {
@@ -60,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
     return apiResponse.success(res, result);
   } catch (err) {
+    if (err instanceof OffsetTooLargeError) return apiResponse.badRequest(res, err.message);
     log.error('Failed to get bank transactions', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, 'Failed to get bank transactions');
   }

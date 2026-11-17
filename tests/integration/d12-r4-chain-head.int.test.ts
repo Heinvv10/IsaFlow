@@ -31,9 +31,10 @@ const reverse = (id: string) => call(c, token, journalEntriesAction as Route, { 
 const idOf = (o: Call) => String((o.data as { id: string }).id);
 const bankLeg = async (je: string, bank: string) => String(((await sql`SELECT id FROM gl_journal_lines
   WHERE journal_entry_id = ${je}::UUID AND gl_account_id = ${bank}::UUID LIMIT 1`) as Row[])[0]!.id);
-/** A's reversal of `je` exactly as the journal route runs it, held uncommitted. */
-const heldReversal = (je: string) => heldWork(c, async () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId, {
-  cashLinesLocked: await refuseJournalCashOfCompletedReconciliation(c.fx.companyId, je) }));
+/** A's reversal of `je` exactly as the journal route runs it, held uncommitted. `bankLine`: the bank line's own reverse
+ *  instead — the only way a journal a live line books is reversed since 2026-11-16 (bank/liveBankLineReversal). */
+const heldReversal = (je: string, bankLine = false) => heldWork(c, async () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId, {
+  cashLinesLocked: await refuseJournalCashOfCompletedReconciliation(c.fx.companyId, je), bankLinesHandled: bankLine }));
 
 describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round 4: tie writers hold the chain head', () => {
   beforeAll(async () => {
@@ -102,7 +103,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     const [lb] = (await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
       VALUES (${c.fx.companyId}::UUID, ${bankB}::UUID, '2026-06-08', 60, 'D12 r4 counterpart', 'imported') RETURNING id`) as Row[];
     const lineB = String(lb!.id);
-    const a = await heldReversal(t);
+    const a = await heldReversal(t, true); // lineA books T: reversed as its bank line's reverse would
     expect(a.error, String(a.error)).toBeNull();
     const pr = call(c, token, bankRelinkTransfers as Route, { bankAccountId: bankB });
     const early = await settledWithin(pr, 1500);

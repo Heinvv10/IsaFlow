@@ -17,7 +17,7 @@ import { newLinkBatchId } from '@/modules/accounting/services/bank/bankTransferL
 const BodySchema = z.object({ bankAccountId: UUID }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return apiResponse.badRequest(res, 'Method not allowed');
+  if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
 
   const { companyId } = req as CompanyAuthedRequest;
   const parsed = BodySchema.safeParse(req.body);

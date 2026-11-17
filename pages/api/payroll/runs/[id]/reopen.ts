@@ -26,6 +26,10 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
+// No JOURNAL_HAS_LIVE_BANK_LINE mapping here, by the call chain (#1518): reopenPayrollRun reverses no journal. Its imports
+// (payrollRunLock, payRunApprovalAudit, payrollLineRemuneration, etiPeriodGuard, etiRebook -> directiveEtiJournal,
+// payrollRunKindGuard) only lock, read and post ETI journals; a run journal, if reversed, is reversed from Journal Entries,
+// whose route maps the refusal. reversePayrollRunJournal, the only payroll caller of reverseJournalEntry, has no caller.
 import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import { log } from '@/lib/logger';
 

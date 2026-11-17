@@ -160,21 +160,24 @@ describe('GET /api/accounting/cash-forecast-13', () => {
   });
 
   it('overdue AR with 3 paid invoices: due + median 20 days, basis history', () => {
-    const l = line(f, `ar:${ids.hist}:history`)!;
-    expect(l.basis).toBe('history');
-    expect(l.items).toEqual([expect.objectContaining({ ref: docs.histOverdue, date: day(-20), weekIndex: 0, amountCents: 50_000 })]);
+    const l = line(f, `ar:${ids.hist}`)!;
+    expect(l.basisCents).toEqual({ due: 0, history: 50_000, no_history: 0 });
+    expect(l.items).toEqual([expect.objectContaining({ ref: docs.histOverdue, date: day(-20), weekIndex: 0, amountCents: 50_000, basis: 'history' })]);
   });
 
   it('overdue AR with 2 paid (a cancelled receipt and one older than 12 months do not count): week 1, no_history', () => {
-    const l = line(f, `ar:${ids.nohist}:no_history`)!;
+    // One line per customer: New Ltd's overdue (no_history) and not-yet-due invoices share ar:<id>.
+    const l = line(f, `ar:${ids.nohist}`)!;
     expect(l.flags).toContain('no_history');
-    expect(l.items).toEqual([expect.objectContaining({ ref: docs.nohistOverdue, date: today, weekIndex: 0, amountCents: 30_000 })]);
+    expect(l.basisCents).toEqual({ due: 20_000, history: 0, no_history: 30_000 });
+    expect(l.items.find((i) => i.ref === docs.nohistOverdue)).toMatchObject({ date: today, weekIndex: 0, amountCents: 30_000, basis: 'no_history' });
+    expect(f.lines.filter((x) => x.key.startsWith(`ar:${ids.nohist}`)).map((x) => x.key)).toEqual([`ar:${ids.nohist}`]);
     expect(f.overdueAR).toMatchObject({ totalCents: 80_000, invoiceCount: 2, byBasis: { history: 50_000, no_history: 30_000 } });
   });
 
   it('AR not yet due on its due date; overdue AP in week 1; another tenant’s invoice nowhere', () => {
     const weeks = buildWeeks(today);
-    expect(line(f, `ar:${ids.nohist}:due`)!.items[0]).toMatchObject({ ref: docs.notDue, weekIndex: weekIndexOf(day(10), today, weeks), amountCents: 20_000 });
+    expect(line(f, `ar:${ids.nohist}`)!.items.find((i) => i.ref === docs.notDue)).toMatchObject({ ref: docs.notDue, weekIndex: weekIndexOf(day(10), today, weeks), amountCents: 20_000 });
     expect(line(f, `ap:${ids.sup}`)!.items[0]).toMatchObject({ ref: docs.bill, weekIndex: 0, amountCents: -40_000 });
     expect(JSON.stringify(f)).not.toContain(docs.otherTenant!);
     expect(JSON.stringify(f)).not.toContain(ids.other);
