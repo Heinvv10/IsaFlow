@@ -18,7 +18,7 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { driftOf } from './returnDrift';
-import { parseFilingReference } from './filingReference';
+import { assertFilingReferenceIsTheCompanys, parseFilingReference } from './filingReference';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
@@ -71,6 +71,7 @@ export async function markReturnFiled(
     throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
       'FILING_FILE_REQUIRED');
   }
+  await assertFilingReferenceIsTheCompanys(companyId, v, ref);
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,
       'The VAT period lock of this version was removed outside the return lifecycle. Amend the return, then finalise again.');
@@ -102,10 +103,12 @@ export async function markReturnFiled(
     }
     correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
   }
+  // form_data keeps what it held before wave 6: the recorded SARS form (sarsForm) stays on the version only.
+  const { sarsForm: _form, ...submitted } = v.figures;
   return withSavepoint('file_return', async () => {
     const draft = await saveDraftSubmission(
       companyId, v.formType, v.periodStart, v.periodEnd,
-      { ...v.figures, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
+      { ...submitted, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
     );
     if (v.formType === 'VAT201') {
       await assertVatGateClear(

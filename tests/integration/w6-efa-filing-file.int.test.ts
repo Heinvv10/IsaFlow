@@ -70,9 +70,6 @@ describeIfDb('EFa: filing files through the routes', () => {
     expect((await callRoute(filingFile, b.fx.companyId, b.admin.token, 'POST', { form: 'emp201' }, { versionId: id, format: 'csv' })).status).toBe(404);
     expect((await genFile(id, 'emp201', 'json')).status).toBe(400);
     expect((await genFile(id, 'vat201', 'csv')).status).toBe(404); // the wrong form
-    // Coordinator ruling: only a CSRF-checked POST may stamp. A GET is refused (405) and a POST without the token is refused.
-    expect((await callRoute(filingFile, a.fx.companyId, a.admin.token, 'GET', { form: 'emp201', versionId: id, format: 'csv' })).status).toBe(405);
-    expect(await postWithoutCsrf(id)).toBe(403);
     expect(await stampOf(id)).toEqual(blank);
     expect(await submissions()).toBe(subs);
 
@@ -81,7 +78,7 @@ describeIfDb('EFa: filing files through the routes', () => {
     const csv = (first.body as unknown as Buffer).toString('utf8');
     expect(csv).toContain('"Payroll tax calculations","PAYE",9000.00');
     const stamp = await stampOf(id);
-    expect(stamp).toMatchObject({ sha: sha(first.body), kind: 'emp201_capture_csv', by: a.admin.userId, status: 'finalised' });
+    expect(stamp).toMatchObject({ sha: sha(first.body), kind: 'emp201_capture_csv@1', by: a.admin.userId, status: 'finalised' });
     const trail = (await sql`SELECT changes FROM audit_log WHERE company_id = ${a.fx.companyId}::UUID AND entity_id = ${id}::UUID
       AND changes #>> '{fields,0,field}' = 'filing_file_sha256'`) as Row[];
     expect(trail).toHaveLength(1);
@@ -98,7 +95,7 @@ describeIfDb('EFa: filing files through the routes', () => {
     await sql`UPDATE payroll_run_headers SET total_paye = 9000 WHERE company_id = ${a.fx.companyId}::UUID AND period_month = 9`;
 
     // A reference that is not an EMP201 PRN: 400, nothing written. Then it files.
-    for (const bad of ['REF-1', PRN('vat201'), `${PRN('emp201')}9`, `${PRN('emp201').slice(0, 10)} L00000001`]) {
+    for (const bad of ['REF-1', PRN('vat201'), `${PRN('emp201')}9`, `${PRN('emp201').slice(0, 10)}_L00000001`]) {
       expect((await fileV(id, { reference: bad, withoutFile: true }, a.admin.token, 'emp201')).status, bad).toBe(400);
     }
     expect(await submissions()).toBe(subs);
@@ -111,6 +108,16 @@ describeIfDb('EFa: filing files through the routes', () => {
     expect(await stampOf(id)).toEqual({ ...stamp, status: 'filed' });
   });
 
+  it('only a CSRF-checked POST may stamp: a GET is 405 and a POST without the CSRF token is 403, and neither writes', async () => {
+    const id = String(versionOf(await callRoute(finalise, a.fx.companyId, a.admin.token, 'POST', { form: 'emp201' },
+      { periodStart: '2026-10-01', periodEnd: '2026-10-31' })).id);
+    const blank = await stampOf(id);
+    expect((await callRoute(filingFile, a.fx.companyId, a.admin.token, 'GET', { form: 'emp201', versionId: id, format: 'csv' })).status).toBe(405);
+    expect(await postWithoutCsrf(id)).toBe(403);
+    expect(await stampOf(id)).toEqual(blank);
+    expect(blank.sha).toBeNull();
+  });
+
   it('VAT201: the JSON names the stamped capture sheet; a superseded version has no file (409)', async () => {
     const v = versionOf(await fin(CLEAN));
     const id = String(v.id);
@@ -118,7 +125,7 @@ describeIfDb('EFa: filing files through the routes', () => {
     expect(json.status).toBe(200);
     const body = JSON.parse((json.body as unknown as Buffer).toString('utf8')) as Row;
     const stamp = await stampOf(id);
-    expect(stamp).toMatchObject({ kind: 'vat201_capture_csv', by: a.admin.userId });
+    expect(stamp).toMatchObject({ kind: 'vat201_capture_csv@1', by: a.admin.userId });
     expect(body.captureSheetSha256).toBe(stamp.sha);
     expect(sha((await genFile(id, 'vat201', 'csv')).body)).toBe(stamp.sha);
     expect((await genFile(id, 'vat201', 'pdf')).status).toBe(400);

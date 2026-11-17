@@ -21,6 +21,7 @@ import { join } from 'path';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
+import { vatPrn } from './helpers/prn';
 import { THEMES, rootTheme, settle } from '../helpers/themeSpec';
 
 const PAGE = '/accounting/sars/vat201';
@@ -35,6 +36,7 @@ interface Version { id: string; versionNo: number; status: string }
 /** A finished bi-monthly period of last year on the sandbox's alignment (odd: Feb-Mar, even: Jan-Feb). */
 async function period(api: Api, companyId: string): Promise<{ start: string; end: string; startText: string; endText: string }> {
   const c = await api.get<Record<string, unknown>>(`/api/accounting/companies?id=${companyId}`);
+  company = c;
   const y = new Date().getFullYear() - 1;
   const even = String(c.vatPeriodAlignment ?? c.vat_period_alignment ?? 'odd') === 'even';
   return even
@@ -57,8 +59,10 @@ async function settled(page: Page): Promise<void> {
 }
 
 const status = (page: Page) => page.getByTestId('return-lifecycle-status');
-/** A VAT201 payment reference number of the shape the filing route accepts, different each run. */
-const prn = () => `4123456789V${String(Date.now() % 1e8).padStart(8, '0')}`;
+/** The sandbox company as period() read it; its VAT number begins every PRN. */
+let company: Record<string, unknown> = {};
+/** A VAT201 payment reference number the filing route accepts for the sandbox, different each run. */
+const prn = () => vatPrn(company);
 
 /** EFa: download the live version's filing file; the bar then names its sha256 and offers Mark filed. */
 async function downloadFilingFile(page: Page): Promise<void> {

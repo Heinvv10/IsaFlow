@@ -32,11 +32,15 @@ export const PRN = (form: string, n = 1) => `${form === 'emp201' ? '7' : '4'}123
 /** Downloads (and so, the first time, stamps) a version's filing file as the admin. */
 export const genFile = (id: string, form = 'vat201', format = 'csv', token = fx().admin.token) =>
   callRoute(filingFile, c(), token, 'POST', { form }, { versionId: id, format });
-/** Files a version as EFa requires: its filing file downloaded first (as the admin), unless `withoutFile`. */
+let prnSeq = 100;
+/**
+ * Files a version as EFa requires: its filing file downloaded first (as the admin), unless `withoutFile`. The default
+ * reference is a fresh PRN each call: one PRN names one period's return (FILING_REFERENCE_REUSED).
+ */
 export const fileV = async (id: string, body: Record<string, unknown> = {}, token = fx().admin.token, form = 'vat201') => {
   const { withoutFile, ...rest } = body;
   if (withoutFile !== true) await genFile(id, form);
-  return callRoute(file, c(), token, 'POST', { form }, { versionId: id, reference: PRN(form), ...rest });
+  return callRoute(file, c(), token, 'POST', { form }, { versionId: id, reference: PRN(form, prnSeq += 1), ...rest });
 };
 export const amendV = (id: string, body: Record<string, unknown> = { reason: 'Corrected a bill' }, token = fx().admin.token, form = 'vat201') =>
   callRoute(amend, c(), token, 'POST', { form }, { versionId: id, ...body });
