@@ -95,6 +95,12 @@ describe('import_budget_workbook (xlsx): the import preview\'s path, then PR 1\'
     expect(vi.mocked(recordSnapshot).mock.calls[0]![1]).toMatchObject({ tool: 'import_budget_workbook', tokenBefore: TOKEN, cells: expect.arrayContaining([expect.objectContaining({ a: RENT, m: '2026-03', before: '100.00', after: null })]) });
   });
 
+  it('one changed cell also needs the dry run\'s plan_hash (round 2): the dry run is the preview', async () => {
+    const file = await edited((wb) => { const ws = wb.getWorksheet('Budget')!; ws.getRow(rowOf(ws, '6000')).getCell(col(ws, '2026-04')).value = 250; });
+    expect(text(await tool.handler({ ...KEY, file_base64: b64(file) }, ctx()))).toMatch(/plan_hash is required/);
+    expect(saveCells).not.toHaveBeenCalled();
+  });
+
   it('a cell changed in the version since the dry run: the same file\'s plan_hash is "plan changed"', async () => {
     const file = await edited(threeEdits);
     const hash = json(await tool.handler({ ...KEY, file_base64: b64(file), dry_run: true }, ctx())).plan_hash;

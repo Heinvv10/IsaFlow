@@ -45,7 +45,7 @@ export interface GridSource { lines: ImportLine[]; base: Map<string, ReadonlyArr
 export function gridLines(model: GridReadModel, grain: TemplateGrain, rows: unknown): GridSource | string {
   if (!Array.isArray(rows) || rows.length === 0) return 'rows must list at least one row';
   if (rows.length > MAX_GRID_ROWS) return `rows lists ${rows.length} rows; one call takes at most ${MAX_GRID_ROWS} rows (the MCP request is at most 3 MB). Import the grid in parts.`;
-  const meta = { versionId: model.version!.id, fiscalYear: model.year.fiscalYear, grain };
+  const meta = { versionId: model.version!.id, fiscalYear: model.year.fiscalYear, grain, months: model.year.monthKeys };
   const months = model.year.monthKeys;
   const span = `FY${model.year.fiscalYear} (${months[0]} to ${months[months.length - 1]})`;
   const yearMonths = new Set(months);
@@ -61,7 +61,7 @@ export function gridLines(model: GridReadModel, grain: TemplateGrain, rows: unkn
     if (unknown !== undefined) return `row ${n}: ${JSON.stringify(unknown.slice(0, 40))} is not a field of a template row (account, dimension, months, base)`;
     if (grain === 'company' && o.dimension !== undefined && o.dimension !== null) return `row ${n}: dimension is only for a cc1, cc2 or bu grid (send grain)`;
     if (typeof o.base !== 'string') return `row ${n}: base is required: send each row with the base get_budget_template returned for it (rows cannot be added; read the template row of the account you want)`;
-    const read = decodeRowBase(meta, o.base, months.length);
+    const read = decodeRowBase(meta, o.base);
     if (read === null) { // the grain is signed: a company base never decodes on a cc1 grid, nor the reverse
       return `row ${n}: its base was changed or was read for another version, grain or row, so IsaFlow cannot tell what you edited. Read the rows again with get_budget_template and edit those.`;
     }

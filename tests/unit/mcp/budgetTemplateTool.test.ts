@@ -54,7 +54,7 @@ describe('get_budget_template, format json (the default)', () => {
     expect(rows.map((r) => r.account)).toEqual(['4000', '6000', '7100']);
     const rent = rows.find((r) => r.account === '6000')!;
     expect(rent).toMatchObject({ account_id: RENT, section: 'operating_expense', fy_total: '100.00', py_actual: '90.50' });
-    expect(decodeRowBase({ versionId: VERSION, fiscalYear: 2027, grain: 'company' }, String((rent as Record<string, unknown>).base), 12))
+    expect(decodeRowBase({ versionId: VERSION, fiscalYear: 2027, grain: 'company', months: MONTHS }, String((rent as Record<string, unknown>).base)))
       .toEqual({ accountId: RENT, memberId: null, cents: [10000, ...Array(11).fill(null)] });
     expect(rent.months).toEqual(Object.fromEntries(MONTHS.map((m) => [m, m === '2026-03' ? '100.00' : null])));
     expect(rows.find((r) => r.account === '4000')).toMatchObject({ account_id: SALES, fy_total: '0.00', py_actual: null });
@@ -73,6 +73,16 @@ describe('get_budget_template, format json (the default)', () => {
     const out = json(await tool.handler({ version_id: VERSION, grain: 'cc1', members: [CC1] }, ctx()));
     expect((out.rows as Row[]).map((r) => `${r.account}/${r.dimension}`)).toEqual(['4000/C1', '7100/C1']); // 6000 is budgeted at company level (decision 4)
     expect((out.rows as Array<Record<string, unknown>>)[0]).toMatchObject({ dimension_id: CC1, dimension_name: 'Centre' });
+  });
+
+  it('round 2: an inactive member that holds amounts in the version is a row for every offered account, as the import accepts it', async () => {
+    const CC1X = '30000000-0000-4000-8000-0000000000ee';
+    const held = { glAccountId: SALES, cc1Id: CC1X, cc2Id: null, buId: null, month: '2026-03', amount: 5, source: 'manual' as const };
+    vi.mocked(loadGridReadModel).mockResolvedValue(model({
+      cells: [...model().cells, held], dimensions: { cc1: [{ id: CC1, code: 'C1', name: 'Centre', isActive: true }, { id: CC1X, code: 'CX', name: 'Closed', isActive: false }], cc2: [], bu: [] },
+    }));
+    const out = json(await tool.handler({ version_id: VERSION, grain: 'cc1', members: [CC1, CC1X] }, ctx()));
+    expect((out.rows as Row[]).map((r) => `${r.account}/${r.dimension}`)).toEqual(['4000/C1', '4000/CX', '7100/C1', '7100/CX']);
   });
 
   it.each([

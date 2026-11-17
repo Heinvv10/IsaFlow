@@ -28,9 +28,16 @@ export function workbookBytes(raw: unknown, fileName: unknown): Buffer | McpTool
   return bytes;
 }
 
-/** Review round 1 (MEDIUM): without `_base` the import diffs against the version as it is now and `_meta`'s signature covers nothing. */
-export const NO_BASE_REFUSED = 'This workbook has no _base sheet, so IsaFlow cannot tell what you changed from what others saved since, and nothing ties it to a template IsaFlow cut. '
-  + 'Import a template from get_budget_template (format xlsx, its hidden _meta and _base sheets kept), or send the JSON grid (rows) instead.';
+/** Review round 1 (MEDIUM): a template without `_base` diffs against the version now and its `_meta` signature covers nothing; refused as tampered. */
+export const NO_BASE_REFUSED = 'This template\'s hidden _base or _meta sheet was changed, so IsaFlow cannot tell what you edited (it has _meta but no _base). '
+  + 'Download a fresh template (get_budget_template format xlsx) and make your changes in it, or send a free-form sheet with no _meta sheet, or the JSON grid (rows).';
+
+/** Review round 2: a free-form sheet has no base, so it overwrites; only against the version as the caller read it. */
+export const FREEFORM_NEEDS_TOKEN = 'This workbook is a free-form sheet (it has no IsaFlow _meta or _base sheet), so it overwrites: send version_token, the version as you last read it '
+  + '(list_budget_versions, get_budget or get_budget_template answer it); the import is refused unless the version is still as you read it.';
+
+export const FREEFORM_OVERWRITE = 'This sheet has no base: every cell it names is set to the sheet\'s value, even if someone changed it after you read version_token '
+  + '(only a change since that token is refused); a blank cell keeps its amount and "clear" clears it.';
 
 /** The file's conflicts (changed in the file AND in the version since it was read), named by account, member and month. */
 export function conflictView(model: GridReadModel, conflicts: ReadonlyArray<{ key: string; downloaded: number | null; current: number | null; after: number | null }>) {

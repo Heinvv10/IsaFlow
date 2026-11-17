@@ -1,7 +1,8 @@
 /**
- * import_budget_workbook (xlsx), review round 1: a workbook with no `_base` sheet is refused (MEDIUM: the import
- * preview diffs such a file against the version as it is, where `_meta`'s signature covers nothing, so a forged or
- * replayed file overwrote later saves with no conflict); and a conflict at a cc1 / cc2 / bu grain names its member
+ * import_budget_workbook (xlsx), review round 1: a workbook with `_meta` but no `_base` sheet is refused as tampered
+ * (MEDIUM: the import preview diffs such a file against the version as it is, where `_meta`'s signature covers
+ * nothing, so a forged or replayed file overwrote later saves with no conflict; round 2: one with NEITHER sheet is a
+ * free-form sheet, budgetImportToolFreeform); and a conflict at a cc1 / cc2 / bu grain names its member
  * (breaker probe A: two members of one account and month were listed alike).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,8 +40,8 @@ beforeEach(() => {
   use(model());
 });
 
-describe('a workbook with no _base sheet', () => {
-  it('the breaker\'s from-scratch file (Budget header + one row, _meta without a signature) is refused with the reason; nothing is written', async () => {
+describe('a workbook with _meta but no _base sheet', () => {
+  it('the breaker\'s from-scratch file (Budget header + one row, _meta without a signature) is refused as tampered; nothing is written', async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Budget');
     ws.addRow(['Section', 'Account code', 'Account name', ...MONTHS]);
@@ -50,7 +51,7 @@ describe('a workbook with no _base sheet', () => {
     const file = Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');
     for (const dry of [true, false]) {
       const r = await tool.handler({ ...KEY, file_base64: file, dry_run: dry }, ctx());
-      expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(/^This workbook has no _base sheet, so IsaFlow cannot tell what you changed from what others saved since/)]);
+      expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(/^This template's hidden _base or _meta sheet was changed, .*it has _meta but no _base/)]);
     }
     expect(saveCells).not.toHaveBeenCalled();
   });

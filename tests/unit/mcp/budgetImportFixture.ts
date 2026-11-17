@@ -46,7 +46,7 @@ export function basedRow(model: GridReadModel, accountId: string, set: Record<st
   const at = (m: string) => model.cells.find((c) => c.glAccountId === accountId && c.month === m
     && (grain === 'cc1' ? c.cc1Id === memberId : c.cc1Id === null) && c.cc2Id === null && c.buId === null);
   const cents = MONTHS.map((m) => { const c = at(m); return c ? toCents(c.amount) : null; });
-  const base = encodeRowBase({ versionId: VERSION, fiscalYear: 2027, grain }, { accountId, memberId, cents });
+  const base = encodeRowBase({ versionId: VERSION, fiscalYear: 2027, grain, months: MONTHS }, { accountId, memberId, cents });
   const code = model.accounts.find((a) => a.id === accountId)?.code ?? accountId;
   const member = memberId === null ? null : model.dimensions.cc1.find((m) => m.id === memberId)?.code ?? memberId;
   return {

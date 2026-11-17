@@ -87,8 +87,12 @@ export interface ImportSource {
    * rows may come from pages read at different tokens (each row carries its own signed base instead).
    */
   readAt: string | null;
-  /** The amounts as read, per row key (a signed `_base`, or the JSON rows' signed bases); null when the file has none (Q3b). */
-  base: Map<string, ReadonlyArray<number | null>> | null;
+  /**
+   * The amounts as read, per row key (a signed `_base`, or the JSON rows' signed bases); null when the file has none
+   * (Q3b); 'current' for a free-form sheet (MCP, review round 2): an explicit overwrite of the version as it is,
+   * refused unless `readAt` is the version's token now.
+   */
+  base: Map<string, ReadonlyArray<number | null>> | null | 'current';
   lines: ImportLine[];
 }
 
@@ -120,6 +124,9 @@ export interface ImportDiff { preview: ImportPreview; rowOf: Map<string, number>
 /** The shared half: resolve the lines, diff them 3-way against the version, total the result. Pure. */
 export function diffImportLines(model: GridReadModel, src: ImportSource): ImportDiff {
   if (!model.version || model.updatedAt === null) return refuse('Budget version not found');
+  if (src.base === 'current' && src.readAt !== model.updatedAt) {
+    return refuse('This budget was saved after the version_token this sheet was sent with. A sheet with no base sets every cell it names, so it is refused unless the version is still as you read it: read the version again and send its version_token.');
+  }
   const months = model.year.monthKeys;
   const { lines, base } = src;
   const current = cellsInCents(model);
@@ -133,14 +140,16 @@ export function diffImportLines(model: GridReadModel, src: ImportSource): Import
   const diff = threeWay(rows.map((r) => ({
     rowKey: r.rowKey,
     // No _base: the version now stands in for what was downloaded, so every difference is a change.
-    base: base === null ? asNow(r.rowKey) : base.get(r.rowKey) ?? null,
-    file: r.line.amounts.map((a) => (a.cell.kind === 'value' ? a.cell.cents : null)),
+    base: base === null || base === 'current' ? asNow(r.rowKey) : base.get(r.rowKey) ?? null,
+    file: r.line.amounts.map((a) => (a.keep ? current.get(`${r.rowKey}|${a.month}`) ?? null : a.cell.kind === 'value' ? a.cell.cents : null)),
   })), months, current);
   const n = diff.moved, k = diff.conflicts.length;
   const cells = (x: number) => `${x} ${x === 1 ? 'cell' : 'cells'}`;
   const kept = `${k === 1 ? 'is' : 'are'} listed as conflicts and take your amount.`;
   if (base === null) {
     warnings.unshift({ row: 0, column: '', message: NO_BASE });
+  } else if (base === 'current') {
+    // An explicit overwrite of the version as it is (proved above): nothing to warn of beyond what the caller says.
   } else if (src.readAt === model.updatedAt) {
     if (diff.moved > 0) return tampered(); // nothing was saved since the download, so _base must be the version
   } else if (src.readAt !== null) {

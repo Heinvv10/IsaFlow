@@ -39,7 +39,7 @@ const totalsView = (model: GridReadModel) => Object.fromEntries(Object.entries(m
 
 /** The template's rows as the JSON grid import_budget_workbook takes back, each with its signed base (its months as read). */
 function jsonRows(grid: TemplateGrid) {
-  const meta = { versionId: grid.meta.versionId, fiscalYear: grid.meta.fiscalYear, grain: grid.meta.grain };
+  const meta = { versionId: grid.meta.versionId, fiscalYear: grid.meta.fiscalYear, grain: grid.meta.grain, months: grid.months };
   return grid.rows.map((r) => {
     const cents = grid.months.map((m) => grid.values.get(`${r.rowKey}|${m}`) ?? null);
     const py = grid.py.get(r.rowKey);

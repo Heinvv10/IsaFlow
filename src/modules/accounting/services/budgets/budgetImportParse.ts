@@ -60,8 +60,8 @@ export interface ImportLine {
   accountId?: string;
   /** As `accountId`, for the member at a dimension grain. */
   memberId?: string;
-  /** One per year month, in the year's order. */
-  amounts: Array<{ month: string; cell: ParsedCell }>;
+  /** One per year month, in the year's order. `keep`: the cell leaves the version's amount as it is (a free-form sheet's blank). */
+  amounts: Array<{ month: string; cell: ParsedCell; keep?: true }>;
 }
 
 /**
@@ -112,8 +112,8 @@ function rawOf(value: ExcelJS.CellValue): RawCell {
 
 const textLength = (c: RawCell): number => (c === null ? 0 : typeof c === 'object' ? c.error.length : String(c).length);
 
-/** The normalised sheets' non-blank rows, by name, read by one streaming reader. */
-async function readSheets(zip: Buffer, names: readonly string[], limits: XlsxLimits): Promise<Map<string, SheetRow[]>> {
+/** The normalised sheets' non-blank rows, by name, read by one streaming reader (also the free-form sheet's, budgetImportFreeform). */
+export async function readSheets(zip: Buffer, names: readonly string[], limits: XlsxLimits): Promise<Map<string, SheetRow[]>> {
   const reader = new ExcelJS.stream.xlsx.WorkbookReader(readerInput(zip), {
     worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore',
   });

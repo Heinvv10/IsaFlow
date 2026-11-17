@@ -84,10 +84,22 @@ describe('import_budget_workbook (json): the import\'s resolve and 3-way diff, t
     expect(c).toMatchObject({ conflict_count: 1, conflicts: [{ account: '6000', dimension: null, month: '2026-03', downloaded: '100.00', current: '500.00', after: '120.00' }] });
   });
 
-  it('a row may be null-cleared; a row absent from the grid is untouched; one changed cell needs no plan_hash', async () => {
-    const out = json(await tool.handler(grid([basedRow(model(), RENT, { '2026-03': null })]), ctx()));
-    expect(out).toMatchObject({ saved: 2 });
+  it('a row may be null-cleared; a row absent from the grid is untouched; ONE changed cell needs the dry run\'s plan_hash too (round 2)', async () => {
+    const rows = [basedRow(model(), RENT, { '2026-03': null })];
+    expect(text(await tool.handler(grid(rows), ctx()))).toMatch(/plan_hash is required/);
+    expect(saveCells).not.toHaveBeenCalled();
+    const dry = json(await tool.handler({ ...grid(rows), dry_run: true }, ctx()));
+    vi.mocked(saveCells).mockClear();
+    expect(json(await tool.handler({ ...grid(rows), plan_hash: dry.plan_hash }, ctx()))).toMatchObject({ saved: 2 });
     expect(vi.mocked(saveCells).mock.calls[0]![2].cells).toEqual([{ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: null, clear: true }]);
+  });
+
+  it('breaker P1: a one-cell conflict is never written without its dry run (the conflict shows there first)', async () => {
+    const rows = [basedRow(model(), RENT, { '2026-03': '120.00' })]; // read when Rent March was 100
+    use(model({ updatedAt: T1, version: version({ updatedAt: T1 }) as never, cells: [{ ...model().cells[0]!, amount: 500 }] }));
+    expect(text(await tool.handler(grid(rows), ctx()))).toMatch(/plan_hash is required/);
+    expect(saveCells).not.toHaveBeenCalled();
+    expect(json(await tool.handler({ ...grid(rows), dry_run: true }, ctx()))).toMatchObject({ conflict_count: 1, conflicts: [{ downloaded: '100.00', current: '500.00', after: '120.00' }] });
   });
 
   it('version_token is optional; a stale one is refused on the live call only', async () => {
