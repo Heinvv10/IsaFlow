@@ -11,7 +11,8 @@
  * journal) keeps its approval time and whatever snapshot it has (review B3).
  *
  * `detailsOf` picks what a slip prints: the snapshot when `frozen` (the run is final and the snapshot's approvedAt
- * equals the header's current approved_at, judged in SQL, grill F8), otherwise the live row. An older colour that
+ * equals the header's current approved_at to the microsecond, `snapshotIsThisApproval`, grill F8), otherwise the
+ * live row. The comparison is in TS so that a malformed approvedAt is "not frozen", never a cast error (review N1). An older colour that
  * reopens and re-approves without clearing leaves a snapshot of an earlier approval: it is never used.
  * The employee has no address on file (payroll_employees has no address column), so none is frozen.
  */
@@ -92,6 +93,20 @@ export async function clearPayslipDetails(companyId: string, runId: string): Pro
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid AND prl.run_id = h.id
        AND prl.payslip_snapshot IS NOT NULL
   `;
+}
+
+/**
+ * Whether a snapshot's approvedAt (ISO text, as to_jsonb wrote it) is the header's approved_at, given as epoch
+ * microseconds (exact, from SQL). Anything unparsable, or any other instant, is false.
+ */
+export function snapshotIsThisApproval(snapshotApprovedAt: string | null, headerApprovedAtMicros: string | null): boolean {
+  if (snapshotApprovedAt == null || headerApprovedAtMicros == null || !/^-?[0-9]+$/.test(headerApprovedAtMicros)) return false;
+  const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,6}))?(Z|[+-][0-9]{2}:[0-9]{2})$/.exec(snapshotApprovedAt);
+  if (!m) return false;
+  const ms = Date.parse(`${m[1]}${m[3]}`);
+  if (Number.isNaN(ms)) return false;
+  const micros = BigInt(ms) * 1000n + BigInt((m[2] ?? '').padEnd(6, '0'));
+  return micros === BigInt(headerApprovedAtMicros);
 }
 
 /** A line as payslipModel reads it: the live details, the snapshot, and whether the snapshot is this approval's. */

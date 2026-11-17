@@ -244,14 +244,27 @@ describe('review B3: re-approving an approved, unposted run', () => {
 });
 
 describe('a malformed snapshot', () => {
-  it('an approvedAt that is not a timestamp reads as not frozen, never a cast error', async () => {
+  it('an approvedAt that is not a timestamp, or not a real date (N1), reads as not frozen, never an error', async () => {
     await resetDetails();
     const id = await approved(12);
-    await r.pool.query(
-      `UPDATE payroll_run_lines SET payslip_snapshot = jsonb_set(payslip_snapshot, '{approvedAt}', '"not a time"') WHERE run_id = $1`, [id]);
+    const frozenAt = (await r.pool.query(
+      "SELECT payslip_snapshot->'approvedAt' AS at FROM payroll_run_lines WHERE run_id = $1", [id])).rows[0]!.at;
     await editDetails();
-    const run = await model(r.company, id);
-    expect(run.detailsAsAt).toBe('download');
-    expect(run.payslips[0]).toMatchObject(AFTER);
+    for (const bad of ['not a time', '2026-13-45T00:00:00Z']) {
+      await r.pool.query(
+        "UPDATE payroll_run_lines SET payslip_snapshot = jsonb_set(payslip_snapshot, '{approvedAt}', to_jsonb($2::text)) WHERE run_id = $1",
+        [id, bad]);
+      const run = await model(r.company, id);
+      expect(run.detailsAsAt, bad).toBe('download');
+      expect(run.payslips[0], bad).toMatchObject(AFTER);
+      const res = await callRoute(payslips as never, r.tokens[r.admin]!, r.company, 'GET', undefined,
+        `/api/payroll/runs/${id}/payslips`, { id, employeeId: emp, disposition: 'inline' });
+      expect(res.state.statusCode, bad).toBe(200);
+    }
+    // Control: the value approval wrote is frozen again.
+    await r.pool.query(
+      "UPDATE payroll_run_lines SET payslip_snapshot = jsonb_set(payslip_snapshot, '{approvedAt}', $2::jsonb) WHERE run_id = $1",
+      [id, JSON.stringify(frozenAt)]);
+    expect((await model(r.company, id)).detailsAsAt).toBe('approval');
   });
 });

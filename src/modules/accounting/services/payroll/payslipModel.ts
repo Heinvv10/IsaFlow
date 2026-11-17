@@ -21,7 +21,7 @@ import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantitie
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { detailsOf, type DetailsRow } from './payslipSnapshot';
+import { detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
 
 export class PayslipNotFound extends Error {
   constructor(what: 'run' | 'employee') {
@@ -70,7 +70,9 @@ export interface PayslipRun {
 
 interface HeaderRow { period_month: number; period_year: number; run_date: string | Date | null }
 
-interface LineRow extends DetailsRow {
+interface LineRow extends Omit<DetailsRow, 'details_frozen'> {
+  snapshot_approved_at: string | null;
+  approved_at_us: string | null;
   employee_id: string;
   gross_pay: string | number;
   paye: string | number;
@@ -103,12 +105,10 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
            prl.component_breakdown,
            (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final,
            prl.payslip_snapshot,
-           -- PS3 (F8): the snapshot is this approval's only while its approvedAt is the header's current approved_at.
-           -- A malformed approvedAt is not frozen, never a cast error (CASE fixes the evaluation order).
-           CASE WHEN prh.status IN ('approved', 'paid')
-                 AND prl.payslip_snapshot->>'approvedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+([+-][0-9:]+|Z)$'
-                THEN COALESCE((prl.payslip_snapshot->>'approvedAt')::timestamptz = prh.approved_at, false)
-                ELSE false END AS details_frozen
+           -- PS3 (F8): judged in TS (snapshotIsThisApproval), never by a cast that a malformed value would make throw.
+           prl.payslip_snapshot->>'approvedAt' AS snapshot_approved_at,
+           CASE WHEN prh.status IN ('approved', 'paid') AND prh.approved_at IS NOT NULL
+                THEN (extract(epoch FROM prh.approved_at) * 1000000)::bigint::text END AS approved_at_us
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees pe ON pe.id = prl.employee_id AND pe.company_id = prh.company_id
@@ -152,7 +152,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const company = await getCompanyDetailsFromCompany(companyId);
   // PS3: all of the run's slips print one approval's details, or all print live ones.
-  const frozen = final && lines.every((l) => l.details_frozen === true);
+  const frozen = final && lines.every((l) => snapshotIsThisApproval(l.snapshot_approved_at, l.approved_at_us));
   const live = { name: company.name, address: company.address };
   const shown = lines.map((l) => ({ l, ...detailsOf({ ...l, details_frozen: frozen }, live) }));
 
