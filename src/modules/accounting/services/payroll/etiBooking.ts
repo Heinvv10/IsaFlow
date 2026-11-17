@@ -57,17 +57,30 @@ export async function bookedByEtiJournals(companyId: string, ym: YearMonth): Pro
   return (await bookedEtiJournalsByMonth(companyId, [ym])).get(monthKey(ym))!;
 }
 
-/** Booked by each month's pay-run journal while it is in force, keyed YYYY-MM: two queries plus the in-force reads. */
-export async function bookedRunJournalsByMonth(companyId: string, months: YearMonth[]): Promise<Map<string, RunBooked>> {
-  const out = new Map<string, RunBooked>(months.map((m) => [monthKey(m), NONE]));
-  if (months.length === 0) return out;
+/** The run headers of `months` whose journal is in force, `excludeRunId` left out (a run judging its own journal). */
+export async function inForceRunHeaders(companyId: string, months: YearMonth[], excludeRunId: string | null = null): Promise<DbRow[]> {
+  if (months.length === 0) return [];
   const headers = (await sql`
-    SELECT period_year, period_month, journal_entry_id, total_paye FROM payroll_run_headers
+    SELECT id, period_year, period_month, journal_entry_id, total_paye, total_eti FROM payroll_run_headers
      WHERE company_id = ${companyId}::UUID AND journal_entry_id IS NOT NULL
        AND (period_year * 100 + period_month) = ANY(${months.map((m) => m.year * 100 + m.month)}::int[])
+       AND (${excludeRunId}::uuid IS NULL OR id <> ${excludeRunId}::uuid)
   `) as DbRow[];
   const live: DbRow[] = [];
   for (const h of headers) if (await payrollJournalInForce(companyId, String(h.journal_entry_id))) live.push(h);
+  return live;
+}
+
+/**
+ * Booked by each month's pay-run journals while in force, keyed YYYY-MM: two queries plus the in-force reads.
+ * `excludeRunId`: leave that run's own journal out (what the month's OTHER run journals booked). `liveHeaders`: the
+ * caller's own inForceRunHeaders read of exactly these months, so one judgement reads the in-force set once.
+ */
+export async function bookedRunJournalsByMonth(
+  companyId: string, months: YearMonth[], excludeRunId: string | null = null, liveHeaders?: DbRow[],
+): Promise<Map<string, RunBooked>> {
+  const out = new Map<string, RunBooked>(months.map((m) => [monthKey(m), NONE]));
+  const live = liveHeaders ?? await inForceRunHeaders(companyId, months, excludeRunId);
   if (live.length === 0) return out;
   const lines = (await sql`
     SELECT jl.journal_entry_id,
@@ -78,11 +91,16 @@ export async function bookedRunJournalsByMonth(companyId: string, months: YearMo
      WHERE jl.company_id = ${companyId}::UUID AND jl.journal_entry_id = ANY(${live.map((h) => String(h.journal_entry_id))}::uuid[])
      GROUP BY jl.journal_entry_id
   `) as DbRow[];
+  // Every in-force run journal of the month adds to it (wave 6 FQb1: an off-cycle run beside the regular one).
   for (const h of live) {
     const l = lines.find((x) => String(x.journal_entry_id) === String(h.journal_entry_id));
     const net = r2(Number(l?.paye_net) || 0);
-    out.set(monthKey({ year: Number(h.period_year), month: Number(h.period_month) }), {
-      used: r2((Number(h.total_paye) || 0) - net), refund: r2(Number(l?.refund) || 0), net2140: net,
+    const key = monthKey({ year: Number(h.period_year), month: Number(h.period_month) });
+    const was = out.get(key) ?? NONE;
+    out.set(key, {
+      used: r2(was.used + (Number(h.total_paye) || 0) - net),
+      refund: r2(was.refund + (Number(l?.refund) || 0)),
+      net2140: r2(was.net2140 + net),
     });
   }
   return out;

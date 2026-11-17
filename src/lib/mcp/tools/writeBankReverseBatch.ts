@@ -22,6 +22,7 @@ import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { counterpartRefusal, preLockReversalLines } from '@/modules/accounting/services/bank/reversalCounterparts';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
@@ -72,7 +73,7 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // all-or-nothing, so the whole thing unwinds rather than half-applying.
     const reversalDate = strArg(args, 'reversal_date');
 
-    const batchLines = await getAllocationBatchLines(ctx.companyId, batchId);
+    let batchLines = await getAllocationBatchLines(ctx.companyId, batchId);
     // Another tenant's batch reads identically to one that never existed.
     if (batchLines === null) return toolError(NOT_FOUND);
 
@@ -82,10 +83,10 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // now would unwind a posting this batch never made. Skipped, not refused —
     // refusing would make a batch permanently unreversible because one row
     // changed, and the skipped set is reported so nothing is silent.
-    const toReverse = batchLines.filter(
+    let toReverse = batchLines.filter(
       (l) => l.transactionExists && l.currentJournalEntryId === l.journalEntryId,
     );
-    const skipped = batchLines
+    const skippedOf = (lines: NonNullable<typeof batchLines>) => lines
       .filter((l) => !l.transactionExists || l.currentJournalEntryId !== l.journalEntryId)
       .map((l) => ({
         transaction_id: l.transactionId,
@@ -98,6 +99,7 @@ export const reverseBankAllocationBatchTool: McpTool = {
             ? 'already reversed — no journal on this transaction'
             : 'allocated to a different journal since this batch posted',
       }));
+    let skipped = skippedOf(batchLines);
 
     if (toReverse.length === 0) {
       // Nothing left for this batch to undo. Reported as a success so a retry
@@ -109,6 +111,17 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // refused before any write, rather than unwound by the first line's refusal.
     const agentRefusal = await agentReversalRefusal(ctx.companyId, toReverse.map((l) => l.transactionId));
     if (agentRefusal) return toolError(agentRefusal.message);
+
+    // #1494 follow-ups (M1, brk): every line and every transfer counterpart locked in ONE id order before the first
+    // reversal, then the batch re-read under those locks — a line a single reverse freed meanwhile is SKIPPED, not the
+    // whole call aborted — and a counterpart a reconciliation holds refuses the call before any write.
+    await preLockReversalLines(ctx.companyId, toReverse.map((l) => l.transactionId));
+    batchLines = (await getAllocationBatchLines(ctx.companyId, batchId)) ?? [];
+    toReverse = batchLines.filter((l) => l.transactionExists && l.currentJournalEntryId === l.journalEntryId);
+    skipped = skippedOf(batchLines);
+    if (toReverse.length === 0) return ok({ batch_id: batchId, reversed: 0, transaction_ids: [], skipped });
+    const legRefusal = await counterpartRefusal(ctx.companyId, toReverse.map((l) => l.transactionId));
+    if (legRefusal) return toolError(legRefusal);
 
     // Same deterministic lock order as the allocate handler: reversal locks the
     // same rows, so an unsorted loop deadlocks against a concurrent batch.

@@ -18,8 +18,8 @@ import { log } from '@/lib/logger';
 import { reverseReconciledTransaction } from './bankAllocationService';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
-import { lockBankTransactionForUpdate } from './bankTxLock';
-import { lockTransferCounterparts } from './transferCounterpartLines';
+import { lockBankTransactionForUpdate, lockBankTransactionsInIdOrder } from './bankTxLock';
+import { lockTransferCounterparts, peekCounterpartIds } from './transferCounterpartLines';
 import { resetBankLine } from './bankChainLineReversal';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
@@ -99,6 +99,10 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
   // Locked and re-read before anything is decided, so a peer undo or a
   // confirmed hand correction (autoPostHandCorrection.ts, same lock) cannot
   // act on the same row in between: whichever comes second finds it gone.
+  // The journal's other live lines (a transfer's counterpart) are locked WITH this one, in id order, before it — a
+  // reverse starting from the other leg takes them in that order too (#1494 rev); re-read below under the locks.
+  const peekedLegs = await peekCounterpartIds(companyId, txId);
+  if (peekedLegs.length > 0) await lockBankTransactionsInIdOrder(companyId, [txId, ...peekedLegs]);
   const tx = await lockBankTransactionForUpdate(companyId, txId);
   if (!tx || String(tx.auto_post_run_id ?? '') !== runId) return { kind: 'gone' };
   // The shared reconciled-cash rule (`reconciledCash.ts`), not a second copy:
@@ -140,7 +144,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     // WP2 row 5 round 2: a transfer's other-bank line, auto-linked to the same journal — locked here so a reconciliation
     // holding it is this row's reconciled SKIP. Freed by reverseReconciledTransaction (WP2 row 10) when the undo reverses;
     // by the reset below only when the posting was already reversed by hand (no reversal runs then).
-    const legs = await lockTransferCounterparts(companyId, tx, jeId);
+    const legs = await lockTransferCounterparts(companyId, tx, jeId, peekedLegs);
     if (legs.lock) return { kind: 'reconciled', lock: legs.lock };
     if (state === 'none') {
       const offset = await handOffsetOf(companyId, tx); // R-079: never reversed on top of a person's correction
@@ -169,6 +173,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
         SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
             linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
             allocation_rule_id = NULL, allocation_rule_name = NULL, allocation_batch_id = NULL,
+            transfer_journal_entry_id = NULL, counterparty_account_id = NULL, -- as the bank Reverse clears it (#1494 rev)
             updated_at = NOW()
         WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
       `;

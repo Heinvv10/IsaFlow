@@ -1,0 +1,149 @@
+/**
+ * Wave 6 FQb1: the run-keyed READERS (census class R, owner FQb1), each with two runs in one month: a regular run and
+ * an off-cycle bonus run of the same calendar month (the shape FQx allows), the per-month unique dropped inside the
+ * case's own rolled-back transaction (w6-fqb1.helpers.ts). Company B holds the same shape at 10x, so a reader that
+ * leaked across tenants moves A's figure. Seed order puts the run a reader must NOT pick first, so a reader that
+ * still leans on the per-month unique takes it (the "latest" readers run in both orders, see BOTH_ORDERS).
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool, type PoolClient } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { dropTenants, seedRun, seedTenant, twoRunsInMonth, type RunSpec, type Tenant } from './w6-fqb1.helpers';
+import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
+import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
+import { latestPayrollRun } from '@/modules/accounting/services/payroll/payrollRunHeaders';
+import { readEmployeeReadiness } from '@/modules/accounting/services/payroll/employeeReadinessRead';
+import { getDeclarablePayRun } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { getParallelRunReport } from '@/modules/accounting/services/payroll/payrollParallelRunReportService';
+import { getPayrollRunVariance } from '@/modules/accounting/services/payroll/payrollVarianceService';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+let A: Tenant;
+let B: Tenant;
+
+/** May 2026 (tax year 2027): the regular run paid on the 25th, the off-cycle bonus on the 28th. */
+const REGULAR: RunSpec = { year: 2026, month: 5, runDate: '2026-05-25', gross: 20000, paye: 2000 };
+const BONUS: RunSpec = { year: 2026, month: 5, runDate: '2026-05-28', offCycle: true, gross: 5000, paye: 700 };
+const x10 = (r: RunSpec): RunSpec => ({ ...r, gross: (r.gross ?? 10000) * 10, paye: (r.paye ?? 1000) * 10 });
+
+/** B's runs (10x), then A's in the order given: the first is the one a month-keyed reader would take. */
+async function seedBoth(c: PoolClient, aRuns: RunSpec[]): Promise<string[]> {
+  for (const r of aRuns) await seedRun(c, B, x10(r));
+  const ids: string[] = [];
+  for (const r of aRuns) ids.push(await seedRun(c, A, r));
+  return ids;
+}
+
+beforeAll(async () => {
+  A = await seedTenant(pool, 'W6 FQb1 reads A');
+  B = await seedTenant(pool, 'W6 FQb1 reads B');
+});
+
+afterAll(async () => {
+  try { await dropTenants(pool, [A, B]); } finally { await pool.end(); }
+});
+
+describe('EMP201 PAYE per month (EMP501 reconciliation, year-end status)', () => {
+  it('sums both runs of the month; B is not in it', async () => {
+    const [byMonth, yearEnd] = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, [BONUS, REGULAR]); },
+      async () => [await emp201PayeByMonth(A.company, 2027), await readYearEndStatusRows(A.company, 2027)] as const);
+    expect(byMonth.get('2026-5')).toBe(2700);
+    expect([...byMonth.keys()]).toEqual(['2026-5']);
+    expect([...yearEnd.emp201ByMonth]).toEqual([['2026-5', 2700]]);
+  });
+});
+
+/**
+ * A reader ordered by month alone ties the two runs, and which one a tie returns follows the rows' physical order. So
+ * each "latest" case runs twice, seeding the runs in both orders: a month-keyed reader fails at least one of them.
+ */
+const BOTH_ORDERS = [false, true];
+const ordered = <T>(runs: T[], flip: boolean): T[] => (flip ? [...runs].reverse() : runs);
+
+describe('"the latest run" readers take the later run of the month', () => {
+  it.each(BOTH_ORDERS)('latestPayrollRun (period context): the bonus paid on the 28th (seeded reversed: %s)', async (flip) => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
+      () => latestPayrollRun(A.company));
+    expect(got?.id).toBe(ordered(ids, flip)[1]);
+  });
+
+  it.each(BOTH_ORDERS)('readEmployeeReadiness: the latest run is the calculated bonus (seeded reversed: %s)', async (flip) => {
+    const got = await twoRunsInMonth(pool, A,
+      async (c) => { await seedBoth(c, ordered([REGULAR, { ...BONUS, status: 'calculated' }], flip)); },
+      () => readEmployeeReadiness(A.company, A.employee));
+    expect(got?.runs).toEqual([{ periodYear: 2026, periodMonth: 5, status: 'calculated' }]);
+  });
+
+  it.each(BOTH_ORDERS)('getDeclarablePayRun: no month is the latest run (the bonus) (seeded reversed: %s)', async (flip) => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
+      () => getDeclarablePayRun(A.company, null));
+    expect(got?.id).toBe(ordered(ids, flip)[1]);
+    expect(got?.totalGross).toBe(5000);
+  });
+
+  it('latestPayrollRun skips a cancelled run: May is reported by its approved regular run', async () => {
+    let regular = '';
+    const got = await twoRunsInMonth(pool, A,
+      async (c) => { [regular] = await seedBoth(c, [REGULAR, { ...BONUS, status: 'cancelled', approvedAt: null }]); },
+      () => latestPayrollRun(A.company));
+    expect(got).toMatchObject({ id: regular, status: 'approved' });
+  });
+
+  // No app code writes run_date, so in production both runs of a month tie on (period_start, period_end): the key's
+  // third part (regular before off-cycle) decides, not the random id.
+  it.each(BOTH_ORDERS)('run_date NULL on both runs: the off-cycle run is still the later (seeded reversed: %s)', async (flip) => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      ids = await seedBoth(c, ordered([{ ...REGULAR, noRunDate: true }, { ...BONUS, noRunDate: true }], flip));
+    }, async () => ({ latest: await latestPayrollRun(A.company), declarable: await getDeclarablePayRun(A.company, null) }));
+    expect(got.latest?.id).toBe(ordered(ids, flip)[1]);
+    expect(got.declarable?.id).toBe(ordered(ids, flip)[1]);
+  });
+});
+
+describe('a named month means its regular run (askTax via getDeclarablePayRun)', () => {
+  it.each(BOTH_ORDERS)('getDeclarablePayRun(May) is May\'s regular run, not the later bonus (seeded reversed: %s)', async (flip) => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
+      () => getDeclarablePayRun(A.company, { year: 2026, month: 5 }));
+    expect(got?.id).toBe(ordered(ids, flip)[0]);
+    expect(got?.totalGross).toBe(20000);
+  });
+});
+
+describe('the medical-credit record reads the latest line in run order', () => {
+  it.each(BOTH_ORDERS)('the bonus (later) line recorded no credit: not recorded (seeded reversed: %s)', async (flip) => {
+    const got = await twoRunsInMonth(pool, A,
+      async (c) => { await seedBoth(c, ordered([{ ...REGULAR, medicalCredit: 0 }, { ...BONUS, medicalCredit: null }], flip)); },
+      () => loadMedicalRecord(A.company, { start: '2026-03-01', end: '2027-02-28' }, [A.employee]));
+    expect(got.get(A.employee)?.recorded).toBe(false);
+  });
+});
+
+describe('readers of "the regular run of the month"', () => {
+  it.each(BOTH_ORDERS)('the parallel-run report compares the import with the regular run, not the bonus (seeded reversed: %s)', async (flip) => {
+    let regular = '';
+    let importId = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      regular = ordered(await seedBoth(c, ordered([REGULAR, BONUS], flip)), flip)[0]!;
+      importId = String((await c.query(
+        "INSERT INTO payroll_external_imports (company_id, period_month, period_year, file_name) VALUES ($1, 5, 2026, 'may.csv') RETURNING id",
+        [A.company])).rows[0].id);
+    }, () => getParallelRunReport(A.company, importId));
+    expect(got?.run).toMatchObject({ id: regular, otherRunsInMonthExcluded: 1 });
+  });
+
+  it('variance: the prior run of a regular June run is May\'s regular run, not the bonus', async () => {
+    let regular = '';
+    let june = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      [, regular, june] = await seedBoth(c, [BONUS, REGULAR, { ...REGULAR, month: 6, runDate: '2026-06-25' }]);
+    }, () => getPayrollRunVariance(june, A.company));
+    expect(got.priorRunId).toBe(regular);
+    expect(got.totals.grossPay).toMatchObject({ current: 20000, prior: 20000 });
+  });
+});

@@ -109,6 +109,17 @@ export async function withRowLockBudget<T>(
 }
 
 /**
+ * Set the transaction's `lock_timeout` to `ms`, but never LOOSER than what is already in force (tighten-only; '0' —
+ * none — counts as looser than anything). A pre-lock spending its own budget must not undo a caller's tighter one
+ * (#1494 rev 1). The caller restores the previous value (restoreLockTimeout), as every lock helper here does.
+ */
+export async function tightenLockTimeout(client: QueryClient, ms: number): Promise<void> {
+  await client.query(`SELECT set_config('lock_timeout', CASE WHEN current_setting('lock_timeout')::interval = interval '0'
+      OR current_setting('lock_timeout')::interval > $1::text::interval THEN $1::text ELSE current_setting('lock_timeout') END, true)`,
+  [`${Math.max(1, Math.floor(ms))}ms`]);
+}
+
+/**
  * A whole D8 flow's locking section under ONE budget (D8 round 10): every lock it takes — `FOR UPDATE` or the row
  * lock of a plain UPDATE — waits at most ROW_LOCK_BUDGET_MS, set once and restored once; nested helpers restore it
  * rather than reset it. A wait that runs out is `RowLockTimeoutError(what)`, 503 + Retry-After at the routes.

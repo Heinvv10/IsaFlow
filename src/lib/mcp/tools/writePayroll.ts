@@ -64,7 +64,8 @@ export const createPayRunTool: McpTool = {
     // it on BOTH paths: a dry run that passed where the real call refuses is
     // worse than no dry run.
     const existing = await listPayRunsPage(ctx.companyId, { year, limit: 200 });
-    const clash = existing.rows.find((r) => r.periodMonth === month);
+    // The month's regular monthly run (the 999a regular-period key); an off-cycle run of the month is no clash.
+    const clash = existing.rows.find((r) => r.periodMonth === month && r.runKind === 'regular' && r.payFrequency === 'monthly');
 
     if (args.dry_run === true) {
       const preview: DryRunResult = {

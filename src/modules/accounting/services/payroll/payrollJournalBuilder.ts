@@ -48,6 +48,7 @@ import {
 } from './payrollJournalParts';
 import { netPayLine, resolveNetPayTarget, sharedNetPayAccountBlocker } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
+import { payrollRunJournalDescription } from './payrollJournalDescription';
 import { runEmployerFundedCosts } from './payrollJournalEmployerRetirement';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
@@ -98,7 +99,7 @@ export async function buildPayrollJournalPlan(
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
-  const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
+  const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti }, runId);
   const etiUsed = round2(runEti.etiUsed);
   // The employer's medical (non-cash 3810) and fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid over.
   const { byEmployee: employerFunded, medical, retirement } = await runEmployerFundedCosts(companyId, runId);
@@ -230,7 +231,7 @@ export async function buildPayrollJournalPlan(
     lineCount: Number(hdr.line_count) || 0,
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
     entryDate,
-    description: `Payroll run ${periodYear}-${mm}`,
+    description: payrollRunJournalDescription(periodYear, periodMonth),
     reference: `PAY-${periodYear}-${mm}`,
     lines,
     totalDebit,

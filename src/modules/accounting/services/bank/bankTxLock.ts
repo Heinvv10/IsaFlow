@@ -20,7 +20,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention } from '../core/lockContention';
-import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
+import { currentLockTimeout, restoreLockTimeout, tightenLockTimeout } from '../core/rowLockBudget';
 import { shareLockStampedSessions, stampHeld } from './reconciliationSessionLock';
 
 /**
@@ -109,7 +109,7 @@ export async function lockBankTransactionForUpdate(
   assertTxUsable();
   const previousLockTimeout = await currentLockTimeout(client);
   if (opts.lockTimeoutMs === undefined) await client.query("SET LOCAL lock_timeout = '5s'");
-  else await client.query("SELECT set_config('lock_timeout', $1, true)", [`${Math.min(5000, Math.max(1, Math.floor(opts.lockTimeoutMs)))}ms`]);
+  else await tightenLockTimeout(client, Math.min(5000, opts.lockTimeoutMs)); // a pre-lock's budget, never looser than the caller's
   let failure: unknown = null;
   try {
     // D12: the session the line is stamped with, FOR SHARE, BEFORE the line — session row -> bank line is the lock
@@ -163,18 +163,28 @@ export async function lockBankTransactionForUpdate(
  * MCP void took the root journal's line and then the chain's in a second pass, the HTTP void took both in one id
  * pass, and the pair deadlocked whenever the head's line had the lower id.
  */
-export async function lockBankTransactionsInIdOrder(companyId: string, ids: readonly string[]): Promise<DbRow[]> {
+export async function lockBankTransactionsInIdOrder(
+  companyId: string, ids: readonly string[],
+  /** ONE wait for the whole set (sessions and lines) instead of 5 s per lock: each waits what is left, never under 50 ms. */
+  opts: { deadline?: number } = {},
+): Promise<DbRow[]> {
   const rows: DbRow[] = [];
   const sorted = [...new Set(ids.map((i) => i.toLowerCase()))].sort();
+  const left = () => (opts.deadline === undefined ? undefined : Math.max(50, opts.deadline - Date.now()));
   // D12: every session the lines are stamped with, FOR SHARE in id order, BEFORE the first line — so no session is
   // taken after a line of this set is held. Each line's own lock below re-takes its session (already held).
   if (sorted.length > 1) {
-    await withBankLockBudget(() => shareLockStampedSessions(companyId, sorted)).catch((err: unknown) => {
+    await withBankLockBudget(async () => {
+      const client = als.getStore()?.client;
+      if (client && left() !== undefined) await tightenLockTimeout(client, left()!);
+      return shareLockStampedSessions(companyId, sorted);
+    }).catch((err: unknown) => {
       throw isLockContention(err) ? new BankTransactionLockTimeoutError(sorted[0]!) : err;
     });
   }
   for (const id of sorted) {
-    const row = await lockBankTransactionForUpdate(companyId, id);
+    const wait = left();
+    const row = await lockBankTransactionForUpdate(companyId, id, wait === undefined ? {} : { lockTimeoutMs: wait });
     if (row) rows.push(row);
   }
   return rows;

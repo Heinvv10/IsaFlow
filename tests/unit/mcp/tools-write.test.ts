@@ -799,6 +799,7 @@ describe('write-tool manifest invariants', () => {
       seed_budget: { ...KEY },
       set_budget_amounts: { ...KEY },
       set_budget_annual: { ...KEY },
+      import_budget_workbook: { ...KEY },
       restore_budget_version: { ...KEY },
       approve_budget_version: { ...KEY },
       lock_budget_version: { ...KEY },

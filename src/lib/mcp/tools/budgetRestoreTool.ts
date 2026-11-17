@@ -23,7 +23,7 @@ const statusMovedAt = (v: BudgetVersion): string | null =>
 export const restoreBudgetVersionTool: McpTool = {
   name: 'restore_budget_version',
   description:
-    'Undo the most recent MCP amount write (set_budget_amounts / set_budget_annual) on a budget version: every cell it changed goes back to its value (and driver / typed source) before. '
+    'Undo the most recent MCP amount write (set_budget_amounts / set_budget_annual / import_budget_workbook) on a budget version: every cell it changed goes back to its value (and driver / typed source) before. '
     + 'TRAPS: only the version\'s MOST RECENT write, only while nobody has changed it since (the version token, its status and every cell of that write must be as the write left them; another save, an approve / lock / unlock or a driver recompute makes it refuse, naming the cells that differ), and only by whoever made the write or an owner or admin. '
     + 'WHAT IT COVERS: amount writes only. It never undoes set_budget_drivers (driver lines, planned hires, overrides, a headcount refresh) and refuses an amount write once any driver change was made at or after that write\'s transaction: in a later request, or anywhere in the same request (batch), including one made before the write. '
     + 'An override the write reset to a driver that now computes the same value cannot be pinned again: that restore is refused. An override no driver covers any more (its driver\'s range shrank) comes back as a manual figure with its value. '
