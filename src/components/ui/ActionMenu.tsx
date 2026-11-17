@@ -5,13 +5,15 @@
  * and the items rove: one has tabIndex 0, Arrow keys / Home / End move focus. With no enabled item the menu itself takes
  * focus, so Escape and Tab still work. Enter and Space act on the item that HAS focus when the key is pressed (read from
  * the event, never from a remembered index), so a key can never act on an item or a row the user has moved away from;
- * the Space that picked is not allowed to re-open the menu from the trigger on its keyup. Ctrl/Shift/Cmd+Enter on a
- * link item is the browser's (a new tab or window). Escape closes and returns focus to the trigger (from the trigger
- * too); Tab closes and lets focus go on from the trigger; focus leaving the menu any other way, or a click outside it,
- * closes it, and a click on the menu's own padding keeps focus in it. The menu is fixed to the viewport: its side (down,
- * or up when there is not room below; panelPlacement) is chosen once when it opens, it is kept inside the viewport
- * horizontally, and it follows its trigger on scroll. If the items change while it is open, the focused item is found
- * again by its label.
+ * with focus on the menu itself (a click on its padding) the keys act from the ACTIVE item. The Space that picked is not
+ * allowed to re-open the menu from the trigger on its keyup (useSwallowSpaceUp). Ctrl/Shift/Cmd+Enter on a link item is
+ * the browser's (a new tab or window); the menu then closes back to the trigger. Escape closes and returns focus to the
+ * trigger (from the trigger too, and it goes no further: a dialog around the menu stays open); Tab closes and lets focus
+ * go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
+ * menu's own padding keeps focus in it. The menu is fixed to the viewport: its side (down, or up when there is not room
+ * below; panelPlacement) is chosen once when it opens, it is kept inside the viewport horizontally by its MEASURED width
+ * (8px each side, capped at the viewport less 16px), and it follows its trigger on scroll. If the items change while it
+ * is open, the focused item is found again by its label; a list that empties and refills starts again on its first item.
  * Keys the menu handles stop there (the menu is portalled, and React would bubble them to the trigger's ancestors,
  * e.g. a grid that has hotkeys of its own).
  */
@@ -22,6 +24,9 @@ import Link from 'next/link';
 import { MoreVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { chooseSide, placePanel, type PanelPlacement, type PanelSide } from './panelPlacement';
+import {
+  ITEM_PX, MENU_PAD_PX, MENU_MIN_W, MENU_MAX_W, arrowTarget, enabledIndexes, horizontal, useSwallowSpaceUp,
+} from './actionMenuParts';
 
 export interface ActionMenuItem {
   label: string;
@@ -49,21 +54,7 @@ export interface ActionMenuProps {
   triggerTitle?: string;
 }
 
-/** One item's height (py-2, text-sm) and the menu's padding: the height the menu wants when it opens. */
-const ITEM_PX = 36;
-const MENU_PAD_PX = 8;
-
-const enabledIndexes = (items: ActionMenuItem[]): number[] => items.flatMap((it, i) => (it.disabled ? [] : [i]));
-/** The viewport margin the menu keeps, and its narrowest width. */
-const EDGE_PX = 8;
-const MENU_MIN_W = 180;
 type Place = { p: PanelPlacement; side: PanelSide; right?: number; left?: number };
-
-/** Right-aligned to the trigger, but never past either edge of the viewport. */
-function horizontal(r: DOMRect): { right?: number; left?: number } {
-  const right = Math.max(EDGE_PX, window.innerWidth - r.right);
-  return window.innerWidth - right - MENU_MIN_W < EDGE_PX ? { left: EDGE_PX } : { right };
-}
 
 export function ActionMenu({
   items, triggerLabel = 'More actions', className, trigger, triggerSizeClassName = 'h-9 w-9 max-lg:h-11 max-lg:w-11', triggerTitle,
@@ -72,8 +63,9 @@ export function ActionMenu({
   const [active, setActive] = React.useState(-1);
   const [place, setPlace] = React.useState<Place | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  /** Set when Space picked an item: that Space's keyup lands on the trigger and must not click it open again. */
-  const swallowSpaceUp = React.useRef(false);
+  const spaceUp = useSwallowSpaceUp();
+  /** The menu's measured width (content-sized), so the horizontal clamp uses the real one. */
+  const menuW = React.useRef(MENU_MIN_W);
   /** The label of the active item, so it can be found again when the items change while the menu is open. */
   const activeLabel = React.useRef<string | null>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -87,7 +79,7 @@ export function ActionMenu({
     if (!t) return;
     const r = t.getBoundingClientRect();
     const s = side ?? chooseSide(r, window.innerHeight, items.length * ITEM_PX + MENU_PAD_PX);
-    setPlace({ p: placePanel(r, window.innerHeight, s), side: s, ...horizontal(r) });
+    setPlace({ p: placePanel(r, window.innerHeight, s), side: s, ...horizontal(r, menuW.current) });
   }, [items.length]);
 
   const close = React.useCallback((refocus: boolean) => {
@@ -111,9 +103,10 @@ export function ActionMenu({
 
   // The items changed while open (a menu that grows or shrinks): the active item is found again by its label, or the
   // first enabled one takes its place, so focus and the roving tabIndex point at the same item.
+  // With no active item (the list was empty, or all disabled) the first enabled one is picked when one appears.
   React.useEffect(() => {
-    if (!open || activeLabel.current === null) return;
-    const at = items.findIndex(it => it.label === activeLabel.current && !it.disabled);
+    if (!open) return;
+    const at = activeLabel.current === null ? -1 : items.findIndex(it => it.label === activeLabel.current && !it.disabled);
     setActive(at >= 0 ? at : enabledIndexes(items)[0] ?? -1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
@@ -150,6 +143,13 @@ export function ActionMenu({
     };
   }, [open, side, place_]);
 
+  // The menu's real width, measured before paint (on open and when the items change): re-placed if it differs.
+  React.useLayoutEffect(() => {
+    if (!open || !menuRef.current) return;
+    const w = Math.max(MENU_MIN_W, menuRef.current.offsetWidth);
+    if (w !== menuW.current) { menuW.current = w; place_(side); }
+  }, [open, items, side, place_]);
+
   const pick = (item: ActionMenuItem) => {
     if (item.disabled) return;
     close(true);
@@ -158,26 +158,26 @@ export function ActionMenu({
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const enabled = enabledIndexes(items);
-    const at = enabled.indexOf(indexOf(e.target));
-    // From the menu itself (focus put there by a click on its padding) the item may already be the active one.
+    // From the menu itself (focus put there by a click on its padding) the keys act from the active item, if any.
+    const onMenu = e.target === menuRef.current;
+    const from = onMenu ? active : indexOf(e.target);
     const move = (to: number | undefined) => { if (to === undefined) return; if (to === active) itemAt(to)?.focus(); else setActive(to); };
     let handled = true;
     switch (e.key) {
-      case 'ArrowDown': move(enabled[(at + 1) % enabled.length]); break;
-      case 'ArrowUp': move(enabled[(at - 1 + enabled.length) % enabled.length]); break;
+      case 'ArrowDown': case 'ArrowUp': move(arrowTarget(enabled, from, e.key)); break;
       case 'Home': move(enabled[0]); break;
       case 'End': move(enabled[enabled.length - 1]); break;
       case 'Escape': close(true); break;
       case 'Enter':
       case ' ': {
-        const item = items[indexOf(e.target)];
-        if (item?.href && e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
-          // The browser opens the link in a new tab / window; the menu closes once it has.
+        const item = items[from];
+        if (item?.href && !onMenu && e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+          // The browser opens the link in a new tab / window; the menu closes once it has, back to the trigger.
           handled = false;
-          window.setTimeout(() => close(false), 0);
+          window.setTimeout(() => close(true), 0);
           break;
         }
-        if (item && e.key === ' ') swallowSpaceUp.current = true;
+        if (item && e.key === ' ') spaceUp.arm();
         if (item) pick(item);
         break;
       }
@@ -204,14 +204,11 @@ export function ActionMenu({
       e.preventDefault();
       openAt(e.key === 'ArrowDown' ? 'first' : 'last');
     } else if (e.key === 'Escape' && open) {
+      // The menu's Escape: a dialog the menu sits in must not close too.
       e.preventDefault();
+      e.stopPropagation();
       close(true);
     }
-  };
-  // The keyup of the Space that picked an item lands here (focus went back to the trigger): it must not click it open.
-  const onTriggerKeyUp = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === ' ' && swallowSpaceUp.current) e.preventDefault();
-    swallowSpaceUp.current = false;
   };
 
   return (
@@ -225,7 +222,7 @@ export function ActionMenu({
         title={triggerTitle}
         onClick={() => (open ? close(false) : openAt('first'))}
         onKeyDown={onTriggerKeyDown}
-        onKeyUp={onTriggerKeyUp}
+        onKeyUp={spaceUp.onTriggerKeyUp}
         className={cn(
           'inline-flex items-center justify-center rounded-lg', triggerSizeClassName,
           'border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]',
@@ -248,7 +245,7 @@ export function ActionMenu({
           onKeyDown={onMenuKeyDown}
           onBlur={onMenuBlur}
           data-side={place.side}
-          style={{ position: 'fixed', top: place.p.top, bottom: place.p.bottom, right: place.right, left: place.left, maxHeight: place.p.maxHeight, minWidth: MENU_MIN_W, zIndex: 9999 }}
+          style={{ position: 'fixed', top: place.p.top, bottom: place.p.bottom, right: place.right, left: place.left, maxHeight: place.p.maxHeight, minWidth: MENU_MIN_W, maxWidth: MENU_MAX_W, zIndex: 9999 }}
           className="outline-none overflow-y-auto rounded-lg shadow-xl border py-1 bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]"
         >
           {items.map((item, idx) => {

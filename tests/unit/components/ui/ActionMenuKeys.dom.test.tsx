@@ -165,8 +165,8 @@ describe('ActionMenu round 3 (WP4b review)', () => {
     fireEvent.mouseDown(menu());
     menu().focus();
     expect(document.activeElement).toBe(menu());
-    fireEvent.keyDown(menu(), { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'A' }));
+    fireEvent.keyDown(menu(), { key: 'ArrowDown' }); // on from the active item (A)
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'B' }));
   });
 
   it('Ctrl/Shift/Cmd+Enter on a link item is the browser\'s (new tab): onClick does not run', () => {

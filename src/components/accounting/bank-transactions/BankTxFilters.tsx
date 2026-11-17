@@ -63,8 +63,13 @@ function useFocusAfterSelection(selecting: boolean) {
   }, [selecting]);
   const barFocus = {
     onFocus: () => { focusInBar.current = true; },
-    // Focus moving out of the bar (not the bar going away: a removed element reports no blur) clears it.
-    onBlur: (e: React.FocusEvent<HTMLElement>) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusInBar.current = false; },
+    // Only a real move of focus OUT of the bar clears it. The bar going away is not one: a browser may fire a blur
+    // (relatedTarget null) at the focused button it removes, and whether React passes that on is React's business, so
+    // a blur from a node no longer in the document is ignored here rather than relied on never arriving.
+    onBlur: (e: React.FocusEvent<HTMLElement>) => {
+      if (!(e.target as Node).isConnected) return;
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusInBar.current = false;
+    },
   };
   return { refreshRef, barFocus };
 }

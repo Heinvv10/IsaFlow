@@ -158,6 +158,17 @@ describe('the contextual selection bar', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  it('a blur from a button being REMOVED (relatedTarget null, no longer in the document) is not focus leaving the bar', () => {
+    const { rerender } = render(<BankTxFilters {...props()} selectedCount={2} />);
+    const clear = screen.getByRole('button', { name: 'Clear selection' });
+    clear.focus();
+    // What a browser may dispatch as the bar unmounts: a focusout from the detached button, with nowhere to go.
+    Object.defineProperty(clear, 'isConnected', { configurable: true, get: () => false });
+    fireEvent.focusOut(clear, { relatedTarget: null });
+    rerender(<BankTxFilters {...props()} selectedCount={0} />);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh' }));
+  });
+
   it('focus that was in the bar and then left it is not pulled back', () => {
     const { rerender } = render(<BankTxFilters {...props()} selectedCount={1} />);
     const field = document.body.appendChild(document.createElement('input'));

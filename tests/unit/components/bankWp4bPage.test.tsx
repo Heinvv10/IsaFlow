@@ -40,6 +40,7 @@ vi.mock('@/components/accounting/bank-transactions/BankTxBankCards', () => ({
 useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import BankTransactionsPage from '../../../pages/accounting/bank-transactions/index';
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -178,5 +179,39 @@ describe('nothing floats over the rows', () => {
     expect(screen.getByTestId('bank-tx-selection-live').textContent).toBe('1 selected');
     expect(screen.queryByRole('button', { name: /Mark Selected as Reviewed/ })).toBeNull();
     expect(cap.filters.selectedCount).toBe(1);
+  });
+});
+
+describe('a sort is not a filter in the empty state', () => {
+  it('oldest first with an empty list: the empty state names no filter (the chip still lists the sort)', async () => {
+    list = () => ok({ transactions: [], total: 0 });
+    cap.router = makeFakeRouter({ account_id: 'a', sort: 'asc' });
+    render(<BankTransactionsPage />);
+    const empty = await screen.findByTestId('bank-tx-empty');
+    await settle();
+    expect(cap.filters.sortOrder).toBe('asc');
+    expect(screen.getByText(/Sort: oldest first/)).toBeInTheDocument(); // the active-filters chip
+    expect(screen.queryByTestId('bank-tx-empty-filters')).toBeNull();
+    expect(empty).toHaveTextContent('No new transactions for this account');
+  });
+});
+
+describe('the remembered page size is read once per visit', () => {
+  it('blocked storage warns once, not on every render', async () => {
+    const getItem = window.localStorage.getItem.bind(window.localStorage);
+    const spy = vi.spyOn(window.localStorage, 'getItem').mockImplementation((key: string) => {
+      if (key === 'isaflow.bankTxPageSize') throw new DOMException('blocked', 'SecurityError');
+      return getItem(key);
+    });
+    try {
+      vi.mocked(log.warn).mockClear();
+      await open({ account_id: 'a' });
+      await call(cap.cards, 'onTile', 'suggested');
+      await call(cap.table, 'onToggleSelect', 'p1a');
+      await settle();
+      const unreadable = vi.mocked(log.warn).mock.calls.filter(c => c[0] === 'bank list: page size preference unreadable');
+      expect(unreadable).toHaveLength(1);
+      expect(lastParams().get('limit')).toBe('25'); // no preference: 25
+    } finally { spy.mockRestore(); }
   });
 });
