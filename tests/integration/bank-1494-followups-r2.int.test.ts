@@ -76,6 +76,9 @@ describe('M1 / M2: what the range call locked is what it reverses and reports', 
     expect({ x: await lineStatus(pool, x), z: await lineStatus(pool, z) }).toEqual({ x: 'imported', z: 'allocated' });
   }, 30000);
 
+  // Pins the outcome only: without the re-ask the reversal's own step-2 check (assertMayReverse) refuses the same line
+  // mid-call with the same refusal and the all-or-nothing call rolls back — no observable difference (its mutant
+  // survives). The re-ask makes the refusal pre-write, as the review asked: defence in depth, stated.
   it('the step-2 agent refusal is asked again under the locks: enforcement switched on meanwhile refuses, nothing written', async () => {
     const f = await bankCompany(pool, [[a, 'admin']], companies);
     const x = await lineOn(f, f.bank, -113, 'R2 E');
