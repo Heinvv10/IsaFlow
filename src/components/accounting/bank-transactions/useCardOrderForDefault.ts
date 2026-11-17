@@ -7,7 +7,8 @@
 
 import { useEffect, useState } from 'react';
 import { useActiveCompanyIdOrUndefined } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { cardOrderPrefKey, parseCardOrder } from './bankCardOrder';
 
 export function useCardOrderForDefault(): { order: string[] | null; ready: boolean } {
@@ -20,8 +21,12 @@ export function useCardOrderForDefault(): { order: string[] | null; ready: boole
       let order: string[] | null = null;
       try {
         const res = await apiFetch('/api/auth/preferences');
-        if (res.ok) order = parseCardOrder(((await res.json()) as { data?: Record<string, string> }).data?.[cardOrderPrefKey(companyId)]);
-      } catch { /* the default order stands */ }
+        await assertOk(res, 'Could not load your card order');
+        order = parseCardOrder(((await res.json()) as { data?: Record<string, string> }).data?.[cardOrderPrefKey(companyId)]);
+      } catch (err) {
+        // The page still opens: on the default order (the cards report this themselves, with a toast, when they load it).
+        log.warn('Bank card order unavailable for the default account, using the default order', { error: err }, 'bank-transactions');
+      }
       if (!cancelled) setState({ for: companyId, order });
     })();
     return () => { cancelled = true; };
