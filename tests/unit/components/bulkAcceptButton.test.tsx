@@ -208,3 +208,36 @@ describe('the count survives a tab switch (L1)', () => {
     expect(await screen.findByRole('button', { name: 'Accept 2 high-confidence suggestions' })).toBeTruthy();
   });
 });
+
+describe('an open dialog is not unmounted or retargeted by the page (z30 hypothesis)', () => {
+  it('the New tab going inactive, or the account changing, under an open dialog leaves it open on its own account', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'POST' ? ok({ runId: 'r', posted: [], refused: [], totalPosted: 0 }) : ok(preview(2))));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 2 high-confidence/ }));
+    await screen.findByRole('dialog');
+    rerender(<BulkAcceptButton bankAccountId="b1" active={false} onChanged={vi.fn()} />);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    rerender(<BulkAcceptButton bankAccountId="b2" active onChanged={vi.fn()} />);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    const post = await waitFor(() => {
+      const c = vi.mocked(apiFetch).mock.calls.find(([, i]) => i?.method === 'POST');
+      if (!c) throw new Error('no POST yet');
+      return c;
+    });
+    expect(JSON.parse(String(post[1]!.body)).action).toBe('confirm');
+    const previewCalls = vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('bankAccountId=')).map(([u]) => String(u));
+    expect(previewCalls.filter((u) => u.includes('bankAccountId=b1')).length).toBeGreaterThanOrEqual(2); // the dialog's own preview is b1's
+  });
+
+  it('a dialog whose trigger has gone (count reached 0) stays until closed', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(preview(1))).mockResolvedValueOnce(ok(preview(1)))
+      .mockResolvedValueOnce(ok({ runId: 'r', posted: [{ txId: 'id-0', journalEntryId: 'j' }], refused: [], totalPosted: 1 })).mockResolvedValue(ok(preview(0)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={0} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 1 high-confidence/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 1/ }));
+    await screen.findByTestId('bulk-result');
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={5} />);
+    expect(screen.getByTestId('bulk-result')).toBeTruthy();
+  });
+});
