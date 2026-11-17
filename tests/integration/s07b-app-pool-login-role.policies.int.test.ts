@@ -16,6 +16,13 @@ afterAll(() => teardown(ids, []));
 
 // Predicates a session satisfies by setting its own claims; any table prefix.
 const FORGEABLE: RegExp[] = [
+  // 999r: the company-group tables. Group standing is derived from the caller's claims (auth.uid()) through
+  // read-only definers (rls_user_*), so a forged claim satisfies it exactly as it satisfies company_users' own.
+  /(\w+\.)?(?:parent_company_id|child_company_id|group_company_id) (?:= app\.current_company_id\(\)|IN \( SELECT auth\.user_companies\(\) AS user_companies\))/g,
+  /(\w+\.)?(?:group_id|id|company_id|child_company_id) IN \( SELECT rls_user_(?:write_)?(?:group|company)_ids\(\) AS rls_user_\w+\)/g,
+  /rls_group_may_bootstrap\(group_id\)/g,
+  /\(created_by\)::text = auth\.uid\(\)/g,
+  // These come before the generic patterns below, which would otherwise eat the tail of parent_company_id.
   /(\w+\.)?company_id IN \( SELECT company_users\.company_id FROM company_users WHERE \(company_users\.user_id = auth\.uid\(\)\)\)/g,
   /(\w+\.)?id IN \( SELECT company_users\.company_id FROM company_users WHERE \(company_users\.user_id = auth\.uid\(\)\)\)/g,
   /(\w+\.)?company_id = app\.current_company_id\(\)/g,
@@ -52,6 +59,9 @@ const REVIEWED: Record<string, string> = {
   'payroll_bank_details.payroll_detail_insert': 'as payroll_detail_read, and the WITH CHECK\'s employee is in the row\'s own company, which forged claims of an owner satisfy',
   'payroll_bank_details.payroll_detail_update': 'as payroll_detail_read, for owner and admin; only is_active is updatable',
   'bureaus.bureaus_owner_member_read': 'SELECT only (932); membership is a bureau_users row with user_id = auth.uid(), which forged claims of a member satisfy; the service pool reads every bureau, as the bureau routes do',
+  'company_groups.tenant_isolation_insert': '999r: created_by is the caller\'s claim; `holding_company_id IS NULL` only lets the holding pointer be empty, otherwise one of the caller\'s companies (a claim): the pointer carries no access, the member row does',
+  'company_groups.tenant_isolation_update': '999r: as the insert policy: the holding pointer is empty or one of the caller\'s companies; the row filter is group standing, a claim',
+  'company_relationships.tenant_isolation_update': '999r: either end withdraws (deleted_at set); a live link needs a write role in the child, which forged claims of that company\'s owner satisfy; the service pool has no writer of the table',
 };
 
 describe('S-07b: app_service\'s policies drop only forgeable predicates', () => {
