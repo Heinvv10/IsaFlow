@@ -158,7 +158,7 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF, { method: 'POST' })).statusCode).toBe(405);
     await put(PDF);
     const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
-    expect(keys).toEqual([`mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`, 'mcp-upload:lookup',
+    expect(keys).toEqual([`mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`,
       'mcp-upload:all', `mcp-upload-company:${COMPANY}`]);
     expect(keys.some((k) => k.includes('1.2.3.4'))).toBe(false);
     limiter.allow = false;
@@ -180,17 +180,15 @@ describe('PUT /api/mcp/uploads/<token>', () => {
 
   const tok = (n: number) => `j${String(n).padStart(42, '0')}`;
 
-  it('a flood of well-formed junk tokens stops reaching the lookup once the pre-lookup ceiling is spent', async () => {
+  it('a flood of unique well-formed junk past every former ceiling never makes a valid token 429', async () => {
     vi.mocked(findIntentByToken).mockResolvedValue(null);
-    const codes = new Map<number, number>();
-    for (let n = 0; n < 3700; n += 1) {
-      const c = (await put(PDF, { query: { token: tok(n) } })).statusCode;
-      codes.set(c, (codes.get(c) ?? 0) + 1);
-    }
-    expect(findIntentByToken).toHaveBeenCalledTimes(3600);
-    expect(codes.get(429)).toBeGreaterThanOrEqual(100);
+    for (let n = 0; n < 5000; n += 1) await put(PDF, { query: { token: tok(n) } });
     expect(limiter.counts.get('mcp-upload:all')).toBeUndefined();
     expect(sweepExpiredUploadsQuietly).not.toHaveBeenCalled();
+    vi.mocked(findIntentByToken).mockResolvedValue(intent());
+    const r = await put(PDF);
+    expect(r.statusCode).toBe(200);
+    expect(stageUploadBytes).toHaveBeenCalledTimes(1);
   });
 
   it('replayed junk is answered from the miss cache (one lookup), and a valid token still succeeds after it', async () => {

@@ -15,14 +15,16 @@
  * Not a withAuth route: there is no user. The lookup and the staging write (with its audit row) each run in their own
  * short public-route transaction on the service pool (the body is read between them, holding no connection), and the
  * write names the intent's id AND company_id. Rate limits (the client IP is the proxy's, cloudflared / nginx, so no
- * bucket is per IP), in two tiers:
- *   - before the lookup: a token hash that recently missed is answered 404 from an in-process cache (no query); then
- *     a per-token bucket (a replayed token cannot drive lookups) and a lookup ceiling (GLOBAL + MISS a minute, so
- *     unique junk cannot drive unbounded lookups);
- *   - after a real intent resolves: the platform ceiling and the per-company bucket, then the global sweep.
- * Misses (malformed, cached or looked up) are charged to their own miss bucket, never to the platform ceiling, and
- * never sweep. Limit: before the lookup a well-formed junk token and a real one look the same, so a flood of UNIQUE
- * junk past the lookup ceiling also refuses real PUTs until the window turns (the platform bucket stays untouched).
+ * bucket is per IP):
+ *   - before the lookup: a token hash that recently missed is answered 404 from an in-process cache (no query), then
+ *     ONLY the per-token bucket (20/min), which only the holder of that token can drain;
+ *   - the lookup itself is unlimited by design: one indexed point query on token_hash;
+ *   - misses (malformed, cached or looked up) charge only the miss bucket, which throttles 404 answers, never a
+ *     resolved token, and never sweep;
+ *   - after a real intent resolves: the platform ceiling, then the per-company bucket, then the global sweep.
+ * Trade-off, chosen: unbounded junk lookups (cheap, indexed) over a shared pre-lookup ceiling, because before the
+ * lookup junk and a real token look the same, so any shared ceiling there is one junk can spend to deny real uploads.
+ * Follow-up (ops, Hein): an edge rate limit for /api/mcp/uploads/ at nginx/Cloudflare, where the real client IP is known.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -50,8 +52,6 @@ const MISS_PER_MINUTE = 600;
 const TOKEN_PER_MINUTE = 20;
 /** A company's agent may PUT a 100-file batch several times a minute. */
 const COMPANY_PER_MINUTE = 600;
-/** Token lookups a minute, all callers: room for the platform ceiling's real PUTs plus the miss bucket's junk. */
-const LOOKUP_PER_MINUTE = GLOBAL_PER_MINUTE + MISS_PER_MINUTE;
 
 const limit = (key: string, max: number) => checkRateLimit(key, { max, windowSecs: WINDOW });
 
@@ -64,17 +64,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const tokenHash = hashUploadToken(token);
   if (uploadMissCache.has(tokenHash)) return miss();
 
-  // Tier 1, before the lookup: per token, then the lookup ceiling.
-  if (!(await limit(`mcp-upload-token:${tokenHash.slice(0, 32)}`, TOKEN_PER_MINUTE))
-    || !(await limit('mcp-upload:lookup', LOOKUP_PER_MINUTE))) {
-    return apiResponse.tooManyRequests(res);
-  }
+  // Before the lookup: only the per-token bucket (no shared bucket junk could spend). The lookup is not limited.
+  if (!(await limit(`mcp-upload-token:${tokenHash.slice(0, 32)}`, TOKEN_PER_MINUTE))) return apiResponse.tooManyRequests(res);
   const intent = await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token));
   if (!intent) {
     uploadMissCache.add(tokenHash);
     return miss();
   }
-  // Tier 2, a real intent: the platform ceiling and the company, then the sweep.
+  // A real intent: the platform ceiling, then the company, then the sweep.
   if (!(await limit('mcp-upload:all', GLOBAL_PER_MINUTE)) || !(await limit(`mcp-upload-company:${intent.companyId}`, COMPANY_PER_MINUTE))) {
     return apiResponse.tooManyRequests(res);
   }
