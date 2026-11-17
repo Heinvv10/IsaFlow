@@ -72,6 +72,7 @@ export function particulars(run: PayslipRun, slip: Payslip, periodLabel: string)
   ];
   if (run.runDate) facts.push(['Pay date', shortDate(run.runDate)]);
   facts.push(['Paid by', paidBy(slip)]);
+  if (slip.taxBasis) facts.push(['Tax basis', slip.taxBasis]);
   facts.push(['Ordinary hours', ordinaryHours(slip)]);
   if (rate) facts.push(['Rate of pay', rate]);
   facts.push(['Overtime hours', overtimeHours(slip)]);

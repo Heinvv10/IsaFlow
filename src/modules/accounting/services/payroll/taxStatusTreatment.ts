@@ -57,6 +57,16 @@ export const PSP_NO_UIF = 'Personal service provider: no UIF (UIC Act s1 "remune
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
+ * A PSP's flat PAYE in integer cents, half-up: the base in cents times the rate in basis points, so 45% of R10 001.90 is
+ * R4 500.855 -> R4 500.86 (a float product can land a hair under the half and round down).
+ */
+export function pspFlatPaye(rate: number, base: number): number {
+  const cents = Math.round(Math.max(0, base) * 100);
+  const bp = Math.round(rate * 10_000);
+  return Math.floor((cents * bp + 5_000) / 10_000) / 100;
+}
+
+/**
  * This line's PAYE under the treatment, from what the tables gave. `taxable` is the balance of remuneration (after allowed
  * deductions); `pspRate` is the PSP's rate (pspFacts), needed for flat_psp only.
  */
@@ -67,7 +77,7 @@ export function payeUnderTreatment(
   if (treatment === 'flat_25') return { regular: round2(NON_STANDARD_RATE * Math.max(0, taxable)), annualPayment: 0 };
   if (treatment === 'flat_psp') {
     if (pspRate == null) throw new Error('flat_psp needs the PSP rate');
-    return { regular: round2(pspRate * Math.max(0, taxable)), annualPayment: 0 };
+    return { regular: pspFlatPaye(pspRate, taxable), annualPayment: 0 };
   }
   return tables;
 }
@@ -76,7 +86,7 @@ export function payeUnderTreatment(
 export function outsideTablesResult(treatment: 'flat_25' | 'flat_psp' | 'none', psp: PspFacts | null = null): ValidationResult[] {
   if (treatment === 'flat_psp') {
     return [{
-      code: PAYE_OUTSIDE_TABLES, severity: 'warning', treatment,
+      code: PAYE_OUTSIDE_TABLES, severity: 'warning', treatment, ...(psp ? { psp: { entity: psp.entity, rate: psp.rate } } : {}),
       message: `Personal service provider (a ${psp?.entity ?? 'company or trust'}): PAYE is ${psp ? pct(psp.rate) : 'a flat rate'} of the payment, `
         + 'not the tables (SARS PAYE-GEN-01-G01-A06 row 6: 27% for a company or close corporation, 45% for a trust), with no UIF. '
         + 'Check the payee meets the Fourth Schedule para 1 "personal service provider" definition, and apply any IRP3(b) directive SARS issued.',

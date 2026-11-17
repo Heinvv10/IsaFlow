@@ -5,7 +5,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { contractorLineFlag } from './payrollOutsideTables';
+import { contractorLineFlag, pspLineFlag } from './payrollOutsideTables';
 import { payRunFinalSql } from './payRunFinalSql';
 
 /** FINAL runs only (payRunFinalSql, wave 6 EF): the runs the IRP5 dataset, the EMP201 and every sub-reader this file is netted with count. */
@@ -48,6 +48,8 @@ export function loadCertificateAggregates(
     JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = prh.company_id
     WHERE prh.company_id = ${companyId}::uuid
       AND ${sql.unsafe(payRunFinalSql('prh'))}
+      -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): decided per line.
+      AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
       AND (
         (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
         OR

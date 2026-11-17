@@ -20,7 +20,7 @@
  * data and the e@syFile export's warnings. Declarable runs and the tax year as
  * listRunAnnualPayments reads them; codes after the calculator's trim.
  */
-import { contractorLineFlag } from './payrollOutsideTables';
+import { contractorLineFlag, pspLineFlag } from './payrollOutsideTables';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
@@ -63,6 +63,8 @@ export async function listRunNonCashBenefits(
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->>'isNonCash' = 'true'
       AND NOT (${excludeContractor}::boolean AND COALESCE(l.validation_results @> ${contractorLineFlag}::jsonb, false))
+      -- A personal service provider's line: no fringe benefit is filed for a company or trust (wave 6 PSP).
+      AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
     GROUP BY l.employee_id, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g')
     ORDER BY l.employee_id, source_code
   `) as DbRow[];
@@ -98,6 +100,7 @@ export async function listRunUnflaggedFringe(
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3801'
       AND item->>'isNonCash' IS DISTINCT FROM 'true'
+      AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) -- a PSP's line (wave 6 PSP)
     GROUP BY l.employee_id
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.employee_id), round2(Number(r.amount))] as const).filter(([, a]) => a !== 0));

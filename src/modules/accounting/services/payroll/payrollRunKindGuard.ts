@@ -28,8 +28,8 @@ import type { DbRow, TxSql } from '@/lib/neon';
 export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'payslip' | 'emp201' | 'irp5' | 'bank_file';
 
 /**
- * The tax statuses this release costs (migration 967; wave 6 PSP added personal_service_provider, migration 999r). A PSP
- * is refused for the IRP5 only (the psp_people clause): its certificate is a company's or trust's, not produced here.
+ * The tax statuses this release costs (migration 967; wave 6 PSP added personal_service_provider, migration 999r). A PSP's
+ * months are decided per line on the filings (pspLineFlag, pspFiling), so no action refuses one.
  */
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor', 'personal_service_provider'] as const;
 
@@ -96,8 +96,6 @@ export async function assertRunKindSupported(
       (SELECT array_agg(p.employee_number ORDER BY p.employee_number) FROM people p
         WHERE p.tax_status IS NULL OR p.tax_status <> ALL(${[...KNOWN_TAX_STATUSES]}::text[])) AS unknown_status,
       (SELECT array_agg(p.employee_number ORDER BY p.employee_number) FROM people p
-        WHERE p.tax_status = 'personal_service_provider') AS psp_people,
-      (SELECT array_agg(p.employee_number ORDER BY p.employee_number) FROM people p
         WHERE p.on_line AND p.pay_frequency IS DISTINCT FROM r.pay_frequency) AS other_frequency,
       (SELECT array_agg(DISTINCT p.employee_number) FROM people p
          JOIN payroll_employee_components c ON c.employee_id = p.id
@@ -145,12 +143,6 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   }
   if (action !== 'reopen' && names(row.unknown_status)) {
     reasons.push({ clause: 'tax_status', detail: `employees ${names(row.unknown_status)} have a tax status this version does not know` });
-  }
-  if (action === 'irp5' && names(row.psp_people)) {
-    reasons.push({
-      clause: 'tax_status',
-      detail: `employees ${names(row.psp_people)} are personal service providers, whose certificate (issued to a company or trust) this version does not produce`,
-    });
   }
   if (action !== 'reopen' && action !== 'calculate' && names(row.other_frequency)) {
     reasons.push({ clause: 'employee_frequency', detail: `employees ${names(row.other_frequency)} are not paid at the run's frequency` });

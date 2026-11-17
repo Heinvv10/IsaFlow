@@ -16,7 +16,7 @@ import employeeRoute from '../../pages/api/payroll/employees/[id]';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
-import { assertRunKindSupported, RunKindUnsupportedError } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 
 assertDisposable();
@@ -134,16 +134,17 @@ describe('a run with PSPs of two tenants', () => {
     expect(after.paye).toBe((await lineOf(pool, control, fresh)).paye);
   });
 
-  it('the guard costs a PSP, but refuses its company\'s IRP5 by name; another tenant\'s run is no refusal (not found)', async () => {
+  it('the guard refuses no action for a PSP; the IRP5 dataset leaves the PSP out by name and certifies the others', async () => {
     await pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [runA]);
-    for (const action of ['calculate', 'approve', 'post', 'payslip', 'emp201', 'bank_file'] as const) {
+    for (const action of ['calculate', 'approve', 'post', 'payslip', 'emp201', 'irp5', 'bank_file'] as const) {
       expect(await code(assertRunKindSupported(a.company, runA, action)), action).toBeNull();
     }
-    const refused = await getIrp5EmployeeTotals(a.company, 2027).then(() => null, (e: unknown) => e);
-    expect(refused).toBeInstanceOf(RunKindUnsupportedError);
+    const ds = await getIrp5EmployeeTotals(a.company, 2027);
+    expect(ds.rows.map((r) => r.employeeId)).toEqual([a.employee]);
+    expect(ds.excluded.map((e) => [e.id, e.reason, e.amount])).toEqual([[pspA, 'personal_service_provider', PSP_PAY]]);
     const number = String((await pool.query('SELECT employee_number FROM payroll_employees WHERE id = $1', [pspA])).rows[0]!.employee_number);
-    expect((refused as Error).message).toContain(number);
-    expect((refused as Error).message).toContain('personal service provider');
-    expect(await code(assertRunKindSupported(b.company, runA, 'irp5'))).toBeNull();
+    expect(ds.warnings.some((w) => w.includes(number) && w.includes('personal service provider') && w.includes('UNVERIFIED'))).toBe(true);
+    // The other tenant's dataset knows nothing of A's PSP.
+    expect(JSON.stringify(await getIrp5EmployeeTotals(b.company, 2027).then((d) => d.excluded, () => []))).not.toContain(pspA);
   });
 });

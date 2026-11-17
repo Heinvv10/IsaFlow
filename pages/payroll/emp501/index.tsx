@@ -25,6 +25,8 @@ interface Emp501Summary {
   totalEmp201: number;
   totalIrp5: number;
   totalVariance: number;
+  /** Runs left out as not final, and each PSP's PAYE on no natural-person certificate (wave 6 PSP), by name. */
+  runWarnings?: string[];
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -143,6 +145,11 @@ export default function Emp501Page() {
                 </div>
               )}
 
+              {(summary.runWarnings ?? []).map(w => (
+                <div key={w} className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-400 text-sm">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{w}</span>
+                </div>
+              ))}
               <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
                 <table className="w-full text-sm">
                   <thead>

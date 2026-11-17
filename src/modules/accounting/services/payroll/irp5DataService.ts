@@ -29,6 +29,8 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { pspLineFlag } from './payrollOutsideTables';
+import { listPspFilingTotals, pspFilingWarning } from './pspFiling';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listCertificateLumpSums } from './directivePaymentFiling';
 import { allowanceCertificateFields, listRunAllowanceFiling } from './payrollAllowanceFiling';
@@ -100,6 +102,8 @@ export async function getIrp5EmployeeTotals(
       AND make_date(prh.period_year, prh.period_month, 1)
           BETWEEN ${start}::DATE AND ${end}::DATE
       AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
+      -- A personal service provider's line is on no natural-person certificate, decided per line (pspFiling, wave 6 PSP).
+      AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
     GROUP BY e.id, e.employee_number, e.first_name, e.last_name, e.id_number, e.tax_number
     ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
@@ -152,6 +156,7 @@ export async function getIrp5EmployeeTotals(
   const unflagged = await listRunUnflaggedFringe(companyId, { start, end }, employeeId);
   const allowances = await listRunAllowanceFiling(companyId, { start, end }, employeeId);
   const notFinal = await listNotFinalDeclaredRuns(companyId, start, end, employeeId);
+  const psp = await listPspFilingTotals(companyId, { start, end }, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -194,7 +199,10 @@ export async function getIrp5EmployeeTotals(
 
   // An employee with a stand-alone payment is a certificate row, not an exclusion.
   const excludedRows = excludedRowsRaw.filter(r => !standaloneTotals.has(String(r.id)));
-  const excludedTotal = excludedRows.length;
+  // Paid on final runs only as a PSP (and no stand-alone payment): in the universe, on no certificate here, named.
+  const certified = new Set(mapped.map((m) => m.employeeId));
+  const pspOnly = psp.filter((t) => !certified.has(t.employeeId));
+  const excludedTotal = excludedRows.length + pspOnly.length;
   const excluded: Irp5Exclusion[] = excludedRows
     .slice(0, EXCLUDED_SAMPLE_CAP)
     .map((r) => ({
@@ -203,7 +211,9 @@ export async function getIrp5EmployeeTotals(
       detail: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim() +
         ` (${String(r.employee_number ?? '')}) has pay on ${Number(r.runs) || 0} run(s) in this tax year, none of them final (approved or paid, with an approval time), so none of it is on a certificate.`,
       amount: Number(r.gross) || 0,
-    }));
+    }))
+    .concat(pspOnly.map((t) => ({ id: t.employeeId, reason: 'personal_service_provider', detail: pspFilingWarning(t, 'IRP5 dataset'), amount: t.gross })))
+    .slice(0, EXCLUDED_SAMPLE_CAP);
 
   // The universe, derived INDEPENDENTLY of the two queries above rather than as
   // their sum. `mapped.length + excludedTotal` is the arithmetic buildEnvelope
@@ -247,6 +257,7 @@ export async function getIrp5EmployeeTotals(
     postedThrough,
     warnings: [
       ...notFinal.map((r) => notFinalRunWarning(r, 'IRP5')),
+      ...psp.map((t) => pspFilingWarning(t, 'IRP5 dataset')),
       ...rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
         unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
     ],

@@ -50,6 +50,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(employee));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState(''); // a saved change the server warns about (a PSP switch mid-year)
   const set = (k: keyof Draft) => (v: string) => setDraft(d => ({ ...d, [k]: v }));
   const prompt = directorStatusPrompt({ employmentType: employee.employmentType, taxStatus: draft.taxStatus as TaxStatus });
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(employee));
@@ -77,7 +78,8 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
       const res = await apiFetch(`/api/payroll/employees/${employee.id}`, { method: 'PATCH', body: JSON.stringify(terms) });
       await assertOk(res, 'Could not save the work terms - try again');
       // What the server stored, not what was typed.
-      const stored = ((await res.json()) as { data?: Partial<Employee> }).data ?? {};
+      const stored = ((await res.json()) as { data?: Partial<Employee> & { warnings?: string[] } }).data ?? {};
+      setNotice((stored.warnings ?? []).join(' '));
       onSaved({ ...employee, ...Object.fromEntries(TERM_KEYS.filter(k => k in stored).map(k => [k, stored[k]])) } as Employee);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the work terms - try again'));
@@ -114,6 +116,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         </div>
       )}
       {error && <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-400">{error}</p>}
+      {notice && <p role="status" className="mt-3 text-sm text-amber-700 dark:text-amber-400">{notice}</p>}
       <div className="mt-4 flex justify-end">
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>

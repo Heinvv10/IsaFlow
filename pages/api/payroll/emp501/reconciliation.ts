@@ -16,6 +16,8 @@ import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFina
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
+import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 
 type Row = DbRow;
 
@@ -28,6 +30,8 @@ export interface ReconciliationRow {
   emp201Paye: number;
   irp5Paye: number;
   variance: number;
+  /** PAYE on personal service provider lines (wave 6 PSP): declared on the EMP201, on no natural-person certificate; part of the variance. */
+  pspPaye: number;
   status: 'balanced' | 'variance' | 'no_data';
 }
 
@@ -71,7 +75,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     SELECT
       prh.period_month,
       prh.period_year,
-      SUM(prl.paye) AS irp5_paye
+      -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): its PAYE is apart.
+      SUM(prl.paye) FILTER (WHERE NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)) AS irp5_paye,
+      COALESCE(SUM(prl.paye) FILTER (WHERE prl.validation_results @> ${pspLineFlag}::jsonb), 0) AS psp_paye
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     WHERE prh.company_id = ${companyId}::uuid
@@ -86,7 +92,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
 
   const lineMap = new Map<string, number>();
-  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye)));
+  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0)));
+  const pspMap = new Map(lineRows.map(r => [`${r.period_year}-${r.period_month}`, Number(r.psp_paye)]));
 
   const months = taxYearMonths(taxYear);
   const rows: ReconciliationRow[] = months.map(({ month, year }) => {
@@ -102,6 +109,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       emp201Paye: emp201,
       irp5Paye: irp5,
       variance,
+      pspPaye: pspMap.get(key) ?? 0,
       status: hasData ? (Math.abs(variance) < 0.01 ? 'balanced' : 'variance') : 'no_data',
     };
   });
@@ -112,7 +120,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalEmp201: rows.reduce((s, r) => s + r.emp201Paye, 0),
     totalIrp5: rows.reduce((s, r) => s + r.irp5Paye, 0),
     totalVariance: rows.reduce((s, r) => s + r.variance, 0),
-    runWarnings: await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
+    runWarnings: [
+      ...await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
+      // The PAYE difference a PSP's months leave, explained by name (pspFiling; UNVERIFIED until the PSP certificate is produced).
+      ...(await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear))).map((t) => pspFilingWarning(t, 'IRP5 side of this reconciliation')),
+    ],
   };
 
   return apiResponse.success(res, summary);

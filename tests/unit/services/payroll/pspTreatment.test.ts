@@ -9,6 +9,7 @@
  *   para 2(5)(a) exemption certificate, so its payments stay leviable;
  * - ETI: ETI Act 26 of 2013 s6(b): the employee holds an ID document or permit; a company or trust holds none.
  */
+import { pspTaxBasis } from '@/modules/accounting/services/payroll/pspLineRules';
 import { describe, expect, it } from 'vitest';
 import {
   outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, pspFacts, taxStatusTreatment,
@@ -97,7 +98,7 @@ describe('calculatePayrollLine for a PSP', () => {
     expect(pspLine('trust').paye.monthlyPaye).toBe(18_000);
   });
 
-  it('an IRP3(b) directive (G21 p. 16: issued for a PSP) decides PAYE over the flat rate, and the flat flag is not raised', () => {
+  it('an IRP3(b) directive (G21 p. 16: issued for a PSP) decides PAYE over the flat rate; the line is still flagged flat_psp (the filings decide it per line)', () => {
     const l = pspLine('company', {
       regularPayDirective: {
         current: { id: 'd1', number: null, type: 'fixed_percentage', rate: 0.2, fixedAmount: null, endsOn: '2027-02-28', effectiveDate: '2026-03-01' },
@@ -105,7 +106,8 @@ describe('calculatePayrollLine for a PSP', () => {
       },
     });
     expect(l.paye.monthlyPaye).toBe(8_000);
-    expect(l.validationResults.filter((v) => v.code === 'PAYE_OUTSIDE_TABLES').map((v) => v.treatment)).toEqual(['directive']);
+    expect(l.validationResults.filter((v) => v.code === 'PAYE_OUTSIDE_TABLES').map((v) => v.treatment)).toEqual(['flat_psp', 'directive']);
+    expect(pspTaxBasis(l.validationResults)).toBe('Personal service provider (company): PAYE as the IRP3(b) directive directs, no UIF');
   });
 
   it('the explanation states the PSP rate and source, and says why there is no UIF', () => {

@@ -20,6 +20,7 @@ import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core
 import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantities';
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
+import { pspTaxBasis } from './pspLineRules';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
 
@@ -53,6 +54,8 @@ export interface Payslip extends PayslipLines {
   hourlyRate: number | null;
   dailyRate: number | null;
   yearToDate: PayslipYearToDate;
+  /** A PSP's line only (wave 6 PSP, L1): the basis PAYE was taken on, from the line's own flag (pspLineRules.pspTaxBasis). */
+  taxBasis?: string | null;
 }
 
 export interface PayslipRun {
@@ -81,6 +84,7 @@ interface LineRow extends Omit<DetailsRow, 'details_frozen'> {
   sdl: string | number;
   net_pay: string | number;
   component_breakdown: unknown;
+  validation_results: unknown;
   run_final: boolean;
 }
 
@@ -102,7 +106,7 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
            pe.occupation, pe.pay_basis, pe.hours_per_week, pe.hours_per_day, pe.hourly_rate, pe.daily_rate,
            RIGHT(btrim(bd.account_number), 4) AS bank_last_four, char_length(btrim(bd.account_number)) AS bank_length, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
-           prl.component_breakdown,
+           prl.component_breakdown, prl.validation_results,
            (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final,
            prl.payslip_snapshot,
            -- PS3 (F8): judged in TS (snapshotIsThisApproval), never by a cast that a malformed value would make throw.
@@ -181,6 +185,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       hoursPerDay: numOrNull(d.hours_per_day),
       hourlyRate: numOrNull(d.hourly_rate),
       dailyRate: numOrNull(d.daily_rate),
+      taxBasis: pspTaxBasis(l.validation_results),
       yearToDate: frozenYtd ?? ytd.get(l.employee_id)!, // PS3 (B1): the year to date as issued at approval
     })),
   };

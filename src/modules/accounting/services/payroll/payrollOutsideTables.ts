@@ -13,3 +13,15 @@ export const contractorLineFlag: string = JSON.stringify([{ code: PAYE_OUTSIDE_T
 export function isContractorLine(results: ReadonlyArray<{ code: string; treatment?: string }>): boolean {
   return results.some(v => v.code === PAYE_OUTSIDE_TABLES && v.treatment === 'none');
 }
+
+/**
+ * The same test for a personal service provider's line (treatment flat_psp; wave 6 PSP): decided PER LINE, never from the
+ * employee's tax status today, so a person switched mid-year keeps the months paid as a PSP off their natural-person
+ * certificate, the UI-19 and the employee filings, and the months paid as an employee on them.
+ */
+export const pspLineFlag: string = JSON.stringify([{ code: PAYE_OUTSIDE_TABLES, treatment: 'flat_psp' }]);
+
+/** Whether a calculated line is a PSP's (its PAYE_OUTSIDE_TABLES result says treatment flat_psp). */
+export function isPspLine(results: ReadonlyArray<{ code: string; treatment?: string }>): boolean {
+  return results.some(v => v.code === PAYE_OUTSIDE_TABLES && v.treatment === 'flat_psp');
+}

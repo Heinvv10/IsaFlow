@@ -16,11 +16,12 @@
 --           refused: it moving a PSP (only this release writes one) back to employee leaves psp_entity_type set,
 --           and the pair CHECK refuses the update (23514, answered as an error, no row changed). That is the fail
 --           closed direction: nothing is costed on a half-changed row.
---   read    SELECT * returns the extra column; mapPayrollEmployeeRow ignores columns it does not name. A PSP row it
---           does meet (only after a rollback past this release) it cannot map: termsFromRow throws "Stored tax_status
---           must be one of ...", and payrollRunKindGuard's unknown-status clause (999a, FQa) refuses to calculate,
---           approve, post, print, declare or certify a run with that employee, naming them, before any write. It is
---           never costed as an employee.
+--   read    SELECT * returns the extra column; mapPayrollEmployeeRow ignores columns it does not name. A PSP row it does
+--           meet (only after a rollback past this release) it cannot map: termsFromRow throws "Stored tax_status must be
+--           one of ...", so every read that maps that company's employees (the employee list, the profile, a run's
+--           calculation) answers a generic 500, not a named refusal. That is fail-closed (nothing is costed or filed for
+--           anyone in that company until the code rolls forward or the row is moved off PSP), not a graceful one.
+--           payrollRunKindGuard's unknown-status clause (999a, FQa) would name the employee, but the mapping throws first.
 --
 -- LOCKS. ADD COLUMN with no default is catalogue-only. DROP/ADD CONSTRAINT take ACCESS EXCLUSIVE on payroll_employees
 -- for the length of this transaction; NOT VALID skips the scan there, and VALIDATE (SHARE UPDATE EXCLUSIVE) scans a

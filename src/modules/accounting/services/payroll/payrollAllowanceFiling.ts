@@ -15,7 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { contractorLineFlag } from './payrollOutsideTables';
+import { contractorLineFlag, pspLineFlag } from './payrollOutsideTables';
 
 export interface AllowanceFiling {
   /** Cash 3701 paid in the year: certified under 3701, not in 3601. */
@@ -60,6 +60,8 @@ export async function listRunAllowanceFiling(
       AND c.code IN ('3701', '3802')
       -- An independent contractor's line (PAYE treatment none): its fees, 3701 included, are certified as 3616, not as an allowance.
       AND NOT COALESCE(l.validation_results @> ${contractorLineFlag}::jsonb, false)
+      -- A personal service provider's line (treatment flat_psp): on no natural-person certificate, as a contractor's (wave 6 PSP).
+      AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
     GROUP BY l.employee_id
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.employee_id), {

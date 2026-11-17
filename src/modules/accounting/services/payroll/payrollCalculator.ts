@@ -12,6 +12,7 @@ import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
+import { pspComponentResults, pspPayeBase } from './pspLineRules';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
@@ -132,6 +133,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
   const balanceOfRemuneration = taxableIncome - retirementDeduction;
+  // A PSP's flat rate is on the payment before any deduction, less non-cash items (pspLineRules), never the balance above.
+  const flatBase = psp ? pspPayeBase(remuneration, components) : balanceOfRemuneration;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
   const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
   const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
@@ -141,10 +144,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye })
     : null;
   const capped = directive && directed ? capDirectivePaye(directed, grossPay - uif.employeeContribution - directivePaye, directive) : null;
-  const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, balanceOfRemuneration, psp?.rate ?? null);
+  const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, flatBase, psp?.rate ?? null);
   const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
-  if (treatment.paye === 'none' || ((treatment.paye === 'flat_25' || treatment.paye === 'flat_psp') && !directive)) warnings.push(...outsideTablesResult(treatment.paye, psp));
+  // A PSP's line is flagged even under a directive: the flag is what keeps it off every natural-person filing (pspLineFlag).
+  if (treatment.paye === 'none' || treatment.paye === 'flat_psp' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye, psp));
+  if (psp) warnings.push(...pspComponentResults(components));
   if (directiveOnContractor) warnings.push(contractorDirectiveResult(directiveOnContractor));
   warnings.push(...(directed?.results ?? []), ...(capped?.result ? [capped.result] : []), ...directiveStateResults(input.regularPayDirective));
 
@@ -202,7 +207,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.
   const explanations = explainPayrollLine({
-    taxYear, periodDate, psp,
+    taxYear, periodDate, psp: psp ? { ...psp, base: flatBase } : null,
     paye: {
       treatment: treatment.paye, classification, earningParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
       medicalFees: { total: medicalSchemeFees, employee: employeeMedicalFees, employer: employerMedicalFees },

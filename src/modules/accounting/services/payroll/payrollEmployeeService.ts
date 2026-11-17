@@ -1,3 +1,4 @@
+import { pspSwitchWarning } from './pspFiling';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -151,7 +152,7 @@ export async function updatePayrollEmployee(
   companyId: string,
   data: Partial<Omit<PayrollEmployee, 'id' | 'companyId'>>,
   userId?: string,
-): Promise<PayrollEmployee | null> {
+): Promise<(PayrollEmployee & { warnings?: string[] }) | null> {
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
   // Moving off personal service provider with no entity named clears the entity (wave 6 PSP), for every caller.
   data = { ...data, ...pspEntityOfPatch(data, data.taxStatus, (m) => new EmployeeTermsRefused(m)) };
@@ -244,7 +245,9 @@ export async function updatePayrollEmployee(
     });
   }
 
-  return updated;
+  // H2 (wave 6 PSP): a move into or out of PSP in a year with final runs is named, not refused.
+  const warning = updated && locked ? await pspSwitchWarning(companyId, id, String(locked.tax_status ?? ''), updated.taxStatus ?? null) : null;
+  return updated && warning ? { ...updated, warnings: [warning] } : updated;
 }
 
 export async function listTaxNumbersForCompany(

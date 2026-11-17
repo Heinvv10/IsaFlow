@@ -8,6 +8,7 @@
  * 'directive', `directive.number`), read from the stored lines, never from the directive's live status. Company-scoped.
  */
 import { sql } from '@/lib/neon';
+import { pspLineFlag } from './payrollOutsideTables';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_OUTSIDE_TABLES } from './taxStatusTreatment';
@@ -30,6 +31,7 @@ export async function listRegularDirectiveNumbers(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND v->>'code' = ${PAYE_OUTSIDE_TABLES} AND v->>'treatment' = 'directive'
+      AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) -- a PSP's directive is on the PSP's own certificate, never a natural person's (wave 6 PSP)
     GROUP BY l.employee_id, v->'directive'->>'number'
     ORDER BY l.employee_id, first_used, number
   `) as DbRow[];

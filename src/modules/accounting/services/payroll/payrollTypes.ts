@@ -147,6 +147,8 @@ export interface ValidationResult {
   periods?: string[];
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
   treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'flat_psp' only: the PSP's entity and rate (the payslip states them; wave 6 PSP). */
+  psp?: { entity: PspEntityType; rate: number };
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
   directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */

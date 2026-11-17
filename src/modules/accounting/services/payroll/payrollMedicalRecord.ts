@@ -28,7 +28,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
-import { outsideTablesFlag } from './payrollOutsideTables';
+import { outsideTablesFlag, pspLineFlag } from './payrollOutsideTables';
 import { runOrderKeySql } from './payrollRunOrder';
 
 export interface MedicalRecord {
@@ -75,6 +75,8 @@ export async function loadMedicalRecord(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
       AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))
+      -- A personal service provider's line has no medical credits and is on no natural-person certificate (wave 6 PSP).
+      AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
     GROUP BY l.employee_id
   `) as DbRow[];
   return new Map(rows.map(r => [String(r.employee_id), {

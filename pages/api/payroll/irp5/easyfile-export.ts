@@ -47,6 +47,7 @@ import { splitContractorIncome } from '@/modules/accounting/services/payroll/eas
 import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -133,7 +134,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const yoaEndInclusive = bounds.end.replaceAll('-', ''); // last day of February, 29th in a leap year
 
   const employees: EmployeeInput[] = [];
-  const warnings: string[] = [];
+  // A PSP's months are on no natural-person certificate (loadCertificateAggregates and every reader leave them out): named.
+  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).map((t) => pspFilingWarning(t, 'e@syFile file'));
   const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {

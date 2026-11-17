@@ -31,7 +31,7 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
 import type { RetirementContributions } from './easyFileRetirementFields';
-import { outsideTablesFlag } from './payrollOutsideTables';
+import { outsideTablesFlag, pspLineFlag } from './payrollOutsideTables';
 
 export interface RetirementRecord extends RetirementContributions {
   /** All contributions (the line's retirement_contributions, else its breakdown). */
@@ -87,6 +87,7 @@ export async function loadRetirementRecord(
         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
         AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
         AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))
+        AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) -- a PSP's line: no s11F or s18A, on no certificate (wave 6 PSP)
     )
     SELECT employee_id,
            SUM(pension)::numeric AS pension, SUM(provident)::numeric AS provident, SUM(annuity)::numeric AS annuity,
