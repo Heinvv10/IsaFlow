@@ -8,7 +8,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import { formatStatementFigure } from '@/lib/format/money';
 import type { ChartPalette } from '@/components/accounting/charts/chartTypes';
 import { escapeHtml } from '@/components/accounting/charts/escapeHtml';
-import { axisDomain, roleStyle, varianceColor } from '@/components/accounting/charts/ibcs';
+import { roleStyle, varianceColor } from '@/components/accounting/charts/ibcs';
 import type { ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
 import { lowestWeek, weekLabel } from './forecastRows';
 
@@ -57,8 +57,9 @@ export function buildCash13RunwayOption(weeks: readonly ForecastWeek[], palette:
       axisLine: { lineStyle: { color: palette.axisLine } },
     },
     yAxis: {
+      // No explicit min/max: ECharts picks a round extent (0 included on a value axis that is not `scale`), so the
+      // top label is a tick. A padded max (axisDomain) printed "21 600" over "20 000" (browser proof 2026-11-17).
       type: 'value',
-      ...axisDomain([...closing, 0]),
       axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatStatementFigure(v) },
       splitLine: { lineStyle: { color: palette.axisLine } },
     },
