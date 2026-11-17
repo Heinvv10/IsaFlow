@@ -1,7 +1,7 @@
 /**
  * Wave 6 FZ (migration 999n): a posted journal's amounts are frozen, and a journal that arrives posted must balance.
  * Folds in the PR #1524 breaker repros E-1 and E-2 (rev1524-delta2) as refusals. Each forgery runs as app_user under
- * the tenant's RLS and claims, and the key ones again as `postgres` (BYPASSRLS). The census's allowed writes on posted
+ * the tenant's RLS and claims, and the key ones again as migration_admin / platform_admin (BYPASSRLS, not superusers). The census's allowed writes on posted
  * lines (account merge and the VAT late-claim split move gl_account_id; tagging moves dimensions) still go through.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -24,6 +24,18 @@ async function asAppUser(fn: (c: PoolClient) => Promise<unknown>): Promise<void>
     await c.query('SET LOCAL ROLE app_user');
     await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated' })]);
     await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
+    await fn(c);
+    await c.query('COMMIT');
+  } catch (err) { await c.query('ROLLBACK').catch(() => undefined); throw err; } finally { c.release(); await pool.end(); }
+}
+/** One transaction as a non-superuser role that bypasses RLS. */
+async function asRole(role: string, fn: (c: PoolClient) => Promise<unknown>): Promise<void> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query(`SET LOCAL ROLE ${role}`);
+    expect((await c.query("SELECT current_setting('is_superuser') AS su")).rows[0]!.su).toBe('off');
     await fn(c);
     await c.query('COMMIT');
   } catch (err) { await c.query('ROLLBACK').catch(() => undefined); throw err; } finally { c.release(); await pool.end(); }
@@ -74,7 +86,7 @@ describe('FZ: a posted journal refuses amount changes', () => {
       `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
        VALUES ($1, '2026-01-25', 'FZ draft', 'manual', 'draft', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
     await expect(asAppUser((c) => c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE journal_entry_id = $1', [je, other]))).rejects.toThrow(FROZEN);
-    await expect(a.pool.query('UPDATE gl_journal_lines SET debit = debit * 10 WHERE journal_entry_id = $1 AND debit > 0', [je])).rejects.toThrow(FROZEN);
+    await expect(asRole('migration_admin', (c) => c.query('UPDATE gl_journal_lines SET debit = debit * 10 WHERE journal_entry_id = $1 AND debit > 0', [je]))).rejects.toThrow(FROZEN);
   }, 60_000);
 
   it('a posted journal cannot go back to draft (where its lines are editable again)', async () => {
@@ -101,8 +113,8 @@ describe('FZ: a posted journal refuses amount changes', () => {
       .rejects.toThrow(UNBALANCED);
     await expect(asAppUser((c) => c.query('DELETE FROM gl_journal_lines WHERE id = (SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND debit > 0 LIMIT 1)', [je])))
       .rejects.toThrow(UNBALANCED);
-    await expect(a.pool.query(
-      'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense]))
+    await expect(asRole('platform_admin', (c) => c.query(
+      'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
       .rejects.toThrow(UNBALANCED);
   }, 60_000);
 });

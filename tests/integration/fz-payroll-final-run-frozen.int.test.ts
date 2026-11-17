@@ -3,7 +3,8 @@
  * Final = R-035's isPayRunFinal: status approved or paid with approved_at or approval_grandfathered_at.
  * Folds in the PR #1524 breaker repros BRK-3 and D-1 as refusals (IsaFlow-rev1524-repros).
  * Each forgery runs as app_user under the tenant's RLS and claims (what withAuth sets), and the key
- * ones again as `postgres` (BYPASSRLS on production; a superuser here). The app's own writes on a
+ * ones again as migration_admin (BYPASSRLS, not a superuser). A superuser session is exempt (it can disable
+ * any trigger anyway); production has none on its app, deploy or admin pools, the fixture's postgres is one. The app's own writes on a
  * final run (approval, payslip snapshot, re-approval, reopen) run through the real routes.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -24,6 +25,18 @@ async function asAppUser(company: string, sub: string, fn: (c: PoolClient) => Pr
     await c.query('SET LOCAL ROLE app_user');
     await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub, role: 'authenticated' })]);
     await c.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+    await fn(c);
+    await c.query('COMMIT');
+  } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); await pool.end(); }
+}
+/** One transaction as a non-superuser role that bypasses RLS (production's migration_admin). */
+async function asRole(role: string, fn: (c: PoolClient) => Promise<unknown>): Promise<void> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query(`SET LOCAL ROLE ${role}`);
+    expect((await c.query("SELECT current_setting('is_superuser') AS su")).rows[0]!.su).toBe('off');
     await fn(c);
     await c.query('COMMIT');
   } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); await pool.end(); }
@@ -118,8 +131,8 @@ describe('FZ: a final run refuses money changes the app never makes', () => {
   }, 120_000);
 
   it('a role that bypasses RLS is refused too (the freeze is a state rule, not a role rule)', async () => {
-    await expect(a.pool.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run1])).rejects.toThrow(FROZEN);
-    await expect(a.pool.query('UPDATE payroll_run_headers SET total_gross = 0 WHERE id = $1', [run1])).rejects.toThrow(FROZEN);
+    await expect(asRole('migration_admin', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run1]))).rejects.toThrow(FROZEN);
+    await expect(asRole('migration_admin', (c) => c.query('UPDATE payroll_run_headers SET total_gross = 0 WHERE id = $1', [run1]))).rejects.toThrow(FROZEN);
   }, 60_000);
 
   it('a paid run is frozen as an approved one is; approved -> paid itself is allowed', async () => {
