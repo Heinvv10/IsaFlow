@@ -14,6 +14,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
+import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
 
 type Row = DbRow;
 
@@ -62,21 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
   // EMP201 declared PAYE per period from run headers
-  const headerRows = (await sql`
-    SELECT
-      period_month,
-      period_year,
-      COALESCE(total_paye, 0) AS emp201_paye
-    FROM payroll_run_headers
-    WHERE company_id = ${companyId}::uuid
-      AND status = ANY(${declarableStatuses}::text[])
-      AND (
-        (period_year = ${taxYear - 1} AND period_month >= ${PAYE_TAX_YEAR_START_MONTH})
-        OR
-        (period_year = ${taxYear} AND period_month <= ${PAYE_TAX_YEAR_END_MONTH})
-      )
-    ORDER BY period_year, period_month
-  `) as Row[];
+  const headerMap = await emp201PayeByMonth(companyId, taxYear);
 
   // IRP5 PAYE per period from run lines (more accurate)
   const lineRows = (await sql`
@@ -96,8 +83,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     GROUP BY prh.period_month, prh.period_year
   `) as Row[];
 
-  const headerMap = new Map<string, number>();
-  headerRows.forEach(r => headerMap.set(`${r.period_year}-${r.period_month}`, Number(r.emp201_paye)));
 
   const lineMap = new Map<string, number>();
   lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye)));
