@@ -74,6 +74,8 @@ const FIELDS: Record<ReturnForm, Array<[string, string, boolean]>> = {
     ['totalPAYE', 'PAYE', true], ['totalETI', 'ETI', true], ['payePayable', 'PAYE payable', true],
     ['totalUIF', 'UIF', true], ['totalSDL', 'SDL', true],
   ],
+  // The EMP501 routes send these totals flat (pages/api/payroll/emp501/returns, wave 6 EFb).
+  EMP501: [['certificates', 'Certificates', false], ['paye', 'PAYE', true], ['uif', 'UIF', true], ['sdl', 'SDL', true]],
 };
 
 /** The recorded figures a person reads, in form order (VAT201: output, input, net; EMP201: the liability lines). */

@@ -30,10 +30,13 @@ export interface ReturnRefusalInfo {
 export type ReturnActionResult = { ok: true } | { ok: false; refusal: ReturnRefusalInfo };
 
 const slug = (form: ReturnForm): string => form.toLowerCase();
+/** EMP501 has its own payroll-detail route (its versions carry certificates): one path, the action in the body (wave 6 EFb). */
+const EMP501_RETURNS = '/api/payroll/emp501/returns';
 
 export async function loadReturnVersions(form: ReturnForm, periodStart: string, periodEnd: string): Promise<ReturnVersions> {
   const q = new URLSearchParams({ periodStart, periodEnd });
-  const res = await apiFetch(`/api/accounting/sars/returns/${slug(form)}/versions?${q}`, { credentials: 'include' });
+  const url = form === 'EMP501' ? `${EMP501_RETURNS}?${q}` : `/api/accounting/sars/returns/${slug(form)}/versions?${q}`;
+  const res = await apiFetch(url, { credentials: 'include' });
   await assertOk(res, 'Could not load the return versions - try again');
   const json = await res.json() as { data: ReturnVersions };
   return json.data;
@@ -50,8 +53,10 @@ interface ErrorBody {
 export async function postReturnAction(
   form: ReturnForm, action: ReturnAction, body: Record<string, unknown>,
 ): Promise<ReturnActionResult> {
-  const res = await apiFetch(`/api/accounting/sars/returns/${slug(form)}/${action}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body),
+  const emp501 = form === 'EMP501';
+  const res = await apiFetch(emp501 ? EMP501_RETURNS : `/api/accounting/sars/returns/${slug(form)}/${action}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    body: JSON.stringify(emp501 ? { action, ...body } : body),
   });
   if (res.ok) return { ok: true };
   let json: ErrorBody | null = null;
