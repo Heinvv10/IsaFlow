@@ -110,11 +110,12 @@ only, and the app's template import is unchanged by them.
 ## South African number formats (after round 5)
 
 The character rule refused the rand formats South African sheets use (they carry quoted or escaped text). They are
-admitted by an EXACT-STRING allowlist (`budgets/budgetFreeformFormats.ts`, `ZA_FORMATS`, 51 codes), compared after
-`normaliseFormat`: whitespace runs (a non-breaking space included) to one space, a LEADING locale-only tag dropped
-(`[$-1C09]` en-ZA, `[$-436]` af-ZA, `[$-409]` en-US: LibreOffice prefixes every format it writes with its locale; a
-locale picks no digits; this is the one normalisation beyond whitespace, and it drops only those three tags), and
-colour names case-folded (`[RED]` = `[Red]`). Every listed format shows the imported value for every number it
+admitted by an EXACT-STRING allowlist (`budgets/budgetFreeformFormats.ts`, `ZA_FORMATS`, 51 codes; 65 since round
+7), compared after `normaliseFormat`: whitespace runs (a non-breaking space included) to one space, a locale-only tag
+dropped (round 5: only `[$-1C09]`, `[$-436]`, `[$-409]` at the very start; round 7: any `[$-hex]` at the start of each
+section, before every check, not only this one. LibreOffice writes the tag when the format's Language is set, in the
+dialog or by the locale the format was made in, NOT on every format it writes: General typed in a fresh sheet is
+written plain), and colour names case-folded (`[RED]` = `[Red]`). Every listed format shows the imported value for every number it
 accepts: a negative keeps its minus, the accounting zero shows "-" and imports 0.
 
 **Shown equals imported, generally.** A money cell whose format shows fewer decimals than the cell holds is refused
@@ -202,6 +203,212 @@ Mutation rows (unit, budgetFreeformZaFormats + budgetFreeformRaw + budgetFreefor
 | Q5 | colour names case-folded | not folded | 1/177 |
 | Q6 | the character rule's formats show their own decimals | always 2 | 1/177 |
 | Q7 | the built-ins' decimals (1, 3, 37, 38, 41 show none) | all 2 | 2/177 |
+
+## Review round 7: files made in LibreOffice the way a user makes them
+
+The final breaker made about 40 files in LibreOffice (en-ZA and en-US) over UNO and found one MEDIUM misread and
+several refusals of ordinary files. Each item is fixed test first against **committed LibreOffice-made fixtures**
+(`tests/fixtures/budgets/freeform/*.xlsx`, 19 files; tests `budgetFreeformLibreOffice.test.ts`, plus
+`budgetFreeformRound7.test.ts` for the edges the files do not reach and two tool tests in
+`budgetImportToolFreeform.test.ts`).
+
+**How the fixtures were made** (`tests/fixtures/budgets/freeform/make_fixtures.py`, committed; LibreOffice 24.2.7.2,
+one profile per locale, Tools > Options > Locale setting set to en-ZA or en-US): text is TYPED through the input line
+(`.uno:EnterString`, so en-ZA reads `4000,10` as a number, `4000.10` as text and `Mar-26` as the date 26 March 2026),
+formats come from the Format Cells dialog's own generator (`generateFormat`: decimals, thousands separator, negative in
+red, Language) or are typed as a custom code, formulas are entered, merges / widths / heights / the open sheet are set
+as the UI sets them, and the file is saved as xlsx. No XML is edited. Re-running the script into an empty directory
+gives byte-identical sheet, style, workbook and shared-string parts for all 19 files (checked). LibreOffice then opened
+each committed file and saved its open sheet as CSV with "save cell contents as shown" (`--csv` mode): that is the
+"LibreOffice shows" column below, next to what the reader imports.
+
+What changed:
+- **B1 (MEDIUM): a numeric code is read only in General or Text, and only whole.** 4000.1 under `0.00` shows 4000.10,
+  under `0` shows 4000, 400 under `0000` shows 0400, 4000 under `#,##0` shows 4,000: each was read as `String(value)`,
+  not as shown. Now a number in the code or dimension column is a code only when its format shows it as General does
+  (General or Text: `decimals === Infinity`) and it has no fraction; otherwise the row is refused with "format the code
+  (dimension) column as text and type the codes". A whole code under `0` (4000 shown 4000) is refused too: it is
+  read correctly, but the rule is the format, not a guess at what each format draws. The lost-leading-zero refusal
+  (400 in General where the chart has 0400) stays.
+- **1, 2: the negative section's sign as LibreOffice writes it.** `\-` first (`#,##0.00;[RED]\-#,##0.00`, `0;[RED]\-0`)
+  and `\(` ... `\)` round it (`#,##0.00_);\(#,##0.00\)`, the red variants) are read as `-` and `( )` in the negative
+  section only; -5 imports -5, 5 imports 5.
+- **3: any locale-only tag `[$-hex]`** at the start of a section (after a colour) is dropped before General, Text, the
+  allowlist and the character rule (`stripLocaleTags`). The round-5 test that refused `[$-407]` now accepts it.
+- **4: the rand without a thousands separator**: LibreOffice's en-ZA dialog with the separator off
+  (`[$R-1C09]\ 0.00;[$R-1C09]\-0.00`, red, 0 decimals), `"R "0.00`, `[$R-1C09]\ 0.00`, `"R"0.00` (written `\R0.00`),
+  `"R "0` as LibreOffice writes them (verified), and Excel's spellings `"R"0.00`, `"R"0`, `"R" 0.00`,
+  `"R" 0.00;\-"R" 0.00`, `[$R-1C09] 0.00`, `[$R-en-ZA] 0.00` (NOT verified from an Excel file).
+- **5: a format showing exactly 2 decimals imports the value as shown** (`budgetFreeformAmounts.shownCents`: the
+  value's 15 significant digits, as Excel and LibreOffice keep and draw it, rounded half away from zero: 1.005 shows
+  1.01, 2.675 shows 2.68, -2.675 shows -2.68, all as LibreOffice shows them below), and lists the cell:
+  `rounded_cells` (the first 20: sheet, row, column, value, imported) and `rounded_count`. General, Text and formats
+  showing more than 2 decimals keep refusing a value with more than 2; a format showing 0 or 1 decimals keeps refusing a
+  value it does not show in full.
+- **6: a total row by its name**: a blank code with Total, Totals, Subtotal or Grand total in a name column (Account
+  name, Name, Description, or a second code header) is skipped and listed with its amounts; any other name with
+  amounts and no code still refuses.
+- **7: a merge entirely above the header row is allowed** (a title across A1:N1). The sheet parser keeps the merge
+  reaching lowest; `freeformLines` refuses it when it reaches the header row or below (a header cell merged with its
+  neighbour, a body merge). A merge's hidden cells above the header are never read as amounts: a value above the
+  header under a month column is refused (round 5), and other columns above it are not read.
+- **8: a number in a Text (`@`, built-in 49) cell** is read as General: an amount, or a code under B1.
+- **9: the sheet the workbook opens on is read** (activeTab), when visible; a workbook saved open on a hidden sheet,
+  or on a sheet number it does not have, is refused. The reply names it (`sheet_name`).
+- **10: a misread date header says so.** `Mar-26` typed in en-ZA is 26 March 2026 (`Jan-27` is 27 January 2026). A date
+  header outside the year, not on the 1st, is refused as "the header is the date 2026-01-27 (a spreadsheet reads
+  "Jan-27" as 27 January of this year) ... type the month as text, "Jan 2027" or 2027-01". Why no misread is silent:
+  en-ZA keeps the month and puts every such header in the current year, so a year that spans two calendar years
+  always has a header outside it (refused); a calendar year read in its own year maps each name to its own month.
+- **Low: hidden by size, and colours.** A column under one character wide or a row under 3pt counts as hidden (was 0.5
+  and 1pt); only `[Red]` and `[Black]` colours are read (`[White]`, `[Blue]`, `[ColorN]` could hide an amount on its fill).
+
+### What LibreOffice shows, next to what the reader imports (round 7 fixtures)
+
+Codes are listed for the B1 files only. Refusal texts are cut at about 110 characters; the tests hold them whole.
+
+| Fixture | Cell | Format in the file | LibreOffice shows | IsaFlow reads |
+|---|---|---|---|---|
+| active-sheet-en-za | C2 | `General` | `100` | imports 100.00 |
+| b1-codes-en-us | A5 | `General` | `6000` | code 6000 |
+| b1-codes-en-us | C5 | `General` | `10` | imports 10.00 |
+| b1-codes-en-us | A7 | `[$-409]@` | `7100` | code 7100 |
+| b1-codes-en-us | C7 | `General` | `10` | imports 10.00 |
+| b1-codes-en-us | A2 | `[$-409]0.00` | `4000.10` | refused: the account code is the number 4000.1 in the number format [$-409]0.00, so the code you see is not th ... |
+| b1-codes-en-us | A3 | `[$-409]0` | `4000` | refused: the account code is the number 4000.1 in the number format [$-409]0, so the code you see is not the c ... |
+| b1-codes-en-us | A4 | `[$-409]0000` | `0400` | refused: the account code is the number 400 in the number format [$-409]0000, so the code you see is not the c ... |
+| b1-codes-en-us | A6 | `General` | `4000.5` | refused: the account code is the number 4000.5, which has a fraction, so it is not a code; format the code col ... |
+| b1-codes-en-us | A8 | `[$-409]#,##0` | `4,000` | refused: the account code is the number 4000 in the number format [$-409]#,##0, so the code you see is not the ... |
+| b1-codes-en-za | A5 | `General` | `6000` | code 6000 |
+| b1-codes-en-za | C5 | `General` | `10` | imports 10.00 |
+| b1-codes-en-za | A7 | `[$-1C09]@` | `7100` | code 7100 |
+| b1-codes-en-za | C7 | `General` | `10` | imports 10.00 |
+| b1-codes-en-za | A2 | `[$-1C09]0.00` | `4000,10` | refused: the account code is the number 4000.1 in the number format [$-1C09]0.00, so the code you see is not t ... |
+| b1-codes-en-za | A3 | `[$-1C09]0` | `4000` | refused: the account code is the number 4000.1 in the number format [$-1C09]0, so the code you see is not the ... |
+| b1-codes-en-za | A4 | `[$-409]0000` | `0400` | refused: the account code is the number 400 in the number format [$-409]0000, so the code you see is not the c ... |
+| b1-codes-en-za | A6 | `General` | `4000,5` | refused: the account code is the number 4000.5, which has a fraction, so it is not a code; format the code col ... |
+| b1-codes-en-za | A8 | `[$-1C09]#,##0` | `4 000` | refused: the account code is the number 4000 in the number format [$-1C09]#,##0, so the code you see is not th ... |
+| b1-dimension-en-za | A3 | `General` | `4000` | code 4000, dimension 10 |
+| b1-dimension-en-za | C3 | `General` | `20` | imports 20.00 |
+| b1-dimension-en-za | A4 | `General` | `7100` | code 7100, dimension 10 |
+| b1-dimension-en-za | C4 | `General` | `30` | imports 30.00 |
+| b1-dimension-en-za | B2 | `[$-1C09]0.00` | `10,00` | refused: the dimension code is the number 10 in the number format [$-1C09]0.00, so the code you see is not the ... |
+| colours-en-us | C2 | `[$-409]#,##0.00;[BLACK]\-#,##0.00` | `-5.00` | imports -5.00 |
+| colours-en-us | D2 | `[$-409]#,##0.00;[BLUE]\-#,##0.00` | `-5.00` | refused: This cell's number format ([$-409]#,##0.00;[BLUE]\-#,##0.00) is not a plain number, currency or accou ... |
+| colours-en-us | E2 | `[$-409]#,##0.00;[WHITE]\-#,##0.00` | `-5.00` | refused: This cell's number format ([$-409]#,##0.00;[WHITE]\-#,##0.00) is not a plain number, currency or acco ... |
+| colours-en-us | F2 | `[WHITE][$-409]#,##0.00` | `-5.00` | refused: This cell's number format ([WHITE][$-409]#,##0.00) is not a plain number, currency or accounting form ... |
+| locale-tags-en-us | C2 | `[$-1C09]0.00` | `12,50` | imports 12.50 |
+| locale-tags-en-us | D2 | `[$-809]#,##0.00` | `12.50` | imports 12.50 |
+| locale-tags-en-us | E2 | `[$-436]0.00` | `12,50` | imports 12.50 |
+| locale-tags-en-us | F2 | `[$-407]0.00;[RED]\-0.00` | `12,50` | imports 12.50 |
+| locale-tags-en-us | G2 | `[$-1C09]General` | `12,5` | imports 12.50 |
+| locale-tags-en-us | H2 | `[$-1C09]@` | `12,5` | imports 12.50 |
+| locale-tags-en-za | C2 | `[$-1C09]0.00` | `12,50` | imports 12.50 |
+| locale-tags-en-za | D2 | `[$-809]#,##0.00` | `12.50` | imports 12.50 |
+| locale-tags-en-za | E2 | `[$-436]0.00` | `12,50` | imports 12.50 |
+| locale-tags-en-za | F2 | `[$-407]0.00;[RED]\-0.00` | `12,50` | imports 12.50 |
+| locale-tags-en-za | G2 | `[$-1C09]General` | `12,5` | imports 12.50 |
+| locale-tags-en-za | H2 | `[$-1C09]@` | `12,5` | imports 12.50 |
+| mar-26-en-za | (file) | | | refused: Sheet "Sheet1", row 1, column M: the header is the date 2026-01-27 (a spreadsheet reads "Jan-27" as 27 January of this year), which is not a ... |
+| merge-body-en-za | (file) | | | refused: Sheet "Sheet1" has merged cells (C2:D2) on or below its header row: unmerge them, so each value is in its own row and month, and send it aga ... |
+| merge-header-en-za | (file) | | | refused: Sheet "Sheet1" has merged cells (N1:O1) on or below its header row: unmerge them, so each value is in its own row and month, and send it aga ... |
+| narrow-column-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (column D): unhide every row and column, and clear any filter, so what IsaFlow imports is what you ... |
+| rand-nosep-en-za | C2 | `[$R-1C09]\ 0.00;[$R-1C09]\-0.00` | `R-1234,50` | imports -1234.50 |
+| rand-nosep-en-za | D2 | `[$R-1C09]\ 0.00;[RED][$R-1C09]\-0.00` | `R-1234,50` | imports -1234.50 |
+| rand-nosep-en-za | E2 | `[$R-1C09]\ 0;[$R-1C09]\-0` | `R-1234` | imports -1234.00 |
+| rand-nosep-en-za | F2 | `[$R-1C09]\ 0;[RED][$R-1C09]\-0` | `R-1234` | imports -1234.00 |
+| rand-nosep-en-za | G2 | `[$-409]"R "0.00` | `R 1234.50` | imports 1234.50 |
+| rand-nosep-en-za | H2 | `[$R-1C09]\ 0.00` | `-R 1234,50` | imports -1234.50 |
+| rand-nosep-en-za | I2 | `[$-409]\R0.00` | `R1234.50` | imports 1234.50 |
+| rand-nosep-en-za | J2 | `[$-409]"R "0` | `R 1234` | imports 1234.00 |
+| rounding-en-za | C2 | `[$-1C09]#,##0.00` | `8 333,33` | imports 8333.33 |
+| rounding-en-za | D2 | `[$-1C09]#,##0.00;[RED]\-#,##0.00` | `-8 333,33` | imports -8333.33 |
+| rounding-en-za | E2 | `[$R-1C09]\ 0.00;[$R-1C09]\-0.00` | `R 6172,84` | imports 6172.84 |
+| rounding-en-za | F2 | `[$-1C09]0.00` | `1,01` | imports 1.01 |
+| rounding-en-za | G2 | `[$-1C09]0.00` | `2,68` | imports 2.68 |
+| rounding-en-za | H2 | `[$-1C09]0.00` | `-2,68` | imports -2.68 |
+| rounding-en-za | I2 | `[$-1C09]0.00` | `1234,50` | imports 1234.50 |
+| rounding-en-za | J2 | `[$-409]_-\R* #,##0.00_-;"-R"* #,##0.00_-;_-\R* \-??_-;_-@_-` | ` R0.13 ` | imports 0.13 |
+| rounding-en-za | C3 | `General` | `0,333333333333333` | refused: has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you) |
+| rounding-en-za | D3 | `[$-1C09]0.000` | `0,333` | refused: has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you) |
+| rounding-en-za | E3 | `[$-1C09]#,##0` | `83` | refused: This cell shows 0 decimal places but holds 83.3333333333333, so what you see is not what would be imp ... |
+| rounding-en-za | F3 | `[$-1C09]0.0` | `83,3` | refused: This cell shows 1 decimal place but holds 83.3333333333333, so what you see is not what would be impo ... |
+| short-row-en-za | (file) | | | refused: Sheet "Sheet1" has hidden rows or columns (row 3): unhide every row and column, and clear any filter, so what IsaFlow imports is what you se ... |
+| signs-en-us | C2 | `[$-409]#,##0.00;[RED]\-#,##0.00` | `-5.00` | imports -5.00 |
+| signs-en-us | D2 | `[$-409]0;[RED]\-0` | `-5` | imports -5.00 |
+| signs-en-us | E2 | `[$-409]#,##0.00_);\(#,##0.00\)` | `(5.00)` | imports -5.00 |
+| signs-en-us | F2 | `[$-409]#,##0.00_);[RED]\(#,##0.00\)` | `(5.00)` | imports -5.00 |
+| signs-en-us | G2 | `[$-409]#,##0_);[RED]\(#,##0\)` | `(5)` | imports -5.00 |
+| signs-en-us | H2 | `[$-409]#,##0.00_);\(#,##0.00\)` | `(5.00)` | imports -5.00 |
+| signs-en-us | I2 | `[$-409]0.00;[RED]\-0.00` | `-5.00` | imports -5.00 |
+| signs-en-us | C3 | `[$-409]#,##0.00;[RED]\-#,##0.00` | `5.00` | imports 5.00 |
+| signs-en-us | D3 | `[$-409]0;[RED]\-0` | `5` | imports 5.00 |
+| signs-en-us | E3 | `[$-409]#,##0.00_);\(#,##0.00\)` | `5.00 ` | imports 5.00 |
+| signs-en-us | F3 | `[$-409]#,##0.00_);[RED]\(#,##0.00\)` | `5.00 ` | imports 5.00 |
+| signs-en-us | G3 | `[$-409]#,##0_);[RED]\(#,##0\)` | `5 ` | imports 5.00 |
+| signs-en-us | H3 | `[$-409]#,##0.00_);\(#,##0.00\)` | `5.00 ` | imports 5.00 |
+| signs-en-us | I3 | `[$-409]0.00;[RED]\-0.00` | `5.00` | imports 5.00 |
+| signs-en-za | C2 | `[$-1C09]#,##0.00;[RED]\-#,##0.00` | `-5,00` | imports -5.00 |
+| signs-en-za | D2 | `[$-1C09]0;[RED]\-0` | `-5` | imports -5.00 |
+| signs-en-za | E2 | `[$-409]#,##0.00_);\(#,##0.00\)` | `(5.00)` | imports -5.00 |
+| signs-en-za | F2 | `[$-409]#,##0.00_);[RED]\(#,##0.00\)` | `(5.00)` | imports -5.00 |
+| signs-en-za | G2 | `[$-409]#,##0_);[RED]\(#,##0\)` | `(5)` | imports -5.00 |
+| signs-en-za | H2 | `[$-409]#,##0.00_);\(#,##0.00\)` | `(5.00)` | imports -5.00 |
+| signs-en-za | I2 | `[$-1C09]0.00;[RED]\-0.00` | `-5,00` | imports -5.00 |
+| signs-en-za | C3 | `[$-1C09]#,##0.00;[RED]\-#,##0.00` | `5,00` | imports 5.00 |
+| signs-en-za | D3 | `[$-1C09]0;[RED]\-0` | `5` | imports 5.00 |
+| signs-en-za | E3 | `[$-409]#,##0.00_);\(#,##0.00\)` | `5.00 ` | imports 5.00 |
+| signs-en-za | F3 | `[$-409]#,##0.00_);[RED]\(#,##0.00\)` | `5.00 ` | imports 5.00 |
+| signs-en-za | G3 | `[$-409]#,##0_);[RED]\(#,##0\)` | `5 ` | imports 5.00 |
+| signs-en-za | H3 | `[$-409]#,##0.00_);\(#,##0.00\)` | `5.00 ` | imports 5.00 |
+| signs-en-za | I3 | `[$-1C09]0.00;[RED]\-0.00` | `5,00` | imports 5.00 |
+| title-merge-en-za | C4 | `General` | `100` | imports 100.00 |
+| total-name-en-za | C2 | `General` | `100` | imports 100.00 |
+| total-name-en-za | C3 | `General` | `200` | imports 200.00 |
+| total-name-en-za | row 4 | | `Total,300` | skipped: a total row {"2026-03":"300.00"} |
+| total-name-en-za | row 5 | | `Grand total,300` | skipped: a total row {"2026-03":"300.00"} |
+| total-name-refused-en-za | C2 | `General` | `100` | imports 100.00 |
+| total-name-refused-en-za | A3 | `General` | `` | refused: this row has amounts but no account code. |
+
+### Round 7 mutation rows
+
+Unit: budgetFreeformLibreOffice, -Round7, -Raw, -Raw5, -ZaFormats, budgetImportFreeform and budgetImportToolFreeform
+(276 tests); failed / total, every mutant restored and the baseline green (276 / 276).
+
+| # | Guard | Mutant | Result |
+|---|---|---|---|
+| S1 | B1: a numeric code is read only in General / Text | any format read | 3/276 |
+| S2 | B1: a numeric code must be whole | fractions read | 2/276 |
+| S3 | B1 for the dimension column | not checked | 1/276 |
+| S4 | item 1: `\-` signs the negative section | not read | 7/276 |
+| S5 | item 2: `\(` ... `\)` signs the negative section | not read | 2/276 |
+| S6 | item 3: locale-only tags dropped | not dropped | 13/276 |
+| S7 | item 3: dropped from EACH section | only the first | 1/276 |
+| S8 | item 8: `@` shows as General | not General | 7/276 |
+| S9 | item 8: built-in 49 shows as General | no decimals entry | 1/276 |
+| S10 | low: only [Red] / [Black] | [Blue] / [White] read | 1/276 |
+| S11 | item 4: a no-separator rand format allowlisted | one entry removed | 3/275 |
+| S12 | item 5: a 2-decimal format imports as shown | refused as before | 2/276 |
+| S13 | item 5: shown from 15 significant digits | 17 digits | 4/276 |
+| S14 | item 5: a rounded cell is listed | not listed | 2/276 |
+| S15 | item 5: listed for the rows imported | never listed | 2/276 |
+| S16 | rounded_cells lists the first 20 | all listed | 1/276 |
+| S17 | item 6: a total word in the name column skips the row | refused as before | 1/276 |
+| S18 | item 6: the name columns | none | 1/276 |
+| S19 | item 7: a merge above the header is allowed | any merge refuses | 2/276 |
+| S20 | item 7: a merge on the header row refuses | allowed | 1/276 |
+| S21 | item 7: the lowest merge decides | the first written | 1/276 |
+| S22 | item 7: an unreadable merge range refuses | read as row 0 | 1/276 |
+| S23 | item 9: a hidden open sheet refuses | read | 1/276 |
+| S24 | low: under 1 character wide is hidden | 0.5 | 3/276 |
+| S25 | low: under 3pt high is hidden | 1pt | 3/276 |
+| S26 | low: exactly 1 character wide is read | `<=` | 1/276 |
+| S27 | item 10: a date on the 1st is the ordinary refusal | misread advice | 1/276 |
+| S28 | item 10: a misread date header says so | ordinary refusal | 1/276 |
+| S29 | shownCents never gives -0 | -0 for -0.004 | 1/276 |
+| S30 | 0 / 1-decimal formats refuse what they do not show | check removed | 4/276 |
+| S31 | half away from zero (5 rounds up) | only above 5 | 9/276 |
+| S32 | a tag after a colour is dropped | only at the very start | 1/276 |
 
 ## Review round 5: final hardening, and the threat model
 
@@ -330,6 +537,14 @@ Error: Cannot find package '@/lib/mcp/tools/budgetTemplateTool' imported from ..
 
 That red only proves the modules were missing; the table below is the evidence that each test fails on its own
 guard's removal.
+
+Review round 7: the LibreOffice fixtures, `budgetFreeformLibreOffice.test.ts` and the two tool tests were written
+first and run at `0b4a4dfa57` (committed as `87ecf99186`): `Tests 19 failed | 1 passed (20)` (the one green is the
+refused "Rent again" control) and the tool file `2 failed | 16 passed`, each failing on its item (`expected [] to
+deeply equal [ …(5) ]` for B1's refusals; `Excel opens this workbook on sheet "Budget", not on "Notes"`; `has merged
+cells (A1:N1)` for the title; the hidden-layout fixtures `resolved instead of rejecting`; and so on). The edge tests
+in `budgetFreeformRound7.test.ts` and the merge-order test came after the fix and are checked by S21, S22, S27, S29
+and S31 below instead.
 
 Review round 5: `budgetFreeformRaw5.test.ts` and the changed tests were written first and run at `de9eb581e7`:
 `Failed Tests 51`. The whole unit suite then ran green (2 577 files) with the R-175 key fix.
