@@ -12,9 +12,9 @@
  * and leaves the url usable for a corrected one until it expires. A good PUT opens a 2-hour finalize window and is
  * audited. finalize_uploads verifies everything again before any document row is written.
  *
- * Not a withAuth route: there is no user. The lookup and the staging write (with its audit row) each run in their own
- * short public-route transaction on the service pool (the body is read between them, holding no connection), and the
- * write names the intent's id AND company_id.
+ * Not a withAuth route: there is no user. The lookup runs in a short public-route transaction on the service pool; the
+ * body is read holding no connection; the staging write is one statement on the upload admin pool (migration_admin:
+ * no app role may write staged bytes, S-07b) naming the intent's id AND company_id; its audit row follows.
  *
  * The token is self-authenticating (@/lib/mcp/uploadToken: 16 random bytes + a 16-byte HMAC tag keyed from
  * JWT_SECRET). Its tag is verified in process, constant-time, FIRST: a forged, tampered or malformed token (or any
@@ -104,8 +104,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const refusal = uploadBytesRefusal(bytes, intent);
   if (refusal) return apiResponse.badRequest(res, `Refused: ${refusal}`);
 
-  const staged = await withPublicRouteTransaction('mcp-upload stage', async () => {
-    if (!(await stageUploadBytes(intent.companyId, intent.id, bytes))) return false;
+  // The stage is one autocommit statement on the upload admin pool (no app role may write staged_bytes, S-07b); its
+  // audit row follows on the public-route transaction. A failed audit after a good stage answers 500 with the bytes
+  // staged: finalize_uploads still verifies them, and audits the finalize itself.
+  if (!(await stageUploadBytes(intent.companyId, intent.id, bytes))) {
+    return apiResponse.conflict(res, 'This upload url was already used or has expired');
+  }
+  await withPublicRouteTransaction('mcp-upload stage audit', async () => {
     await logAuditOrThrow({
       companyId: intent.companyId, userId: intent.createdBy, action: 'update', entityType: 'mcp_upload_intent',
       entityId: intent.id, entityRef: intent.fileName.slice(0, 100),
@@ -114,9 +119,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         target_kind: intent.targetKind, target_id: intent.targetId, token_jti: intent.createdTokenJti ?? '',
       } },
     });
-    return true;
   });
-  if (!staged) return apiResponse.conflict(res, 'This upload url was already used or has expired');
   log.info('MCP upload staged', { companyId: intent.companyId, uploadId: intent.id, size: bytes.length }, 'mcp-uploads');
   return apiResponse.success(res, { upload_id: intent.id, status: 'uploaded', size: bytes.length });
 }

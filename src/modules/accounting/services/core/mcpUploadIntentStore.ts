@@ -9,7 +9,9 @@
  * service pool (no tenant GUCs) and reaches a row by its token hash first, then names id AND company_id on the write.
  */
 import { createHash } from 'crypto';
+import type pg from 'pg';
 import { sql } from '@/lib/neon';
+import { uploadAdminPool } from '@/lib/mcp/uploadAdminPool';
 import { newUploadToken } from '@/lib/mcp/uploadToken';
 import type { DbRow } from '@/lib/neon';
 
@@ -172,13 +174,18 @@ export async function findIntentByToken(token: string): Promise<UploadIntent | n
  * Stage the bytes of a pending, unexpired intent. False when another PUT got there first or it expired meanwhile.
  * 999q's trigger re-hashes them against the declared sha256 and opens the 2-hour finalize window.
  */
-export async function stageUploadBytes(companyId: string, id: string, bytes: Buffer): Promise<boolean> {
-  const rows = (await sql`
-    UPDATE mcp_upload_intents SET staged_bytes = ${bytes}, status = 'uploaded'
-     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'pending' AND expires_at > now()
-    RETURNING id
-  `) as DbRow[];
-  return rows.length === 1;
+export async function stageUploadBytes(
+  companyId: string, id: string, bytes: Buffer, db: Pick<pg.Pool, 'query'> = uploadAdminPool(),
+): Promise<boolean> {
+  // On the migration_admin pool (uploadAdminPool): no app role may write staged_bytes (S-07b). Its own autocommit
+  // statement, never a request transaction; the row is named by id AND company_id.
+  const res = await db.query(
+    `UPDATE mcp_upload_intents SET staged_bytes = $3, status = 'uploaded'
+      WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'pending' AND expires_at > now()
+      RETURNING id`,
+    [id, companyId, bytes],
+  );
+  return res.rowCount === 1;
 }
 
 /** One of this company's intents, locked for finalize (its bytes are not read). */

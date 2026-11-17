@@ -24,7 +24,9 @@
 --     session user the insert is refused by NOT NULL); status 'pending', expires_at now() + 30 min and every outcome
 --     column are set by the trigger whatever was sent.
 --   - app_user UPDATEs status, result_document_id, result_duplicate and refusal only, and never DELETEs. app_service
---     (the PUT route and the sweep) inherits that and adds UPDATE (staged_bytes) and DELETE.
+--     inherits exactly that (S-07b: no direct app_service grant). Staging bytes (the PUT route) and the sweep (clear
+--     expired bytes, delete) run on the migration_admin login (BYPASSRLS), granted SELECT, DELETE and
+--     UPDATE (staged_bytes, status) here and nothing more.
 --   - The declaration never changes. Status moves only pending -> uploaded (bytes present, hashing to sha256, not
 --     expired: the trigger stamps uploaded_at and the 2-hour window), pending|uploaded -> refused (a refusal text;
 --     bytes cleared), uploaded -> finalized (bytes were staged, not expired, and result_document_id is a live document
@@ -40,8 +42,8 @@
 -- Every function here is SECURITY INVOKER: no app_definer_reviews row (930).
 --
 -- TENANCY. tenant_isolation for app_user (the MCP tools run under withBearerAuth's company GUCs). The PUT route has no
---   user (the token is its only credential) and runs on the service pool through 915's app_service mirrors; every
---   statement it issues about its row names the row's id AND company_id. The sweep is the one cross-company statement:
+--   user (the token is its only credential): its lookup and audit run on the service pool through 915's app_service
+--   mirrors, its stage on migration_admin; every statement it issues about its row names the row's id AND company_id. The sweep is the one cross-company statement:
 --   it touches only rows past their expiry (clears bytes, deletes after 7 days) and returns nothing.
 --
 -- OLD COLOUR. Nothing old reads or writes the table.
@@ -213,8 +215,22 @@ GRANT SELECT ON public.mcp_upload_intents TO app_user;
 GRANT INSERT (company_id, created_token_jti, target_kind, target_id, document_type, file_name, mime_type, declared_size,
   sha256, token_hash) ON public.mcp_upload_intents TO app_user;
 GRANT UPDATE (status, result_document_id, result_duplicate, refusal) ON public.mcp_upload_intents TO app_user;
--- app_service inherits app_user's grants (915); the PUT route stages bytes and the sweep clears and deletes expired rows.
-GRANT UPDATE (staged_bytes) ON public.mcp_upload_intents TO app_service;
-GRANT DELETE ON public.mcp_upload_intents TO app_service;
+-- No direct app_service grant (S-07b): it inherits app_user's. The PUT route's stage and the sweep run on the
+-- migration_admin login (src/lib/mcp/uploadAdminPool.ts). Skipped where the role does not exist (as 990).
+DO $$
+DECLARE col text;
+BEGIN
+  IF pg_catalog.to_regrole('migration_admin') IS NULL THEN RETURN; END IF;
+  GRANT SELECT, DELETE ON public.mcp_upload_intents TO migration_admin;
+  GRANT UPDATE (staged_bytes, status) ON public.mcp_upload_intents TO migration_admin;
+  IF NOT pg_catalog.has_table_privilege('migration_admin', 'public.mcp_upload_intents', 'DELETE') THEN
+    RAISE EXCEPTION '999q: migration_admin cannot DELETE mcp_upload_intents, which the upload sweep does';
+  END IF;
+  FOREACH col IN ARRAY ARRAY['staged_bytes', 'status'] LOOP
+    IF NOT pg_catalog.has_column_privilege('migration_admin', 'public.mcp_upload_intents', col, 'UPDATE') THEN
+      RAISE EXCEPTION '999q: migration_admin cannot UPDATE mcp_upload_intents.%, which the upload stage writes', col;
+    END IF;
+  END LOOP;
+END $$;
 
 SELECT public.app_service_sync_policies();

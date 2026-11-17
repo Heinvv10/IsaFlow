@@ -6,7 +6,8 @@
  *  - per-company caps on outstanding uploads (count and declared bytes);
  *  - the global sweep: an expired row anywhere loses its bytes but keeps its row (reads 'expired'), and is deleted a
  *    week later; a PUT extends the finalize window to 2 hours;
- *  - app_user cannot forge status / result / created_by / staged bytes; app_service can stage and sweep;
+ *  - app_user and app_service cannot forge status / result / created_by / staged bytes, nor delete (S-07b);
+ *    migration_admin (the upload admin pool) can stage and sweep;
  *  - audit rows for a PUT, a refusal and a duplicate finalize.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -15,9 +16,8 @@ import { sql } from '@/lib/neon';
 import { stageUploadBytes } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { SWEEP_MIN_INTERVAL_MS } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { sweepExpiredUploads } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
-import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, runOn, seedBankTx, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, seedBankTx, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 import { dropDocuments } from './helpers/documentFixture';
 import { inAppUserTx } from './helpers/appUserTx';
 import {
@@ -208,24 +208,32 @@ describeIfDb('MCP uploads: review hardening (999q)', () => {
     expect((done.files as Json[])[0]).toMatchObject({ status: 'finalized', duplicate: false });
   });
 
-  it('app_service (the PUT route\'s pool) can stage bytes and sweep', async () => {
+  it('only migration_admin (the upload admin pool) can stage bytes and sweep; app_service cannot (S-07b)', async () => {
     const a = PDF('service');
     const u = first(await createUrls(fx, [bankFile(lines[7]!, 'svc.pdf', a)]));
     const client = await fx.pool.connect();
     try {
       await client.query('BEGIN');
+      // app_service (the service pool) holds no grant beyond app_user's: it can neither stage nor delete.
+      await client.query('SAVEPOINT s');
       await client.query('SET LOCAL ROLE app_service');
-      expect(await runOn(fx, client, () => stageUploadBytes(fx.companyId, String(u.upload_id), a))).toBe(true);
-      // The route's audit row for the PUT is written in the same service transaction.
-      await runOn(fx, client, () => logAuditOrThrow({ companyId: fx.companyId, userId: fx.userId, action: 'update',
-        entityType: 'mcp_upload_intent', entityId: String(u.upload_id), changes: { fields: [], metadata: { source: 'mcp upload PUT' } } }));
-      // Expire it as the owner (no role may move an expiry later; app_service may not write it at all).
+      await expect(stageUploadBytes(fx.companyId, String(u.upload_id), a, client)).rejects.toThrow(/permission denied/);
+      await client.query('ROLLBACK TO SAVEPOINT s');
+      await client.query('SET LOCAL ROLE app_service');
+      await expect(client.query('DELETE FROM mcp_upload_intents WHERE id = $1', [u.upload_id])).rejects.toThrow(/permission denied/);
+      await client.query('ROLLBACK TO SAVEPOINT s');
+      await client.query('SET LOCAL ROLE migration_admin');
+      expect(await stageUploadBytes(fx.companyId, String(u.upload_id), a, client)).toBe(true);
+      // Expire it as the owner (no role may move an expiry later; migration_admin may not write it at all).
       await client.query('RESET ROLE');
       await client.query("UPDATE mcp_upload_intents SET expires_at = now() - interval '1 minute' WHERE id = $1", [u.upload_id]);
-      await client.query('SET LOCAL ROLE app_service');
+      await client.query('SET LOCAL ROLE migration_admin');
       expect((await sweepExpiredUploads(client)).cleared).toBeGreaterThanOrEqual(1);
       const [row] = (await client.query('SELECT staged_bytes IS NULL AS cleared FROM mcp_upload_intents WHERE id = $1', [u.upload_id])).rows;
       expect(row.cleared).toBe(true);
+      // The declaration stays fixed for migration_admin too (the 999q trigger, whatever its table privileges).
+      await expect(client.query("UPDATE mcp_upload_intents SET file_name = 'x' WHERE id = $1", [u.upload_id]))
+        .rejects.toThrow(/permission denied|declaration never/);
     } finally {
       await client.query('ROLLBACK');
       client.release();

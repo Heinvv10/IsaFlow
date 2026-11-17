@@ -1,6 +1,7 @@
 /**
  * The global sweep of mcp_upload_intents (999q): run by both MCP upload tools and the PUT route, across EVERY company,
- * on the service pool (app_service: the tools' own app_user transaction sees only its company).
+ * on the migration_admin upload pool (@/lib/mcp/uploadAdminPool: no app role may clear bytes or delete rows, S-07b;
+ * and the tools' own app_user transaction sees only its company).
  *
  *   1. An expired row's staged bytes are cleared (bounded batch). The row stays and reads 'expired', not 'not found'.
  *   2. An unfinalized row 7 days past its expiry is deleted (bounded batch). Finalized rows stay: they carry no bytes and
@@ -10,7 +11,7 @@
  * (or any other transaction) holds is left for the next sweep, so the sweep never waits on, or deadlocks with, the
  * transaction that called it. The sweep is housekeeping: sweepExpiredUploadsQuietly logs a failure and never throws.
  */
-import { getDbPool } from '@/lib/neon';
+import { uploadAdminPool } from '@/lib/mcp/uploadAdminPool';
 import { log } from '@/lib/logger';
 
 /** Rows touched per statement: bounded so a call never stalls on a backlog; the next call takes the next batch. */
@@ -18,12 +19,12 @@ const SWEEP_BATCH = 200;
 /** An unfinalized row is kept this long past its expiry (so it reads 'expired'), then deleted. */
 const KEEP_EXPIRED_DAYS = 7;
 
-/** What the sweep runs on: the service pool, or (tests) a client already in the service role. */
+/** What the sweep runs on: the upload admin pool, or (tests) a client already in the migration_admin role. */
 export interface SweepDb {
   query(text: string, values?: unknown[]): Promise<{ rowCount: number | null }>;
 }
 
-export async function sweepExpiredUploads(db: SweepDb = getDbPool()): Promise<{ cleared: number; deleted: number }> {
+export async function sweepExpiredUploads(db: SweepDb = uploadAdminPool()): Promise<{ cleared: number; deleted: number }> {
   const cleared = await db.query(
     `UPDATE mcp_upload_intents SET staged_bytes = NULL
       WHERE id IN (SELECT id FROM mcp_upload_intents

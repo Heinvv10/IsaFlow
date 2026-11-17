@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const query = vi.hoisted(() => vi.fn(async () => ({ rowCount: 0 })));
-vi.mock('@/lib/neon', () => ({ getDbPool: () => ({ query }) }));
+vi.mock('@/lib/mcp/uploadAdminPool', () => ({ uploadAdminPool: () => ({ query }) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { SWEEP_MIN_INTERVAL_MS, sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
