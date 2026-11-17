@@ -3,6 +3,7 @@ import { getAge } from './payeEngine';
 import { accumulateComponents } from './payrollLineAccumulate';
 import { costPayeWithDonations } from './payrollLinePaye';
 import { uifWithLeviable } from './uifEngine';
+import { uifClawbackWarnings } from './uifClawbackWarning';
 import { calculateSDL, isSdlExempt } from './sdlEngine';
 import { sdlLeviableTrace } from './sdlLeviableCumulative';
 import { explainPayrollLine } from './payrollExplain';
@@ -133,6 +134,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
   const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
   const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
+  if (uifCosted) warnings.push(...uifClawbackWarnings(earningParts, uifLeviable));
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
   const directed = directive
     ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye })

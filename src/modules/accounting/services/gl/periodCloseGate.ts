@@ -33,8 +33,16 @@
  * The period row lock serialises close, reopen, lock and year close of that
  * period. It does NOT stop another transaction writing INTO the period (a bank
  * line imported, a journal posted) between the gate's reads and the close's
- * COMMIT: no posting or import path locks the period row, and making every
- * writer do so is out of scope. Such a row can land in a period that closed
+ * COMMIT: apart from bank allocations, no posting or import path locks the
+ * period row, and making every writer do so is out of scope. The one exception
+ * is bank/bankAllocationPeriod.allocationPeriodFor (allocate, split, provisional,
+ * transfer, reconciliation adjustment): it reads the period `FOR SHARE`, which
+ * conflicts with this flow's `FOR NO KEY UPDATE`, so a close cannot land between
+ * its status check and the post; its wait is bounded as this flow's is (5 s,
+ * tighten-only, withPeriodLockBudget) and a timeout is a typed
+ * FiscalPeriodLockTimeoutError. A long MCP bulk allocation holds every period it
+ * touched FOR SHARE until its batch commits, so a close started meanwhile gets this
+ * flow's own 503 after 5 s and succeeds on retry. Any other row can land in a period that closed
  * with the checks passing. It cannot get further unnoticed: Lock and the
  * year-end close run this gate again on every period they lock, so it is
  * caught before the period is locked for good.

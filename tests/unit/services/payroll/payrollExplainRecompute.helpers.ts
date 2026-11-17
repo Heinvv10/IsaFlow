@@ -116,7 +116,7 @@ function recomputePaye(fig: FigureExplanation): number {
 function recomputeUif(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('uif.none')) return 0;
-  const leviable = Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling'));
+  const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling'))); // UIC Act 4 of 2002 s6(1): never below nil (UF)
   expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
   const each = round2(leviable * r.amt('uif.rate'));
   expect(cents(r.amt('uif.employer'))).toBe(cents(each));

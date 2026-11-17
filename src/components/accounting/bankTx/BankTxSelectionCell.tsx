@@ -10,6 +10,7 @@ import { SharedPoolHint } from '../bank-transactions/SharedPoolHint';
 import type { AllocType, BankTx, BankTxTableProps, RowSelection } from './bankTxTypes';
 import { useBankTxSelectionPlacement } from './useBankTxSelectionPlacement';
 import { filterOptions, getOptionsForType, getSuggestedOption, sortByDescriptionMatch } from './bankTxOptions';
+import { TOUCH_PAD } from './bankTxTouch';
 
 /** The table's single open-popover state, handed to every row. */
 export interface BankTxDropdownState {
@@ -81,7 +82,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
             }}
             aria-label={`${triggerText}. Choose ${entityNoun}, ${label}`}
             aria-expanded={isOpen}
-            className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${
+            className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${TOUCH_PAD} ${
               sel?.entityId
                 ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
                   ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30'
