@@ -140,6 +140,11 @@ as well as the read one, and they say so on the consent screen:
   dry run first and an apply with the plan hash the dry run returned. `approve_budget_version`,
   `lock_budget_version`, `unlock_budget_version` and `set_primary_budget_version` work only on an
   owner's connection; any other role is told that a person must approve the budget in IsaFlow.
+  `import_budget_workbook` is the app's Excel import for an agent: it takes the budget template back, either as
+  the .xlsx (base64, checked as the app checks an upload) or as the JSON grid `get_budget_template` returns
+  (a read tool, `read:reports`; each row carries a signed record of what it was read with, so a colleague's later
+  save is never reverted), and is a dry run first and an apply with the plan hash, like the other amount writes.
+  One MCP request is at most 3 MB, so an .xlsx of about 2 MB is the largest it takes.
   `set_budget_drivers` changes driver lines, planned hires and overrides (dry run, then the plan hash), and
   `set_three_way_assumptions` saves the balance sheet and cash assumptions; `restore_budget_version` undoes amount
   writes only, never these. `submit_budget_for_review` submits the caller's own budget slice; approving or returning
