@@ -49,7 +49,7 @@ export async function unitRows(db: TxSql, companyId: string, period: RunPeriod, 
      WHERE pec.employee_id = ANY(${employeeIds}::uuid[]) AND pec.superseded_at IS NULL
        AND (pec.rate_multiplier IS NOT NULL OR pec.quantity_unit = 'km')
        AND pec.effective_from <= ${to}::date AND (pec.effective_to IS NULL OR pec.effective_to >= ${from}::date)
-     ORDER BY pec.id
+     ORDER BY pec.employee_id, pec.quantity_unit, pec.rate_multiplier, pec.id
   `) as DbRow[];
   if (lock && rows.length > 0) {
     await db`SELECT id FROM payroll_employee_components WHERE id = ANY(${rows.map((r) => String(r.id))}::uuid[]) ORDER BY id FOR UPDATE`;
