@@ -6,7 +6,7 @@
  * merged green (issue #1380).
  *
  * A file's version is what the runner records (`parseVersionFromFilename`:
- * digits plus an optional letter), so 244_ and 244b_ are different versions,
+ * digits plus up to two letters), so 244_, 244b_ and 999za_ are different versions,
  * as the repo's CLAUDE.md allows. Any digit count is accepted: the prefix after
  * 999_ is 1000_, which the runner orders numerically (compareMigrations).
  *

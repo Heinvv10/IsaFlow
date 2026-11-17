@@ -100,7 +100,7 @@ function stripSqlComments(text: string): string {
  */
 export function migrationNumber(file: string): number | null {
   const base = file.split('/').pop() ?? file;
-  const m = /^(\d+)[a-z]?[_-]/i.exec(base);
+  const m = /^(\d+)[a-z]{0,2}[_-]/i.exec(base);
   if (!m?.[1]) return null;
   // Base 10 explicitly: a leading zero must not be read as octal.
   return parseInt(m[1], 10);

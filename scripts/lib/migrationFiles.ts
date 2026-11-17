@@ -25,8 +25,9 @@ export interface TrackingRow {
 export const MIGRATIONS_DIR = join(process.cwd(), 'scripts', 'migrations', 'sql');
 
 export function parseVersionFromFilename(filename: string): string {
-  // Accept digits optionally followed by a single lowercase letter (e.g. "244b_...").
-  const match = /^(\d+[a-z]?)_/.exec(filename);
+  // Digits, then none, one or two lowercase letters ("244b_...", "999za_..."):
+  // after 999z_ comes 999za_ ... 999zz_.
+  const match = /^(\d+[a-z]{0,2})_/.exec(filename);
   if (!match) {
     throw new Error(`Migration filename missing numeric prefix: ${filename}`);
   }
@@ -35,13 +36,13 @@ export function parseVersionFromFilename(filename: string): string {
 
 /**
  * The one migration order (runner, parity gate, file loader): the version's
- * digits as an integer, then its letter (none < a < b), then the filename for
- * duplicate versions. Numeric, so 1000_ follows 999b_ instead of preceding
+ * digits as an integer, then its letters as a string (none < a < az < b < z <
+ * za < zz), then the filename for duplicate versions. Numeric, so 1000_ follows 999b_ instead of preceding
  * 100_ as a string sort would. refresh-baseline.sh has the bash equivalent.
  */
 export function compareMigrations(a: { version: string; name: string }, b: { version: string; name: string }): number {
-  const va = /^(\d+)([a-z]?)$/.exec(a.version);
-  const vb = /^(\d+)([a-z]?)$/.exec(b.version);
+  const va = /^(\d+)([a-z]{0,2})$/.exec(a.version);
+  const vb = /^(\d+)([a-z]{0,2})$/.exec(b.version);
   if (va && vb) {
     const byNumber = parseInt(va[1]!, 10) - parseInt(vb[1]!, 10);
     if (byNumber !== 0) return byNumber;

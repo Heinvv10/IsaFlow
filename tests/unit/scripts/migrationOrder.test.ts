@@ -21,7 +21,7 @@ import { classifyMigrationParity, type ParityFile } from '../../../scripts/lib/m
 import { parseExpectedSchema } from '../../../scripts/lib/schemaDriftParse';
 import { migrationNumber } from '../helpers/sourceCensus';
 
-const version = (name: string) => /^(\d+[a-z]?)_/.exec(name)![1]!;
+const version = (name: string) => /^(\d+[a-z]{0,2})_/.exec(name)![1]!;
 const mf = (name: string): MigrationFile => ({ name, version: version(name), content: '', checksum: `sum-${name}` });
 const pf = (name: string): ParityFile => ({ name, version: version(name), checksum: `sum-${name}` });
 
@@ -59,7 +59,7 @@ describe('compareMigrationNames', () => {
   });
 
   it('gives the repo set the same order a string sort gives while every prefix has 3 digits', () => {
-    const names = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && /^\d{3}[a-z]?_/.test(f));
+    const names = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && /^\d{3}[a-z]{0,2}_/.test(f));
     expect(names.length).toBeGreaterThan(500);
     expect([...names].sort(compareMigrationNames)).toEqual([...names].sort());
   });

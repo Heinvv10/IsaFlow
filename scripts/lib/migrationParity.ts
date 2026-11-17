@@ -244,7 +244,7 @@ export function classifyMigrationParity(
     }
   }
 
-  const prodVersions = new Set(prodRows.map((r) => /^(\d+[a-z]?)_/.exec(r.name)?.[1]).filter((v): v is string => !!v));
+  const prodVersions = new Set(prodRows.map((r) => /^(\d+[a-z]{0,2})_/.exec(r.name)?.[1]).filter((v): v is string => !!v));
   for (const f of files) {
     if (prod.has(f.name) || !prodVersions.has(f.version)) continue;
     findings.push({

@@ -146,7 +146,7 @@ async function main(): Promise<void> {
           END IF;
           UPDATE schema_migrations
              SET name = COALESCE(name, filename),
-                 version = COALESCE(version, substring(filename FROM '^(\\d+[a-z]?)_'));
+                 version = COALESCE(version, substring(filename FROM '^(\\d+[a-z]{0,2})_'));
           ALTER TABLE schema_migrations ALTER COLUMN name SET NOT NULL;
           ALTER TABLE schema_migrations ALTER COLUMN version SET NOT NULL;
           -- Migrate identity from legacy filename column to name:

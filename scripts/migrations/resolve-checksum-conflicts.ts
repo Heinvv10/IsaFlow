@@ -31,10 +31,10 @@ import pg from 'pg';
 
 const MIGRATIONS_DIR = resolve(process.cwd(), 'scripts', 'migrations', 'sql');
 
-// Allow only standard migration filenames: numeric prefix (with optional letter
-// suffix like `244b`), underscore, alphanumeric/dash/underscore body, `.sql`
+// Allow only standard migration filenames: numeric prefix (with up to two letters
+// suffix like `244b` or `999za`), underscore, alphanumeric/dash/underscore body, `.sql`
 // extension. Rejects path separators, parent traversal, or any other shenanigans.
-const FILENAME_RX = /^\d+[a-z]?_[a-zA-Z0-9_-]+\.sql$/;
+const FILENAME_RX = /^\d+[a-z]{0,2}_[a-zA-Z0-9_-]+\.sql$/;
 
 const TARGETS = process.argv.slice(2);
 if (TARGETS.length === 0) {

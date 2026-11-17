@@ -117,7 +117,7 @@ for f in "${BELOW[@]}"; do
     "${PSQL[@]}" -d isaflow_baseline -1 -f "$path" > /dev/null
   fi
   sum=$(sha256sum "$path" | cut -d' ' -f1)
-  version=$(sed -E 's/^([0-9]+[a-z]?)_.*/\1/' <<< "$f")
+  version=$(sed -E 's/^([0-9]+[a-z]{0,2})_.*/\1/' <<< "$f")
   "${PSQL[@]}" -d isaflow_baseline -c \
     "INSERT INTO schema_migrations (version, name, checksum) VALUES ('$version', '$f', '$sum')"
 done

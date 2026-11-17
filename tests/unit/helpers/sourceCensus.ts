@@ -138,4 +138,4 @@ export function stripComments(text: string, file = 'x.ts'): string {
 }
 
 /** Migration number from every leading digit; `880b_x.sql` is 880, `1000_x.sql` is 1000. */
-export const migrationNumber = (file: string): number => Number(/^(\d+)[a-z]?_/.exec(path.basename(file))?.[1] ?? 'NaN');
+export const migrationNumber = (file: string): number => Number(/^(\d+)[a-z]{0,2}_/.exec(path.basename(file))?.[1] ?? 'NaN');
