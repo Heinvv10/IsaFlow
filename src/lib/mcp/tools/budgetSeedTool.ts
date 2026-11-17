@@ -15,7 +15,7 @@ import { BAND_ORDER, type Band, type BandTotals } from '@/modules/accounting/ser
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import type { McpTool, McpToolContext } from '../types';
-import { BUDGET_WRITE_FENCE, isResult, ownVersion, parseMoney, randText, roundingUnitArg } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, isResult, ownVersion, parseMoney, randText, roundingUnitArg, refText, ID_OR_CODE } from './budgetToolArgs';
 import { ok, toolError } from './toolHelpers';
 
 const PCT = { type: 'number', minimum: -100, maximum: 1000 };
@@ -62,7 +62,10 @@ async function adjustments(ctx: McpToolContext, args: Record<string, unknown>, f
     if (sectionUplift.has(r.section as Band)) return `section ${String(r.section)} is listed twice`;
     sectionUplift.set(r.section as Band, r.uplift_pct);
   }
-  const refs = [...a!, ...f!].map((r) => (typeof r.account === 'string' ? r.account.trim() : ''));
+  const read = [...a!, ...f!].map((r) => refText(r.account));
+  const bad = read.find((r): r is { error: string } => 'error' in r);
+  if (bad) return bad.error;
+  const refs = read.map((r) => (r as { ref: string }).ref);
   if (refs.some((r) => r === '')) return 'each account_uplifts / fixed_annual row needs an account (id or code)';
   const ids = refs.length === 0 ? new Map<string, string>() : await accountIds(ctx, fiscalYear, refs);
   if (typeof ids === 'string') return ids;
@@ -105,8 +108,8 @@ export const seedBudgetTool: McpTool = {
       include_no_activity: { type: 'boolean', description: 'Also budget active accounts with no prior-year activity (zero rows).' },
       uplift_pct: PCT,
       section_uplifts: { type: 'array', items: { type: 'object', properties: { section: { type: 'string', enum: [...BAND_ORDER] }, uplift_pct: PCT }, required: ['section', 'uplift_pct'], additionalProperties: false } },
-      account_uplifts: { type: 'array', items: { type: 'object', properties: { account: { type: 'string' }, uplift_pct: PCT }, required: ['account', 'uplift_pct'], additionalProperties: false } },
-      fixed_annual: { type: 'array', items: { type: 'object', properties: { account: { type: 'string' }, amount: { type: 'string' } }, required: ['account', 'amount'], additionalProperties: false } },
+      account_uplifts: { type: 'array', items: { type: 'object', properties: { account: ID_OR_CODE, uplift_pct: PCT }, required: ['account', 'uplift_pct'], additionalProperties: false } },
+      fixed_annual: { type: 'array', items: { type: 'object', properties: { account: ID_OR_CODE, amount: { type: 'string' } }, required: ['account', 'amount'], additionalProperties: false } },
       seasonality: { type: 'string', enum: ['actuals', 'flat'] },
       rounding_unit: { type: 'integer', enum: [1, 100, 1000] },
       dry_run: { type: 'boolean' }, idempotency_key: { type: 'string' },

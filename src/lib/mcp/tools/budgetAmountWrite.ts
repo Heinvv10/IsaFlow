@@ -23,11 +23,12 @@ import { recordSnapshot } from '@/modules/accounting/services/budgets/budgetWrit
 import { budgetPlanHash } from '@/modules/accounting/services/budgets/budgetPlanHash';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import type { McpToolContext, McpToolResult } from '../types';
-import { isResult, ownVersion, PLAN_CHANGED } from './budgetToolArgs';
+import { isResult, ownVersion } from './budgetToolArgs';
+import { planHashRefusal, staleRefusal, STALE_SINCE_DRY_RUN } from './budgetWriteGate';
 import { actualDiff, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
 import { ok, toolError } from './toolHelpers';
 
-export const STALE_SINCE_DRY_RUN = 'The budget changed since your dry run (its version_token moved); nothing was written. Dry-run again and apply with the new plan_hash.';
+export { STALE_SINCE_DRY_RUN };
 
 /** The version's grid as the token user sees it, or the shared NOT_FOUND. */
 export async function loadModel(ctx: McpToolContext, versionId: unknown): Promise<GridReadModel | McpToolResult> {
@@ -109,16 +110,15 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
     };
   }
 
-  if (w.versionToken !== null && w.versionToken !== token) return toolError(STALE_SINCE_DRY_RUN);
+  const stale = staleRefusal(w.versionToken, token);
+  if (stale) return stale;
   if (refused > 0) {
     const listing = diffListing(model, actualDiff(plan.entries, before, before), w.rowRefusals, { offset: 0, limit: MAX_REFUSALS_NAMED });
     return toolError(refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused));
   }
   if (plan.save.length === 0) return { ...ok({ ...base, saved: 0, deleted: 0, version_token: token, note: 'Nothing changed: every cell already holds its amount.' }), wroteNothing: true };
-  if (w.hashRequired && w.planHash === null) {
-    return toolError(`plan_hash is required for a write of more than one cell: call ${w.tool} with dry_run true, read the diff, then apply with the plan_hash it returns.`);
-  }
-  if (w.planHash !== null && w.planHash !== hash) return toolError(PLAN_CHANGED);
+  const planRefused = planHashRefusal({ tool: w.tool, given: w.planHash, hash, required: w.hashRequired, why: 'for a write of more than one cell' });
+  if (planRefused) return planRefused;
 
   let saved;
   try {
