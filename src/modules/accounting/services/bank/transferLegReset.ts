@@ -21,7 +21,7 @@ import { liveLinesLosingCash } from './liveBankLineReversal';
 import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
 import { peekReversalTarget } from './reversalDatePostable';
 
-const OTHER_LEG = "The other bank's line of this transfer";
+export const OTHER_LEG = "The other bank's line of this transfer";
 
 async function otherLegs(companyId: string, bankTxId: string, chain: LineChain | null): Promise<string[]> {
   if (!chain || chain.doc) return [];

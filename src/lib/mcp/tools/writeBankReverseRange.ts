@@ -35,6 +35,7 @@ import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { assertLinesKeepCredit, reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { counterpartRefusal, preLockReversalLines } from '@/modules/accounting/services/bank/reversalCounterparts';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -128,7 +129,7 @@ export const reverseAllocationsTool: McpTool = {
       });
     }
 
-    const rows = await findAllocatedInRange(
+    let rows = await findAllocatedInRange(
       ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE,
     );
 
@@ -154,6 +155,10 @@ export const reverseAllocationsTool: McpTool = {
     // A supplier payment or customer receipt whose cash a refund outside the range returned is refused live
     // (ap/supplierVoidCredit, ar/customerVoidCredit); the preview answers the same, decided on the range's net
     // (bank/reverseLinesCreditLast). `wroteNothing` keeps the idempotency key free for the real call.
+    // #1494 follow-ups M1: a transfer counterpart a reconciliation holds refuses the call before any write — asked here,
+    // read-only, so the preview gives the same refusal as the live call (re-asked there under the locks).
+    const legRefusal = await counterpartRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (legRefusal) return toolError(legRefusal);
     if (dryRun) {
       await assertLinesKeepCredit(ctx.companyId, rows.map((r) => r.journalEntryId));
       return {
@@ -176,6 +181,12 @@ export const reverseAllocationsTool: McpTool = {
     // A customer's receipts and refunds in the range are judged together first, by the dry run's own judgment.
     // A transfer's other bank line (auto-linked outside the batch / range) is freed by reverseReconciledTransaction
     // itself (WP2 row 10, transferLegReset), as for the screen and reverse_bank_allocation: one mechanism.
+    // Every line and counterpart locked in one id order before the first reversal (brk), then the range re-read and the
+    // counterparts re-judged under those locks: a line freed meanwhile drops out instead of aborting the call.
+    await preLockReversalLines(ctx.companyId, rows.map((r) => r.id));
+    rows = await findAllocatedInRange(ctx.companyId, bankAccountId, fromDate, toDate, MAX_RANGE);
+    const lockedRefusal = await counterpartRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (lockedRefusal) return toolError(lockedRefusal);
     await reverseLinesJudged(ctx.companyId, rows, (id) =>
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,
