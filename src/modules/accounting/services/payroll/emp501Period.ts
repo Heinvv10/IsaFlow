@@ -4,7 +4,7 @@
  * year, MM 02 (SARS BRS PAYE Employer Reconciliation V25.3.0, code 2031 "CCYYMM, MM = 02 or 08"; certificate number
  * positions 15-16 the same MM). CCYY is the transaction year (code 2030, the tax year) for both.
  */
-import { saTaxYearBounds } from './irp5DataService';
+import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 
 export type Emp501Kind = 'interim' | 'annual';
 
@@ -23,7 +23,7 @@ export interface Emp501Period {
 }
 
 export function emp501Period(taxYear: number, kind: Emp501Kind): Emp501Period {
-  const year = saTaxYearBounds(taxYear);
+  const year = payeTaxYearBounds(taxYear);
   if (kind === 'annual') {
     return { taxYear, kind, start: year.start, end: year.end, mm: 2, startYear: taxYear - 1, startMonth: 3, endYear: taxYear, endMonth: 2 };
   }
