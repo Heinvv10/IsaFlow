@@ -9,6 +9,7 @@ import { Emp201PayeSection } from './Emp201PayeSection';
 import { Emp201EtiSection } from './Emp201EtiSection';
 import { Emp201UifSdlSection } from './Emp201UifSdlSection';
 import { Emp201TotalSection } from './Emp201TotalSection';
+import { Emp201RunWarnings } from './Emp201RunWarnings';
 
 /** `etiMonth` (YYYY-MM) when the EMP201 covers one month: the ETI section offers "Book ETI for this month". */
 /** `canDrill`: the viewer's role may read payroll detail (the drill route refuses the rest). */
@@ -23,6 +24,7 @@ export function Emp201ReturnForm({ data, etiMonth = null, onEtiBooked, canDrill 
           EMP201 — {formatDate(data.periodStart)} to {formatDate(data.periodEnd)}
         </h2>
       </div>
+      <Emp201RunWarnings data={data} />
 
       <div className="divide-y divide-[var(--ff-border-light)]">
         <Emp201EmployeeSection data={data} onDrill={onDrill} />

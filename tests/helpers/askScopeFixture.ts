@@ -44,8 +44,9 @@ async function payRun(pool: Pool, co: string, month: number, status: string, gro
   const paye = Math.round(gross * 0.1 * 100) / 100;
   const sdl = Math.round(gross * 0.01 * 100) / 100;
   const h = await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, total_taxable, total_paye, total_sdl, total_net, employee_count, created_at)
-     VALUES ($1,$8,2026,$2,$3,$3,$4,$5,$6,1,$7) RETURNING id`, [co, status, gross, paye, sdl, gross - paye, createdAt, month]);
+    // An approved/paid run carries its approval time, as approvePayrollRun leaves it (the EMP201 reads final runs).
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross, total_taxable, total_paye, total_sdl, total_net, employee_count, created_at, approved_at)
+     VALUES ($1,$8,2026,$2::text,$3,$3,$4,$5,$6,1,$7,CASE WHEN $2::text IN ('approved', 'paid') THEN $7::timestamptz END) RETURNING id`, [co, status, gross, paye, sdl, gross - paye, createdAt, month]);
   await pool.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, sdl, net_pay) VALUES ($1,$2,$3,$3,$4,$5,$6)`,
     [h.rows[0].id, emp, gross, paye, sdl, gross - paye]);

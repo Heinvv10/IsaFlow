@@ -6,11 +6,11 @@
  * aggregates `payroll_runs` and `payslips` — two tables dropped in migration
  * 384 — so it throws 42P01 on every call.
  *
- * The two properties that matter here are the tenant boundary and the status
- * vocabulary. `payroll_run_lines` has NO company_id, so the join to the header
- * IS the scope; and the declarable statuses have to be the same ones the EMP201
- * uses, or a company's certificates and its monthly declarations disagree about
- * which runs happened.
+ * The two properties that matter here are the tenant boundary and finality.
+ * `payroll_run_lines` has NO company_id, so the join to the header IS the scope;
+ * and the runs counted have to be the final runs the EMP201 counts (the one
+ * fragment payRunFinalSql, wave 6 EF), or a company's certificates and its
+ * monthly declarations disagree about which runs happened.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -18,18 +18,24 @@ const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
+type Unsafe = { unsafe: string };
+const isUnsafe = (v: unknown): v is Unsafe => typeof v === 'object' && v !== null && 'unsafe' in v;
+// The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined), isRunKindUnsupported: () => false }));
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ sql: strings.join('?'), values });
-    return mockImpl(strings, ...values);
-  },
+  // A spliced fragment (sql.unsafe) is inlined in the recorded text, as the real builder splices it.
+  sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.reduce((t, part, i) => t + part + (i < values.length ? (isUnsafe(values[i]) ? values[i].unsafe : '?') : ''), '');
+    sqlCalls.push({ sql: text, values });
+    return mockImpl(Object.assign([text], { raw: [text] }) as TemplateStringsArray, ...values);
+  }, { unsafe: (text: string): Unsafe => ({ unsafe: text }) }),
 }));
 
 import {
   getIrp5EmployeeTotals,
   saTaxYearBounds,
 } from '@/modules/accounting/services/payroll/irp5DataService';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
@@ -46,8 +52,10 @@ function routeMock(
 ) {
   mockImpl = (strings) => {
     const q = strings.join('?');
+    // The not-final runs named in the warnings (payRunNotFinal): none here.
+    if (q.includes('prh.id::text AS id')) return Promise.resolve([]);
     // The exclusion query is now per EMPLOYEE, so it returns employee rows.
-    if (q.includes('NOT (prh.status = ANY')) {
+    if (q.includes(`AND NOT ${payRunFinalSql('prh')}`)) {
       return Promise.resolve(over.nonDeclarable ?? []);
     }
     // The universe is counted by its OWN query — everyone with pay in the tax
@@ -88,7 +96,7 @@ describe('getIrp5EmployeeTotals — tenant scope and status vocabulary', () => {
   it('scopes through payroll_run_headers, which is the only tenant column there is', async () => {
     routeMock();
     await getIrp5EmployeeTotals(COMPANY, 2026);
-    const q = sqlCalls.find((c) => c.sql.includes('payroll_run_lines'))!;
+    const q = sqlCalls.find((c) => c.sql.includes('SUM(prl.gross_pay)'))!;
     // payroll_run_lines has NO company_id. The join to the header IS the scope,
     // so it must be INNER and the predicate must be in WHERE — in an outer
     // join's ON clause it would restrict nothing.
@@ -100,13 +108,14 @@ describe('getIrp5EmployeeTotals — tenant scope and status vocabulary', () => {
     expect(q.values).toContain(COMPANY);
   });
 
-  it('uses the SAME declarable statuses as the EMP201', async () => {
+  it('uses the SAME final-run fragment as the EMP201, never a status string', async () => {
     routeMock();
     await getIrp5EmployeeTotals(COMPANY, 2026);
-    const q = sqlCalls.find((c) => c.sql.includes('payroll_run_lines'))!;
+    const q = sqlCalls.find((c) => c.sql.includes('SUM(prl.gross_pay)'))!;
     // If a certificate and a monthly declaration disagree about which runs
     // happened, one of them is wrong and nothing says which.
-    expect(q.values).toContainEqual([...EMP201_DECLARABLE_STATUSES]);
+    expect(q.sql).toContain(`AND ${payRunFinalSql('prh')}`);
+    expect(q.values.find((v) => Array.isArray(v))).toBeUndefined();
   });
 
   it('sums a full year of run lines per employee', async () => {

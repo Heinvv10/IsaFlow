@@ -76,8 +76,8 @@ beforeAll(async () => {
   for (const [y, mo, eti] of [[2025, 12, 0], [2026, 1, 5000], [2026, 2, 0]] as const) {
     await fx.journal(W, `${y}-${String(mo).padStart(2, '0')}-25`, [{ acct: salaries, debit: 100000 }]);
     await pool.query(
-      `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date, total_gross, total_taxable, total_paye, total_uif, total_sdl, total_eti, total_net, employee_count)
-       VALUES ($1, $2, $3, 'paid', $4, 100000, 100000, 20000, 2000, 1000, $5, 78000, 4)`,
+      `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date, total_gross, total_taxable, total_paye, total_uif, total_sdl, total_eti, total_net, employee_count, approved_at)
+       VALUES ($1, $2, $3, 'paid', $4, 100000, 100000, 20000, 2000, 1000, $5, 78000, 4, clock_timestamp())`,
       [W.id, mo, y, `${y}-${String(mo).padStart(2, '0')}-25`, eti]);
   }
 }, 120000);

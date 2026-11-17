@@ -17,10 +17,10 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+  sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
-  },
+  }, { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // The bank role's holder is this chart's 1110 (the holder is judged in payrollJournalBankRole.test.ts).
