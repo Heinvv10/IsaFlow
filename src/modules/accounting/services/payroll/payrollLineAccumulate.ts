@@ -78,7 +78,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash } of components) {
+  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, rateMultiplier, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
     const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
@@ -95,7 +95,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       isUifApplicable: component.isUifApplicable,
       // Counted toward the SDL-applicable remuneration below: the year to date rebuilds it from this (payrollSdlYearToDate).
       isSdlApplicable: component.componentType === 'earning' && component.isSdlApplicable,
-      ...(quantity != null && quantityUnit != null ? { quantity, quantityUnit, ...(quantity > 0 ? { rate: Math.round((amount / quantity) * 10000) / 10000 } : {}) } : {}),
+      ...(quantity != null && quantityUnit != null ? { quantity, quantityUnit, ...(quantity > 0 ? { rate: Math.round((amount / quantity) * 10000) / 10000 } : {}), ...(rateMultiplier != null ? { rateMultiplier } : {}) } : {}),
       ...(isNonCash ? { isNonCash: true } : {}),
       ...(payeInclusionRate !== undefined ? { payeInclusionRate, ...(component.isTaxable ? { payeIncludedAmount: included } : {}) } : {}),
       ...(directive ? { directive } : {}),

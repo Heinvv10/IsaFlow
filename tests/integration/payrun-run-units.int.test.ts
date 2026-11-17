@@ -46,7 +46,7 @@ describe('overtime: hours x hourly rate x multiplier, priced on the server (BCEA
     ]);
     const l = await line(state.nov);
     expect(l.gross).toBe(23576.78);
-    expect(item(l, '3607').map((i) => i.amount)).toEqual([1730.7, 1846.08]);
+    expect(item(l, '3607').map((i) => [i.amount, i.quantity, i.rateMultiplier]).sort((a, b) => Number(a[2]) - Number(b[2]))).toEqual([[1730.7, 10, 1.5], [1846.08, 8, 2]]);
     const last = (await fx.get(state.nov)).body.data!.inputs;
     expect(last.amounts.filter((a: { componentId: string }) => a.componentId === state.comp.overtime)).toEqual([]);
     expect(last.units.rows).toEqual([
