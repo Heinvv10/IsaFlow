@@ -11,8 +11,10 @@ import { buildSarsCodesMigration, SARS_MIGRATION_SOURCES, QUALITY_CHECK_SOURCES,
 const ROOT = resolve(__dirname, '../../..');
 const committed = readFileSync(resolve(ROOT, 'scripts/migrations/sql/999m_sars_source_codes_2024_2025.sql'), 'utf8');
 
-/** A BRS description ends in its treatment tag: (PAYE), (IT), (Excl), a conditional (Excl if … PAYE if …), or [..]. */
-const TAG = /\((PAYE|IT|Excl)( if [^()]*)?\)$|\]$/;
+/** A BRS description ends in its treatment tag: (PAYE), (IT), (Excl) or a conditional (Excl if … PAYE if …). */
+const TAG = /\((PAYE|IT|Excl)( if [^()]*)?\)$/;
+/** A heading never stops on one of these words just before its tag ('Transfer of (PAYE)'). */
+const DANGLING = /\b(of|to|and|or|the|a|an|in|from|for|by|with|on|at|as|i\.r\.o\.|–|-|\/)\s+\((PAYE|IT|Excl)( if [^()]*)?\)$/i;
 /**
  * The only descriptions the BRS itself gives without a trailing tag: the 4xxx deductions, 3835's 'Long Service Award',
  * the 3902-3905 '(PAYE) – …' accrual forms, and the 3696-3699 gross remuneration totals (section 6.5, no treatment).
@@ -26,6 +28,9 @@ function descriptionProblem(code: string, d: string): string | null {
   if (d === 'null') return 'literal null';
   if (opens !== (d.match(/\)/g) ?? []).length) return `unbalanced parentheses: ${JSON.stringify(d)}`;
   if ((d.match(/“/g) ?? []).length !== (d.match(/”/g) ?? []).length) return `unpaired quote: ${JSON.stringify(d)}`;
+  // ’ doubles as the apostrophe (Director’s), so pair each ‘ with a later ’ instead of counting.
+  if (/‘[^’]*$/.test(d) || (d.match(/‘/g) ?? []).length > (d.match(/’/g) ?? []).length) return `unpaired quote: ${JSON.stringify(d)}`;
+  if (DANGLING.test(d)) return `heading cut before its tag: ${JSON.stringify(d)}`;
   if (/\/\s*$/.test(d)) return `trailing slash: ${JSON.stringify(d)}`;
   if (/\s[b-z]\s/.test(d)) return `word cut mid-phrase: ${JSON.stringify(d)}`;
   if (/^[‘’'"]/.test(d)) return `stray leading quote: ${JSON.stringify(d)}`;
@@ -90,6 +95,10 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
     expect(descriptionProblem('3923', 'Transfer of Unclaimed')).toMatch(/treatment tag/);
     expect(descriptionProblem('3809', 'Taxable Bursaries or scholarships to a non-disabled person')).toMatch(/treatment tag/);
     expect(descriptionProblem('3601', 'Income excluding any Long Service Cash Award, required to be declared under code (Subject to PAYE)')).toMatch(/treatment tag/);
+    expect(descriptionProblem('3923', 'Transfer of (PAYE)')).toMatch(/cut before its tag/);
+    expect(descriptionProblem('3620', 'NED Directors ‘remuneration (IT)')).toMatch(/quote/);
+    expect(descriptionProblem('4001', 'Current pension fund contributions [x]')).toBeNull();
+    expect(descriptionProblem('3601', 'Income [IT]')).toMatch(/treatment tag/);
     expect(descriptionProblem('3835', 'null')).toMatch(/null/);
     expect(descriptionProblem('3602', 'Income residents that are exempt i (Non-taxable)')).toMatch(/word cut/);
     expect(descriptionProblem('3802', 'Use of motor vehicle NOT under an “operating lease (PAYE)')).toMatch(/quote/);
@@ -115,6 +124,19 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
         if (o.officialExcerpt) expect(s.year, `${s.year} ${code}: excerpt fixes only reach upserted years`).toBeLessThan(2026);
       }
     }
+  });
+
+  it('3622 and 3922 carry the thresholds of their own year (V25.3.0 raised them for 2027)', () => {
+    const ov = loadOverrides(ROOT);
+    for (const y of ['2024', '2025', '2026']) {
+      expect(ov[y]!['3622']!.description).toBe('Long Service Cash Award (Excl if 3622+3835 <= R 5000; PAYE if 3622+3835 > R 5000)');
+      expect(ov[y]!['3922']!.description).toBe('Compensation i.r.o. death during employment (Excl if 3922 <= R 300 000; PAYE if 3922 > R 300 000)');
+    }
+    expect(ov['2027']!['3622']!.description).toBe('Long Service Cash Award (Excl if 3622+3835 <= R 16000; PAYE if 3622+3835 > R 16000)');
+    expect(ov['2027']!['3922']!.description).toBe('Compensation i.r.o. death during employment (Excl if 3922 <= R 800 000; PAYE if 3922 > R 800 000)');
+    expect(committed).toContain("('3622', 2024, 'income', 'Long Service Cash Award (Excl if 3622+3835 <= R 5000; PAYE if 3622+3835 > R 5000)'");
+    expect(committed).toContain("('3622', 2027, 'Long Service Cash Award (Excl if 3622+3835 <= R 16000; PAYE if 3622+3835 > R 16000)')");
+    expect(committed).toContain("('3922', 2027, 'Compensation i.r.o. death during employment (Excl if 3922 <= R 800 000; PAYE if 3922 > R 800 000)')");
   });
 
   it('cleans 3623 2025 explanation column, citing V25.3.0 across versions', () => {
