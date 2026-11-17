@@ -15,6 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
+import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
 
 type Row = DbRow;
 
@@ -63,21 +64,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // (payRunFinalSql: approved or paid with an approval time; wave 6 EF). One left out is named in runWarnings.
 
   // EMP201 declared PAYE per period from run headers
-  const headerRows = (await sql`
-    SELECT
-      period_month,
-      period_year,
-      COALESCE(total_paye, 0) AS emp201_paye
-    FROM payroll_run_headers
-    WHERE company_id = ${companyId}::uuid
-      AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}
-      AND (
-        (period_year = ${taxYear - 1} AND period_month >= ${PAYE_TAX_YEAR_START_MONTH})
-        OR
-        (period_year = ${taxYear} AND period_month <= ${PAYE_TAX_YEAR_END_MONTH})
-      )
-    ORDER BY period_year, period_month
-  `) as Row[];
+  const headerMap = await emp201PayeByMonth(companyId, taxYear);
 
   // IRP5 PAYE per period from run lines (more accurate)
   const lineRows = (await sql`
@@ -97,8 +84,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     GROUP BY prh.period_month, prh.period_year
   `) as Row[];
 
-  const headerMap = new Map<string, number>();
-  headerRows.forEach(r => headerMap.set(`${r.period_year}-${r.period_month}`, Number(r.emp201_paye)));
 
   const lineMap = new Map<string, number>();
   lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye)));

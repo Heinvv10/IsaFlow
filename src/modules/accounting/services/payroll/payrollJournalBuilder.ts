@@ -99,7 +99,7 @@ export async function buildPayrollJournalPlan(
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
-  const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
+  const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti }, runId);
   const etiUsed = round2(runEti.etiUsed);
   // The employer's medical (non-cash 3810) and fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid over.
   const { byEmployee: employerFunded, medical, retirement } = await runEmployerFundedCosts(companyId, runId);
