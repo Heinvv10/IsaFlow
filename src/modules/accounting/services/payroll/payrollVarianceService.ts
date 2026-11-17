@@ -14,6 +14,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { runOrderKeySql } from './payrollRunOrder';
 
 export type VarianceSeverity = 'new' | 'removed' | 'high' | 'medium' | 'low';
 
@@ -103,16 +104,18 @@ export async function getPayrollRunVariance(
   const curMonth = Number(cur.period_month);
   const curYear = Number(cur.period_year);
 
-  // 2. Prior run for same company — strictly older period.
+  // 2. Prior run for same company: the latest earlier run (pay order) of the same kind and frequency, so a regular
+  //    run is compared with the previous regular run, not an off-cycle bonus of the month before (wave 6 FQb1).
   const priorRows = (await sql`
-    SELECT id, period_month, period_year,
-           total_gross, total_paye, total_uif, total_sdl, total_net, employee_count
-      FROM payroll_run_headers
-     WHERE company_id = ${companyId}::uuid
-       AND (period_year < ${curYear}
-            OR (period_year = ${curYear} AND period_month < ${curMonth}))
-       AND status NOT IN ('cancelled', 'draft')
-     ORDER BY period_year DESC, period_month DESC
+    SELECT p.id, p.period_month, p.period_year,
+           p.total_gross, p.total_paye, p.total_uif, p.total_sdl, p.total_net, p.employee_count
+      FROM payroll_run_headers p
+      JOIN payroll_run_headers c ON c.id = ${runId}::uuid AND c.company_id = p.company_id
+     WHERE p.company_id = ${companyId}::uuid
+       AND p.run_kind = c.run_kind AND p.pay_frequency = c.pay_frequency
+       AND ${runOrderKeySql('p')} < ${runOrderKeySql('c')}
+       AND p.status NOT IN ('cancelled', 'draft')
+     ORDER BY ${runOrderKeySql('p')} DESC
      LIMIT 1
   `) as DbRow[];
   const prior = priorRows[0] ?? null;
