@@ -85,6 +85,21 @@ describe('FZ: a final run refuses money changes the app never makes', () => {
     await expect(app((c) => c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run1, other]))).rejects.toThrow(FROZEN);
   }, 60_000);
 
+  it('a final run whose journal is out may drop that link, and then links only its own posted payroll journal', async () => {
+    const run = await approvedRun(4);
+    const first = String((await a.header(run)).journal_entry_id);
+    expect((await a.api.reopen(run)).statusCode).toBe(200);
+    expect((await a.api.reverse(first)).statusCode).toBe(200);
+    // Back to final with the reversed journal still linked (a legacy shape approval's `replaces` unlink meets).
+    await a.pool.query("UPDATE payroll_run_headers SET status = 'approved', approved_at = now() WHERE id = $1", [run]);
+    await app((c) => c.query('UPDATE payroll_run_headers SET journal_entry_id = NULL WHERE id = $1', [run]));
+    const manual = (await a.pool.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+       VALUES ($1, '2026-04-25', 'Payroll run 2026-04', 'manual', 'posted', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+    await expect(app((c) => c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, manual]))).rejects.toThrow(FROZEN);
+    await expect(app((c) => c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, first]))).rejects.toThrow(FROZEN);
+  }, 120_000);
+
   it('approval stamps cannot be cleared while the run stays approved (the freeze would lapse)', async () => {
     await expect(app((c) => c.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [run1]))).rejects.toThrow(FROZEN);
     await expect(app((c) => c.query('UPDATE payroll_run_headers SET approved_at = approved_at - interval \'1 day\' WHERE id = $1', [run1]))).rejects.toThrow(FROZEN);
