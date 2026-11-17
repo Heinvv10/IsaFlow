@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import bulkAccept from '../../pages/api/accounting/bank-bulk-accept';
+import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
@@ -143,4 +144,43 @@ describe('the claim race and undo under a key', () => {
     expect(dataOf<{ undone: boolean }>(again).undone).toBe(true);
     expect((await undo(KEY2)).state.statusCode).toBe(400); // a new click on an undone batch is the honest refusal
   });
+});
+
+describe('an undo that meets a contended line and a changed-since-run line', () => {
+  it('a lock timeout on one line answers a retryable failure; the resend ends in the right state (the contended line reversed, the changed one left alone)', async () => {
+    const f = await fixture();
+    const run = dataOf<{ runId: string; posted: { txId: string; journalEntryId: string }[] }>(await confirm(f, await previewToken(f)));
+    const [first, second] = run.posted.map((p) => p.txId).sort();
+    const act = (body: Record<string, unknown>) => callRoute(bankTransactionsAction, tokens[a]!, f.c, 'POST', body, '/api/accounting/bank-transactions-action');
+    // The first line is re-coded by hand, then carries a stale tag again (a pre-999j residue): changedSinceRun.
+    expect((await act({ action: 'reverse', bankTransactionId: first })).state.statusCode).toBe(200);
+    expect((await act({ action: 'allocate', bankTransactionId: first, contraAccountId: f.expB })).state.statusCode).toBe(200);
+    await pool.query('UPDATE bank_transactions SET auto_post_run_id = $2, auto_post_journal_id = $3 WHERE id = $1',
+      [first, run.runId, run.posted.find((p) => p.txId === first)!.journalEntryId]);
+    const undo = (key: string) => callRoute(bulkAccept, tokens[a]!, f.c, 'POST', { action: 'undo', runId: run.runId }, URL, {}, { 'idempotency-key': key });
+    const tagOf = async (id: string) => (await pool.query('SELECT auto_post_run_id::TEXT AS t, status FROM bank_transactions WHERE id = $1', [id])).rows[0] as { t: string | null; status: string };
+
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [second]); // a peer holds the second line
+      const blocked = await undo(KEY1);
+      expect([409, 503]).toContain(blocked.state.statusCode); // a retryable refusal, whichever way the lock timeout is mapped
+      // Whether the changed line's untag committed with it (a 4xx commits) or rolled back (a 5xx does) is the wrapper's call;
+      // what must hold is that the contended line is untouched and nothing was reversed behind the failure.
+      expect([null, run.runId]).toContain((await tagOf(first)).t);
+      expect((await tagOf(second)).t).toBe(run.runId);
+      expect((await tagOf(second)).status).toBe('allocated');
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+
+    const again = await undo(KEY1); // the same key: a 409 stored nothing, so it runs fresh
+    expect(again.state.statusCode).toBe(200);
+    // The contended line is reversed now; the changed line left the run (skipped, never reversed): the run closes on the next undo.
+    expect(dataOf<{ reversed: number; skippedBy: { changedSinceRun: number } }>(again)).toMatchObject({ reversed: 1, skippedBy: { changedSinceRun: 1 } });
+    expect((await tagOf(first)).t).toBeNull();
+    expect((await tagOf(second)).t).toBeNull();
+    expect((await tagOf(second)).status).toBe('imported');
+    expect((await tagOf(first)).status).toBe('allocated'); // the hand re-coding stands
+    expect(dataOf<{ undone: boolean }>(await undo(KEY2)).undone).toBe(true); // and the run now closes
+  }, 40_000);
 });

@@ -14,7 +14,8 @@ export const MIN_GAP_MS = 60_000;
 export interface BulkCount { n: number; more: boolean }
 
 export function useBulkCount(bankAccountId: string | null, active: boolean, refreshKey: unknown, now: () => number = Date.now) {
-  const [count, setCount] = useState<BulkCount | null>(null);
+  // The last count per account survives a tab switch away and back: the count shown is always the wanted account's own.
+  const [counts, setCounts] = useState<Record<string, BulkCount | null>>({});
   const [force, setForce] = useState(0);
   const wanted = active ? bankAccountId : null;
   const wantedRef = useRef(wanted);
@@ -33,8 +34,10 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
     dirty.current = false;
     last.current = { account, at: now() };
     fetchBulkPreview(account)
-      .then((p) => { if (seq.current === mine && wantedRef.current === account) setCount({ n: p.lines.length, more: p.truncated || p.scanTruncated }); })
-      .catch(() => { if (seq.current === mine && wantedRef.current === account) setCount(null); }) // the dialog reports a failure when it is opened
+      // `seq` is the one landing guard: any newer read, a change of account, or the button being switched off all bump it, so
+      // an answer that is no longer the latest never lands (an account check besides it would be redundant).
+      .then((p) => { if (seq.current === mine) setCounts((c) => ({ ...c, [account]: { n: p.lines.length, more: p.truncated || p.scanTruncated } })); })
+      .catch(() => { if (seq.current === mine) setCounts((c) => ({ ...c, [account]: null })); }) // the dialog reports a failure when it is opened
       .finally(() => {
         if (flight.current?.seq !== mine) return;
         flight.current = null;
@@ -53,7 +56,8 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   useEffect(() => {
     if (!wanted) {
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-      seq.current += 1; flight.current = null; setCount(null);
+      // Nothing is cancelled: a read in flight still lands (per account), and the stored counts stay, so back on the New tab
+      // within the gap still shows N.
       return;
     }
     if (force !== forced.current) { forced.current = force; bypass.current = true; }
@@ -64,5 +68,6 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   /** A batch was just posted or undone: read again now, whatever the gap. */
+  const count = wanted ? counts[wanted] ?? null : null;
   return { count, readNow: () => setForce((f) => f + 1) };
 }

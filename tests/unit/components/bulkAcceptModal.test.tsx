@@ -498,3 +498,28 @@ describe('round 4: plain http, a dropped undo, a cut-short body, the retry notic
     expect(screen.queryByText(/Still trying/)).toBeNull();
   });
 });
+
+describe('one undo key per run until an answer (L2)', () => {
+  const RUN1 = { runId: 'run-9', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+  const undoKeys = () => vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.body && JSON.parse(String(init.body)).action === 'undo')
+    .map(([, init]) => (init?.headers as Record<string, string>)['Idempotency-Key']);
+
+  it('a second Undo click after an unresolved one reuses the key; once answered, the next undo is a new key', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN1))
+      .mockRejectedValueOnce(new TypeError('x')).mockRejectedValueOnce(new TypeError('x')).mockRejectedValueOnce(new TypeError('x')) // first click: every try lost
+      .mockResolvedValueOnce(ok({ reversed: 0, skipped: 1, skippedBy: { reconciled: 1, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 }, undone: false, handOffsets: [] })) // second click answers (partial)
+      .mockResolvedValueOnce(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    await screen.findByText(/may have gone through/);
+    fireEvent.click(screen.getByRole('button', { name: 'Undo batch' }));
+    await screen.findByText(/Not undone: 1 on a reconciliation/);
+    fireEvent.click(screen.getByRole('button', { name: 'Undo the rest of the batch' }));
+    await screen.findByText(/Batch undone/);
+    const keys = undoKeys();
+    expect(keys).toHaveLength(5);
+    expect(new Set(keys.slice(0, 4)).size).toBe(1); // 3 lost tries + the second click: one request
+    expect(keys[4]).not.toBe(keys[0]); // answered: the rest of the batch is its own request
+  });
+});

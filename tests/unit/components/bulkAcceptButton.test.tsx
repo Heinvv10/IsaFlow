@@ -173,3 +173,38 @@ describe('the number reaches the label when the page keeps moving (z30 regressio
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('the count survives a tab switch (L1)', () => {
+  it('back on the New tab within the minute the number is there at once, with no new read', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ok(preview(3)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' });
+    rerender(<BulkAcceptButton bankAccountId="b1" active={false} onChanged={vi.fn()} />);
+    expect(screen.queryByRole('button')).toBeNull();
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Accept 3 high-confidence suggestions' })).toBeTruthy(); // synchronously, no "Accept high-confidence" flash
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('each account keeps its own count', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(preview(3))).mockResolvedValueOnce(ok(preview(1)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' });
+    rerender(<BulkAcceptButton bankAccountId="b2" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Accept 1 high-confidence suggestion' });
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Accept 3 high-confidence suggestions' })).toBeTruthy();
+  });
+
+  it('a read still in flight when the tab is left lands, and shows on return', async () => {
+    let resolveRead!: (r: Response) => void;
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>((r) => { resolveRead = r; }));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    rerender(<BulkAcceptButton bankAccountId="b1" active={false} onChanged={vi.fn()} />);
+    resolveRead(ok(preview(2)));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'Accept 2 high-confidence suggestions' })).toBeTruthy();
+  });
+});

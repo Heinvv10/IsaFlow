@@ -37,6 +37,8 @@ export function useBulkAccept(bankAccountId: string | null) {
   const seq = useRef(0);
   // A ref, not state: two clicks batched into one render both see the same state, and must still send one request.
   const inFlight = useRef(false);
+  // One undo key per run until an ANSWER arrives: a second click after an unresolved undo resends the same request (replay-safe).
+  const undoKey = useRef<{ runId: string; key: string } | null>(null);
   const patch = (p: Partial<BulkAcceptState>) => setState((s) => ({ ...s, ...p }));
 
   /** The first page, or - `keepPage` - another page read while the one on screen stays (and can still be confirmed). */
@@ -80,9 +82,13 @@ export function useBulkAccept(bankAccountId: string | null) {
     const mine = ++seq.current;
     patch({ phase: 'undoing', error: '', retrying: false });
     try {
-      const undone = await undoBulk(runId, newRequestKey(), () => patch({ retrying: true }));
+      if (undoKey.current?.runId !== runId) undoKey.current = { runId, key: newRequestKey() };
+      const undone = await undoBulk(runId, undoKey.current.key, () => patch({ retrying: true }));
+      undoKey.current = null; // answered: the next undo of this run (the rest of a partial one) is a new request
       if (mine === seq.current) setState((s) => ({ ...s, phase: 'result', retrying: false, undone, changed: true }));
     } catch (err) {
+      // A refusal the server answered spent the key; only an unresolved send keeps it for the next click.
+      if (!(err instanceof WriteUnresolvedError)) undoKey.current = null;
       if (mine === seq.current) setState((s) => ({ ...s, phase: 'result', retrying: false, error: err instanceof WriteUnresolvedError ? err.message : apiErrorMessage(err, 'Could not undo this batch - try again') }));
     } finally { inFlight.current = false; }
   }, [state.confirmed, state.phase, state.undone]);
@@ -96,6 +102,6 @@ export function useBulkAccept(bankAccountId: string | null) {
     });
   }, []);
 
-  const reset = useCallback(() => { seq.current += 1; setState(START); }, []);
+  const reset = useCallback(() => { seq.current += 1; undoKey.current = null; setState(START); }, []);
   return { state, load, confirm, undo, reset, handOffDecided };
 }
