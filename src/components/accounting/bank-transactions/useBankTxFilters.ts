@@ -1,9 +1,10 @@
 /**
  * useBankTxFilters - every filter of the bank-transactions list in one place (WP3): search (debounced), dates, amount
- * range, sort, allocation / type / category / suggestion / reconciliation. `activeLabels` names what narrows the list
- * ("Search "rent"", "From 2026-01-01", ...), `clear()` drops them all (the sort is a view choice, not a filter), and
- * `resetForAccount()` returns EVERYTHING, sort included, to its default: a search or date range typed for one account
- * must not silently narrow the next.
+ * range, sort, allocation / type / category / suggestion / reconciliation. `activeLabels` names what narrows or
+ * reorders the list ("Search "rent"", "From 2026-01-01", "Sort: oldest first", ...), `clear()` drops them all, sort
+ * included (WP4b: the sort folds behind Filters with the rest, so it is listed and cleared with them), and
+ * `resetForAccount()` does the same: a search or date range typed for one account must not silently narrow the next.
+ * The page size is kept by both.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -52,19 +53,21 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   if (allocType !== 'all') activeLabels.push(`Allocation type: ${allocType}`);
   if (hasSuggestion !== 'all') activeLabels.push(`Suggestion: ${hasSuggestion}`);
   if (reconFilter !== 'all') activeLabels.push(`Reconciliation: ${reconFilter}`);
+  // Not a narrowing, but a non-default order is folded behind Filters at a narrow width: say so, and Clear resets it.
+  if (sortOrder !== 'desc') activeLabels.push('Sort: oldest first');
 
   /** The select filters only: what a tab change resets. */
   const resetSelects = useCallback(() => {
     setAllocationFilter('all'); setTxType('all'); setAllocType('all'); setHasSuggestion('all'); setReconFilter('all');
   }, []);
-  /** Every filter (the sort stays). */
+  /** Every filter, and the sort (it is listed among them). The page size stays. */
   const clear = useCallback(() => {
-    resetSelects();
+    resetSelects(); setSortOrder('desc');
     setSearchTerm(''); setDebouncedSearch(''); setFromDate(''); setToDate(''); setFromAmount(''); setToAmount(''); setResetTick(t => t + 1);
     setPage(1);
   }, [resetSelects, setPage]);
-  /** Everything, including the sort: an account switch starts the next account from its defaults. */
-  const resetForAccount = useCallback(() => { clear(); setSortOrder('desc'); }, [clear]);
+  /** Everything: an account switch starts the next account from its defaults (the page size is kept). */
+  const resetForAccount = useCallback(() => { clear(); }, [clear]);
 
   /** A new page size starts the list from page 1 (page 3 of 25 rows is not page 3 of 100). */
   const setPageSize = useCallback((n: BankTxPageSize) => { setPageSizeState(n); setPage(1); }, [setPage]);

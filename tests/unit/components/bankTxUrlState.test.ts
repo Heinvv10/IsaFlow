@@ -32,10 +32,13 @@ describe('serializeUrlView', () => {
 
 describe('parseUrlView', () => {
   it('round-trips what serialize wrote', () => {
-    const v = view({ tab: 'excluded', page: 7 }, { search: 'a b&c=d', fromAmount: '12.34', allocationFilter: 'allocated', reconFilter: 'unreconciled' });
+    const v = view({ tab: 'excluded', page: 7 }, { search: 'a b&c=d', fromAmount: '12.34', reconFilter: 'unreconciled' });
     const p = parseUrlView(serializeUrlView(v));
     expect(p).toMatchObject({ account: 'acc-1', tab: 'excluded', page: 7 });
     expect({ ...DEFAULT_FILTERS, ...p.filters }).toEqual(v.filters);
+    // The status filter is the New tab's (WP4b): it round-trips there; another tab is read without it.
+    const n = view({ tab: 'new', page: 2 }, { allocationFilter: 'allocated' });
+    expect({ ...DEFAULT_FILTERS, ...parseUrlView(serializeUrlView(n)).filters }).toEqual(n.filters);
   });
   it.each([
     ['an unknown tab', { tab: 'hax' }, 'tab'],

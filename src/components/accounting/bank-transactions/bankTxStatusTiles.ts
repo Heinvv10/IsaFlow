@@ -19,7 +19,7 @@ export function statusTileClick(view: View, tile: StatusTile): View {
   return { tab: 'new', allocationFilter: tile };
 }
 
-/** Whether a tile reads as pressed for the view on screen. */
+/** Whether a tile reads as pressed for the view on screen. The status filter is the New tab's, so a status tile is pressed only there. */
 export function statusTilePressed(view: View, tile: StatusTile): boolean {
-  return tile === 'excluded' ? view.tab === 'excluded' : view.allocationFilter === tile;
+  return tile === 'excluded' ? view.tab === 'excluded' : view.tab === 'new' && view.allocationFilter === tile;
 }

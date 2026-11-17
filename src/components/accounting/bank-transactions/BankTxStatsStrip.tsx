@@ -5,8 +5,10 @@
  *
  * Allocated + Suggested + Unallocated + Excluded = the account's posted lines (`data-posted-lines`; each tile carries its
  * figure in `data-count`, which the golden path and the tests sum against). Those four are toggle buttons (aria-pressed)
- * driving the list's status filter (bankTxStatusTiles). "Awaiting review" is a different cut (the New tab's posted
- * lines), so it is a dashed figure of its own, not a toggle and not part of that sum.
+ * driving the list's status filter (bankTxStatusTiles). Their figures are the WHOLE account's (every tab), which each
+ * tile's name and tooltip say; a pressed status tile adds how many of those lines the New-tab list holds. "Awaiting
+ * review" is a different cut (the New tab's posted lines), so it is a dashed figure of its own, not a toggle and not
+ * part of that sum.
  */
 
 import { useState } from 'react';
@@ -87,10 +89,15 @@ export function BankTxStatsStrip({ bank, shown, onShowProvisional, tab, allocati
             return (
               <span key={tile} className="inline-flex items-center gap-1">
                 <button type="button" data-testid={`tile-${tile}`} data-count={n} aria-pressed={pressed} onClick={() => onTile(tile)}
-                  title={tile === 'excluded' ? (pressed ? 'Back to the new lines' : 'Show the excluded lines') : pressed ? 'Show every line again' : `Show only the ${label.toLowerCase()} lines`}
+                  aria-label={`${n} ${label} on this account (all tabs)${pressed && shown !== null && tile !== 'excluded' ? `, ${shown} in the list` : ''}`}
+                  title={`${n} ${label.toLowerCase()} on this account, all tabs. ${tile === 'excluded' ? (pressed ? 'Back to the new lines' : 'Show the excluded lines')
+                    : pressed ? 'Show every new line again' : `Show the new lines that are ${label.toLowerCase()}`}`}
                   className={`${CHIP} ${pressed ? 'border-teal-600 bg-teal-500/15 dark:border-teal-400' : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'}`}>
                   <span className={`font-semibold tabular-nums ${tone}`}>{n}</span>
                   <span className="text-[var(--ff-text-secondary)]">{label}</span>
+                  {pressed && shown !== null && tile !== 'excluded' && (
+                    <span data-testid="tile-in-list" className="text-[var(--ff-text-tertiary)]">· {shown} in the list</span>
+                  )}
                 </button>
                 {tile === 'allocated' && c.provisional > 0 && (
                   <button type="button" onClick={onShowProvisional} data-testid="tile-provisional-link" title="List the provisional lines"

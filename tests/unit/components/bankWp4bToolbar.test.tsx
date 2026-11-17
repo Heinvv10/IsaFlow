@@ -87,6 +87,13 @@ describe('the contextual selection bar', () => {
     }
   });
 
+  it('while rows are ticked the bar sticks to the top of the list (row 80 of 100 still sees it); otherwise it scrolls away', () => {
+    const { rerender } = render(<BankTxFilters {...props()} />);
+    expect(screen.getByTestId('bank-tx-toolbar').className.split(/\s+/)).not.toContain('sticky');
+    rerender(<BankTxFilters {...props()} selectedCount={1} />);
+    expect(screen.getByTestId('bank-tx-toolbar').className.split(/\s+/)).toEqual(expect.arrayContaining(['sticky', 'top-0']));
+  });
+
   it('the selection actions show only on the New tab', () => {
     render(<BankTxFilters {...props()} tab="reviewed" selectedCount={2} />);
     expect(screen.queryByRole('button', { name: 'Mark as Reviewed' })).toBeNull();
@@ -110,6 +117,11 @@ describe('the Filters toggle', () => {
     const toggle = screen.getByRole('button', { name: 'Filters (2)' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('From date')).toBeInTheDocument();
+  });
+
+  it('a sort other than newest first is out of sight too: it opens the panel and is counted', () => {
+    render(<BankTxFilters {...props()} sortOrder="asc" />);
+    expect(screen.getByRole('button', { name: 'Filters (1)' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('search and the status filter stay on the bar', () => {

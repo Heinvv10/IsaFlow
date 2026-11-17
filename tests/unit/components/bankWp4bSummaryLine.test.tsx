@@ -7,7 +7,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BankTxStatsStrip } from '@/components/accounting/bank-transactions/BankTxStatsStrip';
-import { statusTileClick } from '@/components/accounting/bank-transactions/bankTxStatusTiles';
+import { statusTileClick, statusTilePressed } from '@/components/accounting/bank-transactions/bankTxStatusTiles';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
 import type { StatementRef } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 
@@ -100,6 +100,21 @@ describe('the tiles are filter toggles', () => {
     expect(onTile.mock.calls).toEqual([['unallocated'], ['excluded']]);
   });
 
+  it('a status tile is pressed only on the New tab (the status filter is that tab\'s)', () => {
+    render(strip({ tab: 'reviewed', allocationFilter: 'allocated' }));
+    expect(screen.getByTestId('tile-allocated')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('the figures are the whole account\'s, and say so; a pressed tile adds how many lines the list holds', () => {
+    const { rerender } = render(strip({ allocationFilter: 'suggested', shown: 3 }));
+    expect(screen.getByTestId('tile-unallocated')).toHaveAccessibleName('5 Unallocated on this account (all tabs)');
+    expect(screen.getByTestId('tile-unallocated').getAttribute('title')).toMatch(/^5 unallocated on this account, all tabs\./);
+    expect(screen.getByTestId('tile-suggested')).toHaveAccessibleName('4 Suggested on this account (all tabs), 3 in the list');
+    expect(screen.getByTestId('tile-in-list').textContent).toBe('· 3 in the list');
+    rerender(strip({ allocationFilter: 'suggested', shown: null }));
+    expect(screen.queryByTestId('tile-in-list')).toBeNull();
+  });
+
   it('awaiting review is a figure, not a toggle; "incl. n provisional" is its own button', () => {
     const onShowProvisional = vi.fn();
     render(strip({ onShowProvisional }));
@@ -116,6 +131,11 @@ describe('statusTileClick: what a tile does to the view', () => {
   it('a status tile sets that status filter on the New tab (where the filter and the lines to code are)', () => {
     expect(statusTileClick({ tab: 'new', allocationFilter: 'all' }, 'suggested')).toEqual({ tab: 'new', allocationFilter: 'suggested' });
     expect(statusTileClick({ tab: 'reviewed', allocationFilter: 'all' }, 'unallocated')).toEqual({ tab: 'new', allocationFilter: 'unallocated' });
+  });
+  it('statusTilePressed: never on another tab, even with the filter set', () => {
+    expect(statusTilePressed({ tab: 'reviewed', allocationFilter: 'allocated' }, 'allocated')).toBe(false);
+    expect(statusTilePressed({ tab: 'new', allocationFilter: 'allocated' }, 'allocated')).toBe(true);
+    expect(statusTilePressed({ tab: 'excluded', allocationFilter: 'all' }, 'excluded')).toBe(true);
   });
   it('pressing the pressed tile drops the filter and stays where it is', () => {
     expect(statusTileClick({ tab: 'new', allocationFilter: 'suggested' }, 'suggested')).toEqual({ tab: 'new', allocationFilter: 'all' });

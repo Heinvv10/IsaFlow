@@ -66,7 +66,7 @@ test('bank transactions: labelled ledger, honest statement panel, tiles that sum
 
   // The statement panel: a figure, or the reason there is none, or "no statement yet" — never a bare dash. It is folded
   // behind the summary line's "Details" (WP4b).
-  const details = strip.getByRole('button', { name: 'Details' });
+  const details = strip.getByRole('button', { name: 'Details', exact: true });
   await details.click();
   await expect(details).toHaveAttribute('aria-expanded', 'true');
   const panel = page.getByTestId('bank-statement-panel');

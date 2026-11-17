@@ -76,9 +76,13 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   if (filters.fromDate !== undefined && filters.toDate !== undefined && filters.fromDate > filters.toDate) {
     [filters.fromDate, filters.toDate] = [filters.toDate, filters.fromDate];
   }
+  const tab = pick(one(query.tab), TABS);
+  // The status filter is the New tab's (its select and the status tiles live there): on another tab it would narrow the
+  // list with nothing on screen saying so, so a link that pairs it with another tab is read without it.
+  if (tab !== undefined && tab !== 'new') delete filters.allocationFilter;
   return {
     account: one(query.account_id) || undefined,
-    tab: pick(one(query.tab), TABS),
+    tab,
     page: Number.isInteger(page) && page >= 1 && page <= 100_000 ? page : undefined,
     filters,
   };

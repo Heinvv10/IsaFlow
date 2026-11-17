@@ -10,6 +10,15 @@ import {
 const view = (filters: Partial<UrlView['filters']> = {}): UrlView =>
   ({ account: 'acc-1', tab: 'new', page: 1, filters: { ...DEFAULT_FILTERS, ...filters } });
 
+describe('the status filter is the New tab\'s', () => {
+  it('a link pairing alloc with another tab is read without it (no hidden filter on Reviewed)', () => {
+    expect(parseUrlView({ tab: 'reviewed', alloc: 'allocated' }).filters).not.toHaveProperty('allocationFilter');
+    expect(parseUrlView({ tab: 'excluded', alloc: 'suggested' }).filters).not.toHaveProperty('allocationFilter');
+    expect(parseUrlView({ tab: 'new', alloc: 'allocated' }).filters.allocationFilter).toBe('allocated');
+    expect(parseUrlView({ alloc: 'unallocated' }).filters.allocationFilter).toBe('unallocated');
+  });
+});
+
 describe('page size in the URL', () => {
   it('the choices are 25, 50 and 100, and 25 is the default', () => {
     expect(BANK_TX_PAGE_SIZES).toEqual([25, 50, 100]);

@@ -47,6 +47,20 @@ describe('rows per page', () => {
   });
 });
 
+describe('the sort is listed and cleared with the filters', () => {
+  it('"Sort: oldest first" is an active label; Clear and an account switch reset it', () => {
+    const { result } = renderHook(() => useBankTxFilters(vi.fn()));
+    act(() => result.current.setSortOrder('asc'));
+    expect(result.current.activeLabels).toContain('Sort: oldest first');
+    act(() => result.current.clear());
+    expect(result.current.sortOrder).toBe('desc');
+    expect(result.current.activeLabels).toEqual([]);
+    act(() => result.current.setSortOrder('asc'));
+    act(() => result.current.resetForAccount());
+    expect(result.current.sortOrder).toBe('desc');
+  });
+});
+
 describe('density', () => {
   it('the toggle is the TableDensityContext one: compact sets the shared density', async () => {
     apiFetch.mockResolvedValue(ok());

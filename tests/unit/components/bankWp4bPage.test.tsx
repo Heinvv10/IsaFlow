@@ -117,6 +117,18 @@ describe('status tiles drive the status filter', () => {
   });
 });
 
+describe('a link pairing the status filter with another tab', () => {
+  it('?tab=reviewed&alloc=allocated opens Reviewed WITHOUT the filter (nothing hidden narrows it), and the URL is tidied', async () => {
+    await open({ account_id: 'a', tab: 'reviewed', alloc: 'allocated' });
+    expect(listUrls()).toHaveLength(1);
+    expect(lastParams().get('status')).toBe('matched');
+    expect(lastParams().has('allocation_filter')).toBe(false);
+    expect(cap.cards.allocationFilter).toBe('all');
+    await waitFor(() => expect(cap.router!.query().alloc).toBeUndefined());
+    expect(cap.router!.query().tab).toBe('reviewed');
+  });
+});
+
 describe('rows per page', () => {
   it('?size=50&page=2 opens page 2 of 50 rows (60 lines: two pages), in one fetch', async () => {
     await open({ account_id: 'a', size: '50', page: '2' });

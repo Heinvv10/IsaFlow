@@ -1,7 +1,7 @@
 /**
  * BankTxFilters — the bank transactions toolbar (WP4b). One row: the page actions (Refresh, Smart Categorize, New
  * Transaction, and a More menu for Import / Export / Export all / Recon report) — or, while rows are ticked, the
- * contextual selection bar in their place — then search, the tab's status filter, the Filters toggle, the column toggles
+ * contextual selection bar in their place, the whole bar then sticking to the top of the list — then search, the tab's status filter, the Filters toggle, the column toggles
  * and the row range. The less-used filters (dates, amounts, sort, spent/received, allocation type, suggestion) fold into
  * a second row behind "Filters": open by default on a wide screen (>= 1536px) or while one of them narrows the list, so
  * at 1366px the list starts high enough to show eight rows.
@@ -93,14 +93,17 @@ export function BankTxFilters(p: BankTxFiltersProps) {
     onRefresh, onApplyRules, onSearchChange, onFromDateChange, onToDateChange, onFromAmountChange, onToAmountChange,
     onToggleCC, onToggleBU,
   } = p;
-  // The folded filters that narrow the list (the sort orders it, so it opens the panel but is not counted).
-  const folded = [fromDate, toDate, fromAmount, toAmount].filter(Boolean).length + [txType, allocType, hasSuggestion].filter(v => v !== 'all').length;
-  const panel = useFoldedFilters(folded > 0 || sortOrder !== 'desc');
+  // The folded choices that are not at their default (a non-default sort counts: it is out of sight too).
+  const folded = [fromDate, toDate, fromAmount, toAmount].filter(Boolean).length + [txType, allocType, hasSuggestion].filter(v => v !== 'all').length
+    + (sortOrder !== 'desc' ? 1 : 0);
+  const panel = useFoldedFilters(folded > 0);
   const toggleClass = (on: boolean) => `px-2 min-h-7 rounded text-xs font-medium transition-colors ${on
     ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
     : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] border border-[var(--ff-border-light)]'}`;
   return (
-    <div className="px-6 py-1 border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]/30">
+    // While rows are ticked the bar sticks to the top of the scrolling list, so it stays on screen at row 80 of 100.
+    <div data-testid="bank-tx-toolbar" className={`px-6 py-1 border-b border-[var(--ff-border-light)] ${selectedCount > 0
+      ? 'sticky top-0 z-20 bg-[var(--ff-bg-secondary)] shadow-sm' : 'bg-[var(--ff-bg-secondary)]/30'}`}>
       <span role="status" aria-live="polite" className="sr-only" data-testid="bank-tx-progress-live">
         {progress?.key === 'batch-allocate' ? `Allocating ${progress.done + 1} of ${progress.total}` : ''}
       </span>

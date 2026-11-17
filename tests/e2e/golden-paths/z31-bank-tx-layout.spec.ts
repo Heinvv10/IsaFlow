@@ -10,6 +10,7 @@
  *    a New row's Accept and "More actions" targets are at least 24px.
  * A dismissable announcement banner (the shell's, data-testid="announcement-banner") is hidden for the measure: it is
  * not part of this page and comes and goes with the platform's notices.
+ *  - With a row ticked, the selection bar is still on screen (and uncovered) once the list is scrolled to its last row.
  *  - A status tile is a toggle: pressing it filters the list to that bucket (the list request carries the filter, the
  *    URL keeps it), pressing it again drops the filter.
  * EVIDENCE_DIR=<dir> saves a screenshot at each size.
@@ -69,6 +70,23 @@ for (const { width, height, min } of [{ width: 1920, height: 1080, min: 12 }, { 
     if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/bank-tx-layout-${width}.png` });
   });
 }
+
+test('bank transactions: the selection bar stays on screen when the list is scrolled to its last row', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await openList(page);
+  await page.locator(`${ROWS} input[type="checkbox"]:enabled`).first().check();
+  const bar = page.getByTestId('bank-tx-selection-bar');
+  await expect(bar).toBeVisible();
+  await page.locator(ROWS).last().scrollIntoViewIfNeeded();
+  await expect(page.locator(ROWS).first()).not.toBeInViewport();
+  await expect(bar).toBeInViewport({ ratio: 1 });
+  // Nothing covers it: the point at its middle is the bar's own.
+  expect(await bar.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit !== null && el.contains(hit);
+  })).toBe(true);
+});
 
 test('bank transactions: a status tile filters the list and a second press clears it', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
