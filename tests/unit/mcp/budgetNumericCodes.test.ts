@@ -66,21 +66,47 @@ describe('every code field a handler reads through refText declares ["string", "
   const props = (t: { inputSchema: unknown }) => (t.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties;
   const item = (p: Record<string, unknown>) => (p.items as { properties: Record<string, Record<string, unknown>> }).properties;
   it.each([
-    ['set_budget_amounts cells', () => item(props(setBudgetAmountsTool).cells!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
-    ['set_budget_annual rows', () => item(props(setBudgetAnnualTool).rows!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['set_budget_amounts cells', () => item(props(setBudgetAmountsTool).cells!), ['account'], ['string', 'integer']],
+    ['set_budget_amounts cells (dimensions: null is absent)', () => item(props(setBudgetAmountsTool).cells!), ['cc1', 'cc2', 'bu'], ['string', 'integer', 'null']],
+    ['set_budget_annual rows', () => item(props(setBudgetAnnualTool).rows!), ['account'], ['string', 'integer']],
+    ['set_budget_annual rows (dimensions)', () => item(props(setBudgetAnnualTool).rows!), ['cc1', 'cc2', 'bu'], ['string', 'integer', 'null']],
     ['seed_budget account_uplifts', () => item(props(seedBudgetTool).account_uplifts!), ['account'], ['string', 'integer']],
     ['seed_budget fixed_annual', () => item(props(seedBudgetTool).fixed_annual!), ['account'], ['string', 'integer']],
     ['get_budget', () => props(getBudgetTool), ['member'], ['string', 'integer']],
     ['get_budget accounts', () => ({ accounts: props(getBudgetTool).accounts!.items as Record<string, unknown> }), ['accounts'], ['string', 'integer']],
     ['add_budget_note', () => props(addBudgetNoteTool), ['account'], ['string', 'integer']],
-    ['budget_remaining lines', () => item(props(budgetRemainingTool).lines!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
-    ['set_budget_drivers changes', () => item(props(setBudgetDriversTool).changes!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
-    ['set_budget_drivers ref', () => (item(props(setBudgetDriversTool).changes!).ref as { properties: Record<string, Record<string, unknown>> }).properties, ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['budget_remaining lines', () => item(props(budgetRemainingTool).lines!), ['account'], ['string', 'integer']],
+    ['budget_remaining lines (dimensions)', () => item(props(budgetRemainingTool).lines!), ['cc1', 'cc2', 'bu'], ['string', 'integer', 'null']],
+    ['set_budget_drivers changes', () => item(props(setBudgetDriversTool).changes!), ['account'], ['string', 'integer']],
+    ['set_budget_drivers changes (dimensions)', () => item(props(setBudgetDriversTool).changes!), ['cc1', 'cc2', 'bu'], ['string', 'integer', 'null']],
+    ['set_budget_drivers ref', () => (item(props(setBudgetDriversTool).changes!).ref as { properties: Record<string, Record<string, unknown>> }).properties, ['account'], ['string', 'integer']],
+    ['set_budget_drivers ref (dimensions)', () => (item(props(setBudgetDriversTool).changes!).ref as { properties: Record<string, Record<string, unknown>> }).properties, ['cc1', 'cc2', 'bu'], ['string', 'integer', 'null']],
     ['set_budget_drivers centres', () => item(props(setBudgetDriversTool).changes!), ['cost_centre', 'headcount_cost_centre'], ['string', 'integer', 'null']],
     ['get_budget_drivers', () => props(getBudgetDriversTool), ['headcount_cost_centre'], ['string', 'integer']],
   ])('%s', (_n, fields, keys, type) => {
     const p = fields();
     for (const k of keys) expect(p[k]!.type, k).toEqual(type);
+  });
+});
+
+describe('the UUID-only fields stay type "string" (round 6: a widening of them turns red)', () => {
+  /** Every property of a schema, nested objects and array items included, with its path. */
+  function walk(schema: unknown, path: string, out: Array<[string, Record<string, unknown>]>): void {
+    if (!schema || typeof schema !== 'object') return;
+    const o = schema as Record<string, unknown>;
+    for (const [k, v] of Object.entries((o.properties ?? {}) as Record<string, unknown>)) {
+      out.push([`${path}.${k}`, v as Record<string, unknown>]);
+      walk(v, `${path}.${k}`, out);
+    }
+    if (o.items) walk(o.items, `${path}[]`, out);
+  }
+  it('version_id, hire_id, slice_id, snapshot_id, source_version_id and every format uuid field of every budget tool', async () => {
+    const { BUDGET_READ_TOOLS, BUDGET_WRITE_TOOLS } = await import('@/lib/mcp/tools/budgetToolSet');
+    const fields: Array<[string, Record<string, unknown>]> = [];
+    for (const t of [...BUDGET_READ_TOOLS, ...BUDGET_WRITE_TOOLS]) walk(t.inputSchema, t.name, fields);
+    const uuidOnly = fields.filter(([path, f]) => f.format === 'uuid' || /\.(version_id|hire_id|slice_id|snapshot_id|source_version_id)$/.test(path));
+    expect(uuidOnly.map(([p]) => p)).toEqual(expect.arrayContaining(['set_budget_drivers.version_id', 'set_budget_drivers.changes[].hire_id', 'restore_budget_version.snapshot_id', 'submit_budget_for_review.slice_id']));
+    expect(uuidOnly.filter(([, f]) => f.type !== 'string').map(([p, f]) => `${p}: ${JSON.stringify(f.type)}`)).toEqual([]);
   });
 });
 
@@ -129,7 +155,7 @@ describe('each tool reads a whole number as its code and refuses a fraction', ()
     // number is refused (never read as absent, which would answer every member's rows).
     const odd = text(await getBudgetTool.handler({ version_id: VERSION, level: 'region', member: 1.5 }, ctx()));
     expect(odd).toBe('member needs level cc1, cc2 or bu');
-    expect(text(await getBudgetTool.handler({ version_id: VERSION, level: 'cc1', member: true }, ctx()))).toBe(" is not one of this company's active CC1 cost centres");
+    expect(text(await getBudgetTool.handler({ version_id: VERSION, level: 'cc1', member: true }, ctx()))).toBe('member must be an id or code');
   });
 
   it('add_budget_note', async () => {

@@ -63,6 +63,8 @@ export function refText(v: unknown, what = 'account'): { ref: string } | { error
 /** The JSON-schema type of every reference `refText` reads: a code may arrive as text or as a whole number (round 5). */
 export const REF_TYPE = ['string', 'integer'] as const;
 export const ID_OR_CODE = { type: [...REF_TYPE], description: 'Id or code (a numeric code may be sent as a whole number).' };
+/** A cc1 / cc2 / bu field of a row: the handlers read null as absent (no dimension), so the schema says so (round 6). */
+export const DIM_REF = { type: [...REF_TYPE, 'null'], description: 'Id or code (a whole number for a numeric code); absent or null: none.' };
 
 export const isMonth = (v: unknown): v is string => typeof v === 'string' && MONTH.test(v);
 

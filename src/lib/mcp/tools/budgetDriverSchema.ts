@@ -5,11 +5,10 @@
  */
 import { BAND_ORDER } from '@/modules/accounting/services/budgets/grid/subtotals';
 import { DRIVER_OPS, MAX_DRIVER_CHANGES } from './budgetDriverArgs';
-
-import { ID_OR_CODE, REF_TYPE } from './budgetToolArgs';
+import { DIM_REF, ID_OR_CODE, REF_TYPE } from './budgetToolArgs';
 
 const MONTH = { type: 'string', description: 'YYYY-MM' };
-const ROW = { account: ID_OR_CODE, cc1: ID_OR_CODE, cc2: ID_OR_CODE, bu: ID_OR_CODE };
+const ROW = { account: ID_OR_CODE, cc1: DIM_REF, cc2: DIM_REF, bu: DIM_REF };
 
 export const DRIVER_CHANGES_SCHEMA = {
   type: 'array', minItems: 1, maxItems: MAX_DRIVER_CHANGES,

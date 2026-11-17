@@ -17,7 +17,7 @@ import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { ALERT_LIST_LIMIT, listBudgetAlerts, type BudgetAlertItem } from '@/modules/accounting/services/budgets/budgetAlertList';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, ID_OR_CODE, randText, refText } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, DIM_REF, ID_OR_CODE, randText, refText } from './budgetToolArgs';
 import { offsetArg } from './budgetPaging';
 import { remainingLimit } from './budgetToolRateLimits';
 import { clampLimit, ok, toolError } from './toolHelpers';
@@ -41,7 +41,7 @@ export const budgetRemainingTool: McpTool = {
       lines: {
         type: 'array', minItems: 1, maxItems: MAX_REMAINING_KEYS,
         items: {
-          type: 'object', properties: { account: ID_OR_CODE, month: { type: 'string', description: 'YYYY-MM' }, cc1: ID_OR_CODE, cc2: ID_OR_CODE, bu: ID_OR_CODE },
+          type: 'object', properties: { account: ID_OR_CODE, month: { type: 'string', description: 'YYYY-MM' }, cc1: DIM_REF, cc2: DIM_REF, bu: DIM_REF },
           required: ['account', 'month'], additionalProperties: false,
         },
       },

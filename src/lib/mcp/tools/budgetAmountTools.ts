@@ -10,7 +10,7 @@ import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { WRITE_MODES, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
 import type { McpTool } from '../types';
 import { residueFlipsSign } from '@/modules/accounting/services/budgets/grid/spread';
-import { ID_OR_CODE, BUDGET_WRITE_FENCE, isResult, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
+import { DIM_REF, ID_OR_CODE, BUDGET_WRITE_FENCE, isResult, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
 import { dimensionLabel, resolveRows, parseAmountCells, type ResolvedRef } from './budgetCellArgs';
 import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
 import { loadModel, runAmountWrite, type RoundingNotice } from './budgetAmountWrite';
@@ -57,7 +57,7 @@ export const setBudgetAmountsTool: McpTool = {
           properties: {
             account: ID_OR_CODE, month: { type: 'string', description: 'YYYY-MM' },
             amount: { type: ['string', 'null'], description: 'Decimal string; null clears the cell (merge, replace).' },
-            cc1: ID_OR_CODE, cc2: ID_OR_CODE, bu: ID_OR_CODE,
+            cc1: DIM_REF, cc2: DIM_REF, bu: DIM_REF,
           },
           required: ['account', 'month', 'amount'],
           additionalProperties: false,
@@ -126,7 +126,7 @@ export const setBudgetAnnualTool: McpTool = {
             account: ID_OR_CODE, amount: { type: 'string', description: 'The annual amount, decimal string.' },
             spread: { type: 'string', enum: ['flat', 'prior_year', 'weights'] },
             weights: { type: 'array', items: { type: 'number', minimum: 0 }, description: 'spread weights: one per month of the year.' },
-            cc1: ID_OR_CODE, cc2: ID_OR_CODE, bu: ID_OR_CODE,
+            cc1: DIM_REF, cc2: DIM_REF, bu: DIM_REF,
           },
           required: ['account', 'amount', 'spread'],
           additionalProperties: false,
