@@ -97,7 +97,8 @@ describe('import_budget_workbook (xlsx): the import preview\'s path, then PR 1\'
 
   it('one changed cell also needs the dry run\'s plan_hash (round 2): the dry run is the preview', async () => {
     const file = await edited((wb) => { const ws = wb.getWorksheet('Budget')!; ws.getRow(rowOf(ws, '6000')).getCell(col(ws, '2026-04')).value = 250; });
-    expect(text(await tool.handler({ ...KEY, file_base64: b64(file) }, ctx()))).toMatch(/plan_hash is required/);
+    expect(text(await tool.handler({ ...KEY, file_base64: b64(file) }, ctx())))
+      .toBe('plan_hash is required for every import (its dry run is the preview): call import_budget_workbook with dry_run true, read the diff, then apply with the plan_hash it returns.');
     expect(saveCells).not.toHaveBeenCalled();
   });
 

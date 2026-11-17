@@ -52,6 +52,7 @@ import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/ge
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import type { BudgetComparatorResponse } from './apiRoutesBudgetComparator';
 import type { BudgetDynamicRoutes, BudgetStaticRoutes } from './apiRoutesBudgets';
+import type { PayrollDynamicRoutes } from './apiRoutesPayroll';
 import type { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
@@ -190,7 +191,7 @@ interface StaticRoutes extends BudgetStaticRoutes {
  * would silently inherit this type. That is precisely the defect class this
  * file exists to close, so the matcher rejects any binding containing `/`.
  */
-interface DynamicRoutes extends BudgetDynamicRoutes {
+interface DynamicRoutes extends BudgetDynamicRoutes, PayrollDynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
   '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
   // The board pack document, composed server-side. Projected off the
@@ -238,7 +239,6 @@ interface QueryRoutes {
   '/api/accounting/document-capture?id={}': CapturedDocument;
   '/api/accounting/vlm-extract?job={}': VlmJobView;
 }
-
 export type ApiRouteMap = StaticRoutes & DynamicRoutes & QueryRoutes;
 export type KnownRoute = keyof ApiRouteMap;
 
