@@ -7,6 +7,7 @@ import type { Employee } from '@/components/payroll/EmployeeProfileCard';
 
 // The payslip email field (wave 6 PE) has its own route and test (employeeEmailField.test.tsx).
 vi.mock('@/components/payroll/EmployeeEmailField', () => ({ EmployeeEmailField: () => null }));
+vi.mock('@/components/payroll/PayFrequencyField', () => ({ PayFrequencyField: () => null }));
 
 const base: Employee = {
   id: 'e1', employeeNumber: 'E-1', firstName: 'Thandi', lastName: 'Nkosi', employmentType: 'director', startDate: '2026-01-01',

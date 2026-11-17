@@ -17,6 +17,9 @@ export interface PayWeekState extends PayWeekSettings {
 
 const SAVE_FAILED = 'Could not save the pay week - try again';
 const DAYS = DAY_NAMES.map((n, i) => ({ value: String(i + 1), label: n }));
+/** The three settings only: the route refuses any other key (the state's `locked` is not one). */
+const settingsOf = (s: PayWeekSettings): PayWeekSettings =>
+  ({ payWeekStartDow: s.payWeekStartDow, payWeekday: s.payWeekday, fortnightAnchor: s.fortnightAnchor ?? null });
 
 /** The route's state, checked at run time (the route is not in the apiRoutes registry). */
 export function payWeekOf(data: unknown): PayWeekState {
@@ -29,7 +32,7 @@ export function payWeekOf(data: unknown): PayWeekState {
 export function PayWeekSettingsCard({ state, canEdit, onSaved }: {
   state: PayWeekState; canEdit: boolean; onSaved: (s: PayWeekState) => void;
 }) {
-  const [draft, setDraft] = useState<PayWeekSettings>(state);
+  const [draft, setDraft] = useState<PayWeekSettings>(() => settingsOf(state));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const dirty = draft.payWeekStartDow !== state.payWeekStartDow || draft.payWeekday !== state.payWeekday
@@ -40,7 +43,7 @@ export function PayWeekSettingsCard({ state, canEdit, onSaved }: {
     setError('');
     try {
       const saved = payWeekOf(await apiJson('/api/payroll/settings/pay-week', { method: 'PUT', body: JSON.stringify(draft) }, SAVE_FAILED));
-      setDraft(saved);
+      setDraft(settingsOf(saved));
       onSaved(saved);
     } catch (err) {
       setError(apiErrorMessage(err, SAVE_FAILED));

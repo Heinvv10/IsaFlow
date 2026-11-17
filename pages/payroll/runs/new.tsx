@@ -10,7 +10,6 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Plus, ArrowLeft, Loader2 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
-import { useCompany } from '@/contexts/CompanyContext';
 import { RunPeriodPicker } from '@/components/payroll/RunPeriodPicker';
 
 const FREQUENCIES = [
@@ -27,7 +26,6 @@ const MONTHS = [
 
 export default function NewPayrollRunPage() {
   const router = useRouter();
-  const { companyRole } = useCompany();
   const [frequency, setFrequency] = useState<Frequency>('monthly');
   const [periodStart, setPeriodStart] = useState<string | null>(null);
   const today = new Date();
@@ -106,8 +104,7 @@ export default function NewPayrollRunPage() {
                   value={year} onChange={e => setYear(Number(e.target.value) || today.getFullYear())} />
               </div>
             </>) : (
-              <RunPeriodPicker frequency={frequency} value={periodStart} onChange={setPeriodStart}
-                canEdit={companyRole === 'owner' || companyRole === 'admin'} />
+              <RunPeriodPicker frequency={frequency} value={periodStart} onChange={setPeriodStart} />
             )}
             <p className="text-sm text-[var(--ff-text-secondary)]">The run pays only employees paid {frequency}.</p>
           </div>

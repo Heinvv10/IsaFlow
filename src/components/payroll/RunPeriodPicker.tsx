@@ -5,6 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Select } from '@/components/ui/Select';
+import { useCompany } from '@/contexts/CompanyContext';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import {
   formatPayDate, formatPeriodRange, periodsAround, type PeriodFrequency,
@@ -16,9 +17,11 @@ const LOAD_FAILED = 'Could not load the pay week';
 /** Today, as the browser sees it: only which periods are offered depends on it. */
 const today = (): string => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
 
-export function RunPeriodPicker({ frequency, value, onChange, canEdit }: {
-  frequency: PeriodFrequency; value: string | null; onChange: (periodStart: string | null) => void; canEdit: boolean;
+export function RunPeriodPicker({ frequency, value, onChange }: {
+  frequency: PeriodFrequency; value: string | null; onChange: (periodStart: string | null) => void;
 }) {
+  const { companyRole } = useCompany();
+  const canEdit = companyRole === 'owner' || companyRole === 'admin';
   const [state, setState] = useState<PayWeekState | null>(null);
   const [error, setError] = useState('');
 

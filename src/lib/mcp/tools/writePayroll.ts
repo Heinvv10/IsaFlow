@@ -117,19 +117,26 @@ async function createPeriodPayRun(
   if (args.month !== undefined || args.year !== undefined) {
     return toolError('A weekly or fortnightly run takes period_start, not month and year');
   }
-  let period: RunPeriod;
+  let preview: { period: RunPeriod; refusal: Error | null };
   try {
-    period = await previewPeriodRun(ctx.companyId, frequency, args.period_start);
+    preview = await previewPeriodRun(ctx.companyId, frequency, args.period_start);
   } catch (err) {
     if (err instanceof RunPeriodRefused) return toolError(err.message);
     throw err;
   }
+  const { period, refusal } = preview;
   if (args.dry_run === true) {
-    const preview: DryRunResult = {
-      dryRun: true, journals: [], skipped: [], effects: [], journalsTotal: 0, truncated: false,
+    const result: DryRunResult = {
+      dryRun: true, journals: [], effects: [], journalsTotal: 0, truncated: false,
+      skipped: refusal ? [{
+        id: period.periodStart,
+        reason: refusal instanceof PayrollRunOverlapError ? 'period_overlap' : 'period_already_exists',
+        detail: refusal.message,
+      }] : [],
     };
-    return { ...ok({ ...preview, period }), wroteNothing: true };
+    return { ...ok({ ...result, period }), wroteNothing: true };
   }
+  if (refusal) return toolError(refusal.message);
   try {
     const run = await createPeriodRun(ctx.companyId, frequency, args.period_start, ctx.userId);
     return ok({
