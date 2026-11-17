@@ -12,7 +12,7 @@
  * a journal whose chain books a statement line's cash is refused for EVERYONE,
  * 409 REVERSE_FROM_BANK_LINE, before any write — it is reversed from the bank
  * line, where the allocator/agent checks and the audit sit and the line is
- * reset. Enforcement off: the GL reversal works as before.
+ * reset. Enforcement off: refused too since 2026-11-16, 400 (bank/liveBankLineReversal).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -76,7 +76,7 @@ describe('the allocation journal is reversible around the reversal gate', () => 
       message: expect.stringMatching(/^This journal is a bank allocation, and while manual-journal approval is on it is reversed from its bank line/) });
   });
 
-  it('another member is sent to the bank line too, where they reverse it (audited); enforcement off, the GL reversal works', async () => {
+  it('another member is sent to the bank line too, where they reverse it (audited); enforcement off, the GL still refuses', async () => {
     const f = await allocatedByA();
     const viaGl = (user: string, c: string, je: string) => callRoute(journalEntriesAction as never, tokens[user]!, c, 'POST',
       { id: je, action: 'reverse' }, '/api/accounting/journal-entries-action');
@@ -85,8 +85,11 @@ describe('the allocation journal is reversible around the reversal gate', () => 
     expect((await pool.query("SELECT count(*)::INT AS n FROM audit_log WHERE company_id = $1 AND action = 'reverse'", [f.c])).rows[0].n).toBe(1);
     const off = await allocatedByA();
     await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [off.c]);
-    expect((await viaGl(a, off.c, off.je)).state.statusCode).toBe(200);
-    expect(await contras(off.c)).toBe(1);
+    // Enforcement off the GL reversal no longer goes through either: the line still books the journal, so it is undone
+    // from the bank line (bank/liveBankLineReversal, 2026-11-16) — 400, nothing written.
+    expect(refusalOf(await viaGl(a, off.c, off.je))).toMatchObject({ status: 400,
+      message: expect.stringMatching(/^This journal books the bank line .*which is still allocated to it\. Undo it from Bank Transactions/) });
+    expect(await contras(off.c)).toBe(0);
   });
 
   it('an AGENT reverses the allocation journal through MCP reverse_journal_entry', async () => {

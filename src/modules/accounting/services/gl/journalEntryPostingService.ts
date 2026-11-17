@@ -36,7 +36,11 @@ export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, 
 export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
-type ReverseOpts = PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[] };
+type ReverseOpts = PostingActorOpts & {
+  reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[];
+  /** The bank line's own undo (bank/liveBankLineReversal): it resets the line itself, so a live line is not refused. */
+  bankLinesHandled?: boolean;
+};
 
 
 import {
@@ -129,26 +133,23 @@ async function reverseJournalEntryInner(
     // accounts at the NEGATIVE of the original instead of zero. The claim is a
     // single predicated UPDATE: the loser gets zero rows and refuses here,
     // before it has created anything to clean up.
-    if (!await claimJournalReversal(companyId, id, userId)) {
-      throw new Error('Journal entry already reversed');
-    }
     // R-127: either half of a bank-first settlement — AFTER the claim (D8 round
     // 4, B1). Before it, this was an unlocked read of supplier_payments that an
     // approval settling the provisional (which locks it, and since D8 its chain
     // head) could commit right past. Now the claim's row lock waits for that
-    // approval and this read sees its settlement. A refusal releases the claim:
-    // withAuth COMMITs a 4xx, and a stranded claim reads as reversed.
-    try {
+    // approval and this read sees its settlement. A refusal rolls the claim back
+    // with its savepoint: withAuth COMMITs a 4xx, and a stranded claim reads as
+    // reversed — and a release UPDATE would still bump updated_at (#1518 brk L1).
+    await withSavepoint('journal_reversal_claim', async () => {
+      if (!await claimJournalReversal(companyId, id, userId)) throw new Error('Journal entry already reversed');
       await refuseReversingSettlementJournal(companyId, entry);
       // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
-      await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked);
+      // ...and a LIVE statement line still booking it (bank/liveBankLineReversal): undo it from Bank Transactions.
+      await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked, { bankLinesHandled: opts?.bankLinesHandled });
       // Step 6: a share journal with live undo-share journals — under the claim's row lock, the row an undo locks
       // FOR UPDATE (ap/shareUndoReads.lockShareJournal), so the two serialise: authoritative (gl/shareUndoReversalGuard).
       await assertNoLiveUndoShares(companyId, id, entry.entryNumber);
-    } catch (err) {
-      await releaseJournalReversalClaim(companyId, id);
-      throw err;
-    }
+    });
 
     let reversalEntry: JournalEntry;
     try {
