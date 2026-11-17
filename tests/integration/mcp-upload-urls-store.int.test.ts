@@ -76,8 +76,14 @@ describeIfDb('MCP upload intents: sweep, stage compare-and-set, entity dedup (99
     await expire(old.upload_id, '8 days');
     await expire(done.upload_id, '30 days');
 
-    const swept = await sweepExpiredUploads();
-    expect(swept.cleared).toBeGreaterThanOrEqual(2);
+    // Judged by the rows, not the count: a suite running beside this one may sweep them first, and a row another
+    // sweep holds is skipped (SKIP LOCKED) and left to the next one, so sweep until settled (bounded).
+    for (let n = 0; n < 20; n += 1) {
+      await sweepExpiredUploads();
+      const [a, b] = [await row(expired.upload_id), await row(theirs.upload_id)];
+      if (!a?.has_bytes && !b?.has_bytes && (await row(old.upload_id)) === undefined) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     expect(await row(expired.upload_id)).toEqual({ status: 'uploaded', has_bytes: false });
     expect(await row(theirs.upload_id)).toEqual({ status: 'uploaded', has_bytes: false });
     expect(await row(live.upload_id)).toEqual({ status: 'uploaded', has_bytes: true });
