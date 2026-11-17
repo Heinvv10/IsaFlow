@@ -21,7 +21,7 @@ import { readLastOpened, writeLastOpened } from './lastOpenedSubAccount';
 import { BankPrimaryCard } from './BankPrimaryCard';
 import { SortableCardRow, type SortableCard } from './SortableCardRow';
 import { applyCardOrder } from './bankCardOrder';
-import { PIN_BOUNDARY, SWITCHER_THRESHOLD, pinnedKeys, togglePin } from './bankCardPins';
+import { SWITCHER_THRESHOLD, pinnedKeys, togglePin } from './bankCardPins';
 import { BankAccountSwitcher } from './BankAccountSwitcher';
 import { useBankCardOrder } from './useBankCardOrder';
 import { notify } from '@/utils/toast';
@@ -129,11 +129,6 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
   const currentKey = selectedCardKey ? `group:${selectedCardKey}` : selectedBank;
   const shownCards = orderedCards.map(c => ({ ...c, current: c.key === currentKey }));
   const outsideSelection = switcher && !pinned.includes(currentKey) ? bank?.accountName ?? null : null;
-  // The pinned cards in their new order; the unpinned ones keep their place after the boundary.
-  const reorderShown = (keys: string[]) => {
-    if (!switcher) return void reorder(keys);
-    void reorder([...keys, PIN_BOUNDARY, ...applyCardOrder(allKeys, order).filter(k => !keys.includes(k))]);
-  };
   const onTogglePin = (key: string) => {
     const r = togglePin(allKeys, order, key);
     if (r.refused) notify.error(r.refused);
@@ -162,7 +157,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
       <div className="relative min-w-0">
         <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
           className="flex items-stretch gap-3 overflow-x-auto pb-2">
-          <SortableCardRow cards={shownCards} onReorder={reorderShown} />
+          <SortableCardRow cards={shownCards} onReorder={keys => void reorder(keys)} />
         </div>
         {rowMore && (
           <div aria-hidden data-testid="bank-cards-fade"
