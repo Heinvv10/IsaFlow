@@ -13,6 +13,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
+import { cashbookExportParams } from '@/components/accounting/cashbookExport';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -126,7 +127,7 @@ export default function CashbookPage() {
             <ExportCSVButton
               endpoint="/api/accounting/bank-transactions-export"
               filenamePrefix="cashbook"
-              params={{ bank_account_id: selectedBank, from, to }}
+              params={cashbookExportParams(bankAccounts, selectedBank, from, to)}
             />
           </div>
         </div>

@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { UUID } from '@/lib/schemas/common';
 import { getBankFeedSyncLogs } from '@/modules/accounting/services/bank/openBankingService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -16,6 +17,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!connectionId) {
     return apiResponse.badRequest(res, 'Connection ID is required');
   }
+  if (!UUID.safeParse(connectionId).success) return apiResponse.badRequest(res, 'Connection ID must be a valid UUID');
 
   if (req.method === 'GET') {
     const limitParam = req.query.limit;

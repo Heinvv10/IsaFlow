@@ -89,7 +89,8 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
  */
 export async function reverseBatchWithLeg(
   companyId: string, batchId: string, userId: string, peekedJournal: string | null, leg: BankLeg | null,
-  opts?: PostingActorOpts & { reversalDate?: string },
+  /** `bankLinesHandled`: the bank line's own undo, which resets its line after (liveBankLineReversal). */
+  opts?: PostingActorOpts & { reversalDate?: string; bankLinesHandled?: boolean },
 ): Promise<BatchReversalDetail> {
   // (2) The batch row. A second click waits here and then reads 'reversed'.
   const batch = (await claimUnderLockTimeout('payment batch', async () => (await sql`

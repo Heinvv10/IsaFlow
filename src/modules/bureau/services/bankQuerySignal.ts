@@ -72,11 +72,11 @@ export async function bankQuerySignal(
   const rows = (await sql`
     SELECT company_id,
            COUNT(*) FILTER (WHERE status = 'replied')::int AS replied,
-           COUNT(*) FILTER (WHERE status = 'sent')::int   AS awaiting,
-           MIN(sent_at) FILTER (WHERE status = 'sent')    AS oldest_sent
+           COUNT(*) FILTER (WHERE status IN ('sent', 'unconfirmed'))::int AS awaiting,
+           MIN(sent_at) FILTER (WHERE status IN ('sent', 'unconfirmed')) AS oldest_sent
     FROM bank_tx_queries
     WHERE company_id = ANY(${companyIds})
-      AND status IN ('sent', 'replied')
+      AND status IN ('sent', 'replied', 'unconfirmed')
     GROUP BY company_id
   `) as unknown as BankQueryCountRow[];
   return shapeBankQueries(rows, meta, today);

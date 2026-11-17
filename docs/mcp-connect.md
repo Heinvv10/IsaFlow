@@ -140,6 +140,11 @@ as well as the read one, and they say so on the consent screen:
   dry run first and an apply with the plan hash the dry run returned. `approve_budget_version`,
   `lock_budget_version`, `unlock_budget_version` and `set_primary_budget_version` work only on an
   owner's connection; any other role is told that a person must approve the budget in IsaFlow.
+  `set_budget_drivers` changes driver lines, planned hires and overrides (dry run, then the plan hash), and
+  `set_three_way_assumptions` saves the balance sheet and cash assumptions; `restore_budget_version` undoes amount
+  writes only, never these. `submit_budget_for_review` submits the caller's own budget slice; approving or returning
+  a slice stays a person's step in IsaFlow. The reads `get_budget_drivers`, `get_three_way`, `derive_three_way`,
+  `budget_remaining` and `budget_tracking` need `read:reports`; per-head pay rates go to owners, admins and managers only.
 - `take_audit_snapshot` (`read:reports` + `write:journals`, owner/admin only) takes a
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's

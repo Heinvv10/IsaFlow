@@ -2,6 +2,7 @@
 import { adminCreateUser, findUserByEmail } from './gotrue';
 import { adminListUserFactors, GotrueMfaError, listFactors, type Factor } from './gotrue-mfa';
 import { AuthUpstreamUnavailableError } from './authUpstream';
+import { adminGetUser } from './gotrueAdminUser';
 
 /**
  * Is GoTrue account `accountId` an ESTABLISHED IsaFlow login? A `users` row under exactly that id is written only by
@@ -26,29 +27,52 @@ export const MIN_NEW_PASSWORD_LENGTH = 10;
  * has no account and `password` is too weak to create one with.
  *
  * POST /api/invitations creates (or finds) that account when it sends the
- * invite and stores it in `gotrue_user_id`. userInvitationService — the
- * Settings -> User Access screen — never did, so its invitees had no way to
- * set a password and join: /accept-invite refused the row and the only other
- * route was the self-serve signup, which creates a SECOND company.
- *
- * Resolved here at accept time instead, and deliberately NOT written back to
- * the invitation: pages/api/invitations/revoke/[id].ts deletes the stored
- * account when it has no memberships, and an account found here may be
- * someone's own login (a pending signup, a member removed everywhere) that
- * this invitation never created. An existing account is always found first,
+ * invite and stores it in `gotrue_user_id`; userInvitationService (Settings ->
+ * User Access) stores the account that holds the address when it sends, and
+ * NULL when none does (R7-1). For NULL the account is resolved here at accept
+ * time and deliberately NOT written back to the invitation (nothing needs it
+ * after the accept). An existing account is always found first,
  * never created over. Concurrent accepts converge: the second create 422s and
  * adminCreateUser answers the first one's account — which is why the caller
  * checks factors for every account without a `users` row, not only found ones.
  */
 export async function resolveInvitationAccount(
-  inv: { email: string; gotrue_user_id: string | null },
+  inv: { id: string; email: string; gotrue_user_id: string | null },
   password: string,
 ): Promise<string | null> {
   if (inv.gotrue_user_id) return inv.gotrue_user_id;
   const existing = await findUserByEmail(inv.email);
   if (existing) return existing.id;
   if (password.length < MIN_NEW_PASSWORD_LENGTH) return null;
-  return (await adminCreateUser({ email: inv.email, email_confirm: true })).id;
+  // Stamped as POST /api/invitations stamps its own: the account this invitation created (invitationAccountRole).
+  return (await adminCreateUser({ email: inv.email, email_confirm: true, user_metadata: { invite_id: inv.id } })).id;
+}
+
+const sameAddress = (a: string | null | undefined, b: string): boolean =>
+  (a ?? '').trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * What the anonymous accept may do with account `accountId` (resolveInvitationAccount's answer):
+ * - 'mismatch': GoTrue has no such account, or its login email is no longer the invitation's address
+ *   (a change-email since the pin): nothing is written, the accept is IDENTITY_MISMATCH.
+ * - 'set-password': nobody has ever signed in to it (`last_sign_in_at` empty) and either an invitation created it
+ *   (`user_metadata.invite_id`, stamped by POST /api/invitations and by resolveInvitationAccount; another
+ *   invitation's too, when two companies invite one address before either is accepted) or it was never even
+ *   confirmed (an unconfirmed signup or a squatter at the invited address). Such an account holds nothing, and the
+ *   link proves its holder reads the mailbox, so the invitee's password becomes its password.
+ * - 'sign-in': any other account (one that has signed in: a deleted user's surviving login, a member removed
+ *   everywhere; or a confirmed one no invitation created) keeps its own password; the accept must sign in with it.
+ * The caller still treats an account with a `users` row as established (sign-in) whatever this answers.
+ * Read before any lock; a GoTrue outage throws AuthUpstreamUnavailableError.
+ */
+export async function invitationAccountRole(
+  inv: { id: string; email: string }, accountId: string,
+): Promise<'mismatch' | 'set-password' | 'sign-in'> {
+  const account = await adminGetUser(accountId);
+  if (account === null || !sameAddress(account.email, inv.email)) return 'mismatch';
+  if (account.last_sign_in_at) return 'sign-in';
+  const createdByInvitation = typeof account.user_metadata?.invite_id === 'string';
+  return createdByInvitation || !account.email_confirmed_at ? 'set-password' : 'sign-in';
 }
 
 /**

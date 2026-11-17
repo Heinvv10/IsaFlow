@@ -48,6 +48,24 @@ export function centsText(cents: number): string {
 /** A rand amount the services hold as a number (NUMERIC(15,2) read exactly) as decimal text. */
 export const randText = (rand: number): string => centsText(Math.round(rand * 100));
 
+/**
+ * An account, member or cost-centre reference (an id or a code) as the budget tools read it (review round 3, one rule
+ * for every tool): a string trimmed; a SAFE integer as its digits (a numeric code sent as a JSON number); any other
+ * number (a fraction, Infinity, NaN, an integer past 2^53 or 1e21, whose digits are not the ones sent) refused as
+ * "not a <what> code", never truncated; anything else '' (the caller words it: absent, or refused where a value is needed).
+ */
+export function refText(v: unknown, what = 'account'): { ref: string } | { error: string } {
+  if (typeof v === 'string') return { ref: v.trim() };
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? { ref: String(v) } : { error: `${String(v)} is not ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} code` };
+  return { ref: '' };
+}
+
+/** The JSON-schema type of every reference `refText` reads: a code may arrive as text or as a whole number (round 5). */
+export const REF_TYPE = ['string', 'integer'] as const;
+export const ID_OR_CODE = { type: [...REF_TYPE], description: 'Id or code (a numeric code may be sent as a whole number).' };
+/** A cc1 / cc2 / bu field of a row: the handlers read null as absent (no dimension), so the schema says so (round 6). */
+export const DIM_REF = { type: [...REF_TYPE, 'null'], description: 'Id or code (a whole number for a numeric code); absent or null: none.' };
+
 export const isMonth = (v: unknown): v is string => typeof v === 'string' && MONTH.test(v);
 
 export function roundingUnitArg(args: Record<string, unknown>): RoundingUnit | McpToolResult {

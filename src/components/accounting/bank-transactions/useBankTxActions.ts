@@ -12,6 +12,7 @@ import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { fetchReconReport } from './reconReportFetch';
 import { buildSaveActions } from './bankTxSaveActions';
 import { buildBulkActions } from './bankTxBulkActions';
 import { selectedOnScreen } from './bankTxSelectionView';
@@ -63,7 +64,9 @@ export function buildBankTxActions(deps: ActionDeps) {
   const run: BankTxBusy['run'] = deps.busy?.run ?? ((_key, fn) => fn());
 
   const callAction = async (body: Record<string, string>, fallback = 'Could not complete the action - try again') => {
-    deps.busy?.touch(); // a request starting is activity: the hold's silence timer restarts
+    // A request about these lines is activity for the operation holding them (and only that one): its silence timer restarts.
+    const rows = [body.bankTransactionId, ...(Array.isArray(body.bankTransactionIds) ? body.bankTransactionIds : [])].filter((r): r is string => typeof r === 'string');
+    deps.busy?.touch?.({ rows });
     try {
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -73,7 +76,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       const json = await res.json();
       if (json.success === false) throw new ApiEnvelopeError(json.error?.message || fallback);
       return json;
-    } finally { deps.busy?.touch(); } // and so is one finishing
+    } finally { deps.busy?.touch?.({ rows }); } // and so is one finishing
   };
 
   const { saveSelection, saveDimensions } = buildSaveActions(deps.refreshSummarySoon ?? refreshBankAccounts);
@@ -180,23 +183,26 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!selectedBank) { notify.error('Select a bank account first'); return; }
     setSmartRunning(true);
     notify.success('Running smart categorization...');
+    const alive = () => deps.busy?.touch?.({ key: 'apply-rules' }); // each step of a long run is activity for its hold
     try {
+      alive();
       const rulesRes = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
-      await assertOk(rulesRes, 'Could not apply the rules - try again');
+      alive(); await assertOk(rulesRes, 'Could not apply the rules - try again');
       const rulesApplied = (await rulesRes.json()).data?.applied ?? 0;
       let smartCategorized = 0, totalSkipped = 0, smartFailed = false;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
+        alive();
         const smartRes = await apiFetch('/api/accounting/smart-categorize', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ action: 'categorize', bankAccountId: selectedBank }),
           signal: controller.signal,
         });
-        clearTimeout(timeout); await assertOk(smartRes, 'Smart categorisation could not run - try again');
+        clearTimeout(timeout); alive(); await assertOk(smartRes, 'Smart categorisation could not run - try again');
         const smartJson = await smartRes.json();
         smartCategorized = smartJson.data?.categorized ?? 0;
         totalSkipped = smartJson.data?.skipped ?? 0;
@@ -228,11 +234,12 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleDownloadReport = async (bankAccountCode: string | undefined) => {
     if (!selectedBank) return;
     try {
-      const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
-      await assertOk(res, 'Could not build the reconciliation report - try again');
-      const json = await res.json();
+      const report = await fetchReconReport(selectedBank);
+      if (report.matchedTotal !== undefined || report.unmatchedTotal !== undefined) {
+        notify.warning('The report is very long and lists only its first lines', 'The PDF says how many of how many it lists.');
+      }
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
-      const blob = await generateReconReport(json.data || json);
+      const blob = await generateReconReport(report);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `recon-report-${bankAccountCode || 'bank'}.pdf`;

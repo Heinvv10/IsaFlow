@@ -2,6 +2,7 @@
 
 import { fmtCents } from './bankCents';
 import { ToCodeLine } from './ToCodeLine';
+import { MiddleTruncate } from './MiddleTruncate';
 import type { BankAccountSummary } from './useBankTxSummary';
 
 export function BankPrimaryCard({ b, active, onSelect }: { b: BankAccountSummary; active: boolean; onSelect: () => void }) {
@@ -10,6 +11,7 @@ export function BankPrimaryCard({ b, active, onSelect }: { b: BankAccountSummary
       data-testid="bank-account-card"
       onClick={onSelect}
       title={b.accountName}
+      aria-current={active ? 'true' : undefined}
       className={`h-full w-[280px] shrink-0 flex items-stretch gap-3 px-4 py-2.5 rounded-lg border-2 transition-all text-left ${
         active
           ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
@@ -19,9 +21,8 @@ export function BankPrimaryCard({ b, active, onSelect }: { b: BankAccountSummary
       <div className={`w-2 rounded-full shrink-0 ${active ? 'bg-teal-500' : 'bg-[var(--ff-border-light)]'}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className={`line-clamp-2 text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
-            {b.accountName}
-          </p>
+          <MiddleTruncate name={b.accountName} testId="card-name"
+            className={`text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`} />
           {!b.isActive && (
             <span data-testid="card-inactive-chip"
               className="shrink-0 rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--ff-text-secondary)]">

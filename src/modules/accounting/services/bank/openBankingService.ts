@@ -20,7 +20,7 @@ export {
   getBankFeedSyncLogs,
 } from './openBankingConnectionService';
 
-export { syncBankFeed, BankFeedProviderNotImplementedError } from './openBankingSyncService';
+export { syncBankFeed, BankFeedProviderNotImplementedError, BankFeedConnectionNotFoundError } from './openBankingSyncService';
 
 export type {
   SupportedProvider,
