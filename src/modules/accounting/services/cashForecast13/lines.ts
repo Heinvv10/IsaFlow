@@ -36,8 +36,11 @@ export function foldItems(items: readonly KnownItem[], kind: LineKind, today: st
     let line = byKey.get(it.lineKey);
     if (!line) {
       line = { key: it.lineKey, label: it.lineLabel, category: it.category, kind, weekly: emptyWeekly(), totalCents: 0, flags: [], items: [] };
-      if (it.basis) line.basis = it.basis;
       byKey.set(it.lineKey, line);
+    }
+    if (it.basis) {
+      line.basisCents ??= { due: 0, history: 0, no_history: 0 };
+      line.basisCents[it.basis] += it.amountCents;
     }
     line.weekly[w] = (line.weekly[w] as number) + it.amountCents;
     line.totalCents += it.amountCents;
