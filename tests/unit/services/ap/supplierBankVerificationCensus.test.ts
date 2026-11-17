@@ -159,6 +159,10 @@ const BANK_HASH_EXCEPTIONS: Record<string, { why: string; sites: readonly RegExp
       /^return sha\(\[approvalDigest, pick\(model\.invoice, INVOICE_FIELDS\), model\.items\]\);$/,
     ],
   },
+  'src/modules/accounting/services/payroll/payrollBankFileJudge.ts': {
+    why: 'names an earlier bank file by its recorded sha256 in a refusal (review #1524 BRK-4); it hashes nothing, so it pins no site',
+    sites: [],
+  },
 };
 
 describe('the database guard ranks on the same ladder', () => {
