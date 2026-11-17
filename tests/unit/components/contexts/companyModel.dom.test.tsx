@@ -52,11 +52,11 @@ describe('mapCompanyRow', () => {
 describe('mapCompanyUsers', () => {
   it('reads both casings and coerces isDefault', () => {
     expect(mapCompanyUsers([
-      { company_id: 'c1', company_name: 'One', role: 'owner', is_default: true, is_demo: false },
+      { company_id: 'c1', company_name: 'One', role: 'owner', is_default: true, is_demo: false, has_logo: true },
       { companyId: 'c2', companyName: 'Two', role: 'viewer' },
     ])).toEqual([
-      { companyId: 'c1', companyName: 'One', role: 'owner', isDefault: true, isDemo: false },
-      { companyId: 'c2', companyName: 'Two', role: 'viewer', isDefault: false, isDemo: false },
+      { companyId: 'c1', companyName: 'One', role: 'owner', isDefault: true, isDemo: false, hasLogo: true },
+      { companyId: 'c2', companyName: 'Two', role: 'viewer', isDefault: false, isDemo: false, hasLogo: false },
     ]);
   });
 
