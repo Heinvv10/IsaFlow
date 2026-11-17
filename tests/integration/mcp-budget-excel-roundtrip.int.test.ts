@@ -77,7 +77,7 @@ describe('template → full year → import → get_budget → budget_variance',
     }
   });
 
-  it('json, cc1 grain, two members per account: every account, member and month ties in get_budget and in budget_variance per member', async () => {
+  it('json, cc1 grain, two members per account: every account, member and month ties in get_budget and in budget_variance per member, every month', async () => {
     const v = await fx.version(w);
     const other = String((await pool.query(`INSERT INTO cost_centres (company_id, code, name, cc_type) VALUES ($1, 'GS-CCX', 'GS-CCX', 'cc1') RETURNING id`, [w.u.homeCompanyId])).rows[0].id);
     const members = [w.cc1, other];
@@ -90,9 +90,10 @@ describe('template → full year → import → get_budget → budget_variance',
     for (const [id, code] of [[w.cc1, 'GS-C1'], [other, 'GS-CCX']] as const) {
       const year = await varianceOf(pool, w.u, v, w.months[0]!, w.months[11]!, { cc1_id: id });
       for (const r of rows.filter((x) => x.dimension === code)) expect(year.rows.get(r.account), `${r.account}/${code}`).toBe(sum(want.get(`${r.account}|${code}`)!));
-      const m = w.months[5]!;
-      const month = await varianceOf(pool, w.u, v, m, m, { cc1_id: id });
-      for (const r of rows.filter((x) => x.dimension === code)) expect(month.rows.get(r.account), `${r.account}/${code} ${m}`).toBe(want.get(`${r.account}|${code}`)!.get(m));
+      for (const m of w.months) {
+        const month = await varianceOf(pool, w.u, v, m, m, { cc1_id: id });
+        for (const r of rows.filter((x) => x.dimension === code)) expect(month.rows.get(r.account), `${r.account}/${code} ${m}`).toBe(want.get(`${r.account}|${code}`)!.get(m));
+      }
     }
   });
 });

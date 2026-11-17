@@ -5,7 +5,8 @@
  * restore_budget_version undoes it; an .xlsx downloaded before a colleague's save keeps that save (3-way) and
  * lists the conflict; so does the JSON grid, whose rows carry their signed base (review round 1, HIGH: rows read on
  * pages at different tokens, or sent with a later import's reply token, reverted a colleague's save); a stale
- * version_token refuses the live call; an .xlsx without _base is refused; inside one transaction only the
+ * version_token refuses the live call; a template with _meta but no _base is refused as tampered (a workbook with neither
+ * is a free-form sheet: mcp-budget-excel-freeform); inside one transaction only the
  * plan_hash can tell the dry run's plan from the live one. Rows, holders, locks: mcp-budget-excel-rows.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -114,7 +115,8 @@ describe('a version saved since the rows were read keeps that save', () => {
     const { rows } = await gridRows(pool, w.u, v);
     expect((await fx.call(w.u, { versionId: v, expectedUpdatedAt: await fx.token(v), cells: [{ glAccountId: w.rent, month: w.months[0]!, amount: 999 }] })).status).toBe(200);
     const sales = rows.filter((r) => r.account === 'GS-4000').map((r) => ({ ...r, months: { ...r.months, [w.months[4]!]: '300.00' } }));
-    const first = body(await imp(w.u, { version_id: v, rows: sales }));
+    const fdry = body(await imp(w.u, { version_id: v, rows: sales, dry_run: true }));
+    const first = body(await imp(w.u, { version_id: v, rows: sales, plan_hash: fdry.plan_hash }));
     setMonth(rows, 'GS-4000', w.months[4]!, '300.00');
     setMonth(rows, 'GS-4000', w.months[5]!, '50.00');
     setMonth(rows, 'BR-5000', w.months[1]!, '20.00');
@@ -129,13 +131,14 @@ describe('a version saved since the rows were read keeps that save', () => {
     expect(c.conflicts).toEqual([{ account: 'BR-5000', dimension: null, month: w.months[0], downloaded: '10.00', current: '999.00', after: '12.00' }]);
   });
 
-  it('an .xlsx without its _base sheet is refused, even one of this version\'s templates; nothing is written', async () => {
+  it('a template whose _base sheet was removed (its _meta kept) is refused as tampered; nothing is written', async () => {
     const v = await fx.version(w);
     const t = body(await mcp(pool, w.u, 'get_budget_template', { version_id: v, format: 'xlsx' }));
     const file = await editXlsx(String(t.file_base64), (ws) => { ws.set('BR-5000', w.months[0]!, 1); ws.sheet.workbook.removeWorksheet('_base'); });
     const before = await state(v);
-    expect(text(await imp(w.u, { version_id: v, file_base64: file, dry_run: true }))).toMatch(/^This workbook has no _base sheet/);
-    expect(text(await imp(w.u, { version_id: v, file_base64: file }))).toMatch(/^This workbook has no _base sheet/);
+    const tampered = /^This template's hidden _base or _meta sheet was changed, .*it has _meta but no _base/;
+    expect(text(await imp(w.u, { version_id: v, file_base64: file, dry_run: true }))).toMatch(tampered);
+    expect(text(await imp(w.u, { version_id: v, file_base64: file, version_token: await fx.token(v) }))).toMatch(tampered);
     expect(await state(v)).toEqual(before);
   });
 });

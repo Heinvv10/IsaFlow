@@ -101,12 +101,12 @@ describe('who may import what', () => {
     expect(await fx.cells(v)).toEqual([`${w.rent}|${w.cc1}|||${w.months[0]}=9.00`]);
   });
 
-  it('a locked version is refused by the grid save (dry run and live); a viewer is fenced before the handler', async () => {
+  it('a locked version is refused by the grid save in the dry run, so no live call can carry a plan_hash; a viewer is fenced before the handler', async () => {
     const v = await fx.version(w, { status: 'locked' });
     const { rows } = await gridRows(pool, w.u, v);
     setMonth(rows, 'BR-5000', w.months[0]!, '9.00');
     expect(text(await imp(w.u, { version_id: v, rows, dry_run: true }))).toMatch(/would be refused: .*locked/i);
-    expect(text(await imp(w.u, { version_id: v, rows }))).toMatch(/locked/i);
+    expect(text(await imp(w.u, { version_id: v, rows }))).toMatch(/plan_hash is required/); // no dry run passed, so there is none
     const open = await fx.version(w);
     const g = await gridRows(pool, w.u, open);
     setMonth(g.rows, 'BR-5000', w.months[0]!, '9.00');
