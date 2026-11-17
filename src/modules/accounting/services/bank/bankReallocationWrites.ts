@@ -75,7 +75,7 @@ export async function restoreReconciled(
   const rows = (await sql`
     UPDATE bank_transactions
     SET status = 'reconciled', reviewed_at = ${reviewed.at ?? null}::TIMESTAMPTZ, linked_po_id = NULL,
-        reviewed_by = ${reviewed.by == null ? null : String(reviewed.by)}::UUID, auto_post_run_id = NULL,
+        reviewed_by = ${reviewed.by == null ? null : String(reviewed.by)}::UUID, auto_post_run_id = NULL, auto_post_journal_id = NULL,
         updated_at = NOW()
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
       AND reconciliation_id = ${reconciliationId}::UUID AND matched_journal_line_id = ${newLineId}::UUID

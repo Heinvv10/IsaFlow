@@ -53,8 +53,9 @@ async function insertRun(
   opts: { year?: number; companyId?: string; employeeId?: string } = {},
 ) {
   await pool.query(
-    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye)
-     VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    // An approved/paid run carries its approval time, as approvePayrollRun leaves it (declared runs are final, wave 6 EF).
+    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,total_gross,total_paye,approved_at)
+     VALUES($1,$2,$3,$4,$5::text,$6,$7,CASE WHEN $5::text IN ('approved','paid') THEN clock_timestamp() END)`,
     [id, opts.companyId ?? company, month, opts.year ?? 2025, status, gross, paye],
   );
   await pool.query(

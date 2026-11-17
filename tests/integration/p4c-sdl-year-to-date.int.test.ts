@@ -79,7 +79,7 @@ async function payYear(name: string, months: Month[]): Promise<StoredLine[]> {
       `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'draft')`,
       [run, company, m.month]);
     await calculatePayrollRun(run, company);
-    await pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [run]);
+    await pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [run]);
     const row = (await pool.query(
       `SELECT sdl::float8 AS sdl, sdl_applicable::float8 AS "sdlApplicable", sdl_leviable::float8 AS "sdlLeviable",
               sdl_exempt AS "sdlExempt", retirement_deduction::float8 AS "retirementDeduction"
@@ -130,7 +130,8 @@ describe('lines from before migration 957 (the columns NULL)', () => {
       componentId, componentName: code, sarsSourceCode: code, amount, isTaxable: true, isUifApplicable: false, ...extra });
     const line = async (month: number, status: string, cols: Record<string, unknown>, breakdown: unknown[]): Promise<void> => {
       const run = (await pool.query(
-        `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, $2, $3) RETURNING id`,
+        `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at)
+         VALUES ($1, 2026, $2, $3::text, CASE WHEN $3::text IN ('approved', 'paid') THEN clock_timestamp() END) RETURNING id`,
         [f.company, month, status])).rows[0]!.id;
       await pool.query(
         `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay,

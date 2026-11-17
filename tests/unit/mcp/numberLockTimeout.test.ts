@@ -21,7 +21,7 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/mcp/tools/allocationLine', () => ({ postAllocationLine: vi.fn() }));
 vi.mock('@/lib/mcp/tools/allocationVatGuard', async (orig) => ({
-  ...(await orig<object>()), prefetchAllocationVatFacts: vi.fn(async () => new Map()),
+  ...(await orig<object>()), prefetchAllocationVatFacts: vi.fn(async () => ({ denied: new Map(), names: new Map(), isBank: new Map() })),
 }));
 
 import { postAllocationLine } from '@/lib/mcp/tools/allocationLine';

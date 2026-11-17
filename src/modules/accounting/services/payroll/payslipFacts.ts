@@ -75,5 +75,7 @@ export function particulars(run: PayslipRun, slip: Payslip, periodLabel: string)
   facts.push(['Ordinary hours', ordinaryHours(slip)]);
   if (rate) facts.push(['Rate of pay', rate]);
   facts.push(['Overtime hours', overtimeHours(slip)]);
+  // Wave 6 PS3: a final run with no snapshot of its approval (approved before PS3, or by an older release) prints live details.
+  if (run.final && run.detailsAsAt === 'download') facts.push(['Details', 'as at download, not frozen at approval']);
   return facts;
 }

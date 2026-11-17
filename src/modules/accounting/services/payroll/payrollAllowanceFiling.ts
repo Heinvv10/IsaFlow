@@ -13,7 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { contractorLineFlag } from './payrollOutsideTables';
 
@@ -35,7 +35,6 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 export async function listRunAllowanceFiling(
   companyId: string, bounds: { start: string; end: string }, employeeId: string | null = null,
 ): Promise<Map<string, AllowanceFiling>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT l.employee_id,
       COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3701' AND item->>'isNonCash' IS DISTINCT FROM 'true'), 0)::numeric AS cash_3701,
@@ -55,7 +54,7 @@ export async function listRunAllowanceFiling(
       FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array' THEN l.component_breakdown ELSE '[]'::jsonb END) AS i
     ) c
     WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND c.code IN ('3701', '3802')

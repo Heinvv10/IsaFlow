@@ -13,7 +13,9 @@
 // users_self_read hides every other user's row, so the auto-add path is
 // reachable only outside it.
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+// createInvitation looks the address up in GoTrue first (R7-1 pin); this suite has no GoTrue: no account holds it.
+vi.mock('@/lib/auth/gotrue', async (orig) => ({ ...(await orig<Record<string, unknown>>()), findUserByEmail: vi.fn(async () => null) }));
 import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';

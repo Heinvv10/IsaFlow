@@ -11,7 +11,7 @@ import { rollbackFailed } from '@/lib/rollbackFailed';
 import { issueInviteSession } from '@/lib/auth/inviteAcceptSession';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import {
-  accountHasVerifiedFactor, isEstablishedAccount, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount,
+  accountHasVerifiedFactor, invitationAccountRole, isEstablishedAccount, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount,
 } from '@/lib/auth/inviteAccount';
 import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 
@@ -54,7 +54,7 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
-  // 1. Look up invitation (RLS invites_by_token). gotrue_user_id is NULL on Settings -> User Access invitations.
+  // 1. Look up invitation (RLS invites_by_token). gotrue_user_id is NULL when no account held the address at send time.
   const rows = await sql<{
     id: string; email: string; role: string; company_id: string; gotrue_user_id: string | null;
   }>`
@@ -125,7 +125,15 @@ const handler: NextApiHandler = async (req, res) => {
     //    (src/lib/auth/gotrue.ts), so setting a password here would let whoever
     //    holds the invite link replace the credentials of that person's login
     //    for a company they were never invited to.
-    const isEstablished = await isEstablishedAccount(client, accountId);
+    // And a password is SET only on an account still holding the address that nobody has ever signed in to: one an
+    // invitation created, or one never even confirmed (invitationAccountRole). A pin may name an account that
+    // already held the address (R7-1); one that has signed in, or a confirmed one, proves itself by its own password.
+    const role = await invitationAccountRole(inv, accountId);
+    if (role === 'mismatch') {
+      log.error('invite accept identity mismatch', { inviteId: inv.id, companyId: inv.company_id }, 'auth');
+      return res.status(409).json({ success: false, error: { code: 'IDENTITY_MISMATCH', message: 'Invitation does not match this account' } });
+    }
+    const isEstablished = role === 'sign-in' || await isEstablishedAccount(client, accountId);
 
     if (!isEstablished) {
       // An account without a `users` row may still carry a second factor (even
