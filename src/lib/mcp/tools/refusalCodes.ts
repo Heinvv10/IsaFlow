@@ -5,6 +5,7 @@
  */
 import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
 import { PAYROLL_REFUSAL_CODES } from './payrollRefusalCodes';
+import { BUDGET_REFUSAL_CODES } from './budgetRefusalCodes';
 
 /**
  * The codes this codebase's own refusal classes carry — the complete set of
@@ -172,6 +173,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_CLIENT_HAS_ENTRIES',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
+  // bank/liveBankLineReversal: a journal a live statement line is still allocated / matched to, reversed from the
+  // journal screens, MCP reverse_journal_entry, soft delete or another internal reversal. Names the caller's own line
+  // (date, amount, description) and the Bank Transactions undo; raised before any write.
+  'JOURNAL_HAS_LIVE_BANK_LINE',
   // A payroll line's due loan instalments exceed its available pay. Names only the employee and their loans;
   // the payment is refused before any loan balance changes, with a manual-review remedy.
   'LOAN_INSTALMENT_EXCEEDS_PAY',
@@ -265,6 +270,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_REFUSED',
   ...SYSTEM_ROLE_REFUSAL_CODES,
   ...PAYROLL_REFUSAL_CODES,
+  ...BUDGET_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',

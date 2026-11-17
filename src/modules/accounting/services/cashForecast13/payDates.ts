@@ -1,7 +1,7 @@
 /**
  * The company's pay dates inside the horizon (ruling 2026-11-16): monthly on the pay day, moved back to
  * Friday when it falls on a weekend (backToFriday, the SARS calendar's rule). A pay day past a short month's
- * end is that month's last day first. The pay day setting arrives with PR 2; until then the reader passes 25.
+ * end is that month's last day first. The pay day is the company's stored setting (payDaySetting), 25 when none is chosen.
  * Pure.
  */
 import { backToFriday, lastDayOf } from '@/modules/bureau/services/vatPeriodHelper';

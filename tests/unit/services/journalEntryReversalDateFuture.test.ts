@@ -31,6 +31,8 @@ vi.mock('@/lib/neon', () => {
   });
   return {
     sql: sqlMock,
+    // The reversal's claim and its refusals run in one savepoint (#1518): run the body straight through here.
+    withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
     withTransaction: vi.fn(),
     // The real fmtDate: local calendar getters, strings passed through.
     fmtDate: (val: unknown) => {

@@ -21,7 +21,7 @@
 - API handlers: `withAuth(withErrorHandler(handler as any))` (legacy `withCompany` is removed).
 - Customer invoices: use `COALESCE(ci.client_id, ci.customer_id)` for joins.
 - pg returns `Date` objects from timestamp columns — handle both `Date` and `string` shapes.
-- Migrations: next unused 3-digit prefix, `IF NOT EXISTS` on every `CREATE`.
+- Migrations: next unused numeric prefix (`1000_` follows `999_`), `IF NOT EXISTS` on every `CREATE`.
 - No stub implementations to satisfy a typecheck — build the real thing.
 
 ## API Conventions

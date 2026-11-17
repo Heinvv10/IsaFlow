@@ -16,12 +16,11 @@
  * bulk classifier (a skip, so its dry run agrees), and the bank-rule sweep
  * (bankRuleAutoPostLine: a counted approval_required skip).
  */
-import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ApprovalRequiredError } from '../gl/approvalGate';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
-import { isEnforced } from '../gl/approvalEnforcement';
+import { handKeyedLineSkips } from './bankLineHandKeyedSkips';
 
 /** The refusal for posting `amount` from a HAND-KEYED line to GL accounts, or null (not enforced, or no rule matches). */
 export function handKeyedLineJournalRefusal(companyId: string, amount: number): Promise<ApprovalRequiredError | null> {
@@ -44,19 +43,7 @@ export async function assertBankLineMayPostToAccounts(companyId: string, line: D
  * Empty, after one read of approval_enforcement, while manual journals are
  * not enforced.
  */
-export async function handKeyedAccountLineSkips(companyId: string,
+export function handKeyedAccountLineSkips(companyId: string,
   lines: readonly { txId: string; amount: number }[]): Promise<Map<string, string>> {
-  const skips = new Map<string, string>();
-  if (lines.length === 0 || !(await isEnforced(companyId, 'manual_journal'))) return skips;
-  const rows = (await sql`
-    SELECT id, bank_feed_connection_id, import_batch_id FROM bank_transactions
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${lines.map((l) => l.txId)}::UUID[])
-  `) as DbRow[];
-  const handKeyed = new Set(rows.filter((r) => !isBankEvidenced(r)).map((r) => String(r.id)));
-  for (const line of lines) {
-    if (!handKeyed.has(line.txId)) continue;
-    const refusal = await handKeyedLineJournalRefusal(companyId, line.amount);
-    if (refusal) skips.set(line.txId, `approval_required: ${refusal.message}`);
-  }
-  return skips;
+  return handKeyedLineSkips(companyId, lines, handKeyedLineJournalRefusal);
 }

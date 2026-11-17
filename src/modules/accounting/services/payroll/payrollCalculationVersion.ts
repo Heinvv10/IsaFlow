@@ -17,5 +17,6 @@
  * 10: an employer's 3817 / 3825 / 3828 fund contribution is non-cash and deemed paid into s11F, UIF and SDL levied on it (a pre-RF
  *    assignment stays cash, migration 975); percent_of_rfi rows are costed on RFI (RF). Master's value + 1 at RF's rebase (DR may take it).
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
+ * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
  */
-export const PAYROLL_CALCULATION_VERSION = 11;
+export const PAYROLL_CALCULATION_VERSION = 12;

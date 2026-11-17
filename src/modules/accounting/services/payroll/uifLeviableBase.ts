@@ -44,9 +44,12 @@ export interface UifLineBase {
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
-/** Same rounding as uifEngine.uifWithLeviable. */
+/** The pay a contribution is on: the lesser of the base and the ceiling, never below nil (as uifEngine.uifWithLeviable). */
+const leviableOn = (base: number): number => Math.max(0, Math.min(base, UIF_MONTHLY_CEILING));
+
+/** Same floor and rounding as uifEngine.uifWithLeviable. */
 function contributionOn(leviable: number): number {
-  return Math.round(Math.min(leviable, UIF_MONTHLY_CEILING) * 0.01 * 100) / 100;
+  return Math.round(leviableOn(leviable) * 0.01 * 100) / 100;
 }
 
 function isBreakdownItem(v: unknown): v is BreakdownItem {
@@ -117,12 +120,15 @@ export function uifLineBase(
 ): UifLineBase {
   if (rebuiltLeviable !== null && contributionOn(rebuiltLeviable) === employeeContribution) {
     return {
-      leviableSalary: r2(Math.min(rebuiltLeviable, UIF_MONTHLY_CEILING)),
+      leviableSalary: r2(leviableOn(rebuiltLeviable)),
       isCapped: rebuiltLeviable > UIF_MONTHLY_CEILING,
       exact: true,
     };
   }
-  if (employeeContribution <= 0) return { leviableSalary: grossPay, isCapped: false, exact: false };
+  // A contribution stored below nil (costed before UF floored it) says nothing reliable about the base: show nil.
+  if (employeeContribution < 0) return { leviableSalary: 0, isCapped: false, exact: false };
+  // Floored as the engine floors: a clawback line shows nil, not a negative base.
+  if (employeeContribution === 0) return { leviableSalary: Math.max(0, grossPay), isCapped: false, exact: false };
   // Capped = the contribution reached the ceiling's and gross is above the ceiling. Leviable pay in
   // (R17 711.50, R17 712] on a line above the ceiling through non-UIF earnings reads as capped here.
   if (employeeContribution >= UIF_CEILING_CONTRIBUTION && grossPay > UIF_MONTHLY_CEILING) {

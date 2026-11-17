@@ -28,6 +28,7 @@ import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/cre
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -101,6 +102,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
     if (respondIfImpersonationForbidden(res, err)) return;
     // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
     if (respondIfApprovalRequired(res, err)) return;

@@ -85,6 +85,7 @@ export function mapTxRow(row: Row): BankTransaction {
     link: bankTxLinkOf(row),
     // Absent (not 0) from queries that do not select it: unknown must not read as "no files".
     attachmentCount: row.attachment_count != null ? Number(row.attachment_count) : undefined,
+    queried: row.has_open_query === true ? true : undefined,
   };
 }
 

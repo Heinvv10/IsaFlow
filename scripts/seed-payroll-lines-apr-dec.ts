@@ -1,5 +1,6 @@
 /**
- * Seed missing payroll_run_lines for Apr-Dec 2026 on the ISAFlow demo company.
+ * Seed missing payroll_run_lines for the completed months of the current tax year
+ * (March to last month, never the current or a later month) on the IsaFlow Demo company.
  *
  * Context: an earlier simulator created payroll_run_headers for months 4-12 with
  * artificial totals but zero per-employee lines. UIF declarations therefore show
@@ -12,7 +13,9 @@
  *
  * Run:
  *   export $(grep -E '^(MIGRATION_ADMIN_DATABASE_URL|DATABASE_URL)=' .env.local | xargs)
- *   bunx tsx scripts/seed-payroll-lines-apr-dec.ts
+ *   bunx tsx scripts/seed-payroll-lines-apr-dec.ts --company 00000000-0000-0000-0000-000000000001
+ *
+ * Refuses any company but the Demo company, and refuses to run without --company.
  *
  * Uses MIGRATION_ADMIN_DATABASE_URL (BYPASSRLS) for reset queries.
  * Services use the same DATABASE_URL env var via @/lib/neon.
@@ -23,13 +26,26 @@ import { withAlsTransaction } from '../src/lib/alsTransaction';
 import { calculatePayrollRun } from '../src/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun }   from '../src/modules/accounting/services/payroll/payrollApprovalService';
 import { ApprovalRequiredError } from '../src/modules/accounting/services/gl/approvalGate';
+import { demoCompanyOrExit } from './lib/demoReseed/cli';
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
-const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
+const COMPANY_ID = demoCompanyOrExit(process.argv.slice(2));
 const ADMIN_ID   = 'a0000000-0000-0000-0000-000000000001';
-const YEAR       = 2026;
-const MONTHS     = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
+/** The completed months of the current tax year (March to last month): never the current or a future month. */
+function completedTaxYearMonths(): Array<{ year: number; month: number }> {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const startYear = last.getMonth() + 1 >= 3 ? last.getFullYear() : last.getFullYear() - 1;
+  const out: Array<{ year: number; month: number }> = [];
+  for (let d = new Date(startYear, 2, 1); d <= last; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    out.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+  }
+  return out;
+}
+const PERIODS = completedTaxYearMonths();
+
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +80,7 @@ interface VerifyRow {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-async function findHeader(month: number): Promise<HeaderRow | null> {
+async function findHeader(year: number, month: number): Promise<HeaderRow | null> {
   const rows = await sql.query<HeaderRow>(
     `SELECT id, status, journal_entry_id, period_month
      FROM payroll_run_headers
@@ -72,7 +88,7 @@ async function findHeader(month: number): Promise<HeaderRow | null> {
        AND period_year  = $2
        AND period_month = $3
      LIMIT 1`,
-    [COMPANY_ID, YEAR, month],
+    [COMPANY_ID, year, month],
   );
   return rows[0] ?? null;
 }
@@ -110,8 +126,8 @@ async function resetHeader(runId: string, journalEntryId: string | null): Promis
   );
   if (journalEntryId) {
     await sql.query(
-      `DELETE FROM gl_journal_lines WHERE journal_entry_id = $1`,
-      [journalEntryId],
+      `DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND company_id = $2`,
+      [journalEntryId, COMPANY_ID],
     );
     await sql.query(
       `DELETE FROM gl_journal_entries
@@ -131,8 +147,8 @@ async function resetHeader(runId: string, journalEntryId: string | null): Promis
 async function main(): Promise<void> {
   console.log(`\n=== seed-payroll-lines-apr-dec (company ${COMPANY_ID}) ===\n`);
 
-  for (const month of MONTHS) {
-    const header = await findHeader(month);
+  for (const { year, month } of PERIODS) {
+    const header = await findHeader(year, month);
 
     if (!header) {
       console.log(`month=${month}: no run header found — skipping`);
@@ -202,7 +218,7 @@ async function main(): Promise<void> {
 
   // ── Verification ────────────────────────────────────────────────────────────
 
-  console.log('\n=== Verification: payroll_run_headers for 2026 ===');
+  console.log('\n=== Verification: payroll_run_headers for the completed tax-year months ===');
 
   const verify = await sql.query<VerifyRow>(
     `SELECT
@@ -214,9 +230,9 @@ async function main(): Promise<void> {
        (journal_entry_id IS NOT NULL) AS posted
      FROM payroll_run_headers
      WHERE company_id = $1
-       AND period_year = $2
-     ORDER BY period_month`,
-    [COMPANY_ID, YEAR],
+       AND period_year * 12 + period_month = ANY($2::int[])
+     ORDER BY period_year, period_month`,
+    [COMPANY_ID, PERIODS.map((p) => p.year * 12 + p.month)],
   );
 
   console.log('month | employees | gross        | uif       | net          | posted');

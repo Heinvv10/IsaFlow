@@ -47,7 +47,7 @@ export function arItems(
     if (amount <= 0) continue;
     const { date, basis } = expected(inv, daysLate.get(inv.customerId), today);
     items.push({
-      lineKey: `ar:${inv.customerId}:${basis}`, lineLabel: inv.customerName, category: 'customer_receipts', entityId: inv.customerId,
+      lineKey: `ar:${inv.customerId}`, lineLabel: inv.customerName, category: 'customer_receipts', entityId: inv.customerId,
       date, amountCents: amount, ref: inv.id, refLabel: inv.invoiceNumber, basis,
       ...(basis === 'no_history' ? { flags: ['no_history'] } : {}),
     });

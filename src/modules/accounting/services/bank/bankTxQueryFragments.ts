@@ -174,6 +174,9 @@ export const TX_SELECT = `
     -- The grid highlights the paperclip of a line with supporting documents (./bankLineDocumentSql, the one definition).
     -- Index probes per row: idx_bta_tx, idx_captured_documents_matched_bt.
     ${attachmentCountSql('bt')} AS attachment_count,
+    -- A client query about this line is open (sent, awaiting or holding a reply): the row's Ask-client button is marked.
+    EXISTS (SELECT 1 FROM bank_tx_queries q WHERE q.bank_transaction_id = bt.id AND q.company_id = bt.company_id
+              AND q.status IN ('sent', 'replied')) AS has_open_query,
     bt.linked_asset_id, bt.linked_fleet_fuel_id, bt.linked_fleet_service_id,
     lnk_a.id AS link_asset_id, lnk_a.name AS link_asset_name,
     lnk_f.fill_date AS link_fill_date, lnk_f.amount AS link_fuel_amount,
