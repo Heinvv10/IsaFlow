@@ -5,7 +5,7 @@
  *  - n and P: run k's year to date holds runs 1..k-1 (pay order, payrollRunOrder; spec F2);
  *  - once-offs keyed by run: a once-off dated in week 1 is paid by week 1 only, one in week 3 by week 3 only;
  *  - UIF on the month to date (UIC Act s6(1)(a); ceiling R17 712): R6 000 a week levies 60, 60, 57.12, 0;
- *  - ETI on the month's last run (SARS ETI guide s2.4): weeks 1-3 nil with ETI_MONTH_PENDING, week 4 on June's pay;
+ *  - ETI on the month's last run (SARS PAYE-GEN-01-G05 Rev 17 s9): weeks 1-3 nil with ETI_MONTH_PENDING, week 4 on June's pay;
  *  - EMP201 for June sums the four runs; the other tenant's runs, interleaved, are never in it;
  *  - the refusals: a loan on a weekly employee, a run outside its pay date's month, a mid-year frequency change;
  *  - PAYE_LATER_PERIODS_APPROVED names the later RUN, and the gate clears on it (review #1507 B2b);

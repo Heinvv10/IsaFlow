@@ -50,7 +50,7 @@ export interface LineCadence {
   periodEnd: string;
   /**
    * UIF-leviable remuneration on this employee's earlier final runs paid in the same month: the ceiling is on the
-   * remuneration paid "during any month" (UIC Act s6(1)(a); Notice 475, GG 44641, 28 May 2021).
+   * remuneration paid "during any month" (UIC Act 4 of 2002 s6(1)(a) and s6(2)).
    */
   uifMonthToDate: number;
   /** Null: a later run of this frequency is paid in the same month, so ETI waits (ETI_MONTH_PENDING). Else: this run

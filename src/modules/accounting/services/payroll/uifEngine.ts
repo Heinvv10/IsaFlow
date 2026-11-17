@@ -12,10 +12,11 @@ export const UIF_RATE = 0.01;
  * month over-declared is corrected through that month (refunds: s8(3), s7(5)); the line warns (uifClawbackWarning).
  *
  * `monthToDate` (wave 6 FQc): the UIF remuneration the employee's earlier runs paid in the same month (a weekly or
- * fortnightly employee's). The ceiling is on remuneration "paid or payable ... during any month" (s6(1)(a)(i)), and
- * the Minister's notice limits it to "so much of the remuneration paid or payable by an employer to an employee
- * during any month, as exceeds R17 712" (National Treasury Notice 475, GG 44641, 28 May 2021, p. 3; coordinator
- * ruling 2026-11-16: no derived weekly ceiling). So the line levies only the room left under the month's ceiling.
+ * fortnightly employee's). UIC Act 4 of 2002 (GG 23289, 28 March 2002) s6(1)(a): one per cent "of the remuneration paid
+ * or payable to that employee by his or her employer during any month"; s6(2): subsection (1) "does not apply to so
+ * much of the remuneration paid or payable by an employer to an employee during any month as exceeds an amount
+ * determined ... by the Minister of Finance" (R17 712 a month, taxTables uifCeiling; coordinator ruling 2026-11-16:
+ * no derived weekly ceiling). So the line levies only the room left under the month's ceiling.
  */
 export function uifWithLeviable(monthlySalary: number, taxYear: number, monthToDate = 0): { uif: UifResult; leviable: number } {
   const config = getTaxYearConfig(taxYear);

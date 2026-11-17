@@ -1,16 +1,14 @@
 /**
- * ETI for weekly and fortnightly pay (wave 6 FQc). ETI is a monthly incentive on "monthly remuneration": "it is only
- * an amount of remuneration that is 'paid or is payable' to an employee in the particular month that will constitute
- * ... 'monthly remuneration', in that month ... an eligible employer is only entitled to claim the ETI in the month in
- * which the relevant remuneration ... is 'paid or payable'" (SARS Guide to the Employment Tax Incentive, Issue 5,
- * 27 July 2026, s2.4 p. 15), and the month's remuneration includes amounts paid "on a monthly, weekly, daily or hourly
- * basis" (s2.4.1 p. 18). So a weekly or fortnightly line claims nothing on its own: it records its parts
- * (ETI_MONTH_PENDING), and the month's last regular run of that frequency (by pay date; payFrequencyPeriods
- * .closesPayMonth) claims the month on the month's remuneration and hours, its own plus those parts.
- *
- * NOT FOLLOWED: Binding General Ruling (ETI) 47 Issue 2 (19 April 2023) lets an employer paying weekly or fortnightly
- * align the ETI "month" with its PAYE periods, applied consistently. IsaFlow uses the calendar month (the ruling's
- * default), so no election is needed.
+ * ETI for weekly and fortnightly pay (wave 6 FQc). ETI is a monthly incentive on "monthly remuneration" (ETI Act s7):
+ * "The age and monthly remuneration of the qualifying employee must be determined at the end of each month" (SARS
+ * PAYE-GEN-01-G05, Guide for Employers in respect of ETI, Revision 17, 19 September 2025, s9 p. 6), and code 7002 is the
+ * "Actual remuneration (as defined in the ETI Act) paid to the employee for a specified month" (same guide, s19 p. 12).
+ * So a weekly or fortnightly line claims nothing on its own: it records its parts (ETI_MONTH_PENDING), and the month's
+ * last regular run of that frequency (by pay date; payFrequencyPeriods.closesPayMonth) claims the month on the month's
+ * remuneration and hours, its own plus those parts.
+ * UNVERIFIED by FQc (not read against the document): the Guide to the ETI Issue 5 s2.4 pp. 15-18 wording that weekly
+ * and fortnightly pay counts in the month it is paid or payable, and whether a SARS ruling lets an employer align the ETI
+ * "month" with its pay weeks. IsaFlow uses the calendar month of the pay date either way, so no election is read.
  * NAMED LIMITS: the parts are read from the month's FINAL runs (a run not yet approved when the closing run is
  * calculated is not in it; the year-to-date gate refuses that approval order); a run reopened after the month closed
  * moves the month's figure only when the closing run is recalculated.
@@ -64,7 +62,8 @@ export function pendingEti(resolved: EtiResult, parts: EtiMonthParts): { eti: Et
     warnings: [{
       code: ETI_MONTH_PENDING, severity: 'info', etiMonth: parts,
       message: 'ETI is claimed for the whole month on the month\'s last weekly or fortnightly run, on all the month\'s pay '
-        + '(SARS ETI guide Issue 5 s2.4 p. 15): this run records its pay and hours for it and claims none itself.',
+        + '(SARS PAYE-GEN-01-G05 Rev 17 s9: monthly remuneration is determined at the end of each month): this run records '
+        + 'its pay and hours for it and claims none itself.',
     }],
   };
 }
