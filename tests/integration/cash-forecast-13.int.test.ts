@@ -63,8 +63,8 @@ beforeAll(async () => {
   }
   // C: a run for last month and that month's EMP201 marked filed — a completed item is not a payment to come.
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
-     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [C.id, prevMonth[0], prevMonth[1]]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl, approved_at)
+     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100, clock_timestamp())`, [C.id, prevMonth[0], prevMonth[1]]);
   // C: a weekly regular run this month, the latest run — never used as the monthly net, warned (review L3).
   const twoBack = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
   await pool.query(
@@ -114,8 +114,8 @@ beforeAll(async () => {
     `INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
      VALUES ($1, $2, 'B1', $3, $4, 'approved', 400, 0, $5) RETURNING id`, [A.id, ids.sup, day(-45), day(-15), A.user])).rows[0].id);
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
-     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [A.id, prevMonth[0], prevMonth[1]]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl, approved_at)
+     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100, clock_timestamp())`, [A.id, prevMonth[0], prevMonth[1]]);
   await pool.query(
     `INSERT INTO recurring_invoices (company_id, template_name, client_id, frequency, next_run_date, total_amount, subtotal, created_by)
      VALUES ($1, 'Retainer', $2, 'weekly', $3, 1150, 1150, $4)`, [A.id, ids.hist, day(2), A.user]);
