@@ -101,6 +101,10 @@ async function interceptSend(page: Page, employeeId: string): Promise<unknown[]>
           status: 'sent', recipient: ADDRESS, at: '2026-11-17T06:00:00.000Z', attempts: 1 },
         { employeeId: 'x', employeeNumber: 'Z24-3', employeeName: 'Slow Server', status: 'unknown',
           recipient: 'z24-slow@example.invalid', at: '2026-11-17T06:00:05.000Z', attempts: 1 },
+        { employeeId: 'y', employeeNumber: 'Z24-4', employeeName: 'Bounced One', status: 'failed',
+          recipient: 'z24-bounce1@example.invalid', at: '2026-11-17T06:00:06.000Z', attempts: 1 },
+        { employeeId: 'z', employeeNumber: 'Z24-5', employeeName: 'Bounced Two', status: 'failed',
+          recipient: 'z24-bounce2@example.invalid', at: '2026-11-17T06:00:07.000Z', attempts: 1 },
       ] }) });
       return;
     }
@@ -152,6 +156,10 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await expect(list).toContainText(ADDRESS);
   await expect(list).toContainText('May have been sent (the mail server did not confirm)');
   await expect(list.getByRole('button', { name: `Send ${EMPLOYEE.firstName} ${EMPLOYEE.lastName}'s payslip again` })).toBeVisible();
+  // Review #1542 E-S1: failed rows are retried by a plain send (Try again / Retry all failed), not a resend.
+  await expect(list.getByRole('button', { name: "Try sending Bounced One's payslip again" })).toBeVisible();
+  await expect(list.getByRole('button', { name: "Try sending Bounced Two's payslip again" })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry all failed (2)' })).toBeVisible();
   await settle(page);
   for (const width of [1568, 390]) {
     await page.setViewportSize({ width, height: 1000 });
