@@ -5,8 +5,11 @@
  * The bytes travel base64 in the args. The transport body cap is 3 MB, so the
  * file cap is the bank store's own 2 MB (base64 ~2.7 MB). Many or larger files
  * go through create_upload_urls / finalize_uploads, which carry no bytes.
- * A file already on the line (same bytes, or same stored name and size) is not
- * stored again: duplicate: true, as attach_entity_document does.
+ * A file whose exact bytes (sha256 of what the line stores) are already on the
+ * line is not stored again: it comes back duplicate: true, shaped like a fresh
+ * attachment. The same name and size with other bytes is a different file and is
+ * stored. The duplicate read runs under the same (company, line, sha256) advisory
+ * lock finalize_uploads takes, so concurrent writes of one file store it once.
  * Every refusal here — and every refusal the service returns — happens BEFORE
  * its INSERT, so returning toolError is safe; a failure after the insert
  * would be a throw, which the registry savepoint unwinds.
@@ -18,9 +21,8 @@ import {
   type AttachmentMime,
 } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { decodeUploadPayload } from '@/lib/fileMagic';
-import { findBankLineDuplicate } from '@/modules/accounting/services/core/bankLineDocumentRouting';
 import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/bankLineShaDuplicate';
-import { sha256Hex } from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import { lockUploadTarget, sha256Hex } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { pickTxSelector, resolveTxId } from './txSelectorResolve';
 
@@ -33,7 +35,7 @@ export const attachDocumentTool: McpTool = {
     'Attach a document (JPEG, PNG or PDF — a receipt, slip or invoice scan) to a bank transaction, named by transaction_id or by bank_reference (plus bank_account_id to narrow an ambiguous reference). ' +
     'content is the file as base64 (a data: URL is also accepted). Maximum 2 MB of file bytes per call. For many files, or to keep file bytes out of the tool call, use create_upload_urls then finalize_uploads instead. ' +
     'The declared mime_type is checked against the file\'s real bytes and refused on mismatch. ' +
-    'If the line already holds the same file (same bytes, or the same file name and size), nothing is stored and that attachment comes back with duplicate: true, so a sync can be re-run safely. ' +
+    'If the line already holds the same file (the same bytes, whatever its name), nothing is stored and that attachment comes back with duplicate: true, so a sync can be re-run safely; a different file with the same name and size is stored. ' +
     'Posts nothing and changes no allocation.',
   scope: 'write:bank-tx',
   write: true,
@@ -66,6 +68,10 @@ export const attachDocumentTool: McpTool = {
     if (!content) return toolError('content is required');
     const bytes = decodeUploadPayload(content);
     if (!bytes) return toolError('content is not valid base64');
+    // Before any lookup: an oversize file is refused without reading the line (or resolving a reference).
+    if (bytes.length > ATTACH_MAX_BYTES) {
+      return toolError(`File exceeds the ${ATTACH_MAX_BYTES / (1024 * 1024)} MB limit (got ${bytes.length} bytes)`);
+    }
 
     const selector = pickTxSelector(args);
     if (typeof selector === 'string') return toolError(selector);
@@ -75,18 +81,19 @@ export const attachDocumentTool: McpTool = {
     const resolved = await resolveTxId(selector, ctx.companyId);
     if ('error' in resolved) return toolError(resolved.error);
 
-    if (bytes.length > ATTACH_MAX_BYTES) {
-      return toolError(`File exceeds the ${ATTACH_MAX_BYTES / (1024 * 1024)} MB limit (got ${bytes.length} bytes)`);
-    }
-    // Duplicate checks read only rows of a line that is the company's (both finders join its company_id); a foreign
+    // The duplicate read sees only rows of a line that is the company's (the finder joins its company_id); a foreign
     // or unknown line finds nothing and the service below refuses it as Not found.
-    const sameBytes = await findBankLineShaDuplicate(ctx.companyId, resolved.id, sha256Hex(bytes));
-    const sameName = sameBytes ? null : await findBankLineDuplicate(ctx.companyId, resolved.id, fileName, bytes.length);
-    if (sameBytes || sameName) {
+    const sha256 = sha256Hex(bytes);
+    await lockUploadTarget(ctx.companyId, 'bank_transaction', resolved.id, sha256);
+    const same = await findBankLineShaDuplicate(ctx.companyId, resolved.id, sha256, bytes.length);
+    if (same) {
       return ok({
-        attachment_id: sameBytes ?? sameName!.id,
+        attachment_id: same.id,
         transaction_id: resolved.id,
-        file_name: sameName?.documentName ?? fileName,
+        file_name: same.fileName,
+        file_size: same.fileSize,
+        mime_type: same.mimeType,
+        created_at: same.createdAt,
         duplicate: true,
       });
     }

@@ -6,85 +6,93 @@
  * only its sha256 is stored. Usage: `curl -sS -T file.pdf "<url>"`.
  *
  * The body is streamed with a hard cap of the declared size, so nothing larger than the agent announced (itself within
- * the target's cap) is ever buffered. The bytes must be exactly the declared size and hash and their magic bytes must
- * match the declared mime type; a bad PUT is refused and leaves the url usable for a corrected one until it expires.
- * finalize_uploads verifies everything again before any document row is written.
+ * the target's cap) is ever buffered, and a body that stalls (no data for 30 s, or not in within 5 min) or is aborted
+ * stops the read: 400, nothing staged. The bytes must be exactly the declared size and hash, their magic bytes must
+ * match the declared mime type, and they must be a COMPLETE file of that type (uploadBytesCheck); a bad PUT is refused
+ * and leaves the url usable for a corrected one until it expires. A good PUT opens a 2-hour finalize window and is
+ * audited. finalize_uploads verifies everything again before any document row is written.
  *
- * Not a withAuth route: there is no user. The lookup and the staging write each run in their own short public-route
- * transaction on the service pool (the body is read between them, holding no connection), and the write names the
- * intent's id AND company_id. Rate-limited per IP.
+ * Not a withAuth route: there is no user. The lookup and the staging write (with its audit row) each run in their own
+ * short public-route transaction on the service pool (the body is read between them, holding no connection), and the
+ * write names the intent's id AND company_id. Rate limits: the client IP is the proxy's (cloudflared / nginx), so the
+ * buckets are a platform ceiling, one per token and one per company, never per IP. Each PUT also runs the global sweep
+ * of expired uploads.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
-import { magicBytesMatchMime } from '@/lib/fileMagic';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
+import { readUploadBody, UploadBodyError } from '@/lib/mcp/uploadBody';
+import { uploadBytesRefusal } from '@/lib/mcp/uploadBytesCheck';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import {
-  TOKEN_RE, findIntentByToken, sha256Hex, stageUploadBytes,
+  TOKEN_RE, findIntentByToken, hashUploadToken, stageUploadBytes,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 
 export const config = { api: { bodyParser: false } };
 
-class TooLarge extends Error {}
-
-/** The request body, refusing (TooLarge) as soon as it passes `cap` bytes. */
-function readCapped(req: NextApiRequest, cap: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    req.on('data', (chunk: Buffer) => {
-      total += chunk.length;
-      if (total > cap) {
-        req.removeAllListeners('data');
-        req.resume();
-        reject(new TooLarge());
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
+const WINDOW = 60;
+/** Every PUT, all companies: far above any real batch, low enough to bound a flood. */
+const GLOBAL_PER_MINUTE = 3000;
+/** One url is one file; retries after a refused body are the only repeats. */
+const TOKEN_PER_MINUTE = 20;
+/** A company's agent may PUT a 100-file batch several times a minute. */
+const COMPANY_PER_MINUTE = 600;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
-  if (!(await checkRateLimit(`mcp-upload-ip:${getClientIp(req)}`, { max: 300, windowSecs: 60 }))) {
+  if (!(await checkRateLimit('mcp-upload:all', { max: GLOBAL_PER_MINUTE, windowSecs: WINDOW }))) {
     return apiResponse.tooManyRequests(res);
   }
   const token = typeof req.query.token === 'string' ? req.query.token : '';
   if (!TOKEN_RE.test(token)) return apiResponse.notFound(res, 'Upload');
+  if (!(await checkRateLimit(`mcp-upload-token:${hashUploadToken(token).slice(0, 32)}`, { max: TOKEN_PER_MINUTE, windowSecs: WINDOW }))) {
+    return apiResponse.tooManyRequests(res);
+  }
+  await sweepExpiredUploadsQuietly();
 
   const intent = await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token));
   if (!intent) return apiResponse.notFound(res, 'Upload');
+  if (!(await checkRateLimit(`mcp-upload-company:${intent.companyId}`, { max: COMPANY_PER_MINUTE, windowSecs: WINDOW }))) {
+    return apiResponse.tooManyRequests(res);
+  }
   if (intent.status !== 'pending') return apiResponse.conflict(res, 'This upload url was already used');
   if (intent.expired) return apiResponse.conflict(res, 'This upload url has expired: create a new one');
 
+  const tooLarge = `Body is larger than the declared ${intent.declaredSize} bytes`;
   const declared = Number(req.headers['content-length'] ?? NaN);
   if (Number.isFinite(declared) && declared > intent.declaredSize) {
-    return apiResponse.error(res, ErrorCode.PAYLOAD_TOO_LARGE, `Body is larger than the declared ${intent.declaredSize} bytes`);
+    return apiResponse.error(res, ErrorCode.PAYLOAD_TOO_LARGE, tooLarge);
   }
   let bytes: Buffer;
   try {
-    bytes = await readCapped(req, intent.declaredSize);
+    bytes = await readUploadBody(req, intent.declaredSize);
   } catch (err) {
-    if (err instanceof TooLarge) {
-      return apiResponse.error(res, ErrorCode.PAYLOAD_TOO_LARGE, `Body is larger than the declared ${intent.declaredSize} bytes`);
-    }
-    throw err;
+    if (!(err instanceof UploadBodyError)) throw err;
+    if (err.stop === 'too_large') return apiResponse.error(res, ErrorCode.PAYLOAD_TOO_LARGE, tooLarge);
+    log.warn('MCP upload body not completed', { uploadId: intent.id, stop: err.stop }, 'mcp-uploads');
+    return apiResponse.badRequest(res, err.stop === 'stalled'
+      ? 'The upload stalled before the whole body arrived: nothing was staged, PUT the file again'
+      : 'The upload was interrupted before the whole body arrived: nothing was staged, PUT the file again');
   }
-  if (bytes.length !== intent.declaredSize) {
-    return apiResponse.badRequest(res, `Body is ${bytes.length} bytes; ${intent.declaredSize} were declared`);
-  }
-  if (sha256Hex(bytes) !== intent.sha256) return apiResponse.badRequest(res, 'Body does not match the declared sha256');
-  if (!magicBytesMatchMime(bytes, intent.mimeType)) {
-    return apiResponse.badRequest(res, `Body does not match the declared mime_type ${intent.mimeType}`);
-  }
+  const refusal = uploadBytesRefusal(bytes, intent);
+  if (refusal) return apiResponse.badRequest(res, `Refused: ${refusal}`);
 
-  const staged = await withPublicRouteTransaction('mcp-upload stage',
-    () => stageUploadBytes(intent.companyId, intent.id, bytes));
+  const staged = await withPublicRouteTransaction('mcp-upload stage', async () => {
+    if (!(await stageUploadBytes(intent.companyId, intent.id, bytes))) return false;
+    await logAuditOrThrow({
+      companyId: intent.companyId, userId: intent.createdBy, action: 'update', entityType: 'mcp_upload_intent',
+      entityId: intent.id, entityRef: intent.fileName.slice(0, 100),
+      changes: { fields: [], metadata: {
+        source: 'mcp upload PUT', upload_id: intent.id, status: 'uploaded', size: String(bytes.length), sha256: intent.sha256,
+        target_kind: intent.targetKind, target_id: intent.targetId, token_jti: intent.createdTokenJti ?? '',
+      } },
+    });
+    return true;
+  });
   if (!staged) return apiResponse.conflict(res, 'This upload url was already used or has expired');
   log.info('MCP upload staged', { companyId: intent.companyId, uploadId: intent.id, size: bytes.length }, 'mcp-uploads');
   return apiResponse.success(res, { upload_id: intent.id, status: 'uploaded', size: bytes.length });

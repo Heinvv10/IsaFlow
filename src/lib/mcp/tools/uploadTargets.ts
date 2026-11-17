@@ -3,10 +3,10 @@
  * on it (so neither tool stores the same document twice).
  */
 import {
-  ALLOWED_MIME_TYPES, VALID_DOCUMENT_TYPES, findActiveDuplicate, verifyEntityOwnershipTyped,
+  ALLOWED_MIME_TYPES, VALID_DOCUMENT_TYPES, verifyEntityOwnershipTyped,
 } from '@/modules/accounting/services/core/documentStorageService';
 import { ATTACHMENT_MIME_TYPES } from '@/modules/accounting/services/bank/bankTxAttachmentService';
-import { bankTxBelongsToCompany, findBankLineDuplicate } from '@/modules/accounting/services/core/bankLineDocumentRouting';
+import { bankTxBelongsToCompany } from '@/modules/accounting/services/core/bankLineDocumentRouting';
 import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/bankLineShaDuplicate';
 import { findFinalizedSameBytes, type UploadTargetKind } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import type { AccountingEntityType } from '@/types/procurement/document.types';
@@ -57,19 +57,15 @@ export async function targetBelongsToCompany(companyId: string, kind: UploadTarg
 }
 
 /**
- * The id of a document already on the target that this file duplicates: the same bytes uploaded through this flow
- * before (and still there), the same bytes on a bank line, or the same stored name and size (the rule
- * attach_entity_document uses). Null when the file is new. The caller has verified the target is the company's.
+ * The id of a document already on the target holding these exact bytes (sha256), or null when the file is new. Never
+ * by name and size: two different files can share both. A bank line hashes what it stores; an entity target has no
+ * stored hash, so it matches only bytes finalized through this flow before (and still active): a file attached to it
+ * through another route is not seen and is stored again, the safe failure. The caller has verified the target is the
+ * company's, and (to write) holds lockUploadTarget for these bytes.
  */
 export async function findExistingDocument(
-  companyId: string, kind: UploadTargetKind, targetId: string, fileName: string, size: number, sha256: string,
+  companyId: string, kind: UploadTargetKind, targetId: string, size: number, sha256: string,
 ): Promise<string | null> {
-  const viaUpload = await findFinalizedSameBytes(companyId, kind, targetId, sha256);
-  if (viaUpload) return viaUpload;
-  if (isBankKind(kind)) {
-    const sameBytes = await findBankLineShaDuplicate(companyId, targetId, sha256);
-    if (sameBytes) return sameBytes;
-    return (await findBankLineDuplicate(companyId, targetId, fileName, size))?.id ?? null;
-  }
-  return (await findActiveDuplicate(kind, targetId, fileName, size))?.id ?? null;
+  if (isBankKind(kind)) return (await findBankLineShaDuplicate(companyId, targetId, sha256, size))?.id ?? null;
+  return findFinalizedSameBytes(companyId, kind, targetId, sha256);
 }

@@ -14,23 +14,31 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/publicRouteTx', () => ({ withPublicRouteTransaction: async (_l: string, fn: () => Promise<unknown>) => fn() }));
 const limiter = vi.hoisted(() => ({ allow: true }));
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => limiter.allow), getClientIp: () => '1.2.3.4' }));
+vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsQuietly: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentStore', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/mcpUploadIntentStore')>();
   return { ...real, findIntentByToken: vi.fn(), stageUploadBytes: vi.fn() };
 });
 
-import { findIntentByToken, stageUploadBytes, type UploadIntent } from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import {
+  findIntentByToken, hashUploadToken, stageUploadBytes, type UploadIntent,
+} from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { uploadReadLimits } from '@/lib/mcp/uploadBody';
 import route from '../../../pages/api/mcp/uploads/[token]';
 
 const TOKEN = 'a'.repeat(43);
-const PDF = Buffer.from('%PDF-1.4\n%upload body\n');
+const PDF = Buffer.from('%PDF-1.4\n%upload body\n%%EOF\n');
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const COMPANY = '22222222-2222-2222-2222-222222222222';
 const intent = (over: Partial<UploadIntent> = {}): UploadIntent => ({
   id: 'up-1', companyId: COMPANY, targetKind: 'bank_transaction', targetId: 't', documentType: null,
   createdBy: 'u', createdTokenJti: 'j',
   fileName: 'slip.pdf', mimeType: 'application/pdf', declaredSize: PDF.length, sha256: sha(PDF), status: 'pending',
-  stagedBytes: null, resultDocumentId: null, resultDuplicate: null, refusal: null, expiresAt: 'x', expired: false, ...over,
+  resultDocumentId: null, resultDuplicate: null, refusal: null, expiresAt: 'x', expired: false, ...over,
 });
 
 function res() {
@@ -39,8 +47,8 @@ function res() {
     setHeader() { return r; }, getHeader() { return undefined; }, on() { return r; }, end() { return r; } };
   return r;
 }
-async function put(bytes: Buffer, over: Record<string, unknown> = {}) {
-  const req = Object.assign(Readable.from([bytes]), {
+async function put(bytes: Buffer, over: Record<string, unknown> = {}, stream?: Readable) {
+  const req = Object.assign(stream ?? Readable.from([bytes]), {
     method: 'PUT', headers: {}, socket: {}, url: `/api/mcp/uploads/${TOKEN}`, query: { token: TOKEN }, ...over,
   });
   const out = res();
@@ -61,6 +69,37 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect(r.statusCode).toBe(200);
     expect(stageUploadBytes).toHaveBeenCalledWith(COMPANY, 'up-1', PDF);
     expect(r.body).toMatchObject({ data: { upload_id: 'up-1', status: 'uploaded' } });
+    expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({
+      companyId: COMPANY, userId: 'u', action: 'update', entityType: 'mcp_upload_intent', entityId: 'up-1' });
+    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a polyglot body: right magic bytes, but not a complete file of the declared type', async () => {
+    const poly = Buffer.from('%PDF-1.4\n<html><script>alert(1)</script></html>\n');
+    vi.mocked(findIntentByToken).mockResolvedValueOnce(intent({ declaredSize: poly.length, sha256: sha(poly) }));
+    const r = await put(poly);
+    expect(r.statusCode).toBe(400);
+    expect(JSON.stringify(r.body)).toContain('complete');
+    expect(stageUploadBytes).not.toHaveBeenCalled();
+  });
+
+  it('stops reading a stalled body (400) and an aborted one (400), staging nothing', async () => {
+    const saved = { ...uploadReadLimits };
+    uploadReadLimits.idleMs = 20;
+    try {
+      const stalled = new Readable({ read() { /* never ends */ } });
+      stalled.push(PDF.subarray(0, 4));
+      const r = await put(PDF, {}, stalled);
+      expect(r.statusCode).toBe(400);
+      expect(JSON.stringify(r.body)).toContain('stalled');
+      const aborted = new Readable({ read() { /* the client goes away */ } });
+      aborted.push(PDF.subarray(0, 4));
+      setTimeout(() => aborted.destroy(), 5);
+      expect((await put(PDF, {}, aborted)).statusCode).toBe(400);
+    } finally {
+      Object.assign(uploadReadLimits, saved);
+    }
+    expect(stageUploadBytes).not.toHaveBeenCalled();
   });
 
   it('refuses a malformed or unknown token as 404 and a used or expired one as 409, staging nothing', async () => {
@@ -100,10 +139,15 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF)).statusCode).toBe(409);
   });
 
-  it('is PUT only and rate-limited per IP', async () => {
+  it('is PUT only and rate-limited per token and per company (the client IP is the proxy\'s), under a global ceiling', async () => {
     expect((await put(PDF, { method: 'POST' })).statusCode).toBe(405);
+    await put(PDF);
+    const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
+    expect(keys).toEqual([
+      'mcp-upload:all', `mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`, `mcp-upload-company:${COMPANY}`]);
+    expect(keys.some((k) => k.includes('1.2.3.4'))).toBe(false);
     limiter.allow = false;
     expect((await put(PDF)).statusCode).toBe(429);
-    expect(findIntentByToken).not.toHaveBeenCalled();
+    expect(findIntentByToken).toHaveBeenCalledTimes(1);
   });
 });

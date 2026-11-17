@@ -6,13 +6,20 @@
  * the cap, not already on the target) and gets a one-time URL. The agent PUTs the bytes there outside MCP
  * (`curl -sS -T file "<url>"`: the URL is the only credential) and then calls finalize_uploads with the upload_ids.
  *
- * Per-file refusals are reported per file and never fail the batch. A file already on its target (same bytes sent
- * through this flow, same bytes on the bank line, or the same name and size) comes back duplicate: true, no URL.
+ * Per-file refusals are reported per file and never fail the batch. A file already on its target (the same bytes:
+ * sha256 of what a bank line stores, or of what an earlier finalize put on an entity) comes back duplicate: true, no
+ * URL; the same name and size with other bytes is a different file and gets a URL. A company has at most
+ * MAX_OUTSTANDING_UPLOADS outstanding (pending or uploaded, unexpired) uploads declaring at most MAX_OUTSTANDING_BYTES;
+ * a file past either is refused with the reason (calls are serialised per company, so the cap holds under concurrency).
+ * Each call first sweeps expired uploads in every company (mcpUploadIntentSweep).
  */
 import type { McpTool, McpToolContext } from '../types';
 import { appOrigin } from '../clientMetadata';
-import { insertUploadIntent, purgeExpiredIntents, SHA256_RE, UPLOAD_TTL_MINUTES, type UploadTargetKind }
-  from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import {
+  FINALIZE_WINDOW_HOURS, MAX_OUTSTANDING_BYTES, MAX_OUTSTANDING_UPLOADS, SHA256_RE, UPLOAD_TTL_MINUTES,
+  insertUploadIntent, lockAndReadUploadUsage, type UploadTargetKind,
+} from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { isValidUUID } from '@/lib/validation';
 import { ok, toolError } from './toolHelpers';
 import { resolveTxSelectors, type TxSelector } from './txSelectorResolve';
@@ -86,7 +93,8 @@ export const createUploadUrlsTool: McpTool = {
     'Step 1 of 2 for attaching many or large files WITHOUT putting their bytes in a tool call (use this instead of base64 in attach_document / attach_entity_document for batches). ' +
     `Declare up to ${MAX_UPLOAD_ITEMS} files: each names its target ({entity_type, entity_id} for a supplier_invoice, customer_invoice, credit_note, supplier_payment, customer_payment or bank_transaction; or {bank_transaction_id}; or {bank_reference, bank_account_id?}), file_name, mime_type, size in bytes and the sha256 hex of the bytes. ` +
     'Each file gets a one-time upload url, valid 30 minutes. Upload the bytes OUTSIDE MCP with a plain PUT, e.g. curl -sS -T "file.pdf" "<url>" — the url is the only credential, so do not share it. Then call finalize_uploads with the upload_ids. ' +
-    'Checked up front: the target is this company\'s, the mime type is allowed (bank lines: PDF, JPEG, PNG up to 2 MB; documents: PDF, JPEG, PNG, DOCX, XLSX up to 10 MB), and the file is not already there — a file already on its target (same bytes, or same name and size) comes back duplicate: true with its document_id and no url, so a batch can be re-run safely. ' +
+    'Checked up front: the target is this company\'s, the mime type is allowed (bank lines: PDF, JPEG, PNG up to 2 MB; documents: PDF, JPEG, PNG, DOCX, XLSX up to 10 MB), and the file is not already there — a file whose exact bytes (sha256) are already on its target comes back duplicate: true with its document_id and no url, so a batch can be re-run safely (a different file with the same name and size is NOT a duplicate). ' +
+    `A company can have at most ${MAX_OUTSTANDING_UPLOADS} uploads outstanding (not yet finalized or expired), declaring at most ${MAX_OUTSTANDING_BYTES / (1024 * 1024)} MB; a file past that is refused — finalize what you uploaded first. ` +
     'A bank-line target needs write:bank-tx as well. Refusals are per file. Posts nothing.',
   scope: 'write:invoices',
   write: true,
@@ -134,7 +142,8 @@ export const createUploadUrlsTool: McpTool = {
     const resolved = refs.length > 0 ? await resolveTxSelectors(refs, ctx.companyId) : [];
     let r = 0;
 
-    await purgeExpiredIntents(ctx.companyId);
+    await sweepExpiredUploadsQuietly();
+    const usage = await lockAndReadUploadUsage(ctx.companyId);
     const base = appOrigin();
     const seen = new Map<string, number>();
     const owned = new Map<string, boolean>();
@@ -154,12 +163,25 @@ export const createUploadUrlsTool: McpTool = {
       const head = { index, file_name: p.fileName, target: { entity_type: p.kind, entity_id: targetId } };
       const sameInCall = seen.get(`${key}:${p.sha256}`);
       if (sameInCall !== undefined) { uploads.push({ ...head, status: 'duplicate', duplicate: true, duplicate_of_index: sameInCall }); continue; }
+
+      const existing = await findExistingDocument(ctx.companyId, p.kind, targetId!, p.size, p.sha256);
+      if (existing) {
+        seen.set(`${key}:${p.sha256}`, index);
+        uploads.push({ ...head, status: 'duplicate', duplicate: true, document_id: existing });
+        continue;
+      }
+
+      const capRefusal = usage.count + 1 > MAX_OUTSTANDING_UPLOADS
+        ? `${MAX_OUTSTANDING_UPLOADS} uploads outstanding for this company: finalize_uploads the uploaded ones (or let unused urls expire, ${UPLOAD_TTL_MINUTES} minutes) before asking for more`
+        : usage.bytes + p.size > MAX_OUTSTANDING_BYTES
+          ? `outstanding uploads for this company would declare more than ${MAX_OUTSTANDING_BYTES / (1024 * 1024)} MB: finalize_uploads the uploaded ones before asking for more`
+          : null;
+      if (capRefusal) { uploads.push({ ...head, status: 'refused', error: capRefusal }); continue; }
+      usage.count += 1;
+      usage.bytes += p.size;
       seen.set(`${key}:${p.sha256}`, index);
 
-      const existing = await findExistingDocument(ctx.companyId, p.kind, targetId!, p.fileName, p.size, p.sha256);
-      if (existing) { uploads.push({ ...head, status: 'duplicate', duplicate: true, document_id: existing }); continue; }
-
-      const intent = await insertUploadIntent(ctx.companyId, { userId: ctx.userId, tokenJti: ctx.tokenJti }, {
+      const intent = await insertUploadIntent(ctx.companyId, ctx.tokenJti, {
         targetKind: p.kind, targetId: targetId!, documentType: p.documentType,
         fileName: p.fileName, mimeType: p.mime, size: p.size, sha256: p.sha256,
       });
@@ -172,7 +194,7 @@ export const createUploadUrlsTool: McpTool = {
       urls_issued: count('url_issued'),
       duplicates: count('duplicate'),
       refused: count('refused'),
-      next_step: `PUT each file's bytes to its url within ${UPLOAD_TTL_MINUTES} minutes (curl -sS -T "<file>" "<url>"), then call finalize_uploads with the upload_ids.`,
+      next_step: `PUT each file's bytes to its url within ${UPLOAD_TTL_MINUTES} minutes (curl -sS -T "<file>" "<url>"), then call finalize_uploads with the upload_ids (an uploaded file can be finalized for ${FINALIZE_WINDOW_HOURS} hours).`,
     });
   },
 };

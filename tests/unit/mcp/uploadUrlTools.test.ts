@@ -9,13 +9,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'crypto';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()) }));
+vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsQuietly: vi.fn(async () => undefined) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentStore', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/mcpUploadIntentStore')>();
   return {
-    ...real, insertUploadIntent: vi.fn(), purgeExpiredIntents: vi.fn(async () => 0), findFinalizedSameBytes: vi.fn(),
-    lockIntentForFinalize: vi.fn(), markIntentFinalized: vi.fn(), markIntentRefused: vi.fn(),
+    ...real, insertUploadIntent: vi.fn(), findFinalizedSameBytes: vi.fn(), lockUploadTarget: vi.fn(),
+    lockAndReadUploadUsage: vi.fn(), lockIntentForFinalize: vi.fn(), readStagedBytes: vi.fn(),
+    markIntentFinalized: vi.fn(), markIntentRefused: vi.fn(),
   };
 });
 vi.mock('@/modules/accounting/services/core/bankLineDocumentRouting', async (importOriginal) => {
@@ -39,6 +41,7 @@ import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/ban
 import { addBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { findActiveDuplicate, storeDocumentBytes, verifyEntityOwnershipTyped } from '@/modules/accounting/services/core/documentStorageService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { createUploadUrlsTool } from '@/lib/mcp/tools/writeCreateUploadUrls';
 import { finalizeUploadsTool } from '@/lib/mcp/tools/writeFinalizeUploads';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
@@ -51,7 +54,7 @@ const ctx = (scopes = ['write:invoices', 'write:bank-tx']): McpToolContext => ({
   userId: '11111111-1111-1111-1111-111111111111', companyId: '22222222-2222-2222-2222-222222222222',
   scopes, tokenJti: 'j', oauthAppId: null,
 });
-const PDF = Buffer.from('%PDF-1.4\n%test file\n');
+const PDF = Buffer.from('%PDF-1.4\n%test file\n%%EOF\n');
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const file = (over: Record<string, unknown> = {}) => ({
   target: { bank_transaction_id: TX }, file_name: 'slip.pdf', mime_type: 'application/pdf', size: PDF.length, sha256: sha(PDF), ...over,
@@ -61,7 +64,7 @@ const intent = (over: Partial<store.UploadIntent> = {}): store.UploadIntent => (
   id: UP, companyId: ctx().companyId, targetKind: 'bank_transaction', targetId: TX, documentType: null,
   createdBy: '11111111-1111-1111-1111-111111111111', createdTokenJti: 'j',
   fileName: 'slip.pdf', mimeType: 'application/pdf', declaredSize: PDF.length, sha256: sha(PDF), status: 'uploaded',
-  stagedBytes: PDF, resultDocumentId: null, resultDuplicate: null, refusal: null, expiresAt: 'x', expired: false, ...over,
+  resultDocumentId: null, resultDuplicate: null, refusal: null, expiresAt: 'x', expired: false, ...over,
 });
 
 beforeEach(() => {
@@ -73,6 +76,8 @@ beforeEach(() => {
   vi.mocked(findActiveDuplicate).mockResolvedValue(null);
   vi.mocked(store.findFinalizedSameBytes).mockResolvedValue(null);
   vi.mocked(store.insertUploadIntent).mockResolvedValue({ id: UP, token: 'T'.repeat(43), expiresAt: '2026-11-17T20:00:00.000Z' });
+  vi.mocked(store.lockAndReadUploadUsage).mockResolvedValue({ count: 0, bytes: 0 });
+  vi.mocked(store.readStagedBytes).mockResolvedValue(PDF);
   vi.mocked(addBankTxAttachment).mockResolvedValue({ ok: true, attachment: {
     id: 'att-1', bankTransactionId: TX, fileName: 'slip.pdf', fileSize: PDF.length, mimeType: 'application/pdf', createdAt: 'now' } });
 });
@@ -95,10 +100,10 @@ describe('create_upload_urls', () => {
     expect(res.urls_issued).toBe(1);
     expect(res.uploads[0]).toMatchObject({ status: 'url_issued', upload_id: UP, duplicate: false });
     expect(res.uploads[0].url).toMatch(/\/api\/mcp\/uploads\/T{43}$/);
-    expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![1]).toEqual({ userId: ctx().userId, tokenJti: 'j' });
+    expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![1]).toBe('j');
     expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![2]).toMatchObject({
       targetKind: 'bank_transaction', targetId: TX, sha256: sha(PDF), size: PDF.length });
-    expect(store.purgeExpiredIntents).toHaveBeenCalledWith(ctx().companyId);
+    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a cross-company target as Not found and issues no url', async () => {
@@ -124,16 +129,40 @@ describe('create_upload_urls', () => {
     expect(store.insertUploadIntent).not.toHaveBeenCalled();
   });
 
-  it('reports a file already on its target as duplicate: true with no url (same bytes, then same name + size)', async () => {
+  it('reports a file already on its target as duplicate: true with no url, by sha256 only', async () => {
+    vi.mocked(findBankLineShaDuplicate).mockResolvedValueOnce({ id: 'att-prev' } as never);
     vi.mocked(store.findFinalizedSameBytes).mockResolvedValueOnce('doc-prev');
-    vi.mocked(findActiveDuplicate).mockResolvedValueOnce({ id: 'doc-name' } as never);
     const res = body(await createUploadUrlsTool.handler({ files: [
       file(), file({ target: { entity_type: 'supplier_invoice', entity_id: BILL } }),
     ], idempotency_key: 'k' }, ctx()));
-    expect(res.uploads[0]).toMatchObject({ status: 'duplicate', duplicate: true, document_id: 'doc-prev' });
-    expect(res.uploads[1]).toMatchObject({ status: 'duplicate', duplicate: true, document_id: 'doc-name' });
+    expect(res.uploads[0]).toMatchObject({ status: 'duplicate', duplicate: true, document_id: 'att-prev' });
+    expect(res.uploads[1]).toMatchObject({ status: 'duplicate', duplicate: true, document_id: 'doc-prev' });
     expect(res.uploads[0].url).toBeUndefined();
+    expect(findBankLineShaDuplicate).toHaveBeenCalledWith(ctx().companyId, TX, sha(PDF), PDF.length);
+    expect(store.findFinalizedSameBytes).toHaveBeenCalledWith(ctx().companyId, 'supplier_invoice', BILL, sha(PDF));
     expect(store.insertUploadIntent).not.toHaveBeenCalled();
+  });
+
+  it('never treats the same name and size with different bytes as a duplicate', async () => {
+    vi.mocked(findBankLineDuplicate).mockResolvedValue({ id: 'att-name' } as never);
+    vi.mocked(findActiveDuplicate).mockResolvedValue({ id: 'doc-name' } as never);
+    const res = body(await createUploadUrlsTool.handler({ files: [
+      file(), file({ target: { entity_type: 'supplier_invoice', entity_id: BILL } }),
+    ], idempotency_key: 'k' }, ctx()));
+    expect(res.urls_issued).toBe(2);
+  });
+
+  it('refuses, per file, past 300 outstanding uploads or 300 MB declared for the company', async () => {
+    vi.mocked(store.lockAndReadUploadUsage).mockResolvedValue({ count: 299, bytes: 300 * 1024 * 1024 - PDF.length - 1 });
+    const res = body(await createUploadUrlsTool.handler({ files: [
+      file(), file({ sha256: 'a'.repeat(64) }), file({ sha256: 'b'.repeat(64), size: 1 }),
+    ], idempotency_key: 'k' }, ctx()));
+    expect(res.uploads.map((u: { status: string }) => u.status)).toEqual(['url_issued', 'refused', 'refused']);
+    expect(res.uploads[1].error).toMatch(/300 uploads outstanding/);
+    expect(store.insertUploadIntent).toHaveBeenCalledTimes(1);
+    vi.mocked(store.lockAndReadUploadUsage).mockResolvedValue({ count: 0, bytes: 300 * 1024 * 1024 - 1 });
+    const bytes = body(await createUploadUrlsTool.handler({ files: [file()], idempotency_key: 'k' }, ctx()));
+    expect(bytes.uploads[0].error).toMatch(/300 MB/);
   });
 
   it('issues one url when the same bytes are listed twice for one target', async () => {
@@ -156,6 +185,7 @@ describe('finalize_uploads', () => {
     expect(res.files[0]).toMatchObject({ status: 'finalized', document_id: 'att-1', duplicate: false });
     expect(vi.mocked(addBankTxAttachment).mock.calls[0]![1]).toMatchObject({ bankTransactionId: TX, maxBytes: 2 * 1024 * 1024 });
     expect(store.markIntentFinalized).toHaveBeenCalledWith(ctx().companyId, UP, 'att-1', false);
+    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
     expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({ entityId: TX, action: 'create' });
   });
 
@@ -171,7 +201,8 @@ describe('finalize_uploads', () => {
     const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
     vi.mocked(store.lockIntentForFinalize)
       .mockResolvedValueOnce(intent({ sha256: 'f'.repeat(64) }))
-      .mockResolvedValueOnce(intent({ stagedBytes: png, declaredSize: png.length, sha256: sha(png) }));
+      .mockResolvedValueOnce(intent({ declaredSize: png.length, sha256: sha(png) }));
+    vi.mocked(store.readStagedBytes).mockResolvedValueOnce(PDF).mockResolvedValueOnce(png);
     const res = body(await finalizeUploadsTool.handler({ upload_ids: [UP, '99999999-9999-4999-8999-999999999990'], idempotency_key: 'k' }, ctx()));
     expect(res.files.map((f: { status: string }) => f.status)).toEqual(['refused', 'refused']);
     expect(res.files[0].error).toContain('sha256');
@@ -181,7 +212,7 @@ describe('finalize_uploads', () => {
   });
 
   it('returns the first result for an already finalized id, writing nothing', async () => {
-    vi.mocked(store.lockIntentForFinalize).mockResolvedValue(intent({ status: 'finalized', stagedBytes: null, resultDocumentId: 'att-1', resultDuplicate: false }));
+    vi.mocked(store.lockIntentForFinalize).mockResolvedValue(intent({ status: 'finalized', resultDocumentId: 'att-1', resultDuplicate: false }));
     const res = body(await finalizeUploadsTool.handler({ upload_ids: [UP], idempotency_key: 'k2' }, ctx()));
     expect(res.files[0]).toMatchObject({ status: 'finalized', document_id: 'att-1', duplicate: false });
     expect(addBankTxAttachment).not.toHaveBeenCalled();
@@ -190,7 +221,7 @@ describe('finalize_uploads', () => {
 
   it('finalizes a file already on the line as duplicate: true without storing it again', async () => {
     vi.mocked(store.lockIntentForFinalize).mockResolvedValue(intent());
-    vi.mocked(findBankLineShaDuplicate).mockResolvedValue('att-old');
+    vi.mocked(findBankLineShaDuplicate).mockResolvedValue({ id: 'att-old' } as never);
     const res = body(await finalizeUploadsTool.handler({ upload_ids: [UP], idempotency_key: 'k' }, ctx()));
     expect(res.files[0]).toMatchObject({ status: 'finalized', document_id: 'att-old', duplicate: true });
     expect(addBankTxAttachment).not.toHaveBeenCalled();
@@ -198,7 +229,7 @@ describe('finalize_uploads', () => {
 
   it('reports not_uploaded, expired and not_found (another company\'s id reads as not_found)', async () => {
     vi.mocked(store.lockIntentForFinalize)
-      .mockResolvedValueOnce(intent({ status: 'pending', stagedBytes: null }))
+      .mockResolvedValueOnce(intent({ status: 'pending' }))
       .mockResolvedValueOnce(intent({ status: 'uploaded', expired: true }))
       .mockResolvedValueOnce(null);
     const ids = [UP, '99999999-9999-4999-8999-999999999991', '99999999-9999-4999-8999-999999999992'];
