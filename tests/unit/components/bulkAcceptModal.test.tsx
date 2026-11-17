@@ -7,6 +7,7 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 import { apiFetch } from '@/lib/apiFetch';
 import { BulkAcceptModal } from '@/components/accounting/bank-transactions/bulkAccept/BulkAcceptModal';
+import { CONFIRM_RETRY } from '@/components/accounting/bank-transactions/bulkAccept/bulkAcceptApi';
 
 useApiJsonOverMock();
 
@@ -25,7 +26,7 @@ const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data 
 const bad = (message: string, status = 400) => new Response(JSON.stringify({ success: false, error: { message } }), { status });
 const bodies = () => vi.mocked(apiFetch).mock.calls.map(([, init]) => (init?.body ? JSON.parse(String(init.body)) : null));
 
-beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
+beforeEach(() => { vi.mocked(apiFetch).mockReset(); CONFIRM_RETRY.timeoutMs = 60_000; CONFIRM_RETRY.backoffMs = [0, 0]; });
 afterEach(cleanup);
 
 function open(onChanged = vi.fn(), onClose = vi.fn()) {
@@ -304,28 +305,93 @@ describe('paging, held lines, a dead token, nothing posted', () => {
 
 describe('a lost answer, a double click, a stale answer', () => {
 
-  it('after a dropped confirm the batch is looked up, so the result and Undo are still there', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce(ok({ batch: { id: 'run-9', postedCount: 2, totalAmount: 150 } }))
-      .mockResolvedValueOnce(ok({ reversed: 2, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+  const RUNNING = () => new Response(JSON.stringify({ success: false, message: 'This request is still being processed. Wait a moment and check before sending it again.' }), { status: 409 });
+  const keysOf = () => vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.body && JSON.parse(String(init.body)).action === 'confirm')
+    .map(([, init]) => (init?.headers as Record<string, string>)['Idempotency-Key']);
+  const CONFIRMED_RUN = { runId: 'run-9', posted: [{ txId: PREVIEW.lines[0]!.id, journalEntryId: 'j' }], refused: [], totalPosted: 100 };
+
+  it('a dropped answer is resent with the SAME key and replays the first answer: the runId, and Undo uses it', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok(CONFIRMED_RUN))
+      .mockResolvedValueOnce(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
     const { onChanged } = open();
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
-    expect((await screen.findByTestId('bulk-result')).textContent).toMatch(/answer was lost, but a batch of 2 lines/);
+    await screen.findByTestId('bulk-result');
+    const keys = keysOf();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Undo batch' }));
-    await screen.findByText(/Batch undone: 2 lines reversed/);
-    expect(String(vi.mocked(apiFetch).mock.calls[2]![0])).toMatch(/bankAccountId=b1&recentSince=\d+/); // the server-side, own-batch look-up
-    expect(bodies()[3]).toEqual({ action: 'undo', runId: 'run-9' });
+    await screen.findByText(/Batch undone: 1 line reversed/);
+    expect(bodies().at(-1)).toEqual({ action: 'undo', runId: 'run-9' });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onChanged).toHaveBeenCalled();
   });
 
-  it('a dropped confirm with no batch found kills the old token: Confirm disabled until Refresh preview', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok({ batch: null }));
+  it.each([502, 503, 504, 408])('a %i is ambiguous (a gateway, not the route): resent, not given up on', async (status) => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(bad('Bad Gateway', status)).mockResolvedValueOnce(ok(CONFIRMED_RUN));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    expect(keysOf()).toHaveLength(2);
+  });
+
+  it('"still being processed" (the first send has not finished) is resent too', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(RUNNING()).mockResolvedValueOnce(ok(CONFIRMED_RUN));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    expect(keysOf()).toHaveLength(2);
+  });
+
+  it.each([400, 409, 422, 429])('a %i refusal is definitive: no resend, the token is dead', async (status) => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(bad('Another bulk accept is running for this bank account.', status));
     open();
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
     await screen.findByRole('alert');
+    expect(keysOf()).toHaveLength(1);
     expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Refresh preview' })).toBeTruthy();
+  });
+
+  it('two batches in a minute: each confirm has its own key; the second\'s resend replays batch 2, and Undo targets batch 2', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ ...PREVIEW, truncated: true })).mockResolvedValueOnce(ok({ ...CONFIRMED_RUN, runId: 'batch-1' }))
+      .mockResolvedValueOnce(ok({ ...PREVIEW, previewToken: 'tok-2' })).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok({ ...CONFIRMED_RUN, runId: 'batch-2' }))
+      .mockResolvedValueOnce(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview the next batch' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await waitFor(() => expect(keysOf()).toHaveLength(3));
+    await screen.findByText(/Posted 1 line/);
+    const [k1, k2, k2again] = keysOf();
+    expect(k2).not.toBe(k1);
+    expect(k2again).toBe(k2);
+    fireEvent.click(screen.getByRole('button', { name: 'Undo batch' }));
+    await screen.findByText(/Batch undone/);
+    expect(bodies().at(-1)).toEqual({ action: 'undo', runId: 'batch-2' });
+  });
+
+  it('every retry fails: the modal says the batch may have posted, Confirm is dead, closing is allowed and reloads the page', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValue(new TypeError('Failed to fetch'));
+    const { onClose, onChanged } = open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/may have posted.*Auto-post runs panel/);
+    expect(keysOf()).toHaveLength(3);
+    expect(new Set(keysOf()).size).toBe(1);
+    expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('a confirm that never answers is cut off at the client timeout and then resent', async () => {
+    CONFIRM_RETRY.timeoutMs = 20;
+    const hang = (_u: unknown, init?: RequestInit) => new Promise<Response>((_res, rej) => { init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))); });
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockImplementationOnce(hang as never).mockResolvedValueOnce(ok(CONFIRMED_RUN));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    expect(keysOf()).toHaveLength(2);
   });
 
   it('two clicks batched into one update send one confirm', async () => {

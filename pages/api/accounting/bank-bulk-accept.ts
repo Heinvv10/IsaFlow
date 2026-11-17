@@ -3,9 +3,9 @@
  *
  * GET  ?bankAccountId=<uuid>[&minConfidence=0.9]
  *      → the lines a bulk accept would post (rows, total in / out, by account) and a `previewToken` pinning them.
- * GET  ?bankAccountId=<uuid>&recentSince=<epoch ms>
- *      → { batch } the caller's own newest un-undone batch on the account since then (a lost confirm answer), or null.
- * POST { action: 'confirm', previewToken }
+ * POST { action: 'confirm', previewToken }   (+ optional Idempotency-Key header: a resend after a lost answer replays the first
+ *      answer - same runId - instead of posting twice; withHttpIdempotency. Every refusal of a confirm is decided before its
+ *      first write, which is what that wrapper needs.)
  *      → posts every pinned line that is still the line previewed and still passes the gate, each under its own
  *        savepoint: { runId, posted: [...], refused: [{ txId, reason }], totalPosted }. 200 even when every line was refused.
  * POST { action: 'undo', runId }
@@ -20,13 +20,13 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withHttpIdempotency } from '@/lib/idempotency/withHttpIdempotency';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { previewBulkAccept, isBulkAcceptRefusal } from '@/modules/accounting/services/bank/bankBulkAcceptPreview';
-import { findOwnRecentBatch } from '@/modules/accounting/services/bank/bankBulkAcceptRecent';
 import { confirmBulkAccept, undoBulkAcceptBatch } from '@/modules/accounting/services/bank/bankBulkAcceptService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { ErrorCode } from '@/lib/apiResponse.types';
@@ -38,18 +38,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   try {
     if (req.method === 'GET') {
-      const { bankAccountId, minConfidence, scanAfter, recentSince } = req.query;
+      const { bankAccountId, minConfidence, scanAfter } = req.query;
       if (!isUuidParam(bankAccountId)) return apiResponse.badRequest(res, 'bankAccountId is required');
       const wanted = minConfidence === undefined ? undefined : Number(minConfidence);
       if (wanted !== undefined && !Number.isFinite(wanted)) return apiResponse.badRequest(res, 'minConfidence must be a number');
       if (scanAfter !== undefined && !isUuidParam(scanAfter)) return apiResponse.badRequest(res, 'scanAfter must be an id from a previous preview');
-      if (recentSince !== undefined) {
-        // The lost-answer look-up: this user's own newest un-undone batch on this account since `recentSince` (epoch ms).
-        const since = new Date(Number(recentSince));
-        if (typeof recentSince !== 'string' || Number.isNaN(since.getTime())) return apiResponse.badRequest(res, 'recentSince must be epoch milliseconds');
-        await assertBankAccountInCompany(companyId, bankAccountId);
-        return apiResponse.success(res, { batch: await findOwnRecentBatch(companyId, userId, bankAccountId, since) });
-      }
       if (!(await checkReportRateLimit(companyId, 'bank-bulk-accept-preview'))) {
         return apiResponse.tooManyRequests(res, 'Too many previews. Please try again shortly.');
       }
@@ -91,4 +84,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-bulk-accept', handler) as Parameters<typeof withWriteAccess>[0]))));
