@@ -7,7 +7,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import {
-  AcbFileInputError, acbHashTotal, buildAcbPaymentFile, type AcbFileInput,
+  AcbFileInputError, acbHashTotal, buildAcbPaymentFile, salaryReference, type AcbFileInput,
 } from '@/modules/accounting/services/payroll/payrollAcbFile';
 
 const FIXTURE = readFileSync(join(__dirname, '../../../fixtures/bank-files/payroll-acb-2-employees.txt'), 'latin1');
@@ -16,8 +16,8 @@ const input = (): AcbFileInput => ({
   from: { branchCode: '250655', accountNumber: '62000000001' },
   actionDate: '2026-11-25',
   payments: [
-    { branchCode: '632005', accountNumber: '4071234567', accountType: 'savings', amountCents: 1_834_567, reference: 'Test Co Pty Ltd', accountName: 'Thandi Mokoena' },
-    { branchCode: '470010', accountNumber: '1234567890', accountType: 'cheque', amountCents: 900_005, reference: 'Test Co Pty Ltd', accountName: 'Pieter van der Merwe' },
+    { branchCode: '632005', accountNumber: '4071234567', accountType: 'savings', amountCents: 1_834_567, reference: salaryReference('Test Co Pty Ltd', 2026, 11), accountName: 'Thandi Mokoena' },
+    { branchCode: '470010', accountNumber: '1234567890', accountType: 'cheque', amountCents: 900_005, reference: salaryReference('Test Co Pty Ltd', 2026, 11), accountName: 'Pieter van der Merwe' },
   ],
 });
 
@@ -99,7 +99,7 @@ describe('buildAcbPaymentFile', () => {
     expect([t.slice(0, 2), t.slice(2, 8), t.slice(8, 19), t.slice(23, 29), t.slice(29, 35), t.slice(35, 46), t.slice(46, 47), t.slice(47, 58)])
       .toEqual(['10', '250655', '62000000001', '000001', '632005', '04071234567', '2', '00001834567']);
     expect([t.slice(58, 70), t.slice(70, 90), t.slice(100, 115), t.slice(130, 150)])
-      .toEqual(['0'.repeat(12), 'Test Co Pty Ltd     ', 'Thandi Mokoena ', '0'.repeat(20)]);
+      .toEqual(['0'.repeat(12), 'Test Co SAL 2026-11 ', 'Thandi Mokoena ', '0'.repeat(20)]);
     expect([lines[4]!.slice(0, 19), lines[4]!.slice(19, 58), lines[4]!.slice(58, 64)]).toEqual(['1225065562000000001', '0'.repeat(39), '261125']);
   });
 
@@ -109,5 +109,12 @@ describe('buildAcbPaymentFile', () => {
     expect(buildAcbPaymentFile(i).content.split('\r\n')[100_001]!.slice(23, 29)).toBe('100000');
     i.payments = Array(100_001).fill(i.payments[0]);
     expect(() => buildAcbPaymentFile(i)).toThrow(/at most 100000/);
+  });
+
+  it('the salary reference is the shortened company and the pay period, never over 20 characters', () => {
+    expect(salaryReference('Test Co Pty Ltd', 2026, 11)).toBe('Test Co SAL 2026-11');
+    expect(salaryReference('Velocity Fibre (Pty) Ltd', 2026, 1)).toBe('Velocity SAL 2026-01');
+    expect(salaryReference('王', 2026, 10)).toBe('SAL 2026-10');
+    for (const name of ['A', 'A very long company name indeed', 'Zoë & Co']) expect(salaryReference(name, 2026, 12).length).toBeLessThanOrEqual(20);
   });
 });

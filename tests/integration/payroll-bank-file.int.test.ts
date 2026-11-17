@@ -138,7 +138,15 @@ describe('salary bank file', () => {
          SELECT company_id, id, 'fnb_obe_2023_02', repeat('b', 64), 1, 1, '2099-01-15', COALESCE(approved_at, approval_grandfathered_at), 'x'
            FROM payroll_run_headers WHERE id = $1`, [run]);
       const pending = generate(a, run); // its judge cannot see the uncommitted row; its insert waits on the unique index
-      await new Promise((ok) => setTimeout(ok, 1500));
+      // Commit only once generate's INSERT is waiting on this transaction's lock, so the mapping is surely reached.
+      for (let i = 0; ; i += 1) {
+        const waiting = await a.pool.query(
+          `SELECT count(*)::int AS n FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO payroll_bank_files%' AND pid <> pg_backend_pid()`);
+        if (waiting.rows[0]!.n > 0) break;
+        if (i > 300) throw new Error('generate never reached the insert');
+        await new Promise((ok) => setTimeout(ok, 100));
+      }
       await c.query('COMMIT');
       const res = await pending;
       expect([res.statusCode, reason(res)]).toEqual([409, 'FILE_EXISTS']);

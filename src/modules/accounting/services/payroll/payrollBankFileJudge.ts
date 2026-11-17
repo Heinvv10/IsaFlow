@@ -12,7 +12,9 @@
  *                       999h trigger on insert and on re-activation, so neither a new row nor a re-activated old one
  *                       slips past, whether or not changes are written as new rows), missing or invalid details, negative net. Nil
  *                       net pay is left out of the file and named in the warnings (coordinator ruling, review #1524).
- *   judgeApprovedTotals fail closed (BRK-3, D-1): the run must link a posted, unreversed journal with net-pay lines
+ *   judgeApprovedTotals fail closed (BRK-3, D-1): the run must link a posted, unreversed journal of ITS OWN (source
+ *                       'auto_payroll' and description 'Payroll run YYYY-MM' of the run's period, as
+ *                       payrollJournalPostingService writes it: a header repointed at another journal is refused) with net-pay lines
  *                       (JOURNAL_NOT_POSTED otherwise: post it first), and the lines must sum to both the header's
  *                       total_net and that journal's net-pay credit. The header alone is no anchor: app_user can move
  *                       it with the lines; the posted journal it cannot.
@@ -21,7 +23,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { validateBankAccount } from '@/modules/accounting/services/ap/eftService';
 import { resolveBankRoleHolder } from '@/modules/accounting/services/gl/bankRoleHolder';
-import type { AcbAccount, AcbAccountType, AcbPayment } from './payrollAcbFile';
+import { salaryReference, type AcbAccount, type AcbAccountType, type AcbPayment } from './payrollAcbFile';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
 
@@ -83,7 +85,7 @@ export async function readPayments(companyId: string, runId: string): Promise<Ru
     SELECT l.employee_id, e.employee_number, e.first_name, e.last_name, round(l.net_pay * 100)::bigint::text AS net_cents,
            d.account_number, d.branch_code, d.account_type, d.account_holder,
            (COALESCE(d.activated_at, d.created_at) > COALESCE(h.approved_at, h.approval_grandfathered_at)) AS details_after_approval,
-           COALESCE(NULLIF(c.trading_name, ''), c.name) AS company_name
+           COALESCE(NULLIF(c.trading_name, ''), c.name) AS company_name, h.period_year, h.period_month
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid
       JOIN companies c ON c.id = h.company_id
@@ -111,7 +113,7 @@ export async function readPayments(companyId: string, runId: string): Promise<Ru
     out.employeeIds.push(String(r.employee_id));
     out.payments.push({
       branchCode: String(r.branch_code), accountNumber: String(r.account_number), accountType: r.account_type as AcbAccountType,
-      amountCents: Number(cents), reference: String(r.company_name),
+      amountCents: Number(cents), reference: salaryReference(String(r.company_name), Number(r.period_year), Number(r.period_month)),
       accountName: String(r.account_holder ?? '').trim() || name,
     });
   }
@@ -134,14 +136,16 @@ export async function judgeApprovedTotals(companyId: string, runId: string, line
              WHERE jl.journal_entry_id = e.id AND jl.description IN (${NET_PAY_DESCRIPTION}, ${NET_PAY_CLEARING_DESCRIPTION})) AS journal_cents
       FROM payroll_run_headers h
       LEFT JOIN gl_journal_entries e ON e.id = h.journal_entry_id AND e.company_id = h.company_id
-        AND e.status = 'posted' AND e.reversed_at IS NULL
+        AND e.status = 'posted' AND e.reversed_at IS NULL AND e.source = 'auto_payroll'
+        AND e.description = 'Payroll run ' || h.period_year || '-' || lpad(h.period_month::text, 2, '0')
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   const approved = h?.approved_cents == null ? null : BigInt(String(h.approved_cents));
   const journal = h?.journal_cents == null ? null : BigInt(String(h.journal_cents));
   if (journal === null) {
     throw new PayrollBankFileRefusal('JOURNAL_NOT_POSTED',
-      'This run has no posted payroll journal crediting its net pay (never posted, or reversed). Post the payroll journal first, then pay it.');
+      'This run has no posted payroll journal of its own crediting its net pay (never posted, reversed, or not this run\'s). '
+      + 'Post the payroll journal first, then pay it.');
   }
   if (approved !== linesCents || journal !== linesCents) {
     throw new PayrollBankFileRefusal('RUN_CHANGED_SINCE_APPROVAL',

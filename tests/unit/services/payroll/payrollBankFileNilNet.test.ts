@@ -16,7 +16,7 @@ import { acbHashTotal, buildAcbPaymentFile, AcbFileInputError } from '@/modules/
 const row = (n: string, acct: string, net: string, holder: string | null = null) => ({
   employee_id: `e-${n}`, employee_number: n, first_name: 'F' + n, last_name: 'L', net_cents: net,
   account_number: acct, branch_code: '632005', account_type: 'savings', account_holder: holder,
-  details_after_approval: false, company_name: 'Test Co',
+  details_after_approval: false, company_name: 'Test Co', period_year: 2026, period_month: 10,
 });
 const from = { branchCode: '250655', accountNumber: '62000000001' };
 

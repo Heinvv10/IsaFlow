@@ -85,6 +85,19 @@ describe('salary bank file, review #1524 round 2', () => {
     expect((await files(a)).filter((f) => f.run_id === run)).toEqual([]);
   }, 120_000);
 
+  it('security review (a): a header repointed at another run\'s journal with the same total is refused', async () => {
+    const other = await approvedRun(a, 7);
+    const run = await approvedRun(a, 8);
+    const otherJe = String((await a.header(other)).journal_entry_id);
+    expect(Math.round((await a.header(other)).net * 100)).toBe(Math.round((await a.header(run)).net * 100));
+    await asAppUser(async (c) => {
+      await c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, otherJe]);
+    });
+    const res = await generate(a, run);
+    expect([res.statusCode, reason(res)]).toEqual([409, 'JOURNAL_NOT_POSTED']);
+    expect(String(res.body.error.message)).toMatch(/of its own/);
+  }, 180_000);
+
   it('D-2: re-activating an older bank row after approval is refused as changed details', async () => {
     await bank(a, emp[0]!.employee, '62888888888', '250655', false);
     const run = await approvedRun(a, 4);
