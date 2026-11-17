@@ -156,6 +156,26 @@ const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new P
 const dialog = () => screen.getByRole('dialog');
 
 describe('closing and focus (M1, M2)', () => {
+  it("renders in the page's one modal shell (WP7): a named modal dialog in the body, with a named close button", async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW));
+    open();
+    await screen.findByText('LINE 1');
+    const d = screen.getByRole('dialog', { name: 'Accept 2 high-confidence suggestions' });
+    expect(d.getAttribute('data-testid')).toBe('bank-tx-modal-shell');
+    expect(d.getAttribute('aria-modal')).toBe('true');
+    expect(d.parentElement).toBe(document.body);
+    expect(within(d).getByRole('heading', { name: 'Accept 2 high-confidence suggestions' })).toBeTruthy();
+    expect(within(d).getByRole('button', { name: 'Close modal' })).toBeTruthy();
+  });
+
+  it('after Confirm the dialog is named "High-confidence suggestions: result" (the name z30 finds it by)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok({ runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    expect(screen.getByRole('dialog', { name: 'High-confidence suggestions: result' }).contains(screen.getByTestId('bulk-result'))).toBe(true);
+  });
+
   it('Escape and Cancel close a preview, and Cancel holds the focus from the start (not a disabled Confirm)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW));
     const { onClose } = open();
