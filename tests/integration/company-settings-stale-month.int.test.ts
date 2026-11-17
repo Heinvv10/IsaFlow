@@ -85,6 +85,13 @@ describe('settings save: financial_year_start only over the month the caller loa
     expect(await row(c)).toEqual({ name: 'STALE co', month: 3 });
   });
 
+  it('the row already holds the asked month, but not the loaded one: 409 (someone else set it), nothing written', async () => {
+    const c = await newCompany(3);   // the caller loaded January and chose March; a change of year end set March meanwhile
+    expect(nameOf(await save(c, { name: 'Stale', financialYearStart: 3, loadedFinancialYearStart: 1 })))
+      .toBe('CompanySettingsStaleError');
+    expect(await row(c)).toEqual({ name: 'STALE co', month: 3 });
+  });
+
   it('a start-month change over a stale load: 409 before the rebuild; the periods are untouched', async () => {
     const c = await newCompany(3);
     const client = await pool.connect();
