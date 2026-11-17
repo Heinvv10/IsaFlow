@@ -13,7 +13,7 @@
  * without its ETI, or an August/February with no payroll journal left the refund (s10(1)) unbooked.
  * SCOPE: the twelve months to as_at, and only months that have ended by as_at (review M2: a month still being paid is
  * not judged). A month whose run was calculated before ETI carry-forward (calculation version < 8) is listed in the
- * finding, not counted (review L1).
+ * finding, not counted (review L1); with several runs in the month (wave 6 FQb2), when ANY of them was.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { sql } from '@/lib/neon';
@@ -55,7 +55,8 @@ export async function payePayableDiffersFromEmp201(ctx: IntegrityCheckContext): 
     // adv3 L3: no floor on either side, so a month with negative PAYE compares like for like with its 2140.
     const payable = line ? r2(line.paye - line.used) : 0;
     const claimable = line?.refundClaimable ?? 0;
-    const hdr = headers.find((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);
+    // Every run of the month with a journal (wave 6 FQb2: a month may hold several runs, e.g. an off-cycle bonus).
+    const monthRuns = headers.filter((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);
     const run = byRun.get(monthKey(ym))!;
     const eti = byEti.get(monthKey(ym))!;
     const directivePaye = directives.filter((p) => p.paymentDate.slice(0, 7) === label).reduce((t, p) => t + p.paye, 0);
@@ -73,7 +74,8 @@ export async function payePayableDiffersFromEmp201(ctx: IntegrityCheckContext): 
       });
     }
     if (diffs.length === 0) continue;
-    if (hdr && (hdr.calculation_version == null || Number(hdr.calculation_version) < ETI_CARRY_CALCULATION_VERSION)) {
+    // Any run of the month calculated before ETI carry-forward makes the month's ETI booking pre-ET: listed, not counted.
+    if (monthRuns.some((h) => h.calculation_version == null || Number(h.calculation_version) < ETI_CARRY_CALCULATION_VERSION)) {
       preEt.push(label);
       continue;
     }
