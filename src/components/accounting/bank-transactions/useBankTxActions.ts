@@ -48,6 +48,8 @@ interface ActionDeps {
   /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
   reloadCurrentView: () => void;
   onLlmResidual?: (n: number) => void;
+  /** Takes lines that left the tab off the screen at once, before the reload tops the page up (WP4a). */
+  removeRows?: (ids: string[]) => void;
 }
 
 export function buildBankTxActions(deps: ActionDeps) {
@@ -99,6 +101,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       }
       const allocated = await callAction(body);
       onPosted();
+      deps.removeRows?.([txId]); // gone from the New tab now; the reload below only tops the page up
       const journalEntryId: unknown = allocated?.data?.journalEntryId;
       if (typeof journalEntryId === 'string' && isUndoableAllocation(sel, bankAccounts)) {
         offerAllocationUndo(txId, journalEntryId, sel.type === 'account', { callAction, reloadCurrentView });
@@ -247,7 +250,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     handleDownloadReport,
     ...buildBulkActions({
       transactions, selected: selectedIds, rowSelections, callAction, run, setProgress: deps.busy?.setProgress ?? (() => undefined),
-      setSelectedIds, reload: () => { loadTransactions(); refreshBankAccounts(); },
+      setSelectedIds, reload: () => { loadTransactions(); refreshBankAccounts(); }, removeRows: deps.removeRows,
     }),
     ...buildBankTxSelectionActions({ ...deps, selectedIds }, saveSelection, saveDimensions),
   };

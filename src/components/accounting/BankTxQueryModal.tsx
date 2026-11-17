@@ -193,8 +193,8 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           {/* Prior query warning */}
           {priorQuery && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-              <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-300">
+              <AlertCircle className="h-4 w-4 text-amber-700 dark:text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-300">
                 Already asked on {formatShortDate(priorQuery.sent_at)} — status: {priorQuery.status}
               </p>
             </div>
@@ -203,7 +203,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           {/* Phone input */}
           <div>
             <label htmlFor="query-whatsapp-number" className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
-              WhatsApp number <span className="text-red-400">*</span>
+              WhatsApp number <span className="text-red-700 dark:text-red-400">*</span>
             </label>
             <input
               id="query-whatsapp-number"
@@ -253,8 +253,8 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           {/* Inline error */}
           {inlineError && (
             <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5">
-              <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-red-400 break-words">{inlineError}</p>
+              <AlertCircle className="h-4 w-4 text-red-700 dark:text-red-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-red-700 dark:text-red-400 break-words">{inlineError}</p>
             </div>
           )}
         </div>

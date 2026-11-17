@@ -64,7 +64,7 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
       <button type="button" disabled={deleting} onClick={onDelete}
         title={att.document_id ? 'Remove from this line (unlinks the captured document)' : 'Remove'}
         aria-label={`Remove ${att.file_name}`}
-        className={`${ICON_BTN} hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40`}>
+        className={`${ICON_BTN} hover:bg-red-500/10 hover:text-red-800 dark:hover:text-red-400 disabled:opacity-40`}>
         {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
       </button>
     </div>

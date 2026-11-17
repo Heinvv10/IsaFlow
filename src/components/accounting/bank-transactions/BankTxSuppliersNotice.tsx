@@ -8,7 +8,7 @@ export type SuppliersStatus = 'loading' | 'ok' | 'failed' | 'truncated';
 export function BankTxSuppliersNotice({ status }: { status: SuppliersStatus }) {
   if (status === 'failed') {
     return (
-      <div role="alert" className="mx-6 mt-3 flex items-center gap-2 text-xs text-red-400"><AlertCircle className="h-4 w-4" />Suppliers failed to load — supplier allocation is unavailable until you reload.</div>
+      <div role="alert" className="mx-6 mt-3 flex items-center gap-2 text-xs text-red-700 dark:text-red-400"><AlertCircle className="h-4 w-4" />Suppliers failed to load — supplier allocation is unavailable until you reload.</div>
     );
   }
   if (status === 'truncated') {

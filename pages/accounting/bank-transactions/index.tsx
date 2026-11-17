@@ -23,7 +23,13 @@ import { pruneSelection, selectedOnScreen } from '@/components/accounting/bank-t
 import { BankTxSelectionBar } from '@/components/accounting/bank-transactions/BankTxSelectionBar';
 import { ActiveFiltersChip } from '@/components/accounting/bank-transactions/ActiveFiltersChip';
 import { isBulkBusy, useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
-import { useBankTxSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
+import { useBankTxSummary, type BankAccountSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
+import { useBankTxView } from '@/components/accounting/bank-transactions/useBankTxView';
+import { useCardOrderForDefault } from '@/components/accounting/bank-transactions/useCardOrderForDefault';
+import { firstCardAccount } from '@/components/accounting/bank-transactions/firstCardAccount';
+import { readLastOpened } from '@/components/accounting/bank-transactions/lastOpenedSubAccount';
+import { useRemoveRows } from '@/components/accounting/bank-transactions/useRemoveRows';
+import { useScrollSelectedCard } from '@/components/accounting/bank-transactions/useScrollSelectedCard';
 import { BankTxSummaryNotice } from '@/components/accounting/bank-transactions/BankTxSummaryNotice';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfersWithTick, TransferLinkNotice } from '@/components/accounting/bank-transactions/transferLinks';
@@ -47,6 +53,8 @@ import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/ac
 import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
 
+const NO_ACCOUNTS: BankAccountSummary[] = []; // a stable empty list (useBankTxSelection needs referentially stable accounts)
+
 export default function BankTransactionsPage() {
   const router = useRouter();
   const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
@@ -57,7 +65,10 @@ export default function BankTransactionsPage() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const summary = useBankTxSummary();
   const bankAccounts = summary.accounts;
-  const sel = useBankTxSelection(bankAccounts, router.isReady ? router.query.account_id : undefined, router.isReady);
+  // The default account is the first card in THIS user's order, so nothing is picked until that order is known.
+  const cardOrder = useCardOrderForDefault();
+  const pickDefault = useCallback((a: BankAccountSummary[]) => firstCardAccount(a, cardOrder.order, readLastOpened), [cardOrder.order]);
+  const sel = useBankTxSelection(cardOrder.ready ? bankAccounts : NO_ACCOUNTS, router.isReady ? router.query.account_id : undefined, router.isReady, pickDefault);
   const { selected: selectedBank, setSelected: setSelectedBank } = sel;
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });
@@ -120,7 +131,8 @@ export default function BankTransactionsPage() {
   // reload the view the user is on NOW, not the one that was on screen when they clicked.
   const reloadList = useCallback(() => { void loadLatest.current(); }, []);
   const reloadWithSummary = useCallback(async () => { await loadLatest.current({ silent: true }); void refreshSummary(); }, [refreshSummary]);
-  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
+  // The total is judged only once it was counted for THIS account and tab: a page restored from the URL is not "past the end" of a list not loaded yet.
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading: isLoading || loaded.key !== listKey(selectedBank, tab), failed: error !== '', setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, reloadWithSummary); // AI suggestions move lines Unallocated -> Suggested
@@ -129,12 +141,14 @@ export default function BankTransactionsPage() {
 
   useSeedRowSelections(transactions, rowSelections, setRowSelections); // rowSelections from DB suggestion fields
 
-  // ---- A new account starts from defaults (every filter, the sort, the selection); a new tab resets the selects ----
-  const { resetForAccount, resetSelects } = f;
-  useEffect(() => { resetForAccount(); setPage(1); setSelectedIds(new Set()); setRowSelections({}); }, [selectedBank, resetForAccount]);
-  useEffect(() => { resetSelects(); setPage(1); setSelectedIds(new Set()); setRowSelections({}); }, [tab, resetSelects]);
+  // ---- The view (account, tab, page, filters) lives in the URL; switching account or tab is ONE batch (one fetch) ----
+  const clearSelection = useCallback(() => { setSelectedIds(new Set()); setRowSelections({}); }, []);
+  const { selectBank, changeTab } = useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection });
+  useScrollSelectedCard(selectedBank, bankAccounts.find(b => b.id === selectedBank)?.groupId);
   // Whatever changes the list (page, search, filter, sort, reload, an action) prunes the selection to the rows on screen.
   useEffect(() => { setSelectedIds(prev => pruneSelection(prev, transactions) ?? prev); }, [transactions]);
+
+  const removeRows = useRemoveRows(setTransactions, setLoaded);
 
   // ---- Build action handlers ----
   const actions = buildBankTxActions({
@@ -143,7 +157,7 @@ export default function BankTransactionsPage() {
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt: m.setRulePrompt, setExcludingTxId: m.setExcludingTxId, excludeOutcome: m.excludeOutcome, loadTransactions: reloadList, refreshBankAccounts: () => void refreshSummary(), refreshSummarySoon: summary.refreshSoon,
     reloadCurrentView: afterMutation,
-    onLlmResidual: pollForLlmResults, busy,
+    onLlmResidual: pollForLlmResults, busy, removeRows,
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
@@ -160,6 +174,9 @@ export default function BankTransactionsPage() {
   const shown = awaitingShown({ tab, error, isLoading, total, loadedFor: loaded.key, wantedFor: listKey(selectedBank, tab), filtersActive: filtersActive({
     search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, allocationFilter, txType, allocType, hasSuggestion }) });
   const onScreenSelected = selectedOnScreen(selectedIds, transactions);
+  // The table stays mounted while the SAME list reloads (a page, a filter, an action): only a first load, or another account's
+  // or tab's list, is a skeleton - the rows on screen would belong to a different view.
+  const refreshing = isLoading && loaded.key === listKey(selectedBank, tab) && transactions.length > 0;
 
   if (summary.status === 'error') {
     return (
@@ -187,10 +204,10 @@ export default function BankTransactionsPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {summary.stale && <BankTxSummaryNotice kind="stale" onRetry={() => void refreshSummary()} />}
-        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} shown={shown} onSelectBank={setSelectedBank}
-          onAccountsChanged={() => void refreshSummary()} onShowProvisional={() => setTab('provisional')} />
+        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} shown={shown} onSelectBank={selectBank}
+          onAccountsChanged={() => void refreshSummary()} onShowProvisional={() => changeTab('provisional')} />
 
-        <BankTxTabs tab={tab} onTab={setTab} provisionalCount={bank?.counts.provisional ?? 0} />
+        <BankTxTabs tab={tab} onTab={changeTab} provisionalCount={bank?.counts.provisional ?? 0} />
 
         <BankTxFilters
           tab={tab} page={page} total={total} pageSize={PAGE_SIZE} selectedCount={onScreenSelected.size}
@@ -239,7 +256,7 @@ export default function BankTransactionsPage() {
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
           <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
           {sel.noneActive && <BankTxSummaryNotice kind="none-active" />}
-          {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading || summary.status === 'loading'} error={error}
+          {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={(isLoading || summary.status === 'loading') && !refreshing} refreshing={refreshing} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.activeLabels}
             detailTx={detailTx} onDetailClose={closeDetail}>
             <BankTxTable

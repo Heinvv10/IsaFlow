@@ -32,7 +32,7 @@ export function DebouncedAmountInput({ id, label, value, placeholder, onCommit }
         onKeyDown={e => { if (e.key === 'Enter') commit(draft); }}
         className="w-20 px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
       />
-      {invalid && <span id={`${id}-error`} role="alert" className="shrink-0 text-xs text-red-400">Enter an amount like 100 or 100.50</span>}
+      {invalid && <span id={`${id}-error`} role="alert" className="shrink-0 text-xs text-red-700 dark:text-red-400">Enter an amount like 100 or 100.50</span>}
     </>
   );
 }

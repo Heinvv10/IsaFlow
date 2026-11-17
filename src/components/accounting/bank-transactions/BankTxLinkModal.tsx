@@ -136,10 +136,10 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
           {tx.link && (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2">
               <span className="text-xs text-sky-300 truncate">Linked: {tx.link.assetName && tx.link.kind !== 'asset' ? `${tx.link.assetName} — ` : ''}{tx.link.label}</span>
-              <button onClick={() => void unlink()} disabled={busy} className="text-xs px-2 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50">Unlink</button>
+              <button onClick={() => void unlink()} disabled={busy} className="text-xs px-2 py-1 rounded border border-red-500/40 text-red-700 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50">Unlink</button>
             </div>
           )}
-          {error && <div className="text-xs text-red-400 bg-red-500/10 rounded px-3 py-2">{error}</div>}
+          {error && <div className="text-xs text-red-700 dark:text-red-400 bg-red-500/10 rounded px-3 py-2">{error}</div>}
 
           <div>
             <label htmlFor="link-asset-search" className="block text-xs text-[var(--ff-text-secondary)] mb-1">Asset</label>

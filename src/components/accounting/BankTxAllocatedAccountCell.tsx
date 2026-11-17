@@ -30,7 +30,7 @@ export function AllocatedAccountCell({ tx, fallbackLabel }: {
   tx: AllocatedTx;
   fallbackLabel?: string;
 }) {
-  const colour = TYPE_COLOR[tx.allocationType ?? ''] ?? 'text-teal-400';
+  const colour = TYPE_COLOR[tx.allocationType ?? ''] ?? 'text-teal-700 dark:text-teal-400';
   // No account resolved means the journal could not be reached (reversed or
   // deleted). Say so rather than falling back to a label that may not be one.
   const account = tx.allocatedEntityName || fallbackLabel || 'Allocated';

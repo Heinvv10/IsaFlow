@@ -172,3 +172,13 @@ measured 2026-10-05 on migration 852) are no longer a lock-order or FK-order que
 - `has_open_query` (EXISTS on `bank_tx_queries` sent/replied) maps to row `queried`.
 - `update_notes` answers 404 when the line is missing (`updateBankTxNotes` returns boolean).
 - Selection is pruned to rows on screen and bulk actions intersect with `transactions`; Delete reports the server's `deleted`; row and bulk actions are single-flight (`useBankTxBusy`).
+
+## Bank Transactions page: view, URL and refetch rules
+
+- The view (account, tab, page, filters, search) lives in the URL (`useBankTxView`, `bankTxUrlState`): written on every change (a history entry for account, tab and page; filters only replace), restored on first load, re-applied on Back/Forward. Query keys: `account_id`, `tab`, `page`, `q`, `from`, `to`, `min`, `max`, `sort`, `alloc`, `type`, `cat`, `sugg`, `recon`; defaults are omitted and unknown or malformed values are dropped on read. Keys the page does not own (a drawer `line`) are kept. Nothing is written before the account is known, or a deep link would be lost.
+- The default account is the first card in the USER's saved card order (read-only `useCardOrderForDefault`; the cards own writes), and nothing is selected until that order has loaded or failed. An account in the URL wins.
+- Switching account or tab is one batch (new view, default filters, selection cleared): one list fetch. A restored or Back-navigated view carries its own filters and is not reset.
+- A page restored from the URL is judged against the page count only once the list for that account and tab has loaded.
+- The table stays mounted (dimmed, `aria-busy`) while the SAME list reloads; only a first load or another account's or tab's list is a skeleton. A line that left the tab (accepted, reviewed, allocated, deleted) is removed locally by the action (`removeRows`), and the list and the summary reload once per action.
+- `bank-relink-transfers` (a write) runs once per account per page visit; a failed pass is retried on the next selection.
+- No hard-coded dark-theme text colour (`text-red-400`, `text-teal-400`/`300`, `text-amber-400`/`300`) without a `dark:` pairing in the page's components; a census test enforces it.

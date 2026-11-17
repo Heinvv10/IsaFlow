@@ -109,7 +109,7 @@ export function BankTxFilters({
               onClick={onBatchAccept}
               disabled={bulkBusy}
               aria-busy={busy?.has('batch-allocate') || undefined}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 disabled:opacity-60"
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 disabled:opacity-60"
             >
               {busy?.has('batch-allocate') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
               {progress?.key === 'batch-allocate' ? ` Allocating ${progress.done + 1} of ${progress.total}` : ' Batch Allocate'}
@@ -153,7 +153,7 @@ export function BankTxFilters({
       </button>
       <Link
         href="/accounting/bank-transactions/new"
-        className="flex items-center gap-1 px-2.5 py-1 rounded border border-teal-500/60 text-xs text-teal-400 hover:text-teal-300 hover:border-teal-400 font-medium"
+        className="flex items-center gap-1 px-2.5 py-1 rounded border border-teal-500/60 text-xs text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 hover:border-teal-400 font-medium"
       >
         <Plus className="h-3.5 w-3.5" /> New Transaction
       </Link>

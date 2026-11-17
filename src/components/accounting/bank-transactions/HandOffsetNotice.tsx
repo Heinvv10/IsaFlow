@@ -144,7 +144,7 @@ export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
       <button type="button" onClick={() => setOpen('undoAnyway')} className="text-blue-600 dark:text-blue-400 hover:underline">
         Not the correction — undo anyway
       </button>
-      {error && <p className="text-red-400 mt-1">{error}</p>}
+      {error && <p className="text-red-700 dark:text-red-400 mt-1">{error}</p>}
       <ConfirmDialog
         open={dialog !== null}
         title={dialog?.title ?? ''}

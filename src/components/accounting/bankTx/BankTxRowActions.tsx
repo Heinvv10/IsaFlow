@@ -46,7 +46,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
           {tx.excludeReason ? (
             <span
               title={tx.excludeReason}
-              className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 max-w-[120px] truncate inline-block"
+              className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-700 dark:text-red-400 max-w-[120px] truncate inline-block"
             >
               {tx.excludeReason}
             </span>
@@ -70,7 +70,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
             ) : (
             <>
               <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId || (table.busyIds?.has(`accept:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`))} aria-busy={(table.busyIds?.has(`accept:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`)) || undefined} title="Accept" aria-label={`Accept, ${label}`}
-                className={`${TOUCH_ICON} p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30`}>
+                className={`${TOUCH_ICON} p-1 rounded hover:bg-teal-500/10 text-teal-700 dark:text-teal-400 disabled:opacity-30`}>
                 <Check className="h-3.5 w-3.5" />
               </button>
               {onFindMatch && (
@@ -93,7 +93,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
               {onAskClient && <AskClientButton tx={tx} label={label} onAsk={onAskClient} />}
               <button onClick={() => onExclude(tx.id)} title="Exclude" aria-label={`Exclude, ${label}`}
-                className={`${TOUCH_ICON} p-1 rounded hover:bg-red-500/10 text-red-400`}>
+                className={`${TOUCH_ICON} p-1 rounded hover:bg-red-500/10 text-red-700 dark:text-red-400`}>
                 <X className="h-3.5 w-3.5" />
               </button>
             </>
@@ -102,7 +102,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
             <>
               {onReverse && (
                 <button onClick={() => onReverse(tx.id)} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
-                  className={`${TOUCH_ICON} p-1 rounded hover:bg-amber-500/10 text-amber-400`}>
+                  className={`${TOUCH_ICON} p-1 rounded hover:bg-amber-500/10 text-amber-700 dark:text-amber-400`}>
                   <Undo2 className="h-3.5 w-3.5" />
                 </button>
               )}
@@ -115,7 +115,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               {/* A reconciled line is locked: undo needs its reconciliation reopened first (the server refuses it too). */}
               {tx.status !== 'reconciled' && (
                 <button onClick={() => onUnmatch(tx.id)} disabled={(table.busyIds?.has(`unmatch:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`))} aria-busy={(table.busyIds?.has(`unmatch:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`)) || undefined} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
-                  className={`${TOUCH_ICON} p-1 rounded hover:bg-amber-500/10 text-amber-400`}>
+                  className={`${TOUCH_ICON} p-1 rounded hover:bg-amber-500/10 text-amber-700 dark:text-amber-400`}>
                   <Undo2 className="h-3.5 w-3.5" />
                 </button>
               )}

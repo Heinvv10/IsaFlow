@@ -147,7 +147,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         )}
         {tx.needsEvidence && tx.provisionalJeId && (
           <Link href={`/accounting/bank/provisional#${tx.id}`}
-            className="ml-1 text-xs text-teal-400 hover:underline max-lg:inline-flex max-lg:min-h-11 max-lg:items-center">
+            className="ml-1 text-xs text-teal-700 dark:text-teal-400 hover:underline max-lg:inline-flex max-lg:min-h-11 max-lg:items-center">
             Attach slip
           </Link>
         )}
@@ -196,10 +196,10 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         </span>
       </td>
       <BankTxDimensionCells tx={tx} sel={sel} rowType={rowType} isNew={isNew} label={label} table={table} />
-      <td data-label="Spent" className="py-1 px-2 text-right tabular-nums text-xs text-red-400">
+      <td data-label="Spent" className="py-1 px-2 text-right tabular-nums text-xs text-red-700 dark:text-red-400">
         {spent !== null ? fmtCurrency(spent) : ''}
       </td>
-      <td data-label="Received" className="py-1 px-2 text-right tabular-nums text-xs text-teal-400">
+      <td data-label="Received" className="py-1 px-2 text-right tabular-nums text-xs text-teal-700 dark:text-teal-400">
         {received !== null ? fmtCurrency(received) : ''}
       </td>
       <BankTxRowActions tx={tx} label={label} sel={sel} isNew={isNew} isAllocated={isAllocated} isExcluded={isExcluded} table={table} />
