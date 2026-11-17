@@ -177,6 +177,13 @@ describe('salary bank file', () => {
     const live = (await files(a)).find((f) => f.status === 'generated');
     await expect(asSession('INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents) VALUES ($1, $2, $3, 1)',
       [a.company, live!.id, emp[0]])).rejects.toThrow(/do not foot|duplicate key/);
+    // A file committed without its items does not foot either (run 2's file was voided below to free the run).
+    const run2 = String(live!.run_id);
+    await voidNotSent(a, run2, String(live!.id));
+    await expect(asSession(
+      `INSERT INTO payroll_bank_files (company_id, run_id, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
+       SELECT company_id, id, 'fnb_obe_2023_02', repeat('c', 64), 1, 1, '2099-01-15', COALESCE(approved_at, approval_grandfathered_at), 'x'
+         FROM payroll_run_headers WHERE id = $1`, [run2])).rejects.toThrow(/do not foot/);
     await expect(a.pool.query("UPDATE payroll_bank_files SET status = 'generated', confirmed_at = NULL, confirmed_by = NULL WHERE id = $1", [file!.id]))
       .rejects.toThrow(/session user|only a generated file/);
     await expect(a.pool.query('UPDATE payroll_bank_files SET total_cents = 1 WHERE id = $1', [file!.id])).rejects.toThrow(/session user|only a generated file/);
