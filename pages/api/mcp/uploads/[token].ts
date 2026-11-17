@@ -14,10 +14,15 @@
  *
  * Not a withAuth route: there is no user. The lookup and the staging write (with its audit row) each run in their own
  * short public-route transaction on the service pool (the body is read between them, holding no connection), and the
- * write names the intent's id AND company_id. Rate limits: the client IP is the proxy's (cloudflared / nginx), so no
- * bucket is per IP. A malformed or unknown token is charged ONLY to its own miss bucket (which can refuse misses but
- * never a real token); a token that names an intent is charged per token, to the platform ceiling and per company,
- * and only then runs the global sweep of expired uploads. So junk can neither drain the ceiling nor drive the sweep.
+ * write names the intent's id AND company_id. Rate limits (the client IP is the proxy's, cloudflared / nginx, so no
+ * bucket is per IP), in two tiers:
+ *   - before the lookup: a token hash that recently missed is answered 404 from an in-process cache (no query); then
+ *     a per-token bucket (a replayed token cannot drive lookups) and a lookup ceiling (GLOBAL + MISS a minute, so
+ *     unique junk cannot drive unbounded lookups);
+ *   - after a real intent resolves: the platform ceiling and the per-company bucket, then the global sweep.
+ * Misses (malformed, cached or looked up) are charged to their own miss bucket, never to the platform ceiling, and
+ * never sweep. Limit: before the lookup a well-formed junk token and a real one look the same, so a flood of UNIQUE
+ * junk past the lookup ceiling also refuses real PUTs until the window turns (the platform bucket stays untouched).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -26,6 +31,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { readUploadBody, UploadBodyError } from '@/lib/mcp/uploadBody';
+import { uploadMissCache } from '@/lib/mcp/uploadMissCache';
 import { uploadBytesRefusal } from '@/lib/mcp/uploadBytesCheck';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
@@ -44,23 +50,34 @@ const MISS_PER_MINUTE = 600;
 const TOKEN_PER_MINUTE = 20;
 /** A company's agent may PUT a 100-file batch several times a minute. */
 const COMPANY_PER_MINUTE = 600;
+/** Token lookups a minute, all callers: room for the platform ceiling's real PUTs plus the miss bucket's junk. */
+const LOOKUP_PER_MINUTE = GLOBAL_PER_MINUTE + MISS_PER_MINUTE;
+
+const limit = (key: string, max: number) => checkRateLimit(key, { max, windowSecs: WINDOW });
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
   const token = typeof req.query.token === 'string' ? req.query.token : '';
-  const intent = TOKEN_RE.test(token)
-    ? await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token))
-    : null;
-  if (!intent) {
-    if (!(await checkRateLimit('mcp-upload:miss', { max: MISS_PER_MINUTE, windowSecs: WINDOW }))) {
-      return apiResponse.tooManyRequests(res);
-    }
-    return apiResponse.notFound(res, 'Upload');
+  const miss = async () => ((await limit('mcp-upload:miss', MISS_PER_MINUTE))
+    ? apiResponse.notFound(res, 'Upload') : apiResponse.tooManyRequests(res));
+  if (!TOKEN_RE.test(token)) return miss();
+  const tokenHash = hashUploadToken(token);
+  if (uploadMissCache.has(tokenHash)) return miss();
+
+  // Tier 1, before the lookup: per token, then the lookup ceiling.
+  if (!(await limit(`mcp-upload-token:${tokenHash.slice(0, 32)}`, TOKEN_PER_MINUTE))
+    || !(await limit('mcp-upload:lookup', LOOKUP_PER_MINUTE))) {
+    return apiResponse.tooManyRequests(res);
   }
-  const admitted = await checkRateLimit(`mcp-upload-token:${hashUploadToken(token).slice(0, 32)}`, { max: TOKEN_PER_MINUTE, windowSecs: WINDOW })
-    && await checkRateLimit('mcp-upload:all', { max: GLOBAL_PER_MINUTE, windowSecs: WINDOW })
-    && await checkRateLimit(`mcp-upload-company:${intent.companyId}`, { max: COMPANY_PER_MINUTE, windowSecs: WINDOW });
-  if (!admitted) return apiResponse.tooManyRequests(res);
+  const intent = await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token));
+  if (!intent) {
+    uploadMissCache.add(tokenHash);
+    return miss();
+  }
+  // Tier 2, a real intent: the platform ceiling and the company, then the sweep.
+  if (!(await limit('mcp-upload:all', GLOBAL_PER_MINUTE)) || !(await limit(`mcp-upload-company:${intent.companyId}`, COMPANY_PER_MINUTE))) {
+    return apiResponse.tooManyRequests(res);
+  }
   await sweepExpiredUploadsQuietly();
 
   if (intent.status !== 'pending') return apiResponse.conflict(res, 'This upload url was already used');

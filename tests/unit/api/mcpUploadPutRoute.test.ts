@@ -37,9 +37,12 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { uploadReadLimits } from '@/lib/mcp/uploadBody';
+import { uploadMissCache } from '@/lib/mcp/uploadMissCache';
 import route from '../../../pages/api/mcp/uploads/[token]';
 
 const TOKEN = 'a'.repeat(43);
+/** A well-formed token that names no intent (once missed it stays missed: the route caches it). */
+const UNKNOWN = 'u'.repeat(43);
 const PDF = Buffer.from('%PDF-1.4\n%upload body\n%%EOF\n');
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const COMPANY = '22222222-2222-2222-2222-222222222222';
@@ -70,6 +73,7 @@ beforeEach(() => {
   limiter.allow = true;
   limiter.deny = new Set();
   limiter.counts = new Map();
+  uploadMissCache.clear();
   vi.mocked(findIntentByToken).mockResolvedValue(intent());
   vi.mocked(stageUploadBytes).mockResolvedValue(true);
 });
@@ -117,7 +121,7 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF, { query: { token: 'short' } })).statusCode).toBe(404);
     expect(findIntentByToken).not.toHaveBeenCalled();
     vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
-    expect((await put(PDF)).statusCode).toBe(404);
+    expect((await put(PDF, { query: { token: UNKNOWN } })).statusCode).toBe(404);
     vi.mocked(findIntentByToken).mockResolvedValueOnce(intent({ status: 'uploaded' }));
     expect((await put(PDF)).statusCode).toBe(409);
     vi.mocked(findIntentByToken).mockResolvedValueOnce(intent({ expired: true }));
@@ -154,8 +158,8 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF, { method: 'POST' })).statusCode).toBe(405);
     await put(PDF);
     const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
-    expect(keys).toEqual([
-      `mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`, 'mcp-upload:all', `mcp-upload-company:${COMPANY}`]);
+    expect(keys).toEqual([`mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`, 'mcp-upload:lookup',
+      'mcp-upload:all', `mcp-upload-company:${COMPANY}`]);
     expect(keys.some((k) => k.includes('1.2.3.4'))).toBe(false);
     limiter.allow = false;
     expect((await put(PDF)).statusCode).toBe(429);
@@ -166,17 +170,58 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF, { query: { token: 'short' } })).statusCode).toBe(404);
     vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
     expect((await put(PDF)).statusCode).toBe(404);
-    expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0])).toEqual(['mcp-upload:miss', 'mcp-upload:miss']);
+    const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
+    expect(keys.filter((k) => k === 'mcp-upload:miss')).toHaveLength(2);
+    expect(keys).not.toContain('mcp-upload:all');
     expect(sweepExpiredUploadsQuietly).not.toHaveBeenCalled();
     limiter.deny = new Set(['mcp-upload:miss']);
-    vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
     expect((await put(PDF)).statusCode).toBe(429);
+  });
+
+  const tok = (n: number) => `j${String(n).padStart(42, '0')}`;
+
+  it('a flood of well-formed junk tokens stops reaching the lookup once the pre-lookup ceiling is spent', async () => {
+    vi.mocked(findIntentByToken).mockResolvedValue(null);
+    const codes = new Map<number, number>();
+    for (let n = 0; n < 3700; n += 1) {
+      const c = (await put(PDF, { query: { token: tok(n) } })).statusCode;
+      codes.set(c, (codes.get(c) ?? 0) + 1);
+    }
+    expect(findIntentByToken).toHaveBeenCalledTimes(3600);
+    expect(codes.get(429)).toBeGreaterThanOrEqual(100);
+    expect(limiter.counts.get('mcp-upload:all')).toBeUndefined();
+    expect(sweepExpiredUploadsQuietly).not.toHaveBeenCalled();
+  });
+
+  it('replayed junk is answered from the miss cache (one lookup), and a valid token still succeeds after it', async () => {
+    vi.mocked(findIntentByToken).mockResolvedValue(null);
+    for (let n = 0; n < 5000; n += 1) await put(PDF, { query: { token: tok(1) } });
+    expect(findIntentByToken).toHaveBeenCalledTimes(1);
+    vi.mocked(findIntentByToken).mockResolvedValue(intent());
+    expect((await put(PDF)).statusCode).toBe(200);
+  });
+
+  it('a valid token still succeeds after a junk flood that spends the miss bucket', async () => {
+    vi.mocked(findIntentByToken).mockResolvedValue(null);
+    for (let n = 0; n < 1000; n += 1) await put(PDF, { query: { token: tok(n) } });
+    vi.mocked(findIntentByToken).mockResolvedValue(intent());
+    expect((await put(PDF)).statusCode).toBe(200);
+    expect(stageUploadBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses one token replayed past 20 a minute before the lookup', async () => {
+    vi.mocked(findIntentByToken).mockResolvedValue(intent({ status: 'uploaded' }));
+    const codes: number[] = [];
+    for (let n = 0; n < 25; n += 1) codes.push((await put(PDF)).statusCode);
+    expect(codes.slice(0, 20).every((c) => c === 409)).toBe(true);
+    expect(codes.slice(20).every((c) => c === 429)).toBe(true);
+    expect(findIntentByToken).toHaveBeenCalledTimes(20);
   });
 
   it('a flood of junk tokens (past every bucket size) never blocks a real upload', async () => {
     for (let n = 0; n < 3001; n += 1) await put(PDF, { query: { token: `junk${n}` } });
     vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
-    await put(PDF);
+    await put(PDF, { query: { token: UNKNOWN } });
     const r = await put(PDF);
     expect(r.statusCode).toBe(200);
     expect(stageUploadBytes).toHaveBeenCalledTimes(1);
