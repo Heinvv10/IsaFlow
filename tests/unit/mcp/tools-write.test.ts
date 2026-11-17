@@ -787,6 +787,22 @@ describe('write-tool manifest invariants', () => {
       tag_journal_lines: { ...KEY },
       reverse_dimension_tag_batch: { ...KEY },
       sync_bank_dimensions: { ...KEY, date_from: '2026-10-01', date_to: '2026-10-31', dry_run: true },
+      // The budget writes each refuse on a missing required argument (or, for the four human-gated moves, the
+      // scan context's missing owner role) before any service call; behaviour in budgetAmountTools.test.ts,
+      // budgetVersionTools.test.ts and tests/integration/mcp-budget-*.int.test.ts.
+      create_budget_version: { ...KEY },
+      copy_budget_version: { ...KEY },
+      create_reforecast: { ...KEY },
+      add_budget_note: { ...KEY },
+      delete_budget_version: { ...KEY },
+      seed_budget: { ...KEY },
+      set_budget_amounts: { ...KEY },
+      set_budget_annual: { ...KEY },
+      restore_budget_version: { ...KEY },
+      approve_budget_version: { ...KEY },
+      lock_budget_version: { ...KEY },
+      unlock_budget_version: { ...KEY },
+      set_primary_budget_version: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
