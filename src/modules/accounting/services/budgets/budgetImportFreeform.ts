@@ -112,8 +112,8 @@ function headerRow(sheet: FreeformSheet, where: string): { header: FreeRow; text
 
 export interface FreeformLines {
   lines: ImportLine[];
-  /** Rows left out that hold no money (all month cells empty) or are total rows, by sheet row. */
-  skipped: Array<{ row: number; reason: string }>;
+  /** Rows left out that hold no money (all month cells empty) or are total rows, by sheet row; a total row lists its amounts as read (round 5). */
+  skipped: Array<{ row: number; reason: string; amounts?: Record<string, string> }>;
   /** Rows refused before the resolver (money with no readable code, an error code, a lost leading zero), with the code as read. */
   errors: Array<ImportIssue & { account: string }>;
 }
@@ -125,12 +125,27 @@ type Amount = ImportLine['amounts'][number];
 function amountCell(month: string, c: FreeCell | null | undefined): Amount {
   if (!c || (c.kind === 'text' && c.text.trim() === '')) return { month, cell: { kind: 'blank' }, keep: true };
   if (c.kind === 'bad') return { month, cell: { kind: 'error', raw: '', reason: `This cell is ${c.what}, not an amount.` } };
-  if (c.kind === 'text') return c.text.trim().toLowerCase() === CLEAR_WORD ? { month, cell: { kind: 'blank' } } : { month, cell: amountOf(c.text) };
-  if (!c.plain) {
-    return { month, cell: { kind: 'error', raw: String(c.value), reason: `This cell's number format (${clip(c.format)}) is not a plain number, currency or accounting format (a date, time, percent or other), so it is not read as an amount; format it as a number.` } };
+  if (c.kind === 'text' && c.text.trim().toLowerCase() === CLEAR_WORD) return { month, cell: { kind: 'blank' } };
+  if (!c.plain) { // round 5: a text amount too (a ";;;" format hides what the cell holds)
+    return { month, cell: { kind: 'error', raw: c.kind === 'text' ? c.text.slice(0, 40) : String(c.value), reason: `This cell's number format (${clip(c.format)}) is not a plain number, currency or accounting format (a date, time, percent or other), so it is not read as an amount; format it as a number.` } };
   }
+  if (c.kind === 'text') return { month, cell: amountOf(c.text) };
   if (Math.abs(c.value * 100 - Math.round(c.value * 100)) >= 1e-6) return { month, cell: { kind: 'error', raw: String(c.value), reason: NOT_CENTS } };
   return { month, cell: amountOf(c.value) };
+}
+
+/** A skipped total row's amounts as read (decimal text, or the cell's text), so the dry run shows what was left out. */
+function shown(months: readonly string[], r: FreeRow, monthCol: ReadonlyMap<string, number>): { amounts?: Record<string, string> } {
+  const out: Record<string, string> = {};
+  for (const m of months) {
+    const c = r.cells[monthCol.get(m)!];
+    if (!c) continue;
+    if (c.kind === 'number') {
+      const cents = Math.round(c.value * 100), abs = Math.abs(cents);
+      out[m] = `${cents < 0 ? '-' : ''}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
+    } else out[m] = c.kind === 'text' ? clip(c.text) : c.what;
+  }
+  return Object.keys(out).length > 0 ? { amounts: out } : {};
 }
 
 const dimensionText = (c: FreeCell | null | undefined): string => (c?.kind === 'text' ? codeOf(c.text) : c?.kind === 'number' ? String(c.value) : '');
@@ -176,6 +191,13 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
 
   const find = codeIndex(model.accounts);
   const out: FreeformLines = { lines: [], skipped: [], errors: [] };
+  const monthCols = new Set(monthCol.values());
+  for (const r of sheet.rows) {
+    if (r.row >= header.row) break;
+    const above = r.cells.findIndex((c, col) => c !== null && monthCols.has(col));
+    if (above >= 0) throw inputError(`${where}, row ${r.row}, column ${letter(above)}: a value above the header row, under a month column; every amount must be on an account's row. Remove it, or move the header up.`);
+  }
+  const memberCodes = grain === 'company' ? [] : model.dimensions[grain].map((m) => m.code.trim());
   for (const r of sheet.rows) {
     if (r.row <= header.row) continue;
     const stray = r.cells.findIndex((c, col) => c !== null && c !== undefined && !known.has(col));
@@ -203,10 +225,19 @@ export function freeformLines(model: GridReadModel, grain: TemplateGrain, sheet:
       }
     }
     if (find(accountCode) === undefined) {
-      if (TOTAL_WORDS.has(code.toLowerCase().replace(/\s+/g, ' '))) { out.skipped.push({ row: r.row, reason: 'a total row' }); continue; }
+      if (TOTAL_WORDS.has(code.toLowerCase().replace(/\s+/g, ' '))) { out.skipped.push({ row: r.row, reason: 'a total row', ...shown(months, r, monthCol) }); continue; }
       if (!money) { out.skipped.push({ row: r.row, reason: 'not an account, and no amounts (a heading?)' }); continue; }
     }
-    out.lines.push({ row: r.row, accountCode, dimensionCode: dimCol === null ? null : dimensionText(r.cells[dimCol]), amounts });
+    const dim = dimCol === null ? null : r.cells[dimCol];
+    if (dim?.kind === 'number') {
+      const typed = String(dim.value);
+      const padded = memberCodes.find((c) => c !== typed && /^0+\d/.test(c) && c.replace(/^0+/, '') === typed);
+      if (padded !== undefined) {
+        out.errors.push({ row: r.row, column: 'Dimension code', account: code, message: `Dimension code ${typed} is a number: it lost its leading zero (${padded}?). Format the dimension column as text and type the code.` });
+        continue;
+      }
+    }
+    out.lines.push({ row: r.row, accountCode, dimensionCode: dimCol === null ? null : dimensionText(dim), amounts });
   }
   return out;
 }

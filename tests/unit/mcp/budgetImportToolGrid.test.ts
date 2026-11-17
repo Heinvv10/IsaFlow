@@ -168,7 +168,7 @@ describe('import_budget_workbook (json): refusals', () => {
   it('the JSON path has its own rate bucket, charged before the model is read', async () => {
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
     expect(text(await tool.handler({ ...grid(edit()), dry_run: true }, ctx()))).toMatch(/Too many imports/);
-    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-import-json:u-1', { max: 240, windowSecs: 900 });
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-import-json:u:u-1', { max: 240, windowSecs: 900 });
     expect(loadGridReadModel).not.toHaveBeenCalled();
   });
 

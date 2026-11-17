@@ -120,7 +120,7 @@ describe('review round 3: the sheet read, and what it must not read silently', (
 
   it.each(['_Meta', '_BASE', '_meta ', ' _base'])('F2: a sheet named %j (IsaFlow\'s hidden sheet, renamed) refuses the workbook', async (name) => {
     const r = await dry(await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['6000', 1]] }, { name, rows: [['versionId', VERSION]] }));
-    expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(/^This workbook has a sheet named ".*" that starts with "_" but is not IsaFlow's _meta or _base sheet exactly/)]);
+    expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(/^This workbook has a sheet named ".*" that starts with "_" or a combining mark but is not IsaFlow's _meta or _base sheet exactly/)]);
     expect(saveCells).not.toHaveBeenCalled();
   });
 
@@ -157,6 +157,6 @@ describe('review round 3: the sheet read, and what it must not read silently', (
 
   it('rows skipped (no code, totals, headings with no amounts) are listed by the dry run, and do not refuse the import', async () => {
     const out = json(await dry(await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['Expenses'], ['6000', null, 250], ['Total', null, 250]] })));
-    expect(out).toMatchObject({ ready: true, skipped_rows: [{ row: 2, reason: 'not an account, and no amounts (a heading?)' }, { row: 4, reason: 'a total row' }], skipped_count: 2 });
+    expect(out).toMatchObject({ ready: true, skipped_rows: [{ row: 2, reason: 'not an account, and no amounts (a heading?)' }, { row: 4, reason: 'a total row', amounts: { '2026-04': '250.00' } }], skipped_count: 2 });
   });
 });

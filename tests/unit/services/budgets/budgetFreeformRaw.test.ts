@@ -65,7 +65,7 @@ describe('rule 1: every money cell is accounted for', () => {
 
   it('only empty rows and total rows are skipped; an error in a month cell is refused per cell', async () => {
     const out = await linesOf(await book(sheetBody(HEAD + row2([null, null]) + rowXml(3, ['Total', 5]) + rowXml(4, ['6000', { raw: '<c r="$REF" t="e"><v>#DIV/0!</v></c>' }]))));
-    expect(out.skipped).toEqual([{ row: 4 - 1, reason: 'a total row' }]);
+    expect(out.skipped).toEqual([{ row: 3, reason: 'a total row', amounts: { '2026-03': '5.00' } }]);
     expect(out.lines[0]!.amounts[0]!.cell).toEqual({ kind: 'error', raw: '', reason: 'This cell is an error value (#DIV/0!: a formula that failed), not an amount.' });
   });
 });
@@ -73,7 +73,7 @@ describe('rule 1: every money cell is accounted for', () => {
 describe('rule 3: parsed, not scanned (the forms the regexes missed)', () => {
   it.each([
     ['a TRUE single-quoted', { raw: "<c r='$REF' t='b'><v>1</v></c>" }],
-    ['a TRUE in a tag over 1024 characters', { raw: `<c r="$REF" t="b" xr:uid="${'a'.repeat(2000)}"><v>1</v></c>` }],
+    ['a TRUE in a tag over 1024 characters', { raw: `<c r="$REF" t="b" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xr:uid="${'a'.repeat(2000)}"><v>1</v></c>` }],
   ])('%s is refused per cell', async (_n, cell) => {
     const out = await linesOf(await book(sheetBody(HEAD + row2(['6000', cell as RawCellSpec]))));
     expect(out.lines[0]!.amounts[0]!.cell).toEqual({ kind: 'error', raw: '', reason: 'This cell is a TRUE / FALSE value, not an amount.' });
@@ -104,8 +104,8 @@ describe('rule 5: sheet names compared after NFKC, zero-width and space strippin
 
 describe('rule 4: a money cell\'s number format must be General or a plain number / currency / accounting format', () => {
   const FORMATS: Array<[string, number, string | undefined, boolean]> = [
-    ['General', 0, undefined, true], ['#,##0.00 (built-in 4)', 4, undefined, true], ['accounting (built-in 44)', 44, undefined, true],
-    ['rand with a red negative', 164, '"R" #,##0.00;[Red]-"R" #,##0.00', true], ['ZA accounting', 165, '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@_-', true],
+    ['General', 0, undefined, true], ['#,##0.00 (built-in 4)', 4, undefined, true], ['$ accounting (built-in 44; round 5)', 44, undefined, false],
+    ['rand with a red negative, quoted (round 5: no literals)', 164, '"R" #,##0.00;[Red]-"R" #,##0.00', false], ['ZA accounting, with literals (round 5)', 165, '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@_-', false],
     ['[$R-1C09]', 166, '[$R-1C09]#,##0.00', true],
     ['bbbb (Buddhist year)', 167, 'bbbb', false], ['aaa (Japanese weekday)', 168, 'aaa', false], ['built-in 27 (CJK date)', 27, undefined, false],
     ['built-in 36', 36, undefined, false], ['built-in 50', 50, undefined, false], ['built-in 58', 58, undefined, false], ['built-in 14 (date)', 14, undefined, false],

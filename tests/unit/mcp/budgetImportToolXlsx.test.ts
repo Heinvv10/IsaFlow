@@ -147,7 +147,7 @@ describe('import_budget_workbook (xlsx): a file refused whole writes nothing', (
     expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/already have two spreadsheets being read or built/);
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
     expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/Too many imports/);
-    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-import-xlsx:u-1', { max: 60, windowSecs: 900 });
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-import-xlsx:u:u-1', { max: 60, windowSecs: 900 });
     expect(loadGridReadModel).not.toHaveBeenCalled();
     run.mockRestore();
     expect(saveCells).not.toHaveBeenCalled();

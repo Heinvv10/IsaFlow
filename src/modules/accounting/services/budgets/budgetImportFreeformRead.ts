@@ -44,9 +44,9 @@ export async function readImportWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIM
   if (!looksLikeXlsx(buf)) throw inputError('This file is not an Excel workbook (.xlsx). Send the budget template, or a sheet of account codes and months, saved as .xlsx.');
   const parts = await openXlsxParts(buf, limits.maxUncompressedBytes);
   const wb = parseWorkbookXml(parts.workbook);
-  const lookalike = wb.sheets.find((s) => squashSheetName(s.name).startsWith('_') && !TEMPLATE_SHEETS.includes(s.name));
+  const lookalike = wb.sheets.find((s) => /^(?:_|\p{M})/u.test(squashSheetName(s.name)) && !TEMPLATE_SHEETS.includes(s.name));
   if (lookalike) {
-    throw inputError(`This workbook has a sheet named "${clip(lookalike.name)}" that starts with "_" but is not IsaFlow's _meta or _base sheet exactly (a renamed or look-alike one), so IsaFlow cannot tell whether this is a template. `
+    throw inputError(`This workbook has a sheet named "${clip(lookalike.name)}" that starts with "_" or a combining mark but is not IsaFlow's _meta or _base sheet exactly (a renamed or look-alike one), so IsaFlow cannot tell whether this is a template. `
       + 'Download a fresh template (get_budget_template format xlsx) and make your changes in it, or, for a free-form sheet, delete or rename that sheet.');
   }
   if (wb.sheets.some((s) => TEMPLATE_SHEETS.includes(s.name))) return { kind: 'template', wb: await readBudgetWorkbook(buf, limits) };

@@ -12,8 +12,8 @@
  * always (round 2: a one-cell conflict was written before it was shown), is refused past MAX_SAVE_CELLS (never chunked), records the undo snapshot that
  * restore_budget_version reads, and the grid save writes its own audit row as the token user. The app's commit
  * sends the preview's cells to the save route in the same shape and order, so both leave the same rows.
- * Rate: `mcp-budget-import-xlsx:<user>` (60 / 15 min, charged once the spreadsheet slot is granted, as the route
- * charges after its slot) and `mcp-budget-import-json:<user>` (240 / 15 min), both before the model is read.
+ * Rate: `mcp-budget-import-xlsx:u:<user>` (60 / 15 min, charged once the spreadsheet slot is granted, as the route
+ * charges after its slot) and `mcp-budget-import-json:u:<user>` (240 / 15 min), both before the model is read.
  */
 import { checkRateLimit } from '@/lib/rateLimit';
 import { BUDGET_SPREADSHEET_SLOT, CpuSlotBusyError } from '@/lib/withCpuSlot';
@@ -43,7 +43,9 @@ import { NOT_FOUND, toolError } from './toolHelpers';
 
 export { MAX_GRID_ROWS, MAX_WORKBOOK_BASE64 };
 
-const RATE = { xlsx: { max: 60, windowSecs: 900 }, json: { max: 240, windowSecs: 900 } } as const;
+const XLSX_IMPORT_MAX = 60;
+const JSON_IMPORT_MAX = 240;
+const RATE_WINDOW_SECS = 900;
 const WARNINGS_LISTED = 20;
 const SKIPPED_LISTED = 50;
 
@@ -55,12 +57,13 @@ export const importBudgetWorkbookTool: McpTool = {
     + `Send ONE of: rows, get_budget_template's JSON rows from any pages read at any time, in one call or several (each row: base EXACTLY as read, which ties it to its account and member and to the months it was read with; months: EVERY YYYY-MM of the year, a decimal string or null; account / dimension, if sent, must name the base's; other template fields are ignored; rows cannot be added: read the template row of the account; never pair a row\'s base with months from another read: a newer base on older months reverts what the newer read saw, listed by the dry run as changes, not conflicts), with grain, at most ${MAX_GRID_ROWS} rows and 3 MB; `
     + `or file_base64, an .xlsx as base64 (at most ${(MAX_WORKBOOK_BASE64 / 1_000_000).toFixed(1)} million characters, about 2 MB of file: the MCP request is at most 3 MB): either the template from get_budget_template format xlsx, checked as the app checks an upload (its hidden _meta sheet, signed over the version, year, grain and _base, and its _base sheet, the amounts as downloaded, must be as IsaFlow wrote them; one with _meta but no _base is refused as tampered; another version's file or wrong month headers is refused whole), `
     + 'or a FREE-FORM sheet (no sheet named _meta or _base; any sheet whose name starts with "_" otherwise, look-alikes included, is refused): its first VISIBLE sheet, which must be the sheet the workbook opens on (the reply names it as sheet_name), with NO hidden row or column (filters included) and NO merged cell anywhere on it; a header row in rows 1 to 20 of the sheet with an account code column ("Account code", "Code" or "Account") and a column for EVERY month of the year (YYYY-MM, a date, or a month name with its year, or alone when it names one year month), at a cc1/cc2/bu grain (send grain) one dimension column, and only Account name, Name, Description, Section, Total, FY total, PY actual or Notes besides; anything else, or the IsaFlow template\'s own header (a template without its hidden sheets: download a fresh one), is refused naming its sheet, row and column. '
-    + 'EVERY AMOUNT ON A FREE-FORM SHEET IS ACCOUNTED FOR: a row with any month filled and a blank, error (#N/A) or unknown code refuses the import; only rows with every month empty and total rows (Total, Totals, Subtotal, Grand total) are skipped, and listed (skipped_rows); a code that lost a leading zero (a number 400 where the chart has 0400) is refused, never guessed. Free-form cells: a number is an amount only when its format is General or a plain number, currency (R) or accounting format and it is whole cents (dates, times, percents and the like are refused; a free-form sheet is not rounded, the template is); TRUE / FALSE, error and date cells are refused. '
+    + 'EVERY AMOUNT ON A FREE-FORM SHEET IS ACCOUNTED FOR: a row with any month filled and a blank, error (#N/A) or unknown code refuses the import; only rows with every month empty and total rows (Total, Totals, Subtotal, Grand total) are skipped, and listed (skipped_rows, a total row with the amounts it held: CHECK them, they are not imported); a code that lost a leading zero (a number 400 where the chart has 0400) is refused, never guessed. Free-form cells: a number is an amount only when its format is General or a plain number, currency (R) or accounting format and it is whole cents (dates, times, percents and the like are refused; a free-form sheet is not rounded, the template is); TRUE / FALSE, error and date cells are refused. '
     + 'A free-form sheet HAS NO BASE: it OVERWRITES. version_token is REQUIRED with it and must be the version\'s token now (dry run and live); every cell it names is then set to the sheet\'s value even if a colleague changed that cell after you read the token; a BLANK cell KEEPS its amount, the text "clear" clears the month, "0" is a budgeted zero. '
     + 'TRAPS FIRST (template and JSON grid): a cell changes only where the file differs from what was read (the .xlsx\'s _base, a JSON row\'s base), so a colleague\'s later save is never reverted; a cell changed both in the file and in the version since is a conflict (listed, with its member) and takes the file\'s value; null or a blank cell CLEARS that month (not budgeted), "0.00" is a budgeted zero; rows left out are untouched; version_token is optional there and checked on the LIVE call only. '
     + 'EVERY live import needs the plan_hash of its dry run, even one of a single cell: the dry run is the preview (as in the app), and a conflict shows there before anything is written. '
     + 'An unknown or ambiguous account or member, a non-income-statement account, a header or inactive account with no budget, an account budgeted at another level in this version (decision 4), a row listed twice or an amount that is not a decimal amount is refused PER ROW with the reason (i = the sheet row, or the 1-based position in rows); one refused row writes nothing (all or nothing). '
     + `At most ${MAX_SAVE_CELLS} changed cells per call (split a bigger import into files of fewer rows; never chunked for you). A budget holder imports only their own slices; a slice under review, a locked version or a reforecast's closed months are refused by the grid save. `
+    + 'THE DRY RUN IS THE VIEW TO CHECK: it lists every cell the import would change; a person reads it before the live call. The free-form reader never misreads a sheet saved by Excel, Google Sheets or LibreOffice and refuses, rather than guesses, anything else it cannot read exactly (an element outside SpreadsheetML where it reads, a value it cannot parse strictly, a format outside its allowlist, hidden or merged layout); a crafted file gives no capability beyond set_budget_amounts. '
     + 'An .xlsx is read in the server\'s spreadsheet slot: at most two per user at once, the same two places your own IsaFlow session uses (busy: try again in a moment); the JSON grid takes no slot. '
     + 'The save is a person\'s grid save as you (audited as you, in the version\'s history). Needs write:budgets and read:reports. A person approves the version in IsaFlow.',
   ...BUDGET_WRITE_FENCE,
@@ -112,7 +115,10 @@ export const importBudgetWorkbookTool: McpTool = {
     // Rate first (the routes' order: after the slot, before any read), then the model, then the file or the rows.
     type Prepared = { model: GridReadModel; src: ImportSource; diff: ImportDiff; sheet: 'template' | 'free-form' | null; freeform: (FreeformLines & { name: string }) | null };
     const prepare = async (): Promise<McpToolResult | Prepared> => {
-      if (!(await checkRateLimit(`mcp-budget-import-${bytes ? 'xlsx' : 'json'}:${ctx.userId}`, RATE[bytes ? 'xlsx' : 'json']))) {
+      const allowed = bytes
+        ? await checkRateLimit(`mcp-budget-import-xlsx:u:${ctx.userId}`, { max: XLSX_IMPORT_MAX, windowSecs: RATE_WINDOW_SECS })
+        : await checkRateLimit(`mcp-budget-import-json:u:${ctx.userId}`, { max: JSON_IMPORT_MAX, windowSecs: RATE_WINDOW_SECS });
+      if (!allowed) {
         return toolError('Too many imports of a budget template; wait a few minutes and try again.');
       }
       const model = await loadModel(ctx, args.version_id);

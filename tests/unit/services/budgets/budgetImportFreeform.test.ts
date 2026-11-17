@@ -20,7 +20,7 @@ import { CC1, MONTHS, RENT, SALES, TOKEN, model } from '../../mcp/budgetToolsFix
 
 /** A cell as the raw-XML reader gives it: text, a General-formatted number, or empty. */
 const cellOf = (c: RawCell): FreeCell | null => (c === null ? null : typeof c === 'number' ? { kind: 'number', value: c, format: 'General', plain: true }
-  : typeof c === 'string' ? { kind: 'text', text: c } : { kind: 'error', reason: c.error });
+  : typeof c === 'string' ? { kind: 'text', text: c, format: 'General', plain: true } : { kind: 'bad', what: c.error });
 const rowsOf = (rows: Array<{ row: number; cells: RawCell[] }>): FreeRow[] => rows.map((r) => ({ row: r.row, cells: r.cells.map(cellOf) }));
 const sheet = (...rows: RawCell[][]): FreeformSheet => ({ name: 'Plan', rows: rowsOf(rows.map((cells, i) => ({ row: i + 1, cells }))) });
 const linesOf = (m: GridReadModel, grain: 'company' | 'cc1', sh: FreeformSheet) => freeformLines(m, grain, sh).lines;
@@ -122,7 +122,8 @@ describe('review round 3: what a free-form sheet must not read silently', () => 
     const out = freeformLines(model(), 'company', sheet(['Code', ...MONTHS], ['', ...vals({ 0: 5 })], ['Revenue', ...vals()], ['6000', ...vals({ 0: 1 })],
       ['Grand total', ...vals({ 0: 6 })], ['SUBTOTAL', ...vals({ 1: 1 })], ['Expenses', ...vals({ 0: 2 })]));
     expect(out.skipped).toEqual([
-      { row: 3, reason: 'not an account, and no amounts (a heading?)' }, { row: 5, reason: 'a total row' }, { row: 6, reason: 'a total row' },
+      { row: 3, reason: 'not an account, and no amounts (a heading?)' },
+      { row: 5, reason: 'a total row', amounts: { '2026-03': '6.00' } }, { row: 6, reason: 'a total row', amounts: { '2026-04': '1.00' } }, // round 5: listed with its amounts
     ]);
     expect(out.errors).toEqual([{ row: 2, column: 'Account code', account: '', message: 'Sheet "Plan", row 2, column A: this row has amounts but no account code.' }]); // round 4: money is never skipped
     expect(out.lines.map((l) => l.accountCode)).toEqual(['6000', 'Expenses']); // "Expenses" with an amount reaches the resolver, which refuses it
@@ -142,6 +143,19 @@ describe('review round 3: what a free-form sheet must not read silently', () => 
     const [line] = freeformLines(model(), 'company', sheet(['Code', ...MONTHS], ['6000', ...vals({ 0: 1.005, 1: 1.1, 2: 0.07 })])).lines;
     expect(line!.amounts[0]!.cell).toEqual({ kind: 'error', raw: '1.005', reason: 'has more than 2 decimals; round it to cents in the sheet (a free-form sheet is not rounded for you)' });
     expect(line!.amounts.slice(1, 3).map((a) => a.cell)).toEqual([{ kind: 'value', cents: 110 }, { kind: 'value', cents: 7 }]);
+  });
+
+  it('round 5: a numeric dimension code that lost its leading zero is refused, as an account code is', () => {
+    const m = model({ dimensions: { cc1: [{ id: CC1, code: '07', name: 'Seven', isActive: true }], cc2: [], bu: [] } });
+    const out = freeformLines(m, 'cc1', sheet(['Code', 'CC1', ...MONTHS], ['4000', 7, ...vals({ 0: 1 })], ['4000', '07', ...vals({ 0: 2 })]));
+    expect(out.errors).toEqual([{ row: 2, column: 'Dimension code', account: '4000', message: 'Dimension code 7 is a number: it lost its leading zero (07?). Format the dimension column as text and type the code.' }]);
+    expect(out.lines.map((l) => [l.row, l.dimensionCode])).toEqual([[3, '07']]);
+  });
+
+  it('round 5: a value above the header row under a month column refuses (every amount is on an account\'s row); text elsewhere above it is ignored', () => {
+    expect(() => freeformLines(model(), 'company', sheet(['Budget 2027', null, 5], ['Code', ...MONTHS])))
+      .toThrow(/^Sheet "Plan", row 1, column C: a value above the header row, under a month column/);
+    expect(freeformLines(model(), 'company', sheet(['Budget 2027', 'as agreed'], ['Code', 'Notes', ...MONTHS], ['6000', 'x', 1])).lines).toHaveLength(1);
   });
 
   // Boolean / error / date-formatted cells, merges and hidden layout are the raw-XML reader's: budgetFreeformRaw.test.ts.

@@ -25,6 +25,8 @@ export interface RawBook {
   styles?: string;
   /** Shared strings; no part when undefined. */
   sst?: string[];
+  /** workbook.xml's whole body (inside <workbook>), replacing the one built from `sheets` and `activeTab`. */
+  workbookBody?: string;
 }
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -33,8 +35,8 @@ export async function rawBook(b: RawBook): Promise<Buffer> {
   const zip = new JSZip();
   zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
   const view = b.activeTab === undefined ? '' : `<bookViews><workbookView activeTab="${b.activeTab}"/></bookViews>`;
-  zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8"?><workbook ${NS}>${view}<sheets>${b.sheets
-    .map((s, i) => `<sheet name="${s.name}" sheetId="${i + 1}"${s.attrs ?? ''} r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`);
+  const sheetsXml = `<sheets>${b.sheets.map((s, i) => `<sheet name="${s.name}" sheetId="${i + 1}"${s.attrs ?? ''} r:id="rId${i + 1}"/>`).join('')}</sheets>`;
+  zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8"?><workbook ${NS}>${b.workbookBody ?? `${view}${sheetsXml}`}</workbook>`);
   const rels = b.sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`);
   if (b.styles !== undefined) rels.push(`<Relationship Id="rId90" Type="${REL}/styles" Target="styles.xml"/>`);
   if (b.sst !== undefined) rels.push(`<Relationship Id="rId91" Type="${REL}/sharedStrings" Target="sharedStrings.xml"/>`);
