@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { BankTransaction } from '../../types/bank.types';
 import { mapTxRow } from './bankTxRowMapper';
-import { TX_SELECT } from './bankTxQueryFragments';
+import { TX_SELECT_EXPORT } from './bankTxQueryFragments';
 
 export const BANK_TX_EXPORT_MAX_DAYS = 366;
 export const BANK_TX_EXPORT_MAX_ROWS = 50_000;
@@ -24,7 +24,7 @@ export const BANK_TX_EXPORT_MAX_ROWS = 50_000;
 export async function getAllBankTransactionsForExport(
   companyId: string, fromDate: string, toDate: string, limit: number,
 ): Promise<BankTransaction[]> {
-  const rows = (await sql`${sql.unsafe(TX_SELECT)}
+  const rows = (await sql`${sql.unsafe(TX_SELECT_EXPORT)}
     WHERE bt.company_id = ${companyId}::UUID
       AND bt.feed_state = 'posted'
       AND bt.transaction_date BETWEEN ${fromDate}::DATE AND ${toDate}::DATE

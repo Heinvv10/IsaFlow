@@ -23,7 +23,7 @@ export const listUnsupportedTransactionsTool: McpTool = {
   description:
     'Bank transactions with NO supporting evidence — the "which transactions over R10,000 have no receipt" audit test. ' +
     'min_amount is compared against the ABSOLUTE amount, so a R12,000 payment out is caught as readily as one in. Rows come back largest first. ' +
-    'Each row carries evidence: "own" (a document on the bank line itself: an attach_document file or a linked captured document), "settled_document" (no own document, but the line pays or receives a bill / customer invoice that carries its own document, through the supplier / customer payment its allocation created) or "none". ' +
+    'Each row carries evidence: "own" (a document on the bank line itself: an attach_document file or a linked captured document), "settled_document" (no own document, but the line pays or receives a bill / customer invoice that carries its own document, through the supplier / customer payment or supplier payment batch its posted journal belongs to) or "none". A credit note\'s document alone is not evidence. A gateway payout line does not reach the receipts it pays out, so it reads "none". ' +
     'By default a row is unsupported when it has NO evidence of either kind; strict: true keeps the old test (no OWN document, whatever it settles). ' +
     'Totals: transactions_in_scope, with_own_document, with_settled_document, no_evidence (they partition the scope), plus transactions_with_a_document (in scope minus unsupported, under the chosen test). ' +
     'exclude_transfers: true drops lines that move money between the company\'s own accounts (an interbank transfer, or a line coded to a bank / cash / card account); give transfer_account_codes for clearing accounts the chart does not mark as money accounts (e.g. ["1150","1560731"]). ' +
@@ -58,6 +58,9 @@ export const listUnsupportedTransactionsTool: McpTool = {
       return toolError('min_amount must be a number of 0 or more — it is compared against the absolute amount');
     }
     const minAmount = raw === undefined ? 0 : Number(raw);
+    for (const flag of ['strict', 'exclude_transfers'] as const) {
+      if (args[flag] !== undefined && typeof args[flag] !== 'boolean') return toolError(`${flag} must be true or false`);
+    }
     const codes = args.transfer_account_codes;
     if (codes !== undefined && (!Array.isArray(codes) || codes.length > 20
       || codes.some((c) => typeof c !== 'string' || c.length === 0 || c.length > 20))) {

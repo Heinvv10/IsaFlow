@@ -2,7 +2,7 @@
  * "From settled bills / invoices": the documents of what a bank line's payment settles (bank/settledDocumentService),
  * under the line's own attachments in the attachments modal and the line drawer. Read-only: Open (a stored link, new
  * tab) and View (a file the viewer can show); never Remove. Each says what it settles and how much this payment paid,
- * "part-paid R x of R y" when it paid only part.
+ * "part-paid R x of R y" when it paid only part, and whether the bill is still open after every payment and credit.
  */
 
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -20,10 +20,14 @@ export function settledCaption(a: Attachment): string {
     return `Credit note ${s.number ?? ''} · ${formatMoney(s.applied)} against ${s.invoice_number ?? 'the invoice'}${via}`;
   }
   const kind = s.entity_type === 'supplier_invoice' ? 'Bill' : 'Invoice';
-  const paid = s.partial
+  // What THIS line paid of the bill, then whether the bill is still open after every payment and credit note.
+  const paid = s.applied < s.total
     ? `part-paid ${formatMoney(s.applied)} of ${formatMoney(s.total)}`
     : `paid ${formatMoney(s.applied)}`;
-  return `${kind} ${s.number ?? ''} · ${paid}${via}`;
+  const open = s.applied < s.total
+    ? (s.partial && s.outstanding != null ? ` · ${formatMoney(s.outstanding)} still open` : ' · bill settled')
+    : '';
+  return `${kind} ${s.number ?? ''} · ${paid}${open}${via}`;
 }
 
 interface Props {

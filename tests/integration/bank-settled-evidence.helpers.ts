@@ -1,6 +1,6 @@
 // Fixture for bank-settled-evidence.int.test.ts: two companies, bank lines settling bills / invoices through payments,
-// every shape the settled-document evidence must tell apart. Journals stay draft: the evidence path reads the bank
-// leg's journal id, never its status, and a draft journal fires no balance trigger.
+// every shape the settled-document evidence must tell apart. Journals are inserted posted (the evidence path reads only
+// a posted journal; the balance trigger fires on a status UPDATE, not on INSERT).
 import type { Pool } from 'pg';
 
 const uuid = () => crypto.randomUUID();
@@ -46,7 +46,7 @@ export async function seedSettledFixture(pool: Pool): Promise<SettledFixture> {
   async function line(id: string, company: string, bankAcct: string, amount: number, contra: string, legAccount = bankAcct) {
     const je = uuid(); const leg = uuid();
     await q('INSERT INTO gl_journal_entries(id,company_id,entry_date,created_by,status) VALUES($1,$2,$3,$4,$5)',
-      [je, company, '2026-11-02', user, 'draft']);
+      [je, company, '2026-11-02', user, 'posted']);
     await q(`INSERT INTO gl_journal_lines(id,journal_entry_id,company_id,gl_account_id,debit,credit) VALUES
       ($1,$2,$3,$4,$5,$6), ($7,$2,$3,$8,$6,$5)`,
     [leg, je, company, legAccount, Math.max(amount, 0), Math.max(-amount, 0), uuid(), contra]);
@@ -85,6 +85,9 @@ export async function seedSettledFixture(pool: Pool): Promise<SettledFixture> {
   // partial: R300 of B3's R1,000.
   const p2 = await supPayment(await line(f.lines.partial, co, f.bank, -300, ap), co, supplier, 'SP-2', 300);
   await alloc(p2, f.bills.b3, 300); await doc(f.docs.b3, 'supplier_invoice', f.bills.b3, 'SIV-3.pdf');
+  // A removed (inactive) document on B3 is never evidence.
+  await q(`INSERT INTO procurement_documents(entity_type,entity_id,document_name,file_url,file_size,mime_type,is_active)
+    VALUES('supplier_invoice',$1,'SIV-3-old.pdf','https://files.test/old.pdf',1,'application/pdf',false)`, [f.bills.b3]);
   // credit-note offset: R800 cash + an approved R200 credit note settle B4; a draft credit note is not shown.
   const p3 = await supPayment(await line(f.lines.credit, co, f.bank, -800, ap), co, supplier, 'SP-3', 800);
   await alloc(p3, f.bills.b4, 800); await doc(f.docs.b4, 'supplier_invoice', f.bills.b4, 'SIV-4.pdf');

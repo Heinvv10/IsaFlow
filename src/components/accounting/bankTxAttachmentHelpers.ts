@@ -20,7 +20,9 @@ export interface Attachment {
   /** settled_document only: what the document belongs to and what this payment applied to it. */
   settles?: {
     entity_type: 'supplier_invoice' | 'customer_invoice' | 'credit_note';
-    entity_id: string; number: string | null; total: number; applied: number; partial: boolean;
+    entity_id: string; number: string | null; total: number; applied: number;
+    /** Still open after every live payment and credit note; outstanding is that amount (null for a credit note). */
+    partial: boolean; outstanding: number | null;
     invoice_id: string; invoice_number: string | null;
   };
   /** The type a captured document claims. Decides View and the download extension; the viewer trusts only its bytes. */

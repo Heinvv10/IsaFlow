@@ -30,14 +30,19 @@ const settled = (over: Partial<Attachment> & { settles: Attachment['settles'] })
   via: { kind: 'supplier_payment', payment_id: 'p1', payment_number: 'SP-1' }, ...over,
 });
 const BILL = settled({ file_name: 'SIV-1.pdf', file_url: 'https://files.test/SIV-1.pdf',
-  settles: { entity_type: 'supplier_invoice', entity_id: 'b1', number: 'SIV-1', total: 1000, applied: 1000, partial: false, invoice_id: 'b1', invoice_number: 'SIV-1' } });
+  settles: { entity_type: 'supplier_invoice', entity_id: 'b1', number: 'SIV-1', total: 1000, applied: 1000, partial: false, outstanding: 0, invoice_id: 'b1', invoice_number: 'SIV-1' } });
 const PART = settled({ file_name: 'SIV-3.pdf',
-  settles: { entity_type: 'supplier_invoice', entity_id: 'b3', number: 'SIV-3', total: 1000, applied: 300, partial: true, invoice_id: 'b3', invoice_number: 'SIV-3' } });
+  settles: { entity_type: 'supplier_invoice', entity_id: 'b3', number: 'SIV-3', total: 1000, applied: 300, partial: true, outstanding: 700, invoice_id: 'b3', invoice_number: 'SIV-3' } });
+const PART_SETTLED = settled({ file_name: 'SIV-5.pdf',
+  settles: { entity_type: 'supplier_invoice', entity_id: 'b5', number: 'SIV-5', total: 1000, applied: 600, partial: false, outstanding: 0, invoice_id: 'b5', invoice_number: 'SIV-5' } });
 const CREDIT = settled({ file_name: 'SCN-1.pdf',
-  settles: { entity_type: 'credit_note', entity_id: 'cn', number: 'SCN-1', total: 200, applied: 200, partial: false, invoice_id: 'b4', invoice_number: 'SIV-4' } });
+  settles: { entity_type: 'credit_note', entity_id: 'cn', number: 'SCN-1', total: 200, applied: 200, partial: false, outstanding: null, invoice_id: 'b4', invoice_number: 'SIV-4' } });
+const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+const SLIP_IMG = settled({ file_name: 'remit.png', file_url: PNG, content_type: 'image/png',
+  settles: { entity_type: 'supplier_invoice', entity_id: 'b6', number: 'SIV-6', total: 50, applied: 50, partial: false, outstanding: 0, invoice_id: 'b6', invoice_number: 'SIV-6' } });
 const ISSUED = settled({ file_name: 'INV-1 issued.pdf', file_url: `/api/accounting/captured-document-file?id=${CAPTURE}`,
   via: { kind: 'customer_payment', payment_id: 'cp', payment_number: 'CP-1' },
-  settles: { entity_type: 'customer_invoice', entity_id: 'i1', number: 'INV-1', total: 2300, applied: 2300, partial: false, invoice_id: 'i1', invoice_number: 'INV-1' } });
+  settles: { entity_type: 'customer_invoice', entity_id: 'i1', number: 'INV-1', total: 2300, applied: 2300, partial: false, outstanding: 0, invoice_id: 'i1', invoice_number: 'INV-1' } });
 
 function serve(rows: unknown[]) {
   vi.mocked(apiFetch).mockImplementation(async () => ok(rows));
@@ -49,7 +54,8 @@ describe('settledCaption', () => {
   it('says what was paid, part-paid R x of R y, and what a credit note offsets', () => {
     const R = formatMoney;
     expect(settledCaption(BILL)).toBe(`Bill SIV-1 · paid ${R(1000)} · via SP-1`);
-    expect(settledCaption(PART)).toBe(`Bill SIV-3 · part-paid ${R(300)} of ${R(1000)} · via SP-1`);
+    expect(settledCaption(PART)).toBe(`Bill SIV-3 · part-paid ${R(300)} of ${R(1000)} · ${R(700)} still open · via SP-1`);
+    expect(settledCaption(PART_SETTLED)).toBe(`Bill SIV-5 · part-paid ${R(600)} of ${R(1000)} · bill settled · via SP-1`);
     expect(settledCaption(CREDIT)).toBe(`Credit note SCN-1 · ${R(200)} against SIV-4 · via SP-1`);
     expect(settledCaption(ISSUED)).toMatch(/^Invoice INV-1 · paid/);
   });
@@ -80,14 +86,33 @@ describe('BankTxAttachmentsModal settled evidence', () => {
     expect(screen.queryByText('No attachments yet')).toBeNull();
   });
 
-  it('views a settled captured PDF in the viewer, and keeps the settled count after a remove', async () => {
+  it('offers View on a settled captured PDF, and keeps the settled count after a remove', async () => {
     serve([OWN, ISSUED]);
     const onCount = vi.fn();
     render(<BankTxAttachmentsModal bankTransactionId="bt-1" onCountChange={onCount} onClose={() => undefined} />);
     expect(await screen.findByRole('button', { name: 'View INV-1 issued.pdf' })).toBeTruthy();
+    expect(onCount).toHaveBeenLastCalledWith(2);
     vi.mocked(apiFetch).mockImplementation(async () => ok({ deleted: 'a1' }));
     fireEvent.click(screen.getByRole('button', { name: /Remove/ }));
     await vi.waitFor(() => expect(onCount).toHaveBeenLastCalledWith(1));
+  });
+
+  it('View on a settled document opens THAT file in the viewer, after the line\'s own files', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test/1');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    serve([OWN, SLIP_IMG]);
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View remit.png' }));
+    expect(screen.getByRole('img', { name: 'remit.png' })).toBeTruthy();
+    expect(screen.queryByRole('img', { name: 'slip.png' })).toBeNull();
+    expect(screen.getByText('2 of 2')).toBeTruthy();
+  });
+
+  it('says "No attachments yet" when the line has no file of its own and settles nothing', async () => {
+    serve([]);
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    expect(await screen.findByText('No attachments yet')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'From settled bills and invoices' })).toBeNull();
   });
 });
 

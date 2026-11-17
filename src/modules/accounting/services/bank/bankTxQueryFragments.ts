@@ -198,6 +198,15 @@ export const TX_SELECT = `
   ${LINK_JOINS}
 `;
 
+/**
+ * TX_SELECT for the all-accounts CSV export (up to 50 000 rows): the same columns, but the settled-document count is
+ * not computed — the export prints no paperclip, and that count is a correlated chain per row. Built by replacing the
+ * one fragment, so the two selects cannot otherwise drift.
+ */
+export const TX_SELECT_EXPORT = TX_SELECT.replace(`${settledDocumentCountSql('bt')} AS settled_document_count`,
+  'NULL::INT AS settled_document_count');
+
+
 // allocationFilter (WP1, 2026-11-15): each filter is ONE bucket of LINE_BUCKET_SQL (./bankLineBucket), the
 // definition the bank card counts with, so a tile and the list it opens cannot disagree. Excluded comes before
 // allocated (a kept match no longer lists an excluded line under Allocated); provisional and Sage-reconciled lines are

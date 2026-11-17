@@ -86,12 +86,13 @@ describe('listBankAttachments', () => {
 });
 
 describe('listTransactionsWithoutDocuments', () => {
-  /** The rows and totals queries answer by their text; the nested fragments (scope, filters) answer []. */
-  function answer(rows: unknown[], totals: unknown) {
+  /** The one statement answers totals on every row (r.id NULL on an empty page); nested fragments answer []. */
+  function answer(rows: Record<string, unknown>[], totals: Record<string, unknown>) {
     vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) => {
       const t = strings.join('?');
-      if (t.includes('ORDER BY ABS(s.amount)')) return Promise.resolve(rows);
-      if (t.includes('AS universe')) return Promise.resolve([totals]);
+      if (t.includes('AS MATERIALIZED')) {
+        return Promise.resolve(rows.length ? rows.map((r) => ({ ...totals, ...r })) : [{ ...totals, id: null }]);
+      }
       return [] as never;
     }) as never);
   }
@@ -111,8 +112,15 @@ describe('listTransactionsWithoutDocuments', () => {
 
   it('labels a row own before settled_document', async () => {
     answer([{ id: 'a', amount: 1, own: true, settled: true }, { id: 'b', amount: 1, own: false, settled: true }], {});
+    // (the totals row's fields are spread onto each page row, as the statement returns them)
     const res = await listTransactionsWithoutDocuments(COMPANY, { from: '2026-01-01', to: '2026-12-31', minAmount: 0, limit: 50, strict: true });
     expect(res.rows.map((r) => r.evidence)).toEqual(['own', 'settled_document']);
+  });
+
+  it('an empty page still returns the totals', async () => {
+    answer([], { universe: 5, with_own: 5, with_settled: 0, no_evidence: 0, unsupported: 0, latest: null });
+    const res = await listTransactionsWithoutDocuments(COMPANY, { from: '2026-01-01', to: '2026-12-31', minAmount: 0, limit: 50 });
+    expect(res).toMatchObject({ rows: [], universeTotal: 5, withOwnDocument: 5, rowsTotal: 0 });
   });
 
   it('compares the ABSOLUTE amount and tests the line\'s own documents with the grid\'s definition', async () => {

@@ -65,7 +65,7 @@ function statementLineSql(sp: string) {
 }
 
 /** SQL: is the gl_accounts row aliased `alias` a money account (rule 3)? */
-export function moneyAccountSql(alias: string) {
+function moneyAccountSql(alias: string) {
   return sql`(
     -- COALESCE: a NULL subtype makes the comparison NULL, and NOT NULL would leave the account in neither bucket.
     COALESCE(${col(alias, 'account_subtype')} = ANY(${[...CASH_SUBTYPES]}::TEXT[]), FALSE)

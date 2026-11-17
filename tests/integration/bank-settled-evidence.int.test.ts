@@ -33,8 +33,9 @@ describeIfDb('bank line settled-document evidence', () => {
 
   it('partial payment: the bill, marked part-paid R300 of R1,000', async () => {
     const [row, ...rest] = await listSettledDocuments(f.company, f.lines.partial);
-    expect(rest).toEqual([]);
-    expect(row!.settles).toMatchObject({ number: 'SIV-3', total: 1000, applied: 300, partial: true });
+    expect(rest).toEqual([]); // the inactive SIV-3-old.pdf is not listed
+    expect(row!.documentId).toBe(f.docs.b3);
+    expect(row!.settles).toMatchObject({ number: 'SIV-3', total: 1000, applied: 300, partial: true, outstanding: 700 });
   });
 
   it('credit-note offset: the bill and the approved credit note applied to it, never a draft one', async () => {
@@ -131,6 +132,8 @@ describeIfDb('settled evidence leaves VAT input support alone; the grid counts i
     const { rows: [leg] } = await vatPool.query('SELECT journal_entry_id AS je FROM gl_journal_lines WHERE id=$1', [line.leg]);
     vatJe = leg.je;
     // The full line's journal: credit bank 1,500 / debit AP 1,500 → add input VAT 150 against a further 150 bank credit.
+    // Back to draft to edit it, then posted again (the balance trigger checks it on that status change).
+    await vatPool.query(`UPDATE gl_journal_entries SET status='draft' WHERE id=$1`, [vatJe]);
     await vatPool.query(`UPDATE gl_journal_lines SET credit = 1650 WHERE id=$1`, [line.leg]);
     await vatPool.query(`INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit)
       VALUES($1,$2,$3,150,0)`, [vatJe, g.company, vat]);

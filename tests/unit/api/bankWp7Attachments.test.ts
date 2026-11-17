@@ -40,7 +40,7 @@ const SETTLED = {
   fileSize: 100, fileUrl: 'https://files.test/SIV-1.pdf', createdAt: '2026-10-20T00:00:00.000Z',
   via: { kind: 'supplier_payment' as const, paymentId: 'p1', paymentNumber: 'SP-1' },
   settles: { entityType: 'supplier_invoice' as const, entityId: 'b1', number: 'SIV-1', total: 1000, applied: 1000, partial: false,
-    invoiceId: 'b1', invoiceNumber: 'SIV-1' },
+    outstanding: 0, invoiceId: 'b1', invoiceNumber: 'SIV-1' },
 };
 
 beforeEach(() => {

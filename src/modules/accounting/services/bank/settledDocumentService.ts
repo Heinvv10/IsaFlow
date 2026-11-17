@@ -2,18 +2,16 @@
  * The settled-document evidence of ONE bank line (bank/settledDocumentSql): the documents of the bills, invoices and
  * offsetting credit notes its payment settles. Read-only: nothing is copied and no row is written.
  *
- * Tenant scope: the line is read by id AND company_id, and every join in the fragment re-checks the line's company.
+ * Tenant scope: the line is read by id AND company_id; the fragment fences every company-owned join to the line's
+ * company (see its header).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { settledDocumentsSql } from './settledDocumentSql';
-import { capturedDocUsableSql } from './bankLineDocumentSql';
-import { SETTLING_LINE_STATUSES } from '../core/paymentVoidReads';
+import { SETTLED_DOCUMENTS_MAX, isSettledSourceCaptureSql, settledDocumentsSql } from './settledDocumentSql';
 import { mimeForCapturedFileType } from '../capture/capturedFileTypes';
 import { capturedFileUrl } from '../capture/capturedAttachmentLinks';
 
-/** One line settles a bounded set of bills; this is the guard against a pathological one. */
-export const SETTLED_DOCUMENTS_MAX = 200;
+export { SETTLED_DOCUMENTS_MAX };
 
 export interface SettledDocument {
   source: 'settled_document';
@@ -37,8 +35,10 @@ export interface SettledDocument {
     total: number;
     /** Paid by this payment (a credit note: the credit it applied to the invoice). */
     applied: number;
-    /** A bill / invoice this payment paid only part of. Never set for a credit note. */
+    /** A bill / invoice still part-open after EVERY live payment and applied credit note. Never set for a credit note. */
     partial: boolean;
+    /** What the bill / invoice still has outstanding (null for a credit note). */
+    outstanding: number | null;
     /** For a credit note: the bill / invoice it offsets. */
     invoiceId: string;
     invoiceNumber: string | null;
@@ -73,7 +73,8 @@ export function mapSettledDocument(r: DbRow): SettledDocument {
       number: str(r.entity_number),
       total,
       applied,
-      partial: entityType !== 'credit_note' && applied < total,
+      partial: entityType !== 'credit_note' && Number(r.outstanding ?? 0) > 0.005,
+      outstanding: entityType === 'credit_note' || r.outstanding == null ? null : Number(r.outstanding),
       invoiceId: String(r.settles_invoice_id),
       invoiceNumber: str(r.settles_number),
     },
@@ -87,11 +88,9 @@ export function mapSettledDocument(r: DbRow): SettledDocument {
  */
 export async function listSettledDocuments(companyId: string, bankTxId: string): Promise<SettledDocument[]> {
   const rows = (await sql`
-    SELECT * FROM (
-      SELECT DISTINCT sd.* FROM bank_transactions bt
-      CROSS JOIN LATERAL (${sql.unsafe(settledDocumentsSql('bt'))}) sd
-      WHERE bt.id = ${bankTxId}::UUID AND bt.company_id = ${companyId}::UUID
-    ) d
+    SELECT d.* FROM bank_transactions bt
+    CROSS JOIN LATERAL (${sql.unsafe(settledDocumentsSql('bt', true))}) d
+    WHERE bt.id = ${bankTxId}::UUID AND bt.company_id = ${companyId}::UUID
     ORDER BY d.entity_type = 'credit_note', d.settles_number, d.entity_number, d.created_at, d.document_id
     LIMIT ${SETTLED_DOCUMENTS_MAX}
   `) as DbRow[];
@@ -103,26 +102,11 @@ export async function listSettledDocuments(companyId: string, bankTxId: string):
  * settles? The captured-document-file route serves those bytes to the line's viewer on that ground alone.
  */
 export async function isSettledCapturedDocument(companyId: string, documentId: string): Promise<boolean> {
-  // From the document outwards (one row), not from every bank line in. Same path and gates as settledDocumentSql,
-  // usable-capture predicate included: the gate serves nothing the list would not show.
+  // From the document outwards (one row), on the list's own chain and gates (settledDocumentSql).
   const rows = (await sql`
     SELECT 1 FROM captured_documents scd
      WHERE scd.id = ${documentId}::UUID AND scd.company_id = ${companyId}::UUID
-       AND NULLIF(scd.storage_path, '') IS NOT NULL AND ${sql.unsafe(capturedDocUsableSql('scd'))}
-       AND (EXISTS (SELECT 1 FROM supplier_invoices si
-              JOIN payment_allocations a ON a.invoice_id = si.id
-              JOIN supplier_payments p ON p.id = a.payment_id AND p.company_id = si.company_id AND p.status <> 'cancelled'
-              JOIN gl_journal_lines bl ON bl.journal_entry_id = p.gl_journal_entry_id AND bl.company_id = p.company_id
-              JOIN bank_transactions bt ON bt.matched_journal_line_id = bl.id AND bt.company_id = bl.company_id
-               AND bl.gl_account_id = bt.bank_account_id AND bt.status = ANY(${[...SETTLING_LINE_STATUSES]}::TEXT[])
-             WHERE si.source_document_id = scd.id AND si.company_id = scd.company_id)
-         OR EXISTS (SELECT 1 FROM customer_invoices ci
-              JOIN customer_payment_allocations a ON a.invoice_id = ci.id
-              JOIN customer_payments p ON p.id = a.payment_id AND p.company_id = ci.company_id AND p.status <> 'cancelled'
-              JOIN gl_journal_lines bl ON bl.journal_entry_id = p.gl_journal_entry_id AND bl.company_id = p.company_id
-              JOIN bank_transactions bt ON bt.matched_journal_line_id = bl.id AND bt.company_id = bl.company_id
-               AND bl.gl_account_id = bt.bank_account_id AND bt.status = ANY(${[...SETTLING_LINE_STATUSES]}::TEXT[])
-             WHERE ci.source_document_id = scd.id AND ci.company_id = scd.company_id))
+       AND ${sql.unsafe(isSettledSourceCaptureSql('scd'))}
   `) as DbRow[];
   return rows.length > 0;
 }
@@ -136,7 +120,8 @@ export function settledDocumentWire(d: SettledDocument) {
     file_name: d.fileName,
     mime_type: d.mimeType,
     file_size: d.fileSize,
-    file_url: d.fileUrl,
+    // A stored data: URL would put the file's bytes in a listing: the link is omitted, the metadata stays.
+    file_url: d.fileUrl && d.fileUrl.startsWith('data:') ? null : d.fileUrl,
     created_at: d.createdAt,
     via: { kind: d.via.kind, payment_id: d.via.paymentId, payment_number: d.via.paymentNumber },
     settles: {
@@ -146,6 +131,7 @@ export function settledDocumentWire(d: SettledDocument) {
       total: d.settles.total,
       applied: d.settles.applied,
       partial: d.settles.partial,
+      outstanding: d.settles.outstanding,
       invoice_id: d.settles.invoiceId,
       invoice_number: d.settles.invoiceNumber,
     },

@@ -108,9 +108,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (truncated) res.setHeader('X-Attachments-Truncated', 'true');
     // include_settled=1: after the line's own rows, the documents of the bills / invoices it settles
     // (bank/settledDocumentService), read-only and marked source 'settled_document'. X-Settled-Documents-Total counts them.
-    const settled = req.query.include_settled === '1'
+    const includeSettled = req.query.include_settled === '1';
+    const settled = includeSettled
       ? (await listSettledDocuments(companyId, bankTransactionId)).map((d) => settledAttachmentRow(d, bankTransactionId)) : [];
-    if (req.query.include_settled === '1') res.setHeader('X-Settled-Documents-Total', String(settled.length));
+    if (includeSettled) res.setHeader('X-Settled-Documents-Total', String(settled.length));
     log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length, total, truncated, settled: settled.length }, 'bank-tx-attachments');
     return apiResponse.success(res, [...rows, ...settled]);
   }
