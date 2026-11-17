@@ -88,6 +88,7 @@ const OTHER_ENTRY: Record<string, string> = {
   'pages/api/oauth/': 'OAuth metadata, registration and token exchange (consent is a withAuth route)',
   'pages/api/portal/': 'AR customer portal: invoice tokens and the portal session',
   'pages/api/accounting/portal/': 'AFS portal contacts: magic link and portal JWT',
+  'pages/api/employee-portal/': 'employee self-service portal (wave 6 SS): its own session cookie and key (employeePortalAuth), no company role; login and accept rate-limited',
   'pages/api/health/': 'health checks, read-only',
   'pages/api/cron/': 'CRON_SECRET, timing-safe',
   'pages/api/accounting/afs/cron/': 'CRON_SECRET, timing-safe',
