@@ -59,6 +59,7 @@ function serve(files: ReturnType<typeof file>[]) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('confirm', () => true); // removing an attachment asks first (WP3); these tests answer yes
   vi.mocked(apiFetch).mockReset();
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test/1');
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);

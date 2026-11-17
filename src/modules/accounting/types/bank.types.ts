@@ -44,7 +44,6 @@ export interface BankTransaction {
   suggestedSupplierId?: string;
   suggestedClientId?: string;
   suggestedCategory?: string;
-  suggestedCostCentre?: string;
   suggestedVatCode?: string;
   /** Smart categorization confidence score (0-1) */
   suggestedConfidence?: number;
@@ -120,6 +119,8 @@ export interface BankTransaction {
   link?: BankTxLink;
   /** Files in bank_transaction_attachments (TX_SELECT only); > 0 highlights the row's paperclip. */
   attachmentCount?: number;
+  /** A client query about this line is open (sent, or replied and not resolved). */
+  queried?: boolean;
 }
 
 export type BankTxLinkKind = 'asset' | 'fuel' | 'service';

@@ -53,7 +53,13 @@ export function BankTxPageModals(p: Props) {
         actions.handleCreateEntityDone(entity, type, p.setGlAccounts, p.setSuppliers, p.setCustomers);
         m.setCreateEntityTxId(null); m.setCreateEntityType(null);
       }}
-      onQueryClose={() => m.setQueryTx(null)} onQuerySent={() => m.setQueryTx(null)}
+      onQueryClose={() => m.setQueryTx(null)}
+      onQuerySent={() => {
+        // Mark the row at once (the list carries the server's own flag from the next load).
+        const id = m.queryTx?.id;
+        m.setQueryTx(null);
+        if (id) p.setTransactions(ts => ts.map(t => (t.id === id ? { ...t, queried: true } : t)));
+      }}
     />
   );
 }
