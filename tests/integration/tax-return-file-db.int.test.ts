@@ -29,8 +29,9 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
     if (b) await dropReturnFixture(b);
   }, 120000);
 
-  it('app_user may UPDATE exactly the eight filing and amend columns; platform_admin may not', async () => {
-    const allowed = ['status', 'sars_submission_id', 'filed_reference', 'filed_by', 'filed_at', 'amended_by', 'amend_reason', 'amended_at'];
+  it('app_user may UPDATE exactly the eight filing and amend columns and 999v\'s four filing-file stamps; platform_admin may not', async () => {
+    const allowed = ['status', 'sars_submission_id', 'filed_reference', 'filed_by', 'filed_at', 'amended_by', 'amend_reason', 'amended_at',
+      'filing_file_sha256', 'filing_file_kind', 'filing_file_at', 'filing_file_by'];
     const cols = ((await sql`SELECT attname FROM pg_attribute WHERE attrelid = 'tax_return_versions'::regclass AND attnum > 0
       AND NOT attisdropped`) as Row[]).map((r) => String(r.attname));
     for (const col of cols) {
