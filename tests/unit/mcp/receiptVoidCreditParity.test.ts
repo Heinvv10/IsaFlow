@@ -11,10 +11,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());
-// The transfer's other line is freed by its own unit test (tests/unit/services/bank/transferCounterpartLines.test.ts).
-vi.mock('@/modules/accounting/services/bank/transferCounterpartLines', () => ({
-  reverseFreeingTransferCounterparts: (_c: string, id: string, _j: string | null, fn: (id: string) => Promise<unknown>) => fn(id),
-}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 const RECEIPT = '11111111-1111-4111-8111-aaaaaaaaaaaa';

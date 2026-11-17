@@ -128,7 +128,9 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     // open, and the operator sees a row to fix rather than an undo that read
     // "done" over money still in the GL.
     if (state === 'reReversed') return { kind: 'reReversed' };
-    // WP2 row 5 round 2: a transfer's other-bank line, auto-linked to the same journal — freed with this one.
+    // WP2 row 5 round 2: a transfer's other-bank line, auto-linked to the same journal — locked here so a reconciliation
+    // holding it is this row's reconciled SKIP. Freed by reverseReconciledTransaction (WP2 row 10) when the undo reverses;
+    // by the reset below only when the posting was already reversed by hand (no reversal runs then).
     const legs = await lockTransferCounterparts(companyId, tx, jeId);
     if (legs.lock) return { kind: 'reconciled', lock: legs.lock };
     if (state === 'none') {
@@ -162,7 +164,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
         WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
       `;
     }
-    for (const id of legs.ids) await resetBankLine(companyId, id, false);
+    if (state !== 'none') for (const id of legs.ids) await resetBankLine(companyId, id, false, true);
     if (!tx.matched_journal_line_id) {
       await sql`
         UPDATE bank_transactions
