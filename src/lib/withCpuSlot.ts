@@ -43,15 +43,18 @@ export class CpuSlot {
     return { running: this.running, waiting: this.waiting.length };
   }
 
-  /** Runs `work` in a slot for `owner`; throws CpuSlotBusyError, without running it, when none is to be had. */
-  async run<T>(work: () => Promise<T>, owner?: string): Promise<T> {
+  /**
+   * Runs `work` in a slot for `owner`; throws CpuSlotBusyError, without running it, when none is to be had. `waitMs`
+   * shortens this caller's wait (the MCP budget tools wait inside their request transaction).
+   */
+  async run<T>(work: () => Promise<T>, owner?: string, waitMs: number = this.waitMs): Promise<T> {
     if (owner !== undefined) {
       const mine = this.held.get(owner) ?? 0;
       if (mine >= this.perOwner) throw new CpuSlotBusyError(this.name, 'owner-limit');
       this.held.set(owner, mine + 1);
     }
     try {
-      if (this.running >= this.max) await this.wait();
+      if (this.running >= this.max) await this.wait(waitMs);
       else this.running++;
       try {
         return await work();
@@ -68,7 +71,7 @@ export class CpuSlot {
     }
   }
 
-  private wait(): Promise<void> {
+  private wait(waitMs: number): Promise<void> {
     if (this.waiting.length >= this.queue) return Promise.reject(new CpuSlotBusyError(this.name, 'queue-full'));
     return new Promise<void>((resolve, reject) => {
       const turn = () => { clearTimeout(timer); resolve(); };
@@ -76,7 +79,7 @@ export class CpuSlot {
         const at = this.waiting.indexOf(turn);
         if (at >= 0) this.waiting.splice(at, 1);
         reject(new CpuSlotBusyError(this.name, 'timeout'));
-      }, this.waitMs);
+      }, waitMs);
       this.waiting.push(turn);
     });
   }

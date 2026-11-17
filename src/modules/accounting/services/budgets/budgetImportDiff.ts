@@ -31,9 +31,9 @@ import { loadGridReadModel } from './gridReadModel';
 import { sliceOf } from './holderSlices';
 import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { bandTotals, ownMonths } from './gridTotals';
-import { cellsInCents } from './budgetTemplateXlsx';
+import { cellsInCents, type TemplateGrain } from './budgetTemplateXlsx';
 import { baseDigest, signatureMatches } from './budgetTemplateSignature';
-import { parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWorkbook } from './budgetImportParse';
+import { parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWorkbook, type ImportLine } from './budgetImportParse';
 import { parseBase, tampered, threeWay } from './budgetImportBase';
 import { baseByRowKey, resolveLines, type ImportIssue } from './budgetImportResolve';
 import type { GridReadModel } from './gridReadTypes';
@@ -79,8 +79,25 @@ const rand = (cents: number | null): number | null => (cents === null ? null : f
 
 const NO_BASE = 'This file has no record of what you downloaded; every difference is shown as a change, including values others saved since — check each one before you commit.';
 
-/** The preview of `wb` against the version `versionId` as `model` holds it now. Pure (`currentChangedAt` is null here). */
-export function previewImport(model: GridReadModel, versionId: string, wb: BudgetWorkbook): ImportPreview {
+/** What the shared half of the import diffs: lines read from a template (an .xlsx, or the MCP JSON grid). */
+export interface ImportSource {
+  grain: TemplateGrain;
+  /**
+   * The version token the lines were read against: the template's `_meta` token; null for the MCP JSON grid, whose
+   * rows may come from pages read at different tokens (each row carries its own signed base instead).
+   */
+  readAt: string | null;
+  /**
+   * The amounts as read, per row key (a signed `_base`, or the JSON rows' signed bases); null when the file has none
+   * (Q3b); 'current' for a free-form sheet (MCP, review round 2): an explicit overwrite of the version as it is,
+   * refused unless `readAt` is the version's token now.
+   */
+  base: Map<string, ReadonlyArray<number | null>> | null | 'current';
+  lines: ImportLine[];
+}
+
+/** The import's lines from an uploaded template: refuses another version's or year's file, an altered `_meta` or a forged `_base`. */
+export function workbookSource(model: GridReadModel, versionId: string, wb: BudgetWorkbook): ImportSource {
   if (!model.version || model.updatedAt === null) return refuse('Budget version not found');
   const meta = parseMeta(wb.meta);
   if (meta.versionId !== versionId.toLowerCase()) {
@@ -92,50 +109,92 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
   const months = model.year.monthKeys;
   const [header, ...data] = wb.budget;
   const layout = parseLayout(header, months, meta.grain);
-  const current = cellsInCents(model);
   let base: Map<string, ReadonlyArray<number | null>> | null = null;
   if (wb.base) {
     const lines = parseBase(wb.base, months, meta.grain);
     if (!signatureMatches(meta, baseDigest(wb.base.map((r) => r.cells)), meta.signature)) return tampered();
     base = baseByRowKey(model, meta.grain, lines);
   }
-  const lines = parseLines(data, layout);
+  return { grain: meta.grain, readAt: meta.updatedAt, base, lines: parseLines(data, layout) };
+}
+
+/** The full diff of `src` (every error and warning, uncapped) and each resolved row key's line row. */
+export interface ImportDiff { preview: ImportPreview; rowOf: Map<string, number> }
+
+/** The shared half: resolve the lines, diff them 3-way against the version, total the result. Pure. */
+export function diffImportLines(model: GridReadModel, src: ImportSource): ImportDiff {
+  if (!model.version || model.updatedAt === null) return refuse('Budget version not found');
+  if (src.base === 'current' && src.readAt !== model.updatedAt) {
+    return refuse('This budget was saved after the version_token this sheet was sent with. A sheet with no base sets every cell it names, so it is refused unless the version is still as you read it: read the version again and send its version_token.');
+  }
+  const months = model.year.monthKeys;
+  const { lines, base } = src;
+  const current = cellsInCents(model);
   if (lines.length * months.length > MAX_IMPORT_CELLS) {
     // The reader's row limit is a 12-month year's; a longer year's file must still fit one save (L2).
     return refuse(`This file has ${lines.length} rows of ${months.length} months, more than the ${MAX_IMPORT_CELLS} cells one import can hold. `
       + `Split it: download templates for fewer members, or remove rows you are not changing, and import each part.`);
   }
-  const { rows, errors, warnings } = resolveLines(model, meta.grain, lines, current);
+  const { rows, errors, warnings } = resolveLines(model, src.grain, lines, current);
+  const asNow = (rowKey: string) => months.map((m) => current.get(`${rowKey}|${m}`) ?? null);
   const diff = threeWay(rows.map((r) => ({
     rowKey: r.rowKey,
     // No _base: the version now stands in for what was downloaded, so every difference is a change.
-    base: base ? base.get(r.rowKey) ?? null : months.map((m) => current.get(`${r.rowKey}|${m}`) ?? null),
-    file: r.line.amounts.map((a) => (a.cell.kind === 'value' ? a.cell.cents : null)),
+    base: base === null || base === 'current' ? asNow(r.rowKey) : base.get(r.rowKey) ?? null,
+    file: r.line.amounts.map((a) => (a.keep ? current.get(`${r.rowKey}|${a.month}`) ?? null : a.cell.kind === 'value' ? a.cell.cents : null)),
   })), months, current);
-  if (!base) {
+  const n = diff.moved, k = diff.conflicts.length;
+  const cells = (x: number) => `${x} ${x === 1 ? 'cell' : 'cells'}`;
+  const kept = `${k === 1 ? 'is' : 'are'} listed as conflicts and take your amount.`;
+  if (base === null) {
     warnings.unshift({ row: 0, column: '', message: NO_BASE });
-  } else if (meta.updatedAt === model.updatedAt) {
+  } else if (base === 'current') {
+    // An explicit overwrite of the version as it is (proved above): nothing to warn of beyond what the caller says.
+  } else if (src.readAt === model.updatedAt) {
     if (diff.moved > 0) return tampered(); // nothing was saved since the download, so _base must be the version
-  } else {
-    const n = diff.moved, k = diff.conflicts.length;
+  } else if (src.readAt !== null) {
     warnings.unshift({
-      row: 0, column: '', message: `This budget was saved after you downloaded this file: ${n} ${n === 1 ? 'cell' : 'cells'} in it changed since you downloaded it. `
-        + `Cells you left as downloaded keep the newer amounts; ${k} ${k === 1 ? 'cell' : 'cells'} you changed that also changed in IsaFlow ${k === 1 ? 'is' : 'are'} listed as conflicts and take your amount.`,
+      row: 0, column: '', message: `This budget was saved after you downloaded this file: ${cells(n)} in it changed since you downloaded it. `
+        + `Cells you left as downloaded keep the newer amounts; ${cells(k)} you changed that also changed in IsaFlow ${kept}`,
+    });
+  } else if (n > 0) {
+    warnings.unshift({
+      row: 0, column: '', message: `This budget was saved after some of these rows were read: ${cells(n)} in them changed since these rows were read. `
+        + `Cells you left as read keep the newer amounts; ${cells(k)} you changed that also changed in IsaFlow ${kept}`,
     });
   }
 
   const after = new Map<CellKey, number | null>(current);
   for (const c of diff.changes) after.set(c.key, c.after);
-  return {
+  const preview: ImportPreview = {
     updatedAt: model.updatedAt,
-    changes: diff.changes.map((c) => ({ key: c.key, before: rand(c.before), after: rand(c.after), possibleRevert: !base, currentChangedAt: null })),
+    changes: diff.changes.map((c) => ({ key: c.key, before: rand(c.before), after: rand(c.after), possibleRevert: base === null, currentChangedAt: null })),
     cells: diff.changes.map((c) => (c.after === null ? { ...parseKey(c.key), amount: null, clear: true } : { ...parseKey(c.key), amount: rand(c.after) })),
     counts: diff.counts,
     conflicts: diff.conflicts.map((c) => ({ key: c.key, downloaded: rand(c.downloaded), current: rand(c.current), after: rand(c.after) })),
-    errors: errors.slice(0, MAX_ISSUES), warnings: warnings.slice(0, MAX_ISSUES),
-    errorCount: errors.length, warningCount: warnings.length, truncated: errors.length > MAX_ISSUES || warnings.length > MAX_ISSUES,
+    errors, warnings, errorCount: errors.length, warningCount: warnings.length, truncated: false,
     totals: { before: model.totals, after: bandTotals(model.accounts, ownMonths(after, months), months.length) },
   };
+  return { preview, rowOf: new Map(rows.map((r) => [r.rowKey, r.line.row])) };
+}
+
+/** The preview of `wb` against the version `versionId` as `model` holds it now. Pure (`currentChangedAt` is null here). */
+export function previewImport(model: GridReadModel, versionId: string, wb: BudgetWorkbook): ImportPreview {
+  const { preview: p } = diffImportLines(model, workbookSource(model, versionId, wb));
+  return {
+    ...p, errors: p.errors.slice(0, MAX_ISSUES), warnings: p.warnings.slice(0, MAX_ISSUES),
+    truncated: p.errors.length > MAX_ISSUES || p.warnings.length > MAX_ISSUES,
+  };
+}
+
+/** P5-6: a budget holder's import changing any cell outside their slices is refused whole (403): they could not commit it anyway. */
+export function assertHolderSlices(model: GridReadModel, cells: readonly SaveCell[]): void {
+  if (!model.holder) return;
+  const outside = cells.find((c) => sliceOf(model.holder!.slices, c) === null);
+  if (outside) {
+    throw new BudgetVersionError('BUDGET_SLICE_FORBIDDEN',
+      `This file changes cells outside your budget slices (month ${outside.month}); import a template of your own slices`);
+  }
 }
 
 /** When each changed cell that exists now was last written (Q3c), read for the changed accounts only. */
@@ -176,13 +235,7 @@ export async function buildImportPreview(companyId: string, versionId: string, f
   // file changing any cell outside them is refused whole (403): they could not commit it anyway.
   const model = await loadGridReadModel(companyId, { versionId }, 'totals', viewerId);
   const preview = previewImport(model, versionId, wb);
-  if (model.holder) {
-    const outside = preview.cells.find((c) => sliceOf(model.holder!.slices, c) === null);
-    if (outside) {
-      throw new BudgetVersionError('BUDGET_SLICE_FORBIDDEN',
-        `This file changes cells outside your budget slices (month ${outside.month}); import a template of your own slices`);
-    }
-  }
+  assertHolderSlices(model, preview.cells);
   const at = await changedAt(companyId, versionId, preview.changes);
   return { ...preview, changes: preview.changes.map((c) => ({ ...c, currentChangedAt: at.get(c.key) ?? null })) };
 }

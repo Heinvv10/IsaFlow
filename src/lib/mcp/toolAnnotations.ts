@@ -80,6 +80,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'delete_budget_version',
   'set_budget_amounts',
   'set_budget_annual',
+  'import_budget_workbook',
   'restore_budget_version',
   'approve_budget_version',
   'lock_budget_version',

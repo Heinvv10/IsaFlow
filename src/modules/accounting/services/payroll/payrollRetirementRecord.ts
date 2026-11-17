@@ -1,6 +1,6 @@
 /**
  * An employee's retirement fund contributions over a span of a tax year, from
- * the lines of DECLARABLE runs (EMP201_DECLARABLE_STATUSES): by code for the
+ * the lines of DECLARABLE runs (FINAL: payRunFinalSql, wave 6 EF): by code for the
  * e@syFile certificate's 4001 / 4003 / 4006 (PAYE 4c,
  * easyFileRetirementFields), and in total for the cumulative PAYE's year to
  * date (payrollYearToDate). One rule for both, so PAYE and the certificate
@@ -28,7 +28,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
 import type { RetirementContributions } from './easyFileRetirementFields';
 import { outsideTablesFlag } from './payrollOutsideTables';
@@ -56,7 +56,6 @@ export async function loadRetirementRecord(
   employeeIds: string[] | null = null,
   opts: { tablesOnly?: boolean } = {},
 ): Promise<Map<string, RetirementRecord>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   // The cumulative PAYE's year to date leaves out a month whose PAYE was not taken from the tables; the certificate does not.
   const tablesOnly = opts.tablesOnly === true;
   const rows = (await sql`
@@ -84,7 +83,7 @@ export async function loadRetirementRecord(
         ) i
       ) x
       WHERE h.company_id = ${companyId}::uuid
-        AND h.status = ANY(${declarable}::text[])
+        AND ${sql.unsafe(payRunFinalSql('h'))}
         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
         AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
         AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))

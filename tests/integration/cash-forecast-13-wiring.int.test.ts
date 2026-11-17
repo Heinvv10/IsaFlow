@@ -43,8 +43,9 @@ const clearStore = async () => {
 beforeAll(async () => {
   A = await fx.company();
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
-     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [A.id, prevMonth[0], prevMonth[1]]);
+    // Approved as approvePayrollRun leaves it, with its approval time (the forecast reads final runs, wave 6 EF).
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl, approved_at)
+     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100, clock_timestamp())`, [A.id, prevMonth[0], prevMonth[1]]);
 }, 120000);
 afterAll(async () => {
   try {

@@ -9,7 +9,7 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 const queries: Array<{ q: string; values: unknown[] }> = [];
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values),
+  sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values), { unsafe: (text: string) => ({ unsafe: text }) }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({

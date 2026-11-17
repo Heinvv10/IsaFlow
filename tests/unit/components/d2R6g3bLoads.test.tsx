@@ -27,7 +27,9 @@ import Emp501 from '../../../pages/payroll/emp501/index';
 import Eea2 from '../../../pages/payroll/equity/eea2';
 import CostCentre from '../../../pages/payroll/runs/[id]/cost-centre-summary';
 import NewRun from '../../../pages/payroll/runs/new';
-import Forecast from '../../../pages/accounting/reports/cash-flow-forecast';
+import { AiOutlookTab } from '@/components/accounting/AiCashFlowOutlook';
+// The AI forecast is now the "AI outlook" tab of the Cash Flow Forecast page (cash13 PR 3); same body.
+const Forecast = () => <AiOutlookTab aiConfigured />;
 import BatchPage from '../../../pages/payroll/batches/[id]';
 import Features from '../../../pages/admin/features';
 
