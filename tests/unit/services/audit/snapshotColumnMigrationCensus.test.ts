@@ -107,6 +107,9 @@ const READ_BY_HAND = new Set([
   // 981 (2026-11-12, bank review reset): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER on bank_transactions;
   // "journal" is only the bank line's matched_journal_line_id column. No DDL on gl_journal_entries / gl_journal_lines.
   '981_bank_tx_review_reset_on_rematch.sql',
+  // 999n (2026-11-17, wave 6 FZ freeze): EXECUTE only as EXECUTE FUNCTION in five CREATE TRIGGERs, three of them on
+  // gl_journal_entries / gl_journal_lines. Triggers and ENABLE ALWAYS only: no column added, renamed or rebuilt.
+  '999n_freeze_final_pay_runs_and_posted_journals.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */
