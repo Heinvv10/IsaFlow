@@ -14,6 +14,7 @@ import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { employeePortalAccessHandler } from '@/lib/employeePortalApi';
 import settings from '../../pages/api/payroll/settings/employee-portal';
+import { admitPortalInvite } from '../../pages/api/payroll/employees/[id]/portal-access';
 import login from '../../pages/api/employee-portal/login';
 import accept from '../../pages/api/employee-portal/accept';
 import me from '../../pages/api/employee-portal/me';
@@ -34,7 +35,7 @@ export const capture: Mailer = async (o) => {
   return { success: true, messageId: `<ss-${captured.length}@example.invalid>` };
 };
 // The page's exact middleware (pages/api/payroll/employees/[id]/portal-access.ts), around a capture mailer.
-const accessRoute = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(employeePortalAccessHandler(capture)))))) as unknown as Route;
+const accessRoute = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(employeePortalAccessHandler(capture, admitPortalInvite)))))) as unknown as Route;
 
 export const invite = (r: R, employeeId: string, o: Opts = {}) =>
   r.call(accessRoute, 'POST', `/api/payroll/employees/${employeeId}/portal-access`, employeeId, { ...o, body: {} });

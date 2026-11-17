@@ -140,8 +140,13 @@ describe('employee portal login', () => {
     expect((await doMe({ employee_portal_session: arKey })).statusCode).toBe(401);
     // A staff session token.
     expect((await doMe({ employee_portal_session: a.tokens[a.admin]!, 'sb-access-token': a.tokens[a.admin]! })).statusCode).toBe(401);
-    // Validly signed, but naming company B for A's login, or another employee: no such login.
-    expect((await doMe({ employee_portal_session: await signEmployeePortalToken({ ...claims, companyId: b.company }) })).statusCode).toBe(401);
+    // Validly signed, but naming company B for A's login, or another employee: no such login. B's portal is open, so
+    // only the session's company check can refuse it (otherwise B's switches would answer).
+    await setPlatform(b, true);
+    expect((await putSetting(b, true)).statusCode).toBe(200);
+    const crossed = await doMe({ employee_portal_session: await signEmployeePortalToken({ ...claims, companyId: b.company }) });
+    expect([crossed.statusCode, crossed.body.error?.code]).toEqual([401, 'EMPLOYEE_PORTAL_AUTH']);
+    await setPlatform(b, false);
     const other = await person(a, null, 'Other');
     expect((await doMe({ employee_portal_session: await signEmployeePortalToken({ ...claims, employeeId: other }) })).statusCode).toBe(401);
     expect((await doMe(jar)).statusCode).toBe(200);

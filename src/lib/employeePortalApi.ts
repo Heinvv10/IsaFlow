@@ -10,7 +10,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import type { CompanyAuthedRequest } from '@/lib/auth';
-import { checkSendRateLimit } from '@/lib/rateLimit';
 import { payslipEmailActor, UUID } from '@/lib/payslipEmailApi';
 import type { Mailer } from '@/modules/accounting/services/payroll/payslipDeliveryService';
 import { EmployeePortalRefusal } from '@/modules/accounting/services/payroll/employeePortalRefusal';
@@ -28,7 +27,10 @@ export function respondIfEmployeePortalRefused(res: NextApiResponse, err: unknow
   return true;
 }
 
-export function employeePortalAccessHandler(mailer: Mailer) {
+/** The invite's send limit, charged after every other refusal (the route supplies it: pages/api/…/portal-access.ts). */
+export type AdmitPortalInvite = (req: NextApiRequest, companyId: string) => Promise<boolean>;
+
+export function employeePortalAccessHandler(mailer: Mailer, admit: AdmitPortalInvite) {
   return async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { companyId, companyRole } = req as CompanyAuthedRequest;
     const id = req.query.id;
@@ -52,7 +54,7 @@ export function employeePortalAccessHandler(mailer: Mailer) {
       }
       return apiResponse.success(res, await inviteEmployeeToPortal({
         companyId, employeeId: id, actor, mailer,
-        admit: () => checkSendRateLimit(req, companyId, 'employee-portal-invite', { ipMax: 30, companyMax: 60, dailyMax: 200 }),
+        admit: () => admit(req, companyId),
       }));
     } catch (err) {
       if (respondIfEmployeePortalRefused(res, err)) return;

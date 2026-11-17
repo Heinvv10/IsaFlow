@@ -24,7 +24,6 @@ const Body = z.object({
   password: z.string().min(1).max(1024),
   accessId: z.string().regex(UUID).optional(),
 }).strict();
-const WINDOW = 15 * 60;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
@@ -33,8 +32,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { email, password, accessId } = parsed.data;
   const ip = getClientIp(req);
   const who = createHash('sha256').update(email.toLowerCase()).digest('hex');
-  if (!(await checkRateLimit(`employee-portal-login-ip:${ip}`, { max: 20, windowSecs: WINDOW }))
-    || !(await checkRateLimit(`employee-portal-login-email:${who}`, { max: 5, windowSecs: WINDOW }))) {
+  if (!(await checkRateLimit(`employee-portal-login-ip:${ip}`, { max: 20, windowSecs: 900 }))
+    || !(await checkRateLimit(`employee-portal-login-email:${who}`, { max: 5, windowSecs: 900 }))) {
     return apiResponse.error(res, ErrorCode.RATE_LIMIT, 'Too many attempts. Please try again in 15 minutes.', { reason: 'RATE_LIMITED' });
   }
   try {

@@ -9,15 +9,14 @@
  * "Today" is South Africa's date, as every payroll date is.
  */
 
+import { fmtDate } from '@/lib/fmtDate';
+
 export interface PortalEmployeeStanding { status: string; endDate: string | Date | null }
 
-function ymd(d: string | Date): string {
-  return typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10);
-}
 
 /** The last day a leaver with this end date may sign in (YYYY-MM-DD). */
 export function leaverAccessEnds(endDate: string | Date): string {
-  const [y, m] = ymd(endDate).split('-').map(Number) as [number, number];
+  const [y, m] = fmtDate(endDate).split('-').map(Number) as [number, number];
   const taxYearEnds = m >= 3 ? y + 1 : y;
   const last = taxYearEnds + 1;
   const leap = (last % 4 === 0 && last % 100 !== 0) || last % 400 === 0;
