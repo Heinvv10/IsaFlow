@@ -73,3 +73,13 @@ wave-6 ruling 5). Only the fields that moved are listed with their figures; delt
 | weekly-week-53-pay-sunday | UNVERIFIED | paye 197.31, net 2772.69 | paye 0, net 2970 | paye 0, net 2970 | 0 | unchanged: no asserted figure moved under AN |
 
 64 cases; 20 moved, 44 unchanged.
+
+## Ruled consequence: the s11F cap to date
+
+The cap to date takes F too (ruling 5, vendor parity; confirmed by the coordinator 2026-11-17): cap × n ÷ F, not
+G21 (2027) Rev 1 p. 10's n ÷ 12. So twelve months reach R430 000 × 12 ÷ F = **R429 999.06, R0.94 under the statutory
+R430 000**, and SDL (levied on pay after this deduction) moves by cents where the cap binds (a February catch-up
+contribution leaves R100 000.94 leviable, was R100 000). Pinned by `payeAnnualisation.test.ts` ("twelve equal months
+at the cap") and `sdlLeviableAfterDeductions.test.ts`; a departure by ruling, not a defect.
+
+The Sage notes in `sage-2027-03-{phekis,david}.json` still describe the pre-AN engine (× 12, 2c): a source note, not a figure.

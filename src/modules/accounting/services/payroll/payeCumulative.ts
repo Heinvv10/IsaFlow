@@ -165,6 +165,10 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const periodicToDate = (offPeriodic * periods) / F;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
+  // RULED DEPARTURE (wave-6 ruling 5, vendor parity with Sage; coordinator 2026-11-17): the cap to date is cap × n ÷ F,
+  // not G21 (2027) p. 10's period ratio n ÷ 12, so twelve months reach R430 000 × 12 ÷ F = R429 999.06, R0.94 under the
+  // s11F cap, and SDL (on pay after this deduction) moves by cents where the cap binds. Pinned by payeAnnualisation.test.ts
+  // ("twelve equal months at the cap"): do not "fix" it back to 12 without a new ruling.
   const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / F;
   const offAnnualLimits = {
     deductionLeft: deduction - offPeriodic, annualPayments: annualBefore + annualNow,
