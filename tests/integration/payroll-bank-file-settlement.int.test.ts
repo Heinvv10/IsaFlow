@@ -129,6 +129,10 @@ describe('what a confirmed pre-reopen file leaves to settle', () => {
       };
       const refused = /exactly their net on the file's run/;
       expect(await asAppUser([[emp[0]!.employee, n1], [foreign, n2]])).toMatch(refused); // F-2: another tenant's employee
+      // F-2 even with a (forged) line for that employee on this run: the employee must be this company's.
+      await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, $3)', [run, foreign, n2 / 100]);
+      expect(await asAppUser([[emp[0]!.employee, n1], [foreign, n2]])).toMatch(refused);
+      await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [run, foreign]);
       expect(await asAppUser([[emp[0]!.employee, n1], [offRun, n2]])).toMatch(refused); // F-3: no line on the run
       expect(await asAppUser([[emp[0]!.employee, n1 + n2 - 100], [emp[1]!.employee, 100]])).toMatch(refused); // F-3: redistributed
       expect(await asAppUser([[emp[0]!.employee, n1], [emp[1]!.employee, n2]])).toBe('committed'); // the control: exact nets
