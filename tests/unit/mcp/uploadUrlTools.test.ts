@@ -69,6 +69,7 @@ const intent = (over: Partial<store.UploadIntent> = {}): store.UploadIntent => (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('JWT_SECRET', 'synthetic-upload-key-'.repeat(3));
   vi.mocked(bankTxBelongsToCompany).mockResolvedValue(true);
   vi.mocked(verifyEntityOwnershipTyped).mockResolvedValue(true);
   vi.mocked(findBankLineDuplicate).mockResolvedValue(null);
@@ -104,6 +105,20 @@ describe('create_upload_urls', () => {
     expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![2]).toMatchObject({
       targetKind: 'bank_transaction', targetId: TX, sha256: sha(PDF), size: PDF.length });
     expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+  });
+
+  it('issues no url, and reads nothing, when the server key for upload tokens is missing', async () => {
+    const saved = process.env.JWT_SECRET;
+    delete process.env.JWT_SECRET;
+    try {
+      const res = await createUploadUrlsTool.handler({ files: [file()], idempotency_key: 'k' }, ctx());
+      expect(res.isError).toBe(true);
+      expect(res.content[0]!.text).toContain('not configured');
+      expect(store.insertUploadIntent).not.toHaveBeenCalled();
+      expect(bankTxBelongsToCompany).not.toHaveBeenCalled();
+    } finally {
+      process.env.JWT_SECRET = saved;
+    }
   });
 
   it('refuses a cross-company target as Not found and issues no url', async () => {

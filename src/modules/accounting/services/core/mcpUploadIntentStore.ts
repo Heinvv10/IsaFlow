@@ -1,14 +1,16 @@
 /**
  * mcp_upload_intents (999q): the rows behind create_upload_urls → PUT /api/mcp/uploads/<token> → finalize_uploads.
  *
- * The upload token is 32 random bytes (base64url, 43 characters). Only its sha256 is stored, so a database read never
- * yields a usable URL, and the lookup is an equality probe on that hash (no timing signal about the token itself).
+ * The upload token is self-authenticating (16 random bytes + a 16-byte HMAC tag, base64url, 43 characters; see
+ * @/lib/mcp/uploadToken). Only its sha256 is stored, so a database read never yields a usable URL, and the lookup is an
+ * equality probe on that hash (no timing signal about the token itself).
  *
  * Every statement names company_id. The MCP tools run under the bearer pipeline's RLS context; the PUT route runs on the
  * service pool (no tenant GUCs) and reaches a row by its token hash first, then names id AND company_id on the write.
  */
-import { createHash, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
+import { newUploadToken } from '@/lib/mcp/uploadToken';
 import type { DbRow } from '@/lib/neon';
 
 /** How long an upload URL stays usable (999q's trigger sets it; this is for messages). */
@@ -19,7 +21,6 @@ export const FINALIZE_WINDOW_HOURS = 2;
 export const MAX_OUTSTANDING_UPLOADS = 300;
 export const MAX_OUTSTANDING_BYTES = 300 * 1024 * 1024;
 
-export const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 export const SHA256_RE = /^[0-9a-f]{64}$/;
 
 export type UploadTargetKind =
@@ -47,11 +48,6 @@ export interface UploadIntent {
   refusal: string | null;
   expiresAt: string;
   expired: boolean;
-}
-
-export function newUploadToken(): { token: string; tokenHash: string } {
-  const token = randomBytes(32).toString('base64url');
-  return { token, tokenHash: hashUploadToken(token) };
 }
 
 export function hashUploadToken(token: string): string {
@@ -96,7 +92,10 @@ export interface NewIntent {
   sha256: string;
 }
 
-/** created_by (the session user), status and expires_at are set by 999q's trigger; app_user cannot send them. */
+/**
+ * created_by (the session user), status and expires_at are set by 999q's trigger; app_user cannot send them. Throws
+ * when the upload-token key is missing (create_upload_urls checks uploadTokenKeyAvailable first).
+ */
 export async function insertUploadIntent(
   companyId: string, tokenJti: string | null, i: NewIntent,
 ): Promise<{ id: string; token: string; expiresAt: string }> {

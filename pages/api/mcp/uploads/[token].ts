@@ -14,17 +14,16 @@
  *
  * Not a withAuth route: there is no user. The lookup and the staging write (with its audit row) each run in their own
  * short public-route transaction on the service pool (the body is read between them, holding no connection), and the
- * write names the intent's id AND company_id. Rate limits (the client IP is the proxy's, cloudflared / nginx, so no
- * bucket is per IP):
- *   - before the lookup: a token hash that recently missed is answered 404 from an in-process cache (no query), then
- *     ONLY the per-token bucket (20/min), which only the holder of that token can drain;
- *   - the lookup itself is unlimited by design: one indexed point query on token_hash;
- *   - misses (malformed, cached or looked up) charge only the miss bucket, which throttles 404 answers, never a
- *     resolved token, and never sweep;
- *   - after a real intent resolves: the platform ceiling, then the per-company bucket, then the global sweep.
- * Trade-off, chosen: unbounded junk lookups (cheap, indexed) over a shared pre-lookup ceiling, because before the
- * lookup junk and a real token look the same, so any shared ceiling there is one junk can spend to deny real uploads.
- * Follow-up (ops, Hein): an edge rate limit for /api/mcp/uploads/ at nginx/Cloudflare, where the real client IP is known.
+ * write names the intent's id AND company_id.
+ *
+ * The token is self-authenticating (@/lib/mcp/uploadToken: 16 random bytes + a 16-byte HMAC tag keyed from
+ * JWT_SECRET). Its tag is verified in process, constant-time, FIRST: a forged, tampered or malformed token (or any
+ * token when the server key is missing) is 404 with no rate-limit charge and no query, so junk can neither drive
+ * lookups nor spend a bucket a real token needs. Then, for a token this server minted:
+ *   - the per-token bucket (20/min: a replayed url cannot drive lookups);
+ *   - the lookup; a miss (an expired and deleted intent) charges only the miss bucket and answers 404;
+ *   - for a real intent: the platform ceiling, then the per-company bucket, then the global sweep.
+ * No bucket is per IP: behind cloudflared / nginx every caller has the proxy's IP.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -33,12 +32,12 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { readUploadBody, UploadBodyError } from '@/lib/mcp/uploadBody';
-import { uploadMissCache } from '@/lib/mcp/uploadMissCache';
+import { verifyUploadToken } from '@/lib/mcp/uploadToken';
 import { uploadBytesRefusal } from '@/lib/mcp/uploadBytesCheck';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import {
-  TOKEN_RE, findIntentByToken, hashUploadToken, stageUploadBytes,
+  findIntentByToken, hashUploadToken, stageUploadBytes,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 
 export const config = { api: { bodyParser: false } };
@@ -46,7 +45,7 @@ export const config = { api: { bodyParser: false } };
 const WINDOW = 60;
 /** Every PUT that names a real intent, all companies: far above any real batch, low enough to bound a flood. */
 const GLOBAL_PER_MINUTE = 3000;
-/** Malformed or unknown tokens, all callers (they share the proxy's IP). Gates misses only. */
+/** Minted tokens that name no intent (expired and deleted), all callers. Gates those 404s only. */
 const MISS_PER_MINUTE = 600;
 /** One url is one file; retries after a refused body are the only repeats. */
 const TOKEN_PER_MINUTE = 20;
@@ -58,20 +57,15 @@ const limit = (key: string, max: number) => checkRateLimit(key, { max, windowSec
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
   const token = typeof req.query.token === 'string' ? req.query.token : '';
-  const miss = async () => ((await limit('mcp-upload:miss', MISS_PER_MINUTE))
-    ? apiResponse.notFound(res, 'Upload') : apiResponse.tooManyRequests(res));
-  if (!TOKEN_RE.test(token)) return miss();
-  const tokenHash = hashUploadToken(token);
-  if (uploadMissCache.has(tokenHash)) return miss();
-
-  // Before the lookup: only the per-token bucket (no shared bucket junk could spend). The lookup is not limited.
-  if (!(await limit(`mcp-upload-token:${tokenHash.slice(0, 32)}`, TOKEN_PER_MINUTE))) return apiResponse.tooManyRequests(res);
+  // First, before any limiter or query: only a token this server minted goes further.
+  if (!verifyUploadToken(token)) return apiResponse.notFound(res, 'Upload');
+  if (!(await limit(`mcp-upload-token:${hashUploadToken(token).slice(0, 32)}`, TOKEN_PER_MINUTE))) {
+    return apiResponse.tooManyRequests(res);
+  }
   const intent = await withPublicRouteTransaction('mcp-upload lookup', () => findIntentByToken(token));
   if (!intent) {
-    uploadMissCache.add(tokenHash);
-    return miss();
+    return (await limit('mcp-upload:miss', MISS_PER_MINUTE)) ? apiResponse.notFound(res, 'Upload') : apiResponse.tooManyRequests(res);
   }
-  // A real intent: the platform ceiling, then the company, then the sweep.
   if (!(await limit('mcp-upload:all', GLOBAL_PER_MINUTE)) || !(await limit(`mcp-upload-company:${intent.companyId}`, COMPANY_PER_MINUTE))) {
     return apiResponse.tooManyRequests(res);
   }

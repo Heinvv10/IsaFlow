@@ -10,7 +10,7 @@
  *  - audit rows for a PUT, a refusal and a duplicate finalize.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { stageUploadBytes } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { sweepExpiredUploads } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
@@ -106,6 +106,18 @@ describeIfDb('MCP uploads: review hardening (999q)', () => {
     expect(await put(String(us[2]!.url), jpg)).toBe(400);
     const rows = await sql`SELECT status FROM mcp_upload_intents WHERE id = ANY(${us.map((u) => String(u.upload_id))}::UUID[])`;
     expect(rows.map((r) => r.status)).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  it('refuses a forged or tampered url at the PUT (404) and leaves the real one usable', async () => {
+    const a = PDF('mac');
+    const u = first(await createUrls(fx, [bankFile(lines[3]!, 'mac.pdf', a)]));
+    const url = String(u.url);
+    const token = url.split('/').pop()!;
+    const tampered = token.slice(0, 5) + (token[5] === 'A' ? 'B' : 'A') + token.slice(6);
+    expect(await put(url.replace(token, tampered), a)).toBe(404);
+    expect(await put(url.replace(token, randomBytes(32).toString('base64url')), a)).toBe(404);
+    expect((await sql`SELECT status FROM mcp_upload_intents WHERE id = ${String(u.upload_id)}::UUID`)[0]!.status).toBe('pending');
+    expect(await put(url, a)).toBe(200);
   });
 
   it('hashes only same-size attachments: same bytes under another stored size are not a duplicate', async () => {

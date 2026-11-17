@@ -21,23 +21,26 @@
    (advisory lock) so the cap holds under concurrency. Each new file gets
    `https://app.isaflow.co.za/api/mcp/uploads/<token>` valid 30 min.
 2. Agent uploads with `curl -sS -T file "<url>"`. `PUT /api/mcp/uploads/[token]`: no cookie, CSRF or bearer — the
-   token is the only credential. 32 random bytes; only its sha256 is stored (`token_hash`). One-shot (pending + unexpired
+   token is the only credential. It is self-authenticating: 16 random bytes followed by a 16-byte HMAC-SHA256 tag over
+   them, base64url (43 characters), keyed by HMAC(JWT_SECRET, "isaflow:mcp-upload-token:v1"), so no new secret and no
+   env change. Only the sha256 of the whole token is stored (`token_hash`). One-shot (pending + unexpired
    only; compare-and-set to `uploaded`). Body streamed with a hard cap of the declared size (413 past it); a stall (30 s
    without data, 5 min total) or an abort stops the read (400, nothing staged). The bytes must equal the declared size
    and sha256, their magic bytes must match the mime, and they must be a complete file of that type: PDF `%%EOF` in the
    last 1024 bytes, PNG ending in IEND, JPEG ending in FFD9 (a polyglot such as a PDF header followed by HTML passes a
    magic check and nothing else; this check is the upload path's own, `fileMagic` is unchanged elsewhere). A bad body is
    400 and the URL stays usable for a corrected PUT. A good PUT moves the row's expiry to now() + 2 h (the finalize
-   window) and writes an audit row. Rate limits: the client IP seen behind cloudflared / nginx is the proxy's, so a
-   per-IP bucket would be platform-wide. Before the lookup: a token hash that missed in the last minute is answered 404 from
-   a bounded in-process cache (no query), then ONLY a per-token bucket (20/min), which only the holder of that token
-   can drain. The lookup itself is unlimited by design: one indexed point query on token_hash, about the cost of
-   answering the 404. Misses charge only a miss bucket (600/min), which throttles 404 answers and never a resolved
-   token, and never sweep. After a real intent resolves: the platform ceiling (3000/min), then per company (600/min),
-   then the sweep. Trade-off, chosen: unbounded junk lookups (cheap, indexed) are preferred over a shared pre-lookup
-   ceiling, because before the lookup junk and a real token look the same, so junk could spend any shared ceiling to
-   deny real uploads. Follow-up (ops, Hein): an edge rate limit for /api/mcp/uploads/ at nginx/Cloudflare, where the
-   real client IP is known. A body past its declared size is not drained: the read stops at cap + 1 byte and the
+   window) and writes an audit row. The route verifies the tag in process with a constant-time compare FIRST: a forged,
+   tampered or malformed token (or any token when JWT_SECRET is missing) is 404 with no rate-limit charge and no
+   query, so junk can neither drive database lookups nor spend a bucket a real token needs. A token this server minted
+   then meets the per-token bucket (20/min: a replayed url cannot drive lookups), the lookup, and on a miss (an
+   expired and deleted intent) only the miss bucket (600/min, gating those 404s). A real intent is charged to the
+   platform ceiling (3000/min) and its company (600/min), and only then runs the sweep. No bucket is per IP: behind
+   cloudflared / nginx every caller has the proxy's IP. Without JWT_SECRET `create_upload_urls` refuses to issue urls
+   (a tool error) and the route answers 404: never an unkeyed token. Deploys: both blue/green colours share
+   JWT_SECRET, so a url minted by one verifies on the other; a url issued before a deploy that changes the token
+   format or the key (this PR's, or a JWT_SECRET rotation) fails closed with 404, which is acceptable for a 30-minute
+   url (create a new one). A body past its declared size is not drained: the read stops at cap + 1 byte and the
    connection is closed. Runs on the service pool in two short public-route transactions (no connection held while the body
    streams); the write names the intent's id AND company_id. The token path is redacted from logs
    (`redactShareToken`).

@@ -20,6 +20,7 @@ import {
   insertUploadIntent, lockAndReadUploadUsage, type UploadTargetKind,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { uploadTokenKeyAvailable } from '../uploadToken';
 import { isValidUUID } from '@/lib/validation';
 import { ok, toolError } from './toolHelpers';
 import { resolveTxSelectors, type TxSelector } from './txSelectorResolve';
@@ -136,6 +137,10 @@ export const createUploadUrlsTool: McpTool = {
     const files = args.files;
     if (!Array.isArray(files) || files.length === 0) return toolError('files is required: a list of files to upload');
     if (files.length > MAX_UPLOAD_ITEMS) return toolError(`at most ${MAX_UPLOAD_ITEMS} files per call`);
+    // Upload urls carry an HMAC keyed from the server secret; without it none can be issued (never an unkeyed url).
+    if (!uploadTokenKeyAvailable()) {
+      return toolError('upload urls are unavailable: the server signing key is not configured. Use attach_document / attach_entity_document meanwhile.');
+    }
 
     const parsed = files.map((f) => parseItem(f, ctx));
     const refs = parsed.flatMap((p) => ('selector' in p && p.selector ? [p.selector] : []));
