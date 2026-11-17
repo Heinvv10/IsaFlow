@@ -155,6 +155,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
       <RunUnitCell key={`${kind}${m ?? ''}`} id={`run-${runId}-${kind}-${row}`} kind={kind} label={label} quantity={held?.quantity ?? null} amount={held?.amount ?? null}
         hourlyRate={runUnits.rates.find((r) => r.employeeId === l.employeeId)?.hourlyRate ?? null} multiplier={multiplier}
         resetKey={resets[unitsKey(l.employeeId, kind, m)] ?? 0}
+        kmToDate={kind === 'travel' ? runUnits.kmToDate.find((k) => k.employeeId === l.employeeId)?.km ?? null : null}
         onCommit={(h, rate) => commitUnits(l.employeeId, kind, m, h, rate)} onRefuse={() => refuse(l.employeeId, `${kind}${m ?? ''}`)} />
     );
   };

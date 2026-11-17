@@ -20,7 +20,7 @@ import PayrollRunDetailPage from '@/../pages/payroll/runs/[id]';
 const run = runBody({ lines: [line('1', 'Riaan Smit'), line('2', 'Thandi Nkosi')] });
 const units = (rows: Array<Record<string, unknown>> = [], more: Record<string, unknown> = {}) => ({
   units: {
-    overtimeComponentId: 'c-ot', travelComponentId: 'c-travel', rows, conflicts: [],
+    overtimeComponentId: 'c-ot', travelComponentId: 'c-travel', rows, conflicts: [], kmToDate: [],
     rates: [{ employeeId: 'e-1', hourlyRate: 115.38 }, { employeeId: 'e-2', hourlyRate: null }], ...more,
   },
 });
@@ -68,6 +68,16 @@ describe('travel km', () => {
     fireEvent.blur(rate);
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(body(0)).toEqual({ employeeId: 'e-1', units: { kind: 'travel', multiplier: null, quantity: 1000, ratePerKm: 6, expectedQuantity: null } });
+  });
+
+  it('shows the km recorded this tax year under the cell, and nothing for an employee with none', async () => {
+    const held = { employeeId: 'e-1', kind: 'travel', multiplier: null, quantity: 1000, amount: 6000 };
+    const read = units([held], { kmToDate: [{ employeeId: 'e-1', km: 9000 }] });
+    serve(() => ok(inputsBody(run, read)), { run, inputs: read });
+    render(<PayrollRunDetailPage />);
+    await cell('Riaan Smit', 'Travel km');
+    expect(screen.getByText(/^9\s000 km this tax year$/)).toBeTruthy();
+    expect(screen.getAllByText(/km this tax year/)).toHaveLength(1);
   });
 
   it('no travel or overtime component: no column', async () => {

@@ -21,6 +21,8 @@ export interface RunInputUnits {
   rows: RunUnitRow[];
   /** Employees with two rows for one kind and multiplier: the write refuses them 409, the grid sends them to the employee page. */
   conflicts: Array<{ employeeId: string; kind: UnitKind; multiplier: number | null }>;
+  /** Business km recorded from 1 March of the tax year to this month's end, per employee: shown only, never in the tax (no km threshold). */
+  kmToDate: Array<{ employeeId: string; km: number }>;
 }
 
 /** The one active earning a kind is recorded on: overtime 3607; travel 3703, else 3702. Null when none or several. */
@@ -57,6 +59,21 @@ export async function unitRows(db: TxSql, companyId: string, period: RunPeriod, 
   return rows;
 }
 
+/** Km rows of the tax year (from 1 March) to this month's end, summed per employee. Read for display: tax never turns on it. */
+async function kmToDateOf(companyId: string, period: RunPeriod, employeeIds: string[]): Promise<RunInputUnits['kmToDate']> {
+  const { to } = monthBounds(period);
+  const yearStart = `${period.month >= 3 ? period.year : period.year - 1}-03-01`;
+  const rows = (await sql`
+    SELECT pec.employee_id, SUM(pec.quantity)::float8 AS km
+      FROM payroll_employee_components pec
+      JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
+     WHERE pec.employee_id = ANY(${employeeIds}::uuid[]) AND pec.superseded_at IS NULL AND pec.quantity_unit = 'km'
+       AND pec.effective_from >= ${yearStart}::date AND pec.effective_from <= ${to}::date
+     GROUP BY pec.employee_id
+  `) as DbRow[];
+  return rows.map((r) => ({ employeeId: String(r.employee_id), km: Number(r.km) }));
+}
+
 export const monthlyBasicOf = async (companyId: string, employee: PayrollEmployee, period: RunPeriod) =>
   (await getEmployeeComponents(employee.id, companyId, payrollRunReadDate(period)))
     .filter((c) => c.isRecurring !== false && c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === '3601')
@@ -76,6 +93,7 @@ export async function readRunInputUnits(companyId: string, period: RunPeriod, em
     rows: rows.filter((r) => counts.get(key(r)) === 1).map((r) => ({
       employeeId: String(r.employee_id), kind: kindOf(r), multiplier: mult(r), quantity: Number(r.quantity), amount: Number(r.amount),
     })),
+    kmToDate: await kmToDateOf(companyId, period, employees.map((e) => e.id)),
     conflicts: [...new Map(rows.filter((r) => counts.get(key(r))! > 1).map((r) => [key(r), { employeeId: String(r.employee_id), kind: kindOf(r), multiplier: mult(r) }])).values()],
   };
 }

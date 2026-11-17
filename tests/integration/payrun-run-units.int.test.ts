@@ -113,6 +113,23 @@ describe('travel: km x the rate a km, split at the prescribed R4.95 (tax year 20
     expect(item(l, '3722')).toEqual([]);
   });
 
+  it('km to date: the tax year\'s km rows to this month are summed and shown, and the tax ignores them (no km threshold)', async () => {
+    // 8 000 km in June 2026, the same tax year (from 1 March 2026), and 500 km in February 2026, the year before.
+    for (const [km, from, to] of [[8000, '2026-06-01', '2026-06-30'], [500, '2026-02-01', '2026-02-28']] as const) {
+      await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring, quantity, quantity_unit)
+                        VALUES ($1, $2, $3, $4, $5, FALSE, $6, 'km')`, [state.employee, ctx.travel, km * 4, from, to, km]);
+    }
+    expect((await units(state.nov, { kind: 'travel', quantity: 1000, ratePerKm: 4 })).statusCode).toBe(200);
+    const res = await fx.get(state.nov);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    const shown = (res.body as { data: { inputs: { units: { kmToDate: unknown } } } }).data.inputs.units.kmToDate;
+    expect(shown).toEqual([{ employeeId: state.employee, km: 9000 }]);
+    expect((await fx.get(state.runB)).statusCode).toBe(404);
+    const l = await line(state.nov);
+    expect(l.taxable).toBe(20000);
+    expect(item(l, '3703')).toMatchObject([{ amount: 4000, isTaxable: false }]);
+  });
+
   it('refuses km with no rate a km, and a rate above R100', async () => {
     expect((await units(state.nov, { kind: 'travel', quantity: 1000 })).statusCode).toBe(400);
     expect((await units(state.nov, { kind: 'travel', quantity: 1000, ratePerKm: 101 })).statusCode).toBe(400);

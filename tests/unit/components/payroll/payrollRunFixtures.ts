@@ -53,7 +53,7 @@ export const UNION = { id: 'c-un', name: 'Union dues', sarsSourceCode: 'UNION', 
 export function inputsBody(run: Record<string, unknown>, over: Record<string, unknown> = {}) {
   const lines = (run.lines ?? []) as Array<{ employeeId: string }>;
   return { run, inputs: { components: [OVERTIME, UNION], employeeIds: lines.map((l) => l.employeeId), amounts: [], recurring: [], hours: { componentId: null, problem: null, duplicates: [], employees: [] },
-    units: { overtimeComponentId: null, travelComponentId: null, rates: [], rows: [], conflicts: [] }, ...over } };
+    units: { overtimeComponentId: null, travelComponentId: null, rates: [], rows: [], conflicts: [], kmToDate: [] }, ...over } };
 }
 
 export function planBody(
