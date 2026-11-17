@@ -100,8 +100,8 @@ const BUILTIN_DECIMALS: Readonly<Record<number, number>> = { 0: Infinity, 1: 0, 
 /**
  * The decimal places a money cell's format shows FOR ITS VALUE, or null when the format is not one a money cell may
  * carry. Round 9: the section that draws the value decides (Excel's rule): a negative is drawn by the second section
- * when there is one, zero by the third when there is one (zero has no fraction, so that section never matters), every
- * other value by the first. So `0.00;-0.0` shows 2 decimals for 1.25 and 1 for -1.25, and `#,##0.00;-#,##0.00;0` shows
+ * when there is one, every other value by the first (zero is drawn by the third when there is one, but zero has no
+ * fraction, so no section's decimals matter for it, and the zero section never counts). So `0.00;-0.0` shows 2 decimals for 1.25 and 1 for -1.25, and `#,##0.00;-#,##0.00;0` shows
  * 2 for 1.50. Every digit placeholder after the section's `.` counts, a literal between them or not.
  */
 export function formatDecimals(id: number, raw: string | undefined, value = 0): number | null {
@@ -112,7 +112,8 @@ export function formatDecimals(id: number, raw: string | undefined, value = 0): 
   if (known !== undefined) return known;
   if (!isPlainNumberFormat(id, code)) return null;
   const sections = code.split(';');
-  const section = sections[value < 0 && sections.length >= 2 ? 1 : value === 0 && sections.length >= 3 ? 2 : 0]!;
+  // Zero is drawn by the third section when there is one, but has no fraction, so its decimals never matter.
+  const section = sections[value < 0 && sections.length >= 2 ? 1 : 0]!;
   // Round 8: padding, fills and [...] codes are no placeholders (`0.00\ ?` draws 1.234 as "1.23 4": 3 decimals).
   const bare = section.replace(/_./gs, '').replace(/\*./gs, '').replace(/\[[^\]]*\]/g, '');
   const dot = bare.indexOf('.');
