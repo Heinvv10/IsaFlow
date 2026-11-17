@@ -11,6 +11,29 @@ import { buildSarsCodesMigration, SARS_MIGRATION_SOURCES, QUALITY_CHECK_SOURCES,
 const ROOT = resolve(__dirname, '../../..');
 const committed = readFileSync(resolve(ROOT, 'scripts/migrations/sql/999m_sars_source_codes_2024_2025.sql'), 'utf8');
 
+/** A BRS description ends in its treatment tag: (PAYE), (IT), (Excl), a conditional (Excl if … PAYE if …), or [..]. */
+const TAG = /\((PAYE|IT|Excl|Non-taxable|Subject to PAYE)( if [^()]*)?\)$|\]$/;
+/**
+ * The only descriptions the BRS itself gives without a trailing tag: the 4xxx deductions, 3835's 'Long Service Award',
+ * the 3902-3905 '(PAYE) – …' accrual forms, and the 3696-3699 gross remuneration totals (section 6.5, no treatment).
+ */
+function untaggedAllowed(code: string, d: string): boolean {
+  return code.startsWith('4') || (code === '3835' && d === 'Long Service Award')
+    || (/^390[2-5]$/.test(code) && /\(PAYE\) – \S/.test(d)) || /^369[6-9]$/.test(code);
+}
+function descriptionProblem(code: string, d: string): string | null {
+  const opens = (d.match(/\(/g) ?? []).length;
+  if (d === 'null') return 'literal null';
+  if (opens !== (d.match(/\)/g) ?? []).length) return `unbalanced parentheses: ${JSON.stringify(d)}`;
+  if ((d.match(/“/g) ?? []).length !== (d.match(/”/g) ?? []).length) return `unpaired quote: ${JSON.stringify(d)}`;
+  if (/\/\s*$/.test(d)) return `trailing slash: ${JSON.stringify(d)}`;
+  if (/\s[b-z]\s/.test(d)) return `word cut mid-phrase: ${JSON.stringify(d)}`;
+  if (/^[‘’'"]/.test(d)) return `stray leading quote: ${JSON.stringify(d)}`;
+  if (/\b(\w+) \1\b/i.test(d)) return `repeated word: ${JSON.stringify(d)}`;
+  if (!TAG.test(d) && !untaggedAllowed(code, d)) return `no treatment tag: ${JSON.stringify(d)}`;
+  return null;
+}
+
 describe('999m sars_source_codes 2024/2025 migration', () => {
   it('regenerates byte for byte from the committed workbooks', async () => {
     expect(await buildSarsCodesMigration(ROOT)).toBe(committed);
@@ -52,27 +75,30 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
 
   it('leaves no fragment description in any of the four years once the overrides are applied', async () => {
     const overrides = loadOverrides(ROOT);
-    const STOP = new Set(['to', 'of', 'or', 'and', 'the', 'a', 'in', 'from', 'i', 'e', 'g', 'on', 'for', 'by', 'with', '–', '-', '(subject', 'an', 'as', 'at']);
     const problems: string[] = [];
     for (const s of QUALITY_CHECK_SOURCES) {
       const { rows } = await parseSarsCodesXlsxFile(resolve(ROOT, s.file));
       for (const r of rows) {
-        const d = overrides[String(s.year)]?.[r.code]?.description ?? r.description;
-        const last = d.split(/\s+/).pop()!.toLowerCase();
-        const why =
-          d === 'null' ? 'literal null'
-          : d.length < 10 ? 'too short'
-          : (d.match(/\(/g) ?? []).length !== (d.match(/\)/g) ?? []).length ? 'unbalanced parentheses'
-          : STOP.has(last) || /\bi\.?$/.test(d) ? 'ends mid-phrase'
-          : /\s[b-z]\s/.test(d) ? 'word cut mid-phrase'
-          : /^[‘’'"]/.test(d) ? 'stray leading quote'
-          : /\b(\w+) \1\b/i.test(d) ? 'repeated word'
-          : /^Reimbursive This|Subject to .* i$/.test(d) ? 'column bleed'
-          : null;
-        if (why) problems.push(`${s.year} ${r.code}: ${why}: ${JSON.stringify(d)}`);
+        const why = descriptionProblem(r.code, overrides[String(s.year)]?.[r.code]?.description ?? r.description);
+        if (why) problems.push(`${s.year} ${r.code}: ${why}`);
       }
     }
     expect(problems).toEqual([]);
+  });
+
+  it('the description check rejects the fragment shapes the reviews found', () => {
+    expect(descriptionProblem('3923', 'Transfer of Unclaimed')).toMatch(/treatment tag/);
+    expect(descriptionProblem('3809', 'Taxable Bursaries or scholarships to a non-disabled person')).toMatch(/treatment tag/);
+    expect(descriptionProblem('3835', 'null')).toMatch(/null/);
+    expect(descriptionProblem('3602', 'Income residents that are exempt i (Non-taxable)')).toMatch(/word cut/);
+    expect(descriptionProblem('3802', 'Use of motor vehicle NOT under an “operating lease (PAYE)')).toMatch(/quote/);
+    expect(descriptionProblem('3915', 'Retirement /')).not.toBeNull();
+    expect(descriptionProblem('3719', 'Dividends not exempt i.r.o. par (dd (PAYE)')).toMatch(/parentheses/);
+    expect(descriptionProblem('3809', 'Taxable Bursaries or scholarships to a non-disabled person – Basic Education (PAYE)')).toBeNull();
+    expect(descriptionProblem('3620', 'NED Directors / Audit Committee Member Fees (IT)')).toBeNull();
+    expect(descriptionProblem('3622', 'Long Service Cash Award (Excl if 3622+3835 <= R 5000; PAYE if 3622+3835 > R 5000)')).toBeNull();
+    expect(descriptionProblem('3902', 'Pension / RAF (PAYE) – withdrawal, accruing prior to 1 March 2009')).toBeNull();
+    expect(descriptionProblem('4001', 'Current pension fund contributions')).toBeNull();
   });
 
   it('every override names a BRS page and only corrects codes that exist in its workbook', async () => {
@@ -84,7 +110,16 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
         expect(have.has(code), `${s.year} ${code}`).toBe(true);
         expect(o.page).toBeGreaterThan(0);
         expect(o.brs).toMatch(/^v\d+\.\d+\.\d+$/);
+        if (o.brs !== s.brs) expect(o.note, `${s.year} ${code} cites ${o.brs}, not ${s.brs}`).toMatch(/V\d/);
+        if (o.officialExcerpt) expect(s.year, `${s.year} ${code}: excerpt fixes only reach upserted years`).toBeLessThan(2026);
       }
     }
+  });
+
+  it('cleans 3623 2025 explanation column, citing V25.3.0 across versions', () => {
+    const row = committed.split('\n').find((l) => l.startsWith("  ('3623', 2025,"))!;
+    expect(row).toContain('settlement agreement or arbitration award or court-order that relates to previous years.');
+    expect(row).not.toMatch(/years\. extending over|Labour previous years|assessment • The|\(PAYE\) employees/);
+    expect(loadOverrides(ROOT)['2025']!['3623']!.note).toMatch(/not in BRS V23\.0\.0.*V25\.3\.0/);
   });
 });

@@ -15,8 +15,13 @@ import { parseSarsCodesXlsxFile, type ParsedSarsRow } from '../src/modules/admin
 
 export const SARS_MIGRATION_FILE = 'scripts/migrations/sql/999m_sars_source_codes_2024_2025.sql';
 export const OVERRIDES_FILE = 'scripts/data/sars-codes/description-overrides.json';
-/** Corrected descriptions, read off the BRS PDFs: year -> code -> { description, page (PDF page in that BRS), brs }. */
-export type DescriptionOverrides = Record<string, Record<string, { description: string; page: number; brs: string }>>;
+/**
+ * Corrected descriptions, read off the BRS PDFs: year -> code -> { description, page (PDF page in that BRS), brs }.
+ * note: why the citation is not the year's own BRS. officialExcerpt: a cleaned explanation column, applied only to
+ * the years this migration upserts (2024, 2025); 2026 and 2027 are corrected in the description only.
+ */
+export type DescriptionOverride = { description: string; page: number; brs: string; note?: string; officialExcerpt?: string };
+export type DescriptionOverrides = Record<string, Record<string, DescriptionOverride>>;
 export function loadOverrides(root: string): DescriptionOverrides {
   return JSON.parse(readFileSync(resolve(root, OVERRIDES_FILE), 'utf8')) as DescriptionOverrides;
 }
@@ -73,7 +78,10 @@ export async function buildSarsCodesMigration(root: string): Promise<string> {
     const { rows, errors } = await parseSarsCodesXlsxFile(resolve(root, s.file));
     if (errors.length) throw new Error(`${s.file}: ${errors.join('; ')}`);
     const fixes = overrides[String(s.year)] ?? {};
-    blocks.push(yearBlock(rows.map((r) => (fixes[r.code] ? { ...r, description: fixes[r.code]!.description } : r)), s.year, s.brs));
+    blocks.push(yearBlock(rows.map((r) => {
+      const f = fixes[r.code];
+      return f ? { ...r, description: f.description, officialExcerpt: f.officialExcerpt ?? r.officialExcerpt } : r;
+    }), s.year, s.brs));
   }
   const releases = SARS_MIGRATION_SOURCES.map((s) =>
     `(${s.year}, '${s.brs}', '${s.released} 00:00:00+02', ${lit(`SARS PAYE Employer Reconciliation BRS ${s.brs.toUpperCase()}; full code set loaded by migration 999m`)}, false)`).join(',\n  ');
