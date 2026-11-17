@@ -1,7 +1,8 @@
 /**
- * Wave 6 DBF: an employer's defined-benefit fund contribution valued per the Seventh Schedule para 12D(3), X = A x B - C
- * (A the fund member category factor, B retirement-funding income, C the employee's own contributions to the fund), as read
- * in the Sage Payroll Tax Pocket Guide 2025-2026 s7.12.2 (UNVERIFIED: the Act not fetched). From there it is the RF
+ * Wave 6 DBF: an employer's defined-benefit fund contribution valued per the Seventh Schedule para 12D(3), X = (A x B) - C
+ * (A the fund member category factor, B retirement-funding income, C the employee's own contributions excluding AVCs and
+ * buy-back: the Act's symbol definitions; the formula's form is an image there, read from the Sage Payroll Tax Pocket Guide
+ * 2025-2026 s7.12.2: UNVERIFIED). 12D(2): a DC-only row stays the contribution itself. 12D(6): no value for retired members. From there it is the RF
  * treatment: a non-cash 3817 / 3825 benefit deemed paid by the employee into s11F (PAYE-GEN-01-G21 (2027) Rev 1 p. 10),
  * so the 27.5% cap binds on the total. Hand figures use the 2027 table: 18% to R245 100; primary rebate R17 820.
  */
@@ -73,6 +74,24 @@ describe('X = A x B - C [Seventh Schedule para 12D(3), via Sage Pocket Guide 202
   it('leaves a line without a factor exactly as it was', () => {
     const rows = [salary(20_000), ee('4001', 1_500)];
     expect(costDefinedBenefitFund(rows, [])).toEqual(rows);
+  });
+
+  it('para 12D(2): a defined-contribution employer row (no factor) is still the contribution itself, untouched by DBF', () => {
+    const warnings: ValidationResult[] = [];
+    const dc: EmployeeComponent = { component: comp('3817'), amount: 1_800 };
+    const marked = markNonCashEmployerBenefits([salary(20_000), ee('4001', 1_500), dc]);
+    expect(costDefinedBenefitFund(marked, warnings)).toEqual(marked);
+    expect(assemble([salary(20_000), ee('4001', 1_500), dc])[2]).toMatchObject({ amount: 1_800, isNonCash: true });
+    expect(warnings).toEqual([]);
+  });
+
+  it('para 12D(6): on a line that pays a pension or annuity (a retired member) the factor row is nil, with an error', () => {
+    for (const code of ['3603', '3610', '3653', '3660']) {
+      const warnings: ValidationResult[] = [];
+      const out = costDefinedBenefitFund([salary(20_000), { component: comp(code), amount: 5_000 }, db('3817', 0.12)], warnings);
+      expect(out[2]!.amount).toBe(0);
+      expect(warnings.map((w) => [w.code, w.severity])).toEqual([['DB_FUND_RETIRED_MEMBER', 'error']]);
+    }
   });
 });
 

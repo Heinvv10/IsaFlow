@@ -52,7 +52,8 @@ async function handler(
       isRecurring?: boolean;
       /** RF: a fraction of retirement-funding income (0.075 = 7.5%), with amount 0; judged by the service before the write. */
       percentOfRfi?: unknown;
-      /** DBF: a defined-benefit fund member category factor (0.12 = 12%), with amount 0; judged by the service before the write. */
+      /** DBF: the fund member category factor on the fund's certificate (para 12D(4); 0.12 = 12%), for a defined-benefit or mixed
+       *  category only, with amount 0; judged by the service before the write. A defined-contribution row sends an amount instead (12D(2)). */
       dbMemberCategoryFactor?: unknown;
     };
 
