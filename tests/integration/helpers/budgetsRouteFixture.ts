@@ -79,10 +79,13 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
   }
 
   /**
-   * The company's journals, BEFORE its periods: deleting the periods sets a posted journal's period to NULL, and that
-   * journal then stays in the shared fixture, where the deploy integrity check "Posted JE fiscal period matches entry
-   * date" (demo-reseed) fails on it for every suite that runs after (merge queue, PR #1551). Replica role: posted
-   * journals and their lines refuse DELETE otherwise, as in budgetBillFixture.dropBillFixture.
+   * The company's journals, which a suite's own afterAll may leave behind (budgets-bva-parity deleted only their
+   * lines). They never had a period: `owner()` creates the year with fiscal_year_ensure, which writes no periods
+   * (migration 942), so trg_gl_je_fiscal_period_from_date leaves fiscal_period_id NULL at insert. A posted journal
+   * with a NULL period left in the shared fixture fails the deploy integrity check "Posted JE fiscal period matches
+   * entry date" (demo-reseed) for every suite that runs after it (merge queue, PR #1551). Before the periods, since
+   * gl_journal_entries_fiscal_period_id_fkey is NO ACTION. Replica role: posted journals and their lines refuse
+   * DELETE otherwise, as in budgetBillFixture.dropBillFixture.
    */
   async function dropJournals(companyId: string): Promise<void> {
     const c = await pool.connect();
