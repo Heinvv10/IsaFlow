@@ -7,8 +7,8 @@
  *  - The platform switch payroll_payslip_email is never set: the settings GET/PUT reach the server (the company
  *    setting is really written, in this spec's own sandbox) and only their `platformEnabled` is answered as on.
  *  - The employee's address (z24@example.invalid, spec rule 21) is saved through the work card's field.
- *  - The run is cleared through R-035 by the suite user itself (selfApprove: the sandbox has no second approver);
- *    where self-approval is refused (dev) the flow test is SKIPPED with the reason, never a faked approval.
+ *  - The run is cleared through R-035 (clearPayRunApproval): by E2E_APPROVER_* when set (a member of this sandbox),
+ *    else by the suite user as sole approver; where that cannot happen here the flow test is SKIPPED with the reason.
  *  - axe reports 0 critical and 0 serious on the run page with the card and its outcome, in both themes, at 1568
  *    and 390. EVIDENCE_DIR=<dir> saves screenshots.
  *
@@ -28,7 +28,7 @@ const SANDBOX_ONBOARDING_ID = '6d1f3a82-4b7e-4c95-8a20-3e9b5c7d1f46';
 const RUN = { month: 10, year: 2026 };
 const EMPLOYEE = { employeeNumber: 'Z24-1', firstName: 'Zinhle', lastName: 'Mail', salary: 28000, idNumber: '8001015009087' };
 const ADDRESS = 'z24@example.invalid';
-const SELF_REFUSED = 'the suite user may not approve its own pay run in this database (dev): the flow needs an approved run';
+const SELF_REFUSED = 'the suite user may not approve its own pay run here and no E2E_APPROVER_* is set: the flow needs an approved run';
 
 type Run = { id: string; periodMonth: number; periodYear: number; status: string; journalEntryId: string | null };
 
@@ -57,6 +57,8 @@ async function sandboxRun(api: Api): Promise<{ runId: string; employeeId: string
     }
   }
   await api.post(`/api/payroll/runs/${runId}/calculate`);
+  // Each execution saves the address through the field: start without one.
+  await api.put(`/api/payroll/employees/${employeeId}/email`, { email: null });
   return { runId, employeeId };
 }
 
@@ -69,12 +71,21 @@ async function sandbox(context: BrowserContext, baseURL: string) {
   return { api, ...(await sandboxRun(api)) };
 }
 
-/** Approved through R-035 by the suite user, or null where this database refuses its self-approval. */
-async function approved(api: Api, baseURL: string, runId: string): Promise<boolean> {
-  if ((await clearPayRunApproval(api, baseURL, runId, { selfApprove: true, reportSelfRefusal: true })) === 'self-approval-refused') return false;
+/**
+ * Approved through R-035, or a reason it cannot be here: with E2E_APPROVER_* set, that person decides (they must be a
+ * member of this sandbox); without, the suite user is the sole eligible approver (a fresh CI database), and where
+ * its self-approval is refused (dev) the reason is returned. Never a faked approval.
+ */
+async function approved(api: Api, baseURL: string, runId: string): Promise<string | null> {
+  const clearance = await clearPayRunApproval(api, baseURL, runId, { reportSelfRefusal: true }).catch((err: Error) => {
+    if (/not a member/.test(err.message)) return `${process.env.E2E_APPROVER_EMAIL} is not a member of "${SANDBOX_NAME}": ${err.message}`;
+    throw err;
+  });
+  if (clearance === 'self-approval-refused') return SELF_REFUSED;
+  if (clearance !== 'cleared') return clearance;
   const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${runId}/journal-plan`);
   expect((await api.post<Run>(`/api/payroll/runs/${runId}/approve`, { expectedPlanHash: plan.planHash })).status).toBe('approved');
-  return true;
+  return null;
 }
 
 /** The send route caught in the browser: never reaches the server. Returns the bodies it caught. */
@@ -105,11 +116,12 @@ async function seriousAxe(page: Page): Promise<string[]> {
 async function flow(page: Page, runId: string, employeeId: string, theme: string): Promise<unknown[]> {
   const caught = await interceptSend(page, employeeId);
   await page.goto(`/payroll/employees/${employeeId}`, { waitUntil: 'domcontentloaded' });
-  const field = page.getByLabel('Payslip email');
+  const field = page.getByRole('textbox', { name: 'Payslip email', exact: true });
   await expect(field).toBeEnabled({ timeout: 60_000 });
   await field.fill(ADDRESS);
   await page.getByRole('button', { name: 'Save email' }).click();
   await expect(page.getByText('Payslip email saved.')).toBeVisible();
+  if (EVIDENCE_DIR) await field.screenshot({ path: `${EVIDENCE_DIR}/employee-email-field-${theme}.png` });
 
   await page.goto(`/payroll/runs/${runId}`, { waitUntil: 'domcontentloaded' });
   const card = page.getByTestId('payslip-email-card');
@@ -119,6 +131,8 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await card.getByRole('button', { name: 'Email payslips' }).click();
   const dialog = page.getByRole('dialog', { name: 'Email payslips?' });
   await expect(dialog).toContainText('40-bit RC4');
+  if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-confirm-${theme}.png` });
+  expect(await seriousAxe(page), `axe ${theme} confirm`).toEqual([]);
   await dialog.getByRole('button', { name: 'Email payslips' }).click();
   await expect(page.getByTestId('payslip-email-outcome')).toContainText('Sent to 1 employee.');
   await expect(page.getByTestId('payslip-email-outcome')).toContainText('Not sent to No Address (Z24-2): no email address on file.');
@@ -137,8 +151,9 @@ for (const theme of THEMES) {
     const { api, runId, employeeId } = await sandbox(context, baseURL!);
     let isApproved = false;
     try {
-      isApproved = await approved(api, baseURL!, runId);
-      test.skip(!isApproved, SELF_REFUSED);
+      const cannot = await approved(api, baseURL!, runId);
+      isApproved = cannot === null;
+      test.skip(!isApproved, cannot ?? '');
       await seedTheme(page, theme);
       const caught = await flow(page, runId, employeeId, theme);
       expect(caught).toEqual([{}]);

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 
 export const WEAK_PROTECTION = 'Each PDF is protected with the employee\'s ID number, or passport number. This protection is weak '
@@ -46,6 +46,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const canSet = companyRole === 'owner' || companyRole === 'admin';
@@ -61,6 +62,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
 
   async function toggle(enabled: boolean): Promise<void> {
     setBusy(true);
+    setToggling(true);
     setError('');
     try {
       setState(stateOf(await apiJson('/api/payroll/settings/payslip-email',
@@ -69,6 +71,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
       setError(apiErrorMessage(err, 'Could not change the payslip email setting'));
     } finally {
       setBusy(false);
+      setToggling(false);
     }
   }
 
@@ -97,11 +100,11 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
         {state?.platformEnabled && (
           <div className="flex flex-wrap gap-2">
             {canSet && (
-              <Button size="sm" variant="secondary" loading={busy && !confirming} disabled={busy} onClick={() => void toggle(!state.enabled)}>
+              <Button size="sm" variant="secondary" loading={toggling} disabled={busy} onClick={() => void toggle(!state.enabled)}>
                 {state.enabled ? 'Turn payslip email off' : 'Turn payslip email on'}
               </Button>
             )}
-            {state.enabled && <Button size="sm" disabled={busy} onClick={() => setConfirming(true)}>Email payslips</Button>}
+            {state.enabled && <Button size="sm" loading={busy && !toggling} disabled={busy} onClick={() => setConfirming(true)}>Email payslips</Button>}
           </div>
         )}
       </div>
@@ -128,9 +131,16 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
           ))}
         </div>
       )}
-      <ConfirmDialog open={confirming} title="Email payslips?" acceptLabel="Email payslips" loading={busy}
-        message={<>Each employee with an email address and an ID or passport number is sent their own payslip. {WEAK_PROTECTION}</>}
-        onAccept={() => void send()} onCancel={() => setConfirming(false)} />
+      <Modal open={confirming} onClose={() => setConfirming(false)} title="Email payslips?" size="sm">
+        <Modal.Body className="space-y-2 text-sm text-[var(--ff-text-primary)]">
+          <p>Each employee with an email address and an ID or passport number is sent their own payslip.</p>
+          <p className="text-[var(--ff-text-secondary)]">{WEAK_PROTECTION}</p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setConfirming(false)}>Cancel</Button>
+          <Button onClick={() => void send()}>Email payslips</Button>
+        </Modal.Footer>
+      </Modal>
     </section>
   );
 }
