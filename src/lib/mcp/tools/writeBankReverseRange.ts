@@ -35,6 +35,7 @@ import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { assertLinesKeepCredit, reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { reverseFreeingTransferCounterparts } from '@/modules/accounting/services/bank/transferCounterpartLines';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -174,14 +175,17 @@ export const reverseAllocationsTool: McpTool = {
     // paths use, so this cannot deadlock against a concurrent batch. A supplier payment whose refund is later in the
     // range is set aside and retried after the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
     // A customer's receipts and refunds in the range are judged together first, by the dry run's own judgment.
+    // A transfer's other bank line (another account, so never in this range) is freed with it.
+    const journalOf = new Map(rows.map((r) => [r.id, r.journalEntryId]));
     await reverseLinesJudged(ctx.companyId, rows, (id) =>
-      // The contra journal is stamped too: without it the agent's own
-      // correction posts as human:<userId> and drops out of list_agent_postings,
-      // which is the surface a human reviews agent work through.
-      reverseReconciledTransaction(ctx.companyId, id, ctx.userId, {
-        ...mcpPostingOpts(ctx, REVERSE_RANGE_TOOL),
-        ...(reversalDate === undefined ? {} : { reversalDate }),
-      }));
+      reverseFreeingTransferCounterparts(ctx.companyId, id, journalOf.get(id) ?? null, (txId) =>
+        // The contra journal is stamped too: without it the agent's own
+        // correction posts as human:<userId> and drops out of list_agent_postings,
+        // which is the surface a human reviews agent work through.
+        reverseReconciledTransaction(ctx.companyId, txId, ctx.userId, {
+          ...mcpPostingOpts(ctx, REVERSE_RANGE_TOOL),
+          ...(reversalDate === undefined ? {} : { reversalDate }),
+        })));
 
     return ok({
       bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,

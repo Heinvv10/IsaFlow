@@ -22,6 +22,7 @@ import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { reverseFreeingTransferCounterparts } from '@/modules/accounting/services/bank/transferCounterpartLines';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
@@ -120,14 +121,17 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // rolls it back. The one refusal set aside is a supplier payment whose refund is later in the batch: retried after
     // the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
     // A customer's receipts and refunds in the batch are judged together first, once (bank/reverseLinesCreditLast).
+    // A transfer's other bank line, auto-linked to the same journal outside the batch, is freed with it.
+    const journalOf = new Map(orderedReversals.map((l) => [l.transactionId, l.currentJournalEntryId]));
     await reverseLinesJudged(ctx.companyId,
       orderedReversals.map((l) => ({ id: l.transactionId, journalEntryId: l.currentJournalEntryId })), (id) =>
-      // The contra journal is stamped too — without it the agent's own
-      // correction posts as human:<userId> and drops out of list_agent_postings.
-      reverseReconciledTransaction(ctx.companyId, id, ctx.userId, {
-        ...mcpPostingOpts(ctx, REVERSE_TOOL),
-        ...(reversalDate === undefined ? {} : { reversalDate }),
-      }));
+      reverseFreeingTransferCounterparts(ctx.companyId, id, journalOf.get(id) ?? null, (txId) =>
+        // The contra journal is stamped too — without it the agent's own
+        // correction posts as human:<userId> and drops out of list_agent_postings.
+        reverseReconciledTransaction(ctx.companyId, txId, ctx.userId, {
+          ...mcpPostingOpts(ctx, REVERSE_TOOL),
+          ...(reversalDate === undefined ? {} : { reversalDate }),
+        })));
     const reversedIds = orderedReversals.map((l) => l.transactionId);
     await clearAllocationBatch(ctx.companyId, batchId, reversedIds);
 

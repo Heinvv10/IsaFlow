@@ -27,6 +27,10 @@ vi.mock('@/modules/accounting/services/bank/reverseLinesCreditLast', async (orig
   return { ...actual, reverseLinesJudged: async (_c: string, lines: readonly { id: string }[], fn: (id: string) => Promise<unknown>) =>
     actual.reverseLinesCreditLast(lines.map((l) => l.id), fn) };
 });
+// The transfer's other line is freed by its own unit test (tests/unit/services/bank/transferCounterpartLines.test.ts).
+vi.mock('@/modules/accounting/services/bank/transferCounterpartLines', () => ({
+  reverseFreeingTransferCounterparts: (_c: string, id: string, _j: string | null, fn: (id: string) => Promise<unknown>) => fn(id),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
