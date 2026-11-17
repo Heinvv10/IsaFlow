@@ -227,6 +227,14 @@ export async function assertFinancialYearStartChange(companyId: string, requeste
   // Lock, then decide again on what the lock now protects.
   const locked = await readDeclaredStartMonth(companyId, true);
   if (locked === null || locked === month) return false;
+  // Then the periods, before the caller's UPDATE: its trigger (fiscal_years_confirm_declared_month)
+  // writes years, and a close holds its period and then its year. Order companies -> periods -> years,
+  // (fiscal_year, period_number, id) as every period locker; a close in flight finishes first and the
+  // counts below see it (a 409, not a 40P01 in the rebuild).
+  await sql`
+    SELECT id FROM fiscal_periods WHERE company_id = ${companyId}::UUID
+     ORDER BY fiscal_year, period_number, id FOR UPDATE
+  `;
   const lock = await financialYearStartLock(companyId);
   if (lock?.reason === 'posted') throw new FinancialYearStartLockedError(lock.postedJournals);
   if (lock) throw new FiscalPeriodsInUseError(lock.references);

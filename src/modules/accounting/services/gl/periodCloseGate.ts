@@ -19,11 +19,14 @@
  * two close requests over overlapping periods wait for each other instead of
  * deadlocking; each wait is bounded (`withPeriodLockBudget`). Period rows come
  * before the year row (the status UPDATE's sync trigger locks the year).
- * KNOWN EXCEPTION, not fixed here: `fiscal_years_confirm_declared_month`
- * (a trigger on companies) makes a settings save lock companies then
- * fiscal_years, while a change of year end (apply / undo) writes fiscal_years
- * then companies; those two can deadlock with each other. No period row is
- * involved, so no close path is in that cycle.
+ * The company row, when a flow locks it, comes before both: companies ->
+ * periods -> years. `fiscal_years_confirm_declared_month` (a trigger on
+ * companies) makes every settings save write companies then fiscal_years, so a
+ * change of year end (apply / undo) takes the company row FOR NO KEY UPDATE
+ * before any fiscal row (`lockCompanyForYearChange`), and a start-month change
+ * locks the periods before its companies UPDATE fires that trigger
+ * (`assertFinancialYearStartChange`). No close path locks companies.
+ * Test: companies-fiscal-years-lock-order.int.test.ts.
  *
  * What blocks is `isCloseBlocker`: a `fail`, or a check that could not be
  * computed. An ordinary `warn` does not. There is no override.
