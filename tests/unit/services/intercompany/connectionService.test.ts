@@ -134,6 +134,21 @@ describe('updateOwnSide', () => {
 });
 
 describe('revokeConnection', () => {
+  it("its UPDATE names the session company on both sides of the pair (RLS would mask the loss of this predicate)", async () => {
+    const updates: Array<[string, unknown[]]> = [];
+    fakeDb(
+      [/^UPDATE intercompany_connections/, (t, v) => { updates.push([t, v]); return [{ id: CID }]; }],
+      [/FROM intercompany_connections c/, [{
+        id: CID, kind: 'group', status: 'revoked', partner_company_id: B, partner_name: 'B', invited_by_company_id: A,
+        created_at: new Date(), revoked_at: new Date(), side_id: null,
+      }]],
+    );
+    await revokeConnection(A, CID);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]![0]).toMatch(/company_low_id = \?::UUID OR company_high_id = \?::UUID/);
+    expect(updates[0]![1]).toEqual([CID, A, A]);
+  });
+
   it('an unknown or foreign connection is a 404, an already revoked one a 409', async () => {
     fakeDb();
     await expect(revokeConnection(A, CID)).rejects.toMatchObject({ status: 404 });

@@ -52,6 +52,7 @@ describe('parseSideInput', () => {
     ['empty body', {}],
     ['not an object', 'x'],
     ['unknown key', { companyId: U1 }],
+    ['unknown key beside a valid one', { cutoverDate: '2026-12-01', companyId: U1 }],
     ['customerId number', { customerId: 5 }],
     ['customerId not uuid', { customerId: 'nope' }],
     ['supplierId array', { supplierId: [U1] }],
