@@ -15,6 +15,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { getMatchCandidates, fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
 
@@ -27,6 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!bankTransactionId || typeof bankTransactionId !== 'string') {
     return apiResponse.badRequest(res, 'bankTransactionId query param is required');
   }
+  if (!UUID.safeParse(bankTransactionId).success) return apiResponse.badRequest(res, 'bankTransactionId must be a valid UUID');
 
   const { companyId } = req as CompanyAuthedRequest;
 

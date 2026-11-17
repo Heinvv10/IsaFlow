@@ -18,6 +18,14 @@ export class BankFeedProviderNotImplementedError extends Error {
   }
 }
 
+/** The connection is not this company's, is gone or inactive. Thrown before any write: the route answers 404. */
+export class BankFeedConnectionNotFoundError extends Error {
+  constructor() {
+    super('Connection not found or does not belong to this company');
+    this.name = 'BankFeedConnectionNotFoundError';
+  }
+}
+
 // ── Sync orchestration ────────────────────────────────────────────────────────
 
 async function markSyncFailed(companyId: string, logId: string, connectionId: string, errMsg: string) {
@@ -52,7 +60,7 @@ export async function syncBankFeed(
   `) as DbRow[];
 
   if (connRows.length === 0) {
-    throw new Error('Connection not found or does not belong to this company');
+    throw new BankFeedConnectionNotFoundError();
   }
 
   const conn = connRows[0]!;
