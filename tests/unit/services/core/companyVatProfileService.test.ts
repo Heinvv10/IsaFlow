@@ -200,13 +200,13 @@ describe('serialisation with a concurrent VAT lock', () => {
 });
 
 describe('the legacy VAT201 submission is part of the footprint', () => {
-  it('queries sars_submissions for the company, VAT201, any status but draft', async () => {
+  it('queries sars_submissions for the company, VAT201, filed statuses only (not draft, not superseded)', async () => {
     world(row());
     await changeCompanyVatProfile(CO, { category: 'B' }, opts());
     const q = h.sqlCalls.find((t) => t.includes('sars_submissions')) ?? '';
     expect(q).toMatch(/FROM sars_submissions WHERE company_id = \?::UUID AND form_type/);
     expect(q).toContain("form_type = 'VAT201'");
-    expect(q).toContain("status <> 'draft'");
+    expect(q).toContain("status IN ('submitted', 'accepted', 'rejected')");
   });
   it('a submission alone gates a category change', async () => {
     world(row(), [{ source: 'sars_vat201_submission', period_start: '2026-09-01', period_end: '2026-10-31', unlocked: false }]);
