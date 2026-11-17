@@ -86,6 +86,9 @@ describe('set_budget_drivers: refusals before any service (each per change, noth
   ])('%j', async (extra, why) => {
     expect(text(await call(extra))).toMatch(why);
     expect(saveDriver).not.toHaveBeenCalled();
+    // Review round 2 (L-2): a malformed argument is refused before any read and costs no rate-limit unit.
+    expect(loadGridReadModel).not.toHaveBeenCalled();
+    expect(checkRateLimit).not.toHaveBeenCalled();
   });
 
   it.each([

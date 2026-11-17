@@ -79,13 +79,10 @@ function stateDiff(before: DriverState, after: DriverState, l: BudgetLabels) {
 
 const tooMany = (n: number) => `These changes change ${n} cells; one call changes at most ${MAX_SAVE_CELLS} (split the changes). Nothing was written.`;
 
-async function run(ctx: McpToolContext, args: Record<string, unknown>, model: GridReadModel, version: BudgetVersion, raw: unknown[]): Promise<McpToolResult> {
-  const versionToken = versionTokenArg(args);
-  if (isResult(versionToken)) return versionToken;
-  const planHashGiven = planHashArg(args);
-  if (isResult(planHashGiven)) return planHashGiven;
-  const limited = await driverChangesLimit(ctx, raw.length);
-  if (limited) return limited;
+async function run(
+  ctx: McpToolContext, args: Record<string, unknown>, model: GridReadModel, version: BudgetVersion, raw: unknown[],
+  versionToken: string | null, planHashGiven: string | null,
+): Promise<McpToolResult> {
   const versionId = version.id;
   const token = model.updatedAt ?? version.updatedAt;
   const labels = budgetLabels(model);
@@ -187,9 +184,17 @@ export const setBudgetDriversTool: McpTool = {
   handler: async (args, ctx) => {
     if (!Array.isArray(args.changes) || args.changes.length === 0) return toolError('changes must list at least one change');
     if (args.changes.length > MAX_DRIVER_CHANGES) return toolError(`changes lists ${args.changes.length} changes; one call makes at most ${MAX_DRIVER_CHANGES}`);
+    // Review round 2 (L-2): every argument that needs no read is checked first and costs nothing; the bucket is
+    // charged before the grid read, so a call that reads anything is counted.
+    const versionToken = versionTokenArg(args);
+    if (isResult(versionToken)) return versionToken;
+    const planHashGiven = planHashArg(args);
+    if (isResult(planHashGiven)) return planHashGiven;
+    const limited = await driverChangesLimit(ctx, args.changes.length);
+    if (limited) return limited;
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
     if (model.version === null) return toolError('Not found');
-    return run(ctx, args, model, model.version, args.changes);
+    return run(ctx, args, model, model.version, args.changes, versionToken, planHashGiven);
   },
 };

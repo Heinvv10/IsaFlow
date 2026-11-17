@@ -102,6 +102,18 @@ describe('the control reads answer what the app answers', () => {
     expect(out.refused).toBe(0);
   });
 
+  it('another company\'s account id and member id are refused in place, as a miss is (review round 2, L-1)', async () => {
+    const other = await fx.world();
+    const out = body(await mcp(pool, manager, 'budget_remaining', { lines: [
+      { account: other.rent, month: w.months[0] }, { account: 'BR-5000', cc1: other.cc1, month: w.months[0] }, { account: 'BR-5000', month: w.months[0] },
+    ] }, { role: 'manager', scopes: ['read:reports'] }));
+    expect(out).toMatchObject({ answered: 1, refused: 2 });
+    expect((out.lines as Array<Record<string, unknown>>).map((l) => l.refused ?? 'answered')).toEqual([
+      `${other.rent} is not an account of this company`, `${other.cc1} is not a CC1 cost centre of this company`, 'answered',
+    ]);
+    await pool.query('DELETE FROM mcp_tool_calls WHERE company_id = $1', [other.u.homeCompanyId]);
+  });
+
   it('budget_tracking = GET budgets/alerts (an owner); a manager is refused by both', async () => {
     const v = await fx.version(w);
     await pool.query(

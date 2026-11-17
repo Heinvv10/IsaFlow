@@ -97,6 +97,14 @@ describe('budget_remaining', () => {
     ]);
   });
 
+  it('a numeric account or member code sent as a JSON number is read as its text (review round 2, L-3)', async () => {
+    vi.mocked(loadChartRefs).mockResolvedValue({ accounts: [{ id: RENT, code: '7777' }], members: [{ id: BU, code: '42', kind: 'bu' }] });
+    vi.mocked(remainingFor).mockImplementation(async (_c, keys) => keys.map((key) => result({ key })));
+    const out = json(await budgetRemainingTool.handler({ lines: [{ account: 7777, bu: 42, month: '2026-03' }] }, ctx('manager', ['read:reports'])));
+    expect(vi.mocked(remainingFor).mock.calls[0]![1]).toEqual([{ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: BU, month: '2026-03' }]);
+    expect(out).toMatchObject({ answered: 1, refused: 0, lines: [{ i: 0, account: '7777' }] });
+  });
+
   it('a TrackingError from the service is answered as the route answers it (its message)', async () => {
     vi.mocked(remainingFor).mockRejectedValue(new TrackingError(409, 'No financial year holds 2026-03-01'));
     const r = await budgetRemainingTool.handler({ lines: [{ account: '6000', month: '2026-03' }] }, ctx('manager', ['read:reports']));

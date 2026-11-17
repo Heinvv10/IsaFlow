@@ -25,7 +25,8 @@ import { clampLimit, ok, toolError } from './toolHelpers';
 const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
 const DIMS = ['cc1', 'cc2', 'bu'] as const;
 const money = (v: number | null) => (v === null ? null : randText(v));
-const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+/** A reference as text: a JSON number is its digits (review round 2, L-3: a numeric code), anything else not text is ''. */
+const text = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 
 export const budgetRemainingTool: McpTool = {
   name: 'budget_remaining',
