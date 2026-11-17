@@ -125,13 +125,13 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
     <div className="mb-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3">
       <h3 className="text-xs font-semibold text-[var(--ff-text-secondary)] mb-2">Recent auto-post runs</h3>
       {loadError && (
-        <p role="alert" className="text-xs text-red-400 mb-2">{loadError}</p>
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400 mb-2">{loadError}</p>
       )}
       {undoError && (
-        <p className="text-xs text-red-400 mb-2">{undoError}</p>
+        <p className="text-xs text-red-700 dark:text-red-400 mb-2">{undoError}</p>
       )}
       {undoNotice && (
-        <p role="status" className="text-xs text-amber-500 mb-2">{undoNotice}</p>
+        <p role="status" className="text-xs text-amber-700 dark:text-amber-500 mb-2">{undoNotice}</p>
       )}
       {handOffsets && (
         <ul aria-label="Lines already corrected by hand" className="space-y-1 mb-2">

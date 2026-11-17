@@ -70,18 +70,18 @@ export function StatementReviewPanel({ imp, committing, rollingBack, onCommit, o
           </div>
           <div>
             <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Rows / Duplicates</p>
-            <p className="text-[var(--ff-text-primary)]">{imp.rowCount} / <span className="text-amber-400">{imp.duplicateCount}</span></p>
+            <p className="text-[var(--ff-text-primary)]">{imp.rowCount} / <span className="text-amber-700 dark:text-amber-400">{imp.duplicateCount}</span></p>
           </div>
         </div>
         {imp.warnings.length > 0 && (
           <div className="mt-3 border-t border-[var(--ff-border-light)] pt-3">
-            <button onClick={() => setShowWarnings(v => !v)} className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 transition-colors">
+            <button onClick={() => setShowWarnings(v => !v)} className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 transition-colors">
               {showWarnings ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               Warnings: {imp.warnings.length}
             </button>
             {showWarnings && (
               <ul className="mt-2 space-y-1 pl-2">
-                {imp.warnings.map((w, i) => <li key={i} className="text-xs text-amber-300">• {w}</li>)}
+                {imp.warnings.map((w, i) => <li key={i} className="text-xs text-amber-700 dark:text-amber-300">• {w}</li>)}
               </ul>
             )}
           </div>
@@ -104,12 +104,12 @@ export function StatementReviewPanel({ imp, committing, rollingBack, onCommit, o
                 <td className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(row.date)}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] max-w-[220px] truncate" title={row.description}>{row.description}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--ff-text-tertiary)]">{row.reference ?? '—'}</td>
-                <td className={`px-4 py-2.5 text-xs tabular-nums text-right ${row.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>{fmtZAR(row.amount)}</td>
+                <td className={`px-4 py-2.5 text-xs tabular-nums text-right ${row.amount < 0 ? 'text-red-700 dark:text-red-400' : 'text-teal-700 dark:text-teal-400'}`}>{fmtZAR(row.amount)}</td>
                 <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{row.runningBalance != null ? fmtZAR(row.runningBalance) : '—'}</td>
                 <td className="px-4 py-2.5">
                   {row.isDuplicate
-                    ? <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/30">Duplicate</span>
-                    : <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-teal-500/15 text-teal-400 border-teal-500/30">New</span>}
+                    ? <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30">Duplicate</span>
+                    : <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-teal-500/15 text-teal-700 dark:text-teal-400 border-teal-500/30">New</span>}
                 </td>
               </tr>
             ))}

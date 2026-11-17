@@ -27,6 +27,8 @@ interface Props {
   relinkFailed: boolean;
   aiPolling: number;
   isLoading: boolean;
+  /** The same list is reloading: its rows stay mounted (dimmed, aria-busy) instead of becoming a skeleton. */
+  refreshing?: boolean;
   error: string;
   empty: boolean;
   /** bankTxPastEnd(page, total, pageSize), from the same load as `empty`. */
@@ -40,7 +42,7 @@ interface Props {
   children: ReactNode;
 }
 
-export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, children }: Props) {
+export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing = false, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, children }: Props) {
   const loading = isLoading || (!error && empty && pastEnd);
   const frameRef = useRef<HTMLDivElement>(null);
   const hadRows = useRef(false);
@@ -57,7 +59,7 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
   return (
     <>
       {relinkFailed && (
-        <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">
+        <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 py-1 pb-2">
           <AlertCircle className="h-3 w-3" /> Transfer re-linking failed for this account — counterpart transfers may still show as unallocated.
         </div>
       )}
@@ -66,11 +68,15 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
           <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
         </div>
       )}
-      <div data-testid="bank-tx-list-frame" ref={frameRef} tabIndex={-1} className="outline-none" style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}>
+      {/* Announced politely when a reload of the SAME list starts; present before it does, so the change is heard. */}
+      <span role="status" aria-live="polite" className="sr-only" data-testid="bank-tx-updating">{refreshing ? 'Updating…' : ''}</span>
+      {/* While it reloads the rows stay (no flash) but take no mouse input: a click would land on a row that is about to change. */}
+      <div data-testid="bank-tx-list-frame" ref={frameRef} tabIndex={-1} style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}
+        aria-busy={refreshing || undefined} className={refreshing ? 'outline-none pointer-events-none opacity-70 transition-opacity' : 'outline-none'}>
         {loading ? (
           <BankTxLoading />
         ) : error ? (
-          <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
+          <div className="flex items-center gap-2 text-red-700 dark:text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
         ) : empty ? (
           <BankTxEmpty tab={tab} activeFilters={activeFilters} />
         ) : children}

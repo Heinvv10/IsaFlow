@@ -4,13 +4,12 @@
  * Action handlers: useBankTxActions | Ref data: useBankTxRefData | Bank accounts + figures: useBankTxSummary
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   BankTxTable,
-  type AllocType, type BankTx, type SelectOption, type RowSelection,
+  type AllocType, type SelectOption, type RowSelection,
 } from '@/components/accounting/BankTxTable';
 import { BankTxBankCards } from '@/components/accounting/bank-transactions/BankTxBankCards';
 import { BankTxFilters } from '@/components/accounting/bank-transactions/BankTxFilters';
@@ -23,7 +22,14 @@ import { pruneSelection, selectedOnScreen } from '@/components/accounting/bank-t
 import { BankTxSelectionBar } from '@/components/accounting/bank-transactions/BankTxSelectionBar';
 import { ActiveFiltersChip } from '@/components/accounting/bank-transactions/ActiveFiltersChip';
 import { isBulkBusy, useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
-import { useBankTxSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
+import { useBankTxSummary, type BankAccountSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
+import { useBankTxView } from '@/components/accounting/bank-transactions/useBankTxView';
+import { useBankCardOrder } from '@/components/accounting/bank-transactions/useBankCardOrder';
+import { useActiveCompanyIdOrUndefined } from '@/contexts/CompanyContext';
+import { firstCardAccount } from '@/components/accounting/bank-transactions/firstCardAccount';
+import { readLastOpened } from '@/components/accounting/bank-transactions/lastOpenedSubAccount';
+import { useRemoveRows } from '@/components/accounting/bank-transactions/useRemoveRows';
+import { useScrollSelectedCard } from '@/components/accounting/bank-transactions/useScrollSelectedCard';
 import { BankTxSummaryNotice } from '@/components/accounting/bank-transactions/BankTxSummaryNotice';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfersWithTick, TransferLinkNotice } from '@/components/accounting/bank-transactions/transferLinks';
@@ -43,10 +49,12 @@ import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { useSeedRowSelections } from '@/components/accounting/bank-transactions/useSeedRowSelections';
 import { awaitingShown, filtersActive, listKey, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
-import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
+import { useBankTxList } from '@/components/accounting/bank-transactions/useBankTxList';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
 import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
+
+const NO_ACCOUNTS: BankAccountSummary[] = []; // a stable empty list (useBankTxSelection needs referentially stable accounts)
 
 export default function BankTransactionsPage() {
   const router = useRouter();
@@ -58,18 +66,24 @@ export default function BankTransactionsPage() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const summary = useBankTxSummary();
   const bankAccounts = summary.accounts;
-  const sel = useBankTxSelection(bankAccounts, router.isReady ? router.query.account_id : undefined, router.isReady);
+  // The default account is the first card in THIS user's order, so nothing is picked until that order is known. The same
+  // source (one read of the preferences) is handed to the cards, which show and edit that order.
+  const companyId = useActiveCompanyIdOrUndefined();
+  const cardOrder = useBankCardOrder(companyId);
+  const orderReady = companyId === undefined || cardOrder.loaded; // no company provider (a page test): nothing to wait for
+  const pickDefault = useCallback((a: BankAccountSummary[]) => firstCardAccount(a, cardOrder.order, readLastOpened), [cardOrder.order]);
+  // A link that names a usable account needs no default, so it does not wait for the saved order.
+  const linked = router.isReady && typeof router.query.account_id === 'string' && bankAccounts.some(b => b.id === router.query.account_id && b.isActive);
+  // Once an account is chosen the accounts stay passed: a client navigation to the bare page while the order is pending must not blank it.
+  const [hasChosen, setHasChosen] = useState(false);
+  const sel = useBankTxSelection(orderReady || linked || hasChosen ? bankAccounts : NO_ACCOUNTS, router.isReady ? router.query.account_id : undefined, router.isReady, pickDefault);
   const { selected: selectedBank, setSelected: setSelectedBank } = sel;
+  useEffect(() => { if (selectedBank !== '') setHasChosen(true); }, [selectedBank]);
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });
-  // Transaction list
-  const [transactions, setTransactions] = useState<BankTx[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
-  const [loaded, setLoaded] = useState({ page: 1, total: 0, key: '' }), total = loaded.total; // total + the page it was counted for (past-the-end skeleton)
   const f = useBankTxFilters(setPage);
   const busy = useBankTxBusy();
   const { searchTerm, debouncedSearch, fromDate, toDate, fromAmount, toAmount, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter } = f;
@@ -84,44 +98,20 @@ export default function BankTransactionsPage() {
   // Modal triggers
   const m = useBankTxModalState();
   const { setSplitTxId, setFindMatchTxId, setAttachmentsTxId, setQueryTx, setLinkTx, setCreateRuleTx, setCreateEntityTxId, setCreateEntityType } = m;
+  // ---- The view (account, tab, page, filters) lives in the URL; switching account or tab is ONE batch (one fetch) ----
+  const clearSelection = useCallback(() => { setSelectedIds(new Set()); setRowSelections({}); }, []);
+  const { selectBank, changeTab, clampPage, latestQuery, restored } = useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection });
+  const list = useBankTxList({ selectedBank, ready: router.isReady && restored, tab, page, pageSize: PAGE_SIZE, filters: f.values });
+  const { transactions, setTransactions, isLoading, error, loaded, setLoaded } = list, total = loaded.total;
   const { detailTx: listTx, openDetail, closeDetail: closeListDetail } = useBankLineDetail(transactions);
-  const { detailTx, closeDetail, error: deepLinkError, dismissError } = useBankLineDeepLink(listTx, closeListDetail);
-  // Load transactions. Only the latest request writes state: a slow older response must not overwrite a newer one.
-  const loadSeq = useRef(0);
-  // The newest VISIBLE load started, and the newest load whose rows were applied: if a silent tick supersedes a visible load
-  // and then fails, the screen still holds the OLD view under the new page/filter, so that failure must be shown.
-  const visibleSeq = useRef(0), goodSeq = useRef(0);
-  const loadTransactions = useCallback(async (opts?: { silent?: boolean }) => {
-    const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
-    if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0, key: '' }); return; }
-    // A silent reload (the AI poll) keeps the rows on screen: no skeleton, no flash, and a failure keeps them too.
-    if (!opts?.silent) { visibleSeq.current = seq; setIsLoading(true); setError(''); }
-    try {
-      const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
-        search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter });
-      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
-      const json = await res.json();
-      if (!latest()) return;
-      const data = json.data || json;
-      setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0, key: listKey(selectedBank, tab) });
-      goodSeq.current = seq; setError(''); // a good read (silent or not) ends an earlier failed one
-    } catch (err) {
-      if (latest() && (!opts?.silent || visibleSeq.current > goodSeq.current)) { setTransactions([]); setLoaded({ page, total: 0, key: '' }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
-    } finally { if (latest()) setIsLoading(false); } // the LATEST load ends the skeleton, silent or not: a silent tick that supersedes a visible load must not strand it
-  }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter]);
-
-  useEffect(() => { void loadTransactions(); }, [loadTransactions]);
-  // A toast's Undo outlives the render that offered it: an old loadTransactions would put that view's rows on this one.
-  const loadLatest = useRef(loadTransactions);
-  useEffect(() => { loadLatest.current = loadTransactions; });
+  const { detailTx, closeDetail, error: deepLinkError, dismissError } = useBankLineDeepLink(listTx, closeListDetail, latestQuery);
   // THE reload for anything that writes: the list AND the summary (cards, tiles, statement panel), so they never disagree.
   const refreshSummary = summary.refresh;
-  const afterMutation = useCallback(() => { void loadLatest.current(); void refreshSummary(); }, [refreshSummary]);
-  // EVERY post-mutation list reload goes through this: an action that finishes after an account, page or filter change must
-  // reload the view the user is on NOW, not the one that was on screen when they clicked.
-  const reloadList = useCallback(() => { void loadLatest.current(); }, []);
-  const reloadWithSummary = useCallback(async () => { await loadLatest.current({ silent: true }); void refreshSummary(); }, [refreshSummary]);
-  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
+  const reload = list.reload;
+  const afterMutation = useCallback(() => { void reload(); void refreshSummary(); }, [reload, refreshSummary]);
+  // EVERY post-mutation list reload goes through this (the view on screen NOW, not the one the action was clicked in).
+  const reloadList = useCallback(() => { void reload(); }, [reload]);
+  const reloadWithSummary = useCallback(async () => { await reload({ silent: true }); void refreshSummary(); }, [reload, refreshSummary]);
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, reloadWithSummary); // AI suggestions move lines Unallocated -> Suggested
@@ -130,12 +120,14 @@ export default function BankTransactionsPage() {
 
   useSeedRowSelections(transactions, rowSelections, setRowSelections); // rowSelections from DB suggestion fields
 
-  // ---- A new account starts from defaults (every filter, the sort, the selection); a new tab resets the selects ----
-  const { resetForAccount, resetSelects } = f;
-  useEffect(() => { resetForAccount(); setPage(1); setSelectedIds(new Set()); setRowSelections({}); }, [selectedBank, resetForAccount]);
-  useEffect(() => { resetSelects(); setPage(1); setSelectedIds(new Set()); setRowSelections({}); }, [tab, resetSelects]);
+  // Scrolled when the selection changes AND again once the saved order has been applied (the card moves when it does).
+  useScrollSelectedCard(selectedBank, bankAccounts.find(b => b.id === selectedBank)?.groupId, true, cardOrder.loaded);
+  // The total is judged only once it was counted for THIS account and tab: a page restored from the URL is not "past the end" of a list not loaded yet.
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading: isLoading || loaded.key !== listKey(selectedBank, tab), failed: error !== '', setPage: clampPage });
   // Whatever changes the list (page, search, filter, sort, reload, an action) prunes the selection to the rows on screen.
   useEffect(() => { setSelectedIds(prev => pruneSelection(prev, transactions) ?? prev); }, [transactions]);
+
+  const removeRows = useRemoveRows(transactions, setTransactions, setLoaded);
 
   // ---- Build action handlers ----
   const actions = buildBankTxActions({
@@ -144,7 +136,7 @@ export default function BankTransactionsPage() {
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt: m.setRulePrompt, setExcludingTxId: m.setExcludingTxId, excludeOutcome: m.excludeOutcome, loadTransactions: reloadList, refreshBankAccounts: () => void refreshSummary(), refreshSummarySoon: summary.refreshSoon,
     reloadCurrentView: afterMutation,
-    onLlmResidual: pollForLlmResults, busy,
+    onLlmResidual: pollForLlmResults, busy, removeRows,
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
@@ -161,6 +153,11 @@ export default function BankTransactionsPage() {
   const shown = awaitingShown({ tab, error, isLoading, total, loadedFor: loaded.key, wantedFor: listKey(selectedBank, tab), filtersActive: filtersActive({
     search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, allocationFilter, txType, allocType, hasSuggestion }) });
   const onScreenSelected = selectedOnScreen(selectedIds, transactions);
+  // The table stays mounted while the SAME list reloads (a page, a filter, an action): only a first load, or another account's
+  // or tab's list, is a skeleton - the rows on screen would belong to a different view.
+  // Accounts exist but none is chosen yet (the saved card order is still loading): that is loading, not an empty account.
+  const choosing = bankAccounts.length > 0 && !selectedBank && !sel.noneActive;
+  const refreshing = isLoading && loaded.key === listKey(selectedBank, tab) && transactions.length > 0;
 
   if (summary.status === 'error') {
     return (
@@ -188,10 +185,10 @@ export default function BankTransactionsPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {summary.stale && <BankTxSummaryNotice kind="stale" onRetry={() => void refreshSummary()} />}
-        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} shown={shown} onSelectBank={setSelectedBank}
-          onAccountsChanged={() => void refreshSummary()} onShowProvisional={() => setTab('provisional')} />
+        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} shown={shown} onSelectBank={selectBank} cardOrder={cardOrder}
+          onAccountsChanged={() => void refreshSummary()} onShowProvisional={() => changeTab('provisional')} />
 
-        <BankTxTabs tab={tab} onTab={setTab} provisionalCount={bank?.counts.provisional ?? 0} />
+        <BankTxTabs tab={tab} onTab={changeTab} provisionalCount={bank?.counts.provisional ?? 0} />
 
         <BankTxFilters
           tab={tab} page={page} total={total} pageSize={PAGE_SIZE} selectedCount={onScreenSelected.size}
@@ -241,7 +238,7 @@ export default function BankTransactionsPage() {
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
           <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
           {sel.noneActive && <BankTxSummaryNotice kind="none-active" />}
-          {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading || summary.status === 'loading'} error={error}
+          {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={(isLoading || summary.status === 'loading' || choosing) && !refreshing} refreshing={refreshing} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.activeLabels}
             detailTx={detailTx} onDetailClose={closeDetail}>
             <BankTxTable
