@@ -182,7 +182,7 @@ describe('month-end workbench: the payroll card', () => {
     expect(card).toMatchObject({ status: 'ready', primary: `${formatMoney(20000)} gross`, secondary: '1 employees · approved' });
   });
 
-  it('one run (a monthly-only company, today\'s schema): exactly as before', async () => {
+  it('one run (a monthly-only company, today\'s schema): an approved, stamped run reads as before', async () => {
     const card = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, [REGULAR]); },
       () => buildPayrollCard(A.company, '2026-05'), { keepMonthKey: true });
     expect(card).toEqual({

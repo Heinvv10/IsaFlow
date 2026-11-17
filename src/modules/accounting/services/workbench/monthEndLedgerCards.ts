@@ -127,6 +127,7 @@ export async function buildPayrollCard(companyId: string, period: string): Promi
   const runs = (await sql`
     SELECT h.status, h.run_kind, h.off_cycle_reason, h.total_gross, ${sql.unsafe(payRunFinalSql('h'))} AS final,
            COUNT(*) OVER () AS runs,
+           -- People across the month's (non-cancelled) runs, by their lines: a run with no lines yet counts 0.
            (SELECT COUNT(DISTINCT l.employee_id) FROM payroll_run_lines l
               JOIN payroll_run_headers m ON m.id = l.run_id
              WHERE m.company_id = ${companyId}::uuid AND m.period_year = ${year}::int AND m.period_month = ${month}::int
