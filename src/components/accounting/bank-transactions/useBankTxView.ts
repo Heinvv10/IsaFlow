@@ -96,7 +96,6 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   // Back/Forward/a link took us to this URL. If it is not the canonical form of the view it shows (junk parameters, an account
   // that is not available), the correction REPLACES that entry: pushing one would leave the junk URL one Back away, forever.
   const applyExternal = useCallback((q: RouterLike['query'], incomingKey: string) => {
-    replaceNext.current = true;
     const canonical = apply(q, true);
     const key = ownedQueryKey(canonical);
     // A view that looks the same as before (junk dropped, an unavailable account refused) changes no state, so no write would
@@ -142,6 +141,11 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   const clampPage = useCallback((n: number) => { replaceNext.current = true; setPage(n); }, [setPage]);
 
   const incoming = ownedQueryKey(router.query);
+  // A quick X -> Y -> X can reach the router as ONE render (Y never shows): the key it reports is the newest we wrote, and
+  // every older entry (Y) is stale - kept, a later Back to Y would be taken for our own write and ignored.
+  useEffect(() => {
+    if (restored && written.current.length > 0 && written.current[written.current.length - 1] === incoming) written.current = [];
+  }, [restored, router.query, incoming]);
   useEffect(() => { // Back / Forward / a link to this page: show what the URL says
     if (!restored || incoming === seen.current) return;
     seen.current = incoming;

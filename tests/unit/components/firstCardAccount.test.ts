@@ -28,6 +28,12 @@ describe('firstCardAccount with pins', () => {
   it('pins of accounts that are gone are ignored', () => {
     expect(firstCardAccount(accts(), ['zzz', 'd', PIN_BOUNDARY])).toBe('d');
   });
+  it("['b','a','~unpinned','c'] opens on b (the first pinned card)", () => {
+    expect(firstCardAccount(accts(), ['b', 'a', PIN_BOUNDARY, 'c'])).toBe('b');
+  });
+  it('a boundary stored FIRST: the default is the card the row shows (the first one), not the first after the boundary', () => {
+    expect(firstCardAccount(accts(), [PIN_BOUNDARY, 'g', 'c'])).toBe('a');
+  });
   it('no saved order: the page order, as before', () => {
     expect(firstCardAccount(accts(), null)).toBe('a');
   });

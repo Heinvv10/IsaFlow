@@ -71,7 +71,9 @@ export default function BankTransactionsPage() {
   const cardOrder = useBankCardOrder(companyId);
   const orderReady = companyId === undefined || cardOrder.loaded; // no company provider (a page test): nothing to wait for
   const pickDefault = useCallback((a: BankAccountSummary[]) => firstCardAccount(a, cardOrder.order, readLastOpened), [cardOrder.order]);
-  const sel = useBankTxSelection(orderReady ? bankAccounts : NO_ACCOUNTS, router.isReady ? router.query.account_id : undefined, router.isReady, pickDefault);
+  // A link that names a usable account needs no default, so it does not wait for the saved order.
+  const linked = router.isReady && typeof router.query.account_id === 'string' && bankAccounts.some(b => b.id === router.query.account_id && b.isActive);
+  const sel = useBankTxSelection(orderReady || linked ? bankAccounts : NO_ACCOUNTS, router.isReady ? router.query.account_id : undefined, router.isReady, pickDefault);
   const { selected: selectedBank, setSelected: setSelectedBank } = sel;
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });
@@ -115,7 +117,7 @@ export default function BankTransactionsPage() {
   useSeedRowSelections(transactions, rowSelections, setRowSelections); // rowSelections from DB suggestion fields
 
   // Scrolled when the selection changes AND again once the saved order has been applied (the card moves when it does).
-  useScrollSelectedCard(selectedBank, bankAccounts.find(b => b.id === selectedBank)?.groupId, true, cardOrder.order);
+  useScrollSelectedCard(selectedBank, bankAccounts.find(b => b.id === selectedBank)?.groupId, true, cardOrder.loaded);
   // The total is judged only once it was counted for THIS account and tab: a page restored from the URL is not "past the end" of a list not loaded yet.
   usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading: isLoading || loaded.key !== listKey(selectedBank, tab), failed: error !== '', setPage: clampPage });
   // Whatever changes the list (page, search, filter, sort, reload, an action) prunes the selection to the rows on screen.

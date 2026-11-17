@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
 
@@ -30,6 +31,10 @@ export function useRelinkTransfers(selectedBank: string, onLinked?: (r: RelinkOu
   const onLinkedRef = useRef(onLinked);
   const shownBank = useRef(selectedBank);
   useEffect(() => { onLinkedRef.current = onLinked; shownBank.current = selectedBank; });
+  // An answer that arrives after the page is gone changes nothing (no state, no callback). StrictMode's simulated unmount
+  // re-runs this effect, so it re-arms rather than latching.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
     setRelinkFailed(false);
@@ -38,7 +43,7 @@ export function useRelinkTransfers(selectedBank: string, onLinked?: (r: RelinkOu
     inFlight.current.add(bank);
     // The answer is handled whenever it arrives, even after the user moved on: what it linked is real and the page must
     // reload for it. Only the "re-link failed" notice belongs to the account on screen NOW.
-    const failed = () => { inFlight.current.delete(bank); if (shownBank.current === bank) setRelinkFailed(true); };
+    const failed = () => { inFlight.current.delete(bank); if (mounted.current && shownBank.current === bank) setRelinkFailed(true); };
     apiFetch('/api/accounting/bank-relink-transfers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,7 +57,11 @@ export function useRelinkTransfers(selectedBank: string, onLinked?: (r: RelinkOu
         if (json?.data?.failed) failed();
         else { inFlight.current.delete(bank); finished.current.add(bank); }
         const linked = Number(json?.data?.linked ?? 0);
-        if (linked > 0) onLinkedRef.current?.({ linked, batchId: json?.data?.batchId ?? null });
+        if (linked > 0 && mounted.current) {
+          // The callback is the page's, not part of the POST: its failure is not "re-link failed".
+          try { onLinkedRef.current?.({ linked, batchId: json?.data?.batchId ?? null }); }
+          catch (err) { log.warn('Re-link follow-up failed', { error: err }, 'bank-transactions'); }
+        }
       })
       .catch(failed);
   }, [selectedBank, mayWrite]);

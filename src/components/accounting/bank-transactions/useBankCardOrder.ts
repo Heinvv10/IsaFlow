@@ -13,6 +13,8 @@ import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
 import { cardOrderPrefKey, parseCardOrder, withUnseen } from './bankCardOrder';
 
+export const CARD_ORDER_TIMEOUT_MS = 5000;
+
 async function putOrder(companyId: string, next: string[] | null): Promise<void> {
   const res = await apiFetch('/api/auth/preferences', {
     method: 'PUT',
@@ -50,6 +52,8 @@ export function useBankCardOrder(companyId: string | null | undefined) {
     setLoaded(false);
     if (!companyId) return undefined;
     let cancelled = false;
+    // A read that never answers must not hold the page: after this the default order stands (a late answer still applies).
+    const giveUp = setTimeout(() => { if (!cancelled) setLoaded(true); }, CARD_ORDER_TIMEOUT_MS);
     void (async () => {
       try {
         const res = await apiFetch('/api/auth/preferences');
@@ -62,9 +66,10 @@ export function useBankCardOrder(companyId: string | null | undefined) {
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
       }
+      clearTimeout(giveUp);
       if (!cancelled) setLoaded(true);
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(giveUp); };
   }, [companyId, show]);
 
   const save = useCallback((next: string[] | null): Promise<void> => {

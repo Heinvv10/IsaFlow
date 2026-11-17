@@ -24,19 +24,27 @@ export interface FakeRouterHandle {
   setLatency: (ms: number) => void;
   /** Writes are recorded but never land (a router that swallowed them): nothing comes back to the page. */
   setDropWrites: (v: boolean) => void;
+  /** Writes land in the history at once but the page is told only once, after `ms` (a router that batches renders). */
+  setCollapse: (ms: number) => void;
 }
 declare function push(url: { pathname: string; query: Query }, as?: undefined, o?: { shallow?: boolean; scroll?: boolean }): Promise<boolean>;
 declare function replace(url: { pathname: string; query: Query }, as?: undefined, o?: { shallow?: boolean; scroll?: boolean }): Promise<boolean>;
 
 export function makeFakeRouter(initial: Query = {}, pathname = '/accounting/bank-transactions'): FakeRouterHandle {
   const stack: Query[] = [{ ...initial }];
-  let index = 0, ready = true, version = 0, latency = 0, drop = false;
+  let index = 0, ready = true, version = 0, latency = 0, drop = false, collapse = 0, collapseTimer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<() => void>();
   const calls: FakeRouterHandle['calls'] = [];
   let snapshot: ReturnType<FakeRouterHandle['use']> | null = null;
   const changed = () => { version += 1; snapshot = null; listeners.forEach(l => l()); };
   const later = (fn: () => void) => new Promise<boolean>(resolve => {
-    const land = () => { if (!drop) { fn(); changed(); } resolve(true); };
+    const land = () => {
+      if (!drop) {
+        fn();
+        if (collapse > 0) { snapshot = null; if (!collapseTimer) collapseTimer = setTimeout(() => { collapseTimer = null; changed(); }, collapse); } else changed();
+      }
+      resolve(true);
+    };
     if (latency > 0) setTimeout(land, latency); else queueMicrotask(land);
   });
   const pushFn = vi.fn((url: { query: Query }) => { calls.push({ kind: 'push', query: { ...url.query } }); return later(() => { stack.splice(index + 1); stack.push({ ...url.query }); index = stack.length - 1; }); });
@@ -53,5 +61,6 @@ export function makeFakeRouter(initial: Query = {}, pathname = '/accounting/bank
     setReady: (v: boolean) => { ready = v; changed(); },
     setLatency: (ms: number) => { latency = ms; },
     setDropWrites: (v: boolean) => { drop = v; },
+    setCollapse: (ms: number) => { collapse = ms; },
   };
 }

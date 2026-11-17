@@ -31,4 +31,14 @@ describe('useScrollSelectedCard', () => {
     rerender({ on: true });
     expect(scrolled).toEqual(['a']);
   });
+  it('scrolls on the selection change and the first order load - not again when only other things change (a reorder, a pin toggle)', () => {
+    const { rerender } = renderHook(({ id, loaded }) => useScrollSelectedCard(id, null, true, loaded), { initialProps: { id: 'a', loaded: false } });
+    expect(scrolled).toEqual(['a']);
+    rerender({ id: 'a', loaded: true });
+    expect(scrolled).toEqual(['a', 'a']); // the order's first load: the cards moved
+    rerender({ id: 'a', loaded: true }); rerender({ id: 'a', loaded: true });
+    expect(scrolled).toHaveLength(2); // nothing new
+    rerender({ id: 'group:g1', loaded: true });
+    expect(scrolled).toEqual(['a', 'a', 'group:g1']);
+  });
 });

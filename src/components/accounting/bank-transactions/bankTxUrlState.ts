@@ -8,6 +8,7 @@
 import type { BankTxTab } from './BankTxTabs';
 import type { AllocationFilter, AllocTypeFilter, HasSuggestionFilter, TxTypeFilter } from './useBankTxFilters';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
+import { LEDGER_MAX_YEAR, LEDGER_MIN_YEAR } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { AMOUNT_BOUND_RE } from '@/modules/accounting/utils/bankAmountBound';
 
 export interface UrlFilters {
@@ -41,6 +42,7 @@ const pick = <T extends string>(v: string | undefined, allowed: readonly T[]): T
 const date = (v: string | undefined): string | undefined => {
   if (!v || !ISO_DATE.test(v)) return undefined;
   const [y, m, d] = v.split('-').map(Number) as [number, number, number];
+  if (y < LEDGER_MIN_YEAR || y > LEDGER_MAX_YEAR) return undefined; // the ledger's own window: Postgres refuses year 0000
   const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
   return days !== undefined && d >= 1 && d <= days ? v : undefined;

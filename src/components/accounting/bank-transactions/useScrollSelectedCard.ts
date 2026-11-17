@@ -7,11 +7,11 @@
 
 import { useEffect } from 'react';
 
-export function useScrollSelectedCard(selectedBank: string, groupId?: string | null, enabled = true, order: readonly string[] | null = null) {
+export function useScrollSelectedCard(selectedBank: string, groupId?: string | null, enabled = true, firstOrderLoad = false) {
   useEffect(() => {
     if (!selectedBank || !enabled || typeof document === 'undefined') return;
     const wanted = new Set([selectedBank, groupId ? `group:${groupId}` : '']);
     const slot = Array.from(document.querySelectorAll<HTMLElement>('[data-card-key]')).find(el => wanted.has(el.getAttribute('data-card-key') ?? ''));
     slot?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [selectedBank, groupId, enabled, order]); // `order`: the cards move when the saved order is applied, so scroll again
+  }, [selectedBank, groupId, enabled, firstOrderLoad]); // the selection changing, and the order's first load (the cards move once); NOT every reorder or pin toggle
 }

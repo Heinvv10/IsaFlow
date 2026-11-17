@@ -6,6 +6,7 @@
  */
 
 import { applyCardOrder } from './bankCardOrder';
+import { pinnedKeys } from './bankCardPins';
 import { groupBankAccounts } from './groupBankAccounts';
 import { defaultBankId } from './bankTxPageView';
 import type { BankAccountSummary } from './useBankTxSummary';
@@ -14,7 +15,11 @@ export function firstCardAccount(
   accounts: BankAccountSummary[], order: string[] | null, lastOpened: (groupId: string) => string | null = () => null,
 ): string {
   const { primaries, groups } = groupBankAccounts(accounts);
-  const keys = applyCardOrder([...primaries.map(b => b.id), ...groups.map(g => `group:${g.groupId}`)], order);
+  const all = [...primaries.map(b => b.id), ...groups.map(g => `group:${g.groupId}`)];
+  // The cards SHOWN come first, exactly as the row shows them (a boundary stored first gives the single first card, not the
+  // first card after it); then the rest in the user's order.
+  const pins = pinnedKeys(all, order);
+  const keys = [...pins, ...applyCardOrder(all, order).filter(k => !pins.includes(k))];
   for (const key of keys) {
     const primary = primaries.find(b => b.id === key);
     if (primary) { if (primary.isActive) return primary.id; continue; }
