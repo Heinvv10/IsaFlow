@@ -36,6 +36,20 @@ describe('upload tokens', () => {
     expect(verifyUploadToken(token)).toBe(false);
   });
 
+  it('refuses a non-canonical spelling of a valid token (same bytes, other last character)', () => {
+    withKey('unit-test-only-key-a');
+    const { token } = newUploadToken();
+    // 32 bytes in 43 base64url characters leave 2 unused low bits in the last character: setting them spells the
+    // same bytes another way.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const last = alphabet.indexOf(token[42]!);
+    const variant = token.slice(0, 42) + alphabet[(last & ~0b11) | ((last & 0b11) ^ 0b01)]!;
+    expect(variant).not.toBe(token);
+    expect(Buffer.from(variant, 'base64url').equals(Buffer.from(token, 'base64url'))).toBe(true);
+    expect(verifyUploadToken(token)).toBe(true);
+    expect(verifyUploadToken(variant)).toBe(false);
+  });
+
   it('mints nothing and verifies nothing without a server key', () => {
     withKey('unit-test-only-key-a');
     const { token } = newUploadToken();
