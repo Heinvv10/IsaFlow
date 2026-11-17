@@ -23,6 +23,7 @@ import { findBankTransactionAllocationStates } from '@/modules/accounting/servic
 import { handKeyedAccountLineSkips } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import { handKeyedRefundLineSkips } from '@/modules/accounting/services/bank/bankLineRefundGate';
 import { contactControlLineSkips } from '@/modules/accounting/services/bank/contactControlGuard';
+import { bankContraLineSkips } from '@/modules/accounting/services/bank/bankContraLineSkips';
 import { periodLineSkips } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { importerArmOf, importerHeldLineSkips } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import type { ResolvedLine } from './bulkAllocationPrepare';
@@ -187,10 +188,12 @@ export async function partitionAllocationLines(
     return arm ? [{ txId: line.txId, arm }] : [];
   }));
   for (const [txId, reason] of importerHeld) if (!held.has(txId)) held.set(txId, reason);
-  // An account line onto AP/AR control is refused by allocateTransaction before it writes (contactControlGuard).
-  const onControl = await contactControlLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
-    .map(({ line }) => ({ txId: line.txId, accountId: line.line.contraAccountId })));
-  for (const [txId, reason] of onControl) if (!held.has(txId)) held.set(txId, reason);
+  // An account line onto AP/AR control is refused by allocateTransaction before it writes (contactControlGuard); one
+  // onto its own bank, or onto another bank whose movement the ledger holds, too (WP2 row 5, bankContraLineSkips).
+  const accountLines = candidates.filter(({ line }) => line.line.allocType === 'account')
+    .map(({ line }) => ({ txId: line.txId, accountId: line.line.contraAccountId }));
+  const onControl = await contactControlLineSkips(companyId, accountLines);
+  for (const [txId, reason] of [...onControl, ...await bankContraLineSkips(companyId, accountLines)]) if (!held.has(txId)) held.set(txId, reason);
   // WP2 row 12: a line dated where no open fiscal period is or can be is skipped here, not left to unwind the batch;
   // asked last, as the service does, and only of a line nothing above holds.
   for (const [txId, reason] of await periodLineSkips(companyId, candidates.filter(({ line }) => !held.has(line.txId))

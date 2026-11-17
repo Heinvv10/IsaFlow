@@ -158,7 +158,9 @@ describe('updateAutoPostSettings — LLM field validation', () => {
 function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
     const text = strings.join('?');
-    const h = handlers.find((x) => x.match.test(text));
+    // WP2 row 5: the sweep's one read of which suggested accounts are BANK accounts (bankAccountsAmong); none here.
+    const h = handlers.find((x) => x.match.test(text))
+      ?? (/SELECT id::TEXT AS id, account_subtype FROM gl_accounts/.test(text) ? { rows: [] } : undefined);
     if (!h) throw new Error(`routeSql: unhandled query:\n${text}`);
     return Promise.resolve(h.rows);
   });

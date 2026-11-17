@@ -15,7 +15,9 @@
  *      left the ledger short (brk-nrfa round 15 L1). A Transfers-page transfer HELD for approval (a draft) counts too
  *      (heldTransferDraft). Residual, stated: a transfer recorded as a manual, recurring, still unapproved or split
  *      journal is not seen, so its statement line allocated as a transfer posts it again — match the
- *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14).
+ *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14). Re-raised
+ *      by brk-1494 LOW 1 (2026-11-16): the lead kept r15 unless a confirm override (428 + resend) could ship with it; the
+ *      allocate route and its screen carry no such confirm today, so the residual stands (stated in bank/.claude.md).
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its
  * amount; a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5
  * L1). Only an imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line
@@ -55,6 +57,8 @@ import type { DbRow } from '@/lib/neon';
 
 /** The ledger already holds the movement: match the line to the existing journal instead (a 400, not a fault). */
 export class DuplicateTransferError extends Error {
+  /** Raised before any write (after the pair lock); MCP shows its message (REFUSAL_CODES). */
+  readonly code = 'DUPLICATE_TRANSFER';
   constructor(message = 'A matching transfer already exists on the counterparty bank for this amount and date. ' +
       'Match the existing journal entry instead of posting a new one.') {
     super(message);
