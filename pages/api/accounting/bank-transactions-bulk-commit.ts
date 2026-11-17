@@ -57,10 +57,10 @@ import {
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { importParsedTransactions, uploadProvenance } from '@/modules/accounting/services/bank/bankImportService';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
-import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
+import { applyRulesAfterBulkFile } from '@/modules/accounting/services/bank/bankBulkCommitRules';
 import {
   parseStatement,
   type StatementFileType,
@@ -242,27 +242,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       },
     );
 
-    let appliedRuleCount = 0;
-    let ruleLinesSkippedLocked = 0;
-    if (applyBankRules === true) {
-      try {
-        // In a savepoint: this catch swallows a rule-pass failure so the import still lands, and withAuth COMMITs
-        // the 200 — without it the lines the pass posted before it failed were committed behind `appliedRules: 0`.
-        // A line held by a peer (e.g. the journal number lock past its 5 s bound) is not a failure: applyRules skips
-        // it and counts it in `autoPostSkippedLocked`, which reaches the response below.
-        const ruleResult = await withSavepoint('bulk_commit_rules', () => applyBankRulesService(
-          companyId,
-          bankAccountId,
-          authReq.user.id,
-        ));
-        appliedRuleCount = ruleResult.applied;
-        ruleLinesSkippedLocked = ruleResult.autoPostSkippedLocked ?? 0;
-      } catch (err) {
-        log.warn('Failed to apply bank rules after bulk commit file', {
-          error: err, filename,
-        }, 'accounting-api');
-      }
-    }
+    // The optional rule pass, in its own savepoint; a failure is logged and the import still lands (bankBulkCommitRules).
+    const rules = applyBankRules === true
+      ? await applyRulesAfterBulkFile(companyId, bankAccountId, authReq.user.id, filename)
+      : { applied: 0, skippedLocked: 0 };
+    const appliedRuleCount = rules.applied;
+    const ruleLinesSkippedLocked = rules.skippedLocked;
 
     if (isPayg && didDebit) {
       runAfterCommit('recalculateNudge after bulk commit', () => recalculateNudge(companyId).catch((err: unknown) => {
