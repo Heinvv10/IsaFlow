@@ -85,12 +85,12 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
         {/* Amount pill */}
         <div className="mb-5 flex gap-2">
           {spent !== null && (
-            <span className="text-xs tabular-nums font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400">
+            <span className="text-xs tabular-nums font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-700 dark:text-red-400">
               Spent {fmtCurrency(spent)}
             </span>
           )}
           {received !== null && (
-            <span className="text-xs tabular-nums font-medium px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400">
+            <span className="text-xs tabular-nums font-medium px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-400">
               Received {fmtCurrency(received)}
             </span>
           )}
@@ -107,7 +107,7 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
               onClick={() => handlePreset(reason)}
               className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
                 selectedReason === reason
-                  ? 'border-red-500 bg-red-500/15 text-red-400 font-medium'
+                  ? 'border-red-500 bg-red-500/15 text-red-700 dark:text-red-400 font-medium'
                   : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:border-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]'
               }`}
             >

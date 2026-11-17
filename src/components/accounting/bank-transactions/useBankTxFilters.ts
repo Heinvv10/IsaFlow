@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
+import type { UrlFilters } from './bankTxUrlState';
 
 export type AllocationFilter = 'all' | 'unallocated' | 'suggested' | 'allocated';
 export type TxTypeFilter = 'all' | 'spent' | 'received';
@@ -63,7 +64,18 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   /** Everything, including the sort: an account switch starts the next account from its defaults. */
   const resetForAccount = useCallback(() => { clear(); setSortOrder('desc'); }, [clear]);
 
+  /** Sets every filter at once from a view (the URL): the search takes effect at once, no debounce, and the page is the caller's. */
+  const apply = useCallback((v: UrlFilters) => {
+    setSearchTerm(v.search); setDebouncedSearch(v.search); setFromDate(v.fromDate); setToDate(v.toDate);
+    setFromAmount(v.fromAmount); setToAmount(v.toAmount); setSortOrder(v.sortOrder); setAllocationFilter(v.allocationFilter);
+    setTxType(v.txType); setAllocType(v.allocType); setHasSuggestion(v.hasSuggestion); setReconFilter(v.reconFilter);
+    setResetTick(t => t + 1);
+  }, []);
+  /** What the list is filtered by right now (the committed search, not what is still being typed). */
+  const values: UrlFilters = { search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter };
+
   return {
+    apply, values,
     searchTerm, setSearchTerm, debouncedSearch, fromDate, setFromDate, toDate, setToDate, fromAmount, setFromAmount,
     toAmount, setToAmount, sortOrder, setSortOrder, allocationFilter, setAllocationFilter, txType, setTxType,
     allocType, setAllocType, hasSuggestion, setHasSuggestion, reconFilter, setReconFilter,

@@ -129,7 +129,7 @@ export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
 
   const dialog = open ? DIALOG[open] : null;
   return (
-    <li className="text-xs text-amber-500">
+    <li className="text-xs text-amber-700 dark:text-amber-500">
       <span>
         Line {offset.lineDate} · {rands(offset.lineAmount)} · {offset.lineDescription} — journal (
         {offset.entryDate} · {rands(offset.amount)} · {offset.description}): {guidance(offset)}
@@ -144,7 +144,7 @@ export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
       <button type="button" onClick={() => setOpen('undoAnyway')} className="text-blue-600 dark:text-blue-400 hover:underline">
         Not the correction — undo anyway
       </button>
-      {error && <p className="text-red-400 mt-1">{error}</p>}
+      {error && <p className="text-red-700 dark:text-red-400 mt-1">{error}</p>}
       <ConfirmDialog
         open={dialog !== null}
         title={dialog?.title ?? ''}

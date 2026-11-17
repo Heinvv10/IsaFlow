@@ -130,7 +130,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
           <div className="flex items-center gap-2">
-            <BookmarkPlus className="h-4 w-4 text-yellow-400" />
+            <BookmarkPlus className="h-4 w-4 text-yellow-700 dark:text-yellow-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Create Categorisation Rule</h2>
           </div>
           <button onClick={onClose} disabled={locked} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
@@ -161,7 +161,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
               {previewLoading ? (
                 <Loader2 className="h-3 w-3 animate-spin text-[var(--ff-text-tertiary)]" />
               ) : matchCount !== null ? (
-                <span className={`text-xs font-medium ${matchCount > 0 ? 'text-teal-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+                <span className={`text-xs font-medium ${matchCount > 0 ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-tertiary)]'}`}>
                   Would match <strong>{matchCount}</strong> transaction{matchCount !== 1 ? 's' : ''}
                 </span>
               ) : null}
