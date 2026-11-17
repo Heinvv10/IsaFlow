@@ -143,3 +143,15 @@ describe('low: a column under one character wide or a row under 3pt is hidden; o
   });
 });
 
+
+describe('round 8: a conditional format whose style sets a number format, font or fill refuses the sheet', () => {
+  // LibreOffice's CSV export ignores conditional formats; its PDF of the same files shows 1500 / 250 as "2" / "0" under
+  // #,##0, and nothing under ;;; (evidence doc). The reader cannot see a condition's outcome, so the sheet is refused.
+  it.each(['cond-thousands-en-za', 'cond-hidden-en-za', 'cond-white-en-za', 'cond-fill-en-za'])('%s', async (name) => {
+    await expect(linesOf(name)).rejects.toThrow('Sheet "Sheet1" has conditional formatting (C2:N2) on or below its header row whose style sets a number format, font or fill, so a condition could change how an amount reads: remove that conditional formatting (or move it above the header) and send it again.');
+  });
+  it.each([['cond-border-en-za', 2], ['cond-title-en-za', 3]])('%s (a border only; a white title above the header) is read', async (name, row) => {
+    const out = await linesOf(name);
+    expect(out.lines.map((l) => [l.row, l.amounts[0]!.cell])).toEqual([[row, { kind: 'value', cents: 150000 }]]);
+  });
+});

@@ -239,6 +239,37 @@ def colours(b):
     for ref, code in [('C2', '#,##0.00;[BLACK]-#,##0.00'), ('D2', '#,##0.00;[BLUE]-#,##0.00'), ('E2', '#,##0.00;[WHITE]-#,##0.00'), ('F2', '[WHITE]#,##0.00')]:
         b.type(ref, '-5'); b.fmt(ref, b.custom(code, US))
 
+def cond_style(b, name, number=None, white=False, back=None, border=False):
+    """Round 8: a cell style for a conditional format, as Format > Conditional > Condition > New Style makes it."""
+    styles = b.doc.StyleFamilies.getByName('CellStyles')
+    st = b.doc.createInstance('com.sun.star.style.CellStyle')
+    styles.insertByName(name, st)
+    if number is not None: st.NumberFormat = b.custom(number, US)
+    if white: st.CharColor = 0xFFFFFF
+    if back is not None: st.CellBackColor = back
+    if border:
+        line = uno.createUnoStruct('com.sun.star.table.BorderLine2'); line.OuterLineWidth = 50; st.TopBorder = line
+    return name
+
+def cond(b, ref, style, op='GREATER', formula='0'):
+    """Format > Conditional > Condition: "cell value is" op formula, applying style, on ref."""
+    rng = b.sheet.getCellRangeByName(ref)
+    cf = rng.ConditionalFormat
+    cf.addNew((pv('Operator', uno.Enum('com.sun.star.sheet.ConditionOperator', op)), pv('Formula1', formula), pv('StyleName', style)))
+    rng.ConditionalFormat = cf
+
+def cond_sheet(b, **style):
+    b.header(1, ['Code', 'Name'])
+    b.type('A2', '6000'); b.type('B2', 'Rent'); b.type('C2', '1500'); b.type('D2', '250')
+    cond(b, 'C2:N2', cond_style(b, 'Round8', **style))
+
+def cond_title(b):
+    """A white-text condition on the title above the header only: not on any amount."""
+    b.type('A1', 'Budget FY2027')
+    b.header(2, ['Code', 'Name'])
+    b.type('A3', '6000'); b.type('B3', 'Rent'); b.type('C3', '1500')
+    cond(b, 'A1', cond_style(b, 'Round8', white=True), op='NOT_EQUAL', formula='""')
+
 FIXTURES = {  # name: (locale, builder)
     'b1-codes-en-us': (US, lambda b: b1_codes(b, '.')), 'b1-codes-en-za': (ZA, lambda b: b1_codes(b, ',')),
     'b1-dimension-en-za': (ZA, lambda b: b1_dimension(b, ',')),
@@ -247,6 +278,10 @@ FIXTURES = {  # name: (locale, builder)
     'total-name-refused-en-za': (ZA, total_name_refused), 'title-merge-en-za': (ZA, title_merge), 'merge-header-en-za': (ZA, merge_header),
     'merge-body-en-za': (ZA, merge_body), 'active-sheet-en-za': (ZA, active_sheet), 'mar-26-en-za': (ZA, mar26),
     'narrow-column-en-za': (ZA, narrow), 'short-row-en-za': (ZA, short_row), 'colours-en-us': (US, colours),
+    # Round 8: conditional formats whose style changes the number format, hides the value, or colours it white.
+    'cond-thousands-en-za': (ZA, lambda b: cond_sheet(b, number='#,##0,')), 'cond-hidden-en-za': (ZA, lambda b: cond_sheet(b, number=';;;')),
+    'cond-white-en-za': (ZA, lambda b: cond_sheet(b, white=True)), 'cond-fill-en-za': (ZA, lambda b: cond_sheet(b, back=0xFFFF00)),
+    'cond-border-en-za': (ZA, lambda b: cond_sheet(b, border=True)), 'cond-title-en-za': (ZA, cond_title),
 }
 
 
