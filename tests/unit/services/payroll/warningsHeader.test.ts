@@ -3,12 +3,12 @@
  * e@syFile export caps its header (capWarningsForHeader: a byte budget and a final "… and N more like these." line).
  */
 import { describe, expect, it } from 'vitest';
-import { emp501WarningsHeader } from '@/../pages/api/payroll/emp501/export';
+import { warningsHeader as emp501WarningsHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 
 const warning = (i: number) => `The approved pay run for 2025-${String(i).padStart(2, '0')} (run ${i}) has no approval time `
   + '(approved_at or grandfathered), so it is not final and is not on this EMP501. Reopen it and approve it again.';
 
-describe('emp501WarningsHeader', () => {
+describe('warningsHeader (the EMP501 export\'s X-IsaFlow-Warnings)', () => {
   it('no header when there is nothing to say', () => {
     expect(emp501WarningsHeader([])).toBeNull();
   });
