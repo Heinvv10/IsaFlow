@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { settledDocumentsSql } from './settledDocumentSql';
+import { capturedDocUsableSql } from './bankLineDocumentSql';
 import { SETTLING_LINE_STATUSES } from '../core/paymentVoidReads';
 import { mimeForCapturedFileType } from '../capture/capturedFileTypes';
 import { capturedFileUrl } from '../capture/capturedAttachmentLinks';
@@ -102,10 +103,12 @@ export async function listSettledDocuments(companyId: string, bankTxId: string):
  * settles? The captured-document-file route serves those bytes to the line's viewer on that ground alone.
  */
 export async function isSettledCapturedDocument(companyId: string, documentId: string): Promise<boolean> {
-  // From the document outwards (one row), not from every bank line in. Same path and gates as settledDocumentSql.
+  // From the document outwards (one row), not from every bank line in. Same path and gates as settledDocumentSql,
+  // usable-capture predicate included: the gate serves nothing the list would not show.
   const rows = (await sql`
     SELECT 1 FROM captured_documents scd
      WHERE scd.id = ${documentId}::UUID AND scd.company_id = ${companyId}::UUID
+       AND NULLIF(scd.storage_path, '') IS NOT NULL AND ${sql.unsafe(capturedDocUsableSql('scd'))}
        AND (EXISTS (SELECT 1 FROM supplier_invoices si
               JOIN payment_allocations a ON a.invoice_id = si.id
               JOIN supplier_payments p ON p.id = a.payment_id AND p.company_id = si.company_id AND p.status <> 'cancelled'

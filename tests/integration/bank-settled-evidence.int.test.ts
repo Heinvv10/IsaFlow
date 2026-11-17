@@ -56,6 +56,16 @@ describeIfDb('bank line settled-document evidence', () => {
     expect(await isSettledCapturedDocument(f.other, f.docs.inv1Capture)).toBe(false);
   });
 
+  it('a rejected source capture is neither listed nor served', async () => {
+    await pool.query("UPDATE captured_documents SET status='rejected' WHERE id=$1", [f.docs.inv1Capture]);
+    try {
+      expect(ids(await listSettledDocuments(f.company, f.lines.receipt))).toEqual([f.docs.inv1]);
+      expect(await isSettledCapturedDocument(f.company, f.docs.inv1Capture)).toBe(false);
+    } finally {
+      await pool.query("UPDATE captured_documents SET status='matched' WHERE id=$1", [f.docs.inv1Capture]);
+    }
+  });
+
   it('shows nothing for an unapplied payment, an expense-coded line, a hand match off the bank, a cancelled payment', async () => {
     for (const line of [f.lines.unapplied, f.lines.expense, f.lines.handMatch, f.lines.cancelled, f.lines.transfer]) {
       expect(await listSettledDocuments(f.company, line)).toEqual([]);
