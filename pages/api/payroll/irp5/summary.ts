@@ -9,6 +9,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
@@ -74,8 +75,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   const bounds = payeTaxYearBounds(taxYear);
   const periods = payeTaxYearPeriods(taxYear);
-  // The screen previews the e@syFile export, so it must aggregate exactly the
-  // runs that export declares.
+  // The screen previews the e@syFile export, so it aggregates exactly the runs that export declares:
+  // FINAL runs (payRunFinalSql, wave 6 EF); one left out is named in runWarnings.
 
   // Employees, payroll aggregates, both component lookups, and severance-
   // directive presence all fan out in parallel.
@@ -219,6 +220,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalPayeSubmitted: employees.reduce((s, e) => s + e.totalPaye, 0),
     componentIssues,
     employees,
+    // Approved/paid runs left out because they are not final (wave 6 EF), by name.
+    runWarnings: await notFinalRunWarnings(companyId, bounds, 'IRP5'),
   };
 
   return apiResponse.success(res, summary);

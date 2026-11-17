@@ -45,6 +45,7 @@ import {
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 import { splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -260,7 +261,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // payment under a directive linked to no employee is on no certificate
     // (applyTaxDirective now refuses those): both said, naming the directive,
     // and shown by the IRP5 page.
-    // A payment on no certificate first: the cap below must never hide one.
+    // A payment on no certificate first: the cap below must never hide one. Then a run left out as not final (wave 6 EF).
+    warnings.unshift(...await notFinalRunWarnings(companyId, bounds, 'e@syFile file'));
     warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
     // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.

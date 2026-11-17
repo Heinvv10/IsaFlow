@@ -13,7 +13,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
-import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 
 type Row = DbRow;
 
@@ -35,6 +36,8 @@ export interface Emp501Summary {
   totalEmp201: number;
   totalIrp5: number;
   totalVariance: number;
+  /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
+  runWarnings: string[];
 }
 
 function taxYearMonths(taxYear: number): Array<{ month: number; year: number }> {
@@ -56,9 +59,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
-  // Same status set as the EMP201 report and the IRP5/EMP501 exports this
-  // reconciles — 'posted' is not an admissible status and 'calculated' has no
-  // journal in the general ledger.
+  // The same runs as the EMP201 report and the IRP5/EMP501 exports this reconciles: FINAL runs only
+  // (payRunFinalSql: approved or paid with an approval time; wave 6 EF). One left out is named in runWarnings.
 
   // EMP201 declared PAYE per period from run headers
   const headerRows = (await sql`
@@ -125,6 +127,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalEmp201: rows.reduce((s, r) => s + r.emp201Paye, 0),
     totalIrp5: rows.reduce((s, r) => s + r.irp5Paye, 0),
     totalVariance: rows.reduce((s, r) => s + r.variance, 0),
+    runWarnings: await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
   };
 
   return apiResponse.success(res, summary);

@@ -17,6 +17,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listRunNonCashBenefits } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
@@ -91,6 +92,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   })));
   const filename = `EMP501_${taxYear - 1}_${taxYear}.csv`;
 
+  // A run left out as not final is named, as the e@syFile export names its warnings (wave 6 EF).
+  const runWarnings = await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501');
+  if (runWarnings.length > 0) res.setHeader('X-IsaFlow-Warnings', encodeURIComponent(JSON.stringify(runWarnings)));
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.status(200).send(csv);

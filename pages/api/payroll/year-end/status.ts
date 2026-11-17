@@ -25,6 +25,7 @@ import {
   payeTaxYearBounds,
 } from '@/modules/accounting/utils/payeTaxYear';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import {
@@ -64,6 +65,8 @@ export interface YearEndStatus {
     locked: boolean;
     lockdownDate: string | null;
   };
+  /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
+  runWarnings: string[];
 }
 
 function countSeverity(msgs: ValidationMessage[], severity: 'error' | 'warning'): number {
@@ -83,7 +86,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const taxYear = taxYearRaw;
   const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
   const bounds = payeTaxYearBounds(taxYear);
-  // The checklist reports on the runs the IRP5 and EMP501 actually declare.
+  // The checklist reports on the runs the IRP5 and EMP501 actually declare: FINAL runs (payRunFinalSql, wave 6 EF).
 
   const [companyRows, empRows, aggRows, monthRows, headerRows, componentRows, empCompRows, directiveRows] =
     await Promise.all([
@@ -283,6 +286,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalVariance,
     },
     periodLock: { locked: lockedAtYearEnd, lockdownDate: lockDate },
+    runWarnings: await notFinalRunWarnings(companyId, bounds, 'year-end check'),
   };
 
   return apiResponse.success(res, payload);

@@ -43,7 +43,14 @@ export async function listNotFinalDeclaredRuns(
 }
 
 /** One sentence per run, naming the month, why it is left out, and the fix. */
-export function notFinalRunWarning(run: NotFinalRun, form: 'EMP201' | 'IRP5' | 'UI-19'): string {
+export type NotFinalForm = 'EMP201' | 'IRP5' | 'UI-19' | 'e@syFile file' | 'EMP501' | 'EMP501 reconciliation' | 'year-end check';
+
+export function notFinalRunWarning(run: NotFinalRun, form: NotFinalForm): string {
   return `The ${run.status} pay run for ${run.month} has no approval time (approved_at or grandfathered), so it is not `
     + `final and is not on this ${form}. Reopen it and approve it again.`;
+}
+
+/** The window's not-final runs as warnings for `form` (the e@syFile file, the EMP501 surfaces and the year-end check). */
+export async function notFinalRunWarnings(companyId: string, bounds: { start: string; end: string }, form: NotFinalForm): Promise<string[]> {
+  return (await listNotFinalDeclaredRuns(companyId, bounds.start, bounds.end)).map((r) => notFinalRunWarning(r, form));
 }
