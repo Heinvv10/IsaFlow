@@ -186,6 +186,8 @@ export async function postPreparedLines(
   // line -> pair -> number order (transferSweepPrelock); a line whose line or pair another request holds is skipped.
   const { transfers, contended } = await preLockSweepTransfers(ctx.companyId, ordered
     .filter(({ line }) => line.allocType === 'account').map(({ txId, line }) => ({ id: txId, contra: line.contraAccountId })));
+  // The VAT prefetch's bank-subtype read, keyed case-insensitively (an agent's UUID may arrive upper-case — rev 5).
+  const bankContras = new Set([...vatFacts.isBank].filter(([, bank]) => bank).map(([id]) => id.toLowerCase()));
 
   for (const { index, txId, line } of ordered) {
     if (contended.has(txId)) {
@@ -228,15 +230,17 @@ export async function postPreparedLines(
         raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }
-      // The transfer arm's own pre-write refusals (a bank contra rerouted there): a fact of this line, its savepoint
-      // rolled back — skipped and named, never the whole batch.
-      if (err instanceof BankAllocationRefusal && (transfers.has(txId) || vatFacts.isBank.get(line.contraAccountId) === true)) {
-        raced.push({ index, transaction_id: txId, reason: err.message });
-        continue;
-      }
+      // A race first, whatever the arm: the line's status the refusal names, through the one mapping (#1494 rev 5 —
+      // a rerouted transfer line's "Transaction already allocated" read as its own reason, not "already allocated").
       const status = racedStatus(err);
       if (status !== null) {
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
+        continue;
+      }
+      // The transfer arm's own pre-write refusals (a bank contra rerouted there): a fact of this line, its savepoint
+      // rolled back — skipped and named, never the whole batch.
+      if (err instanceof BankAllocationRefusal && (transfers.has(txId) || bankContras.has(line.contraAccountId.toLowerCase()))) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }
       // A raw 55P03 is a lock wait that hit its bound — since migration 858 usually the company+year NUMBER lock a

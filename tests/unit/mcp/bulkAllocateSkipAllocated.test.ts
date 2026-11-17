@@ -88,6 +88,8 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   suppliersBelongToCompany: vi.fn(),
 }));
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { preLockSweepTransfers } from '@/modules/accounting/services/bank/transferSweepPrelock';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import {
   findBankTransactionAllocationStates,
   type BankTransactionAllocationState,
@@ -351,6 +353,22 @@ describe('bulk_allocate_bank_transactions — a line that races the pre-check', 
     );
     expect(payload(res as never).skipped).toEqual([
       { index: 1, transaction_id: TX(2), reason: 'excluded' },
+    ]);
+  });
+
+  it('a rerouted TRANSFER line that races is reported by its status, not the refusal text (#1494 rev 5)', async () => {
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null));
+    vi.mocked(preLockSweepTransfers).mockResolvedValueOnce({ transfers: new Set([TX(2)]), contended: new Set() });
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankAllocationRefusal('Transaction already allocated — cannot allocate');
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2)], idempotency_key: 'k1' }, ctx,
+    );
+    expect(payload(res as never).skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'already allocated' },
     ]);
   });
 
