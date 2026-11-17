@@ -61,14 +61,17 @@ describe('HYb: a non-UUID preparer and a pay run under R-035 approval', () => {
     expect(await status(req.id)).toBe('approved');
   }, 180000);
 
-  it('a request whose authors cannot be computed (a non-UUID preparer) can still be rejected by the approver and withdrawn by its requester', async () => {
-    // Unreachable through the routes now (above); written directly, as a row from before the guard would be.
+  // A request whose authors cannot be computed (a non-UUID preparer: unreachable through the routes now, so written
+  // directly) can still be closed: neither a reject nor a withdrawal reads the authors.
+  it('such a request can still be rejected by the approver', async () => {
     const first = await raisedRun(7);
     await r.pool.query('UPDATE payroll_run_headers SET prepared_by = $1 WHERE id = $2', [N, first.id]);
     const rejected = await ar(r.approver, { action: 'reject', requestId: first.req.id });
     expect(rejected.statusCode, JSON.stringify(rejected.body)).toBe(200);
     expect(await status(first.req.id)).toBe('rejected');
+  }, 180000);
 
+  it('such a request can still be withdrawn by its requester', async () => {
     const second = await raisedRun(8);
     await r.pool.query('UPDATE payroll_run_headers SET prepared_by = $1 WHERE id = $2', [N, second.id]);
     const withdrawn = await ar(r.admin, { action: 'reject', requestId: second.req.id });
