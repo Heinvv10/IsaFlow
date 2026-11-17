@@ -23,7 +23,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { repointPeriodToItsYear, YearEndChangeRefusedError } from './financialYearEndChangeApply';
+import { lockCompanyForYearChange, repointPeriodToItsYear, YearEndChangeRefusedError } from './financialYearEndChangeApply';
 import { budgetRehomeRefusals, rehomePrimaryBudgetMonths } from '../budgets/budgetYearRehome';
 
 interface SnapYear { id: string; fiscal_year: number; start_date: string; end_date: string; kind: string; change_id: string | null; created_at: string }
@@ -128,6 +128,8 @@ const REFERENCED = (id: string) => sql`
 export async function undoYearEndChange(companyId: string, userId: string, reason: string): Promise<{ changeId: string }> {
   if (!als.getStore()?.client) throw new Error('undoYearEndChange must run inside the request transaction');
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
+  // The company row before any fiscal row, as apply does (lockCompanyForYearChange).
+  await lockCompanyForYearChange(companyId);
   const change = await latestLiveChange(companyId);
   // Lock order: PERIODS before the year. A period close holds its period row and
   // its status UPDATE locks the year row (trg_fiscal_periods_sync_year_status);

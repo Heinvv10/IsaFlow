@@ -114,6 +114,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
   // R-161 client group fence: names only the id the caller passed; raised before any write.
   'CLIENT_GROUP_NOT_FOUND',
+  // gl/financialYearStartGuard (PR #1551): a sent financial_year_start over a month the row no longer holds. A fixed
+  // sentence naming nothing; raised before any write. MCP company_profile sends no month, so it does not reach it today.
+  'COMPANY_SETTINGS_STALE',
   // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
   // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
   'CREDIT_NOTE_DIMENSIONS_REFUSED',
