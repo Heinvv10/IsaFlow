@@ -251,6 +251,20 @@ describe('review round 1', () => {
     expect((screen.getByTestId('bank-switcher-search') as HTMLInputElement).value).toBe('');
   });
 
+  it('focus leaving to the browser chrome (relatedTarget null) closes it too', async () => {
+    render(ui(many(8)));
+    const search = await open();
+    await act(async () => { fireEvent.blur(search, { relatedTarget: null }); });
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+  });
+
+  it('a press inside the popup keeps focus in the search box, so the blur-close cannot eat the click', async () => {
+    render(ui(many(8)));
+    await open();
+    const notPrevented = fireEvent.mouseDown(screen.getAllByTestId('bank-switcher-option')[0]!);
+    expect(notPrevented).toBe(false); // default prevented
+  });
+
   it('focus moving to the trigger itself (Shift+Tab) does not close it', async () => {
     render(ui(many(8)));
     const search = await open();

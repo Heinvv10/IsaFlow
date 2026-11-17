@@ -118,11 +118,13 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
     );
   };
 
+  // The popup's onMouseDown preventDefault keeps a press inside it from blurring the search box (the blur-close would
+  // eat the click).
   const label = outsideSelection ?? 'All accounts';
   return (
     <div ref={root} className="relative shrink-0" data-testid="bank-account-switcher"
-      // Tab (or any focus move) out of the control closes it; a click elsewhere is the mousedown listener's.
-      onBlur={e => { if (open && e.relatedTarget && !root.current?.contains(e.relatedTarget as Node)) { setOpen(false); setQuery(''); } }}>
+      // Focus leaving the control closes it, to the page or to the browser chrome (relatedTarget null).
+      onBlur={e => { if (open && !root.current?.contains(e.relatedTarget as Node | null)) { setOpen(false); setQuery(''); } }}>
       <button ref={trigger} type="button" aria-haspopup="listbox" aria-expanded={open} data-testid="bank-switcher-trigger"
         aria-label={outsideSelection ? `All accounts, current: ${outsideSelection}` : `All accounts (${accountCount})`}
         aria-current={outsideSelection ? 'true' : undefined}
@@ -138,7 +140,7 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
         <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-[420px] max-w-[90vw] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] shadow-xl">
+        <div onMouseDown={e => e.preventDefault()} className="absolute left-0 top-full z-30 mt-1 w-[420px] max-w-[90vw] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] shadow-xl">
           <div className="flex items-center gap-2 border-b border-[var(--ff-border-light)] px-3 py-2">
             <Search className="h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)]" aria-hidden />
             <input ref={input} role="combobox" aria-expanded aria-controls={listId} aria-autocomplete="list" aria-label="Search accounts"
