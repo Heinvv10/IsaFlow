@@ -65,6 +65,8 @@ import type { FringeBenefit } from '@/modules/accounting/services/payroll/fringe
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { listImportBatches } from '@/modules/accounting/services/bank/bankImportBatchQueryService';
+import type { previewBulkAccept } from '@/modules/accounting/services/bank/bankBulkAcceptPreview';
+import type { confirmBulkAccept, undoBulkAcceptBatch } from '@/modules/accounting/services/bank/bankBulkAcceptService';
 import type { getBankAccountSummaries } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -133,6 +135,9 @@ interface StaticRoutes extends BudgetStaticRoutes {
   '/api/accounting/bank-import-batches': { batches: Awaited<ReturnType<typeof listImportBatches>> };
   // GET only, no parameters: `{ asAt, accounts }`, integer cents (WP1 PR-B).
   '/api/accounting/bank-account-summaries': Awaited<ReturnType<typeof getBankAccountSummaries>>;
+  // WP6: GET the preview, POST confirm the posted/refused result, POST undo the undo result - one resource, so a union
+  // (narrowed in bulkAcceptApi by the field each one alone carries).
+  '/api/accounting/bank-bulk-accept': Awaited<ReturnType<typeof previewBulkAccept>> | Awaited<ReturnType<typeof confirmBulkAccept>> | Awaited<ReturnType<typeof undoBulkAcceptBatch>>;
   // GET and POST (regenerate) both return `{ inbox }`.
   '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
   // W1-02. GET list = array, POST upload = `{ document }`: the row is saved as readState 'reading' and read after

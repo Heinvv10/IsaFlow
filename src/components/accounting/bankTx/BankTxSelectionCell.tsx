@@ -3,13 +3,13 @@
  * trigger, and its popover with search, the pinned suggestion and "New …".
  */
 
-import { useRef, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { Search, SearchCheck, Plus } from 'lucide-react';
 import { AllocatedAccountCell } from '../BankTxAllocatedAccountCell';
 import { SharedPoolHint } from '../bank-transactions/SharedPoolHint';
 import type { AllocType, BankTx, BankTxTableProps, RowSelection } from './bankTxTypes';
 import { useBankTxSelectionPlacement } from './useBankTxSelectionPlacement';
-import { filterOptions, getOptionsForType, getSuggestedOption, sortByDescriptionMatch } from './bankTxOptions';
+import { filterOptions, getOptionsForType, getSuggestedOption, nextPopoverIndex, popoverChoices, sortByDescriptionMatch } from './bankTxOptions';
 import { TOUCH_PAD } from './bankTxTouch';
 
 /** The table's single open-popover state, handed to every row. */
@@ -38,6 +38,19 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
   const toggleRef = useRef<HTMLButtonElement>(null);
   const rawOptions = filterOptions(getOptionsForType(rowType, table), isOpen ? search : '');
   const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
+  const choices = popoverChoices(tx, rowType, isOpen ? search : '', options);
+  // The entry Enter picks: the first, until the arrows move it. Typing starts again from the first match.
+  const [active, setActive] = useState(0);
+  useEffect(() => { setActive(0); }, [search, isOpen]);
+  const pick = (o: { id: string; name: string; code?: string | null }) => {
+    onRowEntityChange(tx.id, o.id, o.code ? `${o.code} ${o.name}` : o.name);
+    closePopover();
+  };
+  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const to = nextPopoverIndex(e.key, active, choices.length);
+    if (to !== null) { e.preventDefault(); setActive(to); return; }
+    if (e.key === 'Enter' && choices.length > 0) { e.preventDefault(); e.stopPropagation(); pick(choices[Math.min(active, choices.length - 1)]!); }
+  };
   const place = useBankTxSelectionPlacement(toggleRef, isOpen, options.length + 1, !!onCreateEntity && rowType !== 'transfer');
   /** The grid's row: where keys go once the popover is closed (a removed option would drop focus to the body). */
   const focusRow = () => {
@@ -111,6 +124,8 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                     placeholder={`Search ${searchNoun}...`}
                     aria-label={`Search ${searchNoun}`}
                     value={search} onChange={e => setSearch(e.target.value)}
+                    onKeyDown={onSearchKey}
+                    aria-activedescendant={choices.length > 0 ? `bank-choice-${tx.id}-${Math.min(active, choices.length - 1)}` : undefined}
                     className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
                     autoFocus />
                 </div>
@@ -127,11 +142,9 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                         Suggested{tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}
                       </div>
                       <button
-                        onClick={() => {
-                          onRowEntityChange(tx.id, suggested.id, suggested.code ? `${suggested.code} ${suggested.name}` : suggested.name);
-                          closePopover();
-                        }}
-                        className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
+                        id={`bank-choice-${tx.id}-0`} data-active={active === 0 || undefined}
+                        onClick={() => pick(suggested)}
+                        className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 data-[active]:ring-1 data-[active]:ring-teal-400 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
                       >
                         {suggested.code && <span className="font-id text-teal-400 w-10 shrink-0">{suggested.code}</span>}
                         <span className="text-teal-300 truncate font-medium">{suggested.name}</span>
@@ -139,18 +152,19 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                     </>
                   );
                 })()}
-                {options.map(o => (
+                {options.map((o, i) => {
+                  const at = choices.length - options.length + i;
+                  return (
                   <button key={o.id}
-                    onClick={() => {
-                      onRowEntityChange(tx.id, o.id, o.code ? `${o.code} ${o.name}` : o.name);
-                      closePopover();
-                    }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
+                    id={`bank-choice-${tx.id}-${at}`} data-active={active === at || undefined}
+                    onClick={() => pick(o)}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] data-[active]:bg-[var(--ff-bg-primary)] data-[active]:ring-1 data-[active]:ring-teal-400 text-xs flex items-center gap-2"
                   >
                     {o.code && <span className="font-id text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
                     <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
                   </button>
-                ))}
+                  );
+                })}
                 {options.length === 0 && !getSuggestedOption(tx, rowType) && (
                   <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">{rowType === 'supplier' && suppliersLoading ? 'Loading suppliers…' : 'No results found'}</div>
                 )}

@@ -34,6 +34,7 @@ import { DeepLinkNotice } from '@/components/accounting/bank-transactions/DeepLi
 import { useBankLineDeepLink } from '@/components/accounting/bank-transactions/useBankLineDeepLink';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
+import { BulkAcceptButton } from '@/components/accounting/bank-transactions/bulkAccept/BulkAcceptButton';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
@@ -216,6 +217,7 @@ export default function BankTransactionsPage() {
         />
 
         <ActiveFiltersChip labels={f.activeLabels} onClear={f.clear} />
+        <BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterMutation} />
         <BankTxSelectionBar count={onScreenSelected.size} onClear={() => setSelectedIds(new Set())} />
         <BankTxSuppliersNotice status={suppliersStatus} />
 
