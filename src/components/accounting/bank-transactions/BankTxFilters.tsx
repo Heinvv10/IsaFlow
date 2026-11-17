@@ -109,7 +109,7 @@ export function BankTxFilters({
               onClick={onBatchAccept}
               disabled={bulkBusy}
               aria-busy={busy?.has('batch-allocate') || undefined}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 disabled:opacity-60"
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 disabled:opacity-60"
             >
               {busy?.has('batch-allocate') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
               {progress?.key === 'batch-allocate' ? ` Allocating ${progress.done + 1} of ${progress.total}` : ' Batch Allocate'}
@@ -146,14 +146,14 @@ export function BankTxFilters({
         onClick={onApplyRules}
         disabled={!selectedBank || smartRunning || busy?.has('apply-rules')}
         title="Apply bank rules, then smart-categorize remaining transactions using patterns and historical data"
-        className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-500 hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30"
+        className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-700 dark:text-yellow-500 hover:text-yellow-800 dark:hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30"
       >
         {smartRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
         {smartRunning ? 'Categorizing...' : 'Smart Categorize'}
       </button>
       <Link
         href="/accounting/bank-transactions/new"
-        className="flex items-center gap-1 px-2.5 py-1 rounded border border-teal-500/60 text-xs text-teal-400 hover:text-teal-300 hover:border-teal-400 font-medium"
+        className="flex items-center gap-1 px-2.5 py-1 rounded border border-teal-500/60 text-xs text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 hover:border-teal-400 font-medium"
       >
         <Plus className="h-3.5 w-3.5" /> New Transaction
       </Link>
@@ -193,7 +193,7 @@ export function BankTxFilters({
           title="Toggle Cost Centre columns"
           className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
             showCC
-              ? 'bg-blue-500/20 text-blue-400'
+              ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
               : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] border border-[var(--ff-border-light)]'
           }`}
         >
@@ -204,7 +204,7 @@ export function BankTxFilters({
           title="Toggle Business Unit column"
           className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
             showBU
-              ? 'bg-blue-500/20 text-blue-400'
+              ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
               : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] border border-[var(--ff-border-light)]'
           }`}
         >

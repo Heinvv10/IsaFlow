@@ -126,7 +126,7 @@ export function SplitTransactionModal({
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)]">
           <div className="p-2 rounded-lg bg-purple-500/10">
-            <Scissors className="h-4 w-4 text-purple-400" />
+            <Scissors className="h-4 w-4 text-purple-700 dark:text-purple-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Split Transaction</h2>
@@ -135,7 +135,7 @@ export function SplitTransactionModal({
             </p>
           </div>
           <div className="text-right mr-2">
-            <p className={`text-base font-bold tabular-nums ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
+            <p className={`text-base font-bold tabular-nums ${transaction.amount < 0 ? 'text-red-700 dark:text-red-400' : 'text-teal-700 dark:text-teal-400'}`}>
               {fmtCurrency(transaction.amount)}
             </p>
             <p className="text-xs text-[var(--ff-text-tertiary)]">{transaction.amount < 0 ? 'Spent' : 'Received'}</p>
@@ -164,7 +164,7 @@ export function SplitTransactionModal({
           ))}
 
           <button onClick={addLine}
-            className="flex items-center gap-2 text-xs text-blue-400 hover:text-blue-300 px-1 py-1">
+            className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 px-1 py-1">
             <Plus className="h-3.5 w-3.5" /> Add Line
           </button>
         </div>
@@ -177,7 +177,7 @@ export function SplitTransactionModal({
               <span>Allocated: <span className="tabular-nums font-medium text-[var(--ff-text-primary)]">{fmtCurrency(allocated)}</span></span>
               <span>Remaining:
                 <span className={`tabular-nums font-medium ml-1 ${
-                  Math.abs(remaining) <= 0.01 ? 'text-teal-400' : 'text-amber-400'
+                  Math.abs(remaining) <= 0.01 ? 'text-teal-700 dark:text-teal-400' : 'text-amber-700 dark:text-amber-400'
                 }`}>{fmtCurrency(remaining)}</span>
               </span>
             </div>
