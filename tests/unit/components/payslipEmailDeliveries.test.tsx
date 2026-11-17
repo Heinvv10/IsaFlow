@@ -55,4 +55,24 @@ describe('PayslipEmailCard retry', () => {
     expect(post[0]).toBe('/api/payroll/runs/r1/payslips/email');
     expect(JSON.parse(String(post[1].body))).toEqual({ employeeIds: ['e1'] });
   });
+
+  it('F-A2: Retry all failed names, in each next round, only the ids not yet attempted in this click', async () => {
+    const posts: unknown[] = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/payroll/settings/payslip-email') return ok({ platformEnabled: true, enabled: true });
+      if (init?.method === 'POST') {
+        posts.push(JSON.parse(String(init.body)));
+        // The first round's time budget ran out after e1; the second tries the rest.
+        return posts.length === 1
+          ? ok({ failed: [{ employeeId: 'e1', employeeNumber: 'E-1', employeeName: 'Name 1', error: 'no' }], remaining: 2 })
+          : ok({ failed: ['e2', 'e3'].map((id, i) => ({ employeeId: id, employeeNumber: `E-${i + 2}`, employeeName: `Name ${i + 2}`, error: 'no' })), remaining: 0 });
+      }
+      return ok([row(1, 'failed'), row(2, 'failed'), row(3, 'failed')]);
+    });
+    render(<PayslipEmailCard runId="r1" companyRole="manager" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry all failed (3)' }));
+    await waitFor(() => expect(posts.length).toBe(2));
+    await screen.findByText('Failed for Name 3 (E-3): no');
+    expect(posts).toEqual([{ employeeIds: ['e1', 'e2', 'e3'] }, { employeeIds: ['e2', 'e3'] }]);
+  });
 });

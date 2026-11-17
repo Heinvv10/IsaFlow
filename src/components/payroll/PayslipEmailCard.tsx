@@ -14,7 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { PayslipEmailDeliveries } from './PayslipEmailDeliveries';
 import {
-  deliveriesOf, mergeOutcomes, outcomeOf, shouldContinue, stateOf, type Delivery, type EmailOutcome, type EmailState,
+  deliveriesOf, mergeOutcomes, notYetAttempted, outcomeOf, shouldContinue, stateOf, type Delivery, type EmailOutcome, type EmailState,
 } from './payslipEmailPayloads';
 
 /** Spec §0a.18 and review #1542 S7: said plainly, on the card and in the confirmation. */
@@ -74,19 +74,23 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
   }
 
   /** POST until nothing remains (the server sends a batch per request), folding the answers; then re-read the list. */
-  async function post(body: Record<string, unknown>): Promise<void> {
+  /**
+   * POST round after round, folding the answers, until `nextBody` (given the last answer) says stop; then re-read the
+   * list. MAX_ROUNDS backstops any fault.
+   */
+  async function rounds(nextBody: (last: EmailOutcome | null) => Record<string, unknown> | null): Promise<void> {
     setConfirming(false);
     setBusy(true);
     setError('');
     let total: EmailOutcome | null = null;
-    let before = Number.POSITIVE_INFINITY;
+    let last: EmailOutcome | null = null;
     try {
       for (let round = 0; round < MAX_ROUNDS; round += 1) {
-        const next = outcomeOf(await apiJson(url, { method: 'POST', body: JSON.stringify(body) }, 'Could not email the payslips - try again'));
-        total = total ? mergeOutcomes(total, next) : next;
+        const body = nextBody(last);
+        if (!body) break;
+        last = outcomeOf(await apiJson(url, { method: 'POST', body: JSON.stringify(body) }, 'Could not email the payslips - try again'));
+        total = total ? mergeOutcomes(total, last) : last;
         setOutcome(total);
-        if (!shouldContinue(next, before)) break;
-        before = next.remaining;
       }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not email the payslips - try again'));
@@ -96,11 +100,31 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
     }
   }
 
-  /** A plain send naming failed employees (no resend: nothing went out), a batch at a time (review #1542 E-S1). */
-  async function retry(employeeIds: string[]): Promise<void> {
-    for (let i = 0; i < employeeIds.length; i += RETRY_BATCH) {
-      await post({ employeeIds: employeeIds.slice(i, i + RETRY_BATCH) });
-    }
+  /** The same body until nothing remains or a round makes no progress (the server sends a batch per request). */
+  function post(body: Record<string, unknown>): Promise<void> {
+    let before = Number.POSITIVE_INFINITY;
+    return rounds((last) => {
+      if (last === null) return body;
+      if (!shouldContinue(last, before)) return null;
+      before = last.remaining;
+      return body;
+    });
+  }
+
+  /**
+   * A plain send naming failed employees (no resend: nothing went out; review #1542 E-S1), a batch at a time. Each
+   * round names only the ids this click has not attempted yet (F-A2): one the server just tried is never named again.
+   */
+  function retry(employeeIds: string[]): Promise<void> {
+    let pending = employeeIds;
+    return rounds((last) => {
+      if (last !== null) {
+        const next = notYetAttempted(pending, last);
+        if (next.length === pending.length) return null; // no progress
+        pending = next;
+      }
+      return pending.length === 0 ? null : { employeeIds: pending.slice(0, RETRY_BATCH) };
+    });
   }
 
   if (!state && !error) return null;

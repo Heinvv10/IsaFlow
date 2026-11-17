@@ -70,3 +70,9 @@ export function shouldContinue(next: EmailOutcome, remainingBefore: number): boo
   if (next.remaining === 0) return false;
   return next.sent.length > 0 || next.remaining < remainingBefore;
 }
+
+/** `pending` less every employee the answer accounts for (sent, failed, uncertain or skipped): review #1542 F-A2. */
+export function notYetAttempted(pending: string[], answer: EmailOutcome): string[] {
+  const done = new Set([...answer.sent, ...answer.failed, ...answer.uncertain, ...answer.skipped].map((w) => w.employeeId));
+  return pending.filter((id) => !done.has(id));
+}

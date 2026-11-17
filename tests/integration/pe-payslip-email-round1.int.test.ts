@@ -14,7 +14,7 @@
  *
  * Disposable DB only (rig -> assertDisposable).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { rig } from './brkr.helpers';
 import {
   approvedRun, asAppUser, captured, cleanup, deliveries, enablePlatform, failNext, listDeliveries, maybeNext, person, putSetting,
@@ -35,6 +35,10 @@ beforeAll(async () => {
   await enablePlatform(a);
   expect((await putSetting(a, true)).statusCode).toBe(200);
 }, 120_000);
+// Each test starts with empty send-limit buckets (per IP and per company), so the suites can share one process.
+beforeEach(async () => {
+  await a.pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'send:payslips:%'");
+});
 afterAll(async () => {
   await cleanup(a);
   expect(captured.every((m) => [m.to].flat().every((to) => String(to).endsWith('@example.invalid')))).toBe(true);

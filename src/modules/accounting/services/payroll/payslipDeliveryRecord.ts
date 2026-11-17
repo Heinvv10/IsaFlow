@@ -115,23 +115,37 @@ export interface RunDelivery {
   attempts: number;
 }
 
-/** Each employee's latest delivery of this run at its current approval (review #1542 A5), employee-number order. */
+/**
+ * Each employee's delivery of this run at its current approval (review #1542 A5), employee-number order. The status
+ * is judged as attemptStates judges it (F-S1): delivered (any outcome 'sent' or 'unknown', or a claim with no outcome
+ * after it) lists as 'sent' (or 'unknown' when none was confirmed), so a later failed resend never shows a delivered
+ * slip as "Not sent". The address and time are the latest attempt's.
+ */
 export async function listRunDeliveries(companyId: string, runId: string): Promise<RunDelivery[]> {
   const rows = (await sql`
-    SELECT DISTINCT ON (d.employee_id) d.employee_id::text AS employee_id, e.employee_number, e.first_name, e.last_name,
-           d.status, d.recipient_email, d.created_at,
-           count(*) FILTER (WHERE d.claim) OVER (PARTITION BY d.employee_id) AS attempts
+    SELECT d.employee_id::text AS employee_id, e.employee_number, e.first_name, e.last_name,
+           bool_or(NOT d.claim AND d.status = 'sent') AS any_sent,
+           bool_or(NOT d.claim AND d.status = 'unknown') AS any_unknown,
+           (array_agg(d.claim ORDER BY d.created_at DESC, d.id DESC))[1] AS latest_is_claim,
+           (array_agg(d.status ORDER BY d.created_at DESC, d.id DESC))[1] AS latest_status,
+           (array_agg(d.recipient_email ORDER BY d.created_at DESC, d.id DESC))[1] AS recipient_email,
+           max(d.created_at) AS created_at,
+           count(*) FILTER (WHERE d.claim) AS attempts
       FROM payslip_deliveries d
       JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
       JOIN payroll_employees e ON e.id = d.employee_id AND e.company_id = d.company_id
      WHERE d.company_id = ${companyId}::uuid AND d.run_id = ${runId}::uuid
        AND d.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at)
-     ORDER BY d.employee_id, d.created_at DESC, d.id DESC
+     GROUP BY d.employee_id, e.employee_number, e.first_name, e.last_name
   `) as Array<Record<string, unknown>>;
-  return rows.map((r) => ({
-    employeeId: String(r.employee_id), employeeNumber: String(r.employee_number),
-    employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(), status: r.status as DeliveryStatus,
-    recipient: String(r.recipient_email), attempts: Number(r.attempts),
-    at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-  })).sort((x, y) => x.employeeNumber.localeCompare(y.employeeNumber, undefined, { numeric: true }));
+  return rows.map((r) => {
+    const status: DeliveryStatus = r.any_sent === true ? 'sent'
+      : r.any_unknown === true || r.latest_is_claim === true ? 'unknown' : (r.latest_status as DeliveryStatus);
+    return {
+      employeeId: String(r.employee_id), employeeNumber: String(r.employee_number),
+      employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(), status,
+      recipient: String(r.recipient_email), attempts: Number(r.attempts),
+      at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    };
+  }).sort((x, y) => x.employeeNumber.localeCompare(y.employeeNumber, undefined, { numeric: true }));
 }

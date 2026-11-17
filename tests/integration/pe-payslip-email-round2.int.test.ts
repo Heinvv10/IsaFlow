@@ -11,13 +11,15 @@
  *    and the third has nothing left;
  *  - E-A1: only the batch's employee rows are locked: another employee of the run can be edited mid-send;
  *  - E-I1: the claim row exists while the mail is being handed over;
+ *  - F-A1: a lock refusal leaves the send-limit buckets untouched; F-S1: a delivered slip lists as Sent after a later
+ *    failed resend;
  *  - B3: the deliveries GET is tenant-scoped;
  *  - D-S4: a slip once delivered stays ALREADY_SENT after a later failed resend: a manager naming the employee
  *    does not mail it again.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { EmailOptions } from '@/modules/accounting/services/core/emailService';
 import { rig } from './brkr.helpers';
 import {
@@ -38,6 +40,10 @@ beforeAll(async () => {
   }
   await a.pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'send:payslips:%'");
 }, 120_000);
+// Each test starts with empty send-limit buckets (per IP and per company), so the suites can share one process.
+beforeEach(async () => {
+  await a.pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'send:payslips:%'");
+});
 afterAll(async () => {
   setDuring(null);
   for (const r of [a, b]) await cleanup(r);
@@ -56,6 +62,8 @@ describe('payslip email, review delta round', () => {
       await holder.query('SELECT 1 FROM payroll_employees WHERE id = $1 FOR UPDATE', [victim]);
       const refused = await send(a, run, { body: { employeeIds: [victim] } });
       expect(refused.statusCode).toBe(503);
+      // F-A1: the lock is taken before the rate limit is charged: no bucket was touched.
+      expect((await a.pool.query("SELECT key FROM rate_limit_counters WHERE key LIKE 'send:payslips:%'")).rows).toEqual([]);
       expect(sentTo('b1@example.invalid')).toBe(0);
       expect(await deliveries(a, { claims: true })).toEqual([]);
     } finally {
@@ -176,6 +184,21 @@ describe('payslip email, review delta round', () => {
     }
     expect(edited).toBe('not blocked');
   }, 30_000);
+
+  it('F-S1: sent, then a failed owner resend: the list still says Sent (no Try again), and a retry mails nothing', async () => {
+    const e = await person(a, 18000, { email: 'fs1@example.invalid', idNumber: ID });
+    const run = await approvedRun(a, 12);
+    expect((await send(a, run, { body: { employeeIds: [e] } })).body.data!.sent.length).toBe(1);
+    failNext.count = 1;
+    expect((await send(a, run, { body: { employeeIds: [e], resend: true } })).body.data!.failed.length).toBe(1);
+    const manager = await a.addUser('manager');
+    const list = await listDeliveries(a, run, { user: manager });
+    const row = (list.body.data as Array<{ employeeId: string; status: string; attempts: number }>).find((d) => d.employeeId === e)!;
+    expect([row.status, row.attempts]).toEqual(['sent', 2]);
+    const retry = await send(a, run, { user: manager, body: { employeeIds: [e] } });
+    expect(retry.body.data!.skipped.map((s: { reason: string }) => s.reason)).toEqual(['ALREADY_SENT']);
+    expect(sentTo('fs1@example.invalid')).toBe(1);
+  });
 
   it('B3: the deliveries GET is tenant-scoped', async () => {
     const run = (await a.pool.query('SELECT DISTINCT run_id FROM payslip_deliveries WHERE company_id = $1 LIMIT 1', [a.company])).rows[0]!.run_id;

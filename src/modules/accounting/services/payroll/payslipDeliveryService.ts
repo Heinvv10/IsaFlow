@@ -9,8 +9,9 @@
  * every recipient: no address (NO_EMAIL), neither ID nor passport number to protect the PDF with (NO_ID_OR_PASSPORT,
  * never sent unprotected), already delivered for this approval (ALREADY_SENT: any attempt sent, or 'unknown' because
  * the mail server may have taken it, a later failed resend notwithstanding (D-S4); unless `resend`), or, in a whole-run send, a last try that failed (LAST_SEND_FAILED: a
- * request names the employee to retry; review #1542 D-I1). Those are skipped and named, never refused. Then the rate limit for
- * the count this request will send (`admit`; RATE_LIMITED 429).
+ * request names the employee to retry; review #1542 D-I1). Those are skipped and named, never refused. Then the batch's
+ * employee rows are locked, and only then is the rate limit charged for the count this request will send (`admit`;
+ * RATE_LIMITED 429; F-A1).
  *
  * At most `limits.maxSends` slips per request, and none started once `limits.budgetMs` has passed (review #1542 A1:
  * a request must finish well inside the proxy's 60 s); the rest are `remaining`, and the caller asks again. Each
@@ -179,11 +180,12 @@ export async function sendPayslipEmails(opts: {
   }
   if (queue.length === 0) return out;
   const batch = queue.slice(0, limits.maxSends);
+  // Locked BEFORE the rate limit is charged (review #1542 F-A1): a lock or deadlock refusal leaves the buckets alone.
+  const locked = await lockBatch(companyId, runId, batch.map((q) => q.slip.employeeId));
   if (!(await opts.admit(batch.length))) {
     throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
   }
 
-  const locked = await lockBatch(companyId, runId, batch.map((q) => q.slip.employeeId));
   const previous = await lastSentTo(companyId, batch.map((q) => q.slip.employeeId));
   let attempted = 0;
   for (const { slip } of batch) {
