@@ -95,3 +95,52 @@ describe('confirm under an Idempotency-Key', () => {
     expect(dataOf<{ posted: unknown[] }>(ok).posted).toHaveLength(2);
   });
 });
+
+describe('the claim race and undo under a key', () => {
+  it('a same-key resend while the first claim is uncommitted waits, then 503s with Retry-After and leaves no stale claim', async () => {
+    const f = await fixture();
+    const token = await previewToken(f);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      // The first request's claim: inserted, not yet committed (its handler still running).
+      await holder.query(
+        `INSERT INTO http_idempotency_keys (company_id, route, idempotency_key, payload_hash, created_by) VALUES ($1,'bank-bulk-accept',$2,'x',$3)`, [f.c, KEY1, a]);
+      const t0 = Date.now();
+      const second = await confirm(f, token, KEY1);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(4_000); // it waited on the unique index (bound 5 s)
+      expect(second.state.statusCode).toBe(503);
+      expect(String((second as unknown as { headers: { get(n: string): unknown } }).headers.get('retry-after') ?? '')).not.toBe('');
+      expect(await journals(f.c)).toBe(0);
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    // The holder rolled back: nothing of the failed resend is left, and the same key now runs fresh.
+    expect((await pool.query("SELECT COUNT(*)::INT AS n FROM http_idempotency_keys WHERE company_id = $1 AND idempotency_key = $2", [f.c, KEY1])).rows[0].n).toBe(0);
+    const ok = await confirm(f, token, KEY1);
+    expect(ok.state.statusCode).toBe(200);
+    expect(dataOf<{ posted: unknown[] }>(ok).posted).toHaveLength(2);
+  }, 30_000);
+
+  it('two same-key confirms at once: one batch, both answers carry its runId', async () => {
+    const f = await fixture();
+    const token = await previewToken(f);
+    const [x, y] = await Promise.all([confirm(f, token, KEY2), confirm(f, token, KEY2)]);
+    expect([x.state.statusCode, y.state.statusCode].filter((c) => c === 200).length).toBeGreaterThanOrEqual(1);
+    expect(await runs(f.c)).toBe(1);
+    expect(await journals(f.c)).toBe(2);
+    const ids = [x, y].filter((r) => r.state.statusCode === 200).map((r) => dataOf<{ runId: string }>(r).runId);
+    expect(new Set(ids).size).toBe(1);
+  }, 30_000);
+
+  it('an undo under a key replays on a resend (not "already undone") and a different key after it is refused as undone', async () => {
+    const f = await fixture();
+    const run = dataOf<{ runId: string }>(await confirm(f, await previewToken(f)));
+    const undo = (key: string) => callRoute(bulkAccept, tokens[a]!, f.c, 'POST', { action: 'undo', runId: run.runId }, URL, {}, { 'idempotency-key': key });
+    const first = await undo(KEY1);
+    expect(first.state.statusCode).toBe(200);
+    expect(dataOf<{ undone: boolean }>(first).undone).toBe(true);
+    const again = await undo(KEY1);
+    expect(again.state.statusCode).toBe(200);
+    expect(dataOf<{ undone: boolean }>(again).undone).toBe(true);
+    expect((await undo(KEY2)).state.statusCode).toBe(400); // a new click on an undone batch is the honest refusal
+  });
+});

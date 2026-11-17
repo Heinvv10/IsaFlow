@@ -14,7 +14,7 @@ interface Props { open: boolean; bankAccountId: string | null; onClose: () => vo
 
 export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged }: Props) {
   const { state, load, confirm, undo, reset, handOffDecided } = useBulkAccept(bankAccountId);
-  const { phase, preview, refreshing, confirmed, undone, names, error, tokenDead, changed } = state;
+  const { phase, preview, refreshing, confirmed, undone, names, error, tokenDead, retrying, changed } = state;
   // Focus lands on a control that is always enabled (Cancel while previewing, Done on the result), never on a disabled Confirm.
   const focusRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (open) void load(); else reset(); }, [open, load, reset]);
@@ -32,7 +32,9 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged }: Pro
     <Modal open onClose={close} size="xl" initialFocusRef={focusRef}
       title={phase === 'result' || phase === 'undoing' ? 'High-confidence suggestions: result' : `Accept ${lines.length} high-confidence suggestion${lines.length === 1 ? '' : 's'}`}>
       <Modal.Body>
-        <div role="status" aria-live="polite" className="sr-only">{busy ? 'Working' : ''}</div>
+        <div role="status" aria-live="polite" className={retrying ? 'mb-3 text-sm text-amber-300' : 'sr-only'}>
+          {retrying ? 'Still trying - the connection is slow or dropped. Sending the same request again; it cannot post twice.' : busy ? 'Working' : ''}
+        </div>
         {error && (
           <div role="alert" className="mb-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             <p>{error}</p>

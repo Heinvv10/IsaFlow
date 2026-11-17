@@ -23,12 +23,14 @@ export async function fetchBulkPreview(bankAccountId: string, scanAfter?: string
   return out as BulkPreview;
 }
 
-/** Thrown when a confirm could not be resolved either way: it may or may not have posted. */
-export class ConfirmUnresolvedError extends Error {
-  constructor() { super('This batch may have posted. Check the Auto-post runs panel, then refresh the preview.'); this.name = 'ConfirmUnresolvedError'; }
+/** Thrown when a write could not be resolved either way: it may or may not have happened. */
+export class WriteUnresolvedError extends Error {
+  constructor(message: string) { super(message); this.name = 'WriteUnresolvedError'; }
 }
+const CONFIRM_UNRESOLVED = 'This batch may have posted. Check the Auto-post runs panel, then refresh the preview.';
+const UNDO_UNRESOLVED = 'This undo may have gone through. Check the Auto-post runs panel before trying again.';
 
-/** The client's patience for one confirm, and the waits between resends of the SAME request (same Idempotency-Key). Mutable for tests. */
+/** The client's patience for one send, and the waits between resends of the SAME request (same Idempotency-Key). Mutable for tests. */
 export const CONFIRM_RETRY = { timeoutMs: 60_000, backoffMs: [1_000, 3_000] as number[] };
 
 /** The server never answered, or a proxy/gateway did instead: the request may have committed. A 4xx refusal is definitive. */
@@ -37,13 +39,13 @@ const STILL_RUNNING = /still being processed/i; // the idempotency wrapper's 409
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function sendConfirm(previewToken: string, key: string): Promise<Response | 'ambiguous'> {
+async function send(body: unknown, key: string): Promise<Response | 'ambiguous'> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CONFIRM_RETRY.timeoutMs);
   try {
     return await apiFetch(URL, {
       method: 'POST', credentials: 'include', signal: controller.signal,
-      headers: { ...JSON_HEADERS, 'Idempotency-Key': key }, body: JSON.stringify({ action: 'confirm', previewToken }),
+      headers: { ...JSON_HEADERS, 'Idempotency-Key': key }, body: JSON.stringify(body),
     });
   } catch {
     return 'ambiguous'; // a dropped connection, or our own timeout: the first send may have committed
@@ -51,33 +53,37 @@ async function sendConfirm(previewToken: string, key: string): Promise<Response 
 }
 
 /**
- * Confirm a preview. The request carries `key`, which the SERVER stores with the answer: a resend after a lost answer replays
- * the first answer (the same runId) instead of posting twice, or runs fresh if the first never committed. So an ambiguous
- * failure (network error, timeout, 408/502/503/504, "still being processed") is resent with the same key after a short
- * backoff; a refusal (4xx) is definitive.
- * @throws ConfirmUnresolvedError when every try was ambiguous.
+ * POST under an Idempotency-Key, which the SERVER stores with the answer: a resend after a lost answer replays the first
+ * answer (the same runId, the same undo result) instead of acting twice, or runs fresh if the first never committed. So an
+ * ambiguous failure (network error, timeout, 408/502/503/504, "still being processed", a 200 whose body cannot be read) is
+ * resent with the same key after a short backoff; a refusal (4xx) is definitive. `onRetry` fires before each resend.
+ * @throws WriteUnresolvedError when every try was ambiguous.
  */
-export async function confirmBulk(previewToken: string, key: string): Promise<BulkConfirmed> {
+async function postUnderKey(body: unknown, key: string, fallback: string, unresolved: string, onRetry?: () => void): Promise<unknown> {
   const tries = CONFIRM_RETRY.backoffMs.length + 1;
   for (let attempt = 0; attempt < tries; attempt += 1) {
-    if (attempt > 0) await pause(CONFIRM_RETRY.backoffMs[attempt - 1]!);
-    const res = await sendConfirm(previewToken, key);
-    if (res === 'ambiguous') continue;
-    if (AMBIGUOUS_STATUS.has(res.status)) continue;
+    if (attempt > 0) { onRetry?.(); await pause(CONFIRM_RETRY.backoffMs[attempt - 1]!); }
+    const res = await send(body, key);
+    if (res === 'ambiguous' || AMBIGUOUS_STATUS.has(res.status)) continue;
     if (res.status === 409 && STILL_RUNNING.test(await res.clone().text())) continue;
-    await assertOk(res, 'Could not post the suggestions - try again');
-    const out = (JSON.parse(await res.text()) as { data?: unknown }).data as BulkConfirmed | undefined;
-    if (!out || !Array.isArray(out.posted)) throw wrong('result');
-    return out;
+    await assertOk(res, fallback);
+    let data: unknown;
+    try { data = (JSON.parse(await res.text()) as { data?: unknown }).data; } catch { continue; } // a body cut short: ambiguous
+    if (data === undefined) continue;
+    return data;
   }
-  throw new ConfirmUnresolvedError();
+  throw new WriteUnresolvedError(unresolved);
 }
 
-export async function undoBulk(runId: string): Promise<BulkUndone> {
-  const out = await apiJson(URL, {
-    method: 'POST', credentials: 'include', headers: JSON_HEADERS, body: JSON.stringify({ action: 'undo', runId }),
-  }, 'Could not undo this batch - try again');
-  if (!('reversed' in out)) throw wrong('undo result');
-  return out as BulkUndone;
+export async function confirmBulk(previewToken: string, key: string, onRetry?: () => void): Promise<BulkConfirmed> {
+  const out = await postUnderKey({ action: 'confirm', previewToken }, key, 'Could not post the suggestions - try again', CONFIRM_UNRESOLVED, onRetry) as BulkConfirmed;
+  if (!out || !Array.isArray(out.posted)) throw wrong('result');
+  return out;
 }
 
+/** Undo exactly one batch, under its own key: a resend after a lost answer replays the answer instead of reading "already undone". */
+export async function undoBulk(runId: string, key: string, onRetry?: () => void): Promise<BulkUndone> {
+  const out = await postUnderKey({ action: 'undo', runId }, key, 'Could not undo this batch - try again', UNDO_UNRESOLVED, onRetry) as BulkUndone;
+  if (!out || !('reversed' in out)) throw wrong('undo result');
+  return out;
+}

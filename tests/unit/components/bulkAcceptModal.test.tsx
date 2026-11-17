@@ -427,3 +427,74 @@ describe('a lost answer, a double click, a stale answer', () => {
     expect(screen.getByText('LINE 4')).toBeTruthy();
   });
 });
+
+describe('round 4: plain http, a dropped undo, a cut-short body, the retry notice', () => {
+  const RUN1 = { runId: 'run-9', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+  const UNDONE = { reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] };
+  const keyOf = (n: number) => (vi.mocked(apiFetch).mock.calls[n]![1]?.headers as Record<string, string>)['Idempotency-Key'];
+
+  it('Confirm works where crypto.randomUUID does not exist (plain http): a v4 key is still sent', async () => {
+    const real = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID') ?? Object.getOwnPropertyDescriptor(Object.getPrototypeOf(globalThis.crypto), 'randomUUID');
+    vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) }); // no randomUUID
+    try {
+      vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN1));
+      open();
+      fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+      await screen.findByTestId('bulk-result');
+      expect(keyOf(1)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    } finally { vi.unstubAllGlobals(); void real; vi.stubGlobal('fetch', (u: unknown, i?: unknown) => vi.mocked(apiFetch)(u as never, i as never)); }
+  });
+
+  it('a key that cannot be made fails into the error state, not a stuck Confirm', async () => {
+    vi.stubGlobal('crypto', undefined);
+    vi.stubGlobal('Math', Object.assign(Object.create(Math), { random: () => { throw new Error('no entropy'); } }));
+    try {
+      vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW));
+      open();
+      fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+      expect((await screen.findByRole('alert')).textContent).toBeTruthy();
+      expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(false);
+    } finally { vi.unstubAllGlobals(); vi.stubGlobal('fetch', (u: unknown, i?: unknown) => vi.mocked(apiFetch)(u as never, i as never)); }
+  });
+
+  it('a dropped Undo answer is resent with the same key and ends as "Batch undone", not "already undone"', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN1))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok(UNDONE));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    await screen.findByText(/Batch undone: 1 line reversed/);
+    expect(keyOf(3)).toBe(keyOf(2));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull();
+  });
+
+  it('an unresolved Undo says it may have gone through, and keeps the button', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN1)).mockRejectedValue(new TypeError('Failed to fetch'));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/may have gone through.*Auto-post runs panel/);
+    expect(screen.getByRole('button', { name: 'Undo batch' })).toBeTruthy();
+  });
+
+  it('a 200 whose body is cut short is ambiguous: resent with the same key, not a dead token', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(new Response('{"success":tr', { status: 200 })).mockResolvedValueOnce(ok(RUN1));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByTestId('bulk-result');
+    expect(keyOf(2)).toBe(keyOf(1));
+  });
+
+  it('shows "Still trying" during a resend, and not once it is answered', async () => {
+    CONFIRM_RETRY.backoffMs = [80, 80];
+    const gate = deferred<Response>();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockReturnValueOnce(gate.promise);
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByText(/Still trying/);
+    gate.resolve(ok(RUN1));
+    await screen.findByTestId('bulk-result');
+    expect(screen.queryByText(/Still trying/)).toBeNull();
+  });
+});
