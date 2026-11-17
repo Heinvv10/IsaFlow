@@ -28,11 +28,12 @@ import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractAttachmentData } from '@/modules/accounting/services/bank/bankTxAttachmentExtraction';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
+import { BANK_LINE_ATTACHMENT_LIST_MAX, countBankLineAttachments, listBankLineAttachmentsCapped, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
 import { documentRemovalRefused, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/accounting/services/bank/reconciledCash';
 import { isValidUUID } from '@/lib/validation';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -85,6 +86,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!bankTransactionId || typeof bankTransactionId !== 'string') {
       return apiResponse.badRequest(res, 'bankTransactionId query param is required');
     }
+    if (!UUID.safeParse(bankTransactionId).success) {
+      return apiResponse.badRequest(res, 'bankTransactionId must be a valid UUID');
+    }
 
     // Verify the bank transaction belongs to this company
     const [btOwner] = await sql`
@@ -93,8 +97,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!btOwner) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
 
     // Uploads, and each linked captured document once (capture/capturedAttachmentLinks).
-    const rows = await listBankLineAttachments(companyId, bankTransactionId);
-    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length }, 'bank-tx-attachments');
+    // Bounded: a stored upload is a data URL of up to 2 MB, so only the newest BANK_LINE_ATTACHMENT_LIST_MAX are sent.
+    // X-Attachments-Total is the line's TRUE visible count (the row badge's predicate), so a UI can say "newest N of M";
+    // X-Attachments-Truncated: true says older ones exist. The table is not bounded (only manual uploads are capped).
+    const { items: rows, truncated } = await listBankLineAttachmentsCapped(companyId, bankTransactionId);
+    const total = truncated ? await countBankLineAttachments(companyId, bankTransactionId) : rows.length;
+    res.setHeader('X-Attachments-Total', String(total));
+    if (truncated) res.setHeader('X-Attachments-Truncated', 'true');
+    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length, total, truncated }, 'bank-tx-attachments');
     return apiResponse.success(res, rows);
   }
 
@@ -112,6 +122,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       SELECT id FROM bank_transactions WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
     ` as SqlRow[];
     if (!btCheck) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
+
+    // At most BANK_LINE_ATTACHMENT_LIST_MAX documents per line through THIS route, counted with the list's own visible
+    // predicate (uploads and linked captured documents) under the line's row lock, so concurrent uploads cannot all
+    // pass the count: the second waits for the first's commit and then sees it. Other writers are uncapped by decision.
+    try {
+      await lockBankTransactionForUpdate(companyId, bankTransactionId);
+    } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
+      throw err;
+    }
+    if (await countBankLineAttachments(companyId, bankTransactionId) >= BANK_LINE_ATTACHMENT_LIST_MAX) {
+      return apiResponse.conflict(res, `A line can carry at most ${BANK_LINE_ATTACHMENT_LIST_MAX} documents through upload - remove one first`);
+    }
 
     // Validate the claimed MIME (from the client-controlled data URL header).
     const mime = extractMime(fileData);

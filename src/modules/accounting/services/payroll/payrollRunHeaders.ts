@@ -120,7 +120,7 @@ async function insertMonthlyRun(companyId: string, period: PayrollPeriod, create
       company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end
     )
     VALUES (
-      ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}::uuid, 'monthly', 'regular',
+      ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular',
       public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
       public.payroll_month_period_end(${period.year}::int, ${period.month}::int)
     )

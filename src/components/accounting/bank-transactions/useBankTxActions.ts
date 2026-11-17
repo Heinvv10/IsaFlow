@@ -11,9 +11,12 @@ import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
-import { actionableIds } from './pendingFeedRow';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { fetchReconReport } from './reconReportFetch';
 import { buildSaveActions } from './bankTxSaveActions';
+import { buildBulkActions } from './bankTxBulkActions';
+import { selectedOnScreen } from './bankTxSelectionView';
+import type { BankTxBusy } from './useBankTxBusy';
 import { isUndoableAllocation, offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
@@ -41,6 +44,8 @@ interface ActionDeps {
   refreshBankAccounts: () => void;
   /** For saveSelection only (one call per row edit): a trailing-debounced summary refresh. Absent: `refreshBankAccounts`. */
   refreshSummarySoon?: () => void;
+  /** In-flight guard and progress of the mutating buttons (useBankTxBusy). Absent: no guard (tests). */
+  busy?: BankTxBusy;
   /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
   reloadCurrentView: () => void;
   onLlmResidual?: (n: number) => void;
@@ -48,21 +53,28 @@ interface ActionDeps {
 
 export function buildBankTxActions(deps: ActionDeps) {
   const {
-    transactions, bankAccounts, selectedBank, selectedIds, rowSelections,
+    transactions, bankAccounts, selectedBank, rowSelections,
     excludingTxId, excludeOutcome,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, reloadCurrentView, onLlmResidual,
   } = deps;
 
-  const callAction = async (body: Record<string, string>) => {
-    const res = await apiFetch('/api/accounting/bank-transactions-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify(body),
-    });
-    await assertOk(res, 'Could not complete the action - try again');
-    const json = await res.json();
-    if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not complete the action - try again');
-    return json;
+  // Bulk actions touch only rows that are on screen: a selection that outlived a page/filter/reload change is cut here too.
+  const selectedIds = selectedOnScreen(deps.selectedIds, transactions);
+  const run: BankTxBusy['run'] = deps.busy?.run ?? ((_key, fn) => fn());
+
+  const callAction = async (body: Record<string, string>, fallback = 'Could not complete the action - try again') => {
+    deps.busy?.touch(); // a request starting is activity: the hold's silence timer restarts
+    try {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      await assertOk(res, fallback);
+      const json = await res.json();
+      if (json.success === false) throw new ApiEnvelopeError(json.error?.message || fallback);
+      return json;
+    } finally { deps.busy?.touch(); } // and so is one finishing
   };
 
   const { saveSelection, saveDimensions } = buildSaveActions(deps.refreshSummarySoon ?? refreshBankAccounts);
@@ -120,7 +132,8 @@ export function buildBankTxActions(deps: ActionDeps) {
 
   /** Resolves true once the row was actually posted (the grid's keyboard stream moves on only then), false on any failure. */
   const handleAccept = (txId: string): Promise<boolean> => new Promise((resolve) => {
-    void acceptRow(txId, () => resolve(true)).finally(() => resolve(false));
+    // One accept per line at a time: a second click while the first is posting would post the journal twice.
+    void run(`accept:${txId}`, () => acceptRow(txId, () => resolve(true)), [txId]).finally(() => resolve(false));
   });
 
   const handleExclude = (txId: string): Promise<boolean> => { setExcludingTxId(txId); return excludeOutcome?.begin() ?? Promise.resolve(false); };
@@ -129,17 +142,28 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!excludingTxId) { excludeOutcome?.settle(false); return; }
     const txId = excludingTxId;
     setExcludingTxId(null);
-    try {
-      const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      excludeOutcome?.settle(true);
-      if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
-      else notify.success('Transaction excluded');
-      loadTransactions(); refreshBankAccounts();
-    } catch (e) { excludeOutcome?.settle(false); notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
+    const sameKey = deps.busy?.isRunning(`exclude:${txId}`) ?? false;
+    const ran = await run(`exclude:${txId}`, async () => {
+      try {
+        const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
+        excludeOutcome?.settle(true);
+        if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
+        else notify.success('Transaction excluded');
+        loadTransactions(); refreshBankAccounts();
+      } catch (e) { excludeOutcome?.settle(false); notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
+      return true;
+    }, [txId]);
+    // Refused because another operation holds this LINE (the hook already said why): this exclude will never run, so the
+    // keyboard grid waiting on its outcome is released. A refusal by the SAME key leaves the first exclude's outcome alone.
+    if (ran === undefined && !sameKey) excludeOutcome?.settle(false);
   };
   const handleUnmatch = async (txId: string) => {
-    try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
-    catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
+    // A reviewed line has been signed off by a person: undoing it asks first, as the Undo toast and Reverse do.
+    if (transactions.find(t => t.id === txId)?.reviewedAt && !window.confirm('This line was marked as reviewed. Undo its allocation anyway?')) return;
+    await run(`unmatch:${txId}`, async () => {
+      try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
+      catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
+    }, [txId]);
   };
   const handleUpdateNotes = async (txId: string, notes: string) => {
     setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, notes: notes || undefined } : tx));
@@ -153,67 +177,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not save the note - try again');
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not save the note - try again')); loadTransactions(); }
   };
-  const handleBatchAccept = async () => {
-    const actionable = actionableIds(transactions, Array.from(selectedIds));
-    const toAccept = actionable.filter(id => rowSelections[id]?.entityId);
-    if (actionable.length === 0 && selectedIds.size > 0) {
-      notify.error("Pending transactions can't be processed until they post.");
-      return;
-    }
-    if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
-    let ok = 0, fail = 0, firstReason = '';
-    const late: unknown[] = [];
-    for (const txId of toAccept) {
-      try {
-        const sel = rowSelections[txId];
-        if (!sel) continue;
-        const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
-        if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
-        else body.entityId = sel.entityId;
-        // Dimensions belong on the cost line only: a supplier payment, receipt or transfer carries none (the server refuses them).
-        if (sel.type === 'account') {
-          if (sel.cc1Id) body.cc1Id = sel.cc1Id;
-          if (sel.cc2Id) body.cc2Id = sel.cc2Id;
-          if (sel.buId) body.buId = sel.buId;
-        }
-        late.push((await callAction(body))?.data?.lateClaim); ok++;
-      } catch (e) { fail++; firstReason ||= apiErrorMessage(e, 'Could not allocate the transaction - try again'); }
-    }
-    if (ok === 0) notify.error(`No transactions were allocated: ${firstReason}`);
-    else if (fail) notify.warning(`${ok} allocated, ${fail} could not be allocated`, firstReason);
-    else notify.success(`${ok} allocated`);
-    notifyLateClaims({ data: { results: late.map((lateClaim) => ({ lateClaim })) } });
-    setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-  };
-  const handleBatchDelete = async () => {
-    if (selectedIds.size === 0) return;
-    const toDelete = actionableIds(transactions, Array.from(selectedIds));
-    if (toDelete.length === 0) { notify.error("Pending transactions can't be processed until they post."); return; }
-    if (!window.confirm(`Delete ${toDelete.length} transaction(s)? This cannot be undone.`)) return;
-    try {
-      await callAction({ action: 'delete', bankTransactionIds: toDelete } as unknown as Record<string, string>);
-      notify.success(`${toDelete.length} transaction(s) deleted`);
-      setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(apiErrorMessage(e, 'Could not delete the transactions - try again')); }
-  };
-  const handleBulkAccept = async () => {
-    if (selectedIds.size === 0) return;
-    const toAccept = actionableIds(transactions, Array.from(selectedIds));
-    if (toAccept.length === 0) { notify.error("Pending transactions can't be processed until they post."); return; }
-    try {
-      const res = await apiFetch('/api/accounting/bank-transactions-action', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: toAccept }),
-      });
-      await assertOk(res, 'Could not mark the transactions as reviewed - try again');
-      const json = await res.json();
-      const accepted: number = json.data?.accepted ?? toAccept.length;
-      if (accepted < toAccept.length) notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or have no journal yet - allocate the line (Undo it first if it shows as matched) before reviewing it`);
-      else notify.success(`${accepted} transaction(s) marked as reviewed`);
-      setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(apiErrorMessage(e, 'Could not mark as reviewed - try again')); }
-  };
-  const handleApplyRules = async () => {
+  const handleApplyRules = () => run('apply-rules', async () => {
     if (!selectedBank) { notify.error('Select a bank account first'); return; }
     setSmartRunning(true);
     notify.success('Running smart categorization...');
@@ -247,27 +211,30 @@ export function buildBankTxActions(deps: ActionDeps) {
       setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();   // the rules DID apply
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not apply rules - try again')); }
     finally { setSmartRunning(false); }
-  };
+  });
   const handleReverse = async (txId: string) => {
     const tx = transactions.find(t => t.id === txId);
     const msg = tx?.status === 'allocated'
       ? 'Undo this allocation? The journal entry will be reversed.'
       : 'Reverse this transaction? The associated journal entry will also be reversed.';
     if (!window.confirm(msg)) return;
-    try {
-      await callAction({ action: 'reverse', bankTransactionId: txId });
-      notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
-      loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(apiErrorMessage(e, 'Could not reverse the transaction - try again')); }
+    await run(`reverse:${txId}`, async () => {
+      try {
+        await callAction({ action: 'reverse', bankTransactionId: txId });
+        notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
+        loadTransactions(); refreshBankAccounts();
+      } catch (e) { notify.error(apiErrorMessage(e, 'Could not reverse the transaction - try again')); }
+    }, [txId]);
   };
   const handleDownloadReport = async (bankAccountCode: string | undefined) => {
     if (!selectedBank) return;
     try {
-      const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
-      await assertOk(res, 'Could not build the reconciliation report - try again');
-      const json = await res.json();
+      const report = await fetchReconReport(selectedBank);
+      if (report.matchedTotal !== undefined || report.unmatchedTotal !== undefined) {
+        notify.warning('The report is very long and lists only its first lines', 'The PDF says how many of how many it lists.');
+      }
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
-      const blob = await generateReconReport(json.data || json);
+      const blob = await generateReconReport(report);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `recon-report-${bankAccountCode || 'bank'}.pdf`;
@@ -278,8 +245,12 @@ export function buildBankTxActions(deps: ActionDeps) {
   return {
     saveSelection, saveDimensions,
     handleAccept, handleExclude, handleExcludeClose, handleExcludeConfirm, handleUnmatch, handleUpdateNotes,
-    handleBatchAccept, handleBatchDelete, handleBulkAccept, handleApplyRules, handleReverse,
+    handleApplyRules, handleReverse,
     handleDownloadReport,
-    ...buildBankTxSelectionActions(deps, saveSelection, saveDimensions),
+    ...buildBulkActions({
+      transactions, selected: selectedIds, rowSelections, callAction, run, setProgress: deps.busy?.setProgress ?? (() => undefined),
+      setSelectedIds, reload: () => { loadTransactions(); refreshBankAccounts(); },
+    }),
+    ...buildBankTxSelectionActions({ ...deps, selectedIds }, saveSelection, saveDimensions),
   };
 }

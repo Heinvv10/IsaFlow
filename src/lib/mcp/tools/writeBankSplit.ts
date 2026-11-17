@@ -30,9 +30,7 @@ import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bank
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import {
-  CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany,
-} from '@/modules/accounting/services/core/contactDirectoryService';
+import { allocationPeriodProbe } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
@@ -45,6 +43,7 @@ import { VAT_CODES, badUuidArg, pickTxSelector, resolveTxId, type VatCode } from
 import { resolveLineVatCode } from './allocationVatGuard';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, parseDimensionRefs } from './dimensionArgs';
 import { mcpPostingOpts } from '../mcpActor';
+import { splitContactsBelongToCompany } from './writeBankSplitContacts';
 import { MAX_MONEY, NOT_FOUND, hasWholeCents, ok, toolError } from './toolHelpers';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
@@ -187,17 +186,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
     if (accountIds.length > 0 && !(await accountsBelongToCompany(ctx.companyId, accountIds))) {
       return toolError(NOT_FOUND);
     }
-    for (const l of parsed.lines) {
-      if (!l.contactId) continue;
-      try {
-        if (l.contactType === 'supplier') await assertSupplierInCompany(ctx.companyId, l.contactId);
-        else await assertCustomerInCompany(ctx.companyId, l.contactId);
-      } catch (err) {
-        // Missing and foreign answer alike (no existence oracle); anything else is a fault, not a refusal.
-        if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) return toolError(NOT_FOUND);
-        throw err;
-      }
-    }
+    if (!(await splitContactsBelongToCompany(ctx.companyId, parsed.lines))) return toolError(NOT_FOUND);
     const lines = await itemsWithDimensions(ctx.companyId, parsed.lines, parsed.dims, (i) => `lines[${i}]`);
     if (typeof lines === 'string') return toolError(lines);
 
@@ -210,6 +199,8 @@ export const splitAllocateBankTransactionTool: McpTool = {
     }
     const mismatch = splitTotalMismatch(lines.map((l) => l.amount), state.amount); // exact cents, as the service
     if (mismatch) return toolError(mismatch);
+    const periodRefusal = await allocationPeriodProbe(ctx.companyId, state.transactionDate); // WP2 row 12, ahead of the dry run
+    if (periodRefusal) return toolError(periodRefusal);
     const accountLines = lines.flatMap((l, index) => (l.contraAccountId
       ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
     // Step 2: the statement's importer is refused by the service too — asked here so the dry run refuses alike.

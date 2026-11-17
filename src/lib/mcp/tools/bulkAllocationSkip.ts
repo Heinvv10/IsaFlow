@@ -21,7 +21,9 @@
 import type { BankTransactionAllocationState } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { handKeyedAccountLineSkips } from '@/modules/accounting/services/bank/bankLineJournalGate';
+import { handKeyedRefundLineSkips } from '@/modules/accounting/services/bank/bankLineRefundGate';
 import { contactControlLineSkips } from '@/modules/accounting/services/bank/contactControlGuard';
+import { periodLineSkips } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { importerArmOf, importerHeldLineSkips } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import {
@@ -173,6 +175,10 @@ export async function partitionAllocationLines(
   // and the dry run reports it the same way.
   const held = await handKeyedAccountLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
     .map(({ line, amount }) => ({ txId: line.txId, amount })));
+  // Hein 2026-11-15: a HAND-KEYED customer refund (a customer line on money out) is held by the same gate.
+  const refundHeld = await handKeyedRefundLineSkips(companyId, candidates
+    .filter(({ line, signed }) => line.line.allocType === 'customer' && signed < 0).map(({ line, amount }) => ({ txId: line.txId, amount })));
+  for (const [txId, reason] of refundHeld) if (!held.has(txId)) held.set(txId, reason);
   // Step 2 (Hein, decision 2): a line the token's user imported, on an arm whose type is enforced — account and
   // supplier outflow (and transfer, which allocateTransaction gates the same way) — is refused by allocateTransaction
   // before it writes; skipped here instead, for the same reason as above.
@@ -185,6 +191,10 @@ export async function partitionAllocationLines(
   const onControl = await contactControlLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
     .map(({ line }) => ({ txId: line.txId, accountId: line.line.contraAccountId })));
   for (const [txId, reason] of onControl) if (!held.has(txId)) held.set(txId, reason);
+  // WP2 row 12: a line dated where no open fiscal period is or can be is skipped here, not left to unwind the batch;
+  // asked last, as the service does, and only of a line nothing above holds.
+  for (const [txId, reason] of await periodLineSkips(companyId, candidates.filter(({ line }) => !held.has(line.txId))
+    .map(({ line }) => ({ txId: line.txId, date: states.get(line.txId)!.transactionDate })))) held.set(txId, reason);
   for (const { line } of candidates) {
     const reason = held.get(line.txId);
     if (reason) skipped.push({ index: line.index, transaction_id: line.txId, reason });
