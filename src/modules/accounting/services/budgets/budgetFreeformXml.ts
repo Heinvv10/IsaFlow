@@ -213,12 +213,12 @@ const RAND = /\[\$R(?:-[0-9a-f]{1,8})?\]/gi;
 export function isPlainNumberFormat(id: number, code: string | undefined): boolean {
   if (code === undefined) return PLAIN_BUILTIN.has(id);
   if (/^\s*general\s*$/i.test(code)) return true;
-  if (/["\\]/.test(code)) return false;
   const sections = code.split(';');
-  if (sections.length > 4 || sections.some((sec) => sec.trim() === '')) return false;
+  if (sections.length > 4) return false;
+  // The character set below is the allowlist: a quote, a backslash or a bracket left after the colour and rand codes
+  // fails it, and so does an empty (hidden) section, which holds no digit placeholder (or, as text, no @).
   return sections.every((section, i) => {
     const bare = section.replace(/[_*]./gs, '').replace(COLOUR, '').replace(RAND, 'R');
-    if (bare.includes('[')) return false;
     if (i === 3) return /^\s*@\s*$/.test(bare);
     if (!/[0#?]/.test(bare) || !/^[0#?,.\s()\-R]*$/.test(bare)) return false;
     if (bare.replace(/(?<=[0#?]),(?=[0#?])/g, '').includes(',')) return false;

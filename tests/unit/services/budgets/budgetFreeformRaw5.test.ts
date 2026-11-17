@@ -6,6 +6,7 @@
  * names starting with a combining mark. Each case is raw XML, in the breaker's form where there was one.
  */
 import { describe, expect, it, vi } from 'vitest';
+import JSZip from 'jszip';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -49,6 +50,27 @@ describe('1, 4: only SpreadsheetML elements are read; a foreign one where the re
 
   it('a SpreadsheetML element where it does not belong (a <c> nested in a cell) refuses the file', async () => {
     await expect(read(await book(sheetBody(HEAD + rowXml(2, ['6000', { raw: '<c r="$REF"><c r="C2"><v>1</v></c><v>5</v></c>' }]))))).rejects.toThrow(/is not where SpreadsheetML puts it/);
+  });
+
+  it('a part whose root is not SpreadsheetML refuses the file', async () => {
+    const zip = await JSZip.loadAsync(await book(sheetBody(HEAD)));
+    zip.file('xl/worksheets/sheet1.xml', (await zip.file('xl/worksheets/sheet1.xml')!.async('string')).replace('xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', 'xmlns="urn:other"'));
+    await expect(read(await zip.generateAsync({ type: 'nodebuffer' }))).rejects.toThrow(FOREIGN);
+  });
+
+  it.each([
+    ['a <row> in <sheets>', { workbookBody: '<sheets><sheet name="Budget" sheetId="1" r:id="rId1"/><row/></sheets>' }, /<row> is not where SpreadsheetML puts it \(inside <sheets>\)/],
+    ['a <c> in a shared string', { sst: ['5'] }, /<c> is not where SpreadsheetML puts it \(inside <si>\)/, (x: string) => x.replace('<si><t>5</t></si>', '<si><t>5</t><c/></si>'), 'xl/sharedStrings.xml'],
+    ['a <font> in <cellXfs>', { styles: '<cellXfs count="1"><xf numFmtId="0"/><font/></cellXfs>' }, /<font> is not where SpreadsheetML puts it \(inside <cellXfs>\)/],
+    ['a SpreadsheetML-prefixed attribute', { workbookBody: `<bookViews><workbookView xmlns:m="${'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}" m:activeTab="0"/></bookViews>${SHEET}` }, /is written in a way no spreadsheet program writes/],
+  ])('%s refuses the file', async (_n, extra, why, edit?: (x: string) => string, part?: string) => {
+    let buf = await book(sheetBody(HEAD + rowXml(2, ['6000', 5])), extra as Partial<RawBook>);
+    if (edit && part) {
+      const zip = await JSZip.loadAsync(buf);
+      zip.file(part, edit(await zip.file(part)!.async('string')));
+      buf = await zip.generateAsync({ type: 'nodebuffer' });
+    }
+    await expect(read(buf)).rejects.toThrow(why);
   });
 
   it('styles: a decoy xf in another namespace refuses the file', async () => {
