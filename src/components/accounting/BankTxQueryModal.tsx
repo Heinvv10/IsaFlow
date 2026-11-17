@@ -223,7 +223,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
             />
             {!canDirect && (phone !== '' || !loadingSettings) && (
               <p data-testid={phone === '' ? 'query-number-missing' : 'query-number-locked'}
-                className={`mt-0.5 text-xs ${phone === '' ? 'text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+                className={`mt-0.5 text-xs ${phone === '' ? 'text-amber-700 dark:text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
                 {phone === '' ? 'Ask an owner or admin to set the client\'s WhatsApp number in settings.' : 'Queries go to the company\'s saved number. An owner or admin can change it.'}
               </p>
             )}

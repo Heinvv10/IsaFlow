@@ -38,7 +38,7 @@ function storedOption(
 
 /** The trigger's amber (a warning) or cyan (input tax claimed) state, painted from its cell. */
 function vatClass(warn: boolean, standard: boolean): string {
-  if (warn) return '[&_[role=combobox]]:!border-amber-500 [&_[role=combobox]]:!text-amber-700 dark:[&_[role=combobox]]:!text-amber-500';
+  if (warn) return '[&_[role=combobox]]:!border-amber-500 [&_[role=combobox]]:!text-amber-700 dark:[&_[role=combobox]]:!text-amber-700 dark:text-amber-500';
   return standard ? '[&_[role=combobox]]:!text-cyan-700 dark:[&_[role=combobox]]:!text-cyan-700 dark:text-cyan-400' : '';
 }
 

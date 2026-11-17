@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }), useActiveCompanyIdOrUndefined: () => undefined }));
 import type { ReactNode } from 'react';
 
-const router = vi.hoisted(() => ({ push: vi.fn(), query: { id: 'loan-1' } as Record<string, string>, pathname: '/' }));
+const router = vi.hoisted(() => ({ push: vi.fn(), query: { id: 'loan-1' } as Record<string, string>, pathname: '/', isReady: true, replace: vi.fn() }));
 vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));

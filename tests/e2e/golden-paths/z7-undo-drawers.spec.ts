@@ -132,7 +132,7 @@ for (const theme of THEMES) {
       await page.goto(BANK, { waitUntil: 'domcontentloaded' });
       await settle(page);
       // A spent line: the click focuses the row, and its red amount is what has least contrast on the focused fill.
-      const details = page.locator(ROWS).filter({ has: page.locator('td.text-red-400', { hasText: /\d/ }) }).first()
+      const details = page.locator(ROWS).filter({ has: page.locator('td[data-label="Spent"]', { hasText: /\d/ }) }).first()
         .getByRole('button', { name: /^Details, / });
       await expect(details, 'Demo has a spent bank line').toBeVisible();
       await details.click();

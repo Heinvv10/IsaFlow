@@ -10,17 +10,22 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 
-export function useBankLineDeepLink(listTx: BankTx | undefined, closeListDetail: () => void) {
+export function useBankLineDeepLink(
+  listTx: BankTx | undefined, closeListDetail: () => void,
+  /** The URL as the page means it to be right now (a write may still be on its way); dropping `line` starts from this. */
+  currentQuery?: () => Record<string, string | string[] | undefined>,
+) {
   const router = useRouter();
   const lineId = typeof router.query.line === 'string' ? router.query.line : null;
   const [line, setLine] = useState<BankTx | undefined>();
   const [error, setError] = useState('');
 
   const routerRef = useRef(router);
-  useEffect(() => { routerRef.current = router; });
+  const queryRef = useRef(currentQuery);
+  useEffect(() => { routerRef.current = router; queryRef.current = currentQuery; });
   const dropParam = useCallback(() => {
     const r = routerRef.current;
-    const { line: _drop, ...rest } = r.query;
+    const { line: _drop, ...rest } = queryRef.current ? queryRef.current() : r.query;
     void r.replace({ pathname: r.pathname, query: rest }, undefined, { shallow: true });
   }, []);
 

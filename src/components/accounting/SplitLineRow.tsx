@@ -68,7 +68,7 @@ export function SplitLineRow({
         </select>
         {canRemove && (
           <button onClick={onRemove} aria-label={`Remove line ${index + 1}`}
-            className="ml-auto p-1 rounded hover:bg-red-500/10 text-red-400">
+            className="ml-auto p-1 rounded hover:bg-red-500/10 text-red-700 dark:text-red-400">
             <Trash2 className="h-3 w-3" />
           </button>
         )}
@@ -80,7 +80,7 @@ export function SplitLineRow({
             className={`w-full text-left text-xs px-2 py-1.5 rounded border truncate ${
               line.targetId
                 ? 'bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)] text-[var(--ff-text-primary)]'
-                : 'bg-amber-500/5 border-amber-500/30 text-amber-400 font-medium'
+                : 'bg-amber-500/5 border-amber-500/30 text-amber-700 dark:text-amber-400 font-medium'
             }`}>
             {line.targetLabel || `Select ${TARGET_LABEL[line.target]}`}
           </button>
@@ -114,7 +114,7 @@ export function SplitLineRow({
         {isAccount && (
           <select value={line.vatCode} aria-label={`Line ${index + 1} VAT`}
             onChange={e => onChange({ vatCode: e.target.value as VatCode })}
-            className={`${FIELD} px-1 ${line.vatCode === 'standard' ? 'text-cyan-400' : ''}`}>
+            className={`${FIELD} px-1 ${line.vatCode === 'standard' ? 'text-cyan-700 dark:text-cyan-400' : ''}`}>
             {VAT_OPTIONS.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
           </select>
         )}

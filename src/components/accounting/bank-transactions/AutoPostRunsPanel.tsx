@@ -128,7 +128,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
         <p className="text-xs text-red-700 dark:text-red-400 mb-2">{undoError}</p>
       )}
       {undoNotice && (
-        <p role="status" className="text-xs text-amber-500 mb-2">{undoNotice}</p>
+        <p role="status" className="text-xs text-amber-700 dark:text-amber-500 mb-2">{undoNotice}</p>
       )}
       {handOffsets && (
         <ul aria-label="Lines already corrected by hand" className="space-y-1 mb-2">

@@ -25,6 +25,8 @@ async function putOrder(companyId: string, next: string[] | null): Promise<void>
 
 export function useBankCardOrder(companyId: string | null | undefined) {
   const [order, setOrder] = useState<string[] | null>(null);
+  // True once the saved order has been read, or could not be (the default order stands): callers that must wait for it ask.
+  const [loaded, setLoaded] = useState(false);
   // The order last shown, the order the server last confirmed, the company they belong to, and how
   // many saves have started: read by saves that settle after a re-render, a company switch or a newer save.
   const orderRef = useRef<string[] | null>(null);
@@ -45,6 +47,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
     savedOk.current = false;
     storedRef.current = null;
     show(null);
+    setLoaded(false);
     if (!companyId) return undefined;
     let cancelled = false;
     void (async () => {
@@ -59,6 +62,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
       }
+      if (!cancelled) setLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [companyId, show]);
@@ -87,5 +91,5 @@ export function useBankCardOrder(companyId: string | null | undefined) {
   const reorder = useCallback((keys: string[]) => save(withUnseen(keys, orderRef.current)), [save]);
   const reset = useCallback(() => save(null), [save]);
 
-  return { order, reorder, reset };
+  return { order, reorder, reset, loaded };
 }

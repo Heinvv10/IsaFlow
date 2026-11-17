@@ -146,7 +146,7 @@ export function BankTxFilters({
         onClick={onApplyRules}
         disabled={!selectedBank || smartRunning || busy?.has('apply-rules')}
         title="Apply bank rules, then smart-categorize remaining transactions using patterns and historical data"
-        className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-500 hover:text-yellow-800 dark:hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30"
+        className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-700 dark:text-yellow-500 hover:text-yellow-800 dark:hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30"
       >
         {smartRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
         {smartRunning ? 'Categorizing...' : 'Smart Categorize'}

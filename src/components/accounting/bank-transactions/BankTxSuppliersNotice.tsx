@@ -13,7 +13,7 @@ export function BankTxSuppliersNotice({ status }: { status: SuppliersStatus }) {
   }
   if (status === 'truncated') {
     return (
-      <div role="status" className="mx-6 mt-3 flex items-center gap-2 text-xs text-amber-500"><AlertCircle className="h-4 w-4" />{truncatedSuppliersNotice()}</div>
+      <div role="status" className="mx-6 mt-3 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-500"><AlertCircle className="h-4 w-4" />{truncatedSuppliersNotice()}</div>
     );
   }
   return null;

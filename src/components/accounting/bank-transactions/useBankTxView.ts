@@ -57,16 +57,18 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   }, [tab, setPage, setTab]);
 
   // ---- a change nobody asked for (the chosen account left the list): back to the defaults ----
-  const prevBank = useRef('');
+  // Compared with the value last seen, not with "is this the first run": React StrictMode runs every effect twice on mount,
+  // and a first-run flag would let the second run reset what the URL had just restored.
+  const prevBank = useRef(selectedBank), prevTab = useRef(tab);
   useEffect(() => {
     const before = prevBank.current; prevBank.current = selectedBank;
-    if (before === '') return; // the first pick is not a switch
+    if (before === selectedBank || before === '') return; // unchanged, or the first pick: not a switch
     if (handledBank.current === selectedBank) { handledBank.current = null; return; }
     live.current.f.resetForAccount(); setPage(1); live.current.clearSelection();
   }, [selectedBank, setPage]);
-  const firstTab = useRef(true);
   useEffect(() => {
-    if (firstTab.current) { firstTab.current = false; return; }
+    const before = prevTab.current; prevTab.current = tab;
+    if (before === tab) return;
     if (handledTab.current === tab) { handledTab.current = null; return; }
     live.current.f.resetSelects(); setPage(1); live.current.clearSelection();
   }, [tab, setPage]);
@@ -74,9 +76,10 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   // ---- the URL ----
   const [restored, setRestored] = useState(false);
   const seen = useRef('');                       // the owned query last looked at
-  const written = useRef<string[]>([]);          // keys we wrote and have not yet seen come back
+  const written = useRef<string[]>([]);          // keys we wrote and have not yet seen come back (the newest few)
+  const urlKey = useRef('');                     // what the URL is, or is about to be: the last key we wrote or saw - NOT router.query, which lags a write
   const lastSent = useRef<{ account: string; tab: BankTxTab; page: number } | null>(null);
-  const clampedTo = useRef<number | null>(null); // a page the clamp chose: that URL write REPLACES the entry (see clampPage)
+  const replaceNext = useRef(false);             // the next URL write REPLACES the entry: a clamp, or tidying a link we were sent to
 
   const apply = useCallback((q: RouterLike['query'], withAccount: boolean) => {
     const p = parseUrlView(q);
@@ -88,11 +91,26 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     if (nextTab !== tab) handledTab.current = nextTab;
     live.current.f.apply(filters); setPage(p.page ?? 1); setTab(nextTab); live.current.clearSelection();
     if (account) setSelectedBank(account);
+    return serializeUrlView({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }); // the canonical form of what was applied
   }, [tab, setPage, setTab, setSelectedBank]);
+  // Back/Forward/a link took us to this URL. If it is not the canonical form of the view it shows (junk parameters, an account
+  // that is not available), the correction REPLACES that entry: pushing one would leave the junk URL one Back away, forever.
+  const applyExternal = useCallback((q: RouterLike['query'], incomingKey: string) => {
+    replaceNext.current = true;
+    const canonical = apply(q, true);
+    const key = ownedQueryKey(canonical);
+    // A view that looks the same as before (junk dropped, an unavailable account refused) changes no state, so no write would
+    // follow by itself: tidy the entry here.
+    if (key !== incomingKey && canonical.account_id) {
+      const r = routerRef.current;
+      urlKey.current = key; written.current.push(key);
+      void r.replace({ pathname: r.pathname, query: mergeOwnedQuery(r.query, canonical) }, undefined, { shallow: true, scroll: false });
+    }
+  }, [apply]);
 
   useEffect(() => { // restore once, as soon as the router can say what the URL is
     if (!router.isReady || restored) return;
-    seen.current = ownedQueryKey(router.query);
+    seen.current = urlKey.current = ownedQueryKey(router.query);
     apply(router.query, false);
     setRestored(true);
   }, [router.isReady, router.query, restored, apply]);
@@ -106,20 +124,22 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     const key = ownedQueryKey(owned);
     const prev = lastSent.current;
     lastSent.current = { account: selectedBank, tab, page };
-    if (key === ownedQueryKey(r.query)) return;
-    const push = prev !== null && (prev.account !== selectedBank || prev.tab !== tab || prev.page !== page) && clampedTo.current !== page;
+    if (key === urlKey.current) return; // already the URL, or already on its way (router.query may not show it yet)
+    const push = prev !== null && (prev.account !== selectedBank || prev.tab !== tab || prev.page !== page) && !replaceNext.current;
+    urlKey.current = key;
     written.current.push(key);
+    if (written.current.length > 8) written.current.shift(); // a write the router never reports back (a duplicate URL) must not pile up
     void (push ? r.push : r.replace)({ pathname: r.pathname, query: mergeOwnedQuery(r.query, owned) }, undefined, { shallow: true, scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restored, viewKey]);
 
-  useEffect(() => { clampedTo.current = null; }); // after the write above, every commit
+  useEffect(() => { replaceNext.current = false; }); // after the write above, every commit
 
   /**
    * For usePageClamp: the list is shorter than the page asked for, so the page is MOVED, not navigated to. It rewrites the
    * current history entry; pushing one would make Back return to the page that no longer exists, clamp again, and loop.
    */
-  const clampPage = useCallback((n: number) => { clampedTo.current = n; setPage(n); }, [setPage]);
+  const clampPage = useCallback((n: number) => { replaceNext.current = true; setPage(n); }, [setPage]);
 
   const incoming = ownedQueryKey(router.query);
   useEffect(() => { // Back / Forward / a link to this page: show what the URL says
@@ -128,10 +148,17 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     const own = written.current.indexOf(incoming);
     if (own >= 0) { written.current.splice(0, own + 1); return; } // our own write coming back
     if (incoming === viewKey) return;
-    written.current = [];
-    apply(routerRef.current.query, true);
+    written.current = []; urlKey.current = incoming;
+    applyExternal(routerRef.current.query, incoming);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restored, incoming]);
 
-  return { selectBank, changeTab, clampPage };
+  // The query as the page means it to be right now: other code that rewrites the URL (the drawer link dropping `line`) must
+  // start from this, not from router.query, which does not show a write still on its way.
+  const viewNow = useRef(view);
+  useEffect(() => { viewNow.current = view; });
+  const latestQuery = useCallback(() => (restored && viewNow.current.account
+    ? mergeOwnedQuery(routerRef.current.query, serializeUrlView(viewNow.current)) : routerRef.current.query), [restored]);
+
+  return { selectBank, changeTab, clampPage, latestQuery, restored };
 }

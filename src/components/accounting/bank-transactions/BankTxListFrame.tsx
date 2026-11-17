@@ -56,8 +56,11 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing
           <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
         </div>
       )}
+      {/* Announced politely when a reload of the SAME list starts; present before it does, so the change is heard. */}
+      <span role="status" aria-live="polite" className="sr-only" data-testid="bank-tx-updating">{refreshing ? 'Updating…' : ''}</span>
+      {/* While it reloads the rows stay (no flash) but take no mouse input: a click would land on a row that is about to change. */}
       <div data-testid="bank-tx-list-frame" style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}
-        aria-busy={refreshing || undefined} className={refreshing ? 'opacity-70 transition-opacity' : undefined}>
+        aria-busy={refreshing || undefined} className={refreshing ? 'pointer-events-none opacity-70 transition-opacity' : undefined}>
         {loading ? (
           <BankTxLoading />
         ) : error ? (
