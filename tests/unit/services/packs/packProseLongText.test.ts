@@ -16,7 +16,7 @@ import { IGNORABLE_CAP, PAST_ANY_PAGE, PROSE_TEXT_CAP } from '@/modules/accounti
 import { forgetLongLines, keptLongLines, proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { denseInput } from './fixtures/boardPackInputs';
-import { expectWithin, useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
+import { expectWithin, loadAwareBound, useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
 
 useCpuBoundTimeout();
 
@@ -51,7 +51,8 @@ describe('tenant text of any length', () => {
     run(eighth);
     const small = best(() => run(eighth));
     const full = best(() => run(text));
-    expect(full).toBeLessThan(GROWTH_LIMIT * Math.max(small, NOISE_FLOOR_MS));
+    // The floor stretches with the load (a preempted run of a near-instant eighth is all noise); the ratio does not.
+    expect(full).toBeLessThan(GROWTH_LIMIT * Math.max(small, loadAwareBound(NOISE_FLOOR_MS)));
   };
 
   it.each(INPUTS)('%s: segmented and measured in time that grows linearly with the text, not quadratically', (unused, text) => {
