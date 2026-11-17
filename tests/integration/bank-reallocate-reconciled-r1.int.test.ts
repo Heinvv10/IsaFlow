@@ -62,12 +62,12 @@ describe('reallocate_bank_transaction: review round 1', () => {
     const s = await reconciledLine(c, { amount: -55, date: '2026-06-09', statementDate: '2026-06-30', alloc: 'account', contra: c.acct.expense });
     const run = String(((await sql`INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap, posted_count, created_by)
       VALUES (${c.fx.companyId}::UUID, 'manual', 0.9, 100000, 1, ${c.fx.userId}::UUID) RETURNING id`) as Row[])[0]!.id);
-    await sql`UPDATE bank_transactions SET auto_post_run_id = ${run}::UUID WHERE id = ${s.bt}::UUID`;
+    await sql`UPDATE bank_transactions SET auto_post_run_id = ${run}::UUID, auto_post_journal_id = ${s.je}::UUID WHERE id = ${s.bt}::UUID`;
     const r = await mcp(c, TOOL, { transaction_id: s.bt, expected_journal_entry_id: s.je, target: { gl_account_id: c.acct.sales },
       dry_run: false, idempotency_key: key() });
     expect(r.isError, r.text).toBe(false);
     const newJe = String((r.body as Row).new_journal_entry_id);
-    expect(((await sql`SELECT auto_post_run_id FROM bank_transactions WHERE id = ${s.bt}::UUID`) as Row[])[0]!.auto_post_run_id).toBeNull();
+    expect(((await sql`SELECT auto_post_run_id, auto_post_journal_id FROM bank_transactions WHERE id = ${s.bt}::UUID`) as Row[])[0]).toEqual({ auto_post_run_id: null, auto_post_journal_id: null });
     const audit = ((await sql`SELECT changes FROM audit_log WHERE entity_id = ${s.bt}::UUID AND action = 'update'
       ORDER BY created_at DESC LIMIT 1`) as Row[])[0]!.changes as { metadata: Record<string, string> };
     expect(audit.metadata).toMatchObject({ operation: 'reallocate', clearedAutoPostRunId: run, originalReviewedBy: c.fx.userId });

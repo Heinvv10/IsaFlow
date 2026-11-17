@@ -51,6 +51,7 @@ it('closes a line a full reclass corrected: no net change, who/when/which journa
   const { line, je, runId } = await seedAutoPostedLine(pool, fx);
   const offset = await postJournal(pool, fx, fullReclass(fx));
   expect((await undo(runId)).body.data).toMatchObject({ undone: false, skippedBy: { offsetByHand: 1 } });
+  await pool.query('UPDATE bank_transactions SET auto_post_journal_id = $2 WHERE id = $1', [line, je]); // what a run records (mig 999j)
   const before = await nets(pool, fx);
 
   const res = await confirm(runId, line, offset.id);
@@ -63,8 +64,8 @@ it('closes a line a full reclass corrected: no net change, who/when/which journa
   expect(await contrasOf(je)).toBe(0);
   // The line is still posted — as the user corrected it — and out of the run.
   const { rows: tx } = await pool.query(
-    'SELECT status, provisional_je_id, auto_post_run_id FROM bank_transactions WHERE id=$1', [line]);
-  expect(tx[0]).toEqual({ status: 'provisional', provisional_je_id: je, auto_post_run_id: null });
+    'SELECT status, provisional_je_id, auto_post_run_id, auto_post_journal_id FROM bank_transactions WHERE id=$1', [line]);
+  expect(tx[0]).toEqual({ status: 'provisional', provisional_je_id: je, auto_post_run_id: null, auto_post_journal_id: null });
   const { rows: run } = await pool.query('SELECT undone_at, undone_by FROM bank_auto_post_runs WHERE id=$1', [runId]);
   expect(run[0].undone_at).not.toBeNull();
   expect(String(run[0].undone_by)).toBe(fx.user);

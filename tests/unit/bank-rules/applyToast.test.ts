@@ -129,3 +129,25 @@ describe('buildApplyToast', () => {
     expect(r.message).toBe('0 categorised');
   });
 });
+
+describe('buildApplyToast — WP2 row 5 transfer and approval skips', () => {
+  it('a rule onto the swept bank itself warns even when lines applied (it recurs until the rule is repointed)', () => {
+    const r = buildApplyToast({ applied: 3, autoPostSkippedOwnBankContra: 2 });
+    expect(r.message).toBe("3 categorised · 2 skipped (the rule's account is this bank account itself — point it at the other bank)");
+    expect(r.kind).toBe('warn');
+  });
+
+  it('a transfer already in the ledger is named; success when other lines applied, amber when nothing did', () => {
+    const some = buildApplyToast({ applied: 2, autoPostSkippedDuplicateTransfer: 1 });
+    expect(some.message).toBe('2 categorised · 1 skipped (the transfer is already in the ledger — match the line to it)');
+    expect(some.kind).toBe('success');
+    expect(buildApplyToast({ applied: 0, autoPostSkippedDuplicateTransfer: 1 }).kind).toBe('warn');
+  });
+
+  it('a line an approval rule or the importer control holds is named and warns even when lines applied', () => {
+    const r = buildApplyToast({ applied: 4, autoPostSkippedApprovalRequired: 2 });
+    expect(r.message).toBe('4 categorised · 2 skipped (an approval rule holds it, or you imported the statement — '
+      + 'allocate it by hand or have another member run the rules)');
+    expect(r.kind).toBe('warn');
+  });
+});

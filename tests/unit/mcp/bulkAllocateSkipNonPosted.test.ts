@@ -6,6 +6,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+// WP2 row 5: the bank-contra pre-checks read Postgres; open here (proven in bank-contra-transfer-r2.int).
+vi.mock('@/modules/accounting/services/bank/bankContraLineSkips', async () => (await import('../helpers/bankControlGateMocks')).bankContraOpen());
+vi.mock('@/modules/accounting/services/bank/transferSweepPrelock', async () => (await import('../helpers/bankControlGateMocks')).transferPrelockOpen());
 vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodProbe: async () => null, lineAllocationPeriodRefusal: async () => null, isLineSkipRefusal: () => false, periodLineSkips: async () => new Map(), allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-*.int
 vi.mock('@/modules/accounting/services/bank/contactControlGuard', async () => (await import('../helpers/bankControlGateMocks')).contactControlOpen());
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int

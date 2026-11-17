@@ -16,6 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { canonicalSubtype, type CanonicalSubtype } from '../gl/accountSubtypes';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { bankContraRefusal } from './bankContraTransfer';
 
 /** Each caller's own way to name the contact, named in its refusal. */
 export type ContactControlRemedy = 'allocation' | 'split line' | 'rule' | 'adjustment';
@@ -53,7 +54,9 @@ export async function assertNotContactControl(
   const [row] = (await sql`
     SELECT account_subtype FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  const refusal = contactControlRefusal(row?.account_subtype, what, how);
+  // WP2 row 5: an adjustment onto a bank account is a transfer by another name (bankContraTransfer); same read.
+  const refusal = contactControlRefusal(row?.account_subtype, what, how)
+    ?? (how === 'adjustment' ? bankContraRefusal(row?.account_subtype, 'adjustment') : null);
   if (refusal) throw refusal;
 }
 

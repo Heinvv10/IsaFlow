@@ -11,15 +11,13 @@ import type { RuleApplyResult } from '../../types/bank.types';
 import {
   findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
 } from './bankRulesMatchingHelpers';
-import { isRetryableContention } from '../core/retryableContention';
-import { isHeldRowError } from '@/lib/lockTimeout';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
+import { autoPostRuleTransferLine } from './bankRuleTransferLine';
+import { sweepLineSkip } from './bankRuleSweepSkips';
+import { preLockRuleTransfers } from './bankRuleTransferPrelock';
 import { recordAutoPosted } from './codingDecisionLog';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
-import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
-import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
 import { fetchRuleAccountFacts } from './bankRuleAccountFacts';
 import { isAllocationVatCode } from './bankVatCodes';
 
@@ -121,6 +119,11 @@ export async function applyRules(
     const { ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank, ruleAccountIsControl } =
       await fetchRuleAccountFacts(companyId, autoCreateRules);
 
+    // WP2 row 5: the transfer rules' matched lines, then their pairs, before the sweep's first journal (bankRuleTransferPrelock).
+    const transferLocks = bankGlAccountId ? await preLockRuleTransfers(companyId, bankAccountId, bankGlAccountId, autoCreateRules,
+      ruleAccountIsBank, ruleAccountIsControl) : { matches: new Map<string, Record<string, unknown>[]>(), contended: new Set<string>() };
+    let autoPostSkippedOwnBankContra = 0, autoPostSkippedDuplicateTransfer = 0; // onto the swept bank itself; already in the ledger
+
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = rulePattern(rule);
       const field = String(rule.match_field);
@@ -169,13 +172,17 @@ export async function applyRules(
         continue;
       }
 
-      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
+      const matchingTxs = transferLocks.matches.get(String(rule.id)) ?? await findMatchingTxs(companyId, bankAccountId, field, pattern);
       if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
         autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
         continue;
       }
-      // Empty means none, as autoPostRuleLine reads it; anything else outside the four posts nothing until fixed.
-      if (!isAllocationVatCode(String(rule.vat_code || 'none'))) {
+      // WP2 row 5: a rule onto ANOTHER bank account posts a transfer (bankRuleTransferLine); onto this one, nothing.
+      const transferTo = allocType === 'account' && ruleGlAccountId && ruleAccountIsBank.get(ruleGlAccountId) ? ruleGlAccountId : null;
+      if (transferTo === bankGlAccountId) { autoPostSkippedOwnBankContra += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES); continue; }
+      // A transfer rule carries no VAT (the transfer arm posts none), so its vat_code cannot make it post gross: only an
+      // account/contact rule is skipped for a code outside the four (#1474). Empty means none, as autoPostRuleLine reads it.
+      if (!transferTo && !isAllocationVatCode(String(rule.vat_code || 'none'))) {
         autoPostSkippedUnknownVatCode += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
         log.warn('Skipping auto-create rule with an unknown VAT code', { ruleId: rule.id, ruleName, vatCode: rule.vat_code }, 'accounting');
         continue;
@@ -195,12 +202,15 @@ export async function applyRules(
       });
 
       for (const tx of orderedTxs) {
+        if (transferTo && transferLocks.contended.has(String(tx.id))) { autoPostSkippedLocked++; continue; } // line or pair held
         let outcome;
         try {
           // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
           // the transaction — without the savepoint the next candidate's
           // first statement raises 25P02 and the whole run dies after one skip.
-          outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
+          outcome = await withSavepoint('rule_autopost_line', () => transferTo
+            ? autoPostRuleTransferLine({ companyId, userId, tx, rule, ruleName, counterpartyBankId: transferTo })
+            : autoPostRuleLine({
             companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
             ruleGlAccountVatDenied: ruleGlAccountId
               ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
@@ -221,31 +231,15 @@ export async function applyRules(
             supplierName, supplierId: ruleSupplierId ?? null, customerName,
           }));
         } catch (lineErr) {
-          // Another request is holding this row. One contended transaction must
-          // not abort a run that has already posted for earlier ones — the
-          // route's catch would 400 while withAuth still COMMITted them.
-          // Counted and retryable; anything else is a real failure.
-          //
-          // The UNION, not the bank-line lock alone: a supplier rule also
-          // reaches `recordSupplierBankPayment`, whose plan phase raises the
-          // payment-lock timeout and the `retryable` refusal for a held bill.
-          // Those surface HERE through a
-          // savepoint that rolled back cleanly, so the request transaction is
-          // still live and re-throwing them committed the earlier lines behind
-          // the route's 400 — measured, every bill held: 400 "Action failed",
-          // line A posted and committed, line B still imported.
-          // createJournalEntry refuses a VAT-moving line dated in a locked
-          // VAT period before its draft exists; the line's savepoint has rolled
-          // back cleanly, so it is a skip like a closed period, not a failure.
-          if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
-          // Refused before its draft exists, like the VAT lock: a skip the run reports, never a run-wide abort.
-          if (isHeaderAccountRefusal(lineErr)) { autoPostSkippedHeaderAccount++; continue; }
-          if (isSupplierRefundRefusal(lineErr)) { autoPostSkippedRefundCeiling++; continue; } // AP or AR refund ceiling
-          // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
-          // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
-          // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
-          if (!isRetryableContention(lineErr) && !isHeldRowError(lineErr)) throw lineErr;
-          autoPostSkippedLocked++;
+          const skip = sweepLineSkip(lineErr); // every skip's savepoint rolled back cleanly (bankRuleSweepSkips)
+          if (skip === null) throw lineErr;
+          if (skip === 'vat_locked') autoPostSkippedVatLocked++;
+          else if (skip === 'header_account') autoPostSkippedHeaderAccount++;
+          else if (skip === 'refund_ceiling') autoPostSkippedRefundCeiling++;
+          else if (skip === 'duplicate_transfer') autoPostSkippedDuplicateTransfer++;
+          else if (skip === 'approval_required') autoPostSkippedApprovalRequired++;
+          else if (skip === 'closed_period') autoPostSkippedClosedPeriod++; // a period closed under a transfer line
+          else autoPostSkippedLocked++;
           continue;
         }
         if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
@@ -284,6 +278,7 @@ export async function applyRules(
       autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedUnknownVatCode, autoPostSkippedRefundCeiling, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
       autoPostSkippedLocked, autoPostRulesSkippedForeignContact,
       autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
+      autoPostSkippedOwnBankContra, autoPostSkippedDuplicateTransfer,
     };
     log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped, ...counts }, 'accounting');
     return { applied: totalApplied, skipped, entries, ...counts };

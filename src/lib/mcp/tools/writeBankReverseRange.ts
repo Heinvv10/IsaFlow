@@ -174,6 +174,8 @@ export const reverseAllocationsTool: McpTool = {
     // paths use, so this cannot deadlock against a concurrent batch. A supplier payment whose refund is later in the
     // range is set aside and retried after the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
     // A customer's receipts and refunds in the range are judged together first, by the dry run's own judgment.
+    // A transfer's other bank line (auto-linked outside the batch / range) is freed by reverseReconciledTransaction
+    // itself (WP2 row 10, transferLegReset), as for the screen and reverse_bank_allocation: one mechanism.
     await reverseLinesJudged(ctx.companyId, rows, (id) =>
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,
