@@ -113,6 +113,11 @@ const describeOutcome = (e: unknown) => (e === 'ok' ? 'ok' : `${codeOf(e) ?? ''}
 /** 40P01, also when a caller wrapped it (rebuildOrRollBack re-throws with the cause in the message). */
 const deadlocked = (e: unknown) => codeOf(e) === '40P01' || /deadlock detected/.test(String(e));
 
+async function expectCompany(c: string, want: { name: string; month: number }): Promise<void> {
+  const { rows: [co] } = await pool.query('SELECT name, financial_year_start AS month FROM companies WHERE id = $1', [c]);
+  expect(co).toEqual(want);
+}
+
 async function newCompany(name: string, startMonth: number): Promise<string> {
   const c = crypto.randomUUID();
   made.push(c);
@@ -123,14 +128,17 @@ async function newCompany(name: string, startMonth: number): Promise<string> {
 /**
  * The year-end change `change` runs on one connection; just before its
  * companies UPDATE (after it has written fiscal_years) a settings save of
- * `month` starts on another, and the change goes on once the save waits.
+ * `month`, loaded before the change, starts on another, and the change goes on
+ * once the save waits. The save then finds a month it did not load: 409
+ * (CompanySettingsStaleError) and nothing written, never its stale month over
+ * the change's (the lost update Hein ruled on for PR #1551).
  */
 async function changeAgainstSettingsSave(c: string, month: number, change: () => Promise<unknown>) {
   const a = await request(c);
   let saved: Promise<unknown> | null = null;
   const restore = pauseBefore(a.client, START_MONTH_WRITE, async () => {
     const b = await request(c);
-    saved = settle(b, () => updateCompany(c, { financialYearStart: month }));
+    saved = settle(b, () => updateCompany(c, { name: 'STALE SAVE', financialYearStart: month, loadedFinancialYearStart: month }));
     await someoneWaitsOnALock();
   });
   const changed = await settle(a, async () => { try { return await change(); } finally { restore(); } });
@@ -139,7 +147,7 @@ async function changeAgainstSettingsSave(c: string, month: number, change: () =>
 }
 
 describe('company settings save vs a change of year end', () => {
-  it('apply: the save waits for the change; nobody gets 40P01', async () => {
+  it('apply: the save waits for the change, then refuses its stale month (409); nobody gets 40P01', async () => {
     const c = await newCompany('LOCK ORDER apply co', 1);
     for (const d of ['2026-03-01', '2027-03-01']) await once(c, () => generateFiscalYearForDate(c, d));
     // FY2027 (Jan-Dec 2027) assumed: the save's trigger acts on it, and the apply deletes it.
@@ -151,13 +159,14 @@ describe('company settings save vs a change of year end', () => {
     expect(deadlocked(changed), describeOutcome(changed)).toBe(false);
     expect(deadlocked(save), describeOutcome(save)).toBe(false);
     expect(describeOutcome(changed)).toBe('ok');
-    expect(describeOutcome(save)).toBe('ok');
+    expect((save as Error).name, describeOutcome(save)).toBe('CompanySettingsStaleError');
     const { rows } = await pool.query(
       `SELECT to_end_date::text AS e FROM fiscal_year_end_changes WHERE company_id = $1 AND reversed_at IS NULL`, [c]);
     expect(rows.map((r) => r.e)).toEqual(['2027-02-28']);
+    await expectCompany(c, { name: 'LOCK ORDER apply co', month: 3 });  // the change's month; the stale save wrote nothing
   }, 60000);
 
-  it('undo: the save waits for the undo; nobody gets 40P01', async () => {
+  it('undo: the save waits for the undo, then refuses its stale month (409); nobody gets 40P01', async () => {
     const c = await newCompany('LOCK ORDER undo co', 1);
     for (const d of ['2026-03-01', '2027-03-01']) await once(c, () => generateFiscalYearForDate(c, d));
     await once(c, () => applyYearEndChange(c, user, { newYearEndMonth: 2, expectedEndDate: '2027-02-28', ...OK }, TODAY));
@@ -169,10 +178,11 @@ describe('company settings save vs a change of year end', () => {
     expect(deadlocked(changed), describeOutcome(changed)).toBe(false);
     expect(deadlocked(save), describeOutcome(save)).toBe(false);
     expect(describeOutcome(changed)).toBe('ok');
-    expect(describeOutcome(save)).toBe('ok');
+    expect((save as Error).name, describeOutcome(save)).toBe('CompanySettingsStaleError');
     const { rows } = await pool.query(
       `SELECT count(*)::int AS n FROM fiscal_year_end_changes WHERE company_id = $1 AND reversed_at IS NOT NULL`, [c]);
     expect(rows[0].n).toBe(1);
+    await expectCompany(c, { name: 'LOCK ORDER undo co', month: 1 });  // the undo's month; the stale save wrote nothing
   }, 60000);
 });
 
@@ -191,7 +201,7 @@ describe('start-month change in Settings vs a period close', () => {
     const close = await request(c);
     await close.run(() => judgePeriodClose(c, mar.id));          // the close holds March 2026's row
     const save = await request(c);
-    const saved = settle(save, () => updateCompany(c, { financialYearStart: 3 }));
+    const saved = settle(save, () => updateCompany(c, { financialYearStart: 3, loadedFinancialYearStart: 1 }));
     await someoneWaitsOnALock();                                   // the change is queued behind the close
     const closed = await settle(close, () => closePeriod(c, mar.id, user));
     const changed = await saved;
