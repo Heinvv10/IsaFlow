@@ -77,7 +77,10 @@ export function describeExtractionFailure(err: unknown, kind: 'bank' | 'supplier
   return { message: GENERIC_ERROR, code: 'unexpected' };
 }
 
-export type ExtractionActionCode = 'NOT_FOUND' | 'IN_PROGRESS' | 'NOT_RETRYABLE' | 'NOT_FAILED';
+export type ExtractionActionCode =
+  | 'NOT_FOUND' | 'IN_PROGRESS' | 'NOT_RETRYABLE' | 'NOT_FAILED'
+  // commit / rollback of an import whose state forbids it (each is a 409, raised before any write)
+  | 'ALREADY_COMMITTED' | 'ROLLED_BACK' | 'EVERY_ROW_PRESENT';
 
 /** Retry or delete refused: thrown before any write, so a route may answer 404/409. */
 export class ExtractionActionRefusedError extends Error {
