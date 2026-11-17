@@ -1,17 +1,17 @@
 /**
- * Wave 6 HYa: the payroll, SARS and tax actor columns (`*_by`, uuid on today's schema) are written with the user id
- * bound as text, never `::uuid`, so the code works against both column types. users.id is varchar: a GoTrue or import
- * id need not be UUID-shaped (`sage-import-bot-…`).
+ * Wave 6 HYa + HYb: the payroll, SARS and tax actor columns (`*_by`) are written with the user id bound as text, never
+ * `::uuid` (HYa), and are TEXT (HYb, migration 999w). users.id is varchar: a GoTrue or import id need not be
+ * UUID-shaped (`sage-import-bot-…`).
  *
- * Three claims, against the disposable fixture:
- *  1. Today's schema: every actor column on the list is uuid, and a non-UUID id is refused there with 22P02. This is the
- *     column refusing it, not the code: HYb (the contract step) changes the columns to TEXT and flips these cases to
- *     expect success.
- *  2. HYb's schema, simulated (the columns altered to TEXT inside a transaction that is always rolled back): the same
- *     non-UUID id creates and prepares a run, saves an EMP201 draft, approves a leave request, writes a UIF declaration
- *     and marks it submitted, and records an external payslip import. A `::uuid` left on any of those binds fails here.
- *  3. A UUID-shaped id still works on today's schema through the same text binds (the old and the new colour both run
- *     on it), including a pay run approved through the real route by a member other than its preparer.
+ * Claims, against the disposable fixture (each case runs in a transaction that is always rolled back):
+ *  1. Every uuid `*_by` column on the payroll, SARS and tax tables is TEXT, and none is left uuid.
+ *  2. A non-UUID id creates and prepares a run, saves an EMP201 draft, approves a leave request, writes a UIF
+ *     declaration and marks it submitted, records an external payslip import, and is copied from an eFiling event into
+ *     its submission. Before 999w the column refused it with 22P02.
+ *  3. A UUID-shaped id still works through the same binds, including a pay run approved through the real route by a
+ *     member other than its preparer.
+ *  4. approval_document_authors (still uuid[]) names a UUID preparer and fails closed (22P02) on a non-UUID one; it never
+ *     drops the preparer from the authors.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
@@ -22,9 +22,10 @@ import { saveDraftSubmission } from '@/modules/accounting/services/reports/sarsC
 import { createLeaveRequest, createLeaveType, updateLeaveRequest } from '@/modules/accounting/services/payroll/payrollLeaveService';
 import { generateUifDeclaration, markUifSubmitted } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { createExternalImport } from '@/modules/accounting/services/payroll/payrollExternalImportService';
+import { applyPollResult, insertEfilingEvent } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { rig } from './brkr.helpers';
 
-/** Every uuid `*_by` column on the payroll, SARS and tax tables (dev information_schema, 2026-11-16): HYb's list. */
+/** Every uuid `*_by` column on the payroll, SARS and tax tables (dev information_schema, 2026-11-17): 999w's list. */
 const ACTOR_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['payroll_external_imports', 'created_by'],
   ['payroll_leave_requests', 'approved_by'],
@@ -33,14 +34,16 @@ const ACTOR_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['payroll_run_headers', 'created_by'],
   ['payroll_run_headers', 'prepared_by'],
   ['sars_efiling_events', 'created_by'],
+  ['sars_source_codes', 'imported_by'],
   ['sars_submissions', 'submitted_by'],
   ['tax_directive_payments', 'created_by'],
   ['tax_directives', 'approved_by'],
   ['tax_directives', 'requested_by'],
   ['uif_declarations', 'submitted_by'],
+  ['vat_adjustments', 'approved_by'],
+  ['vat_adjustments', 'created_by'],
   ['vat_returns', 'submitted_by'],
 ];
-const TO_TEXT = ACTOR_COLUMNS.map(([t, c]) => `ALTER TABLE public.${t} ALTER COLUMN ${c} TYPE text`).join(';\n');
 
 type Row = Record<string, unknown>;
 let r: Awaited<ReturnType<typeof rig>>;
@@ -62,12 +65,11 @@ afterAll(async () => {
   await r.teardown();
 }, 60000);
 
-/** `fn` as `user`, on one connection inside a transaction that is always rolled back; `text` simulates HYb first. */
-async function rolledBack<T>(user: string, text: boolean, fn: () => Promise<T>): Promise<T> {
+/** `fn` as `user`, on one connection inside a transaction that is always rolled back. */
+async function rolledBack<T>(user: string, fn: () => Promise<T>): Promise<T> {
   const c: PoolClient = await r.pool.connect();
   await c.query('BEGIN');
   try {
-    if (text) await c.query(TO_TEXT);
     return await als.run({ client: c, userId: user, companyId: r.company, claims: { sub: user } } as never, fn);
   } finally {
     await c.query('ROLLBACK');
@@ -91,6 +93,11 @@ async function actAs(user: string, month: number): Promise<Row> {
   const imported = await createExternalImport(r.company, {
     periodMonth: month, periodYear: 2026, source: 'hya', fileName: null, componentsPresent: [], rows: [], createdBy: user,
   });
+  // sarsEfilingRepo copies the sending event's created_by into a submission that has no submitted_by (one migration).
+  const sent = await saveDraftSubmission(r.company, 'EMP201', `${period}-01`, `${period}-27`, { hya: 'sent' }, user);
+  await sql`UPDATE sars_submissions SET submitted_by = NULL WHERE id = ${sent.id}::uuid AND company_id = ${r.company}::uuid`;
+  await insertEfilingEvent({ companyId: r.company, submissionId: sent.id, eventType: 'submit', efilingStatus: 'sending', createdBy: user });
+  await applyPollResult(r.company, sent.id, { submissionStatus: 'draft', efilingStatus: 'sending', sarsReference: null });
   const [h] = (await sql`SELECT created_by::text AS created_by, prepared_by::text AS prepared_by FROM payroll_run_headers
     WHERE id = ${run.id}::uuid AND company_id = ${r.company}::uuid`) as Row[];
   const client = (als.getStore() as unknown as { client: PoolClient }).client;
@@ -100,6 +107,7 @@ async function actAs(user: string, month: number): Promise<Row> {
     created_by: h!.created_by,
     prepared_by: h!.prepared_by,
     emp201_submitted_by: await by('sars_submissions', draft.id, 'submitted_by'),
+    efiling_copied_by: await by('sars_submissions', sent.id, 'submitted_by'),
     leave_approved_by: await by('payroll_leave_requests', leave.id, 'approved_by'),
     uif_generated_by: generatedBy,
     uif_submitted_by: await by('uif_declarations', uif.id, 'submitted_by'),
@@ -107,41 +115,44 @@ async function actAs(user: string, month: number): Promise<Row> {
   };
 }
 const everyColumn = (user: string) => ({
-  created_by: user, prepared_by: user, emp201_submitted_by: user, leave_approved_by: user,
+  created_by: user, prepared_by: user, emp201_submitted_by: user, efiling_copied_by: user, leave_approved_by: user,
   uif_generated_by: user, uif_submitted_by: user, import_created_by: user,
 });
 
-describe('HYa: actor ids are bound as text', () => {
-  it('today every actor column on the list is uuid (HYb changes them to text and flips this)', async () => {
+describe('HYa + HYb: actor ids are bound as text, into TEXT columns', () => {
+  it('every actor column on the list is TEXT, and no uuid `*_by` column is left on these tables (999w)', async () => {
     const types = (await r.pool.query(
       `SELECT table_name || '.' || column_name AS col, data_type FROM information_schema.columns
         WHERE table_schema = 'public' AND (table_name, column_name) IN (SELECT * FROM unnest($1::text[], $2::text[]))`,
       [ACTOR_COLUMNS.map(([t]) => t), ACTOR_COLUMNS.map(([, c]) => c)])).rows as Array<{ col: string; data_type: string }>;
     expect(types).toHaveLength(ACTOR_COLUMNS.length);
-    expect(types.filter((t) => t.data_type !== 'uuid')).toEqual([]);
+    expect(types.filter((t) => t.data_type !== 'text')).toEqual([]);
+    const left = (await r.pool.query(
+      `SELECT table_name || '.' || column_name AS col FROM information_schema.columns
+        WHERE table_schema = 'public' AND data_type = 'uuid' AND column_name LIKE '%\\_by'
+          AND table_name ~ '^(payroll|sars|tax|uif|vat)_'`)).rows;
+    expect(left).toEqual([]);
   });
 
-  it('today a non-UUID id is refused with 22P02 by the column: preparing a run, saving an EMP201 draft (HYb flips this)', async () => {
-    await expect(rolledBack(NON_UUID, false, () => createPayrollRun(r.company, { month: 1, year: 2026 }, NON_UUID)))
-      .rejects.toMatchObject({ code: '22P02' });
-    const prepared = await rolledBack(NON_UUID, false, async () => {
-      const run = await createPayrollRun(r.company, { month: 1, year: 2026 }, r.admin);
-      return calculatePayrollRun(run.id, r.company, NON_UUID).then(() => 'ok', (e: { code?: string }) => e.code);
-    });
-    expect(prepared).toBe('22P02');
-    await expect(rolledBack(NON_UUID, false, () => saveDraftSubmission(r.company, 'EMP201', '2026-01-01', '2026-01-31', {}, NON_UUID)))
-      .rejects.toMatchObject({ code: '22P02' });
-  }, 60000);
-
-  it("on HYb's schema (TEXT, rolled back) the non-UUID id prepares a run, saves an EMP201 draft and approves leave", async () => {
-    expect(await rolledBack(NON_UUID, true, () => actAs(NON_UUID, 2))).toEqual(everyColumn(NON_UUID));
+  it('a non-UUID id prepares a run, saves an EMP201 draft, approves leave, files UIF, imports, and is copied from an eFiling event', async () => {
+    expect(await rolledBack(NON_UUID, () => actAs(NON_UUID, 2))).toEqual(everyColumn(NON_UUID));
   }, 90000);
 
-  it("a UUID-shaped id works through the same binds on today's schema", async () => {
-    expect(await rolledBack(r.admin, false, () => actAs(r.admin, 3))).toEqual(everyColumn(r.admin));
+  it('a UUID-shaped id works through the same binds', async () => {
+    expect(await rolledBack(r.admin, () => actAs(r.admin, 3))).toEqual(everyColumn(r.admin));
   }, 90000);
 
-  it('a non-UUID member executes the approval of a run through the route today; the header records preparer and decider', async () => {
+  it('approval_document_authors names a UUID preparer and fails closed on a non-UUID one (never drops it)', async () => {
+    const authors = (user: string) => rolledBack(user, async () => {
+      const run = await createPayrollRun(r.company, { month: 5, year: 2026 }, user);
+      await calculatePayrollRun(run.id, r.company, user);
+      return ((await sql`SELECT public.approval_document_authors(${r.company}::uuid, 'pay_run', ${run.id}::uuid)::text[] AS a`) as Row[])[0]!.a;
+    }).then((a) => a, (e: { code?: string }) => e.code);
+    expect(await authors(r.admin)).toEqual([r.admin]);
+    expect(await authors(NON_UUID)).toBe('22P02');
+  }, 90000);
+
+  it('a non-UUID member executes the approval of a run through the route; the header records preparer and decider', async () => {
     const id = await r.calculatedRun(4); // prepared by admin; the approval request decided by the other member
     const planHash = (await r.api.preview(id)).body.data?.planHash;
     expect((await r.api.approveWith(id, planHash, { user: NON_UUID })).statusCode).toBe(200);

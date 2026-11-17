@@ -60,7 +60,7 @@ export async function createVATAdjustment(companyId: string,
       company_id, adjustment_date, vat_period, adjustment_type, amount, reason, created_by
     ) VALUES (
       ${companyId}, ${input.adjustmentDate}, ${input.vatPeriod || null},
-      ${input.adjustmentType}, ${input.amount}, ${input.reason}, ${safeUserId}::UUID
+      ${input.adjustmentType}, ${input.amount}, ${input.reason}, ${safeUserId}
     ) RETURNING *
   `) as Row[];
 
@@ -180,7 +180,7 @@ export async function approveVATAdjustment(companyId: string,
 
     const updated = (await sql`
       UPDATE vat_adjustments
-      SET status = 'approved', approved_by = ${safeUserId}::UUID, approved_at = NOW(),
+      SET status = 'approved', approved_by = ${safeUserId}, approved_at = NOW(),
           gl_journal_entry_id = ${je.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId} RETURNING *
     `) as Row[];
