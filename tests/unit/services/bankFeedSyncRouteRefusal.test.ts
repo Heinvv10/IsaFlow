@@ -23,6 +23,7 @@ vi.mock('@/lib/apiResponse', () => ({
     success: vi.fn((_res: unknown, data: unknown) => ({ kind: 'success', data })),
     badRequest: vi.fn((_res: unknown, message: string) => ({ kind: 'badRequest', message })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
+    notFound: vi.fn((_res: unknown, what: string, id: string) => ({ kind: 'notFound', what, id })),
   },
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
@@ -75,10 +76,16 @@ describe('POST /api/accounting/bank-feeds/[id]/sync — refusal mapping', () => 
     },
   );
 
-  it('lets an unrelated failure through so the error handler answers 500', async () => {
+  it('an unknown (or another company\'s) connection is a 404, nothing written (WP7)', async () => {
     mockSql.mockResolvedValueOnce([]); // connection lookup finds nothing
-    await expect(handler(req(), {} as NextApiResponse))
-      .rejects.toThrow('Connection not found or does not belong to this company');
+    const out = await handler(req(), {} as NextApiResponse) as { kind: string; id: string };
+    expect(out).toMatchObject({ kind: 'notFound', id: CONNECTION_ID });
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an unrelated failure through so the error handler answers 500', async () => {
+    mockSql.mockRejectedValueOnce(new Error('connection pool exhausted'));
+    await expect(handler(req(), {} as NextApiResponse)).rejects.toThrow('connection pool exhausted');
   });
 
   it('still returns the sync result for an implemented provider', async () => {

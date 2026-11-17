@@ -20,6 +20,8 @@ import {
   encodeBankTxCursor,
   bankTxKeysetCond,
   InvalidCursorError,
+  MAX_BANK_TX_OFFSET,
+  OffsetTooLargeError,
 } from './bankTxCursor';
 import type { BankTxFilters } from './bankTxFilters';
 import { underStampBudget } from './reconciliationSessionLock';
@@ -53,6 +55,7 @@ export async function getBankTransactions(
   if (cursor && typeof filters?.offset === 'number' && filters.offset > 0) {
     throw new InvalidCursorError('cursor and offset cannot be combined');
   }
+  if (typeof filters?.offset === 'number' && filters.offset > MAX_BANK_TX_OFFSET) throw new OffsetTooLargeError();
   try {
     // BL-11: Cap list limit at 100. Export paths have their own dedicated endpoints.
     // Sanitise: NaN / negative values from query-string coercion become safe defaults.

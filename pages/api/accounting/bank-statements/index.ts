@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import {
@@ -92,6 +93,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ── POST ─────────────────────────────────────────────────────────────────
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'POST']);
 
+  // Every upload starts an AI read of the statement, so each is metered before its body is parsed. Onboarding uploads
+  // many statements in one sitting, so the per-company ceilings are generous (60 per 15 minutes, 300 a day); the per-IP
+  // limit (30 per 15 minutes) is the abuse bound and a single office shares one address.
+  if (!(await checkAiRateLimit(req, companyId, 'bank-statements-upload', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
+    log.warn('Bank statement upload rate limit exceeded', { companyId }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many statement uploads. Please try again shortly.');
+  }
+
   let fields: formidable.Fields;
   let files: formidable.Files;
   try {
@@ -99,7 +108,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('maxFileSize')) return apiResponse.badRequest(res, `File too large. Max ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
-    return apiResponse.badRequest(res, `Upload parse error: ${msg}`);
+    // The parser's own message names its internals (limits, field names, paths): logged, not echoed.
+    log.warn('bank-statements/index: upload could not be parsed', { companyId, error: msg }, 'bank-stmt-api');
+    return apiResponse.badRequest(res, 'The upload could not be read. Send the statement as a PDF or image under 10MB.');
   }
 
   const bankAccountId = firstField(fields, 'bankAccountId');

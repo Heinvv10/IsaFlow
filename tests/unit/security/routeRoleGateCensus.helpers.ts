@@ -109,6 +109,8 @@ function callArgs(expr: string, open: number): string[] {
  * Every withWriteAccess call takes the handler alone, or an object LITERAL whose allowedRoles names only
  * writing roles. Options from a variable or a spread cannot be read, so they do not count as a gate.
  */
+const WRITE_ROLE_CONSTANTS = new Set(['DEFAULT_WRITE_ROLES', 'BANK_QUERY_ADMIN_ROLES']);
+
 function writeAccessGates(expr: string): boolean {
   const calls = [...expr.matchAll(/withWriteAccess\(/g)];
   if (calls.length === 0) return false;
@@ -119,9 +121,11 @@ function writeAccessGates(expr: string): boolean {
     if (!/allowedRoles/.test(opts)) return true;
     // Only `allowedRoles: DEFAULT_WRITE_ROLES` or an array of quoted role names, followed by `,` or `}`:
     // a `.concat(…)`, an identifier element or a spread inside the array is unreadable, so not a gate.
-    const roles = /allowedRoles\s*:\s*(\[[^\]]*\]|DEFAULT_WRITE_ROLES)\s*[,}]/.exec(opts)?.[1];
+    const roles = /allowedRoles\s*:\s*(\[[^\]]*\]|[A-Z][A-Z_]+)\s*[,}]/.exec(opts)?.[1];
     if (!roles) return false;
-    if (roles === 'DEFAULT_WRITE_ROLES') return true;
+    // Named constants (src/lib/auth/writeRoles.ts) that hold writing roles only: the default, and owner/admin for client queries.
+    if (WRITE_ROLE_CONSTANTS.has(roles)) return true;
+    if (!roles.startsWith('[')) return false;
     const elements = roles.slice(1, -1).split(',').map((e) => e.trim()).filter(Boolean);
     return elements.length > 0 && elements.every((e) => {
       const name = /^['"]([a-z_]+)['"]$/.exec(e)?.[1];
