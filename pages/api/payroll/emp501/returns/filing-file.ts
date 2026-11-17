@@ -1,9 +1,11 @@
 /**
- * GET /api/payroll/emp501/returns/filing-file?versionId=  (wave 6 EFb)
+ * POST /api/payroll/emp501/returns/filing-file  { versionId }  (wave 6 EFb)
  * The e@syFile IRP5 file of a finalised (or filed) EMP501 version, built from the version's stored figures, never the
  * live payroll; the first download stamps its sha256 on the version (999v), which marking it filed requires.
  * Payroll-detail roles only (the file carries ID and tax numbers), no-store, Login-as refused (it stamps who
- * generated the file). In memory only; nothing goes to SARS.
+ * generated the file). A POST through withCsrf, never a GET: the first download writes the stamp, and withCsrf does not
+ * guard a safe method, so a cross-site GET could stamp a version. The client saves the returned bytes as a blob.
+ * In memory only; nothing goes to SARS.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -22,8 +24,8 @@ import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersi
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
-  if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
-  const id = UUID.safeParse(req.query.versionId);
+  if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+  const id = UUID.safeParse((req.body as { versionId?: unknown } | undefined)?.versionId);
   if (!id.success) return apiResponse.badRequest(res, 'versionId must be a UUID');
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;

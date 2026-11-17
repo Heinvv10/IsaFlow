@@ -114,3 +114,17 @@ export async function emp501Drift(companyId: string, p: Emp501Period, recorded: 
   ];
   return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };
 }
+
+/**
+ * What an EMP501 version may put anywhere a non-payroll role can read (the sars_submissions form_data that
+ * listSubmissions/getSubmission serve): the period, totals, warning count and the runs' ids and plan hashes. Never the
+ * certificates, the employer record or the warning texts (they name employees and amounts).
+ */
+export function emp501PublicFigures(figures: Record<string, unknown>): Record<string, unknown> {
+  const f = figures as Partial<Emp501Figures>;
+  return {
+    taxYear: f.taxYear, kind: f.kind, totals: f.totals ?? null,
+    warningCount: Array.isArray(f.warnings) ? f.warnings.length : 0,
+    runs: (f.runs ?? []).map((r) => ({ id: r.id, approvedPlanHash: r.approvedPlanHash })),
+  };
+}

@@ -13,6 +13,8 @@ import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+import { request, response } from './mfa-impersonation-postgres.helpers';
+import listSubmissions from '../../pages/api/accounting/sars/sars-submissions';
 import returns from '../../pages/api/payroll/emp501/returns/index';
 import filingFile from '../../pages/api/payroll/emp501/returns/filing-file';
 
@@ -32,7 +34,18 @@ const get = (token = rf.admin.token, companyId = c()) => callRoute(returns, comp
 const post = (body: Record<string, unknown>, token = rf.admin.token, companyId = c()) =>
   callRoute(returns, companyId, token, 'POST', {}, body);
 const download = (versionId: string, token = rf.admin.token, companyId = c()) =>
-  callRoute(filingFile, companyId, token, 'GET', { versionId });
+  callRoute(filingFile, companyId, token, 'POST', {}, { versionId });
+/** A POST without the CSRF header (the cookie alone, as a cross-site form would send). */
+async function downloadWithoutCsrf(versionId: string): Promise<number> {
+  const req = request({ 'sb-access-token': rf.admin.token, active_company_id: c() }, 'POST') as never as
+    { body: unknown; query: Record<string, string>; headers: Record<string, string> };
+  delete req.headers['x-csrf-token'];
+  req.body = { versionId };
+  req.query = {};
+  const out = response();
+  await filingFile(req as never, out.res as never);
+  return out.state.statusCode;
+}
 
 async function employee(last: string, taxNumber: string | null, companyId = c()): Promise<string> {
   const id = String(((await sql`
@@ -140,6 +153,12 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     expect((await versionsOf())[0]).toMatchObject({ filing_file_sha256: null, status: 'finalised' });
   });
 
+  it('the filing file is never written by a GET, nor by a POST without the CSRF token', async () => {
+    expect((await callRoute(filingFile, c(), rf.admin.token, 'GET', { versionId })).status).toBe(405);
+    expect(await downloadWithoutCsrf(versionId)).toBe(403);
+    expect((await versionsOf())[0]).toMatchObject({ filing_file_sha256: null });
+  });
+
   it('the filing file is built from the version: the stamp is its sha256, and a later payroll change does not move it', async () => {
     const r = await download(versionId);
     expect(r.status).toBe(200);
@@ -161,5 +180,13 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
       WHERE company_id = ${c()}::UUID AND form_type = 'EMP501'`) as Row[];
     expect(subs).toEqual([{ id: v!.sars_submission_id, form_type: 'EMP501', status: 'submitted', s: INTERIM.periodStart, e: INTERIM.periodEnd }]);
     expect(await versionsOf(other.companyId)).toHaveLength(0);
+  });
+
+  it('a non-payroll role reading the filed submission sees totals only: no certificate, name, ID or tax number', async () => {
+    const r = await callRoute(listSubmissions, c(), rf.viewer.token, 'GET', { type: 'EMP501' });
+    expect(r.status).toBe(200);
+    const text = JSON.stringify(r.body);
+    expect(text).toContain('"certificates":2');
+    expect(text).not.toMatch(/8001015009087|0123456789|Alice|Bob|grossSalary3601|employees|employer/);
   });
 });
