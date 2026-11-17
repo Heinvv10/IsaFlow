@@ -42,9 +42,9 @@ export default function CompanySettingsPage() {
   const [saving, setSaving] = useState(false);
   const [lockdownInvalid, setLockdownInvalid] = useState(false);
   const [error, setError] = useState('');
-  // The financial year start the form was loaded with (companySavePayload), and whether the save found it stale (409).
-  const [loadedMonth, setLoadedMonth] = useState(3);
-  const [stale, setStale] = useState(false);
+  const [loadedMonth, setLoadedMonth] = useState(3); // the financial year start the form was loaded with (companySavePayload)
+  const [stale, setStale] = useState(false); // the save found it changed since (409): offer Reload
+  const [reloads, setReloads] = useState(0); // Reload remounts General, so its year panel reads the year again too
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('details');
 
@@ -187,7 +187,7 @@ export default function CompanySettingsPage() {
       case 'general':
         return (
           <>
-            <GeneralTab key={activeCompany?.id} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />
+            <GeneralTab key={`${activeCompany?.id}:${reloads}`} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />
             <DefaultPaymentTermsCard key={`terms-${activeCompany?.id}`} />
           </>
         );
@@ -260,7 +260,7 @@ export default function CompanySettingsPage() {
 
         {error && (
           <SettingsErrorBanner message={error} onReload={stale && activeCompany?.id ? () => {
-            setError(''); setStale(false); void fetchCompany(activeCompany.id);
+            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id);
           } : undefined} />
         )}
         {saved && (
