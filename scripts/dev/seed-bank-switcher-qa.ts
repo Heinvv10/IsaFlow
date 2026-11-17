@@ -4,17 +4,22 @@
  *
  *   DATABASE_URL=<isaflow_dev url> bun scripts/dev/seed-bank-switcher-qa.ts
  *
- * Refuses anything but that company on a database named isaflow_dev; never touches Demo or any other tenant.
+ * Refuses anything but that company on isaflow_dev at the dev host; never touches Demo or any other tenant.
  * Idempotent: an account code that exists is left alone.
  */
 import { Pool } from 'pg';
 
 const QA_COMPANY = '33fd2683-d163-449b-8b34-60d1a99d30a1';
 const QA_NAME = 'Bank Audit QA 2026-11-15';
+/** The dev database host:port (velo-server's isaflow_dev); a same-named database elsewhere is refused. */
+const DEV_HOST = '100.96.203.105:7772';
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
-  if (!url || new URL(url).pathname !== '/isaflow_dev') throw new Error('DATABASE_URL must point at isaflow_dev');
+  const target = url ? new URL(url) : null;
+  if (!target || target.pathname !== '/isaflow_dev' || target.host !== DEV_HOST) {
+    throw new Error(`DATABASE_URL must point at isaflow_dev on ${DEV_HOST}`);
+  }
   const pool = new Pool({ connectionString: url });
   pool.on('error', (err) => { process.stderr.write(`pool error: ${err.message}\n`); });
   try {

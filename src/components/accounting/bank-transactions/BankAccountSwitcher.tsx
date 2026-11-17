@@ -78,18 +78,55 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
     else if (e.key === 'End' && !query) setActive(last);
     else if (e.key === 'Enter' && current) pick(current);
     else if (e.key === 'Escape') close();
-    else if (e.altKey && e.key.toLowerCase() === 'p' && current) onTogglePin(cardKeyOf(current));
+    else if (e.altKey && e.code === 'KeyP' && current) onTogglePin(cardKeyOf(current)); // e.code: macOS Option+P types π
     else return;
     e.preventDefault();
   };
 
+  // Primaries stand alone; a group's heading wraps its sub-accounts (role=group inside the listbox).
+  const sections = useMemo(() => {
+    const out: { group?: Extract<SwitcherRow, { kind: 'group' }>; items: Extract<SwitcherRow, { kind: 'account' }>[] }[] = [];
+    for (const r of rows) {
+      if (r.kind === 'group') out.push({ group: r, items: [] });
+      else if (r.groupId && out.length > 0 && out[out.length - 1]!.group) out[out.length - 1]!.items.push(r);
+      else out.push({ items: [r] });
+    }
+    return out;
+  }, [rows]);
+  const renderOption = (r: Extract<SwitcherRow, { kind: 'account' }>) => {
+    const a = r.account;
+    const idx = options.indexOf(r);
+    const isActive = idx === Math.min(active, options.length - 1);
+    return (
+      <li key={r.key} id={`${uid}-${a.id}`} role="option" aria-selected={isActive}
+        aria-current={a.id === selectedBank ? 'true' : undefined} data-testid="bank-switcher-option" data-account-id={a.id}
+        onMouseMove={() => setActive(idx)} onClick={() => pick(r)}
+        className={`flex cursor-pointer items-center gap-2 py-1.5 pr-3 ${r.groupId ? 'pl-7' : 'pl-3'} ${
+          isActive ? 'bg-teal-500/10' : ''} ${a.isActive ? '' : 'opacity-70'}`}>
+        <span className="min-w-0 flex-1">
+          <MiddleTruncate name={a.accountName} className="text-sm font-medium text-[var(--ff-text-primary)]" />
+          <span className="block truncate text-xs text-[var(--ff-text-tertiary)] font-id">
+            {a.accountCode}{a.bankAccountNumber && ` | ****${a.bankAccountNumber.slice(-4)}`}{a.isActive ? '' : ' | Inactive'}
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span data-testid="switcher-ledger" className="block text-sm font-bold tabular-nums">{fmtCents(a.ledgerCents)}</span>
+          <ToCodeLine toCode={a.counts.toCode} inCents={a.toCodeInCents} outCents={a.toCodeOutCents} />
+        </span>
+        {!r.groupId && <PinButton cardKey={r.key} name={a.accountName} pinned={pinned.has(r.key)} onToggle={onTogglePin} />}
+      </li>
+    );
+  };
+
   const label = outsideSelection ?? 'All accounts';
   return (
-    <div ref={root} className="relative shrink-0" data-testid="bank-account-switcher">
+    <div ref={root} className="relative shrink-0" data-testid="bank-account-switcher"
+      // Tab (or any focus move) out of the control closes it; a click elsewhere is the mousedown listener's.
+      onBlur={e => { if (open && e.relatedTarget && !root.current?.contains(e.relatedTarget as Node)) { setOpen(false); setQuery(''); } }}>
       <button ref={trigger} type="button" aria-haspopup="listbox" aria-expanded={open} data-testid="bank-switcher-trigger"
         aria-label={outsideSelection ? `All accounts, current: ${outsideSelection}` : `All accounts (${accountCount})`}
         aria-current={outsideSelection ? 'true' : undefined}
-        onClick={() => setOpen(o => !o)}
+        onClick={() => (open ? close() : setOpen(true))}
         onKeyDown={e => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setOpen(true); } }}
         className={`flex h-full w-[220px] items-center justify-between gap-2 rounded-lg border-2 px-4 py-2.5 text-left text-sm font-semibold ${
           outsideSelection ? 'border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-400'
@@ -112,37 +149,17 @@ export function BankAccountSwitcher({ primaries, groups, accountCount, selectedB
           </div>
           <ul id={listId} role="listbox" aria-label="Bank accounts" data-testid="bank-switcher-list" className="max-h-[360px] overflow-y-auto py-1">
             {rows.length === 0 && <li role="presentation" className="px-4 py-3 text-sm text-[var(--ff-text-secondary)]">No account matches</li>}
-            {rows.map((r) => {
-              if (r.kind === 'group') {
-                const isPinned = pinned.has(r.key);
-                return (
-                  <li key={r.key} role="presentation" data-testid="bank-switcher-group"
-                    className="mt-1 flex items-center justify-between gap-2 border-t border-[var(--ff-border-light)] px-3 pb-0.5 pt-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-secondary)]">
-                    <span className="min-w-0 flex-1 truncate">{r.group.groupName} · {r.group.accounts.length} sub-accounts</span>
-                    <PinButton cardKey={r.key} name={`${r.group.groupName} group`} pinned={isPinned} onToggle={onTogglePin} />
-                  </li>
-                );
-              }
-              const a = r.account;
-              const idx = options.indexOf(r);
-              const isActive = idx === Math.min(active, options.length - 1);
+            {sections.map((sec) => {
+              if (!sec.group) return renderOption(sec.items[0]!);
+              const g = sec.group;
               return (
-                <li key={r.key} id={`${uid}-${a.id}`} role="option" aria-selected={isActive}
-                  aria-current={a.id === selectedBank ? 'true' : undefined} data-testid="bank-switcher-option" data-account-id={a.id}
-                  onMouseMove={() => setActive(idx)} onClick={() => pick(r)}
-                  className={`flex cursor-pointer items-center gap-2 py-1.5 pr-3 ${r.groupId ? 'pl-7' : 'pl-3'} ${
-                    isActive ? 'bg-teal-500/10' : ''} ${a.isActive ? '' : 'opacity-70'}`}>
-                  <span className="min-w-0 flex-1">
-                    <MiddleTruncate name={a.accountName} className="text-sm font-medium text-[var(--ff-text-primary)]" />
-                    <span className="block truncate text-xs text-[var(--ff-text-tertiary)] font-id">
-                      {a.accountCode}{a.bankAccountNumber && ` | ****${a.bankAccountNumber.slice(-4)}`}{a.isActive ? '' : ' | Inactive'}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <span data-testid="switcher-ledger" className="block text-sm font-bold tabular-nums">{fmtCents(a.ledgerCents)}</span>
-                    <ToCodeLine toCode={a.counts.toCode} inCents={a.toCodeInCents} outCents={a.toCodeOutCents} />
-                  </span>
-                  {!r.groupId && <PinButton cardKey={r.key} name={a.accountName} pinned={pinned.has(r.key)} onToggle={onTogglePin} />}
+                <li key={g.key} role="group" aria-label={`${g.group.groupName}, ${g.group.accounts.length} sub-accounts`} data-testid="bank-switcher-group">
+                  <div role="presentation"
+                    className="mt-1 flex items-center justify-between gap-2 border-t border-[var(--ff-border-light)] px-3 pb-0.5 pt-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-secondary)]">
+                    <span className="min-w-0 flex-1 truncate">{g.group.groupName} · {g.group.accounts.length} sub-accounts</span>
+                    <PinButton cardKey={g.key} name={`${g.group.groupName} group`} pinned={pinned.has(g.key)} onToggle={onTogglePin} />
+                  </div>
+                  <ul role="presentation" className="m-0 list-none p-0">{sec.items.map(renderOption)}</ul>
                 </li>
               );
             })}

@@ -4,6 +4,7 @@
  * keyboard only; pins in the card-order store). Cards: aria-current, one tab stop, long names keep their suffix.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BankTxBankCards } from '@/components/accounting/bank-transactions/BankTxBankCards';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
@@ -159,7 +160,7 @@ describe('pins, in the card-order store', () => {
     render(ui(many(8)));
     const search = await open();
     await key(search, 'ArrowDown'); // a1 -> a2? the active row starts on a1; one step down is a2
-    await key(search, 'p', { altKey: true });
+    await key(search, 'π', { altKey: true, code: 'KeyP' }); // macOS Option+P types π; the physical key is what counts
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0]).toEqual(['a1', 'a3', 'a4', 'a5', 'a6', '~unpinned', 'a2', 'a7', 'a8']);
     expect(cardKeys()).toEqual(['a1', 'a3', 'a4', 'a5', 'a6']);
@@ -235,5 +236,70 @@ describe('the cards', () => {
     expect(parts).toHaveLength(2);
     expect(parts[1]!.className).toMatch(/shrink-0/);
     expect(parts[1]!.textContent!.endsWith('****4567')).toBe(true);
+  });
+});
+
+describe('review round 1', () => {
+  it('Tab out of the control closes the popup and clears the search; focus is left where Tab put it', async () => {
+    render(<div><button data-testid="after">after</button>{ui(many(8))}</div>);
+    const search = await open();
+    await type(search, 'account 3');
+    const after = screen.getByTestId('after');
+    await act(async () => { fireEvent.blur(search, { relatedTarget: after }); });
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+    await open();
+    expect((screen.getByTestId('bank-switcher-search') as HTMLInputElement).value).toBe('');
+  });
+
+  it('focus moving to the trigger itself (Shift+Tab) does not close it', async () => {
+    render(ui(many(8)));
+    const search = await open();
+    await act(async () => { fireEvent.blur(search, { relatedTarget: screen.getByTestId('bank-switcher-trigger') }); });
+    expect(screen.getByTestId('bank-switcher-search')).toBeTruthy();
+  });
+
+  it('clicking the trigger while open closes it, clears the query and returns focus to it', async () => {
+    render(ui(many(8)));
+    const search = await open();
+    await type(search, 'account 3');
+    const trigger = screen.getByTestId('bank-switcher-trigger');
+    await act(async () => { fireEvent.click(trigger); });
+    expect(screen.queryByTestId('bank-switcher-search')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect((await open() as HTMLInputElement).value).toBe('');
+  });
+
+  it('unpinning the last pin is refused with a message; the row keeps its card', async () => {
+    saved = { 'bank_card_order:co-1': JSON.stringify(['a1', '~unpinned', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']) };
+    render(ui(many(7)));
+    await waitFor(() => expect(cardKeys()).toEqual(['a1']));
+    const search = await open();
+    await key(search, 'p', { altKey: true, code: 'KeyP' });
+    expect(notify.error).toHaveBeenCalledWith(expect.stringMatching(/at least one/));
+    expect(puts()).toHaveLength(0);
+    expect(cardKeys()).toEqual(['a1']);
+  });
+
+  it('a sub-account group is a role=group with a label wrapping its options', async () => {
+    render(ui(withPaycards(5), 'a1'));
+    await open();
+    const group = screen.getByRole('group', { name: /Paycards, 5 sub-accounts/ });
+    expect(within(group).getAllByTestId('bank-switcher-option')).toHaveLength(5);
+  });
+
+  it('after a pick from the switcher the tab stop is the selected card', async () => {
+    const Harness = () => {
+      const [sel, setSel] = useState('a1');
+      return ui(many(8), sel, setSel);
+    };
+    render(<Harness />);
+    const stops = () => screen.getAllByTestId('bank-account-card').filter(b => b.tabIndex === 0).map(b => b.textContent!.match(/Account \d/)![0]);
+    const cards = screen.getAllByTestId('bank-account-card');
+    await act(async () => { fireEvent.focus(cards[3]!); }); // the row's tab stop moves to Account 4 with focus
+    expect(stops()).toEqual(['Account 4']);
+    const search = await open();
+    await type(search, 'account 2');
+    fireEvent.click(screen.getByTestId('bank-switcher-option'));
+    expect(stops()).toEqual(['Account 2']);
   });
 });

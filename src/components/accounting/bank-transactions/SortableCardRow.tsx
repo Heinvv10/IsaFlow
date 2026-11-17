@@ -12,7 +12,7 @@
  *    ArrowLeft / ArrowRight / Home / End move focus between cards. The active card starts as the selected one.
  */
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { DndContext, MouseSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { moveCard, moveCardBy } from './bankCardOrder';
@@ -92,6 +92,9 @@ export function SortableCardRow({ cards, onReorder }: Props) {
   const [announcement, setAnnouncement] = useState('');
   const slots = useRef(new Map<string, HTMLElement>());
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // The selection moving (a pick from the switcher, a click) makes the selected card the tab stop again.
+  const currentKey = cards.find(c => c.current)?.key;
+  useEffect(() => { setActiveKey(null); }, [currentKey]);
   const active = activeKey !== null && keys.includes(activeKey) ? activeKey : (cards.find(c => c.current) ?? cards[0])?.key;
   const onNav = (from: string, to: 'prev' | 'next' | 'first' | 'last') => {
     const i = keys.indexOf(from);

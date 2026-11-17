@@ -43,6 +43,18 @@ describe('togglePin', () => {
     expect(afterPin.order).toEqual(['k1', 'k3', 'k4', 'k5', 'k6', 'k9', PIN_BOUNDARY, 'k2', 'k7', 'k8', 'k10']);
   });
 
+  it('refuses unpinning the last pin (the row is never empty), saying why, and changes nothing', () => {
+    const one = ['k1', PIN_BOUNDARY, 'k2', 'k3'];
+    const r = togglePin(keys(3), one, 'k1');
+    expect(r.order).toBe(one);
+    expect(r.refused).toMatch(/at least one/);
+  });
+
+  it('a boundary stored with no live pins falls back to the first card, never an empty row', () => {
+    expect(pinnedKeys(keys(4), [PIN_BOUNDARY, 'k2'])).toEqual(['k1']);
+    expect(pinnedKeys(keys(4), ['gone', PIN_BOUNDARY, 'k2'])).toEqual(['k1']);
+  });
+
   it('refuses a seventh pin, naming the limit, and changes nothing', () => {
     const full = [...keys(6), PIN_BOUNDARY, ...keys(10).slice(6)];
     const r = togglePin(keys(10), full, 'k9');

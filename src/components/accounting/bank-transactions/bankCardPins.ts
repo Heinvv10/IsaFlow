@@ -24,21 +24,27 @@ export function pinnedKeys(allKeys: string[], saved: string[] | null): string[] 
   const at = saved ? saved.indexOf(PIN_BOUNDARY) : -1;
   if (!saved || at < 0) return applyCardOrder(allKeys, cleanOrder(saved)).slice(0, MAX_PINNED);
   const present = new Set(allKeys);
-  return [...new Set(saved.slice(0, at))].filter(k => present.has(k)).slice(0, MAX_PINNED);
+  const pins = [...new Set(saved.slice(0, at))].filter(k => present.has(k)).slice(0, MAX_PINNED);
+  // Every pin gone (all their accounts deleted, or a boundary stored first): never an empty row.
+  return pins.length > 0 ? pins : allKeys.slice(0, 1);
 }
 
 export interface PinResult {
   /** The order to save (null: nothing to store, the defaults already say it). */
   order: string[] | null;
-  /** Why the toggle was refused (a seventh pin), else null. */
+  /** Why the toggle was refused (a seventh pin, or the last pin), else null. */
   refused: string | null;
 }
 
-/** Pin the card if it is not pinned, unpin it if it is. A seventh pin is refused and the order is returned as it was. */
+/**
+ * Pin the card if it is not pinned, unpin it if it is. A seventh pin, and unpinning the last pin (the row is never
+ * empty), are refused and the order is returned as it was.
+ */
 export function togglePin(allKeys: string[], saved: string[] | null, key: string): PinResult {
   const pinned = pinnedKeys(allKeys, saved);
   const rest = applyCardOrder(allKeys, cleanOrder(saved)).filter(k => !pinned.includes(k));
   if (pinned.includes(key)) {
+    if (pinned.length === 1) return { order: saved, refused: 'Keep at least one card pinned - pin another before unpinning this one.' };
     return { order: [...pinned.filter(k => k !== key), PIN_BOUNDARY, key, ...rest.filter(k => k !== key)], refused: null };
   }
   if (pinned.length >= MAX_PINNED) {
