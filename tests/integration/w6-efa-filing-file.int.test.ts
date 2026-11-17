@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { request, response } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropReturnFixture, loginAsToken, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
 import { version } from './helpers/returnFileDbRules';
 import { amendV, CLEAN, fileV, fin, genFile, PRN, row, submissions, useFixture, versionOf } from './helpers/returnFileCalls';
@@ -21,6 +22,17 @@ let a: ReturnFixture;
 let b: ReturnFixture;
 const SEPT = { periodStart: '2026-09-01', periodEnd: '2026-09-30' };
 const sha = (body: unknown) => createHash('sha256').update(body as Buffer).digest('hex');
+/** The filing-file POST as the admin with the CSRF cookie but WITHOUT the x-csrf-token header (a cross-site POST). */
+async function postWithoutCsrf(versionId: string): Promise<number> {
+  const req = request({ 'sb-access-token': a.admin.token, active_company_id: a.fx.companyId }, 'POST') as never as
+    { body: unknown; query: Record<string, string>; headers: Record<string, string> };
+  delete req.headers['x-csrf-token'];
+  req.body = { versionId, format: 'csv' };
+  req.query = { form: 'emp201' };
+  const out = response();
+  await filingFile(req as never, out.res as never);
+  return out.state.statusCode;
+}
 const stampOf = async (id: string) => {
   const r = await row(id);
   return { sha: r.filing_file_sha256, kind: r.filing_file_kind, by: r.filing_file_by, at: r.filing_file_at, status: r.status };
@@ -58,6 +70,9 @@ describeIfDb('EFa: filing files through the routes', () => {
     expect((await callRoute(filingFile, b.fx.companyId, b.admin.token, 'POST', { form: 'emp201' }, { versionId: id, format: 'csv' })).status).toBe(404);
     expect((await genFile(id, 'emp201', 'json')).status).toBe(400);
     expect((await genFile(id, 'vat201', 'csv')).status).toBe(404); // the wrong form
+    // Coordinator ruling: only a CSRF-checked POST may stamp. A GET is refused (405) and a POST without the token is refused.
+    expect((await callRoute(filingFile, a.fx.companyId, a.admin.token, 'GET', { form: 'emp201', versionId: id, format: 'csv' })).status).toBe(405);
+    expect(await postWithoutCsrf(id)).toBe(403);
     expect(await stampOf(id)).toEqual(blank);
     expect(await submissions()).toBe(subs);
 

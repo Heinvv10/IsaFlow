@@ -12,7 +12,7 @@ import { buildCaptureSheet, buildVat201Json } from './filingFileContent';
 import { buildCaptureSheetPdf } from './filingFilePdf';
 import { assertMayActOnReturns } from './returnGuards';
 import { getVersionForUpdate } from './returnVersionWrites';
-import { ReturnRefusal, type ReturnActor, type ReturnForm } from './returnVersionTypes';
+import { ReturnRefusal, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
 export type FilingFileFormat = 'csv' | 'json' | 'pdf';
 // EMP501's e@syFile file has its own payroll-detail service and route (emp501FilingFile, wave 6 EFb): none here.
@@ -27,6 +27,28 @@ export interface FilingFile {
   sha256: string;
   /** True when this download wrote the stamp. */
   stamped: boolean;
+}
+
+/**
+ * Stamps a FINALISED, unstamped version with its filing file (999v) and audits it, in one savepoint. The caller holds the
+ * version row lock (getVersionForUpdate) and has judged everything first. EFb calls it for the EMP501 e@syFile file.
+ */
+export async function stampFilingFile(
+  companyId: string, v: ReturnVersion, sha256: string, kind: string, format: string, userId: string,
+): Promise<void> {
+  await withSavepoint('filing_file', async () => {
+    await sql`UPDATE tax_return_versions
+      SET filing_file_sha256 = ${sha256}, filing_file_kind = ${kind}, filing_file_at = now(), filing_file_by = ${userId}::TEXT
+      WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID AND status = 'finalised' AND filing_file_sha256 IS NULL`;
+    await logAuditOrThrow({
+      companyId, userId, action: 'update', entityType: 'tax_return_version', entityId: v.id,
+      entityRef: `${v.formType} ${v.periodStart} to ${v.periodEnd} v${v.versionNo}`,
+      changes: {
+        fields: [{ field: 'filing_file_sha256', old: null, new: sha256, label: 'Filing file' }],
+        metadata: { kind, format },
+      },
+    });
+  });
 }
 
 export async function downloadFilingFile(
@@ -49,21 +71,7 @@ export async function downloadFilingFile(
   }
   // A version filed before migration 999v has no stamp, and the trigger freezes the stamps once filed: serve, unstamped.
   const stamp = v.filingFileSha256 === null && v.status === 'finalised';
-  if (stamp) {
-    await withSavepoint('filing_file', async () => {
-      await sql`UPDATE tax_return_versions
-        SET filing_file_sha256 = ${sheet.sha256}, filing_file_kind = ${sheet.kind}, filing_file_at = now(), filing_file_by = ${actor.userId}::TEXT
-        WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID AND status = 'finalised' AND filing_file_sha256 IS NULL`;
-      await logAuditOrThrow({
-        companyId, userId: actor.userId, action: 'update', entityType: 'tax_return_version', entityId: v.id,
-        entityRef: `${v.formType} ${v.periodStart} to ${v.periodEnd} v${v.versionNo}`,
-        changes: {
-          fields: [{ field: 'filing_file_sha256', old: null, new: sheet.sha256, label: 'Filing file' }],
-          metadata: { kind: sheet.kind, format },
-        },
-      });
-    });
-  }
+  if (stamp) await stampFilingFile(companyId, v, sheet.sha256, sheet.kind, format, actor.userId);
   const body = format === 'csv' ? Buffer.from(sheet.csv, 'utf8')
     : format === 'json' ? Buffer.from(buildVat201Json(v, sheet), 'utf8')
       : await buildCaptureSheetPdf(sheet, `${v.formType} capture sheet, ${v.periodStart} to ${v.periodEnd}, version ${v.versionNo}`, v.finalisedAt);
