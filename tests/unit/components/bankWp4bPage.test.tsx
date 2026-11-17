@@ -161,6 +161,12 @@ describe('the page size remembered in this browser', () => {
       vi.mocked(apiFetch).mockClear();
       await open({ account_id: 'a', size: '100' });
       expect(lastParams().get('limit')).toBe('100');
+      cleanup();
+      vi.mocked(apiFetch).mockClear();
+      await open({ account_id: 'a', size: '25' }); // an explicit 25 beats the remembered 50, and stays in the URL
+      expect(lastParams().get('limit')).toBe('25');
+      await settle();
+      expect(cap.router!.query().size).toBe('25');
     } finally { localStorage.removeItem('isaflow.bankTxPageSize'); }
   });
 });

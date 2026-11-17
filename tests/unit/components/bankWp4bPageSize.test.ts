@@ -30,11 +30,17 @@ describe('page size in the URL', () => {
     expect(serializeUrlView(view({ pageSize: 50 }))).toMatchObject({ size: '50' });
     expect(serializeUrlView(view({ pageSize: 100 }))).toMatchObject({ size: '100' });
   });
-  it('parses 50 and 100; drops anything else (a size the list does not offer is not trusted)', () => {
+  it('parses 25, 50 and 100 (an explicit 25 must beat a remembered size); drops anything else', () => {
+    expect(parseUrlView({ size: '25' }).filters.pageSize).toBe(25);
     expect(parseUrlView({ size: '50' }).filters.pageSize).toBe(50);
     expect(parseUrlView({ size: '100' }).filters.pageSize).toBe(100);
-    for (const junk of ['25', '10', '1000', '50.0', 'abc', '', '-50']) expect(parseUrlView({ size: junk }).filters).not.toHaveProperty('pageSize');
+    for (const junk of ['10', '1000', '50.0', 'abc', '', '-50']) expect(parseUrlView({ size: junk }).filters).not.toHaveProperty('pageSize');
     expect(parseUrlView({ size: ['50', '100'] }).filters).not.toHaveProperty('pageSize');
+  });
+  it('25 is written when the plain page would open with another (remembered) size, and only then', () => {
+    expect(serializeUrlView(view({ pageSize: 25 }), 50)).toMatchObject({ size: '25' });
+    expect(serializeUrlView(view({ pageSize: 25 }), 25)).not.toHaveProperty('size');
+    expect(serializeUrlView(view({ pageSize: 50 }), 50)).toMatchObject({ size: '50' }); // a link still carries it
   });
   it('round-trips', () => {
     const q = serializeUrlView(view({ pageSize: 100 }));

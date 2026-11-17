@@ -55,6 +55,10 @@ describe('the sort is listed and cleared with the filters', () => {
     const { result } = renderHook(() => useBankTxFilters(vi.fn()));
     act(() => result.current.setSortOrder('asc'));
     expect(result.current.activeLabels).toContain('Sort: oldest first');
+    // A sort never empties a list: the empty state names only what narrows it.
+    expect(result.current.narrowingLabels).toEqual([]);
+    act(() => result.current.setTxType('spent'));
+    expect(result.current.narrowingLabels).toEqual(['Type: spent']);
     act(() => result.current.clear());
     expect(result.current.sortOrder).toBe('desc');
     expect(result.current.activeLabels).toEqual([]);

@@ -2,11 +2,16 @@
  * ActionMenu — a keyboard-accessible menu button (WAI-ARIA menu button pattern) for overflow actions.
  *
  * Opening it (click, Enter, Space, ArrowDown; ArrowUp opens on the last item) moves focus INTO the menu, onto an item,
- * and the items rove: one has tabIndex 0, Arrow keys / Home / End move focus. Enter and Space act on the item that HAS
- * focus when the key is pressed (read from the event, never from a remembered index), so a key can never act on an item
- * or a row the user has moved away from. Escape closes and returns focus to the trigger; Tab closes and lets focus go
- * on from the trigger; focus leaving the menu any other way, or a click outside it, closes it. The menu is fixed to the
- * viewport and opens upward when there is not room below (panelPlacement), scrolling inside when neither side fits.
+ * and the items rove: one has tabIndex 0, Arrow keys / Home / End move focus. With no enabled item the menu itself takes
+ * focus, so Escape and Tab still work. Enter and Space act on the item that HAS focus when the key is pressed (read from
+ * the event, never from a remembered index), so a key can never act on an item or a row the user has moved away from;
+ * the Space that picked is not allowed to re-open the menu from the trigger on its keyup. Ctrl/Shift/Cmd+Enter on a
+ * link item is the browser's (a new tab or window). Escape closes and returns focus to the trigger (from the trigger
+ * too); Tab closes and lets focus go on from the trigger; focus leaving the menu any other way, or a click outside it,
+ * closes it, and a click on the menu's own padding keeps focus in it. The menu is fixed to the viewport: its side (down,
+ * or up when there is not room below; panelPlacement) is chosen once when it opens, it is kept inside the viewport
+ * horizontally, and it follows its trigger on scroll. If the items change while it is open, the focused item is found
+ * again by its label.
  * Keys the menu handles stop there (the menu is portalled, and React would bubble them to the trigger's ancestors,
  * e.g. a grid that has hotkeys of its own).
  */
@@ -16,7 +21,7 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { MoreVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { chooseSide, placePanel, type PanelPlacement } from './panelPlacement';
+import { chooseSide, placePanel, type PanelPlacement, type PanelSide } from './panelPlacement';
 
 export interface ActionMenuItem {
   label: string;
@@ -49,25 +54,40 @@ const ITEM_PX = 36;
 const MENU_PAD_PX = 8;
 
 const enabledIndexes = (items: ActionMenuItem[]): number[] => items.flatMap((it, i) => (it.disabled ? [] : [i]));
+/** The viewport margin the menu keeps, and its narrowest width. */
+const EDGE_PX = 8;
+const MENU_MIN_W = 180;
+type Place = { p: PanelPlacement; side: PanelSide; right?: number; left?: number };
+
+/** Right-aligned to the trigger, but never past either edge of the viewport. */
+function horizontal(r: DOMRect): { right?: number; left?: number } {
+  const right = Math.max(EDGE_PX, window.innerWidth - r.right);
+  return window.innerWidth - right - MENU_MIN_W < EDGE_PX ? { left: EDGE_PX } : { right };
+}
 
 export function ActionMenu({
   items, triggerLabel = 'More actions', className, trigger, triggerSizeClassName = 'h-9 w-9 max-lg:h-11 max-lg:w-11', triggerTitle,
 }: ActionMenuProps) {
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(-1);
-  const [place, setPlace] = React.useState<{ p: PanelPlacement; right: number } | null>(null);
+  const [place, setPlace] = React.useState<Place | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+  /** Set when Space picked an item: that Space's keyup lands on the trigger and must not click it open again. */
+  const swallowSpaceUp = React.useRef(false);
+  /** The label of the active item, so it can be found again when the items change while the menu is open. */
+  const activeLabel = React.useRef<string | null>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
   /** An item element by its index (data-menu-index): links and buttons alike, without relying on refs reaching an <a>. */
   const itemAt = (i: number) => menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${i}"]`) ?? null;
   const indexOf = (el: EventTarget | null) => Number((el as HTMLElement | null)?.closest?.('[data-menu-index]')?.getAttribute('data-menu-index') ?? -1);
 
-  const measure = React.useCallback(() => {
+  /** Placement on `side`; with no side (opening) the side is chosen from the room around the trigger. */
+  const place_ = React.useCallback((side?: PanelSide) => {
     const t = triggerRef.current;
     if (!t) return;
     const r = t.getBoundingClientRect();
-    const side = chooseSide(r, window.innerHeight, items.length * ITEM_PX + MENU_PAD_PX);
-    setPlace({ p: placePanel(r, window.innerHeight, side), right: window.innerWidth - r.right });
+    const s = side ?? chooseSide(r, window.innerHeight, items.length * ITEM_PX + MENU_PAD_PX);
+    setPlace({ p: placePanel(r, window.innerHeight, s), side: s, ...horizontal(r) });
   }, [items.length]);
 
   const close = React.useCallback((refocus: boolean) => {
@@ -78,15 +98,33 @@ export function ActionMenu({
 
   const openAt = (which: 'first' | 'last') => {
     const enabled = enabledIndexes(items);
-    measure();
+    place_();
     setActive(which === 'first' ? enabled[0] ?? -1 : enabled[enabled.length - 1] ?? -1);
     setOpen(true);
   };
 
-  // Focus follows the active item (roving focus): on open, and on every Arrow / Home / End.
+  // Remembered when the ACTIVE item changes (not when the items do: then it is the old list's label that is wanted).
   React.useEffect(() => {
-    if (open && active >= 0) itemAt(active)?.focus();
-  }, [open, active]);
+    activeLabel.current = active >= 0 ? items[active]?.label ?? null : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // The items changed while open (a menu that grows or shrinks): the active item is found again by its label, or the
+  // first enabled one takes its place, so focus and the roving tabIndex point at the same item.
+  React.useEffect(() => {
+    if (!open || activeLabel.current === null) return;
+    const at = items.findIndex(it => it.label === activeLabel.current && !it.disabled);
+    setActive(at >= 0 ? at : enabledIndexes(items)[0] ?? -1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
+  // Focus follows the active item (roving focus): on open, on every Arrow / Home / End, and when the items change.
+  // No enabled item: the menu itself takes focus, so its keys (Escape, Tab) still work.
+  React.useEffect(() => {
+    if (!open) return;
+    const el = active >= 0 ? itemAt(active) : menuRef.current;
+    if (el && document.activeElement !== el) el.focus();
+  }, [open, active, items]);
 
   // A click outside the trigger and the menu closes it (focus stays where the click put it).
   React.useEffect(() => {
@@ -99,16 +137,18 @@ export function ActionMenu({
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
 
-  // Keep it on its trigger while the page scrolls or resizes.
+  // Keep it on its trigger while the page scrolls or resizes, on the side it opened on (it never flips under the pointer).
+  const side = place?.side;
   React.useEffect(() => {
-    if (!open) return undefined;
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, { capture: true, passive: true });
+    if (!open || !side) return undefined;
+    const follow = () => place_(side);
+    window.addEventListener('resize', follow);
+    window.addEventListener('scroll', follow, { capture: true, passive: true });
     return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, { capture: true });
+      window.removeEventListener('resize', follow);
+      window.removeEventListener('scroll', follow, { capture: true });
     };
-  }, [open, measure]);
+  }, [open, side, place_]);
 
   const pick = (item: ActionMenuItem) => {
     if (item.disabled) return;
@@ -119,7 +159,8 @@ export function ActionMenu({
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const enabled = enabledIndexes(items);
     const at = enabled.indexOf(indexOf(e.target));
-    const move = (to: number | undefined) => { if (to !== undefined) setActive(to); };
+    // From the menu itself (focus put there by a click on its padding) the item may already be the active one.
+    const move = (to: number | undefined) => { if (to === undefined) return; if (to === active) itemAt(to)?.focus(); else setActive(to); };
     let handled = true;
     switch (e.key) {
       case 'ArrowDown': move(enabled[(at + 1) % enabled.length]); break;
@@ -130,6 +171,13 @@ export function ActionMenu({
       case 'Enter':
       case ' ': {
         const item = items[indexOf(e.target)];
+        if (item?.href && e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+          // The browser opens the link in a new tab / window; the menu closes once it has.
+          handled = false;
+          window.setTimeout(() => close(false), 0);
+          break;
+        }
+        if (item && e.key === ' ') swallowSpaceUp.current = true;
         if (item) pick(item);
         break;
       }
@@ -155,7 +203,15 @@ export function ActionMenu({
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       openAt(e.key === 'ArrowDown' ? 'first' : 'last');
+    } else if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      close(true);
     }
+  };
+  // The keyup of the Space that picked an item lands here (focus went back to the trigger): it must not click it open.
+  const onTriggerKeyUp = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === ' ' && swallowSpaceUp.current) e.preventDefault();
+    swallowSpaceUp.current = false;
   };
 
   return (
@@ -169,6 +225,7 @@ export function ActionMenu({
         title={triggerTitle}
         onClick={() => (open ? close(false) : openAt('first'))}
         onKeyDown={onTriggerKeyDown}
+        onKeyUp={onTriggerKeyUp}
         className={cn(
           'inline-flex items-center justify-center rounded-lg', triggerSizeClassName,
           'border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]',
@@ -187,11 +244,12 @@ export function ActionMenu({
           role="menu"
           aria-orientation="vertical"
           aria-label={triggerLabel}
+          tabIndex={-1}
           onKeyDown={onMenuKeyDown}
           onBlur={onMenuBlur}
-          data-side={place.p.top !== undefined ? 'down' : 'up'}
-          style={{ position: 'fixed', top: place.p.top, bottom: place.p.bottom, right: place.right, maxHeight: place.p.maxHeight, minWidth: 180, zIndex: 9999 }}
-          className="overflow-y-auto rounded-lg shadow-xl border py-1 bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]"
+          data-side={place.side}
+          style={{ position: 'fixed', top: place.p.top, bottom: place.p.bottom, right: place.right, left: place.left, maxHeight: place.p.maxHeight, minWidth: MENU_MIN_W, zIndex: 9999 }}
+          className="outline-none overflow-y-auto rounded-lg shadow-xl border py-1 bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]"
         >
           {items.map((item, idx) => {
             const cls = cn(

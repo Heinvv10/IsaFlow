@@ -37,21 +37,36 @@ const isWide = () => typeof window.matchMedia === 'function' && window.matchMedi
  * not at its default. The width is read in render (no closed-then-open jump on a wide screen) and followed across 1536px.
  */
 function useFoldedFilters(notDefault: boolean) {
+  // The server (and the hydration pass) cannot know the width: it renders closed and a wide client opens it right after
+  // hydration. The page is statically optimised and its list loads after that, so no row moves; a client-side
+  // navigation reads the width on its first render.
   const wide = useSyncExternalStore(subscribeWide, isWide, () => false);
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? (wide || notDefault);
   return { open, toggle: () => setChoice(!open) };
 }
 
-/** The selection bar unmounts (Clear, Mark as Reviewed, Delete) with focus in it: hand focus to Refresh, not to <body>. */
+/**
+ * The selection bar unmounts (Clear, Mark as Reviewed, Delete) with focus IN it: hand focus to Refresh, not to <body>,
+ * without scrolling the list. Only then: a selection that ends because the ticked row was accepted from the row itself
+ * (focus was in the grid) must not pull the user to the top of a 100-row list.
+ */
 function useFocusAfterSelection(selecting: boolean) {
   const refreshRef = useRef<HTMLButtonElement>(null);
+  const focusInBar = useRef(false);
   const was = useRef(selecting);
   useEffect(() => {
-    if (was.current && !selecting && (document.activeElement === null || document.activeElement === document.body)) refreshRef.current?.focus();
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (was.current && !selecting && focusInBar.current && lost) refreshRef.current?.focus({ preventScroll: true });
+    if (!selecting) focusInBar.current = false;
     was.current = selecting;
   }, [selecting]);
-  return refreshRef;
+  const barFocus = {
+    onFocus: () => { focusInBar.current = true; },
+    // Focus moving out of the bar (not the bar going away: a removed element reports no blur) clears it.
+    onBlur: (e: React.FocusEvent<HTMLElement>) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusInBar.current = false; },
+  };
+  return { refreshRef, barFocus };
 }
 
 export interface BankTxFiltersProps {
@@ -120,7 +135,7 @@ export function BankTxFilters(p: BankTxFiltersProps) {
     + (sortOrder !== 'desc' ? 1 : 0);
   const panel = useFoldedFilters(folded > 0);
   const selecting = selectedCount > 0;
-  const refreshRef = useFocusAfterSelection(selecting);
+  const { refreshRef, barFocus } = useFocusAfterSelection(selecting);
   const applyDisabled = !selectedBank || smartRunning || !!busy?.has('apply-rules');
   const toggleClass = (on: boolean) => `px-2 min-h-7 rounded text-xs font-medium transition-colors ${on
     ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
@@ -141,9 +156,11 @@ export function BankTxFilters(p: BankTxFiltersProps) {
         </button>
         {selecting ? (
           <>
-            <BankTxSelectionBar count={selectedCount} showActions={tab === 'new'} busy={busy} progress={progress}
-              onBulkAccept={p.onBulkAccept} onBatchAccept={p.onBatchAccept} onBatchDelete={p.onBatchDelete}
-              onToggleBatchEdit={p.onToggleBatchEdit} onClear={p.onClearSelection} />
+            <div className="contents" {...barFocus}>
+              <BankTxSelectionBar count={selectedCount} showActions={tab === 'new'} busy={busy} progress={progress}
+                onBulkAccept={p.onBulkAccept} onBatchAccept={p.onBatchAccept} onBatchDelete={p.onBatchDelete}
+                onToggleBatchEdit={p.onToggleBatchEdit} onClear={p.onClearSelection} />
+            </div>
             {smartRunning && (
               <span data-testid="bank-tx-smart-running" className="flex items-center gap-1 text-xs text-yellow-700 dark:text-yellow-500">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Categorizing...

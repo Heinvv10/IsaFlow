@@ -23,6 +23,9 @@ import {
 } from './bankTxUrlState';
 import { readPageSizePref } from './bankTxPageSizePref';
 
+/** The view's query, measured against the size the plain page would open with (the remembered one, else 25). */
+const ser = (v: Parameters<typeof serializeUrlView>[0]) => serializeUrlView(v, readPageSizePref() ?? DEFAULT_FILTERS.pageSize);
+
 interface RouterLike {
   isReady: boolean; pathname: string; query: Record<string, string | string[] | undefined>;
   push: (url: { pathname: string; query: Record<string, string | string[] | undefined> }, as?: undefined, o?: { shallow?: boolean; scroll?: boolean }) => unknown;
@@ -97,7 +100,7 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     if (nextTab !== tab) handledTab.current = nextTab;
     live.current.f.apply(filters); setPage(p.page ?? 1); setTab(nextTab); live.current.clearSelection();
     if (account) setSelectedBank(account);
-    return serializeUrlView({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }); // the canonical form of what was applied
+    return ser({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }); // the canonical form of what was applied
   }, [tab, setPage, setTab, setSelectedBank]);
   // Back/Forward/a link took us to this URL. If it is not the canonical form of the view it shows (junk parameters, an account
   // that is not available), the correction REPLACES that entry: pushing one would leave the junk URL one Back away, forever.
@@ -121,11 +124,11 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   }, [router.isReady, router.query, restored, apply]);
 
   const view = { account: selectedBank, tab, page, filters: f.values };
-  const viewKey = ownedQueryKey(serializeUrlView(view));
+  const viewKey = ownedQueryKey(ser(view));
   useEffect(() => { // write the view
     if (!restored || !selectedBank) return;
     const r = routerRef.current;
-    const owned = serializeUrlView(view);
+    const owned = ser(view);
     const key = ownedQueryKey(owned);
     const prev = lastSent.current;
     lastSent.current = { account: selectedBank, tab, page };
@@ -168,7 +171,7 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   const viewNow = useRef(view);
   useEffect(() => { viewNow.current = view; });
   const latestQuery = useCallback(() => (restored && viewNow.current.account
-    ? mergeOwnedQuery(routerRef.current.query, serializeUrlView(viewNow.current)) : routerRef.current.query), [restored]);
+    ? mergeOwnedQuery(routerRef.current.query, ser(viewNow.current)) : routerRef.current.query), [restored]);
 
   return { selectBank, changeTab, clampPage, latestQuery, restored };
 }

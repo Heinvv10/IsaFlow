@@ -68,7 +68,8 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   set('allocationFilter', pick(one(query.alloc), ALLOC)); set('txType', pick(one(query.type), TYPES));
   set('allocType', pick(one(query.cat), CATS)); set('hasSuggestion', pick(one(query.sugg), SUGG));
   set('reconFilter', pick(one(query.recon), RECON));
-  set('pageSize', BANK_TX_PAGE_SIZES.slice(1).find(n => String(n) === one(query.size)));
+  // Any offered size, 25 included: an explicit ?size=25 must beat a size remembered in the browser.
+  set('pageSize', BANK_TX_PAGE_SIZES.find(n => String(n) === one(query.size)));
   // A range typed the wrong way round (min above max, from after to) is read the right way round, not as an empty list.
   if (filters.fromAmount !== undefined && filters.toAmount !== undefined && Number(filters.fromAmount) > Number(filters.toAmount)) {
     [filters.fromAmount, filters.toAmount] = [filters.toAmount, filters.fromAmount];
@@ -88,8 +89,11 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   };
 }
 
-/** The query for a view: only what differs from the plain page. */
-export function serializeUrlView(v: UrlView): Record<string, string> {
+/**
+ * The query for a view: only what differs from the plain page. `defaultPageSize` is the size the plain page would open
+ * with (the one remembered in this browser, else 25): an explicit 25 against a remembered 50 is written, so it stays 25.
+ */
+export function serializeUrlView(v: UrlView, defaultPageSize: number = DEFAULT_FILTERS.pageSize): Record<string, string> {
   const out: Record<string, string> = {};
   const d = DEFAULT_FILTERS, f = v.filters;
   if (v.account) out.account_id = v.account;
@@ -106,7 +110,8 @@ export function serializeUrlView(v: UrlView): Record<string, string> {
   if (f.allocType !== d.allocType) out.cat = f.allocType;
   if (f.hasSuggestion !== d.hasSuggestion) out.sugg = f.hasSuggestion;
   if (f.reconFilter !== d.reconFilter) out.recon = f.reconFilter;
-  if (f.pageSize !== d.pageSize) out.size = String(f.pageSize);
+  // Written when not 25 (a link carries it), and also when it is 25 but the plain page would open with another size.
+  if (f.pageSize !== d.pageSize || f.pageSize !== defaultPageSize) out.size = String(f.pageSize);
   return out;
 }
 

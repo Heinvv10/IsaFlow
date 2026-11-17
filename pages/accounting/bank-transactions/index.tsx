@@ -238,7 +238,7 @@ export default function BankTransactionsPage() {
           <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
           {sel.noneActive && <BankTxSummaryNotice kind="none-active" />}
           {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={(isLoading || summary.status === 'loading' || choosing) && !refreshing} refreshing={refreshing} error={error}
-            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.activeLabels}
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.narrowingLabels}
             detailTx={detailTx} onDetailClose={closeDetail} pageSize={PAGE_SIZE}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}

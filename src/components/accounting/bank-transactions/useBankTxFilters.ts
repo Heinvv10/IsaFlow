@@ -54,6 +54,8 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   if (allocType !== 'all') activeLabels.push(`Allocation type: ${allocType}`);
   if (hasSuggestion !== 'all') activeLabels.push(`Suggestion: ${hasSuggestion}`);
   if (reconFilter !== 'all') activeLabels.push(`Reconciliation: ${reconFilter}`);
+  /** What NARROWS the list (the empty state names these: a sort never empties a list). */
+  const narrowingLabels = [...activeLabels];
   // Not a narrowing, but a non-default order is folded behind Filters at a narrow width: say so, and Clear resets it.
   if (sortOrder !== 'desc') activeLabels.push('Sort: oldest first');
 
@@ -89,7 +91,7 @@ export function useBankTxFilters(setPage: (n: number) => void) {
     searchTerm, setSearchTerm, debouncedSearch, fromDate, setFromDate, toDate, setToDate, fromAmount, setFromAmount,
     toAmount, setToAmount, sortOrder, setSortOrder, allocationFilter, setAllocationFilter, txType, setTxType,
     allocType, setAllocType, hasSuggestion, setHasSuggestion, reconFilter, setReconFilter, pageSize, setPageSize,
-    activeLabels, resetSelects, clear, resetForAccount, resetTick,
+    activeLabels, narrowingLabels, resetSelects, clear, resetForAccount, resetTick,
   };
 }
 

@@ -136,11 +136,51 @@ describe('the contextual selection bar', () => {
     expect(screen.getByTestId('bank-tx-smart-running')).toHaveTextContent('Categorizing...');
   });
 
-  it('when the selection bar goes (Clear, Mark as Reviewed, Delete) focus lands on Refresh, not on <body>', () => {
-    const { rerender } = render(<BankTxFilters {...props()} selectedCount={2} />);
-    screen.getByRole('button', { name: 'Clear selection' }).focus();
+  it('when the selection bar goes (Clear, Mark as Reviewed, Delete) focus lands on Refresh, not on <body>, without scrolling', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      const { rerender } = render(<BankTxFilters {...props()} selectedCount={2} />);
+      screen.getByRole('button', { name: 'Clear selection' }).focus();
+      focus.mockClear();
+      rerender(<BankTxFilters {...props()} selectedCount={0} />);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh' }));
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    } finally { focus.mockRestore(); }
+  });
+
+  it('a selection that ends from the grid (the ticked row accepted) leaves focus alone: no jump to the top', () => {
+    const { rerender } = render(<BankTxFilters {...props()} selectedCount={1} />);
+    const accept = document.body.appendChild(Object.assign(document.createElement('button'), { textContent: 'Accept, row 80' }));
+    accept.focus();
+    accept.remove(); // the accepted row leaves the list: focus falls to <body>
+    expect(document.activeElement).toBe(document.body);
     rerender(<BankTxFilters {...props()} selectedCount={0} />);
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh' }));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('focus that was in the bar and then left it is not pulled back', () => {
+    const { rerender } = render(<BankTxFilters {...props()} selectedCount={1} />);
+    const field = document.body.appendChild(document.createElement('input'));
+    const clear = screen.getByRole('button', { name: 'Clear selection' });
+    clear.focus();
+    fireEvent.blur(clear, { relatedTarget: field });
+    field.focus();
+    field.remove();
+    rerender(<BankTxFilters {...props()} selectedCount={0} />);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('More growing while open (rows ticked): focus and the roving tabIndex stay on the item the user was on', () => {
+    const { rerender } = render(<BankTxFilters {...props()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    const exp = () => screen.getByRole('menuitem', { name: 'Export this page' });
+    expect(document.activeElement).toBe(exp());
+    rerender(<BankTxFilters {...props()} selectedCount={1} />);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getAllByRole('menuitem')[0]).toHaveTextContent('Smart Categorize');
+    expect(document.activeElement).toBe(exp());
+    expect(exp().tabIndex).toBe(0);
   });
 
   it('...but focus that went somewhere else (a dialog, a field) is left there', () => {
