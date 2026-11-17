@@ -13,6 +13,8 @@ import { listVersionRows } from './returnVersionStore';
 import { getVatReturnRecord } from './vatReturnRecord';
 import { empRunDrift } from './empDrift';
 import { empEtiDrift } from './empEtiDrift';
+import { emp501PeriodOf } from '@/modules/accounting/services/payroll/emp501Period';
+import { emp501Drift } from './emp501Figures';
 import type { ReturnForm, ReturnVersion, VatReturnRecord } from './returnVersionTypes';
 
 export interface DriftField { name: string; recorded: number; current: number }
@@ -58,6 +60,11 @@ export async function driftOf(companyId: string, v: ReturnVersion): Promise<Retu
     const changed = JSON.stringify(figures.sarsFields ?? []) !== JSON.stringify(JSON.parse(JSON.stringify(r.boxes)))
       ? ['sarsFields'] : [];
     return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };
+  }
+  if (form === 'EMP501') {
+    const p = emp501PeriodOf(start, end);
+    if (!p) throw new Error(`EMP501 version ${v.id} has no EMP501 period (${start} to ${end})`);
+    return emp501Drift(companyId, p, figures);
   }
   const e = await generateEMP201(companyId, start, end);
   const run = await empRunDrift(companyId, figures, e);

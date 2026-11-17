@@ -6,6 +6,7 @@ import { takeDraftPeriodLock } from '@/modules/accounting/services/reports/sarsC
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { finaliseVatReturn } from './finaliseVatReturn';
 import { finaliseEmpReturn } from './finaliseEmpReturn';
+import { assertEmp501Period, finaliseEmp501Return } from './finaliseEmp501Return';
 import { assertNoLiveOverlap } from './returnVersionStore';
 import { assertEmpPeriod, assertVatPeriodShape } from './returnPeriod';
 import {
@@ -30,6 +31,7 @@ export async function finaliseReturn(
   const problem = reportWindowProblem(periodStart, periodEnd);
   if (problem) throw new ReturnRefusal(400, problem);
   if (form === 'EMP201') assertEmpPeriod(periodStart, periodEnd);
+  else if (form === 'EMP501') assertEmp501Period(periodStart, periodEnd);
   else await assertVatPeriodShape(companyId, periodStart, periodEnd);
   // The draft-period key a filing, a draft save and an ISV send of this period hold: a finalise cannot interleave with
   // a send in flight. Taken before the VAT key (computeVatLockFigures) and before any version row.
@@ -47,9 +49,13 @@ export async function finaliseReturn(
     // index, a lock that was not ours) leaves no lock, no override row and no version, even though
     // withAuth commits a 4xx. lockVatPeriod's auto-snapshot is scheduled after its insert and may
     // still fire for a lock that then rolls back.
-    return await withSavepoint('finalise_return', async () => (form === 'VAT201'
-      ? finaliseVatReturn(companyId, periodStart, periodEnd, actor, opts)
-      : { version: await finaliseEmpReturn(companyId, periodStart, periodEnd, actor), vatReturn: null }));
+    return await withSavepoint('finalise_return', async () => {
+      if (form === 'VAT201') return finaliseVatReturn(companyId, periodStart, periodEnd, actor, opts);
+      const version = form === 'EMP501'
+        ? await finaliseEmp501Return(companyId, periodStart, periodEnd, actor)
+        : await finaliseEmpReturn(companyId, periodStart, periodEnd, actor);
+      return { version, vatReturn: null };
+    });
   } catch (err) {
     if ((err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
       throw new ReturnRefusal(409, `Another finalise of this ${form} just landed. Reload to see it.`);

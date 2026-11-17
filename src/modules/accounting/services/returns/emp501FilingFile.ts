@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import type { ReturnVersion } from './returnVersionTypes';
 
-export const EMP501_FILE_KIND = 'easyfile_irp5';
+export const EMP501_FILE_KIND = 'emp501_easyfile'; // 999v's filing_file_kind CHECK
 
 export interface Emp501File { body: string; filename: string; sha256: string }
 
