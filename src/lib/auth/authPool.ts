@@ -19,21 +19,32 @@ import {
 
 let _pool: pg.Pool | null = null;
 
-export function getAuthPool(): pg.Pool {
-  if (_pool) return _pool;
+/**
+ * Where (and as whom) a request transaction connects: the request pool's login (isaflow_app in production, which
+ * may SET ROLE app_user), never the service pool's. Also the one source for a request's own sibling transaction
+ * (companyOwnTx), so its rows land in the database, under the role, the request reads.
+ */
+export function authConnection(): Pick<pg.ClientConfig, 'connectionString' | 'ssl'> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL required');
-  _pool = new pg.Pool({
+  return {
     connectionString: url,
-    max: authPoolMax(),
-    connectionTimeoutMillis: AUTH_POOL_CONNECTION_TIMEOUT_MS,
-    idleTimeoutMillis: AUTH_POOL_IDLE_TIMEOUT_MS,
     ssl:
       process.env.DATABASE_SSL === 'strict'
         ? { rejectUnauthorized: true }
         : process.env.DATABASE_SSL === 'disable'
           ? false
           : { rejectUnauthorized: false },
+  };
+}
+
+export function getAuthPool(): pg.Pool {
+  if (_pool) return _pool;
+  _pool = new pg.Pool({
+    ...authConnection(),
+    max: authPoolMax(),
+    connectionTimeoutMillis: AUTH_POOL_CONNECTION_TIMEOUT_MS,
+    idleTimeoutMillis: AUTH_POOL_IDLE_TIMEOUT_MS,
   });
   _pool.on('error', (err) => log.warn('withAuth pool background error', { message: err.message }, 'Auth'));
   return _pool;
