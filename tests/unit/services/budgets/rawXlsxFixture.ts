@@ -33,7 +33,14 @@ const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 export async function rawBook(b: RawBook): Promise<Buffer> {
   const zip = new JSZip();
-  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+  // A complete package (content types, the package rels), so a spreadsheet program opens it too (LibreOffice did not without).
+  const CT = 'application/vnd.openxmlformats-officedocument.spreadsheetml';
+  const overrides = [`<Override PartName="/xl/workbook.xml" ContentType="${CT}.sheet.main+xml"/>`,
+    ...b.sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT}.worksheet+xml"/>`),
+    ...(b.styles !== undefined ? [`<Override PartName="/xl/styles.xml" ContentType="${CT}.styles+xml"/>`] : []),
+    ...(b.sst !== undefined ? [`<Override PartName="/xl/sharedStrings.xml" ContentType="${CT}.sharedStrings+xml"/>`] : [])];
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${overrides.join('')}</Types>`);
+  zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
   const view = b.activeTab === undefined ? '' : `<bookViews><workbookView activeTab="${b.activeTab}"/></bookViews>`;
   const sheetsXml = `<sheets>${b.sheets.map((s, i) => `<sheet name="${s.name}" sheetId="${i + 1}"${s.attrs ?? ''} r:id="rId${i + 1}"/>`).join('')}</sheets>`;
   zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8"?><workbook ${NS}>${b.workbookBody ?? `${view}${sheetsXml}`}</workbook>`);
