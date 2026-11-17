@@ -69,7 +69,7 @@ export function useBulkAccept(bankAccountId: string | null) {
       // The server answered: nothing is half-done, and the token is spent. Otherwise (a dropped answer) the batch may have
       // posted: look for it so Undo stays possible, and never leave the old token to be confirmed again.
       let found: Awaited<ReturnType<typeof findRecentBatch>> = null;
-      if (!isDefinitiveFailure(err)) found = await findRecentBatch(startedAt).catch(() => null);
+      if (!isDefinitiveFailure(err)) found = await findRecentBatch(bankAccountId!, startedAt).catch(() => null);
       if (mine !== seq.current) return;
       if (found) {
         const confirmed: BulkConfirmed = { runId: found.id, posted: [], refused: [], totalPosted: found.totalAmount };
@@ -78,7 +78,7 @@ export function useBulkAccept(bankAccountId: string | null) {
         setState((s) => ({ ...s, phase: 'preview', changed: true, tokenDead: true, error: message }));
       }
     } finally { inFlight.current = false; }
-  }, [state.preview, state.phase, state.tokenDead, state.refreshing]);
+  }, [bankAccountId, state.preview, state.phase, state.tokenDead, state.refreshing]);
 
   const undo = useCallback(async () => {
     const runId = state.confirmed?.runId;

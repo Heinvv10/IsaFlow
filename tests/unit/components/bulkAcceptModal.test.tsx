@@ -303,24 +303,24 @@ describe('paging, held lines, a dead token, nothing posted', () => {
 });
 
 describe('a lost answer, a double click, a stale answer', () => {
-  const RUN = (over = {}) => ({ id: 'run-9', source: 'manual', postedCount: 2, totalAmount: 150, createdAt: new Date().toISOString(), undoneAt: null, ...over });
 
   it('after a dropped confirm the batch is looked up, so the result and Undo are still there', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce(ok({ runs: [RUN({ id: 'old', createdAt: '2020-01-01T00:00:00Z' }), RUN()] }))
+      .mockResolvedValueOnce(ok({ batch: { id: 'run-9', postedCount: 2, totalAmount: 150 } }))
       .mockResolvedValueOnce(ok({ reversed: 2, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
     const { onChanged } = open();
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
     expect((await screen.findByTestId('bulk-result')).textContent).toMatch(/answer was lost, but a batch of 2 lines/);
     fireEvent.click(screen.getByRole('button', { name: 'Undo batch' }));
     await screen.findByText(/Batch undone: 2 lines reversed/);
+    expect(String(vi.mocked(apiFetch).mock.calls[2]![0])).toMatch(/bankAccountId=b1&recentSince=\d+/); // the server-side, own-batch look-up
     expect(bodies()[3]).toEqual({ action: 'undo', runId: 'run-9' });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onChanged).toHaveBeenCalled();
   });
 
   it('a dropped confirm with no batch found kills the old token: Confirm disabled until Refresh preview', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok({ runs: [] }));
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok({ batch: null }));
     open();
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
     await screen.findByRole('alert');
