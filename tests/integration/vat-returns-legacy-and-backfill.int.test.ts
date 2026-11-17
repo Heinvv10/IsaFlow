@@ -37,6 +37,14 @@ const legacy = (c: string, p: P, net: number, ago = '0 days') => sql`INSERT INTO
   (company_id, period_start, period_end, total_output_tax, total_input_tax, net_vat, submitted_at)
   VALUES (${c}::UUID, ${p.periodStart}::DATE, ${p.periodEnd}::DATE, ${net}, 0, ${net}, now() - ${ago}::INTERVAL)`;
 
+/** The migration's backfill UPDATE, exactly as written in the file. */
+async function runBackfill(): Promise<void> {
+  const file = readFileSync('scripts/migrations/sql/999g_vat_returns_return_version.sql', 'utf8');
+  const update = file.slice(file.indexOf('UPDATE vat_returns vr'), file.indexOf('ALTER TABLE vat_returns VALIDATE'));
+  const pool = new Pool({ connectionString: DATABASE_URL });
+  try { await pool.query(update); } finally { await pool.end(); }
+}
+
 describeIfDb('VR review round 1: legacy settlements and the 999g backfill', () => {
   beforeAll(async () => {
     assertNotProductionDb('This test seeds companies, VAT locks, return versions and settlements.');
@@ -58,13 +66,20 @@ describeIfDb('VR review round 1: legacy settlements and the 999g backfill', () =
     const v1 = versionId(await finaliseP(rf, BACKFILL));
     expect((await amendV(rf, v1)).status).toBe(200);
     expect((await finaliseP(rf, BACKFILL)).status).toBe(200);
-    // The migration's UPDATE, exactly as written in the file.
-    const file = readFileSync('scripts/migrations/sql/999g_vat_returns_return_version.sql', 'utf8');
-    const update = file.slice(file.indexOf('UPDATE vat_returns vr'), file.indexOf('ALTER TABLE vat_returns VALIDATE'));
-    const pool = new Pool({ connectionString: DATABASE_URL });
-    try { await pool.query(update); } finally { await pool.end(); }
+    await runBackfill();
     const row = ((await sql`SELECT return_version_id FROM vat_returns
       WHERE company_id = ${c}::UUID AND period_start = ${BACKFILL.periodStart}::DATE`) as Row[])[0]!;
+    expect(row.return_version_id).toBeNull();
+  });
+
+  it('M1: the backfill leaves NULL a settlement made before its (never amended) version was finalised', async () => {
+    const c = rf.fx.companyId;
+    const P = { periodStart: '2026-06-01', periodEnd: '2026-07-31' };
+    await legacy(c, P, 0, '40 days');
+    expect((await finaliseP(rf, P)).status).toBe(200);
+    await runBackfill();
+    const row = ((await sql`SELECT return_version_id FROM vat_returns
+      WHERE company_id = ${c}::UUID AND period_start = ${P.periodStart}::DATE`) as Row[])[0]!;
     expect(row.return_version_id).toBeNull();
   });
 
@@ -72,10 +87,7 @@ describeIfDb('VR review round 1: legacy settlements and the 999g backfill', () =
     const c = other.fx.companyId;
     const v = versionId(await finaliseP(other, BACKFILL));
     await legacy(c, BACKFILL, 0); // settled now, after the version was finalised
-    const file = readFileSync('scripts/migrations/sql/999g_vat_returns_return_version.sql', 'utf8');
-    const update = file.slice(file.indexOf('UPDATE vat_returns vr'), file.indexOf('ALTER TABLE vat_returns VALIDATE'));
-    const pool = new Pool({ connectionString: DATABASE_URL });
-    try { await pool.query(update); } finally { await pool.end(); }
+    await runBackfill();
     const row = ((await sql`SELECT return_version_id FROM vat_returns
       WHERE company_id = ${c}::UUID AND period_start = ${BACKFILL.periodStart}::DATE`) as Row[])[0]!;
     expect(row.return_version_id).toBe(v);
