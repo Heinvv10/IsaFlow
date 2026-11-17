@@ -13,6 +13,11 @@ import { emp201FieldDrill } from '@/modules/accounting/services/reports/emp201Fi
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { generateUifDeclaration } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { empRunDrift } from '@/modules/accounting/services/returns/empDrift';
+import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
+import { listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
+import { listRunAnnualPayments, listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -20,6 +25,8 @@ const C = crypto.randomUUID();
 const USER = crypto.randomUUID();
 const emp: Record<string, string> = {};
 const run: Record<string, string> = {};
+const DIRECTIVE = crypto.randomUUID();
+const YEAR = { start: '2028-03-01', end: '2029-02-28' };
 
 async function employee(number: string): Promise<string> {
   return (await pool.query<{ id: string }>(
@@ -47,14 +54,25 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [C, 'Breaker 1490']);
   emp.x = await employee('BR-X');
   run.sep = await seedRun(9, 'approved_at = clock_timestamp()', { employee: emp.x, gross: 30_000, paye: 5_000, eti: 0, uif: 177.12 });
-  // October: approved, NO stamp. ETI above PAYE (carry 4 000), a cash 3701 and a non-cash 3802 on the line.
+  await pool.query(
+    `INSERT INTO tax_directives (id, company_id, employee_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
+     VALUES ($1, $2, $3, 'Br X', '9876543210', 'severance', 50000, 0, '2028-10-01', 'approved')`, [DIRECTIVE, C, emp.x]);
+  // October: approved, NO stamp. ETI above PAYE (carry 4 000); on the line a cash 3701, a non-cash 3802, a 3605 annual
+  // payment, an in-run directive lump sum (3901), a pension contribution (4001) and medical scheme fees: every
+  // certificate sub-reader has something to (wrongly) pick up from it.
   run.oct = await seedRun(10, null, {
     employee: emp.x, gross: 30_000, paye: 1_000, eti: 5_000, uif: 177.12,
     breakdown: [
       { sarsSourceCode: '3701', amount: 8_000, isTaxable: true, payeIncludedAmount: 6_400 },
       { sarsSourceCode: '3802', amount: 2_000, isNonCash: true, isTaxable: true, payeIncludedAmount: 1_600 },
+      { sarsSourceCode: '3605', amount: 4_000, isTaxable: true },
+      { sarsSourceCode: '3901', amount: 5_000, isTaxable: true, directive: { id: DIRECTIVE, number: '9876543210', paye: 500 } },
+      { sarsSourceCode: '4001', amount: 2_000, isTaxable: true, retirementContribution: true },
     ],
   });
+  await pool.query(
+    `UPDATE payroll_run_lines SET medical_scheme_fees = 3000, retirement_contributions = 2000, retirement_deduction = 2000 WHERE run_id = $1`,
+    [run.oct]);
   run.nov = await seedRun(11, 'approved_at = clock_timestamp()', { employee: emp.x, gross: 30_000, paye: 5_000, eti: 0, uif: 177.12 });
 }, 120_000);
 
@@ -63,6 +81,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM uif_declarations WHERE company_id = $1', [C]);
     await pool.query('DELETE FROM payroll_run_lines WHERE run_id = ANY($1::uuid[])', [Object.values(run)]);
     await pool.query('DELETE FROM payroll_run_headers WHERE company_id = $1', [C]);
+    await pool.query('DELETE FROM tax_directives WHERE company_id = $1', [C]);
     await pool.query('DELETE FROM payroll_employees WHERE company_id = $1', [C]);
     await pool.query('DELETE FROM companies WHERE id = $1', [C]);
   } finally {
@@ -110,5 +129,21 @@ describe('one final-run population across the EMP201, IRP5 and UI-19', () => {
     expect((await empRunDrift(C, { runs: [] }, oct)).unfinalRuns).toBe(1);
     const sep = await generateEMP201(C, '2028-09-01', '2028-09-30');
     expect((await empRunDrift(C, { runs: sep.payrollRuns.map((r) => ({ id: r.id, approvedPlanHash: null })) }, sep)).unfinalRuns).toBe(0);
+  });
+
+  it('B1 e@syFile: the certificate aggregate (3601, 4102) counts the same final runs as its sub-readers', async () => {
+    const agg = (await loadCertificateAggregates(C, { startYear: 2028, startMonth: 3, endYear: 2029, endMonth: 2 }))
+      .find((r) => String(r.employee_id) === emp.x)!;
+    expect((await listRunAllowanceFiling(C, YEAR)).get(emp.x)).toBeUndefined();
+    expect(Number(agg.total_gross)).toBe(60_000);   // was 90 000: October's gross with its 3701 inside it
+    expect(Number(agg.total_paye)).toBe(10_000);    // was 11 000
+  });
+
+  it('M3 sub-readers: the unstamped October line\'s 3605, 3901 lump sum, medical fees and pension are on no certificate', async () => {
+    expect((await listRunAnnualPayments(C, YEAR)).get(emp.x)).toBeUndefined();
+    expect((await listRunLumpSums(C, YEAR)).get(emp.x)).toBeUndefined();
+    expect((await loadMedicalRecord(C, YEAR)).get(emp.x)?.fees ?? 0).toBe(0);
+    const ret = (await loadRetirementContributions(C, YEAR)).get(emp.x);
+    expect(ret?.pension4001 ?? 0).toBe(0);
   });
 });

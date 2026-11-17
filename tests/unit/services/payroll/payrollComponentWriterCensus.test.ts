@@ -37,6 +37,9 @@ const WRITERS: Record<string, [number, string]> = {
 const INDIRECT: Record<string, [number, string]> = {
   'scripts/ci/golden/cloneCompany.ts': [2, 'golden-path sandbox cloner: copies the table by name for a clone company, dev/CI only'],
   'scripts/seed-payroll-data.ts': [6, 'dev seed script: batchInsert by table name into a dev database, never run against production'],
+  // Wave 6 EF: read-only routes that read the table and splice the final-run fragment (sql.unsafe(payRunFinalSql(...))).
+  'pages/api/payroll/irp5/summary.ts': [1, 'read-only: the one sql.unsafe is payRunFinalSql (final runs), no write'],
+  'pages/api/payroll/year-end/status.ts': [3, 'read-only: the three sql.unsafe are payRunFinalSql (final runs), no write'],
 };
 
 /** Migration files that write the table in a statement or a function body. None today. */

@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listRunNonCashBenefits } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
@@ -54,9 +54,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
   const taxYear = taxYearRaw;
 
-  // Only approved/paid runs exist in the general ledger; a calculated or
-  // cancelled run declared here would over-state remuneration to SARS.
-  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // FINAL runs only (payRunFinalSql: approved or paid with an approval time, wave 6 EF); a calculated,
+  // cancelled or unstamped run declared here would over-state remuneration to SARS.
 
   log.info('EMP501 export requested', { companyId, taxYear }, 'emp501Export');
 
@@ -75,7 +74,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
     WHERE prh.company_id = ${companyId}::uuid
-      AND prh.status = ANY(${declarableStatuses}::text[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND (
         (prh.period_year = ${taxYear - 1} AND prh.period_month >= ${PAYE_TAX_YEAR_START_MONTH})
         OR
