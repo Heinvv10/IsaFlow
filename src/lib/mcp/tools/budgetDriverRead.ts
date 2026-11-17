@@ -10,7 +10,7 @@ import { listHires, readHeadcount } from '@/modules/accounting/services/budgets/
 import { perHeadAccessOf, PER_HEAD_RESTRICTED_NOTE } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, centsText, isResult } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, REF_TYPE, centsText, isResult } from './budgetToolArgs';
 import { loadModel } from './budgetAmountWrite';
 import { resolveCentre } from './budgetDriverArgs';
 import { driverLineView, hireView } from './budgetDriverView';
@@ -39,7 +39,7 @@ export const getBudgetDriversTool: McpTool = {
     type: 'object',
     properties: {
       version_id: { type: 'string', format: 'uuid' },
-      headcount_cost_centre: { type: 'string', description: 'A CC1 or CC2 (id or code): headcount at that centre (default: the company).' },
+      headcount_cost_centre: { type: [...REF_TYPE], description: 'A CC1 or CC2 (id or code): headcount at that centre (default: the company).' },
       limit: { type: 'integer', minimum: 1, maximum: DRIVERS_LIMIT_MAX }, offset: { type: 'integer', minimum: 0 },
     },
     required: ['version_id'],

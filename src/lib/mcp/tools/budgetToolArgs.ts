@@ -60,6 +60,10 @@ export function refText(v: unknown, what = 'account'): { ref: string } | { error
   return { ref: '' };
 }
 
+/** The JSON-schema type of every reference `refText` reads: a code may arrive as text or as a whole number (round 5). */
+export const REF_TYPE = ['string', 'integer'] as const;
+export const ID_OR_CODE = { type: [...REF_TYPE], description: 'Id or code (a numeric code may be sent as a whole number).' };
+
 export const isMonth = (v: unknown): v is string => typeof v === 'string' && MONTH.test(v);
 
 export function roundingUnitArg(args: Record<string, unknown>): RoundingUnit | McpToolResult {

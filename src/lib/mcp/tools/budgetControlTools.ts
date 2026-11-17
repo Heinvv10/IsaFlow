@@ -17,12 +17,11 @@ import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { ALERT_LIST_LIMIT, listBudgetAlerts, type BudgetAlertItem } from '@/modules/accounting/services/budgets/budgetAlertList';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, randText, refText } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, ID_OR_CODE, randText, refText } from './budgetToolArgs';
 import { offsetArg } from './budgetPaging';
 import { remainingLimit } from './budgetToolRateLimits';
 import { clampLimit, ok, toolError } from './toolHelpers';
 
-const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
 const DIMS = ['cc1', 'cc2', 'bu'] as const;
 const money = (v: number | null) => (v === null ? null : randText(v));
 

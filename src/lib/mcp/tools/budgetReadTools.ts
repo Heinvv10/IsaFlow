@@ -13,7 +13,7 @@ import { BAND_ORDER, type Band } from '@/modules/accounting/services/budgets/gri
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, centsText, isMonth, isResult, ownVersion, randText, refText, versionView } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, REF_TYPE, centsText, isMonth, isResult, ownVersion, randText, refText, versionView } from './budgetToolArgs';
 import { NOT_FOUND, clampLimit, ok, toolError } from './toolHelpers';
 import { offsetArg } from './budgetPaging';
 
@@ -75,10 +75,10 @@ export const getBudgetTool: McpTool = {
     type: 'object',
     properties: {
       version_id: { type: 'string', format: 'uuid' }, fiscal_year: { type: 'integer' },
-      accounts: { type: 'array', items: { type: 'string' }, maxItems: 500, description: 'Account ids or codes.' },
+      accounts: { type: 'array', items: { type: [...REF_TYPE] }, maxItems: 500, description: 'Account ids or codes.' },
       section: { type: 'string', enum: [...BAND_ORDER] },
       level: { type: 'string', enum: ['company', 'cc1', 'cc2', 'bu'] },
-      member: { type: 'string', description: 'A cc1 / cc2 / bu member id or code (with level).' },
+      member: { type: [...REF_TYPE], description: 'A cc1 / cc2 / bu member id or code (with level).' },
       from_month: { type: 'string' }, to_month: { type: 'string' },
       include_drivers: { type: 'boolean' }, include_notes: { type: 'boolean' },
       limit: { type: 'integer', minimum: 1, maximum: GET_BUDGET_LIMIT_MAX }, offset: { type: 'integer', minimum: 0 },

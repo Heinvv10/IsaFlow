@@ -42,6 +42,7 @@ import { getBudgetTool } from '@/lib/mcp/tools/budgetReadTools';
 import { addBudgetNoteTool } from '@/lib/mcp/tools/budgetVersionTools';
 import { budgetRemainingTool } from '@/lib/mcp/tools/budgetControlTools';
 import { setBudgetDriversTool } from '@/lib/mcp/tools/budgetDriverWrite';
+import { getBudgetDriversTool } from '@/lib/mcp/tools/budgetDriverRead';
 import { refText } from '@/lib/mcp/tools/budgetToolArgs';
 import { CC1, MONTHS, RENT, TOKEN, VERSION, ctx, json, model, text, version } from './budgetToolsFixture';
 
@@ -59,6 +60,28 @@ beforeEach(() => {
   vi.mocked(saveDriver).mockResolvedValue({ updatedAt: TOKEN, recomputed: 0, warnings: [], headcountAsOf: null } as never);
   vi.mocked(createHire).mockResolvedValue({ updatedAt: TOKEN, recomputed: 0, warnings: [], headcountAsOf: null } as never);
   vi.mocked(loadChartRefs).mockResolvedValue({ accounts: [{ id: RENT, code: '6000' }], members: [{ id: CC1, code: '101', kind: 'cc1' }] });
+});
+
+describe('every code field a handler reads through refText declares ["string", "integer"] (round 5)', () => {
+  const props = (t: { inputSchema: unknown }) => (t.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties;
+  const item = (p: Record<string, unknown>) => (p.items as { properties: Record<string, Record<string, unknown>> }).properties;
+  it.each([
+    ['set_budget_amounts cells', () => item(props(setBudgetAmountsTool).cells!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['set_budget_annual rows', () => item(props(setBudgetAnnualTool).rows!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['seed_budget account_uplifts', () => item(props(seedBudgetTool).account_uplifts!), ['account'], ['string', 'integer']],
+    ['seed_budget fixed_annual', () => item(props(seedBudgetTool).fixed_annual!), ['account'], ['string', 'integer']],
+    ['get_budget', () => props(getBudgetTool), ['member'], ['string', 'integer']],
+    ['get_budget accounts', () => ({ accounts: props(getBudgetTool).accounts!.items as Record<string, unknown> }), ['accounts'], ['string', 'integer']],
+    ['add_budget_note', () => props(addBudgetNoteTool), ['account'], ['string', 'integer']],
+    ['budget_remaining lines', () => item(props(budgetRemainingTool).lines!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['set_budget_drivers changes', () => item(props(setBudgetDriversTool).changes!), ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['set_budget_drivers ref', () => (item(props(setBudgetDriversTool).changes!).ref as { properties: Record<string, Record<string, unknown>> }).properties, ['account', 'cc1', 'cc2', 'bu'], ['string', 'integer']],
+    ['set_budget_drivers centres', () => item(props(setBudgetDriversTool).changes!), ['cost_centre', 'headcount_cost_centre'], ['string', 'integer', 'null']],
+    ['get_budget_drivers', () => props(getBudgetDriversTool), ['headcount_cost_centre'], ['string', 'integer']],
+  ])('%s', (_n, fields, keys, type) => {
+    const p = fields();
+    for (const k of keys) expect(p[k]!.type, k).toEqual(type);
+  });
 });
 
 describe('refText', () => {
@@ -106,7 +129,7 @@ describe('each tool reads a whole number as its code and refuses a fraction', ()
     // number is refused (never read as absent, which would answer every member's rows).
     const odd = text(await getBudgetTool.handler({ version_id: VERSION, level: 'region', member: 1.5 }, ctx()));
     expect(odd).toBe('member needs level cc1, cc2 or bu');
-    expect(text(await getBudgetTool.handler({ version_id: VERSION, level: 'cc1', member: true }, ctx()))).toMatch(/is not one of this company's active CC1 cost centres|must be an id or code/);
+    expect(text(await getBudgetTool.handler({ version_id: VERSION, level: 'cc1', member: true }, ctx()))).toBe(" is not one of this company's active CC1 cost centres");
   });
 
   it('add_budget_note', async () => {

@@ -10,14 +10,13 @@ import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { WRITE_MODES, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
 import type { McpTool } from '../types';
 import { residueFlipsSign } from '@/modules/accounting/services/budgets/grid/spread';
-import { BUDGET_WRITE_FENCE, isResult, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
+import { ID_OR_CODE, BUDGET_WRITE_FENCE, isResult, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
 import { dimensionLabel, resolveRows, parseAmountCells, type ResolvedRef } from './budgetCellArgs';
 import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
 import { loadModel, runAmountWrite, type RoundingNotice } from './budgetAmountWrite';
 import { toolError } from './toolHelpers';
 import { listPage } from './budgetPaging';
 
-const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
 const PAGING = {
   list_offset: { type: 'integer', minimum: 0, description: 'Page of the listed cells (default 0).' },
   list_limit: { type: 'integer', minimum: 1, maximum: DIFF_LIST_MAX, description: `Listed cells per reply (default ${DIFF_LIST_DEFAULT}).` },

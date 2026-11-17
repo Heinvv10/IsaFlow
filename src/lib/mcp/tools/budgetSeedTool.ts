@@ -15,7 +15,7 @@ import { BAND_ORDER, type Band, type BandTotals } from '@/modules/accounting/ser
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import type { McpTool, McpToolContext } from '../types';
-import { BUDGET_WRITE_FENCE, isResult, ownVersion, parseMoney, randText, roundingUnitArg, refText } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, isResult, ownVersion, parseMoney, randText, roundingUnitArg, refText, ID_OR_CODE } from './budgetToolArgs';
 import { ok, toolError } from './toolHelpers';
 
 const PCT = { type: 'number', minimum: -100, maximum: 1000 };
@@ -108,8 +108,8 @@ export const seedBudgetTool: McpTool = {
       include_no_activity: { type: 'boolean', description: 'Also budget active accounts with no prior-year activity (zero rows).' },
       uplift_pct: PCT,
       section_uplifts: { type: 'array', items: { type: 'object', properties: { section: { type: 'string', enum: [...BAND_ORDER] }, uplift_pct: PCT }, required: ['section', 'uplift_pct'], additionalProperties: false } },
-      account_uplifts: { type: 'array', items: { type: 'object', properties: { account: { type: 'string' }, uplift_pct: PCT }, required: ['account', 'uplift_pct'], additionalProperties: false } },
-      fixed_annual: { type: 'array', items: { type: 'object', properties: { account: { type: 'string' }, amount: { type: 'string' } }, required: ['account', 'amount'], additionalProperties: false } },
+      account_uplifts: { type: 'array', items: { type: 'object', properties: { account: ID_OR_CODE, uplift_pct: PCT }, required: ['account', 'uplift_pct'], additionalProperties: false } },
+      fixed_annual: { type: 'array', items: { type: 'object', properties: { account: ID_OR_CODE, amount: { type: 'string' } }, required: ['account', 'amount'], additionalProperties: false } },
       seasonality: { type: 'string', enum: ['actuals', 'flat'] },
       rounding_unit: { type: 'integer', enum: [1, 100, 1000] },
       dry_run: { type: 'boolean' }, idempotency_key: { type: 'string' },
