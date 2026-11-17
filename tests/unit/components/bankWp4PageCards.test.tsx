@@ -4,7 +4,7 @@
  * (a link naming a usable account never waits, and the read gives up after CARD_ORDER_TIMEOUT_MS); a re-link's callback
  * failure is not "re-link failed" and an answer after unmount does nothing.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
