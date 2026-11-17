@@ -77,21 +77,45 @@ describe('set_budget_amounts: per-row refusals (dry run lists them, the save is 
     expect((out.counts as Record<string, number>).refused).toBe(1);
     const refused = (out.cells as Array<{ status: string; reason?: string; i: number }>).find((c) => c.status === 'refused')!;
     expect([refused.i, refused.reason]).toEqual([1, expect.stringMatching(why)]);
-    expect(saveCells).not.toHaveBeenCalled();
+    // Only the cell that is not refused reaches the (rolled-back) save.
+    expect(vi.mocked(saveCells).mock.calls.map((c) => c[2].cells.map((x) => [x.glAccountId, x.month, x.amount]))).toEqual([[[RENT, '2026-04', 5]]]);
+    expect(inRolledBackSavepoint).toHaveBeenCalledTimes(1);
     expect(r.wroteNothing).toBe(true);
   });
 
-  it('a dry run with a refused row counts and lists the other cells by what they would do, not as unchanged', async () => {
+  const refusedDry = async (args: Record<string, unknown>) => json(await amounts.handler({ ...KEY, dry_run: true, ...args }, ctx()));
+  const year = (out: Record<string, unknown>, when: 'before' | 'after') => (out.totals as Record<string, Record<string, { year: string }>>)[when].operatingExpenses.year;
+
+  it('with a refused row the other cells are counted, listed and totalled by what the save would leave, never as unchanged', async () => {
+    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
+    expect(out).toMatchObject({ ready: false, plan_hash: null, counts: { added: 1, changed: 0, removed: 0, unchanged: 0, refused: 1 } });
+    expect((out.cells as unknown[])[0]).toEqual({ i: 0, account: '6000', dimension: null, month: '2026-04', status: 'added', before: null, after: '5.00' });
+    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
+  });
+
+  it('with a refused row the listed source is the one the save leaves (a driver override)', async () => {
+    extra = (cells) => cells.map((c) => (c.month === '2026-04' ? { ...c, source: 'override' } : c));
+    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
+    expect((out.cells as Array<Record<string, unknown>>)[0]).toMatchObject({ status: 'added', after: '5.00', source: 'override' });
+  });
+
+  it('replace with a refused row shows the cleared cells removed and the totals without them', async () => {
+    const out = await refusedDry({ mode: 'replace', cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] });
+    expect(out.counts).toMatchObject({ added: 1, removed: 1, unchanged: 0, refused: 1 });
+    expect((out.cells as Array<Record<string, unknown>>).find((c) => c.i === null)).toMatchObject({ month: '2026-03', status: 'removed', before: '100.00', after: null });
+    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '5.00']);
+  });
+
+  it('a plan-level refusal (the same cell twice) still shows the first one by its outcome', async () => {
+    const out = await refusedDry({ cells: [cell('6000', '2026-04', '5.00'), cell('6000', '2026-04', '6.00')] });
+    expect(out).toMatchObject({ plan_hash: null, counts: { added: 1, unchanged: 0, refused: 1 } });
+    expect([year(out, 'before'), year(out, 'after')]).toEqual(['100.00', '105.00']);
+  });
+
+  it('a save refusal with refused rows says both', async () => {
+    vi.mocked(saveCells).mockRejectedValue(new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'You can change only your own budget slices'));
     const r = await amounts.handler({ ...KEY, dry_run: true, cells: [cell('6000', '2026-04', '5.00'), cell('7000', '2026-04', '1')] }, ctx());
-    const out = json(r);
-    const counts = out.counts as Record<string, number>;
-    expect([counts.unchanged, counts.added + counts.changed, counts.refused]).toEqual([0, 1, 1]);
-    const good = (out.cells as Array<{ i: number; status: string; after?: string }>).find((c) => c.i === 0)!;
-    expect([good.status === 'added' || good.status === 'changed', good.after]).toEqual([true, '5.00']);
-    const totals = out.totals as { before: Record<string, { year: string }>; after: Record<string, { year: string }> };
-    expect(totals.after.netProfit.year).not.toBe(totals.before.netProfit.year);
-    expect(saveCells).not.toHaveBeenCalled();
-    expect(r.wroteNothing).toBe(true);
+    expect(text(r)).toMatch(/would be refused: You can change only your own budget slices \(and 1 cell is refused besides\)/);
   });
 
   it('the live call with any refused row writes nothing (all or nothing)', async () => {

@@ -26,7 +26,7 @@ import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolled
 import type { McpToolContext, McpToolResult } from '../types';
 import { isResult, ownVersion } from './budgetToolArgs';
 import { planHashRefusal, staleRefusal, STALE_SINCE_DRY_RUN } from './budgetWriteGate';
-import { actualDiff, cellMap, diffListing, plannedAfter, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
+import { actualDiff, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
 import { ok, toolError } from './toolHelpers';
 
 export { STALE_SINCE_DRY_RUN };
@@ -88,16 +88,19 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
   const readAfter = async (): Promise<CellMap> => cellMap((await loadGridCells(ctx.companyId, { versionId }, ctx.userId)).cells);
 
   if (w.dryRun) {
-    // Refused rows stop the save, so the other cells are shown by what the plan would leave.
-    let after: CellMap = refused > 0 ? plannedAfter(plan.entries, before) : before;
-    if (refused === 0 && plan.save.length > 0) {
+    // The save runs (rolled back) on the cells that are not refused, so even with refused rows the other
+    // cells, their sources and the totals are what the save would actually leave, under every save rule.
+    let after: CellMap = before;
+    if (plan.save.length > 0) {
       try {
         await inRolledBackSavepoint('mcp_budget_dry_run', async () => {
           await saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: token, cells: plan.save });
           after = await readAfter();
         });
       } catch (err) {
-        if (err instanceof BudgetVersionError) return toolError(`The save would be refused: ${err.message}`);
+        if (err instanceof BudgetVersionError) {
+          return toolError(`The save would be refused: ${err.message}${refused > 0 ? ` (and ${refused} cell${refused === 1 ? ' is' : 's are'} refused besides)` : ''}`);
+        }
         throw err;
       }
     }
