@@ -52,3 +52,15 @@ export async function sweepExpiredUploadsQuietly(): Promise<void> {
     }, 'mcp-uploads');
   }
 }
+
+/** The PUT route's sweep: at most once per SWEEP_MIN_INTERVAL_MS per process (a PUT flood is not a sweep flood). */
+export const SWEEP_MIN_INTERVAL_MS = 10_000;
+let lastThrottledSweepAt = Number.NEGATIVE_INFINITY;
+
+/** Sweeps (quietly) unless this process swept within the interval; true when it ran. */
+export async function sweepExpiredUploadsThrottled(now: number = Date.now()): Promise<boolean> {
+  if (now - lastThrottledSweepAt < SWEEP_MIN_INTERVAL_MS) return false;
+  lastThrottledSweepAt = now;
+  await sweepExpiredUploadsQuietly();
+  return true;
+}

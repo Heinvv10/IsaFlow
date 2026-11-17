@@ -34,8 +34,10 @@
    tampered or malformed token (or any token when JWT_SECRET is missing) is 404 with no rate-limit charge and no
    query, so junk can neither drive database lookups nor spend a bucket a real token needs. A token this server minted
    then meets the per-token bucket (20/min: a replayed url cannot drive lookups), the lookup, and on a miss (an
-   expired and deleted intent) only the miss bucket (600/min, gating those 404s). A real intent is charged to the
-   platform ceiling (3000/min) and its company (600/min), and only then runs the sweep. No bucket is per IP: behind
+   expired and deleted intent) only the miss bucket (600/min, gating those 404s). A used or expired url is 409 before
+   any shared bucket. A pending one is charged to its company (600/min) first and, only if admitted, to the platform
+   ceiling (20,000/min, server protection), so one tenant runs out of its own bucket before it can touch the others';
+   then the sweep runs, at most once per 10 s per process. No bucket is per IP: behind
    cloudflared / nginx every caller has the proxy's IP. Without JWT_SECRET `create_upload_urls` refuses to issue urls
    (a tool error) and the route answers 404: never an unkeyed token. Deploys: both blue/green colours share
    JWT_SECRET, so a url minted by one verifies on the other; a url issued before a deploy that changes the token

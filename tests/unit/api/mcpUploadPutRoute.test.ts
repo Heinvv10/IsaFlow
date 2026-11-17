@@ -25,7 +25,7 @@ vi.mock('@/lib/rateLimit', () => ({
   }),
   getClientIp: () => '1.2.3.4',
 }));
-vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsQuietly: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/mcpUploadIntentSweep', () => ({ sweepExpiredUploadsThrottled: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/mcpUploadIntentStore', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/mcpUploadIntentStore')>();
@@ -37,7 +37,7 @@ import {
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { uploadReadLimits } from '@/lib/mcp/uploadBody';
 import { newUploadToken } from '@/lib/mcp/uploadToken';
 import route from '../../../pages/api/mcp/uploads/[token]';
@@ -96,7 +96,7 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect(r.body).toMatchObject({ data: { upload_id: 'up-1', status: 'uploaded' } });
     expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({
       companyId: COMPANY, userId: 'u', action: 'update', entityType: 'mcp_upload_intent', entityId: 'up-1' });
-    expect(sweepExpiredUploadsQuietly).toHaveBeenCalledTimes(1);
+    expect(sweepExpiredUploadsThrottled).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a polyglot body: right magic bytes, but not a complete file of the declared type', async () => {
@@ -169,7 +169,7 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     await put(PDF);
     const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
     expect(keys).toEqual([`mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`,
-      'mcp-upload:all', `mcp-upload-company:${COMPANY}`]);
+      `mcp-upload-company:${COMPANY}`, 'mcp-upload:all']);
     expect(keys.some((k) => k.includes('1.2.3.4'))).toBe(false);
     limiter.allow = false;
     expect((await put(PDF)).statusCode).toBe(429);
@@ -181,7 +181,7 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF, { query: { token: 'short' } })).statusCode).toBe(404);
     expect(findIntentByToken).not.toHaveBeenCalled();
     expect(checkRateLimit).not.toHaveBeenCalled();
-    expect(sweepExpiredUploadsQuietly).not.toHaveBeenCalled();
+    expect(sweepExpiredUploadsThrottled).not.toHaveBeenCalled();
     expect((await put(PDF)).statusCode).toBe(200);
     expect(stageUploadBytes).toHaveBeenCalledTimes(1);
   });
@@ -199,7 +199,7 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     expect((await put(PDF, { query: { token: UNKNOWN } })).statusCode).toBe(404);
     expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]))
       .toEqual([`mcp-upload-token:${hashUploadToken(UNKNOWN).slice(0, 32)}`, 'mcp-upload:miss']);
-    expect(sweepExpiredUploadsQuietly).not.toHaveBeenCalled();
+    expect(sweepExpiredUploadsThrottled).not.toHaveBeenCalled();
     limiter.deny = new Set(['mcp-upload:miss']);
     vi.mocked(findIntentByToken).mockResolvedValueOnce(null);
     expect((await put(PDF, { query: { token: UNKNOWN } })).statusCode).toBe(429);
@@ -240,5 +240,26 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(pulled).toBeLessThan(100);
     expect(stageUploadBytes).not.toHaveBeenCalled();
+  });
+
+  it('a used or expired url is 409 before any shared bucket: old tokens cannot spend the company or platform bucket', async () => {
+    for (const over of [{ status: 'finalized' as const }, { status: 'uploaded' as const }, { expired: true }]) {
+      vi.mocked(checkRateLimit).mockClear();
+      vi.mocked(findIntentByToken).mockResolvedValueOnce(intent(over));
+      expect((await put(PDF)).statusCode).toBe(409);
+      const keys = vi.mocked(checkRateLimit).mock.calls.map((c) => c[0]);
+      expect(keys).toEqual([`mcp-upload-token:${hashUploadToken(TOKEN).slice(0, 32)}`]);
+    }
+    expect(sweepExpiredUploadsThrottled).not.toHaveBeenCalled();
+  });
+
+  it('one company at its own limit is refused without spending the platform ceiling another company needs', async () => {
+    limiter.deny.add(`mcp-upload-company:${COMPANY}`);
+    expect((await put(PDF)).statusCode).toBe(429);
+    expect(limiter.counts.get('mcp-upload:all') ?? 0).toBe(0);
+    limiter.deny.clear();
+    const other = '33333333-3333-3333-3333-333333333333';
+    vi.mocked(findIntentByToken).mockResolvedValueOnce(intent({ companyId: other }));
+    expect((await put(PDF)).statusCode).toBe(200);
   });
 });

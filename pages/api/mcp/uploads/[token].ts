@@ -22,7 +22,10 @@
  * lookups nor spend a bucket a real token needs. Then, for a token this server minted:
  *   - the per-token bucket (20/min: a replayed url cannot drive lookups);
  *   - the lookup; a miss (an expired and deleted intent) charges only the miss bucket and answers 404;
- *   - for a real intent: the platform ceiling, then the per-company bucket, then the global sweep.
+ *   - for a real intent: a used or expired url is answered 409 here, charging nothing more (a tenant's old tokens
+ *     cannot spend a shared bucket); then the per-company bucket, and only for a request it admitted the platform
+ *     ceiling (so one tenant cannot drain the others: it runs out of its own bucket first); then the sweep, at most
+ *     once per 10 s per process (sweepExpiredUploadsThrottled).
  * No bucket is per IP: behind cloudflared / nginx every caller has the proxy's IP. Optional hardening (ops): an edge
  * rate limit for /api/mcp/uploads/ at nginx/Cloudflare, where the real client IP is known.
  */
@@ -36,7 +39,7 @@ import { readUploadBody, UploadBodyError } from '@/lib/mcp/uploadBody';
 import { verifyUploadToken } from '@/lib/mcp/uploadToken';
 import { uploadBytesRefusal } from '@/lib/mcp/uploadBytesCheck';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { sweepExpiredUploadsQuietly } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
+import { sweepExpiredUploadsThrottled } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import {
   findIntentByToken, hashUploadToken, stageUploadBytes,
 } from '@/modules/accounting/services/core/mcpUploadIntentStore';
@@ -44,8 +47,11 @@ import {
 export const config = { api: { bodyParser: false } };
 
 const WINDOW = 60;
-/** Every PUT that names a real intent, all companies: far above any real batch, low enough to bound a flood. */
-const GLOBAL_PER_MINUTE = 3000;
+/**
+ * Admitted PUTs, all companies: a server-protection ceiling only, charged after the company bucket admitted the
+ * request, so reaching it takes many companies each at their own limit.
+ */
+const GLOBAL_PER_MINUTE = 20_000;
 /** Minted tokens that name no intent (expired and deleted), all callers. Gates those 404s only. */
 const MISS_PER_MINUTE = 600;
 /** One url is one file; retries after a refused body are the only repeats. */
@@ -67,13 +73,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!intent) {
     return (await limit('mcp-upload:miss', MISS_PER_MINUTE)) ? apiResponse.notFound(res, 'Upload') : apiResponse.tooManyRequests(res);
   }
-  if (!(await limit('mcp-upload:all', GLOBAL_PER_MINUTE)) || !(await limit(`mcp-upload-company:${intent.companyId}`, COMPANY_PER_MINUTE))) {
-    return apiResponse.tooManyRequests(res);
-  }
-  await sweepExpiredUploadsQuietly();
-
+  // Before any shared bucket: a used or expired url costs nothing beyond its own per-token bucket.
   if (intent.status !== 'pending') return apiResponse.conflict(res, 'This upload url was already used');
   if (intent.expired) return apiResponse.conflict(res, 'This upload url has expired: create a new one');
+  // The company's own bucket first; the platform ceiling only for a request the company bucket admitted.
+  if (!(await limit(`mcp-upload-company:${intent.companyId}`, COMPANY_PER_MINUTE))
+    || !(await limit('mcp-upload:all', GLOBAL_PER_MINUTE))) {
+    return apiResponse.tooManyRequests(res);
+  }
+  await sweepExpiredUploadsThrottled();
 
   const tooLarge = `Body is larger than the declared ${intent.declaredSize} bytes`;
   const declared = Number(req.headers['content-length'] ?? NaN);
