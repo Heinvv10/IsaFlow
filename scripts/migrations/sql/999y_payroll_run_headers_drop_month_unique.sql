@@ -1,4 +1,4 @@
--- 999p: drop the per-month unique on payroll_run_headers (wave 6 FQx, a contract step).
+-- 999y: drop the per-month unique on payroll_run_headers (wave 6 FQx, a contract step).
 --
 -- WHAT. UNIQUE (company_id, period_year, period_month) (migration 382) allowed one run per company-month. Weekly,
 -- fortnightly and off-cycle runs need several in a month. What stays unique is 999a's

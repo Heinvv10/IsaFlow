@@ -201,7 +201,7 @@ describe('what the PDF says', () => {
 
 describe('year to date', () => {
   it('bounds by period, which is one regular run: a second monthly regular run for the same company and period is refused (23505)', async () => {
-    // payslipYearToDate takes every final run up to AND INCLUDING this period. Since 999p (FQx) the only run key is
+    // payslipYearToDate takes every final run up to AND INCLUDING this period. Since 999y (FQx) the only run key is
     // 999a's one regular run per (company, frequency, period start); an off-cycle run in the month is refused
     // before it can be final (payrollRunKindGuard) until FQc moves this bound onto the run order.
     await expect(r.pool.query(

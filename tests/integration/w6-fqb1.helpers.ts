@@ -1,5 +1,5 @@
 /**
- * Wave 6 FQb1 fixtures: two pay runs in ONE month, which the schema allows since FQx (migration 999p) dropped the
+ * Wave 6 FQb1 fixtures: two pay runs in ONE month, which the schema allows since FQx (migration 999y) dropped the
  * per-month unique (company_id, period_year, period_month). Each case seeds inside its own transaction, runs the
  * service on that transaction's client (als, as a request does) and rolls everything back, so no other suite on
  * this database ever sees the rows. Disposable fixture DB only.

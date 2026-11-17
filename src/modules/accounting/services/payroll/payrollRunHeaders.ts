@@ -118,7 +118,7 @@ async function insertMonthlyRun(companyId: string, period: PayrollPeriod, create
       public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
       public.payroll_month_period_end(${period.year}::int, ${period.month}::int)
     )
-    -- The regular-period key (migration 999a), the only run key since 999p (FQx): an off-cycle run of the month is no clash.
+    -- The regular-period key (migration 999a), the only run key since 999y (FQx): an off-cycle run of the month is no clash.
     ON CONFLICT (company_id, pay_frequency, period_start) WHERE run_kind = 'regular' DO NOTHING
     RETURNING *
   `) as Row[];

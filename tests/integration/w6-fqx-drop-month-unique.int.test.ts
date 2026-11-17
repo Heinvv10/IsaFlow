@@ -1,5 +1,5 @@
 /**
- * Wave 6 FQx (migration 999p): the per-month unique (company_id, period_year, period_month) is gone, so a regular
+ * Wave 6 FQx (migration 999y): the per-month unique (company_id, period_year, period_month) is gone, so a regular
  * weekly run and an off-cycle run insert in a month that already holds its monthly regular run. 999a's
  * regular-period key still allows one regular run per (company, frequency, period start).
  *
@@ -19,7 +19,7 @@ import { assertRunKindSupported, RunKindUnsupportedError } from '@/modules/accou
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-const MIGRATION = readFileSync('scripts/migrations/sql/999p_payroll_run_headers_drop_month_unique.sql', 'utf8');
+const MIGRATION = readFileSync('scripts/migrations/sql/999y_payroll_run_headers_drop_month_unique.sql', 'utf8');
 const MONTH_KEY = 'payroll_run_headers_company_id_period_year_period_month_key';
 let A: Tenant;
 let B: Tenant;
@@ -78,7 +78,7 @@ afterAll(async () => {
   try { await dropTenants(pool, [A, B]); } finally { await pool.end(); }
 });
 
-describe('999p schema', () => {
+describe('999y schema', () => {
   it('drops the per-month unique and leaves no unique index on (company, year, month); the regular-period key stays', async () => {
     const r = (await pool.query(
       `SELECT (SELECT count(*)::int FROM pg_constraint WHERE conrelid = 'public.payroll_run_headers'::regclass AND conname = $1) AS month_key,
@@ -129,7 +129,7 @@ describe('999p schema', () => {
   });
 });
 
-describe('old colour (the FQb release) against the 999p schema', () => {
+describe('old colour (the FQb release) against the 999y schema', () => {
   it('create: the monthly run is created beside an off-cycle and a weekly run, and a second one is the named duplicate', async () => {
     const got = await twoRunsInMonth(pool, A, async (c) => {
       await seedRun(c, A, BONUS);
