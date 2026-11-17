@@ -7,4 +7,5 @@ export const PAYROLL_REFUSAL_CODES = [
   // only the run's kind and the company's own employee numbers; raised before any write.
   'RUN_KIND_UNSUPPORTED',
   'PAYROLL_BANK_FILE_REFUSED', // BF payrollBankFileStatus: a bank-file write refused before any write, naming the run's own employee numbers.
+  'PAYSLIP_EMAIL_REFUSED', // PE payslipDeliveryRefusal: a payslip email refused before anything is sent or written.
 ] as const;

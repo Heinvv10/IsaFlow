@@ -402,6 +402,15 @@
    {"line":130,"text":"FROM payroll_run_headers h, tax_year y","class":"R","owner":"FQc","why":"earlier/later judged by MONTH, kept equal to loadPayeYearToDate's month bound (review #1507 B2a); FQc moves the gate and the figure onto payrollRunOrder together (F2)"},
    {"line":139,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"lines joined by run id"}
   ],
+  "src/modules/accounting/services/payroll/payslipDeliveryRecord.ts": [
+   {"line":40,"text":"FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"PE: by run id (claim/outcome insert, attempt states, deliveries list)"},
+   {"line":59,"text":"FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"PE: by run id (claim/outcome insert, attempt states, deliveries list)"},
+   {"line":87,"text":"FROM payslip_deliveries d JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"PE: by run id (claim/outcome insert, attempt states, deliveries list)"},
+   {"line":125,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"PE: by run id (claim/outcome insert, attempt states, deliveries list)"}
+  ],
+  "src/modules/accounting/services/payroll/payslipDeliveryService.ts": [
+   {"line":67,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status <> 'cancelled'","class":"S","owner":"FQb1","why":"PE: by run id, share-locked for the send"}
+  ],
   "src/modules/accounting/services/payroll/payslipFinal.ts": [
    {"line":20,"text":"SELECT 1 FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"},
    {"line":22,"text":"AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"FQb1","why":"the final-run filter of the by-run-id read above (the alias argument names the table)"}
