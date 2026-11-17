@@ -92,6 +92,7 @@ const lineNet = async (run: string, e: string) => Number((await a.pool.query(
   'SELECT net_pay FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [run, e])).rows[0]!.net_pay);
 
 let run1 = '';
+let grandRun = '';
 
 beforeAll(async () => {
   a = await rig('fz-a');
@@ -155,6 +156,28 @@ describe('FZ: a final run refuses money changes the app never makes', () => {
   it('approval stamps cannot be cleared while the run stays approved (the freeze would lapse)', async () => {
     await expect(app((c) => c.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [run1]))).rejects.toThrow(FROZEN);
     await expect(app((c) => c.query('UPDATE payroll_run_headers SET approved_at = approved_at - interval \'1 day\' WHERE id = $1', [run1]))).rejects.toThrow(FROZEN);
+  }, 60_000);
+
+  it('a grandfathered final run (approved_at NULL) keeps its grandfather stamp and its lines', async () => {
+    grandRun = await approvedRun(6);
+    // R-035's legacy shape: approved, no approved_at, approval_grandfathered_at set; no journal linked.
+    await a.pool.query('UPDATE payroll_run_headers SET approved_at = NULL, approval_grandfathered_at = now(), journal_entry_id = NULL WHERE id = $1', [grandRun]);
+    const STAMPS = /approval stamps are frozen/;
+    await expect(app((c) => c.query('UPDATE payroll_run_headers SET approval_grandfathered_at = NULL WHERE id = $1', [grandRun]))).rejects.toThrow(STAMPS);
+    await expect(app((c) => c.query("UPDATE payroll_run_headers SET approval_grandfathered_at = approval_grandfathered_at - interval '1 day' WHERE id = $1", [grandRun])))
+      .rejects.toThrow(STAMPS);
+    await expect(app((c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [grandRun])))
+      .rejects.toThrow(/payroll_run_lines: a final pay run's figures are frozen/);
+  }, 120_000);
+
+  it('a final run links no other company\'s posted payroll journal, only its own (BYPASSRLS role)', async () => {
+    const posted = async (company: string, user: string) => String((await a.pool.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+       VALUES ($1, '2026-06-25', 'Payroll run 2026-06', 'auto_payroll', 'posted', $2) RETURNING id`, [company, user])).rows[0]!.id);
+    const link = (je: string) => asRole('migration_admin', (c) => c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [grandRun, je]));
+    await expect(link(await posted(b.company, b.admin))).rejects.toThrow(/links only its own posted payroll journal/);
+    // The control: the same shape in its own company links, so the refusal above is the company clause.
+    await link(await posted(a.company, a.admin));
   }, 60_000);
 
   it('no line is inserted into, deleted from or moved into a final run', async () => {

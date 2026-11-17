@@ -82,7 +82,7 @@ describe('salary bank file money controls (review #1524)', () => {
     const run = await approvedRun(a, 3);
     const drift = 'UPDATE payroll_run_lines SET net_pay = net_pay + 500 WHERE run_id = $1 AND employee_id = $2';
     // Migration 999n refuses the drift for app_user; a superuser (the fixture's) still writes it, so the file's own check is proven too.
-    await expect(asAppUser(a.admin, (q) => q(drift, [run, emp[1]]))).rejects.toThrow(/final pay run/);
+    await expect(asAppUser(a.admin, (q) => q(drift, [run, emp[1]]))).rejects.toThrow(/payroll_run_lines: a final pay run's figures are frozen/);
     await a.pool.query(drift, [run, emp[1]]);
     const res = await generate(a, run);
     expect([res.statusCode, reason(res)]).toEqual([409, 'RUN_CHANGED_SINCE_APPROVAL']);

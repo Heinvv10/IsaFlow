@@ -107,6 +107,23 @@ describe('FZ: a posted journal refuses amount changes', () => {
     await expect(asRole('migration_admin', (c) => c.query('UPDATE gl_journal_lines SET debit = debit * 10 WHERE journal_entry_id = $1 AND debit > 0', [je]))).rejects.toThrow(FROZEN);
   }, 60_000);
 
+  it('a legacy status=\'reversed\' journal is frozen too: no amount edit, no line moved into it', async () => {
+    // Today a reversal keeps status 'posted' and stamps reversed_at; older rows were flipped to 'reversed'.
+    const legacy = String((await a.pool.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+       VALUES ($1, '2026-01-25', 'FZ legacy reversed', 'manual', 'reversed', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id);
+    await a.pool.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,10,0),($1,$2,$4,0,10)',
+      [legacy, a.company, expense, bankAcct]);
+    await expect(asAppUser((c) => c.query('UPDATE gl_journal_lines SET debit = debit + 1 WHERE journal_entry_id = $1 AND debit > 0', [legacy]))).rejects.toThrow(FROZEN);
+    await expect(asAppUser(async (c) => {
+      const d = (await c.query(
+        `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+         VALUES ($1, '2026-01-25', 'FZ draft 3', 'manual', 'draft', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 5, 0)', [d, a.company, expense]);
+      await c.query('UPDATE gl_journal_lines SET journal_entry_id = $1 WHERE journal_entry_id = $2', [legacy, d]);
+    })).rejects.toThrow(FROZEN);
+  }, 60_000);
+
   it('a posted journal cannot go back to draft (where its lines are editable again)', async () => {
     await expect(asAppUser((c) => c.query("UPDATE gl_journal_entries SET status = 'draft' WHERE id = $1", [je]))).rejects.toThrow(FROZEN);
   }, 60_000);

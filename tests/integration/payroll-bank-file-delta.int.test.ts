@@ -53,7 +53,7 @@ describe('salary bank file, review #1524 round 2', () => {
       await c.query('UPDATE payroll_run_headers SET total_net = total_net + 50000, journal_entry_id = NULL WHERE id = $1', [run]);
     };
     // Migration 999n refuses the drift for app_user; the fixture's superuser still writes it, so the file's check is proven too.
-    await expect(asAppUser(drift)).rejects.toThrow(/final pay run/);
+    await expect(asAppUser(drift)).rejects.toThrow(/payroll_run_lines: a final pay run's figures are frozen/);
     await drift(a.pool);
     const res = await generate(a, run);
     expect([res.statusCode, reason(res)]).toEqual([409, 'JOURNAL_NOT_POSTED']);
@@ -66,7 +66,7 @@ describe('salary bank file, review #1524 round 2', () => {
       await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 50000 WHERE run_id = $1 AND employee_id = $2', [run, emp[0]!.employee]);
       await c.query('UPDATE payroll_run_headers SET total_net = total_net + 50000 WHERE id = $1', [run]);
     };
-    await expect(asAppUser(drift)).rejects.toThrow(/final pay run/);
+    await expect(asAppUser(drift)).rejects.toThrow(/payroll_run_lines: a final pay run's figures are frozen/);
     await drift(a.pool);
     expect(reason(await generate(a, run))).toBe('RUN_CHANGED_SINCE_APPROVAL');
   }, 120_000);
@@ -90,7 +90,7 @@ describe('salary bank file, review #1524 round 2', () => {
     expect(desc).toEqual({ description: payrollRunJournalDescription(2026, 7), source: 'auto_payroll' });
     expect(Math.round((await a.header(other)).net * 100)).toBe(Math.round((await a.header(run)).net * 100));
     const repoint = (c: Pick<PoolClient, 'query'>) => c.query('UPDATE payroll_run_headers SET journal_entry_id = $2 WHERE id = $1', [run, otherJe]);
-    await expect(asAppUser(async (c) => { await repoint(c); })).rejects.toThrow(/final pay run/);
+    await expect(asAppUser(async (c) => { await repoint(c); })).rejects.toThrow(/payroll_run_headers: a final pay run's journal cannot be swapped/);
     await repoint(a.pool);
     const res = await generate(a, run);
     expect([res.statusCode, reason(res)]).toEqual([409, 'JOURNAL_NOT_POSTED']);

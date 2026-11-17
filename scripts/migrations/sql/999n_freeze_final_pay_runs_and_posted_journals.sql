@@ -112,8 +112,7 @@ BEGIN
 END
 $$;
 
-DROP TRIGGER IF EXISTS trg_payroll_run_lines_final_frozen ON public.payroll_run_lines;
-CREATE TRIGGER trg_payroll_run_lines_final_frozen
+CREATE OR REPLACE TRIGGER trg_payroll_run_lines_final_frozen
   BEFORE INSERT OR UPDATE OR DELETE ON public.payroll_run_lines
   FOR EACH ROW EXECUTE FUNCTION public.payroll_run_lines_final_frozen();
 ALTER TABLE public.payroll_run_lines ENABLE ALWAYS TRIGGER trg_payroll_run_lines_final_frozen;
@@ -168,8 +167,7 @@ BEGIN
 END
 $$;
 
-DROP TRIGGER IF EXISTS trg_payroll_run_headers_final_frozen ON public.payroll_run_headers;
-CREATE TRIGGER trg_payroll_run_headers_final_frozen
+CREATE OR REPLACE TRIGGER trg_payroll_run_headers_final_frozen
   BEFORE UPDATE ON public.payroll_run_headers
   FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_final_frozen();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER trg_payroll_run_headers_final_frozen;
@@ -203,8 +201,7 @@ BEGIN
 END
 $$;
 
-DROP TRIGGER IF EXISTS trg_gl_jl_posted_frozen ON public.gl_journal_lines;
-CREATE TRIGGER trg_gl_jl_posted_frozen
+CREATE OR REPLACE TRIGGER trg_gl_jl_posted_frozen
   BEFORE UPDATE ON public.gl_journal_lines
   FOR EACH ROW
   WHEN (NEW.debit IS DISTINCT FROM OLD.debit OR NEW.credit IS DISTINCT FROM OLD.credit
@@ -225,8 +222,7 @@ BEGIN
 END
 $$;
 
-DROP TRIGGER IF EXISTS trg_gl_je_posted_not_draft ON public.gl_journal_entries;
-CREATE TRIGGER trg_gl_je_posted_not_draft
+CREATE OR REPLACE TRIGGER trg_gl_je_posted_not_draft
   BEFORE UPDATE OF status ON public.gl_journal_entries
   FOR EACH ROW
   WHEN (OLD.status IN ('posted', 'reversed') AND NEW.status = 'draft')
@@ -266,10 +262,19 @@ BEGIN
 END
 $$;
 
-DROP TRIGGER IF EXISTS trg_gl_jl_posted_balanced ON public.gl_journal_lines;
-CREATE CONSTRAINT TRIGGER trg_gl_jl_posted_balanced
-  AFTER INSERT OR DELETE ON public.gl_journal_lines
-  DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW
-  EXECUTE FUNCTION public.gl_posted_journal_balanced();
+-- PG has no CREATE OR REPLACE for a constraint trigger, and DROP TRIGGER IF EXISTS would take ACCESS EXCLUSIVE on
+-- gl_journal_lines even when there is nothing to drop. So it is created only when absent (a static statement, no
+-- dynamic SQL); a re-run keeps the existing one, whose definition is this one.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+                  WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_posted_balanced') THEN
+    CREATE CONSTRAINT TRIGGER trg_gl_jl_posted_balanced
+      AFTER INSERT OR DELETE ON public.gl_journal_lines
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW
+      EXECUTE FUNCTION public.gl_posted_journal_balanced();
+  END IF;
+END
+$$;
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_posted_balanced;
