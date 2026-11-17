@@ -110,11 +110,11 @@ describe('owner cash position: the next pay run', () => {
 
   // Review #1549 N-H1: nothing marks a run paid, so last month's approved run is still open after its salaries left
   // the bank. Its pay date has passed: it is judged on its own, never added to this month's requirement.
-  it('a monthly-only company (today\'s schema): April paid on the 25th + May 20 000, cash 30 000 on 29 May: May is payable', async () => {
+  it('a monthly-only company (one run a month): April paid on the 25th + May 20 000, cash 30 000 on 29 May: May is payable', async () => {
     let ids: string[] = [];
     const got = await twoRunsInMonth(pool, A, async (c) => {
       ids = await seedBoth(c, [{ ...REGULAR, month: 4, runDate: '2026-04-25' }, { ...REGULAR, runDate: '2026-05-31' }]);
-    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z')), { keepMonthKey: true });
+    }, () => getOwnerCashPosition(A.company, 30_000, new Date('2026-05-29T10:00:00Z')));
     expect(got.payroll).toMatchObject({ runId: ids[1], canPay: true, shortfall: 0, totalRequired: 20000, runsCounted: 1 });
   });
 
@@ -182,9 +182,9 @@ describe('month-end workbench: the payroll card', () => {
     expect(card).toMatchObject({ status: 'ready', primary: `${formatMoney(20000)} gross`, secondary: '1 employees · approved' });
   });
 
-  it('one run (a monthly-only company, today\'s schema): an approved, stamped run reads as before', async () => {
+  it('one run (a monthly-only company): an approved, stamped run reads as before', async () => {
     const card = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, [REGULAR]); },
-      () => buildPayrollCard(A.company, '2026-05'), { keepMonthKey: true });
+      () => buildPayrollCard(A.company, '2026-05'));
     expect(card).toEqual({
       id: 'payroll', title: 'Payroll Run', status: 'ready',
       primary: `${formatMoney(20000)} gross`, secondary: '1 employees · approved', href: '/payroll/runs',

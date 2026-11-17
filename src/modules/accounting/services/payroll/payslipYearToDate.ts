@@ -51,10 +51,10 @@ export async function payslipYearToDate(
   employeeIds: string[],
 ): Promise<Map<string, PayslipYearToDate>> {
   const startYear = payeTaxYearOf(run.periodMonth, run.periodYear) - 1;
-  // Bounded by period, not by run: "up to and including this period" is this run alone only because
-  // payroll_run_headers is UNIQUE (company_id, period_year, period_month). The year-to-date test in
-  // tests/integration/payslips.int.test.ts inserts a second header and expects that unique_violation
-  // (23505). Drop the constraint and this bound must name the run too.
+  // Bounded by period, not by run: "up to and including this period" is this run alone only while one run a
+  // month can be final. Since FQx (999y) the schema no longer enforces that; it is safe only while no off-cycle or
+  // weekly run can be final (FQa's guard refuses to approve one). FQc makes this bound run-keyed. The year-to-date
+  // test in tests/integration/payslips.int.test.ts pins today's remaining key.
   const rows = (await sql`
     SELECT prl.run_id::text AS run_id, prl.employee_id::text AS employee_id,
            prl.gross_pay, prl.taxable_income, prl.paye, prl.uif_employee, prl.net_pay,

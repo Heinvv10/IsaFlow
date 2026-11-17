@@ -1,6 +1,6 @@
 /**
- * Pay order (wave 6 FQb1). Until FQx, payroll_run_headers is UNIQUE (company_id, period_year, period_month), so
- * "the run of a month" and "ordered by month" named one run. With several runs a month (an off-cycle bonus beside the
+ * Pay order (wave 6 FQb1). Month-keyed readers ("the run of a month", "ordered by month") are safe only while no
+ * off-cycle or weekly run can be final; FQc makes these run-keyed. With several runs a month (an off-cycle bonus beside the
  * regular run; weekly runs from FQc) a reader that means "the latest run" or "an earlier run" orders by this key.
  *
  * THE KEY'S CONTRACT, in order:
