@@ -114,8 +114,10 @@ sorted set. MCP-only rows by design: `mcp_tool_calls`, `budget_write_snapshots`.
 8. **Driver amounts are decimal strings; `pct` and `fte` are numbers** (not money; the services bound them). Three-way money is
    decimal text both ways: the document's five money fields (a number refused), and every integer of a run answer except day and
    month counts.
-9. **No service moved.** The driver, three-way, remaining, alerts and slice routes hold only shape checks (zod) and their gates; the
-   tools call the same services with the same inputs, which the equivalence suites prove.
+9. **No service logic moved.** The driver, three-way, remaining, alerts and slice routes hold only shape checks (zod) and their gates;
+   the tools call the same services with the same inputs, which the equivalence suites prove.
+
+Confirmed by the coordinator in review round 1: 1 (rehome dropped), 2-9.
 
 ## Integration runs
 
