@@ -79,6 +79,8 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     alice = await employee('Alice', '0123456789');
     bob = await employee('Bob', null); // a pre-validation error: no tax number
     await finalRun(3, [[alice, 30_000, 4_000], [bob, 20_000, 2_000]]);
+    // A September hire with no tax number: outside the interim period, so it blocks the annual return only.
+    await finalRun(9, [[await employee('Carol', null), 25_000, 3_000]]);
     // The second tenant, with its own final run.
     await sql`INSERT INTO companies (id, name) VALUES (${other.companyId}::UUID, 'EFb other tenant')`;
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${other.userId}, ${`efb-${other.userId}@example.invalid`}, 'admin', true)`;
@@ -124,7 +126,7 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     expect(await versionsOf()).toHaveLength(0);
   });
 
-  it('every month filed: finalise stores the e@syFile input; the response carries totals, never the certificates', async () => {
+  it('every month filed: the interim finalises although the September hire has an error (PV scoped to March-August); finalise stores the e@syFile input; the response carries totals, never the certificates', async () => {
     await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, submission_reference, submitted_at)
       VALUES (${c()}::UUID, 'EMP201', '2025-03-01', '2025-03-31', 'submitted', 'LEGACY-EMP201', now())`;
     const r = await post({ action: 'finalise', ...INTERIM });
@@ -180,6 +182,16 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
       WHERE company_id = ${c()}::UUID AND form_type = 'EMP501'`) as Row[];
     expect(subs).toEqual([{ id: v!.sars_submission_id, form_type: 'EMP501', status: 'submitted', s: INTERIM.periodStart, e: INTERIM.periodEnd }]);
     expect(await versionsOf(other.companyId)).toHaveLength(0);
+  });
+
+  it('the annual return is blocked by the September hire (PV over the whole year): 409 naming her, no annual version', async () => {
+    await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, submission_reference, submitted_at)
+      VALUES (${c()}::UUID, 'EMP201', '2025-09-01', '2025-09-30', 'submitted', 'LEGACY-EMP201-SEP', now())`;
+    const r = await post({ action: 'finalise', periodStart: '2025-03-01', periodEnd: '2026-02-28' });
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(r.body)).toContain('Test Carol');
+    expect(JSON.stringify(r.body)).not.toContain('is not filed');
+    expect(await versionsOf()).toHaveLength(1); // the interim version only
   });
 
   it('a non-payroll role reading the filed submission sees totals only: no certificate, name, ID or tax number', async () => {

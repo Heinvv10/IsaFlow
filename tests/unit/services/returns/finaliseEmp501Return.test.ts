@@ -60,6 +60,8 @@ describe('finaliseEmp501Return', () => {
   it('finalises the interim period (March to August)', async () => {
     await finaliseEmp501Return('c1', '2025-03-01', '2025-08-31', actor);
     expect(m.figures.mock.calls[0]![1]).toMatchObject({ taxYear: 2026, kind: 'interim', mm: 8 });
+    // Pre-validation judges the interim period only (March to August 2025).
+    expect(m.preValidate).toHaveBeenCalledWith('c1', { taxYear: 2026, throughMonth: 202508 });
   });
 
   it('refuses 409 EMP501_NOT_READY while pre-validation reports an error, naming the employee, writing nothing', async () => {

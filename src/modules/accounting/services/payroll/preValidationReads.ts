@@ -19,8 +19,9 @@ export type PreValidationRow = {
   codes: string[];
 };
 
+/** `throughMonth` (YYYYMM, wave 6 EFb): lines of runs up to that month only (an interim EMP501 judges March to August). */
 export async function loadFinalLineTotals(
-  companyId: string, taxYear: number, employeeId: string | null, runId: string | null,
+  companyId: string, taxYear: number, employeeId: string | null, runId: string | null, throughMonth: number | null = null,
 ): Promise<PreValidationRow[]> {
   const p = payeTaxYearPeriods(taxYear);
   return (await sql`
@@ -33,6 +34,7 @@ export async function loadFinalLineTotals(
          AND (${sql.unsafe(payRunFinalSql('prh'))} OR prh.id = ${runId}::uuid)
          AND ((prh.period_year = ${p.startYear} AND prh.period_month >= ${p.startMonth})
               OR (prh.period_year = ${p.endYear} AND prh.period_month <= ${p.endMonth}))
+         AND (${throughMonth}::int IS NULL OR prh.period_year * 100 + prh.period_month <= ${throughMonth}::int)
          AND (${employeeId}::uuid IS NULL OR prl.employee_id = ${employeeId}::uuid)
          AND (${runId}::uuid IS NULL OR prl.employee_id IN (SELECT employee_id FROM payroll_run_lines WHERE run_id = ${runId}::uuid))
     ), items AS (

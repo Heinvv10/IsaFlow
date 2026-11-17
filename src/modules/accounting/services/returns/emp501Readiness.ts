@@ -1,5 +1,5 @@
 /**
- * What stops an EMP501 being finalised (wave 6 EFb): IRP5 pre-validation errors for the tax year (PV,
+ * What stops an EMP501 being finalised (wave 6 EFb): IRP5 pre-validation errors for the return's period (PV,
  * preValidateTaxYear: an error is a certificate e@syFile would reject), and a month of the period that has a pay run
  * but no filed EMP201. Read-only; the GET shows it and the finalise refuses on it before its first write.
  *
@@ -50,7 +50,11 @@ async function unfiledEmp201Months(companyId: string, p: Emp501Period): Promise<
 }
 
 export async function emp501Readiness(companyId: string, p: Emp501Period): Promise<Emp501Readiness> {
-  const pv = await preValidateTaxYear(companyId, { taxYear: p.taxYear });
+  // Scoped to the return's period (coordinator ruling): an interim return judges employees paid March to August only,
+  // so a September hire's error blocks the annual return, not the interim one.
+  const pv = await preValidateTaxYear(companyId, {
+    taxYear: p.taxYear, ...(p.kind === 'interim' ? { throughMonth: p.endYear * 100 + p.endMonth } : {}),
+  });
   const withErrors = (pv?.employees ?? []).filter((e) => e.severity === 'error');
   const unfiled = await unfiledEmp201Months(companyId, p);
   const validationErrors = pv?.errors ?? 0;
