@@ -32,13 +32,15 @@ interface Props {
   /** bankTxPastEnd(page, total, pageSize), from the same load as `empty`. */
   pastEnd: boolean;
   tab: BankTxTab;
+  /** What narrows the list (ActiveFiltersChip's labels): the empty state names them. */
+  activeFilters?: string[];
   /** The line whose drawer is open; undefined once it is off the list. */
   detailTx?: BankTx;
   onDetailClose: () => void;
   children: ReactNode;
 }
 
-export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, detailTx, onDetailClose, children }: Props) {
+export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, children }: Props) {
   const loading = isLoading || (!error && empty && pastEnd);
   return (
     <>
@@ -58,7 +60,7 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
         ) : error ? (
           <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
         ) : empty ? (
-          <BankTxEmpty tab={tab} />
+          <BankTxEmpty tab={tab} activeFilters={activeFilters} />
         ) : children}
       </div>
       <Drawer open={detailTx !== undefined} onClose={onDetailClose} title="Bank line">

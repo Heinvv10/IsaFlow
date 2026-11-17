@@ -24,10 +24,13 @@ export function BankTxLoading() {
   );
 }
 
-export function BankTxEmpty({ tab }: { tab: BankTxTab }) {
+export function BankTxEmpty({ tab, activeFilters = [] }: { tab: BankTxTab; activeFilters?: string[] }) {
+  const what = tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : tab === 'provisional' ? 'provisional' : 'reviewed';
   return (
     <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
-      No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : tab === 'provisional' ? 'provisional' : 'reviewed'} transactions for this account
+      {activeFilters.length > 0
+        ? <>No {what} transactions match these filters: <span data-testid="bank-tx-empty-filters" className="font-medium">{activeFilters.join(', ')}</span></>
+        : <>No {what} transactions for this account</>}
     </div>
   );
 }

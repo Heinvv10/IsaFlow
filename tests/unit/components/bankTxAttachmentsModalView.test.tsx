@@ -21,6 +21,7 @@ const FILES = [
 ];
 
 beforeEach(() => {
+  vi.stubGlobal('confirm', () => true); // removing an attachment asks first (WP3); these tests answer yes
   vi.mocked(apiFetch).mockReset();
   vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'DELETE' ? ok({ deleted: true }) : ok(FILES)));
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test/1');

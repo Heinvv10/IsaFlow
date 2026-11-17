@@ -19,7 +19,7 @@ description: IsaFlow critical coding rules — multi-tenant safety, DB, API, log
 - **Dates**: pg returns `Date` objects from timestamp columns.
 - **Customer invoices**: use `COALESCE(ci.client_id, ci.customer_id)`.
 - **Nav**: update `src/components/accounting/accountingNavConfig.ts` for every new page.
-- **Migrations**: next unused 3-digit prefix, `IF NOT EXISTS`, no prefix reuse.
+- **Migrations**: next unused numeric prefix (`1000_` follows `999_`), `IF NOT EXISTS`, no prefix reuse.
 
 ## Commands
 - `bun run dev` (:3200) · `bun run lint` · `bun run type-check` · `bun run test:unit` · `bun run ci` · `bun run db:migrate` · `bash scripts/deploy.sh`
