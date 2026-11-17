@@ -9,7 +9,7 @@
  *    from its screen), or
  *  - the leg is `matched_journal_line_id`, and a PROCESSED supplier payment BATCH carries its journal
  *    (`supplier_payment_batches.gl_journal_entry_id`; a batch posts one journal, its member payments carry none), or
- *  - a bank-first provisional line (`provisional_je_id`, no matched line): the leg is the provisional journal's bank
+ *  - a bank-first provisional line (`provisional_je_id`): the leg is the provisional journal's bank
  *    line, and the supplier payment that settled it names it (`settles_provisional_je_id`, R-127; that payment's own
  *    journal is the reclass, which has no bank leg);
  * → its allocation rows (`payment_allocations` / `customer_payment_allocations`) → the bill / invoice (not cancelled)
@@ -21,7 +21,8 @@
  * (a supplier payment pays OUT, a customer receipt comes IN); the payment is live (supplier `processed` / `reconciled`,
  * customer `confirmed` / `reconciled`) and positive (a refund is not a settlement of the bill it is allocated to).
  * `outstanding` is the bill's total less the larger of (its live allocations + applied credit notes) and its own
- * `amount_paid` (a settlement recorded outside allocations, e.g. an import, still settles it).
+ * `amount_paid` (a settlement recorded outside allocations, e.g. an import, still settles it). Known limit: an
+ * `amount_paid` left stale-high by data drift hides "still open" (display only; evidence and counts are unaffected).
  * NOT covered: a gateway receipt (journalled to the gateway's clearing account, so the payout line never reaches it).
  *
  * NOT a supporting document of the line itself: bank/bankLineDocumentSql.hasBankLineDocumentSql (the VAT input
@@ -68,7 +69,9 @@ const SOURCES: readonly Source[] = [
       + ` AND sb.company_id = ${bt}.company_id AND sb.status = 'processed'`
       + ` JOIN supplier_payments p ON p.batch_id = sb.id AND p.company_id = ${bt}.company_id` },
   { ...SUPPLIER,
-    leg: (bt) => `bl.journal_entry_id = ${bt}.provisional_je_id AND ${bt}.matched_journal_line_id IS NULL`,
+    // No matched-line condition: should a provisional line ever also be matched (to its own provisional leg), it keeps
+    // its evidence; the other sources cannot reach this payment (it carries the reclass journal), so nothing doubles.
+    leg: (bt) => `bl.journal_entry_id = ${bt}.provisional_je_id`,
     payment: (bt) => ` JOIN supplier_payments p ON p.settles_provisional_je_id = bl.journal_entry_id`
       + ` AND p.company_id = ${bt}.company_id` },
   { payments: 'customer_payments', allocations: 'customer_payment_allocations', invoices: 'customer_invoices', inv: 'ci',

@@ -174,6 +174,10 @@ describeIfDb('bank line settled evidence: edges', () => {
     await q('UPDATE supplier_payments SET settles_provisional_je_id=$1 WHERE id=$2', [l.je, p]); await alloc(p, b, 300);
     const d = uuid(); await doc(d, b, 'prv.pdf');
     expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId)).toEqual([d]);
+    // matched later to its own provisional leg: keeps its evidence, counted once (no other source reaches this payment)
+    await q('UPDATE bank_transactions SET matched_journal_line_id=$1 WHERE id=$2', [l.leg, l.id]);
+    expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId)).toEqual([d]);
+    await q('UPDATE bank_transactions SET matched_journal_line_id=NULL WHERE id=$1', [l.id]);
     // still provisional (no evidence yet, not settled) or the provisional journal unposted: nothing
     await q(`UPDATE bank_transactions SET status='provisional' WHERE id=$1`, [l.id]);
     expect(await listSettledDocuments(co, l.id)).toEqual([]);
