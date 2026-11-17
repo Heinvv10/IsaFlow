@@ -6,9 +6,11 @@
  *    or look-alike hidden sheet would turn a template into a free-form sheet, whose blanks keep instead of clearing).
  *  - A sheet named exactly `_meta` or `_base`: an IsaFlow template, read by `readBudgetWorkbook` exactly as the app's
  *    import preview reads it (that path is unchanged).
- *  - Otherwise the FIRST VISIBLE sheet is the free-form sheet, and it must be the sheet Excel opens on (activeTab):
- *    a workbook that opens elsewhere is refused. A sheet state the reader does not know refuses the file.
- *  - The free-form sheet must have no hidden row or column (AutoFilter-hidden included) and no merged cell.
+ *  - Otherwise the sheet the workbook OPENS ON (activeTab, round 7: what the user saw last) is the free-form sheet;
+ *    it must be visible (a workbook saved open on a hidden sheet is refused). A sheet state the reader does not know
+ *    refuses the file.
+ *  - The free-form sheet must have no hidden row or column (AutoFilter-hidden included). Its lowest merge is handed
+ *    on: `freeformLines` refuses one on or below the header row.
  * The app's import route does not call this.
  */
 import { openXlsxParts, worksheetPart } from '@/lib/xlsxNormalise';
@@ -24,6 +26,8 @@ export interface FreeformSheet {
   rows: FreeRow[];
   /** The workbook's date system (headers written as dates). */
   date1904?: boolean;
+  /** The merged range reaching lowest down the sheet (round 7: refused on or below the header row), if any. */
+  merged?: { ref: string; lastRow: number } | null;
 }
 
 export type ImportWorkbook = { kind: 'template'; wb: BudgetWorkbook } | { kind: 'freeform'; sheet: FreeformSheet };
@@ -52,13 +56,10 @@ export async function readImportWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIM
   if (wb.sheets.some((s) => TEMPLATE_SHEETS.includes(s.name))) return { kind: 'template', wb: await readBudgetWorkbook(buf, limits) };
   const unknown = wb.sheets.find((s) => !STATES.has(s.state));
   if (unknown) throw inputError(`This workbook's sheet "${clip(unknown.name)}" has a state ("${clip(unknown.state)}") IsaFlow does not know; open it in Excel, save it again, and send it.`);
-  const index = wb.sheets.findIndex((s) => s.state === 'visible');
-  if (index < 0) throw inputError('This workbook has no visible sheet to read.');
-  const sheet = wb.sheets[index]!;
-  if (wb.activeTab !== index) {
-    const opens = wb.sheets[wb.activeTab]?.name;
-    throw inputError(`Excel opens this workbook on ${opens === undefined ? `sheet number ${wb.activeTab + 1}` : `sheet "${clip(opens)}"`}, not on "${clip(sheet.name)}", its first visible sheet, which is the one IsaFlow reads. `
-      + 'Make the sheet to import the first visible one, save the workbook open on it, and send it again.');
+  const sheet = wb.sheets[wb.activeTab];
+  if (sheet === undefined) throw inputError(`This workbook opens on sheet number ${wb.activeTab + 1}, which it does not have. Open it in Excel, save it open on the sheet to import, and send it again.`);
+  if (sheet.state !== 'visible') {
+    throw inputError(`This workbook opens on sheet "${clip(sheet.name)}", which is hidden; IsaFlow reads the sheet a workbook opens on. Unhide it, or save the workbook open on the sheet to import, and send it again.`);
   }
   const rels = parseRels(parts.rels);
   const target = sheet.rid === null ? undefined : rels.get(sheet.rid)?.target;
@@ -81,6 +82,5 @@ export async function readImportWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIM
   if (read.hidden) {
     throw inputError(`Sheet "${clip(sheet.name)}" has hidden rows or columns (${read.hidden}): unhide every row and column, and clear any filter, so what IsaFlow imports is what you see; then send it again.`);
   }
-  if (read.merged) throw inputError(`Sheet "${clip(sheet.name)}" has merged cells (${clip(read.merged)}): unmerge every cell, so each value is in its own row and month, and send it again.`);
-  return { kind: 'freeform', sheet: { name: sheet.name, rows: read.rows, date1904: wb.date1904 } };
+  return { kind: 'freeform', sheet: { name: sheet.name, rows: read.rows, date1904: wb.date1904, merged: read.merged } };
 }

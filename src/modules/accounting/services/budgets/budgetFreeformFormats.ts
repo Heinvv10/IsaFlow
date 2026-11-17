@@ -1,15 +1,19 @@
 /**
  * Which number formats a free-form budget sheet's money cells may carry, and how many decimals each shows (MCP
  * budget tools PR 2, after review round 5). Three sources, in order:
- *  1. Excel's built-in plain formats by id (0 General, 1-4, 37-40, 41 and 43: no currency symbol).
+ * Before every check a locale-only tag ([$-1C09] en-ZA, [$-436] af-ZA, [$-409] en-US, [$-809], [$-407], any hex id and
+ * no currency) is dropped from the start of each section (round 7, `stripLocaleTags`): LibreOffice writes one when the
+ * format's Language is set (in the dialog, or by the locale the format was made in); it picks no digits.
+ *  1. Excel's built-in plain formats by id (0 General, 1-4, 37-40, 41 and 43: no currency symbol), General by name, and
+ *     Text (`@`, built-in 49; round 7): a number in a Text cell shows as General does.
  *  2. ZA_FORMATS: an EXACT-STRING allowlist of South African rand currency and accounting formats that the character
  *     rule refuses (they carry quoted or escaped text: "R", \-, the accounting zero "-"??). Each shows the imported
  *     value for every number (a "-" for 0 imports 0; a red negative keeps its minus). Matched after `normaliseFormat`:
- *     whitespace runs (a non-breaking space included) to one space, a LEADING locale-only tag dropped ([$-1C09] en-ZA,
- *     [$-436] af-ZA, [$-409] en-US: LibreOffice prefixes the format's locale; a locale picks no digits), colour names
- *     case-folded ([RED] = [Red]).
+ *     the tags dropped, whitespace runs (a non-breaking space included) to one space, colour names case-folded.
  *  3. The character rule (`budgetFreeformXml.isPlainNumberFormat`).
- * A format shows `decimals` places: a cell holding more is refused by the reader (it would show 1 235 for 1 234.50).
+ * A format shows `decimals` places (Infinity: General and Text show what the value holds): a cell holding more is
+ * refused by the reader (it would show 1 235 for 1 234.50), but for a 2-decimal format, whose shown value is imported
+ * and listed (round 7, `budgetFreeformAmounts`).
  *
  * Sources of ZA_FORMATS (evidence doc, "South African formats"): `libreoffice` = LibreOffice 24.2's own en-ZA
  * currency formats, applied to a cell and read back from the xlsx it saved; `libreoffice-excel` = Excel's en-ZA
@@ -50,6 +54,12 @@ export const ZA_FORMATS: readonly ZaFormat[] = [
   { code: '[$-409]"R "#,##0.00', decimals: 2, source: LOX },
   { code: '[$-409]"R "#,##0.00;"-R "#,##0.00', decimals: 2, source: LOX },
   { code: '[$-409]"R "#,##0.00;[RED]"-R "#,##0.00', decimals: 2, source: LOX },
+  // Round 7: the rand without a thousands separator. LibreOffice's en-ZA dialog with the separator off, and the codes
+  // "R "0.00 / [$R-1C09]\ 0.00 / "R"0.00 / "R "0 typed in LibreOffice (as it writes them: "R"0.00 becomes \R0.00).
+  { code: '[$R-1C09]\\ 0.00;[$R-1C09]\\-0.00', decimals: 2, source: LO }, { code: '[$R-1C09]\\ 0.00;[RED][$R-1C09]\\-0.00', decimals: 2, source: LO },
+  { code: '[$R-1C09]\\ 0;[$R-1C09]\\-0', decimals: 0, source: LO }, { code: '[$R-1C09]\\ 0;[RED][$R-1C09]\\-0', decimals: 0, source: LO },
+  { code: '[$-409]"R "0.00', decimals: 2, source: LOX }, { code: '[$R-1C09]\\ 0.00', decimals: 2, source: LOX },
+  { code: '[$-409]\\R0.00', decimals: 2, source: LOX }, { code: '[$-409]"R "0', decimals: 0, source: LOX },
   { code: '[$R-en-ZA]\\ #,##0.00', decimals: 2, source: LOX },
   { code: '[$R-1C09]\\ #,##0.00', decimals: 2, source: LOX },
   { code: '[$R-436]\\ #,##0.00', decimals: 2, source: LOX },
@@ -69,21 +79,28 @@ export const ZA_FORMATS: readonly ZaFormat[] = [
   { code: '"R" #,##0.00;[Red]\\-"R" #,##0.00', decimals: 2, source: XL },
   { code: '[$R-en-ZA] #,##0.00', decimals: 2, source: XL }, { code: '[$R-1C09] #,##0.00', decimals: 2, source: XL }, { code: '[$R-436] #,##0.00', decimals: 2, source: XL },
   { code: '[$R-en-ZA] #,##0.00;\\-[$R-en-ZA] #,##0.00', decimals: 2, source: XL },
+  // Round 7: the same without a thousands separator, as Excel spells them (quoted, or with a spaced [$R-1C09]).
+  { code: '"R"0.00', decimals: 2, source: XL }, { code: '"R"0', decimals: 0, source: XL }, { code: '"R" 0.00', decimals: 2, source: XL },
+  { code: '"R" 0.00;\\-"R" 0.00', decimals: 2, source: XL }, { code: '[$R-1C09] 0.00', decimals: 2, source: XL }, { code: '[$R-en-ZA] 0.00', decimals: 2, source: XL },
 ];
 
-const COLOURS = /\[(black|blue|cyan|green|magenta|red|white|yellow)\]/gi;
+const COLOURS = /\[(black|red)\]/gi;
+const LOCALE_TAG = /^((?:\[[a-z]+\])*)\[\$-[0-9a-f]{1,8}\]/i;
+/** A format code with the locale-only tag at the start of each section (after any colour) dropped (round 7). */
+export const stripLocaleTags = (code: string): string => code.split(';').map((section) => section.replace(LOCALE_TAG, '$1')).join(';');
 /** A format code as the allowlist compares it. */
-export const normaliseFormat = (code: string): string => code.replace(/\s+/g, ' ').trim().replace(/^\[\$-(?:1C09|436|409)\]/i, '')
+export const normaliseFormat = (code: string): string => stripLocaleTags(code).replace(/\s+/g, ' ').trim()
   .replace(COLOURS, (_m, c: string) => `[${c[0]!.toUpperCase()}${c.slice(1).toLowerCase()}]`);
 
 const SAFE = new Map(ZA_FORMATS.map((f) => [normaliseFormat(f.code), f.decimals]));
-/** Decimals the plain built-ins show (General shows what the value holds). */
-const BUILTIN_DECIMALS: Readonly<Record<number, number>> = { 0: Infinity, 1: 0, 2: 2, 3: 0, 4: 2, 37: 0, 38: 0, 39: 2, 40: 2, 41: 0, 43: 2 };
+/** Decimals the plain built-ins show (General and Text, 49, show what the value holds). */
+const BUILTIN_DECIMALS: Readonly<Record<number, number>> = { 0: Infinity, 1: 0, 2: 2, 3: 0, 4: 2, 37: 0, 38: 0, 39: 2, 40: 2, 41: 0, 43: 2, 49: Infinity };
 
 /** The decimal places a money cell's format shows, or null when the format is not one a money cell may carry. */
-export function formatDecimals(id: number, code: string | undefined): number | null {
-  if (code === undefined) return BUILTIN_DECIMALS[id] ?? null;
-  if (/^\s*general\s*$/i.test(code)) return Infinity;
+export function formatDecimals(id: number, raw: string | undefined): number | null {
+  if (raw === undefined) return BUILTIN_DECIMALS[id] ?? null;
+  const code = stripLocaleTags(raw);
+  if (/^\s*(?:general|@)\s*$/i.test(code)) return Infinity;
   const known = SAFE.get(normaliseFormat(code));
   if (known !== undefined) return known;
   if (!isPlainNumberFormat(id, code)) return null;

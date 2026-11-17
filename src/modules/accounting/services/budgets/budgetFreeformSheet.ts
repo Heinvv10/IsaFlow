@@ -1,9 +1,11 @@
 /**
  * A free-form budget sheet's worksheet part, parsed (MCP budget tools PR 2, review round 4): every cell with its own
  * type (`t`), value, formula presence and number format, so nothing is read as an amount that is not one (TRUE is
- * not 1, a date serial is not a number); and the layout facts that refuse the file, wherever they are on the sheet:
- * a hidden row (AutoFilter-hidden included), a row of height 0, every row hidden by default, a hidden column or one
- * of width 0, and any merged cell. Bounded as the template import is (rows, columns, text).
+ * not 1, a date serial is not a number); the layout facts that refuse the file, wherever they are on the sheet: a
+ * hidden row (AutoFilter-hidden included), a row lower than 3pt, every row hidden by default, a hidden column or one
+ * narrower than one character (round 7: what cannot be read on screen is hidden); and the lowest merged range, which
+ * the free-form reader refuses on or below the header row (round 7: a title merged above it is fine). Bounded as
+ * the template import is (rows, columns, text).
  */
 import { SpreadsheetTooLargeError } from '@/lib/xlsxToCsv';
 import { inputError } from './gridErrors';
@@ -23,8 +25,8 @@ export interface SheetXml {
   rows: FreeRow[];
   /** The first hidden layout found ("row 2", "column C", "every row"), or null. */
   hidden: string | null;
-  /** The first merged range as written, or null. */
-  merged: string | null;
+  /** The merged range reaching lowest down the sheet (`ref` as written; `lastRow` Infinity when unreadable), or null. */
+  merged: { ref: string; lastRow: number } | null;
 }
 
 export interface SheetLimits { maxRows: number; maxColumns: number; maxOutputBytes: number }
@@ -54,8 +56,8 @@ const SHEET_DATA: Readonly<Record<string, readonly string[]>> = {
 };
 /** A strict decimal: optional minus, digits, optional fraction, optional exponent (no whitespace, hex, Infinity, NaN). */
 const DECIMAL = /^-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
-const MIN_WIDTH = 0.5;
-const MIN_HEIGHT = 1;
+const MIN_WIDTH = 1;
+const MIN_HEIGHT = 3;
 
 export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly string[], formatOf: FormatOf, limits: SheetLimits): SheetXml {
   const out: SheetXml = { rows: [], hidden: null, merged: null };
@@ -113,7 +115,11 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
       } else if (name === 'col' && parent === 'cols') {
         const width = size(a.width, 'column width');
         if (truthy(a.hidden) || (width !== undefined && width < MIN_WIDTH)) out.hidden ??= `column ${columnLetter(Math.max(1, Number(a.min) || 1) - 1)}`;
-      } else if (name === 'mergeCell') out.merged ??= a.ref ?? '(no range)';
+      } else if (name === 'mergeCell') {
+        const ref = a.ref ?? '(no range)';
+        const lastRow = cellRef(ref.split(':').at(-1)!.replace(/\$/g, ''))?.row ?? Infinity;
+        if (out.merged === null || lastRow > out.merged.lastRow) out.merged = { ref, lastRow };
+      }
       else if (name === 'row' && parent === 'sheetData') {
         const r = a.r === undefined ? lastRow + 1 : Number(a.r);
         if (!Number.isInteger(r) || r <= lastRow) refuse(`its rows are out of order (row ${clip(a.r ?? '')}), which Excel never writes.`);

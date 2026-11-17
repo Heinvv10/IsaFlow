@@ -142,14 +142,24 @@ describe('6, 7: formats (text amounts too), the tightened allowlist', () => {
     });
 });
 
-describe('8: hidden layout by threshold', () => {
+describe('8: hidden layout by threshold (round 7: under 1 character, under 3pt)', () => {
   it.each([
     ['a column narrower than 0.5', '<cols><col min="2" max="2" width="0.4" customWidth="1"/></cols>', /column B/],
     ['a row lower than 1pt', '', /row 2/, ' ht="0.5" customHeight="1"'],
     ['defaultColWidth 0', '<sheetFormatPr defaultRowHeight="15" defaultColWidth="0"/>', /every column/],
     ['defaultRowHeight below 1pt', '<sheetFormatPr defaultRowHeight="0.5"/>', /every row/],
+    // Round 7: under one character wide or 3pt high cannot be read on screen.
+    ['a column narrower than one character (0.9)', '<cols><col min="2" max="2" width="0.9" customWidth="1"/></cols>', /column B/],
+    ['a row lower than 3pt (2.9)', '', /row 2/, ' ht="2.9" customHeight="1"'],
+    ['defaultColWidth 0.9', '<sheetFormatPr defaultRowHeight="15" defaultColWidth="0.9"/>', /every column/],
+    ['defaultRowHeight 2.9', '<sheetFormatPr defaultRowHeight="2.9"/>', /every row/],
   ])('%s refuses the file', async (_n, before, why, rowAttrs = '') => {
     await expect(read(await book(sheetBody(HEAD + rowXml(2, ['6000', 5], rowAttrs), '', before)))).rejects.toThrow(why);
+  });
+
+  it('round 7: a column one character wide and a row 3pt high are read', async () => {
+    const body = sheetBody(HEAD + rowXml(2, ['6000', 5], ' ht="3" customHeight="1"'), '', '<sheetFormatPr defaultRowHeight="3" defaultColWidth="1"/><cols><col min="2" max="2" width="1" customWidth="1"/></cols>');
+    await expect(read(await book(body))).resolves.toMatchObject({ kind: 'freeform' });
   });
 });
 

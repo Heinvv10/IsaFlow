@@ -198,13 +198,15 @@ function relsXml(part: Buffer, out: Map<string, { target: string; type: string }
 
 /** Built-in formats that are plain numbers: 0 General, 1-4, 37-40, and the accounting 41 / 43 (no currency symbol). */
 const PLAIN_BUILTIN = new Set([0, 1, 2, 3, 4, 37, 38, 39, 40, 41, 43]);
-const COLOUR = /\[(?:black|blue|cyan|green|magenta|red|white|yellow|color ?\d{1,2})\]/gi;
+/** Round 7: only red and black (a white, yellow or [ColorN] amount can be drawn invisible on its fill). */
+const COLOUR = /\[(?:black|red)\]/gi;
 const RAND = /\[\$R(?:-[0-9a-f]{1,8})?\]/gi;
 
 /**
  * An ALLOWLIST (round 5, tightened): General, or up to four sections, none empty (so nothing is hidden), with NO
- * quoted or escaped literal text, no condition and no locale or other [...] code but a colour or the rand symbol
- * ([$R-1C09], [$R], or a bare R, at most once a section). A number section holds only digit placeholders (0 # ?),
+ * quoted or escaped literal text (but the negative section's `\-` or `\(` ... `\)`, round 7), no condition and no
+ * other [...] code but [Red] / [Black] or the rand symbol ([$R-1C09], [$R], or a bare R, at most once a section; a
+ * locale-only tag is dropped before this is called, `budgetFreeformFormats.stripLocaleTags`). A number section holds only digit placeholders (0 # ?),
  * `,` between placeholders (never a scaling comma), at most one `.`, spaces and `_` / `*` padding; the negative
  * section shows its sign (`-` or parentheses); the positive and zero sections show none; a fourth (text) section is
  * `@` alone. Built-in ids only 0-4, 37-40, 41 and 43.
@@ -217,8 +219,10 @@ export function isPlainNumberFormat(id: number, code: string | undefined): boole
   // The character set below is the allowlist: a quote, a backslash or a bracket left after the colour and rand codes
   // fails it, and so does an empty (hidden) section, which holds no digit placeholder (or, as text, no @).
   return sections.every((section, i) => {
-    const bare = section.replace(/[_*]./gs, '').replace(COLOUR, '').replace(RAND, 'R');
+    let bare = section.replace(/[_*]./gs, '').replace(COLOUR, '').replace(RAND, 'R');
     if (i === 3) return /^\s*@\s*$/.test(bare);
+    // Round 7: the negative section's sign as LibreOffice writes it, an escaped minus first or escaped parentheses round it.
+    if (i === 1) bare = bare.replace(/^\\-/, '-').replace(/^\\\((.*)\\\)$/s, '($1)');
     if (!/[0#?]/.test(bare) || !/^[0#?,.\s()\-R]*$/.test(bare)) return false;
     if (bare.replace(/(?<=[0#?]),(?=[0#?])/g, '').includes(',')) return false;
     if ((bare.match(/\./g) ?? []).length > 1 || (bare.match(/R/g) ?? []).length > 1) return false;

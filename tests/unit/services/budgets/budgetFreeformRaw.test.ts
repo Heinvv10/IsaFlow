@@ -43,9 +43,9 @@ describe('rule 2: no hidden or merged layout anywhere on the sheet read', () => 
 
   it.each([
     ['a code merged down rows', 'A2:A3'], ['lower-case refs', 'b2:d2'], ['$-anchored refs', '$B$2:$D$2'],
-  ])('a merge in any form refuses the file: %s', async (_n, ref) => {
-    await expect(readImportWorkbook(await book(sheetBody(HEAD + row2(['6000', 5]) + rowXml(3, [null, 9]), `<mergeCells count='1'><mergeCell ref='${ref}'/></mergeCells>`))))
-      .rejects.toThrow(new RegExp(`^Sheet "Budget" has merged cells \\(${ref.replace(/\$/g, '\\$')}\\)`));
+  ])('a merge in any form on or below the header row refuses the file: %s', async (_n, ref) => {
+    await expect(linesOf(await book(sheetBody(HEAD + row2(['6000', 5]) + rowXml(3, [null, 9]), `<mergeCells count='1'><mergeCell ref='${ref}'/></mergeCells>`))))
+      .rejects.toThrow(new RegExp(`^Sheet "Budget" has merged cells \\(${ref.replace(/\$/g, '\\$')}\\) on or below its header row`));
   });
 });
 
@@ -110,7 +110,7 @@ describe('rule 4: a money cell\'s number format must be General or a plain numbe
     ['bbbb (Buddhist year)', 167, 'bbbb', false], ['aaa (Japanese weekday)', 168, 'aaa', false], ['built-in 27 (CJK date)', 27, undefined, false],
     ['built-in 36', 36, undefined, false], ['built-in 50', 50, undefined, false], ['built-in 58', 58, undefined, false], ['built-in 14 (date)', 14, undefined, false],
     ['yyyy-mm', 169, 'yyyy-mm', false], ['[h]:mm', 170, '[h]:mm', false], ['0.00%', 171, '0.00%', false], ['0.00E+00', 172, '0.00E+00', false],
-    ['@ (text)', 173, '@', false], ['[<1000]0', 174, '[<1000]0', false], ['# ?/?', 175, '# ?/?', false], ['[$-409] locale', 176, '[$-409]#,##0', false],
+    ['@ (text: shown as General, round 7)', 173, '@', true], ['[<1000]0', 174, '[<1000]0', false], ['# ?/?', 175, '# ?/?', false], ['[$-409] locale (dropped, round 7)', 176, '[$-409]#,##0.00', true],
   ];
   it.each(FORMATS)('%s', async (_n, id, code, plain) => {
     const styles = stylesWith([0, id], code === undefined ? {} : { [id]: code });
@@ -127,9 +127,17 @@ describe('rule 4: a money cell\'s number format must be General or a plain numbe
   });
 });
 
-describe('rule 6: the sheet read is the one Excel opens on', () => {
-  it('a workbook that opens on another sheet than its first visible one is refused', async () => {
-    const buf = await rawBook({ activeTab: 1, sheets: [{ name: 'Budget', body: sheetBody(HEAD) }, { name: 'Second', body: sheetBody(HEAD) }] });
-    await expect(readImportWorkbook(buf)).rejects.toThrow(/^Excel opens this workbook on sheet "Second", not on "Budget", its first visible sheet/);
+describe('rule 6: the sheet read is the one the workbook opens on (round 7: any visible one)', () => {
+  it('a workbook that opens on its second sheet reads that one', async () => {
+    const buf = await rawBook({ activeTab: 1, sheets: [{ name: 'Notes', body: sheetBody(HEAD + row2(['6000', 999])) }, { name: 'Second', body: sheetBody(HEAD + row2(['6000', 5])) }] });
+    const sheet = await freeform(buf);
+    expect([sheet.name, freeformLines(model(), 'company', sheet).lines[0]!.amounts[0]!.cell]).toEqual(['Second', { kind: 'value', cents: 500 }]);
+  });
+
+  it('a workbook that opens on a hidden sheet, or on a sheet it does not have, is refused', async () => {
+    const hidden = await rawBook({ activeTab: 1, sheets: [{ name: 'Budget', body: sheetBody(HEAD) }, { name: 'Old', attrs: ' state="hidden"', body: sheetBody(HEAD) }] });
+    await expect(readImportWorkbook(hidden)).rejects.toThrow(/^This workbook opens on sheet "Old", which is hidden; IsaFlow reads the sheet a workbook opens on/);
+    const missing = await rawBook({ activeTab: 2, sheets: [{ name: 'Budget', body: sheetBody(HEAD) }] });
+    await expect(readImportWorkbook(missing)).rejects.toThrow(/^This workbook opens on sheet number 3, which it does not have/);
   });
 });

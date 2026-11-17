@@ -3,7 +3,7 @@
  * allowlist of rand currency and accounting formats the character rule refuses (quoted "R", [$R-1C09] / [$R-en-ZA] /
  * [$R-436], `\-`, the accounting zero `"-"??`), as LibreOffice writes them in xlsx for en-ZA (verified) and as Excel
  * writes them (Microsoft's en-ZA defaults, not verified from a real Excel file). Matched after whitespace is normalised,
- * a leading locale-only tag ([$-1C09], [$-436], [$-409]) dropped and colour names case-folded. Every accepted format
+ * a leading locale-only tag (any hex id, round 7) dropped and colour names case-folded. Every accepted format
  * shows the imported value: a format with no decimals accepts whole rands only (it would show 1 235 for 1 234.50),
  * and the red-without-minus variants (a negative shown unsigned) stay refused.
  */
@@ -40,7 +40,6 @@ describe('what the allowlist keeps out', () => {
     ['LibreOffice\'s "--" cents (Excel shows the amount rounded)', '[$-1C09]"R "#,##0.--;[RED]"R-"#,##0.--'],
     ['LibreOffice\'s ISO-code format (Excel cannot show "CCC")', '[$-1C09]#,##0.00\\ CCC'],
     ['an allowlisted format with another currency', '_-"$"* #,##0.00_-;\\-"$"* #,##0.00_-;_-"$"* "-"??_-;_-@_-'],
-    ['a locale tag that is not South Africa\'s or en-US\'s', '[$-407]"R "#,##0.00;"R-"#,##0.00'],
   ])('%s is refused', async (_n, code) => {
     expect(await cellWith(code, 12.5)).toEqual({ kind: 'error', raw: '12.5', reason: expect.stringMatching(/^This cell's number format/) });
   });
@@ -54,6 +53,13 @@ describe('what the allowlist keeps out', () => {
 
   it('a leading locale-only tag is dropped before matching (an Excel spelling resaved with LibreOffice\'s [$-1C09])', async () => {
     expect(await cellWith('[$-1C09]_-"R"* #,##0.00_-;\\-"R"* #,##0.00_-;_-"R"* "-"??_-;_-@_-', 12.5)).toEqual({ kind: 'value', cents: 1250 });
+  });
+
+  it('round 7: ANY locale-only tag is dropped (a Language set in the dialog: [$-407] German, [$-809] en-GB), at the start of each section', async () => {
+    expect(await cellWith('[$-407]"R "#,##0.00;"R-"#,##0.00', -12.5)).toEqual({ kind: 'value', cents: -1250 });
+    expect(await cellWith('[$-809]#,##0.00;[RED][$-809]\\-#,##0.00', -12.5)).toEqual({ kind: 'value', cents: -1250 });
+    expect(await cellWith('[$-1C09]@', 12.5)).toEqual({ kind: 'value', cents: 1250 }); // Text: shown as General
+    expect(await cellWith('[$R-1C09]\\ 0.00;[$R-1C09]\\-0.00', -12.5)).toEqual({ kind: 'value', cents: -1250 }); // a currency tag is not one
   });
 
   it('whitespace is normalised (a non-breaking space, two spaces) and colour names case-folded', async () => {
