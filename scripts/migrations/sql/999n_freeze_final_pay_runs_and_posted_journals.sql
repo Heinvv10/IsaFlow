@@ -27,9 +27,9 @@
 --      gl_account_id and the dimensions stay writable: account merge and the VAT late-claim split move gl_account_id
 --      on posted lines, and tagging moves cc1/cc2/bu (writer census, PR body). A posted or reversed journal cannot
 --      go back to 'draft'.
---   4. A journal that arrives 'posted', and a posted journal that gains or loses a line, must balance at COMMIT
---      (constraint triggers, DEFERRABLE INITIALLY DEFERRED): the year-end and depreciation posters insert the header
---      posted and then its lines, in one transaction. No line count is required (a posted header with no lines is
+--   4. A posted journal that gains or loses a line must balance at COMMIT (a constraint trigger on gl_journal_lines,
+--      DEFERRABLE INITIALLY DEFERRED). That covers a journal INSERTed already posted: its lines arrive after it, and
+--      the year-end and depreciation posters add them in the same transaction. No line count is required (a posted header with no lines is
 --      0 = 0), unlike trg_gl_je_balanced on the draft -> posted UPDATE, which is unchanged.
 --
 -- BOUNDARY (stated, not oversold). These stop a bug, a mis-wired path or one injected statement. Someone running
@@ -57,7 +57,6 @@
 --   DROP TRIGGER IF EXISTS trg_gl_jl_posted_frozen ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_jl_posted_balanced ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_not_draft ON public.gl_journal_entries;
---   DROP TRIGGER IF EXISTS trg_gl_je_born_posted_balanced ON public.gl_journal_entries;
 --   DROP FUNCTION IF EXISTS public.payroll_run_is_final(uuid), public.payroll_run_lines_final_frozen(),
 --     public.payroll_run_headers_final_frozen(), public.gl_journal_is_posted(uuid), public.gl_jl_posted_frozen(),
 --     public.gl_je_posted_not_draft(), public.gl_posted_journal_balanced();
@@ -249,9 +248,7 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
   END IF;
-  IF TG_TABLE_NAME = 'gl_journal_entries' THEN
-    v_entry := NEW.id;
-  ELSIF TG_OP = 'DELETE' THEN
+  IF TG_OP = 'DELETE' THEN
     v_entry := OLD.journal_entry_id;
   ELSE
     v_entry := NEW.journal_entry_id;
@@ -268,15 +265,6 @@ BEGIN
   RETURN NULL;
 END
 $$;
-
-DROP TRIGGER IF EXISTS trg_gl_je_born_posted_balanced ON public.gl_journal_entries;
-CREATE CONSTRAINT TRIGGER trg_gl_je_born_posted_balanced
-  AFTER INSERT ON public.gl_journal_entries
-  DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW
-  WHEN (NEW.status = 'posted')
-  EXECUTE FUNCTION public.gl_posted_journal_balanced();
-ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_born_posted_balanced;
 
 DROP TRIGGER IF EXISTS trg_gl_jl_posted_balanced ON public.gl_journal_lines;
 CREATE CONSTRAINT TRIGGER trg_gl_jl_posted_balanced
