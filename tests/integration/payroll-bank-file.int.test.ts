@@ -138,10 +138,11 @@ describe('salary bank file', () => {
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin })]);
       await c.query(
         `INSERT INTO payroll_bank_files (company_id, run_id, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
-         SELECT company_id, id, 'fnb_obe_2023_02', repeat('b', 64), 1, 1, '2099-01-15', COALESCE(approved_at, approval_grandfathered_at), 'x'
-           FROM payroll_run_headers WHERE id = $1`, [run]);
+         SELECT company_id, id, 'fnb_obe_2023_02', repeat('b', 64), 1, (SELECT round(l.net_pay * 100)::bigint FROM payroll_run_lines l WHERE l.run_id = $1 AND l.employee_id = $2), '2099-01-15',
+                COALESCE(approved_at, approval_grandfathered_at), 'x'
+           FROM payroll_run_headers WHERE id = $1`, [run, emp[0]]);
       await c.query(`INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents)
-                     SELECT company_id, id, $2, 1 FROM payroll_bank_files WHERE run_id = $1`, [run, emp[0]]);
+                     SELECT company_id, id, $2, total_cents FROM payroll_bank_files WHERE run_id = $1`, [run, emp[0]]);
       const pending = generate(a, run); // its judge cannot see the uncommitted row; its insert waits on the unique index
       // Commit only once generate's INSERT is waiting on this transaction's lock, so the mapping is surely reached.
       for (let i = 0; ; i += 1) {
@@ -176,7 +177,7 @@ describe('salary bank file', () => {
     await expect(asSession('DELETE FROM payroll_bank_file_items WHERE file_id = $1', [file!.id], true)).rejects.toThrow(/permission denied/);
     const live = (await files(a)).find((f) => f.status === 'generated');
     await expect(asSession('INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents) VALUES ($1, $2, $3, 1)',
-      [a.company, live!.id, emp[0]])).rejects.toThrow(/do not foot|duplicate key/);
+      [a.company, live!.id, emp[0]])).rejects.toThrow(/do not foot|duplicate key|exactly their net/);
     // A file committed without its items does not foot either (run 2's file was voided below to free the run).
     const run2 = String(live!.run_id);
     await voidNotSent(a, run2, String(live!.id));
