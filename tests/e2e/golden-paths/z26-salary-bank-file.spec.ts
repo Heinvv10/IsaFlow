@@ -14,6 +14,8 @@
  * cleared as z10 clears it (a second approver, or the sole-approver exception on a fresh CI database; skipped with the
  * reason where self-approval is refused). Its one run (Oct 2026) stays approved between executions; nothing reopens it.
  */
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
@@ -70,10 +72,14 @@ async function sandbox(context: BrowserContext, baseURL: string) {
   return { api, runId: await approvedRun(api, baseURL) };
 }
 
+/** A six-record ACB file (02 04 10 12 92 94, 180 characters each) and its sha256: what the intercepted POST serves. */
+const CONTENT = ['02', '04', '10', '12', '92', '94'].map((id) => `${id}${'0'.repeat(178)}\r\n`).join('');
+const SHA = createHash('sha256').update(CONTENT, 'latin1').digest('hex');
 const ok = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) });
 const file = (status: string) => ({
-  id: FILE_ID, status, layout: 'fnb_obe_2023_02', sha256: 'a'.repeat(64), lineCount: 1, totalCents: 2_345_678, actionDate: '2099-01-15',
-  createdAt: '2026-11-16T10:00:00.000Z', confirmedAt: status === 'confirmed' ? '2026-11-16T11:00:00.000Z' : null, voidedAt: null, stale: false,
+  id: FILE_ID, status, layout: 'fnb_obe_2023_02', sha256: SHA, lineCount: 1, totalCents: 2_345_678, actionDate: '2099-01-15',
+  createdAt: '2026-11-16T10:00:00.000Z', confirmedAt: status === 'confirmed' ? '2026-11-16T11:00:00.000Z' : null,
+  voidedAt: status === 'voided' ? '2026-11-16T11:00:00.000Z' : null, stale: false,
 });
 
 /** Intercept the run's bank-file routes; the state moves generate -> confirm as the card calls them. */
@@ -82,14 +88,19 @@ async function interceptBankFile(page: Page, runId: string): Promise<void> {
   await page.route(`**/api/payroll/runs/${runId}/bank-file`, (route) => {
     if (route.request().method() === 'POST') {
       files = [file('generated')];
-      return route.fulfill(ok({ id: FILE_ID, filename: 'salaries-2026-10-2099-01-15.acb.txt', content: `02${'0'.repeat(178)}\r\n`,
-        sha256: 'a'.repeat(64), lineCount: 1, totalCents: 2_345_678, actionDate: '2099-01-15', warnings: ['Payment 1 account name "Bongi Bank" is cut'] }));
+      return route.fulfill(ok({ id: FILE_ID, filename: 'salaries-2026-10-2099-01-15.acb.txt', content: CONTENT,
+        sha256: SHA, lineCount: 1, totalCents: 2_345_678, actionDate: '2099-01-15', warnings: ['Payment 1 account name "Bongi Bank" is cut'] }));
     }
     return route.fulfill(ok({ enabled: true, files, paymentConfirmed: files.length > 0 && (files[0] as { status: string }).status === 'confirmed' }));
   });
   await page.route(`**/api/payroll/runs/${runId}/bank-file/${FILE_ID}/confirm`, (route) => {
     files = [file('confirmed')];
     return route.fulfill(ok({ id: FILE_ID, status: 'confirmed' }));
+  });
+  await page.route(`**/api/payroll/runs/${runId}/bank-file/${FILE_ID}/void`, (route) => {
+    if (route.request().postDataJSON()?.notSentToBank !== true) return route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+    files = [file('voided')];
+    return route.fulfill(ok({ id: FILE_ID, status: 'voided' }));
   });
 }
 
@@ -138,7 +149,13 @@ test('generate downloads the file, then "Bank accepted it" asks first and shows 
     await date.press('Enter');
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Generate bank file' }).click();
-    expect((await download).suggestedFilename()).toBe('salaries-2026-10-2099-01-15.acb.txt');
+    const file = await download;
+    expect(file.suggestedFilename()).toBe('salaries-2026-10-2099-01-15.acb.txt');
+    const saved = readFileSync((await file.path())!, 'latin1');
+    expect(saved.split('\r\n').slice(0, -1).map((r) => [r.slice(0, 2), r.length]))
+      .toEqual([['02', 180], ['04', 180], ['10', 180], ['12', 180], ['92', 180], ['94', 180]]);
+    const sha = createHash('sha256').update(saved, 'latin1').digest('hex');
+    await expect(page.getByText(`sha256 ${sha.slice(0, 12)}…`)).toBeVisible();
     await expect(page.getByRole('list', { name: 'Bank file warnings' })).toContainText('Bongi Bank');
     await expect(page.getByText('Generated, not yet confirmed')).toBeVisible();
     await snap(page, 'bank-file-generated', 'session-theme');
@@ -146,11 +163,41 @@ test('generate downloads the file, then "Bank accepted it" asks first and shows 
     await page.getByRole('button', { name: 'Bank accepted it' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Only do this once the bank shows the salaries as accepted');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await dialog.getByRole('button', { name: 'Bank accepted it' }).click();
     await expect(page.getByText(/The bank has paid this run/)).toBeVisible();
     await expect(page.getByText('Payment confirmed')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reopen Period' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Bank file warnings' })).toHaveCount(0);
     await snap(page, 'bank-file-confirmed', 'session-theme');
+  } finally {
+    await api.dispose();
+  }
+});
+
+test('void asks for the not-sent attestation, then says the file is dead', async ({ page, context, baseURL }) => {
+  const { api, runId } = await sandbox(context, baseURL!);
+  try {
+    test.skip(runId === null, NEEDS_APPROVER);
+    await interceptBankFile(page, runId!);
+    await openRun(page, runId!);
+    const date = page.getByLabel('Action date');
+    await date.fill('15 Jan 2099');
+    await date.press('Enter');
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Generate bank file' }).click();
+    await download;
+    await page.getByRole('button', { name: 'Void', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    const voidFile = dialog.getByRole('button', { name: 'Void file' });
+    await expect(voidFile).toBeDisabled();
+    await dialog.getByLabel('This file was not sent to the bank.').check();
+    await voidFile.click();
+    await expect(page.getByText(/That file is now dead: never upload it/)).toBeVisible();
+    await expect(page.getByText('Voided', { exact: true })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Bank file warnings' })).toHaveCount(0);
+    await snap(page, 'bank-file-voided', 'session-theme');
   } finally {
     await api.dispose();
   }

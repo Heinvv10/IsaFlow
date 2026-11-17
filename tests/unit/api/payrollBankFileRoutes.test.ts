@@ -91,4 +91,10 @@ describe('salary bank-file routes', () => {
     expect((await call(bankFile, 'POST', 'owner', { id: RUN }, { actionDate: '15/01/2099' })).status).toBe(400);
     expect(mocks.settle).not.toHaveBeenCalled();
   });
+
+  it('void passes the not-sent attestation only when the body says true', async () => {
+    await call(settle, 'POST', 'owner', { id: RUN, fileId: FILE, action: 'void' }, { notSentToBank: true });
+    await call(settle, 'POST', 'owner', { id: RUN, fileId: FILE, action: 'void' }, { notSentToBank: 'yes' });
+    expect(mocks.settle.mock.calls.map((c) => [c[0].action, c[0].notSentToBank])).toEqual([['void', true], ['void', false]]);
+  });
 });
