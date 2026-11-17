@@ -134,7 +134,7 @@ export async function markCorrectedByHand(
   if (j.declaredUnrelated) throw new HandCorrectionRefusedError('That journal was declared unrelated to this line');
 
   await sql`
-    UPDATE bank_transactions SET auto_post_run_id = NULL
+    UPDATE bank_transactions SET auto_post_run_id = NULL, auto_post_journal_id = NULL
     WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
   `;
   await recordDecision(companyId, userId, HAND_CORRECTION_REASON, runId, d, j);

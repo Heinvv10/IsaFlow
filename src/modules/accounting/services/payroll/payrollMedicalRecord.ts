@@ -1,6 +1,6 @@
 /**
  * An employee's medical scheme fees and medical tax credits over a span of a
- * tax year, from the lines of DECLARABLE runs (EMP201_DECLARABLE_STATUSES), as
+ * tax year, from the lines of DECLARABLE runs (FINAL: payRunFinalSql, wave 6 EF), as
  * the e@syFile certificate reports them (PAYE 4a follow-ups round 2, R3):
  * - fees: 4005, the medical scheme fees the employee paid through payroll, the
  *   lines' medical_scheme_fees (migration 926). A line written before it is
@@ -26,7 +26,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { outsideTablesFlag } from './payrollOutsideTables';
 
@@ -47,7 +47,6 @@ export async function loadMedicalRecord(
   employeeIds: string[] | null = null,
   opts: { tablesOnly?: boolean } = {},
 ): Promise<Map<string, MedicalRecord>> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   // The cumulative PAYE's year to date leaves out a month whose PAYE was not taken from the tables; the certificate does not.
   const tablesOnly = opts.tablesOnly === true;
   // This scans each pre-926 line's breakdown again, beside loadPayeYearToDate's scan of the same lines
@@ -71,7 +70,7 @@ export async function loadMedicalRecord(
     JOIN payroll_run_headers h ON h.id = l.run_id
     CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
     WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
       AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))

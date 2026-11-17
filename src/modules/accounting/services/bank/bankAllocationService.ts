@@ -47,6 +47,7 @@ type Row = DbRow;
 // The allocation shapes live in bankAllocationTypes.ts; re-exported for every existing import site.
 export type { AllocationType, AllocationApplicationResult, SplitLine } from './bankAllocationTypes';
 import type { AllocationType, AllocationApplicationResult } from './bankAllocationTypes';
+import { isBankContra, isBankContraPlan, postsToContraAccount, refuseOwnBankContra } from './bankContraTransfer';
 
 // ── Allocate ──────────────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ import type { AllocationType, AllocationApplicationResult } from './bankAllocati
  */
 export async function allocateTransaction(
   companyId: string, bankTxId: string, contraAccountId: string | null, userId: string,
-  description?: string, allocType: AllocationType = 'account', entityId?: string,
+  description?: string, requestedAllocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
   /**
@@ -110,6 +111,11 @@ export async function allocateTransaction(
     }
   }
 
+  // WP2 row 5 (Hein): the line's own bank as an account contra posts nothing — refused from the locked row
+  // (bankContraTransfer). An account contra that IS a bank account is rerouted below, once the plan has read it.
+  refuseOwnBankContra(requestedAllocType, entityId, contraAccountId, String(tx.bank_account_id));
+  let allocType = requestedAllocType;
+
   // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
   // validates its UUID SHAPE only) and is written into `customer_payments.client_id`
   // below; the only customer read on this path fetches a NAME and falls back to
@@ -141,10 +147,17 @@ export async function allocateTransaction(
   await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId); // step 2: not the statement's importer (403)
 
   // The contra account, the AP/AR-control refusal, the VAT split and the dimensions: reads only (bankAllocationPlan).
-  const plan = await planAllocationPosting({
-    companyId, bankTxId, allocType, contraAccountId, entityId, vatCode, cc1Id, cc2Id, buId,
+  const planFor = (type: AllocationType) => planAllocationPosting({
+    companyId, bankTxId, allocType: type, contraAccountId, entityId, vatCode, cc1Id, cc2Id, buId,
     bankAccountId, totalAmount, isSpent,
   });
+  let plan = await planFor(allocType);
+  // WP2 row 5: an account contra that is a BANK account is a transfer — the duplicate guard, the pair lock and the leg
+  // pairing apply (bankContraTransfer). Decided from the contra row the plan just read; a transfer re-plans with no SQL.
+  // A supplier/customer call naming no contact posts to the contra too (postsToContraAccount); its plan reads no contra
+  // row, so that rare shape asks the subtype itself.
+  if (isBankContraPlan(allocType, plan.contraRows) || (allocType !== 'account' && postsToContraAccount(allocType, entityId)
+    && await isBankContra(companyId, contraAccountId))) { allocType = 'transfer'; plan = await planFor(allocType); }
   const { allocationDims } = plan;
   // The contra account and the dimensions the account arm stamps, refused typed and before the first write.
   if (allocType === 'account' && contraAccountId) {
@@ -231,7 +244,9 @@ export async function allocateTransaction(
             -- Nor does it pay the purchase order the line paid before (a re-pointed reconciled line): left set, that
             -- PO still counts this cash as paid. The PO match (confirmPurchaseOrderMatch, lane B's #1458) sets it again
             -- AFTER this call.
-            linked_po_id = NULL
+            linked_po_id = NULL,
+            -- Not part of any auto-post run: a run (gate sweep, bulk accept) tags the line AFTER this write (WP6 review F1).
+            auto_post_run_id = NULL, auto_post_journal_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {

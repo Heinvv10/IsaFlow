@@ -70,6 +70,16 @@ it('names only the reasons that apply', async () => {
 
 // A retry that completes the run must not leave the previous partial notice
 // on screen, claiming lines are still outstanding.
+// A line a person re-coded by hand after the run leaves the run: the notice says so instead of an empty reason.
+it('names the lines that were re-coded by hand after the run', async () => {
+  respondToUndo([200, partial({ ...skips(0, 0, 0), changedSinceRun: 2 })]);
+  await clickUndo();
+
+  const notice = (await screen.findByRole('status')).textContent;
+  expect(notice).toMatch(/2 were re-coded by hand after the run, so they left it; press Undo again to close the run/);
+  expect(notice).not.toMatch(/Not undone: \./);
+});
+
 it('clears the partial notice when a retry completes the run', async () => {
   respondToUndo([200, partial(skips(0, 1, 0))], [200, complete]);
   const onUndone = vi.fn();

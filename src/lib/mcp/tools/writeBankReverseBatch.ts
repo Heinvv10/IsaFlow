@@ -120,6 +120,8 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // rolls it back. The one refusal set aside is a supplier payment whose refund is later in the batch: retried after
     // the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
     // A customer's receipts and refunds in the batch are judged together first, once (bank/reverseLinesCreditLast).
+    // A transfer's other bank line (auto-linked outside the batch / range) is freed by reverseReconciledTransaction
+    // itself (WP2 row 10, transferLegReset), as for the screen and reverse_bank_allocation: one mechanism.
     await reverseLinesJudged(ctx.companyId,
       orderedReversals.map((l) => ({ id: l.transactionId, journalEntryId: l.currentJournalEntryId })), (id) =>
       // The contra journal is stamped too — without it the agent's own
