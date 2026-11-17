@@ -164,9 +164,18 @@ function slipPage(doc: JsPdfDoc, autoTable: AutoTable, run: PayslipRun, slip: Pa
   }
 }
 
-export async function buildPayslipPdf(run: PayslipRun): Promise<Buffer> {
+/**
+ * Wave 6 PE (payslipEmailPdf): a password (jsPDF's own encryption, owner = user password, print only) and a fixed
+ * creation date and file id, so the same slip renders to the same bytes. Omitted: as before.
+ */
+export interface PayslipPdfOptions { password?: string; createdAt?: Date; fileId?: string }
+
+export async function buildPayslipPdf(run: PayslipRun, opts: PayslipPdfOptions = {}): Promise<Buffer> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-  const doc: JsPdfDoc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const encryption = opts.password ? { userPassword: opts.password, ownerPassword: opts.password, userPermissions: ['print' as const] } : undefined;
+  const doc: JsPdfDoc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', ...(encryption ? { encryption } : {}) });
+  if (opts.createdAt) doc.setCreationDate(opts.createdAt);
+  if (opts.fileId) doc.setFileId(opts.fileId); // after the constructor: it re-keys the encryption with this id
   run.payslips.forEach((slip, index) => {
     if (index > 0) doc.addPage();
     slipPage(doc, autoTable as unknown as AutoTable, run, slip);
