@@ -43,7 +43,12 @@ export default function EmployeePortalHome() {
       {error && <p role="alert" className="mb-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
       <section aria-labelledby="slips" className="mb-8">
         <h2 id="slips" className="mb-2 text-lg font-semibold">Payslips</h2>
-        {slips?.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-300">No payslips yet.</p>}
+        {slips?.length === 0 && (
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            No payslips here yet. Payslips show here from the first pay run your employer approves after online payslips
+            started; earlier payslips are available from your employer.
+          </p>
+        )}
         {slips && slips.length > 0 && (
           <table className="w-full text-left text-sm">
             <thead><tr><th className={cell}>Month</th><th className={`${cell} text-right`}>Net pay</th><th className={cell}><span className="sr-only">Download</span></th></tr></thead>

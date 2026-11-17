@@ -5,6 +5,7 @@
  *  - an employee lists and downloads only their own final slips; another employee's run in the same company, and
  *    another company's run, are the same 404; the PDF is theirs alone;
  *  - a reopened run's slip disappears from the list and its PDF is 404; re-approved, it is back;
+ *  - a final slip not frozen at its current approval (PS3 snapshot missing or stale) is neither listed nor served;
  *  - leave balances are the employee's own only;
  *  - every answer is no-store, and nothing answers without a portal session.
  *
@@ -101,6 +102,18 @@ describe('employee portal reads', () => {
     expect((await a.api.approve(run1)).statusCode).toBe(200);
     expect(await runs(jars.two!)).toEqual([run2, run1]);
     expect((await getSlip(jars.two!, run1)).statusCode).toBe(200);
+  });
+
+  it('a final slip whose details were not frozen at this approval (a run approved before PS3) is not shown', async () => {
+    expect(await runs(jars.two!)).toContain(run2);
+    await a.pool.query('ALTER TABLE payroll_run_lines DISABLE TRIGGER USER');
+    try {
+      await a.pool.query('UPDATE payroll_run_lines SET payslip_snapshot = NULL WHERE run_id = $1', [run2]);
+    } finally {
+      await a.pool.query('ALTER TABLE payroll_run_lines ENABLE TRIGGER USER');
+    }
+    expect(await runs(jars.two!)).toEqual([run1]);
+    expect((await getSlip(jars.two!, run2)).statusCode).toBe(404);
   });
 
   it('leave balances are the employee\'s own only', async () => {
