@@ -217,7 +217,7 @@ export default function BankTransactionsPage() {
         />
 
         <ActiveFiltersChip labels={f.activeLabels} onClear={f.clear} />
-        <BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterMutation} />
+        <BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterMutation} refreshKey={total} />
         <BankTxSelectionBar count={onScreenSelected.size} onClear={() => setSelectedIds(new Set())} />
         <BankTxSuppliersNotice status={suppliersStatus} />
 

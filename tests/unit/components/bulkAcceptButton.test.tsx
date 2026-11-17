@@ -1,5 +1,5 @@
 /** WP6 UI: the "Accept N high-confidence suggestions" button - its count, when it hides, and the reload after a batch. */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
@@ -61,5 +61,58 @@ describe('BulkAcceptButton', () => {
     vi.mocked(apiFetch).mockResolvedValue(ok(preview(0)));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the count is throttled (M4)', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('reads once, not again for a refresh within the minute, then once more when the minute has passed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(apiFetch).mockResolvedValue(ok(preview(3)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={10} />);
+    await screen.findByRole('button', { name: /Accept 3 high-confidence/ });
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={9} />); // a single accept moved the total
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} refreshKey={8} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(31_000); });
+    expect(apiFetch).toHaveBeenCalledTimes(2); // one trailing read for the two changes
+  });
+
+  it('a tab switch away and back does not read again inside the minute', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ok(preview(3)));
+    const { rerender } = render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: /Accept 3/ });
+    rerender(<BulkAcceptButton bankAccountId="b1" active={false} onChanged={vi.fn()} />);
+    rerender(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('focus (M2)', () => {
+  it('returns to the button when the dialog closes', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ok(preview(2)));
+    render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    const button = await screen.findByRole('button', { name: /Accept 2 high-confidence/ });
+    fireEvent.click(button);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it('goes to the grid when nothing is left to accept and the button has gone', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(preview(1))); // count
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(preview(1))); // dialog preview
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ runId: 'r', posted: [{ txId: 'id-0', journalEntryId: 'j' }], refused: [], totalPosted: 1 }));
+    vi.mocked(apiFetch).mockResolvedValue(ok(preview(0))); // the re-read after the batch
+    render(<><div role="group" aria-label="Bank transactions grid" tabIndex={0} data-testid="grid" /><BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} /></>);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 1 high-confidence/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 1/ }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('grid')));
   });
 });

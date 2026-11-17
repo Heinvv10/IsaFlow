@@ -32,12 +32,14 @@ export interface RowProps {
 /** An accept / exclude / split that has not settled after this long no longer locks its row. */
 const IN_FLIGHT_LIMIT_MS = 30_000;
 
-function isTypingTarget(el: Element | null): boolean {
+export function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
-  // A kit Select's trigger is a div with role="combobox": its Enter, Space and letters choose and type ahead.
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.getAttribute('role') === 'combobox'
-    || (el as HTMLElement).isContentEditable;
+  const role = el.getAttribute('role');
+  // A kit Select's trigger is a div with role="combobox": its Enter, Space and letters choose and type ahead. A listbox, an
+  // option, or anything inside the Selection popover (its buttons are the options) owns its keys too.
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || role === 'combobox' || role === 'listbox' || role === 'option'
+    || !!el.closest('[data-bank-dropdown]') || (el as HTMLElement).isContentEditable;
 }
 
 /**

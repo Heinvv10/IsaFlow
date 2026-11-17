@@ -34,6 +34,8 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
   let bankAccountId = '';
   let ruleId = '';
   let ids: string[] = [];
+  let runId = '';
+  let undone = false;
   try {
     const banks = await api.get<Array<{ id: string }>>('/api/accounting/bank-accounts');
     expect(banks.length, 'company must have a bank account').toBeGreaterThan(0);
@@ -43,7 +45,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     expect(expenseId, 'a default expense account').toBeTruthy();
 
     const before = await api.get<{ lines: unknown[]; scanTruncated: boolean }>(`/api/accounting/bank-bulk-accept?bankAccountId=${bankAccountId}`);
-    test.skip(before.lines.length > 0, 'the account already holds high-confidence suggestions: a confirm would post them too');
+    test.skip(before.lines.length > 0 || before.scanTruncated, 'the account already holds (or may hold) high-confidence suggestions: a confirm would post them too');
 
     const csv = ['Date,Description,Amount,Balance,Reference',
       `${d},${ref} fuel one,-110.00,9890.00,${ref}-1`,
@@ -77,7 +79,9 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     if (process.env.BANK_TX_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.BANK_TX_EVIDENCE_DIR, 'bulk-accept-preview.png') });
 
     // Confirm posts the batch.
+    const confirmed = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-bulk-accept') && r.request().method() === 'POST');
     await dialog.getByRole('button', { name: /Confirm and post 3/ }).click();
+    runId = (await (await confirmed).json())?.data?.runId ?? '';
     await expect(dialog.getByTestId('bulk-result')).toContainText('Posted 3 lines');
     const withStatus = async (status: string) => (await api.get<{ transactions: Array<{ id: string }> }>(
       `/api/accounting/bank-transactions?bank_account_id=${bankAccountId}&status=${status}&search=${encodeURIComponent(ref)}`)).transactions.length;
@@ -86,11 +90,18 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     // Undo batch reverses exactly that batch: the lines are imported again.
     await dialog.getByRole('button', { name: 'Undo batch' }).click();
     await expect(dialog.getByText(/Batch undone: 3 lines reversed/)).toBeVisible();
+    undone = true;
     await dialog.getByRole('button', { name: 'Done' }).click();
     expect(await withStatus('imported')).toBe(3);
     expect(await withStatus('allocated')).toBe(0);
   } finally {
     try {
+      // A failed expect after Confirm must not leave the batch posted: undo it here whenever a run was seen.
+      if (runId && !undone) {
+        try { await api.post('/api/accounting/bank-bulk-accept', { action: 'undo', runId }); } catch (undoErr) {
+          test.info().annotations.push({ type: 'undo-failed', description: String(undoErr) });
+        }
+      }
       if (ids.length > 0) await api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: ids });
       if (ruleId) await api.post('/api/accounting/bank-rules-action', { action: 'delete', id: ruleId });
     } catch (cleanupErr) {

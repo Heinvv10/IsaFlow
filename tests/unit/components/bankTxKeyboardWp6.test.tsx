@@ -8,6 +8,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { BankTxTable } from '@/components/accounting/BankTxTable';
 import { resolveBankTxKey } from '@/components/accounting/bankTxKeyboard';
 import { popoverChoices, nextPopoverIndex } from '@/components/accounting/bankTx/bankTxOptions';
+import { isTypingTarget } from '@/components/accounting/useBankTxKeyboardNav';
 import { TXS, tableProps } from './bankTxTableFixture';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -120,5 +121,36 @@ describe('popover helpers', () => {
     expect(nextPopoverIndex('ArrowUp', 0, 2)).toBe(0);
     expect(nextPopoverIndex('a', 0, 2)).toBeNull();
     expect(nextPopoverIndex('ArrowDown', 0, 0)).toBeNull();
+  });
+});
+
+describe('J and K never act on a chord or inside a popover (L2)', () => {
+  it.each(['ctrlKey', 'metaKey', 'altKey'] as const)('%s + J leaves the focused row where it is', (mod) => {
+    render(<BankTxTable {...tableProps()} />);
+    fireEvent.click(rows()[0]!);
+    const notPrevented = fireEvent.keyDown(rows()[0]!, { key: 'j', [mod]: true });
+    expect(notPrevented).toBe(true);
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
+    expect(rows()[1]).not.toHaveAttribute('data-focused');
+  });
+
+  it('listboxes, options, comboboxes and anything inside the Selection popover are typing targets', () => {
+    const make = (html: string) => { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild!; };
+    expect(isTypingTarget(make('<div role="option"></div>'))).toBe(true);
+    expect(isTypingTarget(make('<div role="listbox"></div>'))).toBe(true);
+    expect(isTypingTarget(make('<div role="combobox"></div>'))).toBe(true);
+    expect(isTypingTarget(make('<div data-bank-dropdown><button id="o"></button></div>').querySelector('#o'))).toBe(true);
+    expect(isTypingTarget(make('<button></button>'))).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
+  });
+
+  it('J pressed on an option button inside the open popover does not move the row stream', () => {
+    render(<BankTxTable {...tableProps()} />);
+    fireEvent.click(rows()[0]!);
+    fireEvent.keyDown(rows()[0]!, { key: 'e' });
+    const option = document.querySelector('[data-bank-dropdown] button') as HTMLElement;
+    fireEvent.keyDown(option, { key: 'j' });
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
+    expect(rows()[1]).not.toHaveAttribute('data-focused');
   });
 });

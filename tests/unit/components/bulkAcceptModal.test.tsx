@@ -49,7 +49,7 @@ describe('preview', () => {
     open();
     expect(await screen.findByText(/3 in a closed period/)).toBeTruthy();
     expect(screen.getByText(/Showing the first 2/)).toBeTruthy();
-    expect(screen.getByText(/4 need a colleague or an approval/)).toBeTruthy();
+    expect(screen.getByText(/4 held for a colleague or an approval/)).toBeTruthy();
   });
 
   it('pages past a scan that stopped early with the cursor', async () => {
@@ -148,5 +148,156 @@ describe('confirm and undo', () => {
     await screen.findByText('LINE 1');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(b.onChanged).not.toHaveBeenCalled();
+  });
+});
+
+const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
+const dialog = () => screen.getByRole('dialog');
+
+describe('closing and focus (M1, M2)', () => {
+  it('Escape and Cancel close a preview, and Cancel holds the focus from the start (not a disabled Confirm)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW));
+    const { onClose } = open();
+    await screen.findByText('LINE 1');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(dialog(), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('focus is inside the dialog while the preview is still loading', async () => {
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise(() => undefined));
+    open();
+    await screen.findByText('Loading suggestions…');
+    expect(dialog().contains(document.activeElement)).toBe(true);
+  });
+
+  it('Tab from the last control wraps to the first, so it never leaves the dialog', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW));
+    open();
+    await screen.findByText('LINE 1');
+    const confirmBtn = screen.getByRole('button', { name: /Confirm and post 2/ });
+    confirmBtn.focus();
+    fireEvent.keyDown(confirmBtn, { key: 'Tab' });
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(confirmBtn);
+  });
+
+  it('while a confirm is in flight, Escape, Cancel and the close button do nothing; the result then reloads the page on Done', async () => {
+    const gate = deferred<Response>();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockReturnValueOnce(gate.promise);
+    const { onClose, onChanged } = open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByRole('button', { name: 'Posting…' });
+    fireEvent.keyDown(dialog(), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(true);
+    gate.resolve(ok({ runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('an undo in flight cannot be closed over either', async () => {
+    const gate = deferred<Response>();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok({ runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 }))
+      .mockReturnValueOnce(gate.promise);
+    const { onClose } = open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    await screen.findByRole('button', { name: 'Undoing…' });
+    fireEvent.keyDown(dialog(), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    gate.resolve(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    await screen.findByText(/Batch undone/);
+  });
+});
+
+describe('a partial undo (M3)', () => {
+  const RUN = { runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+  const OFFSET = { transactionId: 'a', lineDate: '2026-09-01', lineAmount: -100, lineDescription: 'LINE 1', journalEntryId: 'je', entryNumber: 'JE-2026-00042', entryDate: '2026-09-02', amount: 100, description: 'Hand fix', netsPostingOut: true, reclass: false, projection: [] };
+
+  it('keeps Undo available so the message is true, lists the hand-offset lines, and closes the loop when a second undo finishes', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN))
+      .mockResolvedValueOnce(ok({ reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 1, creditCeiling: 0 }, undone: false, handOffsets: [OFFSET] }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    await screen.findByText(/Not undone: 1 may already be corrected/);
+    expect(within(screen.getByRole('list', { name: /later journal may already correct/ })).getByText(/JE-2026-00042/)).toBeTruthy();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ reversed: 1, skipped: 0, skippedBy: {}, undone: true, handOffsets: [] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo the rest of the batch' }));
+    await screen.findByText(/Batch undone: 1 line reversed/);
+    expect(bodies().filter((b) => b?.action === 'undo')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull();
+  });
+});
+
+describe('paging, held lines, a dead token, nothing posted', () => {
+  it('Show the next 25 keeps the page on screen (and confirmable) while the next loads, then replaces it', async () => {
+    const gate = deferred<Response>();
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ ...PREVIEW, truncated: true, nextScanAfter: 'cur-2' })).mockReturnValueOnce(gate.promise);
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: 'Show the next 25' }));
+    expect(screen.getByText('LINE 1')).toBeTruthy(); // still there while the next page loads
+    expect((screen.getByRole('button', { name: 'Show the next 25' }) as HTMLButtonElement).disabled).toBe(true);
+    gate.resolve(ok({ ...PREVIEW, lines: [line(3, -5)], totalIn: 0, totalOut: 5, previewToken: 'tok2' }));
+    await screen.findByText('LINE 3');
+    expect(screen.queryByText('LINE 1')).toBeNull();
+    expect(String(vi.mocked(apiFetch).mock.calls[1]![0])).toContain('scanAfter=cur-2');
+  });
+
+  it('a failed next page leaves the current page and its Confirm', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ ...PREVIEW, truncated: true, nextScanAfter: 'cur-2' })).mockResolvedValueOnce(bad('busy', 500));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: 'Show the next 25' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/busy|Could not load/);
+    expect(screen.getByText('LINE 1')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('after a confirm, a cut list offers the next batch, read from the start', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ ...PREVIEW, truncated: true, nextScanAfter: 'cur-2' }))
+      .mockResolvedValueOnce(ok({ runId: 'r', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 }))
+      .mockResolvedValueOnce(ok(PREVIEW));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview the next batch' }));
+    await screen.findByText('LINE 1');
+    expect(String(vi.mocked(apiFetch).mock.calls[2]![0])).not.toContain('scanAfter');
+  });
+
+  it('lists the held lines, up to the 50 the server sends', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ ...PREVIEW, needsAttentionCount: 60, needsAttention: [
+      { id: 'abcdef12-0000-4000-8000-000000000001', kind: 'importer', reason: 'you imported it' },
+      { id: 'fedcba98-0000-4000-8000-000000000002', kind: 'approval', reason: 'over the limit' }] }));
+    open();
+    const list = await screen.findByRole('list', { name: 'Held lines', hidden: true });
+    expect(list.textContent).toMatch(/abcdef12.*you imported it/);
+    expect(list.textContent).toMatch(/fedcba98.*needs an approval.*over the limit/);
+    expect(screen.getByText(/60 held for a colleague/)).toBeTruthy();
+  });
+
+  it('a failed confirm kills the token: Confirm is disabled until Reload preview brings a fresh one', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(bad('The previewed line changed', 400)).mockResolvedValueOnce(ok({ ...PREVIEW, previewToken: 'fresh' }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByRole('alert');
+    expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Reload preview' }));
+    await waitFor(() => expect((screen.getByRole('button', { name: /Confirm and post 2/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a confirm that posted nothing (no run) says so, offers no undo, and does not reload the page', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok({ runId: null, posted: [], refused: [{ txId: PREVIEW.lines[0]!.id, reason: 'busy - retry' }], totalPosted: 0 }));
+    const { onChanged } = open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    expect((await screen.findByTestId('bulk-result')).textContent).toMatch(/Posted 0 lines.*1 not posted/);
+    expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });
