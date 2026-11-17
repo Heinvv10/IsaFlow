@@ -66,6 +66,59 @@ P5 first stayed **green in integration** (14 passed / 14): across requests the v
 token alone refused the stale plan. Added "inside one transaction the plan_hash still binds the cells" (a batch: a save, the dry run, a
 second save, the apply; the token stays still), commit fd03849704; re-run P5b is red. Same lesson as PR 1's N3.
 
+## Mutation table, review round 1 (head 37637d7e9a, after the master merge ffdde0d831)
+
+Every guard of the first table re-run at the new head, plus one per round-1 fix. Same procedure (committed first, restored with
+`git checkout --`, tree clean after each); a fresh cluster built at the new head. Counts from the runs' own `Tests` lines.
+
+| # | Mutant | unit | int |
+|---|---|---|---|
+| P1 | restore refuses a set_budget_drivers snapshot | 1 failed | 4 passed (5) | 1 failed | 4 passed (5) |
+| P2 | restore refuses once drivers changed (>0 → >999) | 2 failed | 3 passed (5) | 2 failed | 21 passed (23) |
+| P3 | created_at >= → > | – | 1 failed | 22 passed (23) |
+| P4 | plan_hash required (required: false) | 1 failed | 31 passed (32) | 1 failed | 17 passed (18) |
+| P5 | hash binds status, slices, lines, hires, cells (→ changes only) | 2 failed | 30 passed (32) | 1 failed | 17 passed (18) |
+| P6 | stale version_token check removed | 1 failed | 31 passed (32) | 1 failed | 17 passed (18) |
+| P7 | dry run skips the services | 4 failed | 28 passed (32) | 5 failed | 13 passed (18) |
+| P8 | dry-run MAX_SAVE_CELLS cap removed | 1 failed | 31 passed (32) | – |
+| P9 | no snapshot recorded | 1 failed | 31 passed (32) | 2 failed | 21 passed (23) |
+| P10 | live all-or-nothing check disabled | 1 failed | 31 passed (32) | 5 failed | 13 passed (18) |
+| P11 | set_budget_drivers write: false | 3 failed | 236 passed (239) | 2 failed | 16 passed (18) |
+| P12 | derive role check removed | 1 failed | 17 passed (18) | 1 failed | 4 passed (5) |
+| P13 | remaining role check removed | 1 failed | 19 passed (20) | – |
+| P14 | budget_tracking requiresRole removed | 4 failed | 257 passed (261) | 1 failed | 4 passed (5) |
+| P15 | three-way flag gate always passes | 3 failed | 15 passed (18) | 1 failed | 4 passed (5) |
+| P16 | a number accepted in a money field | 1 failed | 17 passed (18) | 1 failed | 4 passed (5) |
+| P17 | per-head access always 'full' | 1 failed | 31 passed (32) | 1 failed | 17 passed (18) |
+| P18 | submit holder filter removed | 1 failed | 19 passed (20) | – |
+| P19 | DRIVERS_LIMIT_MAX 75 → 300 | 2 failed | 7 passed (9) | – |
+| P20 | THREE_WAY_LIST_CAP 50 → 2000 | 1 failed | 8 passed (9) | – |
+| P21 | assumptions_token presence check disabled | 1 failed | 17 passed (18) | – |
+| N1 | F1: a line's bu dropped (buId: null) | 1 failed | 19 passed (20) | 5 passed (5) |
+| N1b | F1: the same, after the bu-level equivalence line (37637d7e9a) | 1 failed | 19 passed (20) | 1 failed | 4 passed (5) |
+| N2 | F3: version status out of the hash | 1 failed | 31 passed (32) | 1 failed | 17 passed (18) |
+| N3 | F3: slice reviews out of the hash | 1 failed | 31 passed (32) | – |
+| N4 | F4: <list>_total dropped | 1 failed | 17 passed (18) | – |
+| N5a | M1: every refusal answered (position check → true) | – | 1 failed | 17 passed (18) |
+| N5b | M1: the first-change answer branch never taken (→ false) | 1 failed | 31 passed (32) | – |
+| N6 | M2: live MAX_SAVE_CELLS throw removed | 1 failed | 31 passed (32) | – |
+| N7a | M3: an unclassified number passed through | 1 failed | 2 passed (3) | – |
+| N7b | M3: closingCash out of MONEY_KEYS | 2 failed | 19 passed (21) | 1 failed | 4 passed (5) |
+| N8a | L3: driver bucket charged 1 per call, not per change | 1 failed | 31 passed (32) | – |
+| N8b | L3: remaining bucket removed | 1 failed | 19 passed (20) | – |
+| N9 | L1: TrackingError catch removed | 1 failed | 19 passed (20) | – |
+
+N1 first stayed green in integration (5 passed / 5): at a cc1-level account `remainingFor` drops a line's bu anyway. Added a
+bu-level account line (cc1 + bu, keeps the bu), commit 37637d7e9a; N1b is red. pct past 4 decimals and FTE past 2 are refused by the
+services (engine `scaledPct`, `checkedHire`), never rounded: pinned in `mcp-budget-drivers` ("a percent past 4 decimals…").
+
+Red first for round 1: the new and changed unit tests before the fixes: `Tests  19 failed | 61 passed (80)`.
+
+Runs at the final head: unit `tests/unit` `Test Files  2575 passed | 47 skipped (2622)`, `Tests  37560 passed | 289 skipped (37849)`;
+integration (every mcp-budget-*, budget-grid-*, budget-drivers-*, budgets-three-way-*, budget-tracking-* file, 67 files)
+`Test Files  67 passed (67)`, `Tests  559 passed | 1 skipped (560)`; tsc exit 0; eslint on src/lib/mcp and services/budgets 0 errors
+(2 warnings, both in tools/reports.ts, not this branch); `agent-docs:check` OK (114 mirrors).
+
 ## Equivalence
 
 - `mcp-budget-drivers-equivalence` (1): one twin version through the app's routes as the owner (PUT a pct_of_line driver,
@@ -78,9 +131,11 @@ second save, the apply; the token stays still), commit fd03849704; re-run P5b is
 - `mcp-budget-three-way` (equivalence half): PUT assumptions vs `set_three_way_assumptions` (dry run, insert; then an
   update with the token): equal stored document, author and audit rows; the version token untouched on both. POST
   derive and GET `budget-three-way` vs `derive_three_way` and `get_three_way`: the same figures (the tools' only
-  difference: decimal text for cents, `docToWire` / `centsDeep`, with one figure pinned by hand: R1 000.00 = 100 000 cents).
+  difference: decimal text for cents; round 1 compares with an independent conversion in the test, not the tool's converter,
+  plus one figure pinned by hand: R1 000.00 = 100 000 cents).
 - `mcp-budget-controls` (read half): `budget_remaining` vs POST `budgets/remaining` (budget, actual, committed,
-  remaining, off-slice, unassigned, grain per line) and `budget_tracking` vs GET `budgets/alerts` (a manager refused by both).
+  remaining, off-slice, unassigned, grain per line; round 1: a cc1 + bu line at a cc1 and at a bu account, and a
+  balance-sheet account, answered as the route answers them) and `budget_tracking` vs GET `budgets/alerts` (a manager refused by both).
 
 Ignored, and why: ids and timestamps (new rows); the version name (two versions of one year cannot share one); a
 planned hire's and a slice's id in audit metadata (new rows) and `headcountAsOf` (a clock); the order of audit rows (one
