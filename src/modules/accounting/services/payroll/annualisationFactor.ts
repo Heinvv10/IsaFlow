@@ -1,7 +1,7 @@
 /**
  * The annualisation factor F of the cumulative PAYE (payeCumulative.ts): AE = remuneration to date × F ÷ n, and the
- * liability to date, the retirement cap to date and the medical fees a year are weighted n ÷ F. One source for every
- * frequency (wave-6 AN).
+ * tax after rebates on it is weighted n ÷ F. Statutory period ratios stay n ÷ 12 (coordinator ruling 2026-11-17): the
+ * s11F cap to date (G21 p. 10) and the medical credits, a monthly amount. One source for every frequency (wave-6 AN).
  *
  * VENDOR PARITY, NOT A SARS RULE (wave-6 ruling 5, Hein 2026-11-15). No SARS guide prescribes days-based
  * annualisation: PAYE-GEN-01-G21 (2027) Rev 1 p. 8 (Fourth Schedule para 9(1)/(2)) gives AE = remuneration × periods

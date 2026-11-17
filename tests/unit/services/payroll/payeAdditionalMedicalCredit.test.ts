@@ -208,11 +208,12 @@ describe('the calculator passes the 4005 fees through', () => {
   });
 
   it('67 at the year end: 2 168.21 and 947.05 recorded; 64: 3 929.01 and nil (AN)', () => {
-    // The line annualises by days (AN, F = 365 / 30.4166): 30 000 x F = 360 000.79, the fees 5 100 x F = 61 200.13.
-    // 67: 73 992.21 - 17 820 - 9 765 - 9 024 = 37 383.21, less 33,3% x (61 200.13 - 27 072) = 11 364.67: 26 018.54 / F = 2 168.21
-    // (x 12: 2 168.20); the credit recorded 11 364.67 / F = 947.05.
+    // The line annualises pay by days (AN, F = 365 / 30.4166): 30 000 x F = 360 000.79; tax(360 000.79) = 73 992.21. The
+    // credits are monthly amounts (coordinator ruling 2026-11-17): fees 5 100 x 12 = 61 200, and they come off ÷ 12.
+    // 67: (73 992.21 - 17 820 - 9 765) / F = 3 867.26, less (9 024 + 33,3% x (61 200 - 27 072) = 11 364.62) / 12 = 1 699.05:
+    // 2 168.21 (x 12: 2 168.20); the credit recorded 11 364.62 / 12 = 947.05.
     expect([line(1959).paye.monthlyPaye, line(1959).additionalMedicalCredit]).toEqual([2_168.21, 947.05]);
-    // Born June 1962: 64 on 28 Feb 2027. tax(360 000.79) = 73 992.21 - 17 820 - 9 024 = 47 148.21 / F = 3 929.01 (x 12: 3 929).
+    // Born June 1962: 64 on 28 Feb 2027. (73 992.21 - 17 820) / F - 9 024 / 12 = 4 681.01 - 752 = 3 929.01 (x 12: 3 929).
     expect([line(1962).paye.monthlyPaye, line(1962).additionalMedicalCredit]).toEqual([3_929.01, 0]);
   });
 });

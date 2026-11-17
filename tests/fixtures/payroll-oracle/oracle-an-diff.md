@@ -77,10 +77,13 @@ wave-6 ruling 5). Only the fields that moved are listed with their figures; delt
 ## Where F applies and where n ÷ 12 stays
 
 Coordinator ruling 2026-11-17: statute over unproven parity for period ratios. F annualises income and the
-liability only (AE = P × F ÷ n; liability = tax(AE) × n ÷ F, with what is inside tax: rebates, the MTC and the 65+
-credit). The s11F cap to date is a statutory period ratio (G21 (2027) Rev 1 p. 10) and stays cap × n ÷ 12, so
-twelve months reach exactly R430 000 and SDL does not move; on the annual-equivalent scale the cap is cap × F ÷ 12,
-so the part off periodic pay, weighted n ÷ F, meets it. `ra-annual-cap-binds-2027` therefore moves +4c (AE only),
-within the tolerance cap. Pinned by `payeAnnualisation.test.ts` ("twelve equal months at the cap").
+tax after rebates (AE = P × F ÷ n; liability = tax(AE) × n ÷ F). Statutory period ratios stay n ÷ 12. The s11F
+cap to date (G21 (2027) Rev 1 p. 10) is cap × n ÷ 12, so twelve months reach exactly R430 000 and SDL does not move;
+on the annual-equivalent scale the cap is cap × F ÷ 12, so the part off periodic pay, weighted n ÷ F, meets it.
+`ra-annual-cap-binds-2027` therefore moves +4c (AE only), within the tolerance cap. The medical credits (s6A, a
+monthly amount, and the 65+ credit's three times it, s6B(3)(a)(i)) are on twelve months (fees × 12 ÷ n) and what
+they take off the tax on the AE comes off × n ÷ 12: twelve months credit exactly 12 × the MTC. No oracle case
+moved for it (none has a credit that a cent turns on). Pinned by `payeAnnualisation.test.ts` ("twelve equal
+months at the cap", "the s6A credit is a statutory amount a month").
 
 The Sage notes in `sage-2027-03-{phekis,david}.json` still describe the pre-AN engine (× 12, 2c): a source note, not a figure.

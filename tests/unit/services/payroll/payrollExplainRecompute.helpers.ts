@@ -32,6 +32,12 @@ function reader(fig: FigureExplanation) {
   return { has: (key: string) => m.has(key), amt };
 }
 
+/** Tax for a year after the rebates, before the medical credits, from one tax block's steps. */
+function taxAfterRebates(r: ReturnType<typeof reader>, p: string): number {
+  const income = r.amt(`${p}.income`);
+  return Math.max(0, r.amt(`${p}.bracket.baseTax`) + r.amt(`${p}.bracket.rate`) * (income - r.amt(`${p}.bracket.lower`)) - r.amt(`${p}.rebates`));
+}
+
 /** Tax for a year from one tax block's steps: bracket, rebates (as their parts), credits. */
 function taxFromBlock(r: ReturnType<typeof reader>, p: string): number {
   const income = r.amt(`${p}.income`);
@@ -109,7 +115,9 @@ function recomputePaye(fig: FigureExplanation): number {
         taxEarlier = taxFromBlock(r, 'paye.atEarlier');
       }
     }
-    const liability = (taxAE * n) / f + (taxAll - taxAE);
+    // The medical credits used on the annual equivalent are monthly amounts: they come off n ÷ 12, the rest n ÷ F.
+    const creditsAE = taxAfterRebates(r, 'paye.atAE') - taxAE;
+    const liability = Math.max(0, ((taxAE + creditsAE) * n) / f - (creditsAE * n) / 12) + (taxAll - taxAE);
     expect(r.amt('paye.liability')).toBeCloseTo(liability, 6);
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));

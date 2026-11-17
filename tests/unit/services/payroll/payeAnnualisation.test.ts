@@ -36,6 +36,24 @@ function year(salary: number, months: number, extra: { retirementContributions?:
   return out;
 }
 
+function medicalYear({ rebateAge, fees }: { rebateAge: number; fees: number }) {
+  let ytd: PayeYearToDate = NONE;
+  const out = [];
+  for (let i = 0; i < 12; i++) {
+    const r = calculateCumulativePaye({
+      ...base, rebateAge, monthlyMedicalBeneficiaries: 1, medicalSchemeFees: fees, factor: annualisationFactor('monthly'),
+      regularTaxable: 30_000, annualPayments: 0, periodicRemuneration: 30_000, annualPaymentRemuneration: 0, ytd,
+    });
+    out.push(r);
+    ytd = {
+      ...ytd, periods: ytd.periods + 1, periodicTaxable: ytd.periodicTaxable + 30_000, tablePaye: ytd.tablePaye + r.regular.monthlyPaye,
+      medicalCredit: ytd.medicalCredit + r.medicalCredit, additionalMedicalCredit: ytd.additionalMedicalCredit + r.additionalMedicalCredit,
+      medicalSchemeFees: ytd.medicalSchemeFees + fees,
+    };
+  }
+  return out;
+}
+
 describe('annualisationFactor (AN)', () => {
   it('monthly is Sage\'s 365 ÷ 30.4166 (12.0000263), not 12; fortnightly 26 and weekly 52 (ruling 16)', () => {
     expect(annualisationFactor('monthly')).toBe(SAGE_F);
@@ -76,6 +94,20 @@ describe('annualisationFactor (AN)', () => {
     expect(months[0]!.trace.annualCap).toBe((cap * SAGE_F) / 12);
     const recorded = months.reduce((t, m) => t + cents(m.retirementDeduction), 0);
     expect(recorded).toBe(43_000_000); // exactly R430 000 (cap × 12 ÷ F would be R429 999.06)
+  });
+
+  it('the s6A credit is a statutory amount a month: twelve months credit exactly 12 × R376, not 12 × R376 × 12 ÷ F', () => {
+    // Coordinator ruling 2026-11-17 05:45: period ratios in statute stay n ÷ 12. s6A gives the MTC "in respect of each
+    // month": the credits stay on twelve months and what they take off the tax on the annual equivalent comes off
+    // × n ÷ 12, not × n ÷ F, so the credit to date is MTC × n. The 65+ credit's "three times the MTC" (s6B(3)(a)(i))
+    // follows: 33,3% × (fees to date − 3 × MTC × n).
+    const months = medicalYear({ rebateAge: 66, fees: 5_000 });
+    const mtc = getTaxYearConfig(2027).medicalCreditMainAndFirst;
+    expect(mtc).toBe(376);
+    expect(months[0]!.medicalCredit).toBe(376);
+    expect(months.reduce((t, m) => t + cents(m.medicalCredit), 0)).toBe(12 * 37_600); // × 12 ÷ F: R4 511.99
+    const amtc = months.reduce((t, m) => t + cents(m.additionalMedicalCredit), 0);
+    expect(amtc).toBe(cents(0.333 * (12 * 5_000 - 3 * 12 * mtc))); // R15 472.51
   });
 
   it('a monthly line is costed on F, and its explanation states it (phekis: R50 000, Sage PAYE 11 075.60 to the cent)', () => {

@@ -39,8 +39,12 @@
  *                       refunded: no SARS guide requires an in-year refund)
  *   of which annual   = tax(AE + A) − tax(AE + A')   (earlier annual payments
  *                       stay in the base, so a later one is taxed on top)
- * "tax" is annualTaxAfterCredits: rebates and medical credits are annual
- * figures, so they are pro-rated by the same n ÷ F. Directive PAYE (lump
+ * "tax" is annualTaxAfterCredits: the rebates are annual figures, pro-rated by
+ * the same n ÷ F. The medical credits are statutory amounts a month (s6A, and
+ * s6B's three times the MTC), a period ratio, not an annualisation: the part
+ * used on the AE is weighted n ÷ 12, so tax(AE) × n ÷ F above is, exactly,
+ * (tax(AE) + C) × n ÷ F − C × n ÷ 12, C = the credits used on the AE, never
+ * below nil (coordinator ruling 2026-11-17). Directive PAYE (lump
  * sums) is outside all of it. Figures use the statutory rate table, not
  * SARS's deduction tables (PAYE-GEN-01-G01-A04 2027: R500 income bands, each
  * taxed at its midpoint, e.g. R335 801–336 301 → 49 945 = tax(336 051)), so
@@ -54,7 +58,7 @@
  * less the credits the employee's earlier lines of the tax year recorded
  * (ytd.medicalCredit). Inside the liability the credit is what "tax" took off,
  * used(x) = min(annual credit, tax after rebates on x), weighted as the
- * liability is: used(AE) × n ÷ F + [used(AE + A) − used(AE)]. So the lines of
+ * liability is: used(AE) × n ÷ 12 + [used(AE + A) − used(AE)]. So the lines of
  * a year add up to the credit inside the year's liability, a line never
  * records a credit its PAYE did not use, and a constant year records the
  * monthly credit each month. The record follows the liability, so it moves as
@@ -71,8 +75,8 @@
  * is an annual figure like the others: 33,3% × (annual fees − 3 × annual
  * MTC). The annual fees are the signed fees to date (deductions coded 4005,
  * ytd included), netted before the total is floored at zero and annualised
- * over the same n as the pay, fees × F ÷ n, so the credit
- * inside the liability to date, × n ÷ F, is 33,3% × (fees − 3 × MTC × n ÷ F):
+ * over the same n as the pay on twelve months, fees × 12 ÷ n, so the credit
+ * inside the liability to date, × n ÷ 12, is 33,3% × (fees − 3 × MTC × n ÷ 12):
  * the section applied to the year so far. With no periodic pay yet (n = 0, an
  * annual payment alone) the fees to date are taken as they stand. It changes
  * PAYE only for an employee 65 or older whose fees exceed three times the MTC
@@ -94,10 +98,11 @@
  * n ÷ F + [tax(AE − D + A) − tax(AE − D)]: the deduction weighted n ÷ F, the
  * proviso that limits the cap to the period paid (G21 2027 p. 10). At n = 12
  * the year's liability is tax(remuneration × F ÷ 12 − D) × 12 ÷ F, within cents
- * of the s11F year (the cap to date reaches cap × 12 ÷ F). Should D
+ * of the s11F year; the cap is cap × F ÷ 12 on this scale, so the cap to date
+ * is cap × n ÷ 12, G21 p. 10's period ratio, and reaches the cap. Should D
  * exceed AE (an annual payment over 2.6 × the annual pay), the excess comes off
  * the annual payments in full, never below nil and never past the contributions
- * to date or the cap × n ÷ F (each less the AE part × n ÷ F). Donations (4030, s18A) are added back to the
+ * to date or the cap × n ÷ 12 (each less the AE part × n ÷ F). Donations (4030, s18A) are added back to the
  * base (G21 2027 p. 10). The line records the deduction inside
  * the liability to date ((D − excess) × n ÷ F + excess) less what the earlier
  * lines recorded (ytd.retirementDeduction), as the credits are recorded. A
@@ -129,7 +134,9 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const hasPeriodic = input.periodicRemuneration > 0;
   const periods = ytd.periods + (hasPeriodic ? 1 : 0);
   const feesToDate = Math.max(0, ytd.medicalSchemeFees + input.medicalSchemeFees);
-  const annualMedicalSchemeFees = periods > 0 ? (feesToDate * F) / periods : feesToDate;
+  // The credits are statutory amounts a month (s6A "in respect of each month"; s6B's three times the MTC): they stay on
+  // twelve months, fees × 12 ÷ n, and come off the liability weighted n ÷ 12, never ÷ F (coordinator ruling 2026-11-17).
+  const annualMedicalSchemeFees = periods > 0 ? (feesToDate * 12) / periods : feesToDate;
   const base = {
     ageAtPeriodEnd: input.rebateAge, monthlyMedicalBeneficiaries: input.monthlyMedicalBeneficiaries, taxYear: input.taxYear,
     annualMedicalSchemeFees,
@@ -194,8 +201,10 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     taxedAnnualEquivalent: taxedAE,
     annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, liability, ytdTablePaye: ytd.tablePaye, due, annualDue,
   });
+  // A credit inside the liability to date: the part used on the annual equivalent weighted n ÷ 12 (a period ratio), the
+  // annual payments' part in full.
   const toDate = (used: (c: typeof atAE) => number) =>
-    (used(atAE) * periods) / F + (used(atAll) - used(atAE));
+    (used(atAE) * periods) / 12 + (used(atAll) - used(atAE));
   // A period with neither periodic pay nor an annual payment deducts nothing
   // from the tables. It can still reverse an earlier retirement deduction or
   // medical credit when signed corrections reduce the cumulative entitlement.
@@ -212,11 +221,13 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   }
   const taxAE = atAE.annualTax;
   const taxAll = atAll.annualTax;
-  const liability = (taxAE * periods) / F + (taxAll - taxAE);
+  // F de-annualises the tax after rebates; the credits used on the annual equivalent come off n ÷ 12 (see toDate).
+  const creditsAE = atAE.medicalCreditUsed + atAE.additionalMedicalCreditUsed;
+  // Never below nil: where the credits use up the tax after rebates, F ÷ 12 would otherwise leave a fraction of a cent.
+  const liability = Math.max(0, ((taxAE + creditsAE) * periods) / F - (creditsAE * periods) / 12) + (taxAll - taxAE);
   const due = Math.max(0, round2(liability - ytd.tablePaye));
   const annualDue = Math.max(0, taxAll - atEarlier.annualTax);
   const annualPaymentPaye = round2(Math.min(due, annualDue));
-  // A credit inside the liability to date, weighted as the liability is (see the header).
   return {
     regular: { ...regularInfo, monthlyPaye: round2(due - annualPaymentPaye) },
     annualPaymentPaye,
