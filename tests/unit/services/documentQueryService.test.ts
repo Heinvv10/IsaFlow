@@ -86,37 +86,42 @@ describe('listBankAttachments', () => {
 });
 
 describe('listTransactionsWithoutDocuments', () => {
-  it('answers "which transactions over R10,000 have no supporting document"', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([{
+  /** The rows and totals queries answer by their text; the nested fragments (scope, filters) answer []. */
+  function answer(rows: unknown[], totals: unknown) {
+    vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) => {
+      const t = strings.join('?');
+      if (t.includes('ORDER BY ABS(s.amount)')) return Promise.resolve(rows);
+      if (t.includes('AS universe')) return Promise.resolve([totals]);
+      return [] as never;
+    }) as never);
+  }
+
+  it('answers "which transactions over R10,000 have no supporting evidence", with the evidence totals', async () => {
+    answer([{
       id: 'tx1', transaction_date: '2026-09-01', amount: '-12000.00',
-      description: 'Cash withdrawal', reference: 'R1', status: 'allocated',
-    }] as never).mockResolvedValueOnce([{ cnt: 1 }] as never).mockResolvedValueOnce([{ cnt: 40 }] as never);
+      description: 'Cash withdrawal', reference: 'R1', status: 'allocated', own: false, settled: false,
+    }], { universe: 40, with_own: 30, with_settled: 9, no_evidence: 1, unsupported: 1, latest: null });
 
     const res = await listTransactionsWithoutDocuments(COMPANY, {
       from: '2026-01-01', to: '2026-12-31', minAmount: 10000, limit: 50,
     });
-    expect(res.rows[0]!.amount).toBe(-12000);
-    expect(res.rowsTotal).toBe(1);
-    expect(res.universeTotal).toBe(40);
+    expect(res.rows[0]).toMatchObject({ amount: -12000, evidence: 'none' });
+    expect(res).toMatchObject({ rowsTotal: 1, universeTotal: 40, withOwnDocument: 30, withSettledDocument: 9, noEvidence: 1 });
   });
 
-  it('compares the ABSOLUTE amount — a R12,000 payment out is as material as one in', async () => {
-    vi.mocked(sql).mockResolvedValue([{ cnt: 0 }] as never);
+  it('labels a row own before settled_document', async () => {
+    answer([{ id: 'a', amount: 1, own: true, settled: true }, { id: 'b', amount: 1, own: false, settled: true }], {});
+    const res = await listTransactionsWithoutDocuments(COMPANY, { from: '2026-01-01', to: '2026-12-31', minAmount: 0, limit: 50, strict: true });
+    expect(res.rows.map((r) => r.evidence)).toEqual(['own', 'settled_document']);
+  });
+
+  it('compares the ABSOLUTE amount and tests the line\'s own documents with the grid\'s definition', async () => {
+    answer([], {});
     await listTransactionsWithoutDocuments(COMPANY, { from: '2026-01-01', to: '2026-12-31', minAmount: 10000, limit: 50 });
-    expect(texts()[0]).toMatch(/ABS\(bt\.amount\)\s*>=\s*\?/);
-  });
-
-  it('tests for no document with the grid\'s own definition, in WHERE, in both the rows and the count', async () => {
-    vi.mocked(sql).mockResolvedValue([{ cnt: 0 }] as never);
-    await listTransactionsWithoutDocuments(COMPANY, { from: '2026-01-01', to: '2026-12-31', minAmount: 0, limit: 50 });
-    // Uploads and linked captured documents both count (bank/bankLineDocumentSql), so a line whose only document is
-    // a linked captured document over 2 MB is NOT reported unsupported.
-    for (const call of vi.mocked(sql).mock.calls.slice(0, 2)) {
-      const t = (call[0] as unknown as TemplateStringsArray).join('?');
-      expect(t).not.toMatch(/LEFT JOIN/);
-      expect(t).toMatch(/AND NOT \?/);
-      expect(call.slice(1)).toContain(hasBankLineDocumentSql('bt'));
-    }
+    const all = vi.mocked(sql).mock.calls.flatMap((c) => [(c[0] as unknown as TemplateStringsArray).join('?'), ...c.slice(1)]);
+    expect(all.some((t) => typeof t === 'string' && /ABS\(bt\.amount\)\s*>=\s*\?/.test(t))).toBe(true);
+    // Uploads and linked captured documents both count (bank/bankLineDocumentSql), the paperclip's own definition.
+    expect(all).toContain(hasBankLineDocumentSql('bt'));
   });
 });
 

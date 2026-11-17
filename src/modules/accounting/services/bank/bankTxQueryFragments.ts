@@ -6,6 +6,7 @@
  * allocation predicate is a fixed literal keyed on a validated enum — that is
  * what makes them safe for `sql.unsafe`.
  */
+import { settledDocumentCountSql } from './settledDocumentSql';
 import { attachmentCountSql } from './bankLineDocumentSql';
 import { LINE_BUCKET_SQL } from './bankLineBucket';
 import type { BankTxFilters } from './bankTxFilters';
@@ -174,6 +175,9 @@ export const TX_SELECT = `
     -- The grid highlights the paperclip of a line with supporting documents (./bankLineDocumentSql, the one definition).
     -- Index probes per row: idx_bta_tx, idx_captured_documents_matched_bt.
     ${attachmentCountSql('bt')} AS attachment_count,
+    -- Plus the documents of the bills / invoices the line settles (./settledDocumentSql, read-only evidence): the
+    -- paperclip counts both kinds. Probes: the bank leg by id, payments by gl_journal_entry_id (mig 999p), allocations.
+    ${settledDocumentCountSql('bt')} AS settled_document_count,
     -- A client query about this line is open (sent, awaiting or holding a reply): the row's Ask-client button is marked.
     EXISTS (SELECT 1 FROM bank_tx_queries q WHERE q.bank_transaction_id = bt.id AND q.company_id = bt.company_id
               AND q.status IN ('sent', 'replied')) AS has_open_query,
