@@ -11,14 +11,18 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { freeformLines, type FreeformSheet } from '@/modules/accounting/services/budgets/budgetImportFreeform';
+import { freeformLines, type FreeCell, type FreeformSheet, type FreeRow } from '@/modules/accounting/services/budgets/budgetImportFreeform';
 import { diffImportLines } from '@/modules/accounting/services/budgets/budgetImportDiff';
-import type { RawCell, SheetRow } from '@/modules/accounting/services/budgets/budgetImportParse';
+import type { RawCell } from '@/modules/accounting/services/budgets/budgetImportParse';
 import { bandTotals } from '@/modules/accounting/services/budgets/gridTotals';
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { CC1, MONTHS, RENT, SALES, TOKEN, model } from '../../mcp/budgetToolsFixture';
 
-const sheet = (...rows: RawCell[][]): FreeformSheet => ({ name: 'Plan', rows: rows.map((cells, i): SheetRow => ({ row: i + 1, cells })), merges: [], typed: new Map() });
+/** A cell as the raw-XML reader gives it: text, a General-formatted number, or empty. */
+const cellOf = (c: RawCell): FreeCell | null => (c === null ? null : typeof c === 'number' ? { kind: 'number', value: c, format: 'General', plain: true }
+  : typeof c === 'string' ? { kind: 'text', text: c } : { kind: 'error', reason: c.error });
+const rowsOf = (rows: Array<{ row: number; cells: RawCell[] }>): FreeRow[] => rows.map((r) => ({ row: r.row, cells: r.cells.map(cellOf) }));
+const sheet = (...rows: RawCell[][]): FreeformSheet => ({ name: 'Plan', rows: rowsOf(rows.map((cells, i) => ({ row: i + 1, cells }))) });
 const linesOf = (m: GridReadModel, grain: 'company' | 'cc1', sh: FreeformSheet) => freeformLines(m, grain, sh).lines;
 const NAMES = ['Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026', 'Nov 2026', 'Dec 2026', 'Jan 2027', 'Feb 2027'];
 const vals = (set: Record<number, RawCell> = {}) => MONTHS.map((_, i) => (i in set ? set[i]! : null));
@@ -102,7 +106,7 @@ describe('cells: blank keeps, "clear" clears, an amount sets', () => {
 });
 
 describe('review round 3: what a free-form sheet must not read silently', () => {
-  const at = (rows: SheetRow[], extra: Partial<FreeformSheet> = {}): FreeformSheet => ({ name: 'Plan', rows, merges: [], typed: new Map(), ...extra });
+  const at = (rows: Array<{ row: number; cells: RawCell[] }>): FreeformSheet => ({ name: 'Plan', rows: rowsOf(rows) });
 
   it('the template\'s own header without its hidden sheets is refused (its blanks would keep, not clear)', () => {
     expect(() => freeformLines(model(), 'company', sheet(['Section', 'Account code', 'Account name', ...MONTHS, 'FY total', 'PY actual'])))
@@ -110,17 +114,17 @@ describe('review round 3: what a free-form sheet must not read silently', () => 
   });
 
   it('the header is searched in rows 1 to 20 of the sheet, not the first 20 rows that hold something', () => {
-    const rows: SheetRow[] = [{ row: 1, cells: ['Title'] }, { row: 21, cells: ['Code', ...MONTHS] }, { row: 22, cells: ['6000', ...vals({ 0: 1 })] }];
+    const rows = [{ row: 1, cells: ['Title'] }, { row: 21, cells: ['Code', ...MONTHS] }, { row: 22, cells: ['6000', ...vals({ 0: 1 })] }];
     expect(() => freeformLines(model(), 'company', at(rows))).toThrow(/no header row .* in rows 1 to 20 of the sheet/);
   });
 
-  it('rows with no code, total rows and section headings with no amounts are skipped and listed; a section heading with amounts is not', () => {
+  it('total rows and headings with no amounts are skipped and listed; a row with an amount and no code is refused; a heading with amounts reaches the resolver', () => {
     const out = freeformLines(model(), 'company', sheet(['Code', ...MONTHS], ['', ...vals({ 0: 5 })], ['Revenue', ...vals()], ['6000', ...vals({ 0: 1 })],
       ['Grand total', ...vals({ 0: 6 })], ['SUBTOTAL', ...vals({ 1: 1 })], ['Expenses', ...vals({ 0: 2 })]));
     expect(out.skipped).toEqual([
-      { row: 2, reason: 'no account code' }, { row: 3, reason: 'not an account, and no amounts (a heading?)' },
-      { row: 5, reason: 'a total row' }, { row: 6, reason: 'a total row' },
+      { row: 3, reason: 'not an account, and no amounts (a heading?)' }, { row: 5, reason: 'a total row' }, { row: 6, reason: 'a total row' },
     ]);
+    expect(out.errors).toEqual([{ row: 2, column: 'Account code', account: '', message: 'Sheet "Plan", row 2, column A: this row has amounts but no account code.' }]); // round 4: money is never skipped
     expect(out.lines.map((l) => l.accountCode)).toEqual(['6000', 'Expenses']); // "Expenses" with an amount reaches the resolver, which refuses it
   });
 
@@ -140,20 +144,5 @@ describe('review round 3: what a free-form sheet must not read silently', () => 
     expect(line!.amounts.slice(1, 3).map((a) => a.cell)).toEqual([{ kind: 'value', cents: 110 }, { kind: 'value', cents: 7 }]);
   });
 
-  it('a boolean or error formula result in a month cell is refused per cell (the reader would give 1 for TRUE)', () => {
-    const typed = new Map([['2:1', 'boolean' as const], ['2:2', 'error' as const]]); // sheet row : 0-based column
-    const [line] = freeformLines(model(), 'company', at([{ row: 1, cells: ['Code', ...MONTHS] }, { row: 2, cells: ['6000', 1, 1, 7] }], { typed })).lines;
-    expect(line!.amounts.slice(0, 3).map((a) => a.cell)).toEqual([
-      { kind: 'error', raw: '', reason: 'This cell is a TRUE / FALSE result, not an amount.' },
-      { kind: 'error', raw: '', reason: 'This formula\'s result is an error, not an amount.' },
-      { kind: 'value', cents: 700 },
-    ]);
-  });
-
-  it('a merged range across month columns is refused (only its first month would be read); one in another column is not', () => {
-    const rows = [{ row: 1, cells: ['Code', 'Description', ...MONTHS] }, { row: 2, cells: ['6000', 'Rent', 120] }] as SheetRow[];
-    expect(() => freeformLines(model(), 'company', at(rows, { merges: [{ ref: 'C2:E2', top: 2, left: 2, bottom: 2, right: 4 }] })))
-      .toThrow(/^Sheet "Plan", cells C2:E2: merged across month columns \(only the first month would be read\); unmerge them and give each month its amount/);
-    expect(freeformLines(model(), 'company', at(rows, { merges: [{ ref: 'A5:B5', top: 5, left: 0, bottom: 5, right: 1 }] })).lines).toHaveLength(1);
-  });
+  // Boolean / error / date-formatted cells, merges and hidden layout are the raw-XML reader's: budgetFreeformRaw.test.ts.
 });

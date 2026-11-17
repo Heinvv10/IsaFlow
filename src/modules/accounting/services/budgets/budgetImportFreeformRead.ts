@@ -1,94 +1,86 @@
 /**
  * Which kind of budget workbook an MCP upload is, and a free-form sheet's contents (MCP budget tools PR 2, review
- * rounds 2 and 3). An upload with a sheet named exactly `_meta` or `_base` is an IsaFlow template, read by
- * `readBudgetWorkbook` exactly as the app's import preview reads it. One with a sheet whose name is `_meta` or
- * `_base` but for case or spaces (`_Meta`, `_meta `) is refused: a renamed hidden sheet would turn a template into a
- * free-form sheet, whose blanks keep instead of clearing. Otherwise the FIRST VISIBLE sheet is the free-form sheet
- * (a hidden or very hidden one is never read: a stale draft is often hidden first), with what the streaming reader
- * loses read from the sheet's XML itself: merged ranges, and cells typed boolean or error (the reader gives TRUE as
- * 1). A formula whose result is formatted as a date reads as a refusal, as a plain date cell does. The app's
- * import route does not call this.
+ * rounds 2 to 4). Every part is PARSED (`budgetFreeformXml`, `budgetFreeformSheet`), never scanned by regex.
+ *  - Sheet names are compared after NFKC, with format / zero-width characters and spaces stripped and case folded:
+ *    any sheet whose name so read starts with "_" and is not exactly `_meta` or `_base` refuses the file (a renamed
+ *    or look-alike hidden sheet would turn a template into a free-form sheet, whose blanks keep instead of clearing).
+ *  - A sheet named exactly `_meta` or `_base`: an IsaFlow template, read by `readBudgetWorkbook` exactly as the app's
+ *    import preview reads it (that path is unchanged).
+ *  - Otherwise the FIRST VISIBLE sheet is the free-form sheet, and it must be the sheet Excel opens on (activeTab):
+ *    a workbook that opens elsewhere is refused. A sheet state the reader does not know refuses the file.
+ *  - The free-form sheet must have no hidden row or column (AutoFilter-hidden included) and no merged cell.
+ * The app's import route does not call this.
  */
-import ExcelJS from 'exceljs';
-import JSZip from 'jszip';
-import { normaliseXlsxSheets, readNormalised, workbookSheets } from '@/lib/xlsxNormalise';
-import { looksLikeXlsx } from '@/lib/xlsxToCsv';
+import { openXlsxParts, worksheetPart } from '@/lib/xlsxNormalise';
+import { looksLikeXlsx, SpreadsheetTooLargeError } from '@/lib/xlsxToCsv';
 import { inputError } from './gridErrors';
 import { BASE_SHEET, META_SHEET } from './budgetTemplateXlsx';
-import { BUDGET_IMPORT_LIMITS, clip, readBudgetWorkbook, readSheets, type BudgetWorkbook, type RawCell, type SheetRow } from './budgetImportParse';
-
-/** A merged range: rows 1-based, columns 0-based, inclusive. */
-export interface SheetMerge { ref: string; top: number; left: number; bottom: number; right: number }
+import { BUDGET_IMPORT_LIMITS, clip, readBudgetWorkbook, type BudgetWorkbook } from './budgetImportParse';
+import { parseRels, parseSharedStrings, parseStyles, parseWorkbookXml } from './budgetFreeformXml';
+import { parseSheetXml, type FreeRow } from './budgetFreeformSheet';
 
 export interface FreeformSheet {
   name: string;
-  rows: SheetRow[];
-  merges: SheetMerge[];
-  /** Cells the XML types boolean or error, by `${sheet row}:${0-based column}`. */
-  typed: Map<string, 'boolean' | 'error'>;
+  rows: FreeRow[];
+  /** The workbook's date system (headers written as dates). */
+  date1904?: boolean;
 }
 
 export type ImportWorkbook = { kind: 'template'; wb: BudgetWorkbook } | { kind: 'freeform'; sheet: FreeformSheet };
 
-const CELL_TAG = /<(?:[\w.-]{1,64}:)?c\b[^>]{0,1024}>/g;
-const MERGE_TAG = /<(?:[\w.-]{1,64}:)?mergeCell\b[^>]{0,512}>/g;
-const attr = (tag: string, name: string): string | undefined => new RegExp(`\\s${name}\\s*=\\s*"([^"]*)"`).exec(tag)?.[1];
+const TEMPLATE_SHEETS: readonly string[] = [META_SHEET, BASE_SHEET];
+const STATES = new Set(['visible', 'hidden', 'veryhidden']);
 
-/** "C12" → { row: 12, col: 2 }; null for anything else. */
-export function cellRef(ref: string): { row: number; col: number } | null {
-  const m = /^([A-Z]{1,3})(\d{1,7})$/.exec(ref);
-  if (!m) return null;
-  let col = 0;
-  for (const ch of m[1]!) col = col * 26 + (ch.charCodeAt(0) - 64);
-  return { row: Number(m[2]), col: col - 1 };
+/** A sheet name as compared: NFKC, no format / zero-width characters, no spaces, case folded. */
+export const squashSheetName = (name: string): string => name.normalize('NFKC').replace(/[\p{Cf}\p{Z}\s]/gu, '').toLowerCase();
+
+/** A rels target of a workbook-level part (styles, shared strings) as its zip path, or null. */
+function bookPart(target: string): string | null {
+  if (/^\/xl\/[\w.-]+\.xml$/.test(target)) return target.slice(1);
+  return /^[\w.-]+\.xml$/.test(target) ? `xl/${target}` : null;
 }
 
-/** A number format that shows a date or a time (quoted text, [colour] / [locale] sections and escapes removed first). */
-export function isDateFormat(format: string | undefined): boolean {
-  if (!format || /^general$/i.test(format)) return false;
-  const bare = format.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '').replace(/[_*]./g, '');
-  return /[dmyhs]/i.test(bare);
-}
-
-/** The free-form reader's own reading of a cell: a formula formatted as a date is not an amount. */
-const inspect = (cell: ExcelJS.Cell): RawCell | undefined =>
-  cell.type === ExcelJS.ValueType.Formula && isDateFormat(cell.numFmt) ? { error: 'This formula\'s result is formatted as a date, not an amount.' } : undefined;
-
-function scanXml(xml: string): Pick<FreeformSheet, 'merges' | 'typed'> {
-  const typed = new Map<string, 'boolean' | 'error'>();
-  for (const m of xml.matchAll(CELL_TAG)) {
-    const t = attr(m[0], 't');
-    if (t !== 'b' && t !== 'e') continue;
-    const at = cellRef(attr(m[0], 'r') ?? '');
-    if (at) typed.set(`${at.row}:${at.col}`, t === 'b' ? 'boolean' : 'error');
-  }
-  const merges: SheetMerge[] = [];
-  for (const m of xml.matchAll(MERGE_TAG)) {
-    const ref = attr(m[0], 'ref') ?? '';
-    const [a, b] = ref.split(':').map(cellRef);
-    if (a && b) merges.push({ ref, top: Math.min(a.row, b.row), left: Math.min(a.col, b.col), bottom: Math.max(a.row, b.row), right: Math.max(a.col, b.col) });
-  }
-  return { merges, typed };
-}
-
-/** The upload as an IsaFlow template or as a free-form sheet (its first visible sheet), under the template import's limits. */
 export async function readImportWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIMITS): Promise<ImportWorkbook> {
   if (!looksLikeXlsx(buf)) throw inputError('This file is not an Excel workbook (.xlsx). Send the budget template, or a sheet of account codes and months, saved as .xlsx.');
-  const sheets = await workbookSheets(buf, limits.maxUncompressedBytes);
-  const squash = (name: string) => name.toLowerCase().replace(/\s+/g, '');
-  const near = sheets.find((s) => [META_SHEET, BASE_SHEET].includes(squash(s.name)) && s.name !== META_SHEET && s.name !== BASE_SHEET);
-  if (near) {
-    throw inputError(`This workbook has a sheet named "${clip(near.name)}" that is not IsaFlow's ${squash(near.name)} sheet exactly (it was renamed), so IsaFlow cannot tell whether this is a template. `
-      + 'Download a fresh template (get_budget_template format xlsx) and make your changes in it, or, for a free-form sheet, delete that sheet.');
+  const parts = await openXlsxParts(buf, limits.maxUncompressedBytes);
+  const wb = parseWorkbookXml(parts.workbook);
+  const lookalike = wb.sheets.find((s) => squashSheetName(s.name).startsWith('_') && !TEMPLATE_SHEETS.includes(s.name));
+  if (lookalike) {
+    throw inputError(`This workbook has a sheet named "${clip(lookalike.name)}" that starts with "_" but is not IsaFlow's _meta or _base sheet exactly (a renamed or look-alike one), so IsaFlow cannot tell whether this is a template. `
+      + 'Download a fresh template (get_budget_template format xlsx) and make your changes in it, or, for a free-form sheet, delete or rename that sheet.');
   }
-  if (sheets.some((s) => s.name === META_SHEET || s.name === BASE_SHEET)) return { kind: 'template', wb: await readBudgetWorkbook(buf, limits) };
-  const visible = sheets.find((s) => s.state === 'visible');
-  if (!visible) throw inputError('This workbook has no visible sheet to read.');
-  const { zip, sheets: found } = await normaliseXlsxSheets(buf, [visible.name], {
-    maxBytes: limits.maxUncompressedBytes, maxSharedStringsBytes: limits.maxSharedStringsBytes, maxSharedStrings: limits.maxSharedStrings, maxStylesBytes: limits.maxStylesBytes,
+  if (wb.sheets.some((s) => TEMPLATE_SHEETS.includes(s.name))) return { kind: 'template', wb: await readBudgetWorkbook(buf, limits) };
+  const unknown = wb.sheets.find((s) => !STATES.has(s.state));
+  if (unknown) throw inputError(`This workbook's sheet "${clip(unknown.name)}" has a state ("${clip(unknown.state)}") IsaFlow does not know; open it in Excel, save it again, and send it.`);
+  const index = wb.sheets.findIndex((s) => s.state === 'visible');
+  if (index < 0) throw inputError('This workbook has no visible sheet to read.');
+  const sheet = wb.sheets[index]!;
+  if (wb.activeTab !== index) {
+    const opens = wb.sheets[wb.activeTab]?.name;
+    throw inputError(`Excel opens this workbook on ${opens === undefined ? `sheet number ${wb.activeTab + 1}` : `sheet "${clip(opens)}"`}, not on "${clip(sheet.name)}", its first visible sheet, which is the one IsaFlow reads. `
+      + 'Make the sheet to import the first visible one, save the workbook open on it, and send it again.');
+  }
+  const rels = parseRels(parts.rels);
+  const target = sheet.rid === null ? undefined : rels.get(sheet.rid)?.target;
+  const path = target === undefined ? null : worksheetPart(target);
+  const part = path === null ? null : await parts.read(path);
+  if (!part) throw inputError(`Sheet "${clip(sheet.name)}" is not a plain worksheet, so it cannot be read as a budget sheet.`);
+  const of = (kind: string, fallback: string) => {
+    const rel = [...rels.values()].find((r) => r.type.endsWith(`/${kind}`));
+    return rel ? bookPart(rel.target) : fallback;
+  };
+  const tooLarge = (what: string) => () => new SpreadsheetTooLargeError(`This workbook's ${what} is larger than any budget sheet needs. Copy the cells into a new workbook and send that.`);
+  const stylesPath = of('styles', 'xl/styles.xml');
+  const sstPath = of('sharedStrings', 'xl/sharedStrings.xml');
+  if (stylesPath === null || sstPath === null) throw inputError('This workbook\'s styles or shared strings are where no spreadsheet program writes them.');
+  const styles = await parts.read(stylesPath, { bytes: limits.maxStylesBytes, refuse: tooLarge('cell formatting') });
+  const sst = await parts.read(sstPath, { bytes: limits.maxSharedStringsBytes, refuse: tooLarge('text') });
+  const read = parseSheetXml(part, sheet.name, parseSharedStrings(sst, limits.maxSharedStrings), parseStyles(styles), {
+    maxRows: limits.maxRows, maxColumns: limits.maxColumns, maxOutputBytes: limits.maxOutputBytes,
   });
-  if (found.length === 0) throw inputError(`Sheet "${clip(visible.name)}" is not a plain worksheet, so it cannot be read as a budget sheet.`);
-  const rows = (await readNormalised(() => readSheets(zip, [visible.name], limits, inspect))).get(visible.name) ?? [];
-  const xml = await (await JSZip.loadAsync(zip)).file('xl/worksheets/sheet1.xml')!.async('string');
-  return { kind: 'freeform', sheet: { name: visible.name, rows, ...scanXml(xml) } };
+  if (read.hidden) {
+    throw inputError(`Sheet "${clip(sheet.name)}" has hidden rows or columns (${read.hidden}): unhide every row and column, and clear any filter, so what IsaFlow imports is what you see; then send it again.`);
+  }
+  if (read.merged) throw inputError(`Sheet "${clip(sheet.name)}" has merged cells (${clip(read.merged)}): unmerge every cell, so each value is in its own row and month, and send it again.`);
+  return { kind: 'freeform', sheet: { name: sheet.name, rows: read.rows, date1904: wb.date1904 } };
 }

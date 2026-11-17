@@ -167,23 +167,25 @@ async function openWorkbook(buf: Buffer, maxBytes: number): Promise<Workbook> {
   return { zip, budget, read, workbook, rels, sheets };
 }
 
-/** A sheet as workbook.xml lists it: its name and visibility (`state`; absent = visible). */
-export interface WorkbookSheet { name: string; state: 'visible' | 'hidden' | 'veryHidden' }
-
 /**
- * The workbook's sheets in workbook order with their visibility, reading only workbook.xml (bounded as
- * everywhere here). The other readers here ignore visibility: `normaliseXlsx` takes the FIRST sheet even when
- * it is hidden, so a caller that must read what a person sees picks a visible one by name from this list.
+ * One opened .xlsx for a caller that parses its parts itself with an XML parser (the MCP free-form budget reader,
+ * which must not trust the regex sheet list here): workbook.xml, its rels, and a read of any part, every byte counted
+ * against `maxBytes` and, when given, the part's own cap (past it `refuse()`). `worksheetPart` validates a rels
+ * target as the readers here do.
  */
-export async function workbookSheets(buf: Buffer, maxBytes: number): Promise<WorkbookSheet[]> {
-  const wb = await openWorkbook(buf, maxBytes);
-  return [...sheetsList(wb.workbook.toString('utf8')).matchAll(SHEET_TAG)].flatMap((m) => {
-    const a = attributes(m[0]);
-    if (a.name === undefined) return [];
-    const state = a.state === 'hidden' || a.state === 'veryHidden' ? a.state : 'visible';
-    return [{ name: a.name, state }]; // as written (entities kept), as normaliseXlsxSheets matches names
-  });
+export interface XlsxParts {
+  workbook: Buffer;
+  rels: Buffer | null;
+  read(path: string, cap?: { bytes: number; refuse: () => Error }): Promise<Buffer | null>;
 }
+
+export async function openXlsxParts(buf: Buffer, maxBytes: number): Promise<XlsxParts> {
+  const wb = await openWorkbook(buf, maxBytes);
+  return { workbook: wb.workbook, rels: wb.rels, read: (path, cap) => wb.read(path, cap ? [{ left: cap.bytes, refuse: cap.refuse }] : []) };
+}
+
+/** A rels target as the zip path of a worksheet part, or null when it is not one (see namedSheetPart). */
+export const worksheetPart = (target: string): string | null => namedSheetPart(target);
 
 /** The lowest-numbered sheet, when the workbook does not name its first. */
 function lowestSheetPath(zip: JSZip): string | null {

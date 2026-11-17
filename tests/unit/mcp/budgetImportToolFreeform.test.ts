@@ -103,6 +103,8 @@ describe('review round 3: the sheet read, and what it must not read silently', (
       for (const r of sh.rows) ws.addRow(r);
       sh.edit?.(ws);
     }
+    // Excel opens a workbook on a visible sheet: the first visible one here (round 4 refuses any other).
+    wb.views = [{ x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: Math.max(0, sheets.findIndex((sh) => (sh.state ?? 'visible') === 'visible')), visibility: 'visible' }];
     return Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');
   }
   const dry = async (file: string) => tool.handler({ ...KEY, file_base64: file, version_token: TOKEN, dry_run: true }, ctx());
@@ -118,7 +120,7 @@ describe('review round 3: the sheet read, and what it must not read silently', (
 
   it.each(['_Meta', '_BASE', '_meta ', ' _base'])('F2: a sheet named %j (IsaFlow\'s hidden sheet, renamed) refuses the workbook', async (name) => {
     const r = await dry(await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['6000', 1]] }, { name, rows: [['versionId', VERSION]] }));
-    expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(/^This workbook has a sheet named ".*" that is not IsaFlow\'s _(meta|base) sheet exactly/)]);
+    expect([r.isError, text(r)]).toEqual([true, expect.stringMatching(/^This workbook has a sheet named ".*" that starts with "_" but is not IsaFlow's _meta or _base sheet exactly/)]);
     expect(saveCells).not.toHaveBeenCalled();
   });
 
@@ -135,8 +137,8 @@ describe('review round 3: the sheet read, and what it must not read silently', (
     } });
     const refused = listed(json(await dry(file))).filter((c) => c.status === 'refused');
     expect(refused.map((c) => [c.i, c.month, c.reason])).toEqual([
-      [2, '2026-03', 'This cell is a TRUE / FALSE result, not an amount.'],
-      [2, '2026-04', 'This formula\'s result is formatted as a date, not an amount.'],
+      [2, '2026-03', 'This cell is a TRUE / FALSE value, not an amount.'],
+      [2, '2026-04', expect.stringMatching(/^"4": This cell's number format \(dd\/mm\/yyyy\) is not a plain number, currency or accounting format/)],
     ]);
   });
 
@@ -148,9 +150,9 @@ describe('review round 3: the sheet read, and what it must not read silently', (
     expect(text(await tool.handler({ ...KEY, file_base64: file, version_token: TOKEN, plan_hash: 'a'.repeat(64) }, ctx()))).toMatch(/^1 cell is refused, so nothing was written/);
   });
 
-  it('F5: cells merged across month columns refuse the workbook', async () => {
+  it('F5 (round 4: any merge): merged cells refuse the workbook', async () => {
     const file = await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['6000', 120]], edit: (ws) => ws.mergeCells('B2:D2') });
-    expect(text(await dry(file))).toMatch(/^Sheet "Budget", cells B2:D2: merged across month columns/);
+    expect(text(await dry(file))).toMatch(/^Sheet "Budget" has merged cells \(B2:D2\)/);
   });
 
   it('rows skipped (no code, totals, headings with no amounts) are listed by the dry run, and do not refuse the import', async () => {
