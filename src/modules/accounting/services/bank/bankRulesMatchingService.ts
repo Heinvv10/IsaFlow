@@ -122,6 +122,7 @@ export async function applyRules(
     // WP2 row 5: the transfer rules' matched lines, then their pairs, before the sweep's first journal (bankRuleTransferPrelock).
     const transferLocks = bankGlAccountId ? await preLockRuleTransfers(companyId, bankAccountId, bankGlAccountId, autoCreateRules,
       ruleAccountIsBank, ruleAccountIsControl) : { matches: new Map<string, Record<string, unknown>[]>(), contended: new Set<string>() };
+    const postedThisRun = new Set<string>(); // #1494 rev 2: this sweep's own posts, kept out of later transfer rules
     let autoPostSkippedOwnBankContra = 0, autoPostSkippedDuplicateTransfer = 0; // onto the swept bank itself; already in the ledger
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
@@ -172,7 +173,11 @@ export async function applyRules(
         continue;
       }
 
-      const matchingTxs = transferLocks.matches.get(String(rule.id)) ?? await findMatchingTxs(companyId, bankAccountId, field, pattern);
+      // A transfer rule's candidates were read before the sweep's first journal (bankRuleTransferPrelock): the lines an
+      // EARLIER rule of this run posted are dropped, so they neither count as another request's race nor take cap slots.
+      const cached = transferLocks.matches.get(String(rule.id));
+      const matchingTxs = cached ? cached.filter((t) => !postedThisRun.has(String(t.id)))
+        : await findMatchingTxs(companyId, bankAccountId, field, pattern);
       if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
         autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
         continue;
@@ -256,6 +261,7 @@ export async function applyRules(
         });
         if (outcome.vatDenied) autoPostVatDenied++;
         if (outcome.nonSupplyCoerced) autoPostNonSupply++;
+        postedThisRun.add(String(tx.id));
         totalApplied++;
       }
     }

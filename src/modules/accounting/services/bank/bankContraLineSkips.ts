@@ -40,17 +40,26 @@ export async function bankContraLineSkips(
     WHERE company_id = ${companyId}::UUID AND id = ANY(${onBank.map((l) => l.txId)}::UUID[])
   `) as DbRow[];
   const rowOf = new Map(rows.map((r) => [String(r.id).toLowerCase(), r]));
+  // #1494 rev 6, a documented decision: the duplicate read stays the live arm's own `assertNoDuplicateTransfer` (one
+  // source of truth for a 100-line rule — a set-based twin would drift from it), asked only for lines onto ANOTHER bank
+  // (not the batch), and once per distinct movement: lines of one bank, counterparty, amount, date and evidence share
+  // the answer, so a batch of identical sweeps costs one read.
+  const answers = new Map<string, Promise<string | null>>();
+  const duplicateOf = (row: DbRow, contra: string) => {
+    const date = fmtDate(row.transaction_date as Date | string);
+    const key = [String(row.bank).toLowerCase(), contra.toLowerCase(), Number(row.amount), date, isBankEvidenced(row)].join('|');
+    if (!answers.has(key)) {
+      answers.set(key, assertNoDuplicateTransfer(companyId, String(row.bank), contra, Number(row.amount), date, isBankEvidenced(row))
+        .then(() => null, (err: unknown) => { if (err instanceof DuplicateTransferError) return err.message; throw err; }));
+    }
+    return answers.get(key)!;
+  };
   for (const l of onBank) {
     const row = rowOf.get(l.txId.toLowerCase());
     if (!row) continue; // the row-state pass already skipped it
     if (String(row.bank).toLowerCase() === l.accountId.toLowerCase()) { skips.set(l.txId, OWN_BANK_CONTRA_MESSAGE); continue; }
-    try {
-      await assertNoDuplicateTransfer(companyId, String(row.bank), l.accountId, Number(row.amount),
-        fmtDate(row.transaction_date as Date | string), isBankEvidenced(row));
-    } catch (err) {
-      if (!(err instanceof DuplicateTransferError)) throw err;
-      skips.set(l.txId, err.message);
-    }
+    const duplicate = await duplicateOf(row, l.accountId); // sequential: one pg connection
+    if (duplicate) skips.set(l.txId, duplicate);
   }
   return skips;
 }
