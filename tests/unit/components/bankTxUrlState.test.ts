@@ -111,7 +111,7 @@ describe('ownedQueryKey / mergeOwnedQuery', () => {
     expect(merged).toEqual({ line: 'tx-9', account_id: 'new' });
   });
   it('URL_KEYS are exactly the keys serialize can write', () => {
-    const all = serializeUrlView(view({ tab: 'reviewed', page: 2 }, { search: 'a', fromDate: '2026-01-01', toDate: '2026-01-02', fromAmount: '1', toAmount: '2', sortOrder: 'asc', allocationFilter: 'allocated', txType: 'spent', allocType: 'account', hasSuggestion: 'no', reconFilter: 'reconciled' }));
+    const all = serializeUrlView(view({ tab: 'reviewed', page: 2 }, { search: 'a', fromDate: '2026-01-01', toDate: '2026-01-02', fromAmount: '1', toAmount: '2', sortOrder: 'asc', allocationFilter: 'allocated', txType: 'spent', allocType: 'account', hasSuggestion: 'no', reconFilter: 'reconciled', pageSize: 50 }));
     expect(Object.keys(all).sort()).toEqual([...URL_KEYS].sort());
   });
 });

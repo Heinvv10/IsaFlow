@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
-import type { UrlFilters } from './bankTxUrlState';
+import type { BankTxPageSize, UrlFilters } from './bankTxUrlState';
 
 export type AllocationFilter = 'all' | 'unallocated' | 'suggested' | 'allocated';
 export type TxTypeFilter = 'all' | 'spent' | 'received';
@@ -28,6 +28,8 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   const [allocType, setAllocType] = useState<AllocTypeFilter>('all');
   const [hasSuggestion, setHasSuggestion] = useState<HasSuggestionFilter>('all');
   const [reconFilter, setReconFilter] = useState<ReconFilter>('all');
+  // Rows per page: a view choice, so Clear and an account switch keep it (only the URL sets it back).
+  const [pageSize, setPageSizeState] = useState<BankTxPageSize>(25);
   // Bumped by Clear and by an account switch: an amount input holding a draft that was never sent (invalid) resets with it.
   const [resetTick, setResetTick] = useState(0);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,7 +49,7 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   if (toAmount) activeLabels.push(`Max amount ${toAmount}`);
   if (allocationFilter !== 'all') activeLabels.push(`Allocation: ${allocationFilter}`);
   if (txType !== 'all') activeLabels.push(`Type: ${txType}`);
-  if (allocType !== 'all') activeLabels.push(`Category: ${allocType}`);
+  if (allocType !== 'all') activeLabels.push(`Allocation type: ${allocType}`);
   if (hasSuggestion !== 'all') activeLabels.push(`Suggestion: ${hasSuggestion}`);
   if (reconFilter !== 'all') activeLabels.push(`Reconciliation: ${reconFilter}`);
 
@@ -64,21 +66,25 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   /** Everything, including the sort: an account switch starts the next account from its defaults. */
   const resetForAccount = useCallback(() => { clear(); setSortOrder('desc'); }, [clear]);
 
+  /** A new page size starts the list from page 1 (page 3 of 25 rows is not page 3 of 100). */
+  const setPageSize = useCallback((n: BankTxPageSize) => { setPageSizeState(n); setPage(1); }, [setPage]);
+
   /** Sets every filter at once from a view (the URL): the search takes effect at once, no debounce, and the page is the caller's. */
   const apply = useCallback((v: UrlFilters) => {
     setSearchTerm(v.search); setDebouncedSearch(v.search); setFromDate(v.fromDate); setToDate(v.toDate);
     setFromAmount(v.fromAmount); setToAmount(v.toAmount); setSortOrder(v.sortOrder); setAllocationFilter(v.allocationFilter);
     setTxType(v.txType); setAllocType(v.allocType); setHasSuggestion(v.hasSuggestion); setReconFilter(v.reconFilter);
+    setPageSizeState(v.pageSize);
     setResetTick(t => t + 1);
   }, []);
   /** What the list is filtered by right now (the committed search, not what is still being typed). */
-  const values: UrlFilters = { search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter };
+  const values: UrlFilters = { search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter, pageSize };
 
   return {
     apply, values,
     searchTerm, setSearchTerm, debouncedSearch, fromDate, setFromDate, toDate, setToDate, fromAmount, setFromAmount,
     toAmount, setToAmount, sortOrder, setSortOrder, allocationFilter, setAllocationFilter, txType, setTxType,
-    allocType, setAllocType, hasSuggestion, setHasSuggestion, reconFilter, setReconFilter,
+    allocType, setAllocType, hasSuggestion, setHasSuggestion, reconFilter, setReconFilter, pageSize, setPageSize,
     activeLabels, resetSelects, clear, resetForAccount, resetTick,
   };
 }

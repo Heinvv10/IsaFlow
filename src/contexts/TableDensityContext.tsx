@@ -95,3 +95,8 @@ export function useTableDensity(): TableDensityContextType {
 export function useOptionalDensity(): Density {
   return useContext(TableDensityContext)?.density ?? 'comfortable';
 }
+
+/** The density context, or undefined where no provider is mounted (a control that offers the toggle only where it works). */
+export function useOptionalTableDensity(): TableDensityContextType | undefined {
+  return useContext(TableDensityContext);
+}

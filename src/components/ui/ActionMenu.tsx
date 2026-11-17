@@ -21,6 +21,12 @@ export interface ActionMenuProps {
   /** Accessible label for the trigger button */
   triggerLabel?: string;
   className?: string;
+  /** What the trigger shows (default: the kebab icon). Text here also becomes the trigger's visible label. */
+  trigger?: React.ReactNode;
+  /** The trigger's size classes (default: 36px square, 44px below lg). */
+  triggerSizeClassName?: string;
+  /** The trigger's tooltip (default: none). */
+  triggerTitle?: string;
 }
 
 interface MenuPortalProps {
@@ -65,8 +71,8 @@ function MenuPortal({ anchorRect, items, focusedIndex, onSelect, onFocusChange, 
             'disabled:opacity-40 disabled:pointer-events-none',
             item.tone === 'destructive'
               ? idx === focusedIndex
-                ? 'bg-red-500/15 text-red-400'
-                : 'text-red-400 hover:bg-red-500/10'
+                ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                : 'text-red-700 dark:text-red-400 hover:bg-red-500/10'
               : idx === focusedIndex
               ? 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)]'
               : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] hover:text-[var(--ff-text-primary)]',
@@ -81,7 +87,7 @@ function MenuPortal({ anchorRect, items, focusedIndex, onSelect, onFocusChange, 
   );
 }
 
-export function ActionMenu({ items, triggerLabel = 'More actions', className }: ActionMenuProps) {
+export function ActionMenu({ items, triggerLabel = 'More actions', className, trigger, triggerSizeClassName = 'h-9 w-9 max-lg:h-11 max-lg:w-11', triggerTitle }: ActionMenuProps) {
   const [open, setOpen] = React.useState(false);
   const [focusedIndex, setFocusedIndex] = React.useState(-1);
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null);
@@ -183,9 +189,10 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={triggerLabel}
+        title={triggerTitle}
         onClick={handleToggle}
         className={cn(
-          'inline-flex items-center justify-center h-9 w-9 max-lg:h-11 max-lg:w-11 rounded-lg',
+          'inline-flex items-center justify-center rounded-lg', triggerSizeClassName,
           'border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]',
           'hover:bg-[var(--ff-bg-tertiary)] hover:text-[var(--ff-text-primary)]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
@@ -193,7 +200,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
           open && 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)]',
         )}
       >
-        <MoreVertical className="h-4 w-4" />
+        {trigger ?? <MoreVertical className="h-4 w-4" />}
       </button>
 
       {open && anchorRect && (

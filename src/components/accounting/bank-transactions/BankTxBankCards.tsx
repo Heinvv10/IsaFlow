@@ -3,7 +3,7 @@
  * account, then one per sub-account group, in a single row that scrolls
  * sideways (with a fade edge) when they overflow. Below it: the expanded
  * group's worklist, the ungrouped-accounts hint, and the selected account's
- * stats strip, which sits directly above the page's tabs.
+ * one-line summary (BankTxStatsStrip, WP4b), which sits directly above the page's tabs.
  *
  * With more than SWITCHER_THRESHOLD accounts the row shows only the pinned cards (at most six, pins kept in the card
  * order store) and an "All accounts" combobox finds the rest (WP5).
@@ -26,6 +26,9 @@ import { BankAccountSwitcher } from './BankAccountSwitcher';
 import { useBankCardOrder } from './useBankCardOrder';
 import { notify } from '@/utils/toast';
 import type { BankAccountSummary } from './useBankTxSummary';
+import type { BankTxTab } from './BankTxTabs';
+import type { AllocationFilter } from './useBankTxFilters';
+import type { StatusTile } from './bankTxStatusTiles';
 
 interface Props {
   bankAccounts: BankAccountSummary[];
@@ -39,6 +42,10 @@ interface Props {
   onShowProvisional: () => void;
   /** The page's own card-order source, when it needs the order too (one read of the preferences, not two). Absent: this loads its own. */
   cardOrder?: ReturnType<typeof useBankCardOrder>;
+  /** The view on screen and the status-tile press (the summary line's tiles are filter toggles). */
+  tab: BankTxTab;
+  allocationFilter: AllocationFilter;
+  onTile: (tile: StatusTile) => void;
 }
 
 /** Whether the row has more cards to its right than it shows. */
@@ -62,7 +69,7 @@ function useOverflowRight(cardCount: number) {
   return { ref, more, measure };
 }
 
-export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBank, onAccountsChanged, onShowProvisional, cardOrder }: Props) {
+export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBank, onAccountsChanged, onShowProvisional, cardOrder, tab, allocationFilter, onTile }: Props) {
   const bank = bankAccounts.find(b => b.id === selectedBank);
   const { primaries, groups } = useMemo(() => groupBankAccounts(bankAccounts), [bankAccounts]);
   const hints = useMemo(() => findUngroupedHints(primaries, groups), [primaries, groups]);
@@ -139,9 +146,9 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
   };
 
   return (
-    <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Transactions</h1>
+    <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 pt-2.5 pb-2">
+      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h1 className="text-xl font-bold text-[var(--ff-text-primary)]">Bank Transactions</h1>
         {switcher && (
           <BankAccountSwitcher primaries={primaries} groups={groups} accountCount={bankAccounts.length} selectedBank={selectedBank}
             pinned={new Set(pinned)} outsideSelection={outsideSelection} onTogglePin={onTogglePin}
@@ -175,7 +182,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
 
       <UngroupedAccountsHint hints={hints} onMoved={onAccountsChanged} />
 
-      {bank && <BankTxStatsStrip bank={bank} shown={shown} onShowProvisional={onShowProvisional} />}
+      {bank && <BankTxStatsStrip bank={bank} shown={shown} onShowProvisional={onShowProvisional} tab={tab} allocationFilter={allocationFilter} onTile={onTile} />}
     </div>
   );
 }

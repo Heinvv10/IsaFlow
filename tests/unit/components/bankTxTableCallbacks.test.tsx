@@ -83,8 +83,11 @@ describe('BankTxTable: a new row calls each handler with the row and its value',
     const p = tableProps();
     render(<BankTxTable {...p} />);
     const r = rowOf('a');
-    for (const name of ['Accept', 'Find & Match', 'Split transaction', 'Create rule from this transaction', 'Link to asset / fuel / service', 'Attachments', 'Ask client on WhatsApp', 'Exclude']) {
-      fireEvent.click(r.getByRole('button', { name: `${name}, ${row('a')}` }));
+    fireEvent.click(r.getByRole('button', { name: `Accept, ${row('a')}` }));
+    // The rest are in the row's More actions menu (WP4b).
+    for (const name of ['Find & Match', 'Split transaction', 'Create rule from this transaction', 'Link to asset / fuel / service', 'Attachments', 'Ask client on WhatsApp', 'Exclude']) {
+      fireEvent.click(r.getByRole('button', { name: `More actions, ${row('a')}` }));
+      fireEvent.click(screen.getByRole('menuitem', { name }));
     }
     const once: [keyof typeof p, unknown][] = [
       ['onAccept', 'a'], ['onFindMatch', 'a'], ['onSplit', 'a'], ['onCreateRule', TXS[0]], ['onLink', TXS[0]],

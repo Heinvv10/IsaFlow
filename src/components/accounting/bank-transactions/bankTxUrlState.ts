@@ -15,16 +15,22 @@ export interface UrlFilters {
   search: string; fromDate: string; toDate: string; fromAmount: string; toAmount: string;
   sortOrder: 'asc' | 'desc'; allocationFilter: AllocationFilter; txType: TxTypeFilter;
   allocType: AllocTypeFilter; hasSuggestion: HasSuggestionFilter; reconFilter: ReconFilter;
+  /** Rows per page (WP4b). A view choice, not a filter: Clear and an account switch keep it. */
+  pageSize: BankTxPageSize;
 }
 export interface UrlView { account: string; tab: BankTxTab; page: number; filters: UrlFilters }
 
+/** The page sizes the list offers; the first is the default. */
+export const BANK_TX_PAGE_SIZES = [25, 50, 100] as const;
+export type BankTxPageSize = typeof BANK_TX_PAGE_SIZES[number];
+
 export const DEFAULT_FILTERS: UrlFilters = {
   search: '', fromDate: '', toDate: '', fromAmount: '', toAmount: '', sortOrder: 'desc',
-  allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all', reconFilter: 'all',
+  allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all', reconFilter: 'all', pageSize: 25,
 };
 
 /** The query keys this page owns (account_id is the existing deep-link name used by other pages' links). */
-export const URL_KEYS = ['account_id', 'tab', 'page', 'q', 'from', 'to', 'min', 'max', 'sort', 'alloc', 'type', 'cat', 'sugg', 'recon'] as const;
+export const URL_KEYS = ['account_id', 'tab', 'page', 'q', 'from', 'to', 'min', 'max', 'sort', 'alloc', 'type', 'cat', 'sugg', 'recon', 'size'] as const;
 
 const TABS: readonly BankTxTab[] = ['new', 'reviewed', 'excluded', 'provisional'];
 const ALLOC: readonly AllocationFilter[] = ['unallocated', 'suggested', 'allocated'];
@@ -62,6 +68,7 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   set('allocationFilter', pick(one(query.alloc), ALLOC)); set('txType', pick(one(query.type), TYPES));
   set('allocType', pick(one(query.cat), CATS)); set('hasSuggestion', pick(one(query.sugg), SUGG));
   set('reconFilter', pick(one(query.recon), RECON));
+  set('pageSize', BANK_TX_PAGE_SIZES.slice(1).find(n => String(n) === one(query.size)));
   // A range typed the wrong way round (min above max, from after to) is read the right way round, not as an empty list.
   if (filters.fromAmount !== undefined && filters.toAmount !== undefined && Number(filters.fromAmount) > Number(filters.toAmount)) {
     [filters.fromAmount, filters.toAmount] = [filters.toAmount, filters.fromAmount];
@@ -95,6 +102,7 @@ export function serializeUrlView(v: UrlView): Record<string, string> {
   if (f.allocType !== d.allocType) out.cat = f.allocType;
   if (f.hasSuggestion !== d.hasSuggestion) out.sugg = f.hasSuggestion;
   if (f.reconFilter !== d.reconFilter) out.recon = f.reconFilter;
+  if (f.pageSize !== d.pageSize) out.size = String(f.pageSize);
   return out;
 }
 
