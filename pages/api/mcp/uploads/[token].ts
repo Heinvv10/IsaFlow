@@ -35,6 +35,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { readUploadBody, UploadBodyError } from '@/lib/mcp/uploadBody';
 import { verifyUploadToken } from '@/lib/mcp/uploadToken';
 import { uploadBytesRefusal } from '@/lib/mcp/uploadBytesCheck';
@@ -104,22 +105,35 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const refusal = uploadBytesRefusal(bytes, intent);
   if (refusal) return apiResponse.badRequest(res, `Refused: ${refusal}`);
 
-  // The stage is one autocommit statement on the upload admin pool (no app role may write staged_bytes, S-07b); its
-  // audit row follows on the public-route transaction. A failed audit after a good stage answers 500 with the bytes
-  // staged: finalize_uploads still verifies them, and audits the finalize itself.
-  if (!(await stageUploadBytes(intent.companyId, intent.id, bytes))) {
-    return apiResponse.conflict(res, 'This upload url was already used or has expired');
+  // The stage is one short transaction on the upload admin pool (no app role may write staged_bytes, S-07b). A row a
+  // finalize holds, or a busy pool, is 503 + Retry-After (respondIfLockTimeout): nothing staged, the url still works.
+  let stagedNow: boolean;
+  try {
+    stagedNow = await stageUploadBytes(intent.companyId, intent.id, bytes);
+  } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
+    throw err;
   }
-  await withPublicRouteTransaction('mcp-upload stage audit', async () => {
-    await logAuditOrThrow({
-      companyId: intent.companyId, userId: intent.createdBy, action: 'update', entityType: 'mcp_upload_intent',
-      entityId: intent.id, entityRef: intent.fileName.slice(0, 100),
-      changes: { fields: [], metadata: {
-        source: 'mcp upload PUT', upload_id: intent.id, status: 'uploaded', size: String(bytes.length), sha256: intent.sha256,
-        target_kind: intent.targetKind, target_id: intent.targetId, token_jti: intent.createdTokenJti ?? '',
-      } },
+  if (!stagedNow) return apiResponse.conflict(res, 'This upload url was already used or has expired');
+  // The PUT's audit row follows on the public-route transaction. The bytes are staged whatever happens here, so a
+  // failed audit is logged (finalize_uploads re-verifies the bytes and audits the finalize) and the PUT still answers
+  // 200: telling the agent it failed would only send it to a url that now answers 409.
+  try {
+    await withPublicRouteTransaction('mcp-upload stage audit', async () => {
+      await logAuditOrThrow({
+        companyId: intent.companyId, userId: intent.createdBy, action: 'update', entityType: 'mcp_upload_intent',
+        entityId: intent.id, entityRef: intent.fileName.slice(0, 100),
+        changes: { fields: [], metadata: {
+          source: 'mcp upload PUT', upload_id: intent.id, status: 'uploaded', size: String(bytes.length), sha256: intent.sha256,
+          target_kind: intent.targetKind, target_id: intent.targetId, token_jti: intent.createdTokenJti ?? '',
+        } },
+      });
     });
-  });
+  } catch (err) {
+    log.error('MCP upload staged but its PUT audit row failed', {
+      companyId: intent.companyId, uploadId: intent.id, error: err instanceof Error ? err.message : String(err),
+    }, 'mcp-uploads');
+  }
   log.info('MCP upload staged', { companyId: intent.companyId, uploadId: intent.id, size: bytes.length }, 'mcp-uploads');
   return apiResponse.success(res, { upload_id: intent.id, status: 'uploaded', size: bytes.length });
 }

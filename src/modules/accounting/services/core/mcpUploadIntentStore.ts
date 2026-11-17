@@ -12,6 +12,7 @@ import { createHash } from 'crypto';
 import type pg from 'pg';
 import { sql } from '@/lib/neon';
 import { uploadAdminPool } from '@/lib/mcp/uploadAdminPool';
+import { log } from '@/lib/logger';
 import { newUploadToken } from '@/lib/mcp/uploadToken';
 import type { DbRow } from '@/lib/neon';
 
@@ -174,18 +175,66 @@ export async function findIntentByToken(token: string): Promise<UploadIntent | n
  * Stage the bytes of a pending, unexpired intent. False when another PUT got there first or it expired meanwhile.
  * 999q's trigger re-hashes them against the declared sha256 and opens the 2-hour finalize window.
  */
+/**
+ * The stage could not run now: the row is held (a finalize locked it) past STAGE_LOCK_WAIT, or the upload admin pool
+ * had no connection within its connect timeout. Its code ends in `_LOCK_TIMEOUT`, so `respondIfLockTimeout` answers it
+ * 503 + Retry-After: nothing was staged, the url still works, PUT again.
+ */
+export class UploadStageLockTimeoutError extends Error {
+  readonly code = 'UPLOAD_STAGE_LOCK_TIMEOUT';
+  constructor(cause: unknown) {
+    super('The upload is busy (another request holds it): nothing was staged, PUT the file again in a moment', { cause });
+    this.name = 'UploadStageLockTimeoutError';
+  }
+}
+
+/** The longest a stage waits for its row; the pool is small and shared by every company's PUTs, so it never queues. */
+export const STAGE_LOCK_WAIT = '2s';
+const STAGE_STATEMENT_TIMEOUT = '30s';
+const isStageTimeout = (err: unknown): boolean => {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === '55P03' || code === '57014'
+    || (err instanceof Error && /timeout exceeded when trying to connect|connection timeout/i.test(err.message));
+};
+
+const STAGE_SQL = `UPDATE mcp_upload_intents SET staged_bytes = $3, status = 'uploaded'
+  WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'pending' AND expires_at > now()
+  RETURNING id`;
+
+/**
+ * Stage an upload's bytes: one short transaction on the migration_admin upload pool (uploadAdminPool: no app role may
+ * write staged_bytes, S-07b), never a request transaction; the row is named by id AND company_id, compare-and-set on
+ * pending + unexpired. It waits at most STAGE_LOCK_WAIT for a row a finalize holds, and throws
+ * UploadStageLockTimeoutError (503) rather than hold one of the pool's few connections. `db` (tests): a client already
+ * in the migration_admin role and a transaction of its own, used as is.
+ */
 export async function stageUploadBytes(
-  companyId: string, id: string, bytes: Buffer, db: Pick<pg.Pool, 'query'> = uploadAdminPool(),
+  companyId: string, id: string, bytes: Buffer, db?: Pick<pg.PoolClient, 'query'>,
 ): Promise<boolean> {
-  // On the migration_admin pool (uploadAdminPool): no app role may write staged_bytes (S-07b). Its own autocommit
-  // statement, never a request transaction; the row is named by id AND company_id.
-  const res = await db.query(
-    `UPDATE mcp_upload_intents SET staged_bytes = $3, status = 'uploaded'
-      WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'pending' AND expires_at > now()
-      RETURNING id`,
-    [id, companyId, bytes],
-  );
-  return res.rowCount === 1;
+  if (db) return (await db.query(STAGE_SQL, [id, companyId, bytes])).rowCount === 1;
+  let client: pg.PoolClient;
+  try {
+    client = await uploadAdminPool().connect();
+  } catch (err) {
+    if (isStageTimeout(err)) throw new UploadStageLockTimeoutError(err);
+    throw err;
+  }
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL lock_timeout = '${STAGE_LOCK_WAIT}'`);
+    await client.query(`SET LOCAL statement_timeout = '${STAGE_STATEMENT_TIMEOUT}'`);
+    const res = await client.query(STAGE_SQL, [id, companyId, bytes]);
+    await client.query('COMMIT');
+    return res.rowCount === 1;
+  } catch (err) {
+    await client.query('ROLLBACK').catch((rollbackErr: unknown) => {
+      log.warn('MCP upload stage rollback failed', { message: String(rollbackErr) }, 'mcp-uploads');
+    });
+    if (isStageTimeout(err)) throw new UploadStageLockTimeoutError(err);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /** One of this company's intents, locked for finalize (its bytes are not read). */

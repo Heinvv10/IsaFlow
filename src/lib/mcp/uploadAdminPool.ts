@@ -6,8 +6,9 @@
  * this pool is fixed and parameterised; the stage names its row by id AND company_id, the sweep touches only rows
  * past their expiry.
  *
- * A pool of its own (as signInStampPool / routeAdminPool), small, with a short connect timeout: a busy pool fails a
- * PUT fast (the caller answers 503) and makes the sweep skip a turn, instead of queueing behind other admin writes.
+ * A pool of its own (as signInStampPool / routeAdminPool), small (3; UPLOAD_ADMIN_POOL_MAX), with a short connect
+ * timeout: a busy pool fails a PUT fast (UploadStageLockTimeoutError, 503 + Retry-After) and makes the sweep skip a
+ * turn, instead of queueing behind other admin writes. A stage also waits at most 2 s for a row a finalize holds.
  */
 import pg from 'pg';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool in this process. See src/lib/pgTypes.ts.
@@ -23,7 +24,7 @@ export function uploadAdminPool(): pg.Pool {
   if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required: MCP upload staging and its sweep (999q, S-07b)');
   _pool = new pg.Pool({
     connectionString: url,
-    max: poolSizeFromEnv('UPLOAD_ADMIN_POOL_MAX', 2),
+    max: poolSizeFromEnv('UPLOAD_ADMIN_POOL_MAX', 3),
     connectionTimeoutMillis: 2_000,
     ssl:
       process.env.DATABASE_SSL === 'strict'

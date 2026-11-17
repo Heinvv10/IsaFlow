@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
-import { stageUploadBytes } from '@/modules/accounting/services/core/mcpUploadIntentStore';
+import { stageUploadBytes, UploadStageLockTimeoutError } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { SWEEP_MIN_INTERVAL_MS } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { sweepExpiredUploads } from '@/modules/accounting/services/core/mcpUploadIntentSweep';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -238,6 +238,23 @@ describeIfDb('MCP uploads: review hardening (999q)', () => {
       await client.query('ROLLBACK');
       client.release();
     }
+  });
+
+  it('a stage waits at most its lock wait for a row a finalize holds, then refuses (503) without staging', async () => {
+    const a = PDF('held');
+    const u = first(await createUrls(fx, [bankFile(lines[7]!, 'held.pdf', a)]));
+    const holder = await fx.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM mcp_upload_intents WHERE id = $1 FOR UPDATE', [u.upload_id]);
+      const started = Date.now();
+      await expect(stageUploadBytes(fx.companyId, String(u.upload_id), a)).rejects.toBeInstanceOf(UploadStageLockTimeoutError);
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await stageUploadBytes(fx.companyId, String(u.upload_id), a)).toBe(true);
   });
 
   it('audits a PUT, a refusal at finalize and a duplicate finalize (distinct action)', async () => {

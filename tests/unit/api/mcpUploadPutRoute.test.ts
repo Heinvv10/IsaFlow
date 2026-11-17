@@ -262,4 +262,23 @@ describe('PUT /api/mcp/uploads/<token>', () => {
     vi.mocked(findIntentByToken).mockResolvedValueOnce(intent({ companyId: other }));
     expect((await put(PDF)).statusCode).toBe(200);
   });
+
+  it('a row a finalize holds (or a busy upload pool) is 503 + Retry-After, nothing audited; the url stays usable', async () => {
+    const { UploadStageLockTimeoutError } = await vi.importActual<typeof import('@/modules/accounting/services/core/mcpUploadIntentStore')>(
+      '@/modules/accounting/services/core/mcpUploadIntentStore');
+    vi.mocked(stageUploadBytes).mockRejectedValueOnce(new UploadStageLockTimeoutError(new Error('55P03')));
+    const r = await put(PDF);
+    expect(r.statusCode).toBe(503);
+    expect(r.body).toMatchObject({ error: { details: { code: 'UPLOAD_STAGE_LOCK_TIMEOUT' } } });
+    expect(logAuditOrThrow).not.toHaveBeenCalled();
+    expect((await put(PDF)).statusCode).toBe(200);
+  });
+
+  it('bytes staged but the PUT audit row failed: 200 (the url would now answer 409), and the failure is logged', async () => {
+    vi.mocked(logAuditOrThrow).mockRejectedValueOnce(new Error('audit insert failed'));
+    const r = await put(PDF);
+    expect(r.statusCode).toBe(200);
+    expect(stageUploadBytes).toHaveBeenCalledTimes(1);
+    expect(logs.error).toHaveBeenCalledWith('MCP upload staged but its PUT audit row failed', expect.anything(), 'mcp-uploads');
+  });
 });
