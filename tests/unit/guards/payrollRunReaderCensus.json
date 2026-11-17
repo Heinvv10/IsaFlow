@@ -16,11 +16,15 @@
   "src/modules/accounting/services/payroll/payrollVarianceService.ts": [
    "AND ${runOrderKeySql('p')} < ${runOrderKeySql('c')}",
    "ORDER BY ${runOrderKeySql('p')} DESC"
+  ],
+  "src/modules/bureau/services/ownerCashPositionService.ts": [
+   "ORDER BY ${runOrderKeySql('payroll_run_headers')}"
   ]
  },
  "consumers": [
   {"file":"src/lib/mcp/tools/writePayroll.ts","line":68,"text":"const clash = existing.rows.find((r) => r.periodMonth === month && r.runKind === 'regular' && r.payFrequency === 'monthly');","class":"S","owner":"FQb1","why":"FQb1 converted (R): the clash is the month's regular monthly run (the 999a key); an off-cycle run is none"},
-  {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":118,"text":"const thisRun = runs.find(r => r.periodYear === year && r.periodMonth === month);","class":"R","owner":"FQb2","why":"runs.find by month: one run stands for the month"},
+  {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":121,"text":"const monthRuns = (await listPayrollRuns(companyId)).filter(r => r.periodYear === year && r.periodMonth === month);","class":"S","owner":"FQb2","why":"FQb2 converted (R): every run of the month; ready only when all are approved, gross summed"},
+  {"file":"src/modules/accounting/services/gl/integrityChecks/payrollChecks.ts","line":59,"text":"const monthRuns = headers.filter((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);","class":"S","owner":"FQb2","why":"FQb2 converted (R): the month is pre-ET when ANY of its runs is"},
   {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"R","owner":"FQc","why":"pro-rata takes the run's month, not its dates (F2)"},
   {"file":"src/modules/accounting/services/payroll/payrollYearToDate.ts","line":120,"text":"AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)","class":"R","owner":"FQc","why":"the year-to-date month bound (F2)"},
   {"file":"src/modules/accounting/services/payroll/payslipYearToDate.ts","line":67,"text":"AND (prh.period_year, prh.period_month) <= (${run.periodYear}::int, ${run.periodMonth}::int)","class":"R","owner":"FQc","why":"the payslip year-to-date month bound (F2)"},
@@ -61,7 +65,7 @@
    {"line":165,"text":"FROM payroll_run_headers","class":"L","owner":"FQb2","why":"by id; the MM/YYYY reference is a label"}
   ],
   "src/modules/accounting/services/gl/integrityChecks/payrollChecks.ts": [
-   {"line":40,"text":"SELECT period_year, period_month, calculation_version FROM payroll_run_headers","class":"R","owner":"FQb2","why":"headers.find by month (:58) takes one run's calculation_version for the month"}
+   {"line":40,"text":"SELECT period_year, period_month, calculation_version FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): every run with a journal; the consumer (:59) judges all of the month's runs"}
   ],
   "src/modules/accounting/services/payroll/cashPayRegisterService.ts": [
    {"line":89,"text":"(SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p","class":"S","owner":"FQb1","why":"loan payments by run_id"},
@@ -468,7 +472,8 @@
    {"line":47,"text":"FROM payroll_run_headers pr","class":"S","owner":"FQb2","why":"list of open runs"}
   ],
   "src/modules/bureau/services/ownerCashPositionService.ts": [
-   {"line":124,"text":"FROM payroll_run_headers","class":"R","owner":"FQb2","why":"pickPayrollRun picks ONE run from rows ordered by month only: a tie between two runs of a month"}
+   {"line":128,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
+   {"line":132,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
   ]
  }
 }
