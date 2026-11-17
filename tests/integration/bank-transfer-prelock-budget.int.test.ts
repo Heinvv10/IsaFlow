@@ -13,11 +13,12 @@ import { Pool, type PoolClient } from 'pg';
 import type { NextApiResponse } from 'next';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { actionRoute, bankCompany, cleanupBankControlsA, mcpCaller, type BankCompany } from './bank-controls-a.helpers';
+import { actionRoute, asToken, bankCompany, cleanupBankControlsA, mcpCaller, type BankCompany } from './bank-controls-a.helpers';
 import { bulkAllocateBankTransactionsTool } from '../../src/lib/mcp/tools/writeBankBulkAllocate';
 import { withAuth, type CompanyAuthedRequest } from '../../src/lib/auth';
 import { sweep } from '../../src/modules/accounting/services/bank/autoPostGateService';
-import { transferPairKey } from '../../src/modules/accounting/services/bank/transferPairLock';
+import { preLockTransferPairs, transferPairKey } from '../../src/modules/accounting/services/bank/transferPairLock';
+import { als } from '../../src/lib/als';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
@@ -122,4 +123,24 @@ describe('the brk-1494 deadlock recipe', () => {
     expect({ l: await status(l), m: await status(m), journals: await transfers() - before }).toEqual({ l: 'allocated', m: 'allocated', journals: 2 });
     expect(await deadlocks() - dl0, 'the database broke a deadlock (40P01)').toBe(0);
   }, 60000);
+});
+
+describe('the pre-lock never loosens the caller\'s lock_timeout (#1494 rev 1)', () => {
+  it('a caller at 200 ms gets a held pair back within its own bound, not the 5 s budget; the bound is put back', async () => {
+    const holder = await holdPairs([[f.bank, f.bank2]]);
+    try {
+      const seen = await asToken(pool, user, f.c, async () => {
+        const client = (als.getStore() as unknown as { client: { query: (q: string) => Promise<{ rows: { v: string }[] }> } }).client;
+        await client.query("SET LOCAL lock_timeout = '200ms'");
+        const t0 = Date.now();
+        const held = await preLockTransferPairs(f.c, [[f.bank, f.bank2]]);
+        const ms = Date.now() - t0;
+        const after = (await client.query("SELECT current_setting('lock_timeout') AS v")).rows[0]!.v;
+        return { held: held.size, ms, after };
+      }, { session: true });
+      expect(seen.held).toBe(1);
+      expect(seen.after).toBe('200ms');
+      expect(seen.ms, `waited ${seen.ms} ms`).toBeLessThan(2000); // the 5 s budget would have been taken whole
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+  }, 30000);
 });
