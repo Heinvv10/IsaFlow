@@ -31,7 +31,9 @@ export const TEMPLATE_LIMIT_MAX = 50;
 export const XLSX_MAX_BASE64 = 85_000;
 const MAX_MEMBERS = 500;
 /** Each format its own mcp- bucket (never the app's, so an agent cannot lock its person out of the grid): JSON pages are many. */
-const RATE = { xlsx: { max: 60, windowSecs: 900 }, json: { max: 600, windowSecs: 900 } } as const;
+const XLSX_TEMPLATE_MAX = 60;
+const JSON_TEMPLATE_MAX = 600;
+const RATE_WINDOW_SECS = 900;
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const totalsView = (model: GridReadModel) => Object.fromEntries(Object.entries(model.totals.months)
@@ -64,7 +66,7 @@ function membersArg(raw: unknown): string[] | undefined | McpToolResult {
 async function xlsxReply(ctx: McpToolContext, versionId: string, grain: TemplateGrain, members: string[] | undefined): Promise<McpToolResult> {
   // The route's order: the slot, then the bucket, then the read and the build.
   const t = await BUDGET_SPREADSHEET_SLOT.run(async () => {
-    if (!(await checkRateLimit(`mcp-budget-template-xlsx:${ctx.userId}`, RATE.xlsx))) return null;
+    if (!(await checkRateLimit(`mcp-budget-template-xlsx:u:${ctx.userId}`, { max: XLSX_TEMPLATE_MAX, windowSecs: RATE_WINDOW_SECS }))) return null;
     return loadBudgetTemplate(ctx.companyId, versionId, grain, members, ctx.userId);
   }, ctx.userId, MCP_SLOT_WAIT_MS);
   if (t === null) return toolError('Too many template downloads — wait a few minutes and try again.');
@@ -114,7 +116,7 @@ export const getBudgetTemplateTool: McpTool = {
     if (isResult(version)) return version;
     try {
       if (format === 'xlsx') return await xlsxReply(ctx, version.id, grain, members);
-      if (!(await checkRateLimit(`mcp-budget-template-json:${ctx.userId}`, RATE.json))) return toolError('Too many template reads — wait a few minutes and try again.');
+      if (!(await checkRateLimit(`mcp-budget-template-json:u:${ctx.userId}`, { max: JSON_TEMPLATE_MAX, windowSecs: RATE_WINDOW_SECS }))) return toolError('Too many template reads — wait a few minutes and try again.');
       const { model, prior } = await loadTemplateInputs(ctx.companyId, version.id, grain, ctx.userId);
       const grid = templateGrid(model, grain, prior, members);
       const all = jsonRows(grid);

@@ -125,7 +125,7 @@ describe('get_budget_template, format xlsx', () => {
     const excel = new ExcelJS.Workbook();
     await excel.xlsx.load(file as unknown as ArrayBuffer);
     expect(excel.worksheets.map((s) => s.name)).toEqual(['Budget', 'Instructions', '_base', '_meta']);
-    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-xlsx:u-1', { max: 60, windowSecs: 900 });
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-xlsx:u:u-1', { max: 60, windowSecs: 900 });
     expect(loadGridReadModel).toHaveBeenCalledWith(expect.any(String), { versionId: VERSION }, 'totals', 'u-1'); // a holder's file is their slices
   });
 
@@ -149,7 +149,7 @@ describe('get_budget_template, format xlsx', () => {
     expect(text(await tool.handler({ version_id: VERSION, format: 'xlsx' }, ctx()))).toMatch(/already have two spreadsheets being read or built/);
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
     expect(text(await tool.handler({ version_id: VERSION, format: 'xlsx' }, ctx()))).toMatch(/Too many template downloads/);
-    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-xlsx:u-1', { max: 60, windowSecs: 900 });
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-xlsx:u:u-1', { max: 60, windowSecs: 900 });
     expect(loadGridReadModel).not.toHaveBeenCalled();
     run.mockRestore();
   });
@@ -158,7 +158,7 @@ describe('get_budget_template, format xlsx', () => {
     const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run');
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
     expect(text(await tool.handler({ version_id: VERSION }, ctx()))).toMatch(/Too many template reads/);
-    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-json:u-1', { max: 600, windowSecs: 900 });
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-budget-template-json:u:u-1', { max: 600, windowSecs: 900 });
     expect([loadGridReadModel, run].map((f) => vi.mocked(f).mock.calls.length)).toEqual([0, 0]);
     run.mockRestore();
   });
