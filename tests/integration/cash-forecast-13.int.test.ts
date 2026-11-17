@@ -68,8 +68,8 @@ beforeAll(async () => {
   // C: a weekly regular run this month, the latest run — never used as the monthly net, warned (review L3).
   const twoBack = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, pay_frequency, period_start, period_end)
-     VALUES ($1, $2, $3, 'approved', 1, 'weekly', make_date($2, $3, 1), make_date($2, $3, 7))`, [C.id, twoBack[0], twoBack[1]]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, pay_frequency, period_start, period_end, approved_at)
+     VALUES ($1, $2, $3, 'approved', 1, 'weekly', make_date($2, $3, 1), make_date($2, $3, 7), clock_timestamp())`, [C.id, twoBack[0], twoBack[1]]);
   const mark = await pool.connect();
   try {
     await mark.query('BEGIN');
