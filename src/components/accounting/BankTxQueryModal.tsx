@@ -176,7 +176,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
           <div className="p-2 rounded-lg bg-green-500/10">
-            <MessageCircle className="h-4 w-4 text-green-400" />
+            <MessageCircle className="h-4 w-4 text-green-700 dark:text-green-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Ask Client on WhatsApp</h2>
@@ -198,8 +198,8 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           {/* Prior query warning */}
           {priorQuery && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-              <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-300">
+              <AlertCircle className="h-4 w-4 text-amber-700 dark:text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-300">
                 Already asked on {formatShortDate(priorQuery.sent_at)} — status: {priorQuery.status}
               </p>
             </div>
@@ -208,7 +208,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           {/* Phone input */}
           <div>
             <label htmlFor="query-whatsapp-number" className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
-              WhatsApp number <span className="text-red-400">*</span>
+              WhatsApp number <span className="text-red-700 dark:text-red-400">*</span>
             </label>
             <input
               id="query-whatsapp-number"
@@ -223,7 +223,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
             />
             {!canDirect && (phone !== '' || !loadingSettings) && (
               <p data-testid={phone === '' ? 'query-number-missing' : 'query-number-locked'}
-                className={`mt-0.5 text-xs ${phone === '' ? 'text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+                className={`mt-0.5 text-xs ${phone === '' ? 'text-amber-700 dark:text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
                 {phone === '' ? 'Ask an owner or admin to set the client\'s WhatsApp number in settings.' : 'Queries go to the company\'s saved number. An owner or admin can change it.'}
               </p>
             )}
@@ -265,8 +265,8 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           {/* Inline error */}
           {inlineError && (
             <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5">
-              <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-red-400 break-words">{inlineError}</p>
+              <AlertCircle className="h-4 w-4 text-red-700 dark:text-red-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-red-700 dark:text-red-400 break-words">{inlineError}</p>
             </div>
           )}
         </div>

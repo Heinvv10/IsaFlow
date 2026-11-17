@@ -37,6 +37,8 @@ interface Props {
   onAccountsChanged: () => void;
   /** Opens the Provisional tab (the Allocated tile's "incl. n provisional"). */
   onShowProvisional: () => void;
+  /** The page's own card-order source, when it needs the order too (one read of the preferences, not two). Absent: this loads its own. */
+  cardOrder?: ReturnType<typeof useBankCardOrder>;
 }
 
 /** Whether the row has more cards to its right than it shows. */
@@ -60,7 +62,7 @@ function useOverflowRight(cardCount: number) {
   return { ref, more, measure };
 }
 
-export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBank, onAccountsChanged, onShowProvisional }: Props) {
+export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBank, onAccountsChanged, onShowProvisional, cardOrder }: Props) {
   const bank = bankAccounts.find(b => b.id === selectedBank);
   const { primaries, groups } = useMemo(() => groupBankAccounts(bankAccounts), [bankAccounts]);
   const hints = useMemo(() => findUngroupedHints(primaries, groups), [primaries, groups]);
@@ -68,7 +70,8 @@ export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBan
   const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
   const { ref: rowRef, more: rowMore, measure: measureRow } = useOverflowRight(primaries.length + groups.length);
   const { activeCompany } = useCompany();
-  const { order, reorder, reset } = useBankCardOrder(activeCompany?.id);
+  const own = useBankCardOrder(cardOrder ? null : activeCompany?.id); // no company -> no read of its own
+  const { order, reorder, reset } = cardOrder ?? own;
 
   // Deep links (?account_id=) can select a sub-account before any user
   // interaction — auto-expand its group so the selection is visible.

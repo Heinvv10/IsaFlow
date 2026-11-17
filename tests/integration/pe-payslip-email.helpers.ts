@@ -1,0 +1,148 @@
+/**
+ * Shared rig calls for the payslip-email suites (wave 6 PE): the real routes (withAuth, app_user, RLS) through
+ * brkr.helpers' rig, with a CAPTURE mailer. Nothing here can reach a mail server: the send route is built with
+ * `capture`, and every address is @example.invalid (spec rule 21).
+ */
+import { SignJWT } from 'jose';
+import type { EmailOptions } from '@/modules/accounting/services/core/emailService';
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { als } from '@/lib/als';
+import type { Mailer, SendLimits } from '@/modules/accounting/services/payroll/payslipDeliveryService';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { withAuth } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
+import { withNoStore } from '@/lib/auth/withNoStore';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { payslipEmailHandler } from '@/lib/payslipEmailApi';
+import { admitPayslipEmails } from '../../pages/api/payroll/runs/[id]/payslips/email';
+import settings from '../../pages/api/payroll/settings/payslip-email';
+import employeeEmail from '../../pages/api/payroll/employees/[id]/email';
+import { rig, type Res, type Route } from './brkr.helpers';
+import { impersonationToken } from './r035-pr2.helpers';
+
+export type R = Awaited<ReturnType<typeof rig>>;
+type Opts = { company?: string; user?: string };
+
+export const captured: EmailOptions[] = [];
+/** Fails the next N sends (a mail server refusing them). */
+export const failNext = { count: 0 };
+/** The next N sends hit sendEmail's deadline after the server may have taken them (review #1542 S2). */
+export const maybeNext = { count: 0 };
+/** Runs inside the send, after the message is handed over and before the mailer answers (review #1542 B1/B2). */
+let during: ((o: EmailOptions) => Promise<void>) | null = null;
+export const setDuring = (fn: ((o: EmailOptions) => Promise<void>) | null) => { during = fn; };
+export const capture: Mailer = async (o) => {
+  if (during) await during(o);
+  if (failNext.count > 0) {
+    failNext.count -= 1;
+    return { success: false, error: '550 mailbox unavailable', provablyNotSent: true };
+  }
+  if (maybeNext.count > 0) {
+    maybeNext.count -= 1;
+    captured.push(o);
+    return { success: false, error: 'The send did not finish within 15000 ms', provablyNotSent: false };
+  }
+  captured.push(o);
+  return { success: true, messageId: `<pe-${captured.length}@example.invalid>` };
+};
+// The page's exact middleware (pinned by tests/unit/api/payslipEmailRoute.test.ts), around a capture mailer.
+const sendRoute = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(payslipEmailHandler(capture, admitPayslipEmails)))))) as unknown as Route;
+
+export const send = (r: R, runId: string, o: Opts & { body?: unknown } = {}) =>
+  r.call(sendRoute, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });
+export const listDeliveries = (r: R, runId: string, o: Opts = {}) =>
+  r.call(sendRoute, 'GET', `/api/payroll/runs/${runId}/payslips/email`, runId, o);
+/**
+ * The same route with other send limits (A1), and/or failing AFTER its sends (S3): the handler runs, then the
+ * request is marked rollback-only, as a later fault or a draining colour would leave it; withAuth answers 500 and
+ * rolls the request back.
+ */
+export function sendVariant(r: R, runId: string, v: { limits?: SendLimits; failAfter?: boolean }, o: Opts & { body?: unknown } = {}) {
+  const inner = payslipEmailHandler(capture, admitPayslipEmails, v.limits);
+  const handler = async (req: NextApiRequest, res: NextApiResponse) => {
+    await inner(req, res);
+    const store = als.getStore();
+    if (v.failAfter && store) store.rollbackOnly = 'test: the request fails after its sends';
+  };
+  const route = withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))))) as unknown as Route;
+  return r.call(route, 'POST', `/api/payroll/runs/${runId}/payslips/email`, runId, { ...o, body: o.body ?? {} });
+}
+export const putSetting = (r: R, enabled: unknown, o: Opts = {}) =>
+  r.call(settings as Route, 'PUT', '/api/payroll/settings/payslip-email', undefined, { ...o, body: { enabled } });
+export const getSetting = (r: R, o: Opts = {}) => r.call(settings as Route, 'GET', '/api/payroll/settings/payslip-email', undefined, o);
+export const putEmail = (r: R, employeeId: string, body: unknown, o: Opts = {}) =>
+  r.call(employeeEmail as Route, 'PUT', `/api/payroll/employees/${employeeId}/email`, employeeId, { ...o, body });
+export const reason = (x: Res) => x.body.error?.details?.reason as string | undefined;
+
+/** The platform switch for this company only, as a platform admin would set it (never on a shared database). */
+export const enablePlatform = (r: R) => r.pool.query(
+  `INSERT INTO company_feature_overrides (company_id, feature_id, enabled, set_by)
+   SELECT $1, id, true, $2 FROM feature_flags WHERE code = 'payroll_payslip_email'`, [r.company, r.admin]);
+
+/** The outcome rows (the claim written before each send is `claims`; review #1542 D-S1). */
+export const deliveries = async (r: R, opts: { claims?: boolean } = {}) => (await r.pool.query(
+  `SELECT employee_id, run_id, recipient_email, pdf_sha256, status, message_id, error, resend, sent_by,
+          (run_approved_at = (SELECT COALESCE(approved_at, approval_grandfathered_at) FROM payroll_run_headers h WHERE h.id = d.run_id)) AS current
+     FROM payslip_deliveries d WHERE company_id = $1 AND claim = $2 ORDER BY created_at, id`, [r.company, opts.claims === true])).rows;
+export const audits = async (r: R, entityType: string) => Number((await r.pool.query(
+  'SELECT count(*) FROM audit_log WHERE company_id = $1 AND entity_type = $2', [r.company, entityType])).rows[0]!.count);
+
+/** A token for `target` whose session is a platform admin's Login-as; stored in the rig as user `as`. */
+export async function loginAs(r: R, target: string, as = 'login-as'): Promise<string> {
+  r.tokens[as] = await impersonationToken(r.pool, target, r.approver);
+  return as;
+}
+/** A token with no session id (an agent or a job). */
+export async function agent(r: R, user: string, as = 'agent'): Promise<string> {
+  r.tokens[as] = await new SignJWT({ sub: user, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  return as;
+}
+
+/** An employee with the identity and address given (null = none). */
+export async function person(r: R, salary: number, o: { email: string | null; idNumber?: string | null; passport?: string | null }): Promise<string> {
+  const { employee } = await r.employee(salary);
+  await r.pool.query('UPDATE payroll_employees SET email = $2, id_number = $3, passport_number = $4 WHERE id = $1',
+    [employee, o.email, o.idNumber ?? null, o.passport ?? null]);
+  return employee;
+}
+
+export const approvedRun = async (r: R, month: number) => {
+  const id = await r.calculatedRun(month);
+  const ap = await r.api.approve(id);
+  if (ap.statusCode !== 200) throw new Error(`approve ${month}: ${ap.statusCode} ${JSON.stringify(ap.body)}`);
+  return id;
+};
+export const reapprove = async (r: R, runId: string) => {
+  if ((await r.api.reopen(runId)).statusCode !== 200) throw new Error('reopen');
+  if ((await r.api.calculate(runId)).statusCode !== 200) throw new Error('calculate');
+  await r.authorise(runId);
+  const ap = await r.api.approve(runId);
+  if (ap.statusCode !== 200) throw new Error(`re-approve: ${ap.statusCode} ${JSON.stringify(ap.body)}`);
+};
+
+/**
+ * `fn` on one connection as app_user with r's company and `sub` as the session (as withAuth sets them), rolled back
+ * afterwards: for proving what the table itself refuses or stamps (review #1542 S4).
+ */
+export async function asAppUser<T>(r: R, sub: string | null, fn: (q: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>) => Promise<T>): Promise<T> {
+  const client = await r.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE app_user');
+    if (sub) await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub })]);
+    await client.query("SELECT set_config('app.current_company_id', $1, true)", [r.company]);
+    return await fn(async (text, values) => client.query(text, values as unknown[]));
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+}
+
+export async function cleanup(r: R): Promise<void> {
+  await r.pool.query('DELETE FROM payslip_deliveries WHERE company_id = $1', [r.company]);
+  await r.pool.query('DELETE FROM company_feature_overrides WHERE company_id = $1', [r.company]);
+  await r.pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = $1', [r.approver]);
+  await r.pool.query('DELETE FROM payroll_company_settings WHERE company_id = $1', [r.company]);
+  await r.teardown();
+}

@@ -37,6 +37,7 @@ const PINNED: Record<string, string> = {
   'src/lib/rateLimitQuota.ts | key': 'refunds a key this request charged, taken from the request context',
   "pages/api/accounting/reports-budget-tracking.ts | 'reports-budget-tracking'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/accounting/invoice-pdf.ts | `invoice-pdf:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
+  "pages/api/payroll/runs/[id]/payslips/email.ts | 'payslips'": 'literal send name (send:payslips:…), distinct from the download\'s report:payslips:u:…; count = recipients judged sendable, companyMax 500 / dailyMax 1000 literals so one payroll fits a window, refundUnused',
   'pages/api/payroll/runs/[id]/payslips.ts | `payslips:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/payslips.ts | `payslip-history:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/fringe-benefits.ts | `fringe-benefits:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',

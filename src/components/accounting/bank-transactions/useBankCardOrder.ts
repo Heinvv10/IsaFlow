@@ -13,6 +13,8 @@ import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
 import { cardOrderPrefKey, parseCardOrder, withUnseen } from './bankCardOrder';
 
+export const CARD_ORDER_TIMEOUT_MS = 5000;
+
 async function putOrder(companyId: string, next: string[] | null): Promise<void> {
   const res = await apiFetch('/api/auth/preferences', {
     method: 'PUT',
@@ -25,6 +27,8 @@ async function putOrder(companyId: string, next: string[] | null): Promise<void>
 
 export function useBankCardOrder(companyId: string | null | undefined) {
   const [order, setOrder] = useState<string[] | null>(null);
+  // True once the saved order has been read, or could not be (the default order stands): callers that must wait for it ask.
+  const [loaded, setLoaded] = useState(false);
   // The order last shown, the order the server last confirmed, the company they belong to, and how
   // many saves have started: read by saves that settle after a re-render, a company switch or a newer save.
   const orderRef = useRef<string[] | null>(null);
@@ -45,8 +49,11 @@ export function useBankCardOrder(companyId: string | null | undefined) {
     savedOk.current = false;
     storedRef.current = null;
     show(null);
+    setLoaded(false);
     if (!companyId) return undefined;
     let cancelled = false;
+    // A read that never answers must not hold the page: after this the default order stands (a late answer still applies).
+    const giveUp = setTimeout(() => { if (!cancelled) setLoaded(true); }, CARD_ORDER_TIMEOUT_MS);
     void (async () => {
       try {
         const res = await apiFetch('/api/auth/preferences');
@@ -59,8 +66,10 @@ export function useBankCardOrder(companyId: string | null | undefined) {
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
       }
+      clearTimeout(giveUp);
+      if (!cancelled) setLoaded(true);
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(giveUp); };
   }, [companyId, show]);
 
   const save = useCallback((next: string[] | null): Promise<void> => {
@@ -87,5 +96,5 @@ export function useBankCardOrder(companyId: string | null | undefined) {
   const reorder = useCallback((keys: string[]) => save(withUnseen(keys, orderRef.current)), [save]);
   const reset = useCallback(() => save(null), [save]);
 
-  return { order, reorder, reset };
+  return { order, reorder, reset, loaded };
 }

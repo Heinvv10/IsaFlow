@@ -22,7 +22,7 @@ export function SharedPoolHint(props: SharedPoolHintProps) {
   return (
     <span
       data-testid="shared-pool-hint"
-      className="block mt-0.5 text-xs leading-tight text-sky-400"
+      className="block mt-0.5 text-xs leading-tight text-sky-700 dark:text-sky-400"
       title="Suggested because other IsaFlow clients code this merchant this way. Check it before you allocate; it is never posted automatically."
     >
       {SHARED_POOL_HINT}
