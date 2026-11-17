@@ -139,6 +139,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (body.action !== 'undo' || !body.runId) {
       return apiResponse.badRequest(res, "POST requires { action: 'undo', runId }");
     }
+    if (!isUuidParam(body.runId)) return apiResponse.badRequest(res, 'runId must be a valid UUID');
     try {
       const runId = body.runId;
       const result = await withJournalDateRefusal(res, () => undoRun(companyId, runId, userId));

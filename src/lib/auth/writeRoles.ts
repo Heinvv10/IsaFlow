@@ -70,3 +70,16 @@ export function isWriteScope(scope: string): boolean {
 export function scopesRoleMayNotHold(role: string | null | undefined, scopes: readonly string[]): string[] {
   return canWrite(role) ? [] : scopes.filter(isWriteScope);
 }
+
+/**
+ * Who may change where a company's client queries (bank-line questions sent over WhatsApp) go: set the default number
+ * (bank-tx-queries/settings PATCH, saveAsDefault) or message a number that is not that default. Other writers may
+ * still ask the company's saved default number, or reply on a thread that exists. The settings route's `allowedRoles`,
+ * the queries route and the query modal all read it.
+ */
+export const BANK_QUERY_ADMIN_ROLES = ['owner', 'admin'] as const;
+
+/** Whether a company role may direct client queries to any number. */
+export function canDirectBankQueries(role: string | null | undefined): boolean {
+  return (BANK_QUERY_ADMIN_ROLES as readonly string[]).includes(role ?? '');
+}
