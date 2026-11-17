@@ -10,7 +10,7 @@ import bankMatchConfirm from '../../pages/api/accounting/bank-match-confirm';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { dropFixture, inTx } from './helpers/l1FifoFixture';
-import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { fetchJournalLineCandidates } from '@/modules/accounting/services/bank/bankMatchDbQueries';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
@@ -31,6 +31,10 @@ const bankLine = async (account: string, date: string, amount: number, desc: str
   RETURNING id`) as Row[])[0]!.id);
 const allocTransfer = (line: string, contra: string) => callRoute(c.fx, token, bankTxAction,
   { action: 'allocate', bankTransactionId: line, allocationType: 'transfer', contraAccountId: contra });
+/** A GL reversal that leaves its statement line as it was: the pre-2026-11-16 state, which the GL now refuses while the
+ *  line books the journal (bank/liveBankLineReversal), planted through the internal opt-out. */
+const handReverse = async (je: string) => String((await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId,
+  { bankLinesHandled: true }))).id);
 const lineOf = async (je: string, acct: string) => String(((await sql`SELECT id FROM gl_journal_lines
   WHERE journal_entry_id = ${je}::UUID AND gl_account_id = ${acct}::UUID AND company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.id);
 const lineState = async (id: string) => ((await sql`SELECT status, matched_journal_line_id AS m,
@@ -185,13 +189,13 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const a = await bankLine(bankA, '2032-02-03', -888, 'R3 OUT');
     expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
     let je = String((await lineState(a))!.ptr);
-    for (let i = 0; i < 2; i++) je = await glReverse(je);
+    je = await glReverse(await handReverse(je)); // the re-reversal restores the line's cash: the GL allows it
     // A live re-reversal (depth 2) IS the movement again: its B leg keeps the bonus (rev-nrfa round 20 LOW-2).
     const rrDate = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${je}::UUID`) as Row[])[0]!.d);
     const rrLeg = await lineOf(je, bankB);
     const rrCand = (await fetchJournalLineCandidates(c.fx.companyId, 888, rrDate, 'TRANSFER IN', bankB)).find((x) => x.id === rrLeg)!;
     expect([rrCand.type, rrCand.matchReason]).toEqual(['bank_transfer', expect.stringMatching(/Matches existing bank transfer journal/)]);
-    je = await glReverse(je);
+    je = await handReverse(je); // R3 takes the line's cash out again: refused in the GL now, planted
     const r3Leg = await lineOf(je, bankB);
     // The statement line is dated with R3 (a reversal may be dated today), so only the depth decides.
     const r3Date = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${je}::UUID`) as Row[])[0]!.d);
@@ -222,7 +226,7 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const a = await bankLine(bankA, '2032-04-06', -3900, 'RV OUT');
     expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
     const j1 = String((await lineState(a))!.ptr);
-    await glReverse(j1);
+    await handReverse(j1);
     const b = await bankLine(bankB, '2032-04-06', 3900, 'RV IN');
     const r = await confirm(b, await lineOf(j1, bankB));
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);

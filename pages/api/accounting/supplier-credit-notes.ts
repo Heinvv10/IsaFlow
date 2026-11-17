@@ -38,6 +38,7 @@ import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -202,6 +203,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.badRequest(res, `Unknown action: ${action}. Valid: post, reverse`);
     } catch (err) {
+      if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
       // 'reverse' (cancelCreditNote): the refusal comes from dating the
       // reversal (resolveReversalDateDetailed) BEFORE reverseJournalEntry
       // claims anything, and the cancel's only earlier statements are the

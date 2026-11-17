@@ -27,6 +27,7 @@ import { cancelSupplierPayment } from '@/modules/accounting/services/ap/supplier
 import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentUnapply';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -76,6 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
     // A held row — the payment, a bank line, a document — is a lock timeout: 503 + Retry-After (D8 round 16).
     // Checked before the 409 below, which now answers only the retryable state conflicts.
     if (respondIfLockTimeout(res, err)) return;

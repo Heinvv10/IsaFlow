@@ -25,6 +25,7 @@ import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/
 import { respondIfBudgetRefused } from '@/lib/budgetCheckResponse';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { BUDGET_REASON_MAX } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
 //   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
@@ -94,6 +95,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfJournalHasLiveBankLine(res, err)) return; // a live bank line books the journal: 400, pre-write
     if (respondIfImpersonationForbidden(res, err)) return;
     // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
     if (respondIfApprovalRequired(res, err)) return;

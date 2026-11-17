@@ -210,13 +210,15 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(await snapshot(c, s.bank, s.rec)).toEqual(before);
   }, 60000);
 
-  it('ATK3 control: reversing a journal whose line sits in an IN-PROGRESS session is not refused here', async () => {
+  it('ATK3 control: reversing a journal whose line sits in an IN-PROGRESS session is not D12\'s 409', async () => {
     const bank = await newBank(c);
     const p = await seedPair(c, bank, 131.31, '2026-06-02');
     const rec = await startSession(c, token, bank);
     await matchInto(c, token, rec, p);
     const out = await call(c, token, journalEntriesAction as Route, { id: p.je, action: 'reverse' });
-    expect(out.status, out.body).toBe(200);
+    // Not the completed-reconciliation 409; since 2026-11-16 the matched line refuses it (400, bank/liveBankLineReversal).
+    expect(out.status, out.body).toBe(400);
+    expect(out.body).toMatch(/still matched to it\. Undo it from Bank Transactions/);
   }, 60000);
 
   it('ATK4 allocating a STALE-stamped line of a completed session does not move its matched count', async () => {
