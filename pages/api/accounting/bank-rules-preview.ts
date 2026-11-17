@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { sql } from '@/lib/neon';
 import { toSqlPattern } from '@/modules/accounting/services/bank/bankRulesMatchingHelpers';
 
@@ -22,6 +23,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { bankAccountId, pattern, matchType = 'contains', matchField = 'description' } = req.query;
+  if (bankAccountId !== undefined && bankAccountId !== '' && !UUID.safeParse(bankAccountId).success) {
+    return apiResponse.badRequest(res, 'bankAccountId must be a valid UUID');
+  }
 
   if (!pattern || typeof pattern !== 'string') {
     return apiResponse.badRequest(res, 'pattern is required');

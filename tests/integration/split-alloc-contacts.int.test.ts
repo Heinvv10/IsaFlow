@@ -185,7 +185,7 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
     }
   }, 120000);
 
-  it('under an enforced supplier-payment rule, a hand-keyed line is judged at what EACH supplier is paid', async () => {
+  it('under an enforced supplier-payment rule, a hand-keyed line is judged at what the LINE pays its suppliers (one payment instruction)', async () => {
     const a = await seedSupplier(fx, 'GATE-A');
     const b = await seedSupplier(fx, 'GATE-B');
     await sql`INSERT INTO approval_enforcement (company_id, document_type, enabled_by) VALUES (${fx.companyId}::UUID, 'supplier_payment', ${fx.userId})`;
@@ -198,12 +198,14 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
         { contactType: 'supplier', contactId: a, amount: 600 }, { contactType: 'supplier', contactId: a.toUpperCase(), amount: 400 },
       ], fx.userId))).rejects.toThrow(/R1000\.00 needs admin approval/);
       expect(await lineStatus(one)).toBe('imported');
-      // Two suppliers, each under the rule: two payments, each judged at its own amount.
+      // Two suppliers, each under the rule but together on it: one bank outflow, one payment instruction: refused too.
       const two = await seedBankTx(fx, { date: '2026-10-10', amount: -1000, description: 'two suppliers' });
-      await inTx(fx, () => splitAllocateTransaction(fx.companyId, two, [
+      const journals = await journalCount();
+      await expect(inTx(fx, () => splitAllocateTransaction(fx.companyId, two, [
         { contactType: 'supplier', contactId: a, amount: 600 }, { contactType: 'supplier', contactId: b, amount: 400 },
-      ], fx.userId));
-      expect(await lineStatus(two)).toBe('allocated');
+      ], fx.userId))).rejects.toThrow(/R1000\.00 needs admin approval/);
+      expect(await lineStatus(two)).toBe('imported');
+      expect(await journalCount()).toBe(journals);
     } finally {
       await sql`DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ${fx.companyId}::UUID`;
       await sql`DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = ${fx.companyId}::UUID`;

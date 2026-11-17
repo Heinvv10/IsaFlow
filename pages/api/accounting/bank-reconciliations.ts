@@ -34,6 +34,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
       const { bank_account_id, id } = req.query;
+      // Ids are checked before the query (a malformed one reached a ::UUID cast and answered 400 'Failed to get…' at best):
+      // a repeated parameter (an array) fails too.
+      for (const [name, v] of [['id', id], ['bank_account_id', bank_account_id]] as const) {
+        if (v !== undefined && v !== '' && !UUID.safeParse(v).success) return apiResponse.badRequest(res, `${name} must be a valid UUID`);
+      }
 
       if (id) {
         const recon = await getReconciliationById(companyId, String(id));

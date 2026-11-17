@@ -117,7 +117,7 @@ describe('BankTxAttachmentsModal remove asks first', () => {
 
 describe('Ask client', () => {
   const TX = { id: 'tx-1', transactionDate: '2026-06-01', description: 'WOOLWORTHS', amount: -115, status: 'imported' } as BankTx;
-  vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
+  vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }), useCompanyRoleOrNull: () => 'owner' }));
   beforeEach(() => {
     vi.mocked(apiFetch).mockReset();
     vi.mocked(apiFetch).mockImplementation(async (u, init) => {
