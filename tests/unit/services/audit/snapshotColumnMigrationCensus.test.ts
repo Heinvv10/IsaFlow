@@ -7,6 +7,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { compareMigrationNames } from '../../../../scripts/lib/migrationFiles';
 import { describe, expect, it } from 'vitest';
 import { NOT_MATERIAL, RENAMED } from '../../../helpers/auditSnapshotColumns';
 
@@ -119,7 +120,7 @@ function frozenColumns(): Record<Table, Set<string>> {
   return { gl_journal_entries: rowOf('journalRows', 'je'), gl_journal_lines: rowOf('lineRows', 'jl') };
 }
 
-const migrationFiles = () => readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()
+const migrationFiles = () => readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort(compareMigrationNames)
   .map((name) => ({ name, sql: readFileSync(path.join(MIGRATIONS, name), 'utf8') }));
 const migrations = () => migrationFiles().map((f) => f.sql);
 

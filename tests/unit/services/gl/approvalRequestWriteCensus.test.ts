@@ -92,7 +92,7 @@ const REGRANT = [
   /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:public\.)?"?approval_requests"?\s+owner\b/i,
   /\balter\s+function\s+(?:public\.)?approval_request_\w+\s*\([^)]*\)\s+owner\b/i,
 ];
-const migrationNumber = (file: string): number => Number(/(\d{3})[a-z]?_/.exec(path.basename(file))?.[1] ?? '999');
+const migrationNumber = (file: string): number => Number(/^(\d+)[a-z]?_/.exec(path.basename(file))?.[1] ?? '999');
 
 describe('approval_requests writers (census by table)', () => {
   it('no source file but approvalRequestWrites.ts writes, locks or names the table, or calls its writers', () => {

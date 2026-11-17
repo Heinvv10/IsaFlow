@@ -22,6 +22,8 @@ import { existingStatementHashes, statementLineHash } from '@/modules/accounting
 import { dateRangeOf } from '@/modules/accounting/services/bank/bankStatementDateRange';
 import { lockBankAccountIngest } from '@/modules/accounting/services/bank/bankIngestLock';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
+import { resolveWorksheetDimensions } from '@/modules/accounting/services/bank/classifiedImportDimensions';
+import type { DimensionIds } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 type Row = Record<string, unknown>;
 
 const ClassifiedBankTxSchema = z.object({
@@ -44,6 +46,35 @@ const BodySchema = z.object({
 
 type ClassifiedBankTx = z.infer<typeof ClassifiedBankTxSchema>;
 
+/** bank_transactions.amount is numeric(15,2), as gl_journal_lines. */
+const MAX_AMOUNT = 9_999_999_999_999.99;
+
+/**
+ * What Postgres would refuse mid-INSERT (a 500 that rolled the file back): a NUL byte in a text column (22021) and an
+ * amount past the column's precision (22003). Named per row, as a 400, before any write.
+ */
+function rowRefusal(tx: ClassifiedBankTx): string | null {
+  for (const [name, value] of [['description', tx.description], ['category', tx.category], ['statementRef', tx.statementRef]] as const) {
+    if (value?.includes('\u0000')) return `${name} contains a NUL character, which cannot be stored`;
+  }
+  for (const [name, value] of [['debit', tx.debit], ['credit', tx.credit]] as const) {
+    if (value !== undefined && value > MAX_AMOUNT) return `${name} exceeds the largest amount that can be stored (R${MAX_AMOUNT.toFixed(2)})`;
+  }
+  return null;
+}
+
+/**
+ * A year-first date (YYYY-M-D, optionally followed by a time) naming a day that exists. Year-first is the one order
+ * Postgres reads the same under every DateStyle; '31/12/2026' was a 500 from the cast and '01/02/2026' became 2 January.
+ */
+function isYearFirstCalendarDay(value: string): boolean {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const probe = new Date(0);
+  probe.setUTCFullYear(y, mo - 1, d); // not Date.UTC: it maps years 0..99 to 1900..1999
+  return probe.getUTCFullYear() === y && probe.getUTCMonth() === mo - 1 && probe.getUTCDate() === d;
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -68,11 +99,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM bank_categorisation_rules
       WHERE is_active = true AND company_id = ${companyId}
     `) as Row[];
-    const categoryMap = new Map<string, { glAccountId: string; supplierId: number | null }>();
+    const categoryMap = new Map<string, { glAccountId: string; supplierId: string | null }>();
     for (const r of ruleRows) {
       categoryMap.set(String(r.rule_name).toLowerCase(), {
         glAccountId: String(r.gl_account_id),
-        supplierId: r.supplier_id ? Number(r.supplier_id) : null,
+        supplierId: r.supplier_id ? String(r.supplier_id) : null, // a UUID: Number() made it NaN
       });
     }
 
@@ -86,9 +117,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       amount: number;
       txDate: string;
       desc: string;
+      row: number;
     }
+    const badDate = (row: number, value: string) =>
+      `Row ${row + 1}: transactionDate "${value}" must be a year-first date such as 2026-09-04 (YYYY-MM-DD)`;
     const normTxs: NormTx[] = [];
-    for (const tx of transactions) {
+    for (const [row, tx] of transactions.entries()) {
+      const refusal = rowRefusal(tx);
+      if (refusal) return apiResponse.badRequest(res, `Row ${row + 1}: ${refusal}`);
       const debit = Number(tx.debit || 0);
       const credit = Number(tx.credit || 0);
       const amount = credit > 0 ? credit : -debit;
@@ -96,15 +132,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const txDate = String(tx.transactionDate).trim();
       const desc = String(tx.description || '').trim();
       if (!txDate || !desc) continue;
-      normTxs.push({ tx, amount, txDate, desc });
+      // Before any write: only a year-first calendar day. Postgres refused '31/12/2026' (a 500 from the cast) and read
+      // '01/02/2026' as 2 January, so a worksheet in another order cannot be told apart from one in this.
+      if (!isYearFirstCalendarDay(txDate)) return apiResponse.badRequest(res, badDate(row, txDate));
+      normTxs.push({ tx, amount, txDate, desc, row });
     }
     // The day Postgres stores for each date (gl/journalDateGuard); one outside the ledger window refuses the file (422).
     const days = await ledgerDaysOf(normTxs.map((n) => n.txDate));
     for (const n of normTxs) {
       const day = days.get(n.txDate) ?? null;
-      const windowError = day === null ? null : journalDayWindowError(day);
+      if (day === null) return apiResponse.badRequest(res, badDate(n.row, n.txDate)); // a time part Postgres cannot read
+      const windowError = journalDayWindowError(day);
       if (windowError) return apiResponse.validationError(res, { transactionDate: [windowError] });
-      if (day !== null) n.txDate = day;
+      n.txDate = day;
     }
 
     // Dedupe against the account, under its ingest lock taken BEFORE the read (WP2-2): a concurrent import of the same
@@ -126,17 +166,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       desc: string;
       statementRef: string | null;
       suggestedGlAccountId: string | null;
-      suggestedSupplierId: number | null;
+      suggestedSupplierId: string | null;
       category: string | null;
-      costCentre: string | null;
+      dims: DimensionIds;
     }
-    const insertRows: InsertRow[] = toInsert.map(({ tx, amount, txDate, desc }) => {
+    // The worksheet's cost centres, resolved to the line's own dimension columns (classifiedImportDimensions).
+    const { dimensions, unresolved: unresolvedDimensions } = await resolveWorksheetDimensions(
+      companyId, toInsert.map(({ tx }) => tx));
+    const insertRows: InsertRow[] = toInsert.map(({ tx, amount, txDate, desc }, i) => {
       const category = String(tx.category || '').trim();
       const mapping = categoryMap.get(category.toLowerCase());
       if (category && !mapping && !unresolvedCategories.includes(category)) {
         unresolvedCategories.push(category);
       }
-      const costCentre = [tx.costCentreT1, tx.costCentreT2].filter(Boolean).join(' > ').trim() || null;
       return {
         txDate,
         amount,
@@ -145,7 +187,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         suggestedGlAccountId: mapping?.glAccountId || null,
         suggestedSupplierId: mapping?.supplierId || null,
         category: category || null,
-        costCentre,
+        dims: dimensions[i] ?? {},
       };
     });
 
@@ -166,13 +208,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               bank_account_id, transaction_date, amount, description,
               reference, import_batch_id, status,
               suggested_gl_account_id, suggested_supplier_id,
-              suggested_category, suggested_cost_centre,
+              suggested_category, cc1_id, cc2_id, bu_id,
               company_id
             ) VALUES (
               ${bankAccountId}::UUID, ${r.txDate}, ${r.amount}, ${r.desc},
               ${r.statementRef}, ${batchId}::UUID, 'imported',
-              ${r.suggestedGlAccountId}::UUID, ${r.suggestedSupplierId},
-              ${r.category}, ${r.costCentre},
+              ${r.suggestedGlAccountId}::UUID, ${r.suggestedSupplierId}::UUID,
+              ${r.category}, ${r.dims.cc1Id ?? null}::UUID, ${r.dims.cc2Id ?? null}::UUID, ${r.dims.buId ?? null}::UUID,
               ${companyId}
             )
           `
@@ -192,14 +234,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       inserted,
       skippedDuplicates,
       unresolvedCategories: unresolvedCategories.length > 0 ? unresolvedCategories : undefined,
+      unresolvedDimensions: unresolvedDimensions.length > 0 ? unresolvedDimensions : undefined,
     });
   } catch (err) {
     // A held ingest lock (or any lock wait) aborted the transaction: 503 + Retry-After rolls it back; a 400 would COMMIT it.
     if (respondIfLockTimeout(res, err)) return;
     if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
-    const message = err instanceof Error ? err.message : 'Failed to import classified transactions';
+    // Audit WP2 row 9: anything else is a fault — rethrown, so withErrorHandler's 500 rolls the request back.
     log.error('Failed to import classified bank transactions', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    throw err;
   }
 }
 
