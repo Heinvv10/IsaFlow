@@ -7,7 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
@@ -115,14 +115,13 @@ export interface YearToDateJudgement {
  * Read-only; under the gate's company approval lock. Null when current.
  */
 export async function judgeYearToDate(companyId: string, runId: string): Promise<YearToDateJudgement> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH tax_year AS (
       SELECT make_date(CASE WHEN h.period_month >= ${PAYE_TAX_YEAR_START_MONTH} THEN h.period_year ELSE h.period_year - 1 END, ${PAYE_TAX_YEAR_START_MONTH}, 1) AS start
       FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     ),
     runs AS (
-      SELECT h.id, h.period_year, h.period_month, h.status, h.approved_at, h.approval_history, h.approved_taxed_employees,
+      SELECT h.id, h.period_year, h.period_month, h.status, h.approved_at, h.approval_grandfathered_at, h.approval_history, h.approved_taxed_employees,
              make_date(h.period_year, h.period_month, 1) AS period,
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h, tax_year y
@@ -147,7 +146,7 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
           AND (COALESCE(e.approved_at <= me.calculated_at, true) OR COALESCE(e.approval_history @> me.calculated_at, false)))
         ELSE NOT (
             me.calculated_at <= e.calculated_at
-            AND ((me.status = ANY(${declarable}::text[]) AND COALESCE(me.approved_at <= e.calculated_at, true))
+            AND ((${sql.unsafe(payRunFinalSql('me'))} AND COALESCE(me.approved_at <= e.calculated_at, true))
               OR COALESCE(me.approval_history @> e.calculated_at, false)))
           AND EXISTS (
             SELECT 1 FROM line_remuneration ml
@@ -176,7 +175,7 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
       AS older_dropped, e.status AS e_status
     FROM runs e, me
     WHERE e.id <> me.id
-      AND e.status = ANY(${declarable}::text[])
+      AND ${sql.unsafe(payRunFinalSql('e'))}
     )
     SELECT period_year, period_month, later, recalc_here,
            older_dropped AND e_status <> 'paid' AS recalc_later, older_dropped AND e_status = 'paid' AS paid_old

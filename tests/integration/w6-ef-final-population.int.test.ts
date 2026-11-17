@@ -18,6 +18,7 @@ import { listRunAllowanceFiling } from '@/modules/accounting/services/payroll/pa
 import { listRunAnnualPayments, listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
+import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -145,5 +146,12 @@ describe('one final-run population across the EMP201, IRP5 and UI-19', () => {
     expect((await loadMedicalRecord(C, YEAR)).get(emp.x)?.fees ?? 0).toBe(0);
     const ret = (await loadRetirementContributions(C, YEAR)).get(emp.x);
     expect(ret?.pension4001 ?? 0).toBe(0);
+  });
+
+  it('C1 cumulative PAYE year to date: income and PAYE come from the same final runs as the medical fees (round 3)', async () => {
+    await pool.query('UPDATE payroll_run_lines SET medical_scheme_fees = 500 WHERE run_id = ANY($1::uuid[])', [[run.sep, run.oct]]);
+    const ytd = (await loadPayeYearToDate(C, run.nov!, { month: 11, year: 2028 } as never, [emp.x!])).get(emp.x!)!;
+    expect(ytd.medicalSchemeFees).toBe(500);   // September's only
+    expect(ytd.tablePaye).toBe(5_000);         // was 6 000: the unstamped October's PAYE counted
   });
 });

@@ -13,6 +13,7 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/modules/accounting/services/payroll/payrollMedicalRecord', () => ({ loadMedicalRecord: vi.fn(async () => new Map()) }));
 
 import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 
 const EMP = '00000000-0000-0000-0000-0000000000e1';
 const COMPANY = '00000000-0000-0000-0000-0000000000c1';
@@ -39,7 +40,10 @@ describe('loadPayeYearToDate: SDL year to date (SDL Act s3(3); SDL-GEN-01-G01 Re
     expect(query).toContain("pc.component_type = 'earning' AND pc.is_sdl_applicable");
     expect(query).toContain('ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines');
     // The SDL columns ride the one line set PAYE reads: no second WHERE.
-    expect(query.match(/h\.status = ANY/g)).toHaveLength(1);
+    // One final-run predicate (payRunFinalSql, wave 6 EF) spliced into the line query itself.
+    const firstQuery = sqlMock.mock.invocationCallOrder[0]!;
+    expect(unsafeMock.mock.calls.filter((c, i) => c[0] === payRunFinalSql('h') && unsafeMock.mock.invocationCallOrder[i]! < firstQuery)).toHaveLength(1);
+    expect(query).not.toMatch(/status = ANY/);
   });
 
   it('sums the stored figures of the liable lines (R20 000 + R20 000, R5 500 + R2 500 deducted)', async () => {
