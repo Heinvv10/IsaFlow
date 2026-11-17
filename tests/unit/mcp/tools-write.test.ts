@@ -803,6 +803,11 @@ describe('write-tool manifest invariants', () => {
       lock_budget_version: { ...KEY },
       unlock_budget_version: { ...KEY },
       set_primary_budget_version: { ...KEY },
+      // PR 3: each refuses a missing required argument before any service (budgetDriverTools / budgetThreeWayTools /
+      // budgetControlTools tests; tests/integration/mcp-budget-drivers*.int.test.ts).
+      set_budget_drivers: { ...KEY },
+      set_three_way_assumptions: { ...KEY },
+      submit_budget_for_review: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
