@@ -63,8 +63,8 @@ say) is refused whole, so the import cannot express a second one; the grid save 
   Blank-means-clear on a hand-made sheet would wipe every month the person left empty; the template keeps its
   blank-clears rule because there a blank was downloaded as a blank, and the `_base` tells a cleared cell from one
   never filled.
-- **LOWs.** The template offers every account for an inactive member the read model lists (it holds amounts in the
-  version), as the import accepts it (`templateRows`, the template route too). The row base's HMAC covers the year's
+- **LOWs.** (Reverted in round 3, measured below: the template offered every account for an inactive member that holds
+  amounts in the version.) The row base's HMAC covers the year's
   month list, so a base cannot be read against a year of another shape. Round trips: a 14-month year at the CC1 grain
   and as the .xlsx; per-member budget_variance for every month at the CC1 grain (12- and 14-month years).
 - **Accepted, documented (B2).** A row whose `base` is swapped for one from a newer read, its months kept from an older
@@ -72,6 +72,40 @@ say) is refused whole, so the import cannot express a second one; the grid save 
   was read with), and the dry run lists every such cell as a change. **The slot's per-owner limit** (2 places) is
   shared with the person's own UI session (one CpuSlot per process, owner = the user). **The JSON import takes no CPU
   slot**, by design, like set_budget_amounts: it builds and parses no spreadsheet.
+
+## Review round 3
+
+The breaker held the controls and found parsing traps that read the wrong data with no sign of it; all are free-form
+only, and the app's template import is unchanged by them.
+- **F1 (MEDIUM).** The free-form path read `wb.sheets[0]` even when hidden or very hidden (`normaliseXlsx` ignores
+  visibility), so a stale hidden draft was imported. Now the first VISIBLE sheet is read and the reply names it
+  (`sheet_name`). The template path finds its sheets by name (`readBudgetWorkbook`), so it had no such fault.
+- **F2.** A sheet named `_Meta`, `_BASE` or `_meta ` (case or space variants) turned a template into a free-form sheet,
+  where a blank keeps instead of clearing: such a workbook is refused. So is a free-form sheet whose header is the
+  template's own (a Budget sheet copied out of a template): "download a fresh one".
+- **F3.** The streaming reader gives a formula's cached value as a number whatever its type: TRUE read as 1.00, a
+  date-formatted formula as its serial. The free-form reader takes the cell type from the sheet XML (`t="b"`, `t="e"`)
+  and the number format from the cell (`readSheets`' optional `inspect`, which only the free-form reader passes), and
+  refuses those cells per cell, as a plain date cell is refused. Nothing in `rawOf` / `amountOf` changed, so the UI's
+  template import reads such cells as before (TRUE as 1.00 there; a template is IsaFlow's own sheet).
+- **F4.** A free-form number with more than 2 decimals (beyond float noise, |v x 100 - round(v x 100)| < 1e-6) is refused
+  per cell, "round it to cents in the sheet". The app's template import keeps rounding numbers to cents: a template's
+  cells are formatted `#,##0.00`, so what a person sees there is the rounded amount; a free-form sheet's format is
+  unknown, so it is not rounded for them.
+- **F5.** A range merged across month columns (read from the sheet XML's mergeCells) refuses the sheet: only its first
+  month would be read.
+- **Rows.** Rows with no code, total rows (Total, Totals, Subtotal, Grand total, any case) and rows whose code is no
+  account and which have no amounts (a heading) are skipped, and the dry run lists them with their sheet row and
+  reason; a code that is no account WITH amounts reaches the resolver and is refused. A numeric code cell that lost a
+  leading zero (400 where the chart has 0400) is refused per row ("format the code column as text"), ambiguous when the
+  chart has both 400 and 0400.
+- **Header search** is rows 1 to 20 OF THE SHEET (blank rows counted), in the code and the description.
+- **Template rows from inactive members, measured.** Round 2 made an inactive member that holds amounts a row for every
+  offered account. On a realistic fixture (125 offered accounts, 62 active CC1 members, 8 inactive members holding
+  amounts on 3 accounts each) the round-1 rule gives 125 x 62 + 8 x 3 = 7 774 rows, under the 12-month cap of 8 333;
+  the round-2 rule gives 125 x 70 = 8 750, refused. So templates that downloaded would have been refused: `templateRows`
+  is back to the round-1 rule (an inactive member only where it holds amounts for that account), pinned by
+  `budgetTemplateTool`'s measurement test. The import still accepts a row a person adds for another account.
 
 ## TDD
 
@@ -88,6 +122,11 @@ Error: Cannot find package '@/lib/mcp/tools/budgetTemplateTool' imported from ..
 That red only proves the modules were missing; the table below is the evidence that each test fails on its own
 guard's removal.
 
+Review round 3: the new and changed unit tests were written first and run at `d28d1228ee`: `Failed Tests 37` (the
+service's new result shape and sheet-named messages, a hidden sheet read first, near-miss `_meta` names, the copied
+template header, TRUE and date-formatted formulas, decimals, merges, skipped rows, leading zeros), and the template
+measurement test 2 failed (8 750 rows refused).
+
 Review round 2: the new and changed unit tests were written first and run at `4f96d26c60`: `Failed Tests 11` plus the
 free-form service file (module missing): one-cell imports written without a plan_hash (the breaker's P1 among them),
 the free-form tool path, a `_meta`-only file not refused as tampered, the inactive member's rows, and the row base
@@ -102,11 +141,12 @@ test, green here and red under mutant X1.
 
 ## Mutation table
 
-Rerun at the review-round-2 head (`f29fc0026d`; every fix committed first). Each guard was mutated in the production
-code, the tests named ran, and the mutation was restored with `git apply -R` of its own diff (tree verified clean
-after each; every log ends `[<id>] restored`). Unit = `vitest run <file>` with `DATABASE_URL` empty; int = the file
-against a throwaway PostgreSQL 16 cluster built as `scripts/ci/integration/run.sh` builds its template (baseline +
-this branch's migrations as non-superuser `postgres`), the suites running as `app_user` through the real registry.
+Rerun at the review-round-3 head (`1066b807b0`; X9 and Z14 at `9d816a1a03`, after the free-form refusals joined the
+row list and their tool test landed; every fix committed first). Each guard was mutated in the production code, the
+tests named ran, and the mutation was restored with `git apply -R` of its own diff (tree verified clean after each;
+every log ends `[<id>] restored`). Unit = `vitest run <file>` with `DATABASE_URL` empty; int = the file against a
+throwaway PostgreSQL 16 cluster built as `scripts/ci/integration/run.sh` builds its template (baseline + this
+branch's migrations as non-superuser `postgres`), the suites running as `app_user` through the real registry.
 Counts are the runs' own `Tests` lines (failed / total). Files: Grid = budgetImportToolGrid, Xlsx =
 budgetImportToolXlsx, XB = budgetImportToolXlsxBase, FT = budgetImportToolFreeform, FS = budgetImportFreeform
 (service), Tpl = budgetTemplateTool, RB = budgetTemplateRowBase; int excel / rows / eq / rt / ff / drv =
@@ -123,12 +163,12 @@ mcp-budget-excel, -rows, -equivalence, -roundtrip + -roundtrip14, -freeform, -dr
 | X7 | JSON months exactly the year's | a missing month allowed | unit Grid 1/24 |
 | X8 | at most `MAX_GRID_ROWS` | the bound removed | unit Grid 1/24 |
 | X9 | all or nothing on refused rows | refused rows dropped | unit Xlsx + Grid 2/41; int rows 2/5 |
-| X10 | xlsx reply fits one read | `XLSX_MAX_BASE64` removed | unit Tpl 1/14 |
+| X10 | xlsx reply fits one read | `XLSX_MAX_BASE64` removed | unit Tpl 1/15 |
 | X11 | JSON template page fits 90 KB | `TEMPLATE_LIMIT_MAX` 50 → 80 | unit readLimitsSizeBudgets 2/11 |
-| X12 / X12b | template buckets (xlsx / json) | rate limit skipped | unit Tpl 2/14 and 1/14 |
+| X12 / X12b | template buckets (xlsx / json) | rate limit skipped | unit Tpl 2/15 and 1/15 |
 | X13 | import buckets (xlsx and json) | rate limit skipped | unit Xlsx + Grid 2/41 |
 | X13c | the MCP's short slot wait | the default 10 s wait | unit Xlsx 1/17 |
-| X14 / X14b | template cut as the token user (json / xlsx) | `viewerId` undefined | unit Tpl 1/14 each |
+| X14 / X14b | template cut as the token user (json / xlsx) | `viewerId` undefined | unit Tpl 1/15 each |
 | X15 | plan_hash binds content | comparison removed | unit Xlsx 1/17; int excel 1/6 (one transaction: only the hash catches it) |
 | X16 | unlisted accounts get PR 1's reason | the import's combined reason kept | unit Xlsx 1/17; int rows 1/5 |
 | X18a / X18b | .xls refused by name / by magic bytes 0xd0 0xcf | each check removed alone | unit Xlsx 1/17 each |
@@ -141,31 +181,44 @@ mcp-budget-excel, -rows, -equivalence, -roundtrip + -roundtrip14, -freeform, -dr
 | X25 | one source per call | "both" allowed | unit Grid 1/24 |
 | X26 / X27 | base64 alphabet / length `% 4` | each check removed | unit Xlsx 1/17 each |
 | X28 | a conflict names its member | `dimension: null` | unit XB + Grid 2/26 |
-| X29 | the owner-limit refusal | always the busy message | unit Xlsx + Tpl 2/31 |
+| X29 | the owner-limit refusal | always the busy message | unit Xlsx + Tpl 2/32 |
 | X30 | the account id preferred (a duplicate code resolves) | the line keeps only the code | unit Grid 1/24 |
-| Y1 | every live import needs its dry run's plan_hash (round 2 MEDIUM) | `hashRequired: false` | unit Grid + Xlsx + FT 6/46; int drv 1/1 (D1) |
-| Y2 | free-form: version_token required | the requirement removed | unit FT 1/5; int ff 1/2 |
-| Y3 | free-form: refused unless the token is the version's now | the comparison removed | unit FS + FT 2/23; int ff 1/2 |
-| Y4 | free-form: a blank cell keeps the amount | blank clears | unit FS + FT 2/23; int ff 2/2 |
-| Y5 | free-form: "clear" clears | the word not recognised | unit FS + FT 2/23; int ff 1/2 |
-| Y6 | free-form: one account-code column | two allowed | unit FS 1/18 |
-| Y7 | free-form: an unknown column refused with sheet / row / column | ignored | unit FS + FT 2/23 |
-| Y8 | free-form: a month name naming two year months refused | the first taken | unit FS 1/18 |
-| Y9 | free-form: a month twice refused | allowed | unit FS 1/18 |
-| Y10 | free-form: every year month needs a column | missing allowed | unit FS 1/18 |
-| Y11 | free-form: no dimension column on a company import | allowed | unit FS 1/18 |
-| Y12 | free-form: one dimension column (decision 14) | two allowed | unit FS 1/18 |
-| Y13 | free-form: a dimension grain needs a dimension column | none allowed | unit FS 1/18 |
-| Y14 | free-form: a value under no header refused | ignored | unit FS 1/18 |
+| Y1 | every live import needs its dry run's plan_hash (round 2 MEDIUM) | `hashRequired: false` | unit Grid + Xlsx + FT 6/56; int drv 1/1 (D1) |
+| Y2 | free-form: version_token required | the requirement removed | unit FT 1/15; int ff 1/2 |
+| Y3 | free-form: refused unless the token is the version's now | the comparison removed | unit FS + FT 2/40; int ff 1/2 |
+| Y4 | free-form: a blank cell keeps the amount | blank clears | unit FS + FT 4/40; int ff 2/2 |
+| Y5 | free-form: "clear" clears | the word not recognised | unit FS + FT 2/40; int ff 1/2 |
+| Y6 | free-form: one account-code column | two allowed | unit FS 1/25 |
+| Y7 | free-form: an unknown column refused with sheet / row / column | ignored | unit FS + FT 2/40 |
+| Y8 | free-form: a month name naming two year months refused | the first taken | unit FS 1/25 |
+| Y9 | free-form: a month twice refused | allowed | unit FS 1/25 |
+| Y10 | free-form: every year month needs a column | missing allowed | unit FS 1/25 |
+| Y11 | free-form: no dimension column on a company import | allowed | unit FS 1/25 |
+| Y12 | free-form: one dimension column (decision 14) | two allowed | unit FS 1/25 |
+| Y13 | free-form: a dimension grain needs a dimension column | none allowed | unit FS 1/25 |
+| Y14 | free-form: a value under no header refused | ignored | unit FS 1/25 |
 | Y15 | an .xlsx with `_meta` but no `_base` refused as tampered | the refusal removed | unit XB 1/2; int excel 1/6 |
 | Y16 | free-form only when NEITHER `_meta` nor `_base` | a `_meta`-only file read as free-form | unit XB 1/2 |
 | Y17 | the row base signs the year's month list | the list left out | unit RB 1/9 |
-| Y18 | template rows for an inactive member the model lists | inactive members dropped | unit Tpl 1/14 |
-| Y19 | free-form: a month header outside the year refused | taken | unit FS 1/18 |
+| Y19 | free-form: a month header outside the year refused | taken | unit FS 1/25 |
+| Z1 | F1: the first VISIBLE sheet is read | the first sheet, hidden or not | unit FT 2/15 (hidden, very hidden) |
+| Z2 | F2: a `_meta` / `_base` name variant refuses the workbook | the check removed | unit FT 4/15 |
+| Z3 | F2: the template's own header refused on a free-form sheet | the check removed | unit FS + FT 2/40 |
+| Z4 | F3: boolean / error-typed cells refused | the XML types ignored | unit FS + FT 2/40 |
+| Z5 | F3: a formula formatted as a date refused | the inspect hook answers nothing | unit FT 1/15 |
+| Z6 | F4: more than 2 decimals refused (free-form) | rounded instead | unit FS 1/25 |
+| Z7 | F5: a merge across month columns refused | ignored | unit FS + FT 2/40 |
+| Z8 | a row with no code is skipped and listed | not skipped | unit FS 1/25 |
+| Z9 | total rows skipped and listed | not skipped | unit FS + FT 2/40 |
+| Z10 | headings with no amounts skipped and listed | not skipped | unit FS + FT 2/40 |
+| Z11 | a numeric code that lost its leading zero refused | taken as typed | unit FS 1/25 |
+| Z12 | the header in rows 1 to 20 of the sheet | any row | unit FS 1/25 |
+| Z13 | template rows: an inactive member only where it holds amounts for the account | every account | unit Tpl 2/15 (incl. the 7 774 / 8 750 measurement) |
+| Z14 | the free-form row refusals reach the reply and refuse the import | dropped | unit FT 1/16 |
 
-Retired: X3 (plan_hash only for more than one cell) is Y1's stricter rule; X17 (no `_base` refused) became Y15 (`_meta`
-without `_base`) and Y16 (neither = free-form). Round 0's X1 / X2 (the JSON `version_token` equality and requirement)
-went with the design round 1 replaced.
+Retired: X3 (plan_hash only for more than one cell) is Y1's stricter rule; X17 (no `_base` refused) became Y15 and Y16;
+Y18 (round 2's widened template rows) was reverted and Z13 guards the restored rule. Round 0's X1 / X2 (the JSON
+`version_token` equality and requirement) went with the design round 1 replaced.
 
 PR 1's own guards that the import reuses unchanged (`MAX_SAVE_CELLS`, the dry run inside a rolled-back savepoint,
 the snapshot, decision 4 in the grid save, the stale token, the role fence) keep their PR 1 mutation rows; this PR's
