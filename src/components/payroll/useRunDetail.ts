@@ -44,6 +44,10 @@ export interface RunDetail {
   totalNet: number;
   employeeCount: number;
   journalEntryId: string | null;
+  /** Wave 6 OC: 'off_cycle' with its reason and pay date; absent or 'regular' for a regular run. */
+  runKind?: string;
+  offCycleReason?: string | null;
+  runDate?: string | null;
   approval: DocumentApprovalState | null;
   /** Who decided the approval and whether it was the requester's own (sole-approver exception); null when not approved or grandfathered. */
   approvalDecision?: PayRunDecisionSummary | null;

@@ -171,6 +171,9 @@ function assertAmount(amount: number): void {
 }
 
 export async function assertRunEditable(companyId: string, runId: string, run: DbRow, period: Period): Promise<void> {
+  // Wave 6 OC: the grid writes the month's once-off rows, which the month's REGULAR run pays; an off-cycle run pays only
+  // what it was created with (payroll_off_cycle_employees).
+  if (run.run_kind === 'off_cycle') throw new PayrollRunInputRefusedError(400, 'An off-cycle run pays only the amounts it was created with: they are not edited here.');
   if (!EDITABLE_STATUSES.has(String(run.status))) {
     throw new PayrollRunInputRefusedError(400, `This run is ${String(run.status)}: only a draft or calculated run can be edited.`);
   }

@@ -35,6 +35,8 @@ export interface PayrollRunSummary {
   /** The dates the run pays for, 'YYYY-MM-DD'; for a monthly regular run, its calendar month. */
   periodStart: string | null;
   periodEnd: string | null;
+  /** The pay date, 'YYYY-MM-DD' (an off-cycle run's, wave 6 OC); null when not set. */
+  runDate: string | null;
 }
 
 export function mapRunRow(r: Row): PayrollRunSummary {
@@ -57,6 +59,7 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     offCycleReason: offCycleReasonOf(r.off_cycle_reason),
     periodStart: dateColumnOf(r.period_start),
     periodEnd: dateColumnOf(r.period_end),
+    runDate: dateColumnOf(r.run_date),
   };
 }
 

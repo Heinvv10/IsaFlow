@@ -16,10 +16,17 @@ export interface RunRow {
   totalNet: number;
   employeeCount: number;
   journalEntryId: string | null;
+  /** Migration 999a / wave 6 OC: an off-cycle run names its reason beside the month. */
+  runKind?: string;
+  offCycleReason?: string | null;
 }
 
+/** ' · bonus run' for an off-cycle run (wave 6 OC); '' for a regular one. */
+export const runKindSuffix = (r: { runKind?: string; offCycleReason?: string | null }): string =>
+  (r.runKind === 'off_cycle' ? ` · ${r.offCycleReason ?? 'off-cycle'} run` : '');
+
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-export const periodLabel = (r: RunRow) => `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`;
+export const periodLabel = (r: RunRow) => `${MONTHS[r.periodMonth - 1]} ${r.periodYear}${runKindSuffix(r)}`;
 
 export function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {

@@ -5,8 +5,11 @@
  *
  * THE KEY'S CONTRACT, in order:
  *   1. period_start                              the period the run pays for;
- *   2. the pay date: run_date, else period_end   (no app code writes run_date today, so in practice period_end);
- *   3. the regular run before an off-cycle run   (a bonus or termination run supplements its period's regular run);
+ *   2. the regular run before an off-cycle run   (a bonus or termination run supplements its period's regular run,
+ *                                                 and is costed on it: wave 6 OC moved this before the pay date, since
+ *                                                 a regular run's run_date is NULL and so read as its period_end, after
+ *                                                 any off-cycle pay date in the period);
+ *   3. the pay date: run_date, else period_end   (only an off-cycle run carries run_date);
  *   4. created_at                                the run opened first comes first;
  *   5. id                                        a deterministic last resort only.
  * For a monthly company with one run a month it orders exactly as (period_year, period_month) did. The YTD gate and
@@ -18,7 +21,7 @@ const ALIAS = /^[a-z_][a-z0-9_]*$/;
 
 const columns = (alias: string, fn: string): string => {
   if (!ALIAS.test(alias)) throw new Error(`${fn}: not an SQL alias: ${alias}`);
-  return `${alias}.period_start, COALESCE(${alias}.run_date, ${alias}.period_end), (${alias}.run_kind <> 'regular'), `
+  return `${alias}.period_start, (${alias}.run_kind <> 'regular'), COALESCE(${alias}.run_date, ${alias}.period_end), `
     + `${alias}.created_at, ${alias}.id`;
 };
 

@@ -1,4 +1,4 @@
--- 999X: off-cycle bonus and termination runs (wave 6 OC). Expand-only.
+-- 999x: off-cycle bonus and termination runs (wave 6 OC). Expand-only.
 --
 -- WHAT.
 --   payroll_off_cycle_employees  who an off-cycle run pays, written once when the run is created, never changed:
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_off_cycle_employees (
 );
 
 COMMENT ON TABLE public.payroll_off_cycle_employees IS
-  'Who an off-cycle pay run pays (999X, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation only.';
+  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation only.';
 
 CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.payroll_off_cycle_employees (company_id, run_id);
 

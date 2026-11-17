@@ -24,6 +24,7 @@ import type { OnExplain, RunLineAmounts } from '@/components/payroll/PayrollRunL
 import { useLineExplain } from '@/components/payroll/LineExplain';
 import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
 import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
+import { runKindSuffix } from '@/components/payroll/RunCards';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -36,7 +37,8 @@ export default function PayrollRunDetailPage() {
   const {
     run, setRun, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen,
   } = useRunDetail(runId);
-  const editable = canWrite(companyRole) && !!run && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
+  // An off-cycle run pays only what it was created with (wave 6 OC): no input grid.
+  const editable = canWrite(companyRole) && !!run && run.runKind !== 'off_cycle' && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
   const grid = useRunInputs(runId, editable, setRun);
   const [approvalHeld, setApprovalHeld] = useState('');
   const [payslip, setPayslip] = useState<PayslipTarget | null>(null);
@@ -68,7 +70,7 @@ export default function PayrollRunDetailPage() {
 
   const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
-  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
+  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}${runKindSuffix(run)}${run.runKind === 'off_cycle' && run.runDate ? `, paid ${run.runDate}` : ''}`;
   const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}`, employeeName: l.employeeName });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');

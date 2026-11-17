@@ -1,6 +1,6 @@
 /**
  * Who an off-cycle run pays and what (wave 6 OC; created by payrollOffCycleRun, stored in payroll_off_cycle_employees,
- * migration 999X). calculatePayrollRun costs these in place of the month's population:
+ * migration 999x). calculatePayrollRun costs these in place of the month's population:
  *  - bonus        the one annual-payment earning (3605) and amount the run was created with: no salary, no recurring
  *                 component, no loan or deduction;
  *  - termination  the leaver's termination pay-outs (leave and notice pay, 3605; severance only by directive), by the

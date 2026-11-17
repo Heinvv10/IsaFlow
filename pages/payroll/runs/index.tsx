@@ -54,9 +54,12 @@ export default function PayrollRunsListPage() {
               </div>
             </div>
             {mayWrite && (
-              <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
-                <Plus className="h-4 w-4" /> New Payroll Run
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link href="/payroll/runs/off-cycle" className="px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium">Off-cycle run</Link>
+                <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+                  <Plus className="h-4 w-4" /> New Payroll Run
+                </Link>
+              </div>
             )}
           </div>
         </div>

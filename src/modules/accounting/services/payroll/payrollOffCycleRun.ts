@@ -11,7 +11,7 @@
  *
  * The pay date is in the run's month (the EMP201 month of the run, Fourth Schedule para 2(1)) and not before today in
  * South Africa; approval refuses it again if it has passed by then (payrollOffCycleApproval). Every refusal is judged
- * before the first write (spec rule 12); the inputs go to payroll_off_cycle_employees (migration 999X), never to
+ * before the first write (spec rule 12); the inputs go to payroll_off_cycle_employees (migration 999x), never to
  * payroll_employee_components (the regular run would pay a once-off dated in its month).
  */
 import { sql, withTransaction } from '@/lib/neon';
