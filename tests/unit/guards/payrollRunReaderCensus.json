@@ -477,6 +477,12 @@
    {"line":134,"text":"AND table_name IN ('payroll_run_headers', 'payroll_run_lines')","class":"L","owner":"FQb2/EF","why":"information_schema table check"},
    {"line":175,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"every declarable run in the period, summed by the caller"}
   ],
+  "src/modules/accounting/services/returns/emp501Figures.ts": [
+   {"line":62,"text":"SELECT h.id, h.approved_plan_hash, h.approved_at FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"every final run of the EMP501 period, listed by id and share-locked at finalise"}
+  ],
+  "src/modules/accounting/services/returns/emp501Readiness.ts": [
+   {"line":36,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"DISTINCT months that have any live run, each checked for a filed EMP201 (EXISTS)"}
+  ],
   "src/modules/accounting/services/returns/empDrift.ts": [
    {"line":38,"text":"SELECT id, approved_plan_hash FROM payroll_run_headers","class":"S","owner":"FQb2/EF","why":"by run ids"}
   ],
