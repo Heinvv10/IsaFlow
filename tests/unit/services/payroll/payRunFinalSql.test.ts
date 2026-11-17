@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { payRunFinalSql, PAY_RUN_FINAL_STATUSES } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { notFinalRunWarning } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { uifSplitMismatchWarning } from '@/modules/accounting/services/reports/emp201LineUif';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 describe('payRunFinalSql', () => {
   it('is status approved/paid AND an approval time, on the alias given', () => {
@@ -36,7 +37,7 @@ describe('uifSplitMismatchWarning', () => {
   it('names the run when they differ by a cent or more', () => {
     const w = uifSplitMismatchWarning('2028-09', 1_200, { employee: 400, employer: 600 });
     expect(w).toContain('2028-09');
-    expect(w).toContain('R1200.00 on its header but R1000.00 on its lines');
+    expect(w).toContain(`${formatMoney(1_200)} on its header but ${formatMoney(1_000)} on its lines`);
     expect(uifSplitMismatchWarning('2028-09', 1_000.01, { employee: 400, employer: 600 })).not.toBeNull();
   });
 });

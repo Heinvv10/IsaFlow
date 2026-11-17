@@ -10,6 +10,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface RunLineUif {
   employee: number;
@@ -37,6 +38,6 @@ export async function loadRunLineUif(companyId: string, runIds: string[]): Promi
 export function uifSplitMismatchWarning(month: string, headerTotal: number, lines: RunLineUif): string | null {
   const sum = Math.round((lines.employee + lines.employer) * 100) / 100;
   if (Math.abs(sum - Math.round(headerTotal * 100) / 100) < 0.005) return null;
-  return `The pay run for ${month} stores UIF of R${headerTotal.toFixed(2)} on its header but R${sum.toFixed(2)} on its `
-    + `lines (employee R${lines.employee.toFixed(2)}, employer R${lines.employer.toFixed(2)}); the EMP201 total is the header's.`;
+  return `The pay run for ${month} stores UIF of ${formatMoney(headerTotal)} on its header but ${formatMoney(sum)} on its `
+    + `lines (employee ${formatMoney(lines.employee)}, employer ${formatMoney(lines.employer)}); the EMP201 total is the header's.`;
 }
