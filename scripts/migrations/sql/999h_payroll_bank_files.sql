@@ -17,12 +17,14 @@
 --             the bank did pay must still be recordable); void needs void_not_sent.
 --     stamps  created_by / confirmed_by / voided_by are the session user (auth.uid(), as 999c), never what the caller
 --             wrote; no session user is refused. Times are the trigger's clock. The column grants stop the rest.
---   payroll_bank_file_items  what the file paid each employee (review #1524 E-5): one row per payment, written in the
---     same transaction as its file and never changed (no UPDATE for anyone; no DELETE granted to app_user). Its guard refuses an item for a file that is not this
---     company's or not 'generated'; a deferred check at COMMIT refuses a file whose items do not sum to its total_cents
---     and count to its line_count (checked on the file's insert too, so a file committed without its items is refused). A file foots from its first commit, so any item added later breaks the foot and is
---     refused: the set is fixed with the file. Read when a pre-reopen file is confirmed against a
---     re-approval: the difference per employee, never netted across employees.
+--   payroll_bank_file_items  what the file paid each employee (review #1524 E-5): one row per payment, written with
+--     its file in ONE statement and never changed (no UPDATE for anyone; no DELETE granted to app_user). Its guard
+--     refuses an item for a file that is not this company's or not 'generated', and (round 4, F-2/F-3) one naming
+--     another company's employee, one with no line on the file's run, or one not paying exactly that line's net.
+--     Footing is checked once per file: a statement-level check after each items insert, and a deferred check on the
+--     file's own insert (a file committed without its items is refused). Read when a pre-reopen file is confirmed
+--     against a re-approval: the difference per employee, never netted across employees. Its FKs have no ON DELETE:
+--     a hard delete of an employee or company with a file is refused (erasure tooling must anonymise).
 --   payroll_bank_details.activated_at  when the row last became active (review #1524 D-2). A BEFORE trigger stamps it
 --     with the trigger's clock on an active INSERT and on an is_active false -> true UPDATE, and keeps it otherwise, so
 --     the caller cannot choose it (app_user may INSERT any column and UPDATE is_active only; a written created_at can
@@ -46,7 +48,7 @@
 --   ALTER TABLE public.payroll_bank_details DROP COLUMN IF EXISTS activated_at;
 --   DROP TABLE IF EXISTS public.payroll_bank_file_items;
 --   DROP FUNCTION IF EXISTS public.payroll_bank_file_items_guard();
---   DROP FUNCTION IF EXISTS public.payroll_bank_file_items_total();
+--   DROP FUNCTION IF EXISTS public.payroll_bank_file_items_foot();
 --   DROP TABLE IF EXISTS public.payroll_bank_files;
 --   DROP FUNCTION IF EXISTS public.payroll_bank_files_guard();
 --   SELECT public.app_service_sync_policies();
@@ -173,9 +175,20 @@ BEGIN
     RAISE EXCEPTION 'payroll_bank_file_items: an item is never changed' USING ERRCODE = 'check_violation';
   END IF;
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  SELECT status INTO f FROM public.payroll_bank_files WHERE id = NEW.file_id AND company_id = NEW.company_id;
+  SELECT status, run_id INTO f FROM public.payroll_bank_files WHERE id = NEW.file_id AND company_id = NEW.company_id;
   IF NOT FOUND OR f.status <> 'generated' THEN
     RAISE EXCEPTION 'payroll_bank_file_items: items belong to a generated file of this company'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- F-2 / F-3 (review #1524 round 4): the employee is this company's (FKs ignore RLS), has a line on the file's run, and
+  -- the item pays exactly that line's net: no item for another tenant's employee, one off the run, or a redistribution.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.payroll_employees e
+      JOIN public.payroll_run_lines l ON l.employee_id = e.id AND l.run_id = f.run_id
+     WHERE e.id = NEW.employee_id AND e.company_id = NEW.company_id
+       AND round(l.net_pay * 100)::bigint = NEW.amount_cents
+  ) THEN
+    RAISE EXCEPTION 'payroll_bank_file_items: an item pays this company''s employee exactly their net on the file''s run'
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
@@ -185,30 +198,42 @@ CREATE TRIGGER payroll_bank_file_items_guard BEFORE INSERT OR UPDATE OR DELETE O
   FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_guard();
 ALTER TABLE public.payroll_bank_file_items ENABLE ALWAYS TRIGGER payroll_bank_file_items_guard;
 
--- At COMMIT: the items of a file foot to its total and count (checked once per inserted item; cheap, files are small).
-CREATE OR REPLACE FUNCTION public.payroll_bank_file_items_total() RETURNS trigger
+-- Footing, once per FILE (not per item: O(N) for ACB_MAX_PAYMENTS = 100 000). Items are written in ONE statement (the
+-- generator's unnest insert): a statement-level check over its transition table foots every file it touched, so a later
+-- extra item fails at once. A deferred check on the FILE's insert (one row per file) refuses a file committed without
+-- items.
+CREATE OR REPLACE FUNCTION public.payroll_bank_file_items_foot() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
-  ok boolean;
-  fid uuid;
+  bad uuid;
 BEGIN
-  IF TG_TABLE_NAME = 'payroll_bank_files' THEN fid := NEW.id; ELSE fid := NEW.file_id; END IF;
-  SELECT f.total_cents = COALESCE(sum(i.amount_cents), 0) AND f.line_count = count(i.id) INTO ok
-    FROM public.payroll_bank_files f LEFT JOIN public.payroll_bank_file_items i ON i.file_id = f.id
-   WHERE f.id = fid GROUP BY f.id, f.total_cents, f.line_count;
-  IF NOT COALESCE(ok, false) THEN
-    RAISE EXCEPTION 'payroll_bank_file_items: the items of file % do not foot to its total and count', fid
+  IF TG_TABLE_NAME = 'payroll_bank_files' THEN
+    SELECT f.id INTO bad FROM public.payroll_bank_files f
+     WHERE f.id = NEW.id AND (f.total_cents, f.line_count)
+       IS DISTINCT FROM (SELECT COALESCE(sum(i.amount_cents), 0), count(*) FROM public.payroll_bank_file_items i WHERE i.file_id = f.id);
+  ELSE
+    SELECT f.id INTO bad FROM (SELECT DISTINCT file_id FROM new_items) n JOIN public.payroll_bank_files f ON f.id = n.file_id
+     WHERE (f.total_cents, f.line_count)
+       IS DISTINCT FROM (SELECT COALESCE(sum(i.amount_cents), 0), count(*) FROM public.payroll_bank_file_items i WHERE i.file_id = f.id)
+     LIMIT 1;
+  END IF;
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'payroll_bank_file_items: the items of file % do not foot to its total and count', bad
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NULL;
 END $$;
 DROP TRIGGER IF EXISTS payroll_bank_file_items_total ON public.payroll_bank_file_items;
-CREATE CONSTRAINT TRIGGER payroll_bank_file_items_total AFTER INSERT ON public.payroll_bank_file_items
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_total();
--- And for the file itself: a file committed with no (or short) items is refused too.
+DROP TRIGGER IF EXISTS payroll_bank_file_items_foot ON public.payroll_bank_file_items;
+CREATE TRIGGER payroll_bank_file_items_foot AFTER INSERT ON public.payroll_bank_file_items
+  REFERENCING NEW TABLE AS new_items FOR EACH STATEMENT EXECUTE FUNCTION public.payroll_bank_file_items_foot();
+ALTER TABLE public.payroll_bank_file_items ENABLE ALWAYS TRIGGER payroll_bank_file_items_foot;
 DROP TRIGGER IF EXISTS payroll_bank_files_items_total ON public.payroll_bank_files;
 CREATE CONSTRAINT TRIGGER payroll_bank_files_items_total AFTER INSERT ON public.payroll_bank_files
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_total();
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.payroll_bank_file_items_foot();
+
+-- ERASURE NOTE: the items' FKs (employee, company, file) have no ON DELETE, so once a file exists a hard delete of that
+-- employee or company is refused. Deliberate (a payment record); future erasure tooling must anonymise, not delete.
 
 ALTER TABLE public.payroll_bank_file_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_bank_file_items FORCE ROW LEVEL SECURITY;

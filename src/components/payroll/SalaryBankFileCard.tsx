@@ -131,8 +131,10 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
           {!confirmed.settlement
             ? <>The bank has paid this run (file confirmed {confirmed.confirmedAt ? formatDisplayDate(confirmed.confirmedAt.slice(0, 10)) : ''}).
               Reopening the run does not reverse that payment: pay any difference separately.</>
-            : <span>The bank paid {formatCurrency(confirmed.totalCents / 100)} on the earlier approval.{' '}
-              {settlementLines(confirmed).join(' ')}</span>}
+            : <span className="space-y-1">
+                <span className="block">The bank paid {formatCurrency(confirmed.totalCents / 100)} on the earlier approval.</span>
+                {settlementLines(confirmed).map((line) => <span key={line} className="block">{line}</span>)}
+              </span>}
         </p>
       )}
       {state && !state.enabled && state.files.length === 0 && (

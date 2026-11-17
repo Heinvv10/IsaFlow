@@ -82,12 +82,17 @@ export async function listRunBankFiles(companyId: string, runId: string): Promis
      WHERE f.company_id = ${companyId}::uuid AND f.run_id = ${runId}::uuid
      ORDER BY f.created_at DESC, f.id
   `) as DbRow[];
-  return Promise.all(rows.map(async (r) => ({
-    id: String(r.id), status: r.status as BankFileStatus, layout: String(r.layout), sha256: String(r.sha256),
-    lineCount: Number(r.line_count), totalCents: Number(r.total_cents), actionDate: String(r.action_date),
-    createdAt: iso(r.created_at)!, confirmedAt: iso(r.confirmed_at), voidedAt: iso(r.voided_at), stale: r.stale === true,
-    settlement: r.needs_settlement === true ? await fileSettlement(companyId, runId, String(r.id)) : null,
-  })));
+  // One query at a time: every statement here shares the request's one transaction connection.
+  const out: PayrollBankFile[] = [];
+  for (const r of rows) {
+    out.push({
+      id: String(r.id), status: r.status as BankFileStatus, layout: String(r.layout), sha256: String(r.sha256),
+      lineCount: Number(r.line_count), totalCents: Number(r.total_cents), actionDate: String(r.action_date),
+      createdAt: iso(r.created_at)!, confirmedAt: iso(r.confirmed_at), voidedAt: iso(r.voided_at), stale: r.stale === true,
+      settlement: r.needs_settlement === true ? await fileSettlement(companyId, runId, String(r.id)) : null,
+    });
+  }
+  return out;
 }
 
 export interface RunBankFileState {
@@ -100,7 +105,9 @@ export interface RunBankFileState {
 
 /** GET bank-file: the switch and the run's files. */
 export async function readRunBankFileState(companyId: string, runId: string): Promise<RunBankFileState> {
-  const [enabled, files] = await Promise.all([hasFeature(companyId, SALARY_BANK_FILE_FLAG), listRunBankFiles(companyId, runId)]);
+  // Sequential: one request transaction, one connection.
+  const enabled = await hasFeature(companyId, SALARY_BANK_FILE_FLAG);
+  const files = await listRunBankFiles(companyId, runId);
   return { enabled, files, paymentConfirmed: files.some((f) => f.status === 'confirmed') };
 }
 

@@ -2,10 +2,12 @@
  * Salary bank file (wave 6 BF): what a confirmed pre-reopen file leaves to settle (review #1524 D-3 and E-5, folded in).
  * Per employee, never netted: each employee's current approved net less what the file paid them
  * (payroll_bank_file_items). Owed and overpaid are reported apart, naming the people; an employee new to the run is
- * owed in full, one no longer on it was overpaid in full.
+ * owed in full, one no longer on it was overpaid in full. Plus the items table's own guard (review #1524 round 4,
+ * F-2/F-3 folded in): an item names this company's employee, with a line on the file's run, paying exactly its net.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
+import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig } from './brkr.helpers';
 import {
@@ -95,5 +97,42 @@ describe('what a confirmed pre-reopen file leaves to settle', () => {
     const gone = (await status(a, run)).body.data!.files[0].settlement;
     expect(byNumber(gone.overpaidBy)).toEqual({ 'BRK-2': before['BRK-2']! });
     await a.pool.query('UPDATE payroll_employees SET is_active = false WHERE id = $1', [added]).catch(() => undefined);
+  }, 300_000);
+
+  it('F-2 / F-3: an item for another tenant\'s employee, an employee off the run, or a redistribution is refused', async () => {
+    const other = await rig('bank-file-settlement-b');
+    await other.setup();
+    const foreign = (await other.employee(30000)).employee;
+    try {
+      const run = await approvedRun(a, 5);
+      const n = await nets(run);
+      const [n1, n2] = [n['BRK-1']!, n['BRK-2']!];
+      const offRun = (await a.employee(12000)).employee; // created after the run: no line on it
+      const asAppUser = async (items: [string, number][]) => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+        const c = await pool.connect();
+        try {
+          await c.query('BEGIN');
+          await c.query('SET LOCAL ROLE app_user');
+          await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated' })]);
+          await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
+          const f = (await c.query(
+            `INSERT INTO payroll_bank_files (company_id, run_id, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)
+             SELECT company_id, id, 'fnb_obe_2023_02', repeat('d', 64), $2, $3, '2099-01-15', COALESCE(approved_at, approval_grandfathered_at), 'x'
+               FROM payroll_run_headers WHERE id = $1 RETURNING id`, [run, items.length, items.reduce((t, [, c2]) => t + c2, 0)])).rows[0]!.id;
+          await c.query(`INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents)
+                         SELECT $1, $2, e, c FROM unnest($3::uuid[], $4::bigint[]) AS t(e, c)`,
+            [a.company, f, items.map(([e]) => e), items.map(([, c2]) => c2)]);
+          await c.query('COMMIT');
+          return 'committed';
+        } catch (err) { await c.query('ROLLBACK'); return (err as Error).message; } finally { c.release(); await pool.end(); }
+      };
+      const refused = /exactly their net on the file's run/;
+      expect(await asAppUser([[emp[0]!.employee, n1], [foreign, n2]])).toMatch(refused); // F-2: another tenant's employee
+      expect(await asAppUser([[emp[0]!.employee, n1], [offRun, n2]])).toMatch(refused); // F-3: no line on the run
+      expect(await asAppUser([[emp[0]!.employee, n1 + n2 - 100], [emp[1]!.employee, 100]])).toMatch(refused); // F-3: redistributed
+      expect(await asAppUser([[emp[0]!.employee, n1], [emp[1]!.employee, n2]])).toBe('committed'); // the control: exact nets
+      await a.pool.query('UPDATE payroll_employees SET is_active = false WHERE id = $1', [offRun]).catch(() => undefined);
+    } finally { await other.teardown(); }
   }, 300_000);
 });
