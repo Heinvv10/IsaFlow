@@ -206,7 +206,7 @@ export async function rig(label: string) {
       await q('DELETE FROM payroll_loans WHERE company_id = ANY($1)');
       await q('DELETE FROM payroll_employee_cost_allocations WHERE company_id = ANY($1)');
       await q('DELETE FROM cost_centre_gl_mappings WHERE company_id = ANY($1)');
-      await q('DELETE FROM payroll_run_lines WHERE run_id IN (SELECT id FROM payroll_run_headers WHERE company_id = ANY($1))');
+      // The header delete cascades its lines: a final run's lines take no DELETE of their own (migration 999n).
       await q('DELETE FROM payroll_run_headers WHERE company_id = ANY($1)');
       await q('DELETE FROM payroll_employee_components WHERE employee_id IN (SELECT id FROM payroll_employees WHERE company_id = ANY($1))');
       await q('DELETE FROM payroll_employees WHERE company_id = ANY($1)');
