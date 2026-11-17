@@ -29,6 +29,7 @@ const ROOT = path.resolve(__dirname, '../../..');
 /** Calls whose key or options are not literals at the call site: `file | key text` -> why it is safe. */
 const PINNED: Record<string, string> = {
   'src/modules/accounting/services/share/shareResolver.ts | ipKey': 'share:ip: key built just above; options are file constants used nowhere else',
+  'pages/api/mcp/uploads/[token].ts | key': 'the `limit(key, max)` helper: every caller passes a literal mcp-upload:* key (per token hash, company, platform, miss) and a file-constant max',
   "pages/api/accounting/reports-budget-comparator.ts | 'reports-budget-comparator'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'src/modules/accounting/services/share/shareResolver.ts | tokenKey': 'share:token: key built just above; options are file constants used nowhere else',
   "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('list', user.id)": 'per-action, per-user name; default options',
