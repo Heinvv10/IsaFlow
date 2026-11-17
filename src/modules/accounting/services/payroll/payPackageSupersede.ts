@@ -195,7 +195,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // both and the run pays the component twice.
   const all = (await tx`
     SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end,
-           c.employer_fund_as_cash, c.percent_of_rfi
+           c.employer_fund_as_cash, c.percent_of_rfi, c.db_member_category_factor
       FROM payroll_employee_components c
       JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
      WHERE c.employee_id = ${employeeId}::uuid
@@ -206,9 +206,13 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // RF (migration 975): a package writes a plain amount, so replacing a pre-RF row kept as cash would silently make it the
   // employer's non-cash deemed contribution, and replacing a percent_of_rfi row would freeze it at a fixed amount. Refused
   // before any write; the employee's own profile does both changes deliberately.
-  const rfRow = overlapped.find((row) => row.employer_fund_as_cash === true || row.percent_of_rfi != null);
+  const rfRow = overlapped.find((row) => row.employer_fund_as_cash === true || row.percent_of_rfi != null || row.db_member_category_factor != null);
   if (rfRow) {
-    throw new EmployeeComponentRefused(rfRow.percent_of_rfi != null
+    // DBF: a defined-benefit row is valued by each run from its factor; a package would freeze it at a fixed amount, as a percent row.
+    throw new EmployeeComponentRefused(rfRow.db_member_category_factor != null
+      ? `This package would replace a defined-benefit fund contribution valued from its fund member category factor (from ${isoDate(rfRow.effective_from)}) with a fixed amount. `
+        + 'Remove that component from the package, or end the factor on the employee profile first.'
+      : rfRow.percent_of_rfi != null
       ? `This package would replace a retirement fund contribution set as ${formatPercent(Number(rfRow.percent_of_rfi))} of retirement-funding income (from ${isoDate(rfRow.effective_from)}) with a fixed amount. `
         + 'Remove that component from the package, or end the percentage on the employee profile first.'
       : `This package would replace an employer retirement fund contribution kept as cash from before RF (from ${isoDate(rfRow.effective_from)}), changing how it is taxed. `

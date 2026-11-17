@@ -18,5 +18,7 @@
  *    assignment stays cash, migration 975); percent_of_rfi rows are costed on RFI (RF). Master's value + 1 at RF's rebase (DR may take it).
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
+ * 13: a defined-benefit fund row (db_member_category_factor, migration 999s) is valued X = factor x RFI - the employee's own contributions
+ *    (para 12D(3)), non-cash and deemed paid into s11F (DBF). Master's value + 1 at DBF's rebase (AN takes 13 first).
  */
-export const PAYROLL_CALCULATION_VERSION = 12;
+export const PAYROLL_CALCULATION_VERSION = 13;

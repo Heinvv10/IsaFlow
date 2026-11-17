@@ -188,7 +188,7 @@ export default function PayComponentsPage() {
                 )}
                 {employerFund && (
                   <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
-                    title="Taxed as a non-cash benefit and deemed paid by the employee into the s11F deduction. A defined-benefit fund's benefit is worked out differently and is not supported.">
+                    title="Taxed as a non-cash benefit and deemed paid by the employee into the s11F deduction. Untick for a defined-benefit pension or provident fund: each employee's assignment then carries the fund member category factor (para 12D).">
                     <input type="checkbox" checked={definedContribution} onChange={e => setDefinedContribution(e.target.checked)} />
                     Defined-contribution (money purchase) fund
                   </label>

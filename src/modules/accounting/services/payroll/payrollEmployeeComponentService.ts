@@ -9,7 +9,7 @@ import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMont
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { refuseOnceOffSpan } from './payrollOnceOffGuard';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
-import { judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
+import { judgeDbFactor, judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
 
 type Row = DbRow;
 
@@ -25,6 +25,8 @@ export interface EmployeeComponentAssignment {
   percentOfRfi: number | null;
   /** RF: a pre-RF employer fund row kept as cash (migration 975's opt-out). */
   employerFundAsCash: boolean;
+  /** DBF (migration 999s): the defined-benefit fund member category factor this row is valued on in a run; amount is then 0. */
+  dbMemberCategoryFactor: number | null;
 }
 
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
@@ -49,6 +51,7 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
     isRecurring: r.is_recurring === false ? false : true,
     percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
     employerFundAsCash: r.employer_fund_as_cash === true,
+    dbMemberCategoryFactor: r.db_member_category_factor == null ? null : Number(r.db_member_category_factor),
   };
 }
 
@@ -97,6 +100,8 @@ function dayOf(value: string, field: string): string {
  * with `actor` in the same transaction (payrollComponentAudit), so the approval gate sees it. `percentOfRfi` (RF, a fraction
  * 0-1) makes the row a share of retirement-funding income, costed per run (rfi.ts): amount must then be 0, and only a
  * retirement contribution (4001 / 4003 / 4006 deduction, 3817 / 3825 / 3828 earning) may carry it (judgePercentOfRfi).
+ * `dbMemberCategoryFactor` (DBF, a fraction 0-1) makes it an employer's defined-benefit contribution valued per para 12D(3)
+ * in each run (definedBenefitFund.ts): amount 0, recurring, 3817 / 3825 only, never with percentOfRfi (judgeDbFactor).
  */
 export async function assignComponentToEmployee(
   companyId: string,
@@ -108,6 +113,7 @@ export async function assignComponentToEmployee(
   isRecurring: boolean,
   actor: ComponentChangeActor,
   percentOfRfi: number | null = null,
+  dbMemberCategoryFactor: unknown = null,
 ): Promise<EmployeeComponentAssignment> {
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
@@ -126,6 +132,8 @@ export async function assignComponentToEmployee(
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
     await judgeFundAssignment(tx, companyId, componentId);
+    // DBF before RF: a factor beside a percentage is refused as that pair, whatever the percentage says.
+    if (dbMemberCategoryFactor !== null) await judgeDbFactor(tx, companyId, componentId, { factor: dbMemberCategoryFactor, percentOfRfi, amount, isRecurring });
     if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount, isRecurring);
     await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });
 
@@ -133,7 +141,8 @@ export async function assignComponentToEmployee(
 
     const rows = (await tx`
       INSERT INTO payroll_employee_components (
-        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred, percent_of_rfi
+        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred, percent_of_rfi,
+        db_member_category_factor
       ) VALUES (
         ${employeeId}::uuid,
         ${componentId}::uuid,
@@ -142,7 +151,8 @@ export async function assignComponentToEmployee(
         ${effectiveToStr},
         ${isRecurring},
         FALSE, -- written by this release: superseded_at decides (migration 953)
-        ${percentOfRfi}
+        ${percentOfRfi},
+        ${dbMemberCategoryFactor === null ? null : Number(dbMemberCategoryFactor)}::numeric
       )
       RETURNING *
     `) as Row[];
@@ -186,6 +196,7 @@ export async function listEmployeeComponentAssignments(
     SELECT
       pec.id, pec.employee_id, pec.component_id, pec.amount,
       pec.effective_from, pec.effective_to, pec.is_recurring, pec.percent_of_rfi, pec.employer_fund_as_cash,
+      pec.db_member_category_factor,
       pc.name AS component_name,
       pc.component_type,
       pc.is_active AS component_active,

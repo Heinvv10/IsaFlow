@@ -3,6 +3,7 @@ import { applyFringeBenefits, FringeBenefitConfigError, selectBenefit } from './
 import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fringeBenefitService';
 import { markNonCashEmployerBenefits } from './employerContributions';
 import { costPercentOfRfi } from './rfi';
+import { costDefinedBenefitFund } from './definedBenefitFund';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { loadRegularPayDirectives } from './payrollRunRegularDirective';
 import { assertRunKeepsItsDirectives } from './payrollRunDirectiveUses';
@@ -78,5 +79,6 @@ export function withFringe(
 export function withRfiCosted(components: EmployeeComponent[], warnings: ValidationResult[]): EmployeeComponent[] {
   const costed = costPercentOfRfi(components);
   warnings.push(...costed.warnings);
-  return costed.components;
+  // DBF: a defined-benefit row is valued after the percent rows, whose employee contributions are its C (para 12D(3)).
+  return costDefinedBenefitFund(costed.components, warnings);
 }

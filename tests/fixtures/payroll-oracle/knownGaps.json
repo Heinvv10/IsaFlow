@@ -1,14 +1,5 @@
 [
   {
-    "case": "db-fund-12d-s11f-cap-binds",
-    "engineActual": {
-      "paye": 1845,
-      "net": 16477.88
-    },
-    "reason": "The category factor does not reach the calculator: without the R6 500 para 12D fringe the s11F cap does not bind, so taxable pay is 18 500, not 19 212.50.",
-    "closedBy": "DBF (wave 6): defined-benefit fund fringe (para 12D) inside the s11F cap."
-  },
-  {
     "case": "ga-emolument-attachment-capped-25pct",
     "engineActual": {
       "net": 17707.88

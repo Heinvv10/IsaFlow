@@ -67,9 +67,9 @@ afterAll(async () => {
 });
 
 describe('creating components: every refusal writes nothing', () => {
-  it('an employer fund contribution for a defined-benefit fund, with no fund type, or not taxable', async () => {
+  it('an employer retirement annuity as defined-benefit (DBF accepts 3817 / 3825 only), with no fund type, or not taxable', async () => {
     const before = await componentRows();
-    const db = await create(er({ fundType: 'defined_benefit' }));
+    const db = await create(er({ sarsSourceCode: '3828', fundType: 'defined_benefit' }));
     expect(db.statusCode).toBe(400);
     expect(String(db.body.error?.message)).toMatch(/DEFINED-BENEFIT/);
     expect((await create(er())).statusCode).toBe(400);

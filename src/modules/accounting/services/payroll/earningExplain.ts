@@ -6,6 +6,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { EarningPart } from './payrollLineAccumulate';
 import { isEmployerFundBenefitCode } from './retirementFund';
+import { definedBenefitStep } from './definedBenefitExplain';
 import { pct, type ExplainSource, type ExplainStep } from './payrollExplainTypes';
 
 const G21 = 'https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf';
@@ -15,6 +16,7 @@ export function earningStep(key: string, p: EarningPart): ExplainStep {
   // RF: an employer's non-cash 3817 / 3825 / 3828 is also deemed paid by the employee into s11F (G21 (2027) p. 10).
   const fund = p.isNonCash && isEmployerFundBenefitCode(p.code) ? ', also counted as your retirement contribution' : '';
   const label = `${p.name} (${p.code})${p.isNonCash ? ', a non-cash benefit' : ''}${fund}`;
+  if (p.db) return definedBenefitStep(key, label, { ...p, db: p.db });
   if (p.rate === undefined) return { key, label, amount: p.included };
   return {
     key, label, amount: p.included, formula: `${pct(p.rate)} of ${formatMoney(p.amount)}, to the cent`, source: FRINGE_SOURCE,

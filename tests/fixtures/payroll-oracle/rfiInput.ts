@@ -4,10 +4,13 @@
  * contribution earning (3817) assigned as that share of RFI, and the case's 3601 earnings count as RFI (migration 975's
  * default). withEmployerRetirement runs before withFringeBenefits, which marks the 3817 non-cash as a run does
  * (markNonCashEmployerBenefits); costRfi then costs it (rfi.costPercentOfRfi). The case's `rfiBase` must equal the RFI the
- * engine derives (a mismatch throws, so a fixture cannot drift from the rule). UIF and SDL are levied on the benefit (the run sets
+ * engine derives (a mismatch throws, so a fixture cannot drift from the rule).
+ * DBF: `dbMemberCategoryFactor` (a fraction, 0.12 = 12%) adds the employer's defined-benefit pension earning (3817) carrying that
+ * factor, the case's 3601 earnings counting as RFI; costRfi values it as a run does (definedBenefitFund.costDefinedBenefitFund). UIF and SDL are levied on the benefit (the run sets
  * both flags, employerContributions.ts: UI Contributions Act s1; G21 p. 11); the case's UIF is at the ceiling either way.
  */
 import { costPercentOfRfi } from '@/modules/accounting/services/payroll/rfi';
+import { costDefinedBenefitFund } from '@/modules/accounting/services/payroll/definedBenefitFund';
 import type { EmployeeComponent } from '@/modules/accounting/services/payroll/payrollTypes';
 
 type Unmodelled = Record<string, unknown> | undefined;
@@ -15,9 +18,19 @@ const num = (u: Unmodelled, k: string): number | undefined => (typeof u?.[k] ===
 
 export function withEmployerRetirement(components: EmployeeComponent[], unmodelled: Unmodelled): EmployeeComponent[] {
   const pct = num(unmodelled, 'erRetirementPctOfRfi');
-  if (pct === undefined) return components;
+  const factor = num(unmodelled, 'dbMemberCategoryFactor');
+  if (pct === undefined && factor === undefined) return components;
   const flagged = components.map((c) => (c.component.componentType === 'earning' && c.component.sarsSourceCode === '3601'
     ? { ...c, component: { ...c.component, countsAsRfi: true } } : c));
+  if (pct === undefined) {
+    return [...flagged, {
+      component: {
+        id: 'oracle-er-db-pension', name: 'Employer defined-benefit pension', sarsSourceCode: '3817', componentType: 'earning',
+        isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+      },
+      amount: 0, dbMemberCategoryFactor: factor,
+    }];
+  }
   return [...flagged, {
     component: {
       id: 'oracle-er-pension', name: 'Employer pension contribution', sarsSourceCode: '3817', componentType: 'earning',
@@ -28,6 +41,7 @@ export function withEmployerRetirement(components: EmployeeComponent[], unmodell
 }
 
 export function costRfi(components: EmployeeComponent[], unmodelled: Unmodelled): EmployeeComponent[] {
+  if (num(unmodelled, 'dbMemberCategoryFactor') !== undefined) return costDefinedBenefitFund(components, []);
   if (num(unmodelled, 'erRetirementPctOfRfi') === undefined) return components;
   const { components: costed, rfi } = costPercentOfRfi(components);
   const base = num(unmodelled, 'rfiBase');

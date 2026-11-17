@@ -39,6 +39,8 @@ export interface ComponentAccumulation {
 export interface EarningPart {
   name: string; code: string; amount: number; included: number; rate?: number;
   isNonCash: boolean; taxable: boolean; uif: boolean; sdl: boolean; treatment: ReturnType<typeof payeTreatment>;
+  /** DBF: a defined-benefit fund contribution valued at factor x rfi - employeeContribution (definedBenefitFund.ts). */
+  db?: { factor: number; rfi: number; employeeContribution: number };
 }
 
 export function accumulateComponents(components: EmployeeComponent[]): ComponentAccumulation {
@@ -78,13 +80,16 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash } of components) {
+  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash, dbMemberCategoryFactor, dbEmployeeContribution } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
     const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
     // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
     const contribution = component.componentType === 'deduction' && isRetirementContributionCode(component.sarsSourceCode);
     const outsidePayroll = contribution && component.paidOutsidePayroll === true;
+    // DBF: a defined-benefit row as costDefinedBenefitFund valued it (A, B, C), kept on the line and shown in the explanation.
+    const db = dbMemberCategoryFactor != null && rfiBase !== undefined && dbEmployeeContribution !== undefined
+      ? { factor: dbMemberCategoryFactor, rfi: rfiBase, employeeContribution: dbEmployeeContribution } : undefined;
     breakdown.push({
       componentId: component.id,
       componentName: component.name,
@@ -103,6 +108,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       ...(contribution ? { retirementContribution: true as const } : {}),
       ...(outsidePayroll ? { paidOutsidePayroll: true as const } : {}),
       ...(percentOfRfi != null && rfiBase !== undefined ? { percentOfRfi, rfiBase } : {}),
+      ...(db ? { dbMemberCategoryFactor: db.factor, rfiBase: db.rfi, dbEmployeeContribution: db.employeeContribution } : {}),
     });
 
     if (component.componentType === 'earning') {
@@ -116,7 +122,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       earningParts.push({
         name: component.name, code: component.sarsSourceCode, amount, included, ...(payeInclusionRate !== undefined ? { rate: payeInclusionRate } : {}),
         isNonCash: isNonCash === true, taxable: component.isTaxable, uif: component.isUifApplicable, sdl: component.isSdlApplicable,
-        treatment: payeTreatment(component.sarsSourceCode),
+        treatment: payeTreatment(component.sarsSourceCode), ...(db ? { db } : {}),
       });
       if (normaliseSarsCode(component.sarsSourceCode) === VEHICLE_CODE && !isNonCash) {
         warnings.push({ code: 'FRINGE_RECORD_MISSING', severity: 'warning',

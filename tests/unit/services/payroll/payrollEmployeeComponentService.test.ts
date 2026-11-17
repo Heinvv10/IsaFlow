@@ -87,6 +87,7 @@ describe('assignComponentToEmployee', () => {
       isRecurring: true,
       percentOfRfi: null,
       employerFundAsCash: false,
+      dbMemberCategoryFactor: null,
     });
 
     // Verify employee lookup was done

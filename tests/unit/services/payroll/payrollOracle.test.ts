@@ -110,10 +110,9 @@ describe('payroll oracle fixtures', () => {
     expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
   });
 
-  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its two signed entries', () => {
+  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its signed entries (DBF moved the cap case there)', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
-    'db-fund-12d-s11f-cap-binds': 'DBF',
     'ga-emolument-attachment-capped-25pct': 'GA',
     'ga-maintenance-outside-cap': 'GA',
     'offcycle-bonus-after-regular-g21': 'OC',
@@ -131,7 +130,7 @@ describe('payroll oracle fixtures', () => {
     'weekly-starter-g21-3-of-7-days': 'FQc',
     'weekly-week-53-pay-sunday': 'FQc',
     });
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'db-fund-12d-s11f-cap-binds', 'director-uif-on-remuneration']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {

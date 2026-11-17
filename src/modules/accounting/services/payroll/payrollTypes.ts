@@ -100,6 +100,10 @@ export interface EmployeeComponent {
   rfiBase?: number;
   /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
   employerFundAsCash?: boolean;
+  /** DBF (migration 999s): a defined-benefit fund member category factor; the run values `amount` from it (definedBenefitFund.ts). */
+  dbMemberCategoryFactor?: number | null;
+  /** Set by costDefinedBenefitFund: C, the employee's own contributions to that fund the value was reduced by. */
+  dbEmployeeContribution?: number;
 }
 
 export type { OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
@@ -217,6 +221,9 @@ export interface ComponentBreakdownItem {
   /** RF (migration 975): a percent_of_rfi row, as costed: amount = round2(percentOfRfi x rfiBase). */
   percentOfRfi?: number;
   rfiBase?: number;
+  /** DBF (migration 999s): a defined-benefit row, as costed: amount = max(0, round2(factor x rfiBase - dbEmployeeContribution)). */
+  dbMemberCategoryFactor?: number;
+  dbEmployeeContribution?: number;
 }
 
 export type { PayeYearToDate } from './payrollTypesYtd';

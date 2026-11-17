@@ -13,7 +13,8 @@
  * every later one: a column through `to_jsonb(row) ->> 'name'` (NULL while absent), a table through
  * `to_regclass` with a CASE that never plans the query while the table is absent (query_to_xml runs it only then).
  * Each later PR lifts exactly its own clause, in its own release. Contract for those PRs (the names read here):
- *   payroll_employee_components.db_member_category_factor / .rate_multiplier (DBF, RI), quantity_unit 'km' (RI);
+ *   payroll_employee_components.rate_multiplier (RI), quantity_unit 'km' (RI); DBF lifted its db_member_category_factor clause
+ *   (definedBenefitFund.ts values those rows);
  *   payroll_garnishee_orders(company_id, employee_id, status) and payroll_garnishee_deductions(run_id) (GA). An order
  *   counts unless its status is cancelled, completed, satisfied, withdrawn or ended; a missing key counts (fails closed).
  *   A deduction counts for this company's run (or, with no run_id key, any of this company's: fails closed).
@@ -98,8 +99,7 @@ export async function assertRunKindSupported(
          JOIN payroll_employee_components c ON c.employee_id = p.id
         WHERE c.superseded_at IS NULL
           AND c.effective_from <= r.period_end AND (c.effective_to IS NULL OR c.effective_to >= r.period_start)
-          AND (to_jsonb(c) ->> 'db_member_category_factor' IS NOT NULL
-               OR to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
+          AND (to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
                OR to_jsonb(c) ->> 'quantity_unit' = 'km')) AS odd_assignments,
       CASE WHEN to_regclass('public.payroll_garnishee_orders') IS NULL THEN 0
            ELSE (xpath('/row/n/text()', query_to_xml(format(
@@ -145,7 +145,7 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
     reasons.push({ clause: 'employee_frequency', detail: `employees ${names(row.other_frequency)} are not paid at the run's frequency` });
   }
   if (COSTING.has(action) && names(row.odd_assignments)) {
-    reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with a defined-benefit factor, an overtime multiplier or travel km` });
+    reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with an overtime multiplier or travel km` });
   }
   if (COSTING.has(action) && Number(row.garnishee_orders) > 0) {
     reasons.push({ clause: 'garnishee_order', detail: 'an employee on it has an active garnishee order' });

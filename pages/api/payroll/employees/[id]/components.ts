@@ -44,7 +44,7 @@ async function handler(
 
   // POST — assign a component to the employee
   if (req.method === 'POST') {
-    const { componentId, amount, effectiveFrom, effectiveTo, isRecurring, percentOfRfi } = req.body as {
+    const { componentId, amount, effectiveFrom, effectiveTo, isRecurring, percentOfRfi, dbMemberCategoryFactor } = req.body as {
       componentId?: string;
       amount?: number;
       effectiveFrom?: string;
@@ -52,6 +52,8 @@ async function handler(
       isRecurring?: boolean;
       /** RF: a fraction of retirement-funding income (0.075 = 7.5%), with amount 0; judged by the service before the write. */
       percentOfRfi?: unknown;
+      /** DBF: a defined-benefit fund member category factor (0.12 = 12%), with amount 0; judged by the service before the write. */
+      dbMemberCategoryFactor?: unknown;
     };
 
     if (!componentId) return apiResponse.badRequest(res, 'componentId is required');
@@ -69,6 +71,7 @@ async function handler(
         isRecurring !== false, // default true
         { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
         percentOfRfi === undefined || percentOfRfi === null ? null : (percentOfRfi as number),
+        dbMemberCategoryFactor === undefined ? null : dbMemberCategoryFactor,
       );
       res.status(201).json({ success: true, data: assignment });
       return;
