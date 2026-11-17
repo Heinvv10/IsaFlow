@@ -22,6 +22,7 @@ import type { BankTransactionAllocationState } from '@/modules/accounting/servic
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { handKeyedAccountLineSkips } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import { contactControlLineSkips } from '@/modules/accounting/services/bank/contactControlGuard';
+import { periodLineSkips } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { importerArmOf, importerHeldLineSkips } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import {
@@ -185,6 +186,10 @@ export async function partitionAllocationLines(
   const onControl = await contactControlLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
     .map(({ line }) => ({ txId: line.txId, accountId: line.line.contraAccountId })));
   for (const [txId, reason] of onControl) if (!held.has(txId)) held.set(txId, reason);
+  // WP2 row 12: a line dated where no open fiscal period is or can be is skipped here, not left to unwind the batch;
+  // asked last, as the service does, and only of a line nothing above holds.
+  for (const [txId, reason] of await periodLineSkips(companyId, candidates.filter(({ line }) => !held.has(line.txId))
+    .map(({ line }) => ({ txId: line.txId, date: states.get(line.txId)!.transactionDate })))) held.set(txId, reason);
   for (const { line } of candidates) {
     const reason = held.get(line.txId);
     if (reason) skipped.push({ index: line.index, transaction_id: line.txId, reason });

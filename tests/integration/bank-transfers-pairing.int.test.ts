@@ -48,7 +48,7 @@ const lineState = async (id: string) => ((await sql`SELECT status, matched_journ
 describeIfDb('which line pairs a transfer, and what the manual route refuses', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedDateFixture('PAIR', DATABASE_URL!);
+    c = await seedDateFixture('PAIR', DATABASE_URL!, [2027, 2028, 2029]);
     token = await seedRouteUser(c.fx, 'pair');
     bankA = c.fx.bankAccountId;
     bankB = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,

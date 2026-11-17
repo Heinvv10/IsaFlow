@@ -62,7 +62,7 @@ const journal = async (date: string, dr: string, cr: string, amount: number, sou
 describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedDateFixture('STALE', DATABASE_URL!);
+    c = await seedDateFixture('STALE', DATABASE_URL!, [2027, 2028]);
     token = await seedRouteUser(c.fx, 'stale');
     bankA = c.fx.bankAccountId;
     const mk = async (code: string, name: string) => String(((await sql`INSERT INTO gl_accounts (company_id,

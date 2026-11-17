@@ -250,6 +250,8 @@ export interface BankTransactionAllocationState {
    * 200 round trips to ask what it already selected.
    */
   amount: number;
+  /** The statement date the allocation's journal is dated on (YYYY-MM-DD). */
+  transactionDate: string;
 }
 
 /**
@@ -276,7 +278,7 @@ export async function findBankTransactionAllocationStates(
   if (ids.length === 0) return byId;
 
   const rows = (await sql`
-    SELECT id, status, matched_journal_line_id, amount, feed_state
+    SELECT id, status, matched_journal_line_id, amount, feed_state, transaction_date
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
   `) as DbRow[];
@@ -292,6 +294,7 @@ export async function findBankTransactionAllocationStates(
           : String(row.matched_journal_line_id),
       amount: Number(row.amount ?? 0),
       feedState: feedStateOf(row),
+      transactionDate: fmtDate(row.transaction_date as string | Date),
     });
   }
   return byId;
