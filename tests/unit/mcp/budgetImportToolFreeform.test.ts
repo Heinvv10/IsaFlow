@@ -6,6 +6,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ExcelJS from 'exceljs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: vi.fn(async (_n: string, cb: () => unknown) => cb()) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -103,7 +105,7 @@ describe('review round 3: the sheet read, and what it must not read silently', (
       for (const r of sh.rows) ws.addRow(r);
       sh.edit?.(ws);
     }
-    // Excel opens a workbook on a visible sheet: the first visible one here (round 4 refuses any other).
+    // Excel opens a workbook on a visible sheet: the first visible one here (round 7 reads whichever it opens on).
     wb.views = [{ x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: Math.max(0, sheets.findIndex((sh) => (sh.state ?? 'visible') === 'visible')), visibility: 'visible' }];
     return Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');
   }
@@ -158,5 +160,40 @@ describe('review round 3: the sheet read, and what it must not read silently', (
   it('rows skipped (no code, totals, headings with no amounts) are listed by the dry run, and do not refuse the import', async () => {
     const out = json(await dry(await book({ name: 'Budget', rows: [['Code', ...MONTHS], ['Expenses'], ['6000', null, 250], ['Total', null, 250]] })));
     expect(out).toMatchObject({ ready: true, skipped_rows: [{ row: 2, reason: 'not an account, and no amounts (a heading?)' }, { row: 4, reason: 'a total row', amounts: { '2026-04': '250.00' } }], skipped_count: 2 });
+  });
+});
+
+describe('review round 7: LibreOffice files, the open sheet, and cells rounded to what they show', () => {
+  const fixture = (name: string) => readFileSync(join(__dirname, '../../fixtures/budgets/freeform', `${name}.xlsx`)).toString('base64');
+  const dry = async (file: string) => json(await tool.handler({ ...KEY, file_base64: file, version_token: TOKEN, dry_run: true }, ctx()));
+
+  it('a workbook saved open on its second sheet imports that sheet, and the reply names it', async () => {
+    vi.mocked(loadGridReadModel).mockResolvedValue(model({ cells: [{ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 50, source: 'manual' }] }));
+    const out = await dry(fixture('active-sheet-en-za'));
+    expect(out).toMatchObject({ ready: true, sheet: 'free-form', sheet_name: 'Budget', rounded_cells: [], rounded_count: 0, import_counts: { changed: 1, unchanged: 11 } });
+    expect((out.cells as Array<{ account: string; month: string; status: string }>).map((c) => `${c.account}:${c.month}:${c.status}`)).toEqual(['6000:2026-03:changed']);
+  });
+
+  it('cells under a 2-decimal format are imported as shown and listed (the first 20, and the count)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Plan');
+    ws.addRow(['Code', ...MONTHS]);
+    for (const [i, code] of ['4000', '6000', '7100'].entries()) {
+      const r = ws.addRow([code]);
+      MONTHS.forEach((_m, j) => {
+        const c = r.getCell(j + 2);
+        const n = [1000, 2000, 4000][i]!;
+        c.value = { formula: `${n}/3`, result: n / 3 } as ExcelJS.CellFormulaValue;
+        c.numFmt = '#,##0.00';
+      });
+    }
+    const out = await dry(Buffer.from(await wb.xlsx.writeBuffer()).toString('base64'));
+    expect(out).toMatchObject({ ready: true, rounded_count: 36 });
+    const listed = out.rounded_cells as Array<Record<string, unknown>>;
+    expect(listed).toHaveLength(20);
+    expect(listed[0]).toEqual({ sheet: 'Plan', row: 2, column: 'B', value: 1000 / 3, imported: '333.33' });
+    expect(listed[19]).toEqual({ sheet: 'Plan', row: 3, column: 'I', value: 2000 / 3, imported: '666.67' });
+    const amounts = (out.cells as Array<{ account: string; month: string; after: string }>).filter((c) => c.month === '2026-03').map((c) => [c.account, c.after]);
+    expect(amounts).toEqual([['4000', '333.33'], ['6000', '666.67'], ['7100', '1333.33']]);
   });
 });
