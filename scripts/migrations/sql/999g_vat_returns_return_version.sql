@@ -35,9 +35,14 @@
 --   tax_return_versions  the old code inserts versions with gen_random_uuid ids: the new unique index on
 --           (company_id, id, period_start, period_end) cannot fire for a fresh id. It never deletes one (969's trigger).
 --
--- LOCKS. ADD COLUMN without a default is catalogue-only. The index builds take SHARE on their tables and the FK SHARE
--- ROW EXCLUSIVE on both; DROP CONSTRAINT takes ACCESS EXCLUSIVE on vat_returns briefly. Small tables (dev: 24 VAT201
--- versions, 18 settlements), bounded by lock_timeout.
+-- LOCKS. Every lock below is held until this file's transaction commits, not only for its statement.
+--   vat_returns          ACCESS EXCLUSIVE from the first statement (ADD COLUMN; DROP CONSTRAINT takes it again): no
+--                        read or write of vat_returns proceeds until commit.
+--   tax_return_versions  SHARE (the unique index build) + SHARE ROW EXCLUSIVE (the FK): reads proceed, every write
+--                        (finalise, file, amend) waits until commit.
+-- The backfill and VALIDATE run under those locks. Timed on a throwaway PG16 cluster with 240,000 settlements, each
+-- with a version (the PR body has the figure); real tables are small (dev: 24 VAT201 versions, 18 settlements).
+-- lock_timeout bounds the wait to acquire them, statement_timeout each statement.
 --
 -- Rollback: ALTER TABLE vat_returns DROP CONSTRAINT IF EXISTS vat_returns_return_version_fk;
 --           (only while no period holds two rows) ALTER TABLE vat_returns
