@@ -69,11 +69,14 @@ const SOURCES: readonly Source[] = [
       + ` AND sb.company_id = ${bt}.company_id AND sb.status = 'processed'`
       + ` JOIN supplier_payments p ON p.batch_id = sb.id AND p.company_id = ${bt}.company_id` },
   { ...SUPPLIER,
-    // No matched-line condition: should a provisional line ever also be matched (to its own provisional leg), it keeps
-    // its evidence; the other sources cannot reach this payment (it carries the reclass journal), so nothing doubles.
-    leg: (bt) => `bl.journal_entry_id = ${bt}.provisional_je_id`,
+    // The line is unmatched, or matched to this very provisional leg (it keeps its evidence; the other sources cannot
+    // reach this payment, which carries the reclass journal, so nothing doubles). A line matched to some OTHER journal
+    // does not pick up the provisional's bills. The settling payment names the line it settled (`reference`, written by
+    // ap/provisionalInvoiceSettlement from the claim's bank line), so a second line pointing at the same provisional
+    // does not claim them either.
+    leg: (bt) => `bl.journal_entry_id = ${bt}.provisional_je_id AND COALESCE(${bt}.matched_journal_line_id, bl.id) = bl.id`,
     payment: (bt) => ` JOIN supplier_payments p ON p.settles_provisional_je_id = bl.journal_entry_id`
-      + ` AND p.company_id = ${bt}.company_id` },
+      + ` AND p.company_id = ${bt}.company_id AND p.reference = ${bt}.id::text` },
   { payments: 'customer_payments', allocations: 'customer_payment_allocations', invoices: 'customer_invoices', inv: 'ci',
     invoiceType: 'customer_invoice', creditType: 'customer', paymentKind: 'customer_payment',
     liveStatuses: ['confirmed', 'reconciled'], direction: '>', leg: MATCHED_LEG,

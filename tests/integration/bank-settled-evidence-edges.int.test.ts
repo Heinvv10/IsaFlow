@@ -171,8 +171,19 @@ describeIfDb('bank line settled evidence: edges', () => {
       [reclass, co, '2026-11-02', user, 'posted']);
     await q(`UPDATE bank_transactions SET provisional_je_id=$1, matched_journal_line_id=NULL, status='matched' WHERE id=$2`, [l.je, l.id]);
     const p = await pay(reclass, 'PRVP', 300);
-    await q('UPDATE supplier_payments SET settles_provisional_je_id=$1 WHERE id=$2', [l.je, p]); await alloc(p, b, 300);
+    // as ap/provisionalInvoiceSettlement writes it: the settled provisional, and the bank line it settled as reference
+    await q('UPDATE supplier_payments SET settles_provisional_je_id=$1, reference=$3 WHERE id=$2', [l.je, p, l.id]);
+    await alloc(p, b, 300);
     const d = uuid(); await doc(d, b, 'prv.pdf');
+    // a SECOND line pointing at the same provisional does not claim its bills (breaker P3)
+    const other = await line(-300);
+    await q('UPDATE bank_transactions SET provisional_je_id=$1, matched_journal_line_id=NULL WHERE id=$2', [l.je, other.id]);
+    expect(await listSettledDocuments(co, other.id)).toEqual([]);
+    // a line matched to its OWN journal that also carries this provisional id shows only its own payment's bill (Q1)
+    const own = await line(-120); const bOwn = await bill('PRV-OWN', 120); const pOwn = await pay(own.je, 'PRVOWN', 120);
+    await alloc(pOwn, bOwn, 120); const dOwn = uuid(); await doc(dOwn, bOwn, 'prv-own.pdf');
+    await q('UPDATE bank_transactions SET provisional_je_id=$1 WHERE id=$2', [l.je, own.id]);
+    expect((await listSettledDocuments(co, own.id)).map((r) => r.documentId)).toEqual([dOwn]);
     expect((await listSettledDocuments(co, l.id)).map((r) => r.documentId)).toEqual([d]);
     // matched later to its own provisional leg: keeps its evidence, counted once (no other source reaches this payment)
     await q('UPDATE bank_transactions SET matched_journal_line_id=$1 WHERE id=$2', [l.leg, l.id]);
