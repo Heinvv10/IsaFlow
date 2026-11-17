@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
+import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listRunNonCashBenefits } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
@@ -94,10 +95,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   // A run left out as not final is named, as the e@syFile export names its warnings (wave 6 EF).
   const runWarnings = await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501');
-  if (runWarnings.length > 0) res.setHeader('X-IsaFlow-Warnings', encodeURIComponent(JSON.stringify(runWarnings)));
+  const header = emp501WarningsHeader(runWarnings);
+  if (header) res.setHeader('X-IsaFlow-Warnings', header);
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.status(200).send(csv);
+}
+
+/** The warnings header: capped as the e@syFile export caps its own (a byte budget and an "… and N more" line). */
+export function emp501WarningsHeader(warnings: readonly string[]): string | null {
+  return warnings.length > 0 ? encodeURIComponent(JSON.stringify(capWarningsForHeader(warnings))) : null;
 }
 
 export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
