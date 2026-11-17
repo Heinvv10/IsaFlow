@@ -9,6 +9,8 @@
  *    plain send says ALREADY_SENT;
  *  - D-A1: a server refusing everything, 21 slips, the default batch of 20: the 21st is tried in the second request,
  *    and the third has nothing left;
+ *  - E-A1: only the batch's employee rows are locked: another employee of the run can be edited mid-send;
+ *  - E-I1: the claim row exists while the mail is being handed over;
  *  - B3: the deliveries GET is tenant-scoped;
  *  - D-S4: a slip once delivered stays ALREADY_SENT after a later failed resend: a manager naming the employee
  *    does not mail it again.
@@ -19,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { EmailOptions } from '@/modules/accounting/services/core/emailService';
 import { rig } from './brkr.helpers';
 import {
-  approvedRun, captured, cleanup, deliveries, enablePlatform, failNext, listDeliveries, person, putSetting, send, setDuring, type R,
+  approvedRun, captured, cleanup, deliveries, enablePlatform, failNext, listDeliveries, person, putSetting, send, sendVariant, setDuring, type R,
 } from './pe-payslip-email.helpers';
 
 let a: R;
@@ -69,7 +71,13 @@ describe('payslip email, review delta round', () => {
     const run = await approvedRun(a, 7);
     const url = process.env.DATABASE_URL;
     // During the send, point new connections (the outcome's own transaction) at nothing.
-    setDuring(async () => { process.env.DATABASE_URL = 'postgresql://postgres@127.0.0.1:1/none?sslmode=disable'; });
+    let claimedDuringSend: unknown[] = [];
+    setDuring(async () => {
+      // E-I1: the claim is already committed while the mail is being handed over.
+      claimedDuringSend = (await a.pool.query(
+        'SELECT status FROM payslip_deliveries WHERE company_id = $1 AND run_id = $2 AND employee_id = $3 AND claim', [a.company, run, victim])).rows;
+      process.env.DATABASE_URL = 'postgresql://postgres@127.0.0.1:1/none?sslmode=disable';
+    });
     let first;
     try {
       first = await send(a, run, { body: { employeeIds: [victim] } });
@@ -78,6 +86,7 @@ describe('payslip email, review delta round', () => {
       process.env.DATABASE_URL = url;
     }
     expect(first.statusCode, JSON.stringify(first.body)).toBe(200);
+    expect(claimedDuringSend).toEqual([{ status: 'unknown' }]);
     expect(first.body.data!.uncertain.map((u: { employeeId: string }) => u.employeeId)).toEqual([victim]);
     expect(sentTo('b1-out@example.invalid')).toBe(1);
     const claims = (await deliveries(a, { claims: true })).filter((d) => d.employee_id === victim);
@@ -137,6 +146,36 @@ describe('payslip email, review delta round', () => {
     expect(plain.body.data!.skipped.map((s: { reason: string }) => s.reason)).toEqual(['ALREADY_SENT']);
     expect(sentTo('ds4@example.invalid')).toBe(1);
   });
+
+  it('E-A1: only the batch is locked: another employee of the run can be edited during a send', async () => {
+    const run = await approvedRun(a, 11);
+    const all = (await a.pool.query(
+      'SELECT l.employee_id, e.email FROM payroll_run_lines l JOIN payroll_employees e ON e.id = l.employee_id WHERE l.run_id = $1', [run])).rows;
+    let edited = '';
+    setDuring(async (o) => {
+      const other = all.find((x) => x.email !== o.to)!;
+      const c = await a.pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query("SET LOCAL lock_timeout = '1s'");
+        await c.query("UPDATE payroll_employees SET occupation = 'Edited mid-send' WHERE id = $1", [other.employee_id]);
+        await c.query('ROLLBACK');
+        edited = 'not blocked';
+      } catch (err) {
+        edited = err instanceof Error ? err.message : String(err);
+        await c.query('ROLLBACK');
+      } finally {
+        c.release();
+      }
+    });
+    try {
+      const res = await sendVariant(a, run, { limits: { maxSends: 1, budgetMs: 60_000 } });
+      expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    } finally {
+      setDuring(null);
+    }
+    expect(edited).toBe('not blocked');
+  }, 30_000);
 
   it('B3: the deliveries GET is tenant-scoped', async () => {
     const run = (await a.pool.query('SELECT DISTINCT run_id FROM payslip_deliveries WHERE company_id = $1 LIMIT 1', [a.company])).rows[0]!.run_id;

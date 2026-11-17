@@ -23,8 +23,10 @@ export const WEAK_PROTECTION = 'Each PDF is protected with the employee\'s ID nu
 const SKIP_LABEL: Record<string, string> = {
   NO_EMAIL: 'no email address on file', NO_ID_OR_PASSPORT: 'no ID or passport number to protect the PDF with',
   ALREADY_SENT: 'already sent (or may have been) for this approval',
-  LAST_SEND_FAILED: 'the last send failed; check the address, then use Send again',
+  LAST_SEND_FAILED: 'the last send failed; check the address, then use Try again',
 };
+/** The server's batch (SEND_LIMITS.maxSends): a retry names at most this many employees per request. */
+const RETRY_BATCH = 20;
 /** A send loop stops after this many requests whatever the server says, so a fault can never spin. */
 const MAX_ROUNDS = 50;
 
@@ -94,6 +96,13 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
     }
   }
 
+  /** A plain send naming failed employees (no resend: nothing went out), a batch at a time (review #1542 E-S1). */
+  async function retry(employeeIds: string[]): Promise<void> {
+    for (let i = 0; i < employeeIds.length; i += RETRY_BATCH) {
+      await post({ employeeIds: employeeIds.slice(i, i + RETRY_BATCH) });
+    }
+  }
+
   if (!state && !error) return null;
   return (
     <section aria-labelledby="payslip-email-heading" data-testid="payslip-email-card"
@@ -133,7 +142,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
           ))}
           {outcome.uncertain.map((u) => (
             <p key={`u-${u.employeeId}`} className="text-amber-700 dark:text-amber-400">
-              May have been sent to {u.employeeName} ({u.employeeNumber}): the mail server did not confirm. It is not sent again unless you choose Send again.
+              May have been sent to {u.employeeName} ({u.employeeNumber}): the mail server did not confirm. It is not sent again unless an owner or admin chooses Send again.
             </p>
           ))}
           {outcome.skipped.map((s) => (
@@ -148,6 +157,7 @@ export function PayslipEmailCard({ runId, companyRole }: { runId: string; compan
       )}
       {state?.platformEnabled && state.enabled && (
         <PayslipEmailDeliveries deliveries={deliveries} canResend={canSet} busy={busy}
+          onRetry={(employeeIds) => void retry(employeeIds)}
           onResend={(employeeId) => void post({ employeeIds: [employeeId], resend: true })} />
       )}
       <Modal open={confirming} onClose={() => setConfirming(false)} title="Email payslips?" size="sm">

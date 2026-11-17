@@ -16,12 +16,14 @@
  * a request must finish well inside the proxy's 60 s); the rest are `remaining`, and the caller asks again. Each
  * send is bracketed by rows committed on their own (payslipDeliveryRecord, S3/D-S1): a claim ('unknown', "may have
  * been sent") BEFORE the mail leaves, then its outcome; whatever fails after the claim, a plain send never mails the
- * slip again. The slips' employee rows are share-locked for the request (D-A2), so an address cannot change mid-send.
+ * slip again. The batch's employee rows (at most maxSends) are share-locked for the request (D-A2, E-A1), so an
+ * address cannot change mid-send; the rest of the run's employees are read without a lock.
  *
  * A slip sent to an address other than the one that employee's last payslip went to is NAMED (`addressChanged`).
  * Idempotent per (run, employee, approval): a reopen and re-approval is another document, so it may be sent again.
- * LOCKS: the run's advisory lock (payslip_email:<run>), its header FOR SHARE, then the slips' employee rows FOR SHARE,
- * each in withBoundedLockWait (5 s; a leaf, payrollRunLock.ts LOCK ORDER) and held to the end of the request. A second send of the same run, or a
+ * LOCKS: the run's advisory lock (payslip_email:<run>), its header FOR SHARE, then the batch's employee rows FOR SHARE,
+ * each in withBoundedLockWait (5 s; a deadlock is the same retryable refusal, E-A2; a leaf, payrollRunLock.ts LOCK
+ * ORDER) and held to the end of the request. A second send of the same run, or a
  * reopen, arriving meanwhile is refused after 5 s (ROW_LOCK_TIMEOUT, a retry), not queued behind the sends.
  */
 import { sql } from '@/lib/neon';
@@ -30,6 +32,7 @@ import { log } from '@/lib/logger';
 import type { EmailOptions, EmailResult } from '@/modules/accounting/services/core/emailService';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { withBoundedLockWait } from './payrollRunLock';
+import { PayrollLoanLockTimeoutError } from './payrollLoanLock';
 import { getPayslips, PayslipNotFound, type PayslipRun } from './payslipModel';
 import { payslipEmailMessage, payslipPassword, renderEmailPayslip } from './payslipEmailPdf';
 import { PayslipEmailRefusal } from './payslipDeliveryRefusal';
@@ -81,20 +84,41 @@ async function readSlips(companyId: string, runId: string, employeeIds?: string[
 
 
 
-/**
- * The slips' employees, share-locked to the end of the request (review #1542 D-A2/D-S2): an address change (or an
- * employee PATCH) waits until the sends and their records are done, so the address a slip goes to is the address
- * its record names (the 999o trigger checks it). The records' FK checks take KEY SHARE, which a share lock lets
- * through. Bounded like the run lock: a row already held is a retryable refusal before anything is sent.
- */
-async function recipients(companyId: string, runId: string, ids: string[]): Promise<Map<string, Recipient>> {
-  const rows = await withBoundedLockWait(runId, async (tx) => (await tx`
+/** The slips' employees, read without a lock: for judging only (review #1542 E-A1). */
+async function recipients(companyId: string, ids: string[]): Promise<Map<string, Recipient>> {
+  const rows = (await sql`
     SELECT id::text AS id, email, id_number, passport_number FROM payroll_employees
      WHERE company_id = ${companyId}::uuid AND id::text = ANY(${ids}::text[])
-     ORDER BY id
-       FOR SHARE
-  `) as Recipient[]);
+  `) as Recipient[];
   return new Map(rows.map((r) => [r.id, r]));
+}
+
+/**
+ * A deadlock in a lock step (40P01: say a bulk employee UPDATE taking the same rows in another order) is the same
+ * retryable refusal as a lock timeout, never a 500 (review #1542 E-A2). Anything else is rethrown as is.
+ */
+export function retryableLockFailure(err: unknown, runId: string): unknown {
+  return (err as { code?: unknown } | null)?.code === '40P01' ? new PayrollLoanLockTimeoutError(runId) : err;
+}
+
+/**
+ * Only the employees this request is about to send to (at most a batch), share-locked to the end of the request, in
+ * id order, bounded at 5 s (review #1542 D-A2, E-A1): an address change waits until their sends and records are done,
+ * so the address a slip goes to is the address its record names (the 999o trigger checks it). The records' FK checks
+ * take KEY SHARE, which a share lock lets through. Re-read under the lock: the send uses these values.
+ */
+async function lockBatch(companyId: string, runId: string, ids: string[]): Promise<Map<string, Recipient>> {
+  try {
+    const rows = await withBoundedLockWait(runId, async (tx) => (await tx`
+      SELECT id::text AS id, email, id_number, passport_number FROM payroll_employees
+       WHERE company_id = ${companyId}::uuid AND id::text = ANY(${ids}::text[])
+       ORDER BY id
+         FOR SHARE
+    `) as Recipient[]);
+    return new Map(rows.map((r) => [r.id, r]));
+  } catch (err) {
+    throw retryableLockFailure(err, runId);
+  }
 }
 
 
@@ -136,13 +160,13 @@ export async function sendPayslipEmails(opts: {
       'This run was approved before payslip details were kept at approval, so its payslips show details as at download. Download them instead.');
   }
   const approvedAt = new Date(header.final_at as string | Date);
-  const people = await recipients(companyId, runId, run.payslips.map((p) => p.employeeId));
+  const people = await recipients(companyId, run.payslips.map((p) => p.employeeId));
   const states = resend ? new Map<string, AttemptState>() : await attemptStates(companyId, runId);
   // A whole-run send leaves out a slip whose last try failed (D-I1); naming the employee is the retry.
   const wholeRun = opts.employeeIds === undefined;
 
   const out: PayslipEmailOutcome = { sent: [], failed: [], uncertain: [], skipped: [], remaining: 0 };
-  const queue: Array<{ slip: PayslipRun['payslips'][number]; email: string; password: NonNullable<ReturnType<typeof payslipPassword>> }> = [];
+  const queue: Array<{ slip: PayslipRun['payslips'][number] }> = [];
   for (const slip of run.payslips) {
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
     const p = people.get(slip.employeeId);
@@ -151,7 +175,7 @@ export async function sendPayslipEmails(opts: {
     else if (!password) out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' });
     else if (states.get(slip.employeeId)?.delivered) out.skipped.push({ ...who, reason: 'ALREADY_SENT' });
     else if (wholeRun && states.get(slip.employeeId)?.lastFailed) out.skipped.push({ ...who, reason: 'LAST_SEND_FAILED' });
-    else queue.push({ slip, email: p.email, password });
+    else queue.push({ slip });
   }
   if (queue.length === 0) return out;
   const batch = queue.slice(0, limits.maxSends);
@@ -159,12 +183,19 @@ export async function sendPayslipEmails(opts: {
     throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
   }
 
+  const locked = await lockBatch(companyId, runId, batch.map((q) => q.slip.employeeId));
   const previous = await lastSentTo(companyId, batch.map((q) => q.slip.employeeId));
   let attempted = 0;
-  for (const { slip, email, password } of batch) {
+  for (const { slip } of batch) {
     if (attempted > 0 && Date.now() - started > limits.budgetMs) break;
     attempted += 1;
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
+    // As locked: an address or ID changed since the unlocked read is the one used, or the slip is skipped.
+    const now = locked.get(slip.employeeId);
+    const password = now ? payslipPassword({ idNumber: now.id_number, passportNumber: now.passport_number }) : null;
+    if (!now?.email) { out.skipped.push({ ...who, reason: 'NO_EMAIL' }); continue; }
+    if (!password) { out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' }); continue; }
+    const email = now.email;
     const { filename, pdf, sha256 } = await renderEmailPayslip(run, slip, password.password, approvedAt);
     const message = payslipEmailMessage(run, slip, password.source);
     const record = { companyId, runId, employeeId: slip.employeeId, email, subject: message.subject, sha256, resend, actor };
