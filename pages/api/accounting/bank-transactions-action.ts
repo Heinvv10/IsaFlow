@@ -197,7 +197,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { accepted });
       }
       case 'update_notes': {
-        await updateBankTxNotes(companyId, body.bankTransactionId, body.notes, userId);
+        const updated = await updateBankTxNotes(companyId, body.bankTransactionId, body.notes, userId);
+        if (!updated) return apiResponse.notFound(res, 'Bank transaction', body.bankTransactionId);
         return apiResponse.success(res, { updated: true });
       }
       case 'save_selection': {

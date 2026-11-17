@@ -60,7 +60,7 @@ export async function createExternalImport(
     VALUES
       (${companyId}::uuid, ${input.periodMonth}, ${input.periodYear},
        ${input.source}, ${input.fileName}, ${input.rows.length},
-       ${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy}::uuid)
+       ${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})
     RETURNING *
   `) as DbRow[];
   const header = headerRows[0];

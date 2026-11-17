@@ -22,14 +22,14 @@ export function bankTxScopeWhere(companyId: string, filters?: BankTxFilters) {
           AND bt.company_id = ${companyId}::UUID
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
           ${sql.unsafe(alloc)}`;
   }
   const statusFilter = filters?.status ?? null;
   return sql`bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
           AND bt.feed_state <> 'removed'
-          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}`;
 }

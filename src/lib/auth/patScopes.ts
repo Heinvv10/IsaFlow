@@ -17,6 +17,7 @@ export const PAT_SCOPES = [
   'read:vat',
   'write:vat',
   'write:company',
+  'write:budgets',
   'read:practice',
   'write:practice',
   'read:payroll',

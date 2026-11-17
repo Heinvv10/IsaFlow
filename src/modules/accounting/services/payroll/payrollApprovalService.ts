@@ -146,7 +146,7 @@ export async function approvePayrollRun(
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
     SET status      = 'approved',
-        approved_by = ${approvedBy}::uuid,
+        approved_by = ${approvedBy},
         approved_at = clock_timestamp(),
         lines_confirmed_at = clock_timestamp(),
         approved_plan_hash = ${gate.planHash},
