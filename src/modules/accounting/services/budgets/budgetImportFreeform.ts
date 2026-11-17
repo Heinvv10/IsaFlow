@@ -131,6 +131,10 @@ function amountCell(month: string, c: FreeCell | null | undefined): Amount {
   }
   if (c.kind === 'text') return { month, cell: amountOf(c.text) };
   if (Math.abs(c.value * 100 - Math.round(c.value * 100)) >= 1e-6) return { month, cell: { kind: 'error', raw: String(c.value), reason: NOT_CENTS } };
+  const scale = 10 ** Math.min(c.decimals, 2); // the format shows fewer places than the cell holds: shown is not imported
+  if (Math.abs(c.value * scale - Math.round(c.value * scale)) >= 1e-6) {
+    return { month, cell: { kind: 'error', raw: String(c.value), reason: `This cell shows ${c.decimals} decimal place${c.decimals === 1 ? '' : 's'} but holds ${c.value}, so what you see is not what would be imported; format it with 2 decimals.` } };
+  }
   return { month, cell: amountOf(c.value) };
 }
 

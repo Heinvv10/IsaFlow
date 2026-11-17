@@ -105,7 +105,7 @@ describe('rule 5: sheet names compared after NFKC, zero-width and space strippin
 describe('rule 4: a money cell\'s number format must be General or a plain number / currency / accounting format', () => {
   const FORMATS: Array<[string, number, string | undefined, boolean]> = [
     ['General', 0, undefined, true], ['#,##0.00 (built-in 4)', 4, undefined, true], ['$ accounting (built-in 44; round 5)', 44, undefined, false],
-    ['rand with a red negative, quoted (round 5: no literals)', 164, '"R" #,##0.00;[Red]-"R" #,##0.00', false], ['ZA accounting, with literals (round 5)', 165, '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@_-', false],
+    ['rand with a red negative, quoted (round 5: no literals)', 164, '"R" #,##0.00;[Red]-"R" #,##0.00', false], ['ZA accounting, with literals (allowlisted since: Excel\'s en-ZA built-in 43)', 165, '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@_-', true],
     ['[$R-1C09]', 166, '[$R-1C09]#,##0.00', true],
     ['bbbb (Buddhist year)', 167, 'bbbb', false], ['aaa (Japanese weekday)', 168, 'aaa', false], ['built-in 27 (CJK date)', 27, undefined, false],
     ['built-in 36', 36, undefined, false], ['built-in 50', 50, undefined, false], ['built-in 58', 58, undefined, false], ['built-in 14 (date)', 14, undefined, false],

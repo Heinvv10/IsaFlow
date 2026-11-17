@@ -119,12 +119,18 @@ describe('6, 7: formats (text amounts too), the tightened allowlist', () => {
   const CASES: Array<[string, number, string | undefined, boolean]> = [
     ['"$"#,##0.00', 164, '"$"#,##0.00', false], ['\\€#,##0.00', 165, '\\€#,##0.00', false], ['built-in 5 ($ currency)', 5, undefined, false],
     ['#,##0, (scaling comma)', 166, '#,##0,', false], [',"1"0', 167, ',"1"0', false], ['0;-0;"9000"', 168, '0;-0;"9000"', false],
-    ['"R" #,##0.00 (a quoted R)', 169, '"R" #,##0.00', false], ['[<1000]0;0.00 (a condition)', 170, '[<1000]0;0.00', false], ['0;0 (a negative shown unsigned)', 171, '0;0', false],
+    ['"R" #,##0.00 (a quoted R: allowlisted since, the Excel en-ZA currency)', 169, '"R" #,##0.00', true], ['[<1000]0;0.00 (a condition)', 170, '[<1000]0;0.00', false], ['0;0 (a negative shown unsigned)', 171, '0;0', false],
     ['built-in 42 ($ accounting)', 42, undefined, false], ['built-in 44 ($ accounting)', 44, undefined, false],
-    ['built-in 41 (accounting, no currency)', 41, undefined, true], ['built-in 43', 43, undefined, true], ['built-in 3', 3, undefined, true], ['built-in 40', 40, undefined, true],
+    ['built-in 43', 43, undefined, true], ['built-in 40', 40, undefined, true],
     ['R #,##0.00 (a bare R)', 172, 'R #,##0.00', true], ['[$R-1C09] #,##0.00;[Red]-[$R-1C09] #,##0.00', 173, '[$R-1C09] #,##0.00;[Red]-[$R-1C09] #,##0.00', true],
     ['R alone (no digit placeholder: the amount is not shown)', 176, 'R', false], ['#,##0.00;(#,##0.00)', 174, '#,##0.00;(#,##0.00)', true], ['_-* #,##0.00_-;-* #,##0.00_-', 175, '_-* #,##0.00_-;-* #,##0.00_-', true],
   ];
+  it.each([['built-in 41 (accounting, no currency, no decimals)', 41], ['built-in 3 (#,##0)', 3]])('%s: accepted for whole rands, refused for 12.5 (it would show 13)', async (_n, id) => {
+    const styles = stylesWith([0, id]);
+    expect(await firstAmount({ n: 12, s: 1 }, { styles })).toEqual({ kind: 'value', cents: 1200 });
+    expect(await firstAmount({ n: 12.5, s: 1 }, { styles })).toMatchObject({ kind: 'error', reason: expect.stringMatching(/^This cell shows 0 decimal places but holds 12.5/) });
+  });
+
   it.each(CASES)('%s', async (_n, id, code, plain) => {
     const cell = await firstAmount({ n: 12.5, s: 1 }, { styles: stylesWith([0, id], code === undefined ? {} : { [id]: code }) });
     expect(cell).toEqual(plain ? { kind: 'value', cents: 1250 } : { kind: 'error', raw: '12.5', reason: expect.stringMatching(/^This cell's number format/) });

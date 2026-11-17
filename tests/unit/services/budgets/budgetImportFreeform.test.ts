@@ -19,7 +19,7 @@ import type { GridReadModel } from '@/modules/accounting/services/budgets/gridRe
 import { CC1, MONTHS, RENT, SALES, TOKEN, model } from '../../mcp/budgetToolsFixture';
 
 /** A cell as the raw-XML reader gives it: text, a General-formatted number, or empty. */
-const cellOf = (c: RawCell): FreeCell | null => (c === null ? null : typeof c === 'number' ? { kind: 'number', value: c, format: 'General', plain: true }
+const cellOf = (c: RawCell): FreeCell | null => (c === null ? null : typeof c === 'number' ? { kind: 'number', value: c, format: 'General', plain: true, decimals: Infinity }
   : typeof c === 'string' ? { kind: 'text', text: c, format: 'General', plain: true } : { kind: 'bad', what: c.error });
 const rowsOf = (rows: Array<{ row: number; cells: RawCell[] }>): FreeRow[] => rows.map((r) => ({ row: r.row, cells: r.cells.map(cellOf) }));
 const sheet = (...rows: RawCell[][]): FreeformSheet => ({ name: 'Plan', rows: rowsOf(rows.map((cells, i) => ({ row: i + 1, cells }))) });

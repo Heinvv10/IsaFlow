@@ -8,12 +8,13 @@
 import { SpreadsheetTooLargeError } from '@/lib/xlsxToCsv';
 import { inputError } from './gridErrors';
 import { clip } from './budgetImportParse';
-import { isPlainNumberFormat, misplaced, parseXml, truthy, type FormatOf } from './budgetFreeformXml';
+import { misplaced, parseXml, truthy, type FormatOf } from './budgetFreeformXml';
+import { formatDecimals } from './budgetFreeformFormats';
 
 /** A cell as read: text, a number with its format (plain = General or a plain number format), or something that is neither. */
 export type FreeCell =
   | { kind: 'text'; text: string; format: string; plain: boolean }
-  | { kind: 'number'; value: number; format: string; plain: boolean }
+  | { kind: 'number'; value: number; format: string; plain: boolean; decimals: number }
   | { kind: 'bad'; what: string };
 
 export interface FreeRow { row: number; cells: Array<FreeCell | null> }
@@ -75,7 +76,7 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
     const count = (t: string) => { text += t.length + 1; if (text > limits.maxOutputBytes) throw new SpreadsheetTooLargeError(`This workbook holds more than ${Math.round(limits.maxOutputBytes / 1024 / 1024)} MB of text. Split the file and send each part.`); return t; };
     const textCell = (t: string): FreeCell => {
       const fmt = formatOfCell(c.s);
-      return { kind: 'text', text: count(t), format: fmt.code ?? `built-in ${fmt.id}`, plain: isPlainNumberFormat(fmt.id, fmt.code) };
+      return { kind: 'text', text: count(t), format: fmt.code ?? `built-in ${fmt.id}`, plain: formatDecimals(fmt.id, fmt.code) !== null };
     };
     switch (c.t) {
       case 's': {
@@ -93,7 +94,8 @@ export function parseSheetXml(part: Buffer, sheetName: string, sst: readonly str
         const value = DECIMAL.test(c.v) ? Number(c.v) : NaN;
         if (!Number.isFinite(value)) return { kind: 'bad', what: BAD.notNumber(c.v) };
         const fmt = formatOfCell(c.s);
-        return { kind: 'number', value, format: fmt.code ?? `built-in ${fmt.id}`, plain: isPlainNumberFormat(fmt.id, fmt.code) };
+        const decimals = formatDecimals(fmt.id, fmt.code);
+        return { kind: 'number', value, format: fmt.code ?? `built-in ${fmt.id}`, plain: decimals !== null, decimals: decimals ?? 0 };
       }
       default: return refuse(`a cell has a type ("${clip(c.t)}") IsaFlow does not read.`);
     }
