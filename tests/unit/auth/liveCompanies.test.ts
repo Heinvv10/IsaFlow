@@ -22,6 +22,7 @@ interface CompanyRow {
   status: string;
   suspended_at: Date | null;
   is_demo?: boolean;
+  logo_data?: string | null;
 }
 interface MembershipRow {
   user_id: string;
@@ -70,6 +71,10 @@ const sqlMock = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]
     role: m.role,
     is_default: m.is_default,
     is_demo: live.find((c) => c.id === m.company_id)!.is_demo ?? false,
+    // Only when the query computes it, so dropping has_logo from the SELECT turns the logo test red.
+    ...(/logo_data IS NOT NULL AND c\.logo_data <> ''/.test(text)
+      ? { has_logo: Boolean(live.find((c) => c.id === m.company_id)!.logo_data) }
+      : {}),
   }));
 });
 
@@ -181,7 +186,7 @@ describe('getUserCompanies — the switcher / landing list', () => {
     companies = [company('live')];
     memberships = [membership('live', { is_default: true, role: 'admin' })];
     expect(await getUserCompanies(USER)).toEqual([
-      { companyId: 'live', companyName: 'Co live', role: 'admin', isDefault: true, isDemo: false },
+      { companyId: 'live', companyName: 'Co live', role: 'admin', isDefault: true, isDemo: false, hasLogo: false },
     ]);
   });
 
@@ -190,5 +195,12 @@ describe('getUserCompanies — the switcher / landing list', () => {
     memberships = [membership('demo'), membership('live', { is_default: true })];
     const list = await getUserCompanies(USER);
     expect(list.map((c) => [c.companyId, c.isDemo])).toEqual([['live', false], ['demo', true]]);
+  });
+
+  it('says which companies have a logo, for the company switcher', async () => {
+    companies = [company('with', { logo_data: 'data:image/png;base64,AAAA' }), company('without', { logo_data: '' })];
+    memberships = [membership('with', { is_default: true }), membership('without')];
+    const list = await getUserCompanies(USER);
+    expect(list.map((c) => [c.companyId, c.hasLogo])).toEqual([['with', true], ['without', false]]);
   });
 });

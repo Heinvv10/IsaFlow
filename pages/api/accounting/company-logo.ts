@@ -1,6 +1,9 @@
 /**
+ * GET  /api/accounting/company-logo?companyId=<uuid>
+ *   The stored logo as image bytes, for any live company the caller belongs to
+ *   (the company switcher shows every membership's logo). 404 when none.
  * POST /api/accounting/company-logo
- * Upload/update company logo as a base64 data URL.
+ *   Upload/update company logo as a base64 data URL.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -12,6 +15,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
 import { decodeUploadPayload, magicBytesMatchMime } from '@/lib/fileMagic';
+import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 type Row = Record<string, unknown>;
 
 // Pentest M14: accept only safe raster formats. Excludes data:image/svg+xml
@@ -34,9 +38,35 @@ const CompanyLogoSchema = z.object({
  * any write is performed — no cross-tenant write is possible.
  * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
  */
+async function getLogo(req: NextApiRequest, res: NextApiResponse) {
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
+  const parsed = UUID.safeParse(req.query.companyId);
+  if (!parsed.success) return apiResponse.badRequest(res, 'companyId must be a UUID');
+  const companyId = parsed.data;
+
+  if (!(await isLiveCompanyForUser(userId, companyId))) {
+    return apiResponse.forbidden(res, 'You do not have access to this company');
+  }
+
+  const rows = (await sql`
+    SELECT logo_data FROM public.companies WHERE id = ${companyId}::UUID
+  `) as Row[];
+  const logoData = rows[0]?.logo_data ? String(rows[0].logo_data) : '';
+  // Only what POST accepts is served: a safe raster type whose bytes match it.
+  const mime = /^data:(image\/(?:jpeg|png|gif|webp));base64,/.exec(logoData)?.[1] ?? '';
+  const bytes = mime ? decodeUploadPayload(logoData) : null;
+  if (!bytes || !magicBytesMatchMime(bytes, mime)) return apiResponse.notFound(res, 'Company logo');
+
+  res.setHeader('Content-Type', mime);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  return res.status(200).send(bytes);
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return getLogo(req, res);
   if (req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+    return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
   }
 
   const userId = (req as AuthenticatedNextApiRequest).user.id;

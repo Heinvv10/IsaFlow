@@ -81,8 +81,19 @@ export function CompanySwitcher() {
                   }}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${ isActive ? 'bg-teal-50 dark:bg-teal-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50' }`}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-                    <Building2 className={`w-4 h-4 ${isActive ? 'text-teal-600' : 'text-gray-500'}`} />
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {isActive && activeCompany.logoData ? (
+                      <img src={activeCompany.logoData} alt="" className="w-full h-full object-contain" />
+                    ) : c.hasLogo ? (
+                      <img
+                        src={`/api/accounting/company-logo?companyId=${encodeURIComponent(c.companyId)}`}
+                        alt=""
+                        loading="lazy"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <Building2 className={`w-4 h-4 ${isActive ? 'text-teal-600' : 'text-gray-500'}`} />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium truncate ${ isActive ? 'text-teal-700 dark:text-teal-400' : 'text-gray-900 dark:text-white' }`}>

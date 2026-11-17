@@ -33,6 +33,8 @@ export interface LiveCompanyMembership {
   isDefault: boolean;
   /** `companies.is_demo`: the seeded sandbox tenant, never matched by name. */
   isDemo: boolean;
+  /** The company has a stored logo. The bytes are served by GET /api/accounting/company-logo. */
+  hasLogo: boolean;
 }
 
 /**
@@ -42,7 +44,8 @@ export interface LiveCompanyMembership {
 export async function listLiveCompanyMemberships(userId: string): Promise<LiveCompanyMembership[]> {
   const rows = (await sql`
     SELECT cu.company_id, c.name AS company_name, cu.role, cu.is_default,
-           COALESCE(c.is_demo, false) AS is_demo
+           COALESCE(c.is_demo, false) AS is_demo,
+           (c.logo_data IS NOT NULL AND c.logo_data <> '') AS has_logo
     FROM public.company_users cu
     JOIN public.companies c ON c.id = cu.company_id
      AND c.is_active = true
@@ -58,6 +61,7 @@ export async function listLiveCompanyMemberships(userId: string): Promise<LiveCo
     role: String(r.role),
     isDefault: Boolean(r.is_default),
     isDemo: r.is_demo === true,
+    hasLogo: r.has_logo === true,
   }));
 }
 
