@@ -14,6 +14,8 @@
 import type { ForecastLine, ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
 import type { StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
 import type { OverrideMode } from '@/modules/accounting/services/cashForecast13/storeTypes';
+import type { OverrideInput } from '@/modules/accounting/services/cashForecast13/storeSchemas';
+import type { z } from 'zod';
 
 export type { OverrideMode };
 export type Direction = 1 | -1;
@@ -39,6 +41,15 @@ export interface OverrideBody {
   targetWeekStart?: string;
   note: string | null;
 }
+
+/**
+ * The body is the route's schema (storeSchemas.OverrideInput): every field of ours is a valid input to it, with
+ * the same field names both ways. A field added, renamed or retyped in the schema fails tsc here.
+ */
+type OverrideWire = z.input<typeof OverrideInput>;
+type SameKeys<A, B> = [Exclude<keyof A, keyof B>, Exclude<keyof B, keyof A>] extends [never, never] ? true : false;
+const overrideBodyMatchesSchema: [OverrideBody extends OverrideWire ? true : false, SameKeys<OverrideBody, OverrideWire>] = [true, true];
+void overrideBodyMatchesSchema;
 
 /** The stored override as the editor reads it (the fields of overridesRepo.StoredOverride it uses). */
 export type ExistingOverride = Pick<StoredOverride, 'id' | 'lineKey' | 'weekStart' | 'mode' | 'amount' | 'targetWeekStart' | 'note'>;
