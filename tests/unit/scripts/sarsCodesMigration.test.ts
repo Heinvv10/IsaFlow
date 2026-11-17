@@ -33,11 +33,11 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
     expect(committed).not.toMatch(/^(DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT)\b/im);
   });
 
-  it('sets the release notes to the BRS version, no longer the legacy-seed note, and guards on them', () => {
+  it('sets the release notes and date from the BRS, no longer the legacy-seed note, and guards on them', () => {
     expect(committed.slice(committed.indexOf('INSERT INTO sars_code_releases'))).not.toMatch(/legacy/i);
-    expect(committed).toContain("(2024, 'v22.1.2', now(), 'SARS PAYE Employer Reconciliation BRS V22.1.2");
-    expect(committed).toContain("(2025, 'v23.0.0', now(), 'SARS PAYE Employer Reconciliation BRS V23.0.0");
-    expect(committed).toMatch(/DO UPDATE SET brs_version = EXCLUDED\.brs_version, notes = EXCLUDED\.notes\s+WHERE \(sars_code_releases\.brs_version, sars_code_releases\.notes\) IS DISTINCT FROM/);
+    expect(committed).toContain("(2024, 'v22.1.2', '2023-08-08 00:00:00+02', 'SARS PAYE Employer Reconciliation BRS V22.1.2");
+    expect(committed).toContain("(2025, 'v23.0.0', '2024-03-08 00:00:00+02', 'SARS PAYE Employer Reconciliation BRS V23.0.0");
+    expect(committed).toMatch(/DO UPDATE SET\s+brs_version = EXCLUDED\.brs_version, released_at = EXCLUDED\.released_at, notes = EXCLUDED\.notes\s+WHERE \(sars_code_releases\.brs_version, sars_code_releases\.released_at, sars_code_releases\.notes\)\s+IS DISTINCT FROM \(EXCLUDED\.brs_version, EXCLUDED\.released_at, EXCLUDED\.notes\)/);
   });
 
   it('corrects 2026 and 2027 descriptions with a description-only UPDATE', () => {
@@ -64,6 +64,7 @@ describe('999m sars_source_codes 2024/2025 migration', () => {
           : d.length < 10 ? 'too short'
           : (d.match(/\(/g) ?? []).length !== (d.match(/\)/g) ?? []).length ? 'unbalanced parentheses'
           : STOP.has(last) || /\bi\.?$/.test(d) ? 'ends mid-phrase'
+          : /\s[b-z]\s/.test(d) ? 'word cut mid-phrase'
           : /^[‘’'"]/.test(d) ? 'stray leading quote'
           : /\b(\w+) \1\b/i.test(d) ? 'repeated word'
           : /^Reimbursive This|Subject to .* i$/.test(d) ? 'column bleed'

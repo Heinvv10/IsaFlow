@@ -20,9 +20,13 @@ export type DescriptionOverrides = Record<string, Record<string, { description: 
 export function loadOverrides(root: string): DescriptionOverrides {
   return JSON.parse(readFileSync(resolve(root, OVERRIDES_FILE), 'utf8')) as DescriptionOverrides;
 }
+/**
+ * released: the BRS release date. Its revision history gives the month (V22.1.2 August 2023, V23.0.0 March 2024) and
+ * the published PDF's CreationDate the day (2023-08-08, 2024-03-08, SAST).
+ */
 export const SARS_MIGRATION_SOURCES = [
-  { year: 2024, brs: 'v22.1.2', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2024-from-BRS.xlsx' },
-  { year: 2025, brs: 'v23.0.0', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2025-from-BRS.xlsx' },
+  { year: 2024, brs: 'v22.1.2', released: '2023-08-08', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2024-from-BRS.xlsx' },
+  { year: 2025, brs: 'v23.0.0', released: '2024-03-08', file: 'scripts/data/sars-codes/IRP5-CODES-FULL-LIST-2025-from-BRS.xlsx' },
 ] as const;
 
 /** Every year whose descriptions the overrides cover; 2026 and 2027 are corrected in place by an UPDATE. */
@@ -72,7 +76,7 @@ export async function buildSarsCodesMigration(root: string): Promise<string> {
     blocks.push(yearBlock(rows.map((r) => (fixes[r.code] ? { ...r, description: fixes[r.code]!.description } : r)), s.year, s.brs));
   }
   const releases = SARS_MIGRATION_SOURCES.map((s) =>
-    `(${s.year}, '${s.brs}', now(), ${lit(`SARS PAYE Employer Reconciliation BRS ${s.brs.toUpperCase()}; full code set loaded by migration 999m`)}, false)`).join(',\n  ');
+    `(${s.year}, '${s.brs}', '${s.released} 00:00:00+02', ${lit(`SARS PAYE Employer Reconciliation BRS ${s.brs.toUpperCase()}; full code set loaded by migration 999m`)}, false)`).join(',\n  ');
   const fixed = QUALITY_CHECK_SOURCES.filter((s) => s.year >= 2026).flatMap((s) =>
     Object.entries(overrides[String(s.year)] ?? {}).sort(([a], [b]) => a.localeCompare(b))
       .map(([code, o]) => `  (${lit(code)}, ${s.year}, ${lit(o.description)})`));
@@ -93,8 +97,10 @@ export async function buildSarsCodesMigration(root: string): Promise<string> {
 ${blocks.join('\n')}
 INSERT INTO sars_code_releases (effective_year, brs_version, released_at, notes, is_current) VALUES
   ${releases}
-ON CONFLICT (effective_year) DO UPDATE SET brs_version = EXCLUDED.brs_version, notes = EXCLUDED.notes
-WHERE (sars_code_releases.brs_version, sars_code_releases.notes) IS DISTINCT FROM (EXCLUDED.brs_version, EXCLUDED.notes);
+ON CONFLICT (effective_year) DO UPDATE SET
+  brs_version = EXCLUDED.brs_version, released_at = EXCLUDED.released_at, notes = EXCLUDED.notes
+WHERE (sars_code_releases.brs_version, sars_code_releases.released_at, sars_code_releases.notes)
+  IS DISTINCT FROM (EXCLUDED.brs_version, EXCLUDED.released_at, EXCLUDED.notes);
 
 -- 2026 and 2027 were loaded with PDF-extraction fragments as descriptions (3835 = 'null', 3809 = 'Taxable', ...).
 -- Correct the description only, from the BRS page recorded per code in ${OVERRIDES_FILE}. A year whose rows are

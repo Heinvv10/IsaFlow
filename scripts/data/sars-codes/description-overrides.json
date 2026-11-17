@@ -1,18 +1,43 @@
 {
  "2024": {
+  "3602": {
+   "brs": "v22.1.2",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 72
+  },
+  "3603": {
+   "brs": "v22.1.2",
+   "description": "Pension (PAYE)",
+   "page": 72
+  },
   "3605": {
    "brs": "v22.1.2",
    "description": "Annual payment (PAYE)",
    "page": 73
+  },
+  "3610": {
+   "brs": "v22.1.2",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 74
   },
   "3611": {
    "brs": "v22.1.2",
    "description": "Purchased annuity (PAYE)",
    "page": 74
   },
+  "3617": {
+   "brs": "v22.1.2",
+   "description": "Labour Brokers (PAYE)",
+   "page": 75
+  },
   "3618": {
    "brs": "v22.1.2",
    "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 75
+  },
+  "3620": {
+   "brs": "v22.1.2",
+   "description": "Directors Fees – RSA Resident NED (IT)",
    "page": 75
   },
   "3621": {
@@ -63,6 +88,11 @@
   "3723": {
    "brs": "v22.1.2",
    "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 82
+  },
+  "3724": {
+   "brs": "v22.1.2",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
    "page": 82
   },
   "3803": {
@@ -177,19 +207,44 @@
   }
  },
  "2025": {
+  "3602": {
+   "brs": "v23.0.0",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 74
+  },
+  "3603": {
+   "brs": "v23.0.0",
+   "description": "Pension (PAYE)",
+   "page": 74
+  },
   "3605": {
    "brs": "v23.0.0",
    "description": "Annual payment (PAYE)",
    "page": 75
+  },
+  "3610": {
+   "brs": "v23.0.0",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 76
   },
   "3611": {
    "brs": "v23.0.0",
    "description": "Purchased annuity (PAYE)",
    "page": 76
   },
+  "3617": {
+   "brs": "v23.0.0",
+   "description": "Labour Brokers (PAYE)",
+   "page": 77
+  },
   "3618": {
    "brs": "v23.0.0",
    "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 77
+  },
+  "3620": {
+   "brs": "v23.0.0",
+   "description": "NED Directors / Audit Committee Member Fees (IT)",
    "page": 77
   },
   "3621": {
@@ -245,6 +300,11 @@
   "3723": {
    "brs": "v23.0.0",
    "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 84
+  },
+  "3724": {
+   "brs": "v23.0.0",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
    "page": 84
   },
   "3803": {
@@ -364,19 +424,44 @@
   }
  },
  "2026": {
+  "3602": {
+   "brs": "v25.2.0",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 81
+  },
+  "3603": {
+   "brs": "v25.2.0",
+   "description": "Pension (PAYE)",
+   "page": 81
+  },
   "3605": {
    "brs": "v25.2.0",
    "description": "Annual payment (PAYE)",
    "page": 82
+  },
+  "3610": {
+   "brs": "v25.2.0",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 83
   },
   "3611": {
    "brs": "v25.2.0",
    "description": "Purchased annuity (PAYE)",
    "page": 83
   },
+  "3617": {
+   "brs": "v25.2.0",
+   "description": "Labour Brokers (PAYE)",
+   "page": 84
+  },
   "3618": {
    "brs": "v25.2.0",
    "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 84
+  },
+  "3620": {
+   "brs": "v25.2.0",
+   "description": "NED Directors / Audit Committee Member Fees (IT)",
    "page": 84
   },
   "3621": {
@@ -432,6 +517,11 @@
   "3723": {
    "brs": "v25.2.0",
    "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 91
+  },
+  "3724": {
+   "brs": "v25.2.0",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
    "page": 91
   },
   "3803": {
@@ -551,19 +641,44 @@
   }
  },
  "2027": {
+  "3602": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 81
+  },
+  "3603": {
+   "brs": "v25.3.0",
+   "description": "Pension (PAYE)",
+   "page": 81
+  },
   "3605": {
    "brs": "v25.3.0",
    "description": "Annual payment (PAYE)",
    "page": 82
+  },
+  "3610": {
+   "brs": "v25.3.0",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 83
   },
   "3611": {
    "brs": "v25.3.0",
    "description": "Purchased annuity (PAYE)",
    "page": 83
   },
+  "3617": {
+   "brs": "v25.3.0",
+   "description": "Labour Brokers (PAYE)",
+   "page": 84
+  },
   "3618": {
    "brs": "v25.3.0",
    "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 84
+  },
+  "3620": {
+   "brs": "v25.3.0",
+   "description": "NED Directors / Audit Committee Member Fees (IT)",
    "page": 84
   },
   "3621": {
@@ -619,6 +734,11 @@
   "3723": {
    "brs": "v25.3.0",
    "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 91
+  },
+  "3724": {
+   "brs": "v25.3.0",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
    "page": 91
   },
   "3803": {
