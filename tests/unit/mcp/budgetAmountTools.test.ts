@@ -60,7 +60,7 @@ const cell = (account: string, month: string, amount: unknown, dims: Record<stri
 const TWO = [cell('6000', '2026-04', '1'), cell('6000', '2026-05', '1')];
 const dryHash = async (args: Record<string, unknown>) => String(json(await amounts.handler({ ...KEY, ...args, dry_run: true }, ctx())).plan_hash);
 
-describe('set_budget_amounts: per-row refusals (dry run lists them, the save is never reached)', () => {
+describe('set_budget_amounts: per-row refusals (the dry run lists them and runs the rolled-back save on the other cells only)', () => {
   it.each([
     ['a number, not a decimal string', cell('6000', '2026-04', 12.5), /decimal strings/],
     ['three decimals', cell('6000', '2026-04', '1.005'), /at most 2 decimals/],
@@ -77,7 +77,9 @@ describe('set_budget_amounts: per-row refusals (dry run lists them, the save is 
     expect((out.counts as Record<string, number>).refused).toBe(1);
     const refused = (out.cells as Array<{ status: string; reason?: string; i: number }>).find((c) => c.status === 'refused')!;
     expect([refused.i, refused.reason]).toEqual([1, expect.stringMatching(why)]);
-    expect(saveCells).not.toHaveBeenCalled();
+    // Only the cell that is not refused reaches the (rolled-back) save.
+    expect(vi.mocked(saveCells).mock.calls.map((c) => c[2].cells.map((x) => [x.glAccountId, x.month, x.amount]))).toEqual([[[RENT, '2026-04', 5]]]);
+    expect(inRolledBackSavepoint).toHaveBeenCalledTimes(1);
     expect(r.wroteNothing).toBe(true);
   });
 
