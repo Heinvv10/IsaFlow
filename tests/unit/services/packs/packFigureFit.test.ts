@@ -9,6 +9,9 @@ import {
 } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { FIT_PX, isFigureFit } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from './fixtures/widenedFigures';
+import { useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 describe('tableFit', () => {
   it('sets nothing for the demo company\'s table: it fits at the ordinary size', () => {
