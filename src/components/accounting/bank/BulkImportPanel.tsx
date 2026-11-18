@@ -379,7 +379,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
             type="button"
             onClick={() => folderInputRef.current?.click()}
             disabled={!bankAccountId || isCommitting}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--ff-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             <FolderOpen className="h-4 w-4" />
             Choose folder
@@ -388,7 +388,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={!bankAccountId || isCommitting}
-            className="inline-flex items-center gap-2 rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-tertiary)] px-4 py-2 text-sm font-medium text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)] disabled:opacity-50"
+            className="inline-flex items-center gap-2 max-lg:min-h-11 rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-tertiary)] px-4 py-2 text-sm font-medium text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)] disabled:opacity-50"
           >
             Choose files
           </button>
@@ -474,7 +474,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           type="button"
           onClick={onCommit}
           disabled={!canCommit}
-          className="inline-flex items-center gap-2 rounded-lg bg-success-700 px-4 py-2 text-sm font-medium text-white hover:bg-success-800 disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-muted)]"
+          className="inline-flex items-center gap-2 max-lg:min-h-11 rounded-lg bg-success-700 px-4 py-2 text-sm font-medium text-white hover:bg-success-800 disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-muted)]"
         >
           {isCommitting && <Loader2 className="h-4 w-4 animate-spin" />}
           {isCommitting
