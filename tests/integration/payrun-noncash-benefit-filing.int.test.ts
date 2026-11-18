@@ -125,7 +125,7 @@ describe('a non-cash 3801 benefit on the IRP5 data, e@syFile and EMP501', () => 
     const easy = await exportText(easyfileExport as never, '/api/payroll/irp5/easyfile-export');
     expect(easy.status, easy.body).toBe(200);
     const lines = easy.body.split(/\r?\n/);
-    expect(lines.filter((l) => /^3[6-9]\d\d,/.test(l))).toEqual(['3601,370000', '3801,8000']);
+    expect(lines.filter((l) => /^3[6-9]\d\d,/.test(l))).toEqual(['3601,370000', '3801,8000', '3699,378000']);
     expect(lines.filter((l) => l.startsWith('4102,'))).toEqual([`4102,${d.paye.toFixed(2)}`]);
     expect(lines.indexOf('3801,8000')).toBeLessThan(lines.findIndex((l) => l.startsWith('4102,')));
     expect(easy.warnings.at(-1)).toMatch(/3601.*1 employee: Wanda Test \(R.?1.?000\.00\)/);

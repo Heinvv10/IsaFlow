@@ -26,10 +26,8 @@
  *   - Periods-of-employment field derived from employee start/end dates
  *
  * Deliberately out of scope — will be added in later iterations:
- *   - The IRP5 total fields (gross remuneration 3699 and its 3696-3698 splits,
- *     4149 total tax/UIF/SDL): their exact definitions need the BRS in hand, so
- *     they are not guessed. Do not submit this file without checking e@syFile's
- *     import validation for them.
+ *   - The 4149 total (tax, UIF and SDL). The income totals 3696 / 3699 are written (incomeTotalLines, BRS
+ *     V25.3.0 p. 51-52); 3697 / 3698 are pre-2017 only and never written.
  *   - Reason codes 4150 other than 02, 04 and 08 (08: medical credits, with
  *     4005/4116/4120, easyFileMedicalFields; PAYE 4a follow-ups round 2, R3).
  *   - ETI (codes 3026, 3190, 7002-7009)
@@ -134,16 +132,28 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
 }
 
 /**
- * 3696, "the sum of all income amounts indicated as non-taxable", is mandatory with 3703 (BRS V25.3.0 p. 51). Written only
- * beside a 3703, as the sum of the certified (whole-rand) values of the codes p. 51 lists that this file can carry (3922,
- * 3622 and 3835 count only under thresholds, and the file does not write them as non-taxable). The 3699 total is still
- * not written (see the header).
+ * The income totals (BRS V25.3.0; V23.0.0 the same), from the record's own income fields (36xx-39xx, as written, whole rand):
+ *   - 3696 (p. 51) "the sum of all income amounts indicated as non-taxable": 3602, 3703, 3714, 3815, 3821, 3822, 3830, 3832,
+ *     3834, 3908; 3922 only up to R300 000 (YoA <= 2026) / R800 000 (from 2027); 3622 + 3835 only while their sum is at most
+ *     R5 000 (YoA <= 2026) / R16 000 (from 2027). Mandatory when any of them is completed.
+ *   - 3699 (p. 52) "the sum of all amounts for all income source codes NOT included in code 3696"; mandatory when 3696 has
+ *     no value; "3696 + 3699 must be equal to the amounts supplied under income"; not completed for 2010-2016.
  */
 const NON_TAXABLE_3696 = new Set(['3602', '3703', '3714', '3815', '3821', '3822', '3830', '3832', '3834', '3908']);
-function nonTaxable3696(emp: EmployeeInput): string | null {
-  const fields = [...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? []), ...(emp.lumpSums ?? [])];
-  if (!fields.some(f => f.sourceCode === '3703' && f.amount >= 1)) return null;
-  return formatField(3696, fields.filter(f => NON_TAXABLE_3696.has(f.sourceCode) && f.amount >= 1).reduce((t, f) => t + Math.floor(f.amount), 0), 'N');
+export function incomeTotalLines(incomeLines: string[], yearOfAssessment: number): string[] {
+  if (yearOfAssessment < 2017) return [];
+  const fields = incomeLines.map((l) => { const [code, value] = l.split(','); return { code: code!, value: Number(value) }; });
+  const from2027 = yearOfAssessment >= 2027;
+  const longService = fields.filter((f) => f.code === '3622' || f.code === '3835').reduce((t, f) => t + f.value, 0);
+  const nonTaxable = (f: { code: string; value: number }) => NON_TAXABLE_3696.has(f.code)
+    || (f.code === '3922' && f.value <= (from2027 ? 800_000 : 300_000))
+    || ((f.code === '3622' || f.code === '3835') && longService <= (from2027 ? 16_000 : 5_000));
+  const t3696 = fields.filter(nonTaxable).reduce((t, f) => t + f.value, 0);
+  const t3699 = fields.filter((f) => !nonTaxable(f)).reduce((t, f) => t + f.value, 0);
+  return [
+    ...(t3696 > 0 ? [`3696,${t3696}`] : []),
+    ...(t3699 > 0 || t3696 === 0 ? [`3699,${t3699}`] : []),
+  ];
 }
 
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
@@ -165,6 +175,21 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // RF: 4001 / 4003 / 4006 include the employer's contributions deemed paid by the employee (the non-cash 3817 / 3825 / 3828).
   const retirement = retirementFieldLines(withDeemedEmployerContributions(emp.retirementFund, emp.fringeBenefits ?? []));
   const employerFund = employerFundContributionFields(emp.fringeBenefits ?? []);
+  // Directive fields before the income codes, so a bad directive is named by its own field (3233) first.
+  const directiveFields = lumpSums.flatMap(l => [
+    formatField(3230, l.directiveNumber, 'AN'),
+    formatField(3231, l.directiveIssuedDate, 'N'),
+    formatField(3232, l.sourceCode, 'N'),
+    formatField(3233, l.amount, 'N'),
+  ]);
+  const income = [
+    formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
+    formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
+    formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),
+    // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
+    ...[...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
+    ...lumpIncome(lumpSums),
+  ].filter((l): l is string => l !== null);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -180,20 +205,10 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3210, emp.employmentEndDate, 'N'),
     // 3215 — N4.4 periods in YoA. Render with 4-decimal precision per BRS.
     `3215,${emp.periodsInYoA.toFixed(4)}`,
-    ...lumpSums.flatMap(l => [
-      formatField(3230, l.directiveNumber, 'AN'),
-      formatField(3231, l.directiveIssuedDate, 'N'),
-      formatField(3232, l.sourceCode, 'N'),
-      formatField(3233, l.amount, 'N'),
-    ]),
+    ...directiveFields,
     ...regularDirectiveFieldLines(emp.regularDirectiveNumbers, lumpSums.length, `${emp.firstNames} ${emp.surname}`.trim()),
-    formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
-    formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
-    formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),
-    // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
-    ...[...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
-    ...lumpIncome(lumpSums),
-    nonTaxable3696(emp),
+    ...income,
+    ...incomeTotalLines(income, emp.yearOfAssessment),
     ...retirement.beforeMedical,
     ...medical.fees,
     ...retirement.afterMedical,

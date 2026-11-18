@@ -6,7 +6,7 @@
  * non-taxable income total, is mandatory with 3703 (p. 51). Field-level: the record's own lines, as the file carries them.
  */
 import { describe, expect, it } from 'vitest';
-import { buildEmployeeRecord, UsageError, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
+import { buildEmployeeRecord, incomeTotalLines, UsageError, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { allowanceCertificateFields, type AllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 
 const base: EmployeeInput = {
@@ -17,24 +17,24 @@ const base: EmployeeInput = {
 const filing = (t: Partial<AllowanceFiling>): AllowanceFiling => ({
   cash3701: 0, taxableCash3701: 0, vehicle3802: 0, payeIncluded: 0, legacyLines: 0, travel3702: 0, travel3703: 0, travel3722: 0, ...t,
 });
-const travelLines = (lines: string[]) => lines.filter((l) => /^(3601|3696|370[123]|3722),/.test(l));
+const travelLines = (lines: string[]) => lines.filter((l) => /^(3601|3696|3699|370[123]|3722),/.test(l));
 const record = (f: AllowanceFiling, gross3601: number) => {
   const { cashAllowances } = allowanceCertificateFields(f, 'Thandi');
   return buildEmployeeRecord({ ...base, grossSalary3601: gross3601 - cashAllowances.reduce((t, a) => t + a.amount, 0), cashAllowances });
 };
 
 describe('reimbursive travel on the certificate', () => {
-  it('1 000 km at R6 (prescribed R4.95): 3702 4950 and 3722 1050, out of 3601, no 3703 or 3696', () => {
-    expect(travelLines(record(filing({ travel3702: 4950, travel3722: 1050 }), 366_000))).toEqual(['3601,360000', '3702,4950', '3722,1050']);
+  it('1 000 km at R6 (prescribed R4.95): 3702 4950 and 3722 1050, out of 3601, no 3703 or 3696; 3699 = all income', () => {
+    expect(travelLines(record(filing({ travel3702: 4950, travel3722: 1050 }), 366_000))).toEqual(['3601,360000', '3702,4950', '3722,1050', '3699,366000']);
   });
 
-  it('within the rate all year, nothing else paid: 3703 4000 with 3696 4000', () => {
-    expect(travelLines(record(filing({ travel3703: 4000 }), 364_000))).toEqual(['3601,360000', '3703,4000', '3696,4000']);
+  it('within the rate all year, nothing else paid: 3703 4000 with 3696 4000, and 3696 + 3699 = income (p. 51-52)', () => {
+    expect(travelLines(record(filing({ travel3703: 4000 }), 364_000))).toEqual(['3601,360000', '3703,4000', '3696,4000', '3699,360000']);
   });
 
   it('a 3703 month and a 3702/3722 month in one year: the 3703 folds into 3702 (p. 50)', () => {
     expect(travelLines(record(filing({ travel3703: 4000, travel3702: 4950, travel3722: 1050 }), 370_000)))
-      .toEqual(['3601,360000', '3702,8950', '3722,1050']);
+      .toEqual(['3601,360000', '3702,8950', '3722,1050', '3699,370000']);
   });
 
   it('a 3703 beside a 3701 travel allowance is certified as 3702', () => {
@@ -55,5 +55,24 @@ describe('the record refuses what SARS rejects (p. 50, 51)', () => {
   it('3722 with no 3702', () => {
     expect(build([{ sourceCode: '3722', amount: 100 }])).toThrow(UsageError);
     expect(build([{ sourceCode: '3722', amount: 100 }])).toThrow(/3722.*needs code 3702/);
+  });
+});
+
+describe('3696 / 3699 income totals (BRS V25.3.0 p. 51-52)', () => {
+  it('3699 is every income code not in 3696; 3696 only when a non-taxable code is there', () => {
+    expect(incomeTotalLines(['3601,300000', '3605,20000', '3801,9000'], 2027)).toEqual(['3699,329000']);
+    expect(incomeTotalLines(['3601,300000', '3703,4000', '3815,1000'], 2027)).toEqual(['3696,5000', '3699,300000']);
+  });
+  it('3922 is non-taxable up to R300 000 to 2026 and R800 000 from 2027; above it all of it is in 3699', () => {
+    expect(incomeTotalLines(['3601,100000', '3922,500000'], 2027)).toEqual(['3696,500000', '3699,100000']);
+    expect(incomeTotalLines(['3601,100000', '3922,500000'], 2026)).toEqual(['3699,600000']);
+  });
+  it('3622 + 3835 are non-taxable while their sum is at most R5 000 to 2026, R16 000 from 2027', () => {
+    expect(incomeTotalLines(['3601,100000', '3622,3000', '3835,3000'], 2026)).toEqual(['3699,106000']);
+    expect(incomeTotalLines(['3601,100000', '3622,3000', '3835,3000'], 2027)).toEqual(['3696,6000', '3699,100000']);
+  });
+  it('only non-taxable income: 3696 and no 3699; before 2017 neither (p. 52: not completed 2010-2016)', () => {
+    expect(incomeTotalLines(['3703,4000'], 2027)).toEqual(['3696,4000']);
+    expect(incomeTotalLines(['3601,100000'], 2016)).toEqual([]);
   });
 });
