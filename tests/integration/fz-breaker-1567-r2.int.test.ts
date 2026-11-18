@@ -6,8 +6,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
+import { nsRole } from './fz-ns-role.helpers';
 
 const su = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+const NS = nsRole(su);
 const A = 'aaaaaaaa-0000-0000-0000-000000000002';
 const B = 'bbbbbbbb-0000-0000-0000-000000000002';
 const DEMO = '00000000-0000-0000-0000-000000000001';
@@ -17,10 +19,7 @@ const ACC = { sal: 'aaaaaaaa-0000-0000-0000-0000000002a1', bank: 'aaaaaaaa-0000-
 const EMP = ['aaaaaaaa-0000-0000-0000-0000000002e1', 'aaaaaaaa-0000-0000-0000-0000000002e2'];
 const YEAR = 2100 + Math.floor(Math.random() * 800); let month = 0;
 beforeAll(async () => {
-  await su.query(`DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fz_pg_ns') THEN CREATE ROLE fz_pg_ns NOLOGIN NOSUPERUSER INHERIT BYPASSRLS; END IF;
-  END $$`);
-  await su.query('GRANT postgres, migration_admin, app_user TO fz_pg_ns');
+  await NS.create();
   await su.query("INSERT INTO users (id, email) VALUES ($1, 'fz-r2a@example.test'), ($2, 'fz-r2b@example.test') ON CONFLICT DO NOTHING", [USER_A, USER_B]);
   await su.query("INSERT INTO companies (id, name) VALUES ($1, 'FZ R2 A'), ($2, 'FZ R2 B') ON CONFLICT DO NOTHING", [A, B]);
   await su.query('INSERT INTO company_users (company_id, user_id) VALUES ($1, $2), ($3, $4) ON CONFLICT DO NOTHING', [A, USER_A, B, USER_B]);
@@ -34,6 +33,7 @@ afterAll(async () => {
   for (const [table, col, ids] of [['payroll_run_headers', 'company_id', [A]], ['gl_journal_entries', 'company_id', [A]],
     ['payroll_employees', 'company_id', [A]], ['gl_accounts', 'company_id', [A]], ['company_users', 'company_id', [A, B]],
     ['companies', 'id', [A, B]], ['users', 'id', [USER_A, USER_B]]] as const) await su.query(`DELETE FROM ${table} WHERE ${col} = ANY($1)`, [ids]);
+  await NS.drop();
   await su.end();
 });
 type Who = 'app_user' | 'postgres' | 'app_user_tenant_b';
@@ -41,7 +41,7 @@ async function as(who: Who, fn: (c: PoolClient) => Promise<unknown>): Promise<vo
   const c = await su.connect();
   try {
     await c.query('BEGIN');
-    await c.query(`SET LOCAL ROLE ${who === 'postgres' ? 'fz_pg_ns' : 'app_user'}`);
+    await c.query(`SET LOCAL ROLE ${who === 'postgres' ? NS.name : 'app_user'}`);
     expect((await c.query("SELECT current_setting('is_superuser') AS s")).rows[0].s).toBe('off');
     if (who !== 'postgres') {
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: who === 'app_user' ? USER_A : USER_B, role: 'authenticated' })]);
@@ -131,7 +131,7 @@ describe('999n breaker round 2: refused', () => {
       const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
         VALUES ($1, 'FZ-R2', 'FZ demo', 'liability', 'credit') RETURNING id`, [DEMO])).rows[0].id;
       await c.query('UPDATE gl_journal_lines SET company_id = $2, gl_account_id = $3 WHERE journal_entry_id = $1 AND credit = 800', [je, DEMO, acct]);
-      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query(`SET LOCAL ROLE ${NS.name}`);
       await expect(c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND company_id = $2', [je, DEMO])).rejects.toThrow(/cannot be added or removed/);
     } finally { await c.query('ROLLBACK'); c.release(); }
     expect(await journal(je)).toEqual({ status: 'posted', n: 3, dr: '1000.00', cr: '1000.00' });
@@ -189,7 +189,7 @@ describe('999n breaker round 2: refused', () => {
           VALUES ('2026-03-15', 'b draft', 'manual', 'draft', $1, $2) RETURNING id`, [USER_B, B])).rows[0].id;
         const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
           VALUES ($1, $2, 5000, 0, $3) RETURNING id`, [draftB, acct, B])).rows[0].id;
-        await c.query(`SET LOCAL ROLE ${who === 'postgres' ? 'fz_pg_ns' : 'app_user'}`);
+        await c.query(`SET LOCAL ROLE ${who === 'postgres' ? NS.name : 'app_user'}`);
         if (who !== 'postgres') await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
         await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, ja])).rejects.toThrow(who === 'postgres' ? /amounts are frozen|moves only between draft journals/ : /moves only between draft journals/);
       } finally { await c.query('ROLLBACK'); c.release(); }
@@ -225,7 +225,7 @@ describe('999n breaker round 2: refused', () => {
         // A legacy cross-company line (no app path writes one now; the PR body's census counts them in production).
         const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
           VALUES ($1, $2, 0, 0, $3) RETURNING id`, [ja, acct, B])).rows[0].id;
-        await c.query(`SET LOCAL ROLE ${who === 'postgres' ? 'fz_pg_ns' : 'app_user'}`);
+        await c.query(`SET LOCAL ROLE ${who === 'postgres' ? NS.name : 'app_user'}`);
         if (who !== 'postgres') await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
         await expect(c.query('UPDATE gl_journal_lines SET debit = 4444 WHERE id = $1', [line]))
           .rejects.toThrow(who === 'postgres' ? /amounts are frozen/ : /cannot see/);
@@ -243,7 +243,7 @@ describe('999n breaker round 2: refused', () => {
         VALUES ('2026-03-16', 'a draft', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
       const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
         VALUES ($1, $2, 5000, 0, $3) RETURNING id`, [draftA, ACC.sal, A])).rows[0].id;
-      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query(`SET LOCAL ROLE ${NS.name}`);
       await c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, ja]);
       await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance/);
     } finally { await c.query('ROLLBACK'); c.release(); }

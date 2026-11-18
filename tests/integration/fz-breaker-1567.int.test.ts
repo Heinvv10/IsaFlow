@@ -7,8 +7,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
+import { nsRole } from './fz-ns-role.helpers';
 
 const su = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+const NS = nsRole(su);
 afterAll(async () => {
   // Everything the suite made, as the superuser (999n exempts it): the deploy-checks guard judges the shared fixture.
   await su.query('DELETE FROM payroll_run_headers WHERE company_id = $1', [A]);
@@ -17,6 +19,7 @@ afterAll(async () => {
   await su.query('DELETE FROM gl_accounts WHERE company_id = $1', [A]);
   await su.query('DELETE FROM company_users WHERE company_id = $1', [A]);
   await su.query('DELETE FROM companies WHERE id = $1', [A]);
+  await NS.drop();
   await su.end();
 });
 
@@ -29,12 +32,7 @@ const YEAR = 2100 + Math.floor(Math.random() * 800);
 let month = 0;
 
 beforeAll(async () => {
-  await su.query(`DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fz_pg_ns') THEN
-      CREATE ROLE fz_pg_ns NOLOGIN NOSUPERUSER INHERIT BYPASSRLS;
-    END IF;
-  END $$`);
-  await su.query('GRANT postgres, migration_admin, app_user TO fz_pg_ns');
+  await NS.create();
   await su.query("INSERT INTO users (id, email) VALUES ($1, 'fz@example.test') ON CONFLICT DO NOTHING", [USER_A]);
   await su.query("INSERT INTO companies (id, name) VALUES ($1, 'FZ Break A') ON CONFLICT DO NOTHING", [A]);
   await su.query('INSERT INTO company_users (company_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [A, USER_A]);
@@ -50,7 +48,7 @@ async function as(who: Who, fn: (c: PoolClient) => Promise<unknown>): Promise<vo
   const c = await su.connect();
   try {
     await c.query('BEGIN');
-    await c.query(`SET LOCAL ROLE ${who === 'postgres' ? 'fz_pg_ns' : 'app_user'}`);
+    await c.query(`SET LOCAL ROLE ${who === 'postgres' ? NS.name : 'app_user'}`);
     expect((await c.query("SELECT current_setting('is_superuser') AS s")).rows[0].s).toBe('off');
     if (who === 'app_user' || who === 'app_user_tenant_b') {
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: who === 'app_user' ? USER_A : USER_B, role: 'authenticated' })]);
@@ -143,7 +141,7 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
         await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 10, 0, $4), ($1, $3, 0, 10, $4)',
           [id, ACC.sal, ACC.bank, A]);
         await c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [id]);
-        await c.query('SET LOCAL ROLE fz_pg_ns');
+        await c.query(`SET LOCAL ROLE ${NS.name}`);
         await c.query(`UPDATE gl_journal_entries SET ${set} WHERE id = $1`, [id]);
       } finally { await c.query('ROLLBACK'); c.release(); }
     };
@@ -165,7 +163,7 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
         VALUES ('2026-03-31', 'fz legacy', 'manual', NULL, $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 10, 0, $3)', [legacy, ACC.sal, A]);
       await c.query('ALTER TABLE gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_status_not_null');
-      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query(`SET LOCAL ROLE ${NS.name}`);
       await expect(c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [legacy])).rejects.toThrow(/not balanced/);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
@@ -227,7 +225,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
         VALUES ('2026-03-31', 'fz demo', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, DEMO])).rows[0].id;
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 5, 0, $3), ($1, $2, 0, 5, $3)', [je, acct, DEMO]);
       await c.query("UPDATE gl_journal_entries SET status = 'posted', created_at = now() - interval '1 day' WHERE id = $1", [je]);
-      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query(`SET LOCAL ROLE ${NS.name}`);
       await c.query('SAVEPOINT ins');
       await expect(c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, DEMO]))
         .rejects.toThrow(/cannot be added or removed/);
@@ -282,7 +280,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
       const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
         VALUES ('2026-03-31', 'fz s3b', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 44, 0, $3)', [je, ACC.sal, A]);
-      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query(`SET LOCAL ROLE ${NS.name}`);
       await c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]);
       await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance/);
     } finally { await c.query('ROLLBACK'); c.release(); }
@@ -291,7 +289,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     const c = await su.connect();
     try {
       await c.query('BEGIN');
-      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query(`SET LOCAL ROLE ${NS.name}`);
       await c.query('ALTER TABLE payroll_run_lines DISABLE TRIGGER trg_payroll_run_lines_final_frozen');
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
