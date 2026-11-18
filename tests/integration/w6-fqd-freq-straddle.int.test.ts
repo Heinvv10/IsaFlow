@@ -19,6 +19,7 @@ import { audits, cleanup, loginAs, type R } from './pe-payslip-email.helpers';
 import runs from '../../pages/api/payroll/runs';
 import straddleRoute from '../../pages/api/payroll/runs/[id]/frequency-change';
 import payFrequency from '../../pages/api/payroll/employees/[id]/pay-frequency';
+import { setEmployeePayFrequency } from '@/modules/accounting/services/payroll/payrollEmployeePayFrequency';
 
 type Opts = { user?: string };
 let a: R;
@@ -66,8 +67,9 @@ describe('A. weekly -> monthly across the week that straddles 1 March 2026', () 
     expect((await putFreq(a, employee, 'weekly')).statusCode).toBe(200);
     await paid(a, id(await create(a, { frequency: 'weekly', periodStart: '2026-02-16' })));
     await paid(a, id(await create(a, { frequency: 'weekly', periodStart: '2026-02-23' })));
-    const moved = await putFreq(a, employee, 'monthly');
-    expect([moved.statusCode, moved.body.data]).toEqual([200, { payFrequency: 'monthly' }]);
+    // On the day it takes effect, 1 March 2026: the straddling week is final and counts in the old year by its pay date.
+    const actor = { userId: a.admin, userEmail: `${a.admin}@test.local`, ip: undefined, userAgent: undefined, sessionId: null };
+    expect(await setEmployeePayFrequency(a.company, employee, 'monthly', actor, true, '2026-03-01')).toEqual({ payFrequency: 'monthly' });
     march = id(await create(a, { month: 3, year: 2026 }));
     const refused = await a.api.calculate(march);
     expect([refused.statusCode, refused.body.error?.details?.code]).toEqual([409, 'FREQUENCY_CHANGE_STRADDLE']);
