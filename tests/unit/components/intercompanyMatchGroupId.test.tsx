@@ -15,9 +15,23 @@ import IntercompanyPage from '../../../pages/accounting/group/intercompany';
 
 useApiJsonOverMock();
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
-const GROUP = { id: 'g1', name: 'Grp', companies: [{ id: 'c1', name: 'Alpha Co' }, { id: 'c2', name: 'Beta Co' }] };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const G1 = '11111111-1111-4111-8111-111111111111';
+const G2 = '22222222-2222-4222-8222-222222222222';
+const C1 = 'c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1';
+const C2 = 'c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2';
+const T1 = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+const T2 = 'a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2';
+const COMPANIES = [{ id: C1, name: 'Alpha Co' }, { id: C2, name: 'Beta Co' }];
+const GROUP = { id: G1, name: 'Grp', companies: COMPANIES };
+const GROUP_B = { id: G2, name: 'Grp B', companies: COMPANIES };
+/** Mirrors the route: a non-UUID id is a 400, a missing groupId is a 400. */
+const badUuid = (body: Record<string, unknown>, fields: string[]) => {
+  const bad = fields.find((f) => typeof body[f] !== 'string' || !UUID_RE.test(body[f] as string));
+  return bad ? new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: `${bad} must be a valid UUID` } }), { status: 400 }) : null;
+};
 const tx = (id: string) => ({
-  id, date: '2026-11-05', sourceCompanyId: 'c1', targetCompanyId: 'c2', sourceCompanyName: 'Alpha Co',
+  id, date: '2026-11-05', sourceCompanyId: C1, targetCompanyId: C2, sourceCompanyName: 'Alpha Co',
   targetCompanyName: 'Beta Co', type: 'sale', amount: 100, currency: 'ZAR', status: 'unmatched',
 });
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
@@ -29,12 +43,11 @@ describe('IntercompanyPage match', () => {
       const u = String(url);
       if (init?.method === 'POST') {
         const body = JSON.parse(String(init.body));
-        // mirror the route: no groupId -> 400
-        return body.groupId ? ok({}) : new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'groupId required' } }), { status: 400 });
+        return badUuid(body, ['groupId', 'sourceId', 'targetId']) ?? ok({});
       }
       if (u.includes('company-groups')) return ok({ items: [GROUP] });
       if (u.includes('action=reconciliation')) return ok(null);
-      return ok({ items: [tx('t1'), tx('t2')] });
+      return ok({ items: [tx(T1), tx(T2)] });
     });
     render(<IntercompanyPage />);
     await waitFor(() => expect(screen.getAllByRole('checkbox').length).toBe(2));
@@ -42,16 +55,16 @@ describe('IntercompanyPage match', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Match Selected \(2\)/ }));
     expect(await screen.findByText('Transactions matched')).toBeTruthy();
     const post = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
-    expect(JSON.parse(String(post[1]!.body))).toEqual({ action: 'match', groupId: 'g1', sourceId: 't1', targetId: 't2' });
+    expect(JSON.parse(String(post[1]!.body))).toEqual({ action: 'match', groupId: G1, sourceId: T1, targetId: T2 });
   });
 
   const mountWithTxs = () => {
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
       const u = String(url);
-      if (init?.method === 'POST') return ok({});
-      if (u.includes('company-groups')) return ok({ items: [GROUP] });
+      if (init?.method === 'POST') return badUuid(JSON.parse(String(init.body)), ['groupId']) ?? ok({});
+      if (u.includes('company-groups')) return ok({ items: [GROUP, GROUP_B] });
       if (u.includes('action=reconciliation')) return ok(null);
-      return ok({ items: [tx('t1'), tx('t2')] });
+      return ok({ items: [tx(T1), tx(T2)] });
     });
     render(<IntercompanyPage />);
   };
@@ -76,12 +89,21 @@ describe('IntercompanyPage match', () => {
     mountWithTxs();
     await waitFor(() => expect(screen.getAllByRole('checkbox').length).toBe(2));
     fireEvent.click(screen.getByRole('button', { name: /Record Transaction/ }));
-    const combos = await screen.findAllByRole('combobox');
-    const dlgStart = combos.length - 3;
-    fireEvent.change(combos[dlgStart]!, { target: { value: 'c1' } });
-    fireEvent.change((await screen.findAllByRole('combobox'))[dlgStart + 1]!, { target: { value: 'c2' } });
+    fireEvent.change(await screen.findByLabelText('Source Company'), { target: { value: C1 } });
+    fireEvent.change(await screen.findByLabelText('Target Company'), { target: { value: C2 } });
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '50' } });
     fireEvent.click(screen.getByRole('button', { name: /^Record$/ }));
     expect(await screen.findByText('Transaction recorded')).toBeTruthy();
+  });
+
+  it('switching group clears the match selection', async () => {
+    mountWithTxs();
+    await waitFor(() => expect(screen.getAllByRole('checkbox').length).toBe(2));
+    screen.getAllByRole('checkbox').forEach((c) => fireEvent.click(c.closest('td')!));
+    expect(screen.getByRole('button', { name: /Match Selected \(2\)/ })).toBeTruthy();
+    fireEvent.change(screen.getByDisplayValue('Grp'), { target: { value: G2 } });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Match Selected/ })).toBeNull());
+    expect(screen.queryByText('Select 1 more transaction to match')).toBeNull();
+    screen.getAllByRole('checkbox').forEach((c) => expect((c as HTMLInputElement).checked).toBe(false));
   });
 });

@@ -205,7 +205,7 @@ export default function IntercompanyReconciliationPage() {
                 <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
                 <select
                   value={selectedGroupId}
-                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                  onChange={(e) => { setSelectedGroupId(e.target.value); setMatchSelection([]); }}
                   className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)]"
                 >
                   {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
