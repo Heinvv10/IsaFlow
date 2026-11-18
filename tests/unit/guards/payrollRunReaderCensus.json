@@ -442,7 +442,8 @@
   ],
   "src/modules/accounting/services/payroll/pspFiling.ts": [
    {"line":42,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"tax-year sum of PSP lines on final runs"},
-   {"line":84,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"count of final runs in the tax year (switch warning)"}
+   {"line":84,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"count of final runs in the tax year (switch warning)"},
+   {"line":114,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"months of the tax year's final runs with a PSP line at another entity (entity-change warning)"}
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
    {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}

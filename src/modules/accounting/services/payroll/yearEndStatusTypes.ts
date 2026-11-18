@@ -31,10 +31,12 @@ export interface YearEndStatus {
     totalVariance: number;
     /**
      * PSP PAYE (wave 6 PSP): on the EMP201, on no natural-person certificate, so part of the variance and never balanced
-     * (the PSP certificate is not produced; UNVERIFIED). unexplainedVariance = totalVariance - pspPaye. Aggregates only.
+     * (the PSP certificate is not produced; UNVERIFIED). unexplainedVariance = totalVariance - pspPaye. Aggregates only, and for a viewer only with 2+ PSP payees.
      */
-    pspPaye: number;
-    unexplainedVariance: number;
+    pspPaye?: number;
+    unexplainedVariance?: number;
+    /** In place of the two above for a reader without payroll-detail access when the year has fewer than 2 PSP payees. */
+    pspNote?: string;
   };
   periodLock: {
     locked: boolean;

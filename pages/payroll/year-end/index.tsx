@@ -12,6 +12,7 @@ import {
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { emp501StepDetail, type Emp501StepFigures } from '@/components/payroll/yearEndEmp501Step';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface YearEndStatus {
@@ -20,7 +21,7 @@ interface YearEndStatus {
   employees: { total: number; withPayroll: number };
   payrollRuns: { monthsCovered: number; totalPaye: number };
   readiness: { errors: number; warnings: number; componentIssues: number; certificatesReady: number };
-  emp501: { balanced: boolean; totalEmp201: number; totalIrp5: number; totalVariance: number; pspPaye?: number };
+  emp501: Emp501StepFigures;
   periodLock: { locked: boolean; lockdownDate: string | null };
 }
 
@@ -249,10 +250,7 @@ function buildSteps(status: YearEndStatus | null, downloadEasyFile: () => void):
       title: 'Reconcile EMP501',
       description: 'Total declared EMP201 PAYE must equal the sum of IRP5 PAYE before filing.',
       state: status.emp501.balanced ? 'done' : 'pending',
-      detail: status.emp501.totalEmp201 > 0
-        ? `EMP201 ${formatCurrency(status.emp501.totalEmp201)} · IRP5 ${formatCurrency(status.emp501.totalIrp5)} · variance ${formatCurrency(Math.abs(status.emp501.totalVariance))}`
-          + (status.emp501.pspPaye ? ` (of which PSP PAYE ${formatCurrency(status.emp501.pspPaye)}, on no certificate here: see EMP501)` : '')
-        : 'No EMP501 data yet — post runs first',
+      detail: emp501StepDetail(status.emp501),
       action: { label: 'EMP501', href: '/payroll/emp501' },
     },
     {

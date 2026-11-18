@@ -58,9 +58,10 @@ export class PspComponentRefused extends Error {
 /** M2: a reopened month whose recalculation would change a line's PSP treatment from what was approved (pspComponentGuard). */
 export class PspStatusChangedSinceApproval extends Error {
   readonly code = 'PSP_STATUS_CHANGED_SINCE_APPROVAL';
-  constructor(readonly employeeNumbers: string[]) {
-    super(`This month was approved under a different tax status; switch the status back to recalculate it (employees ${employeeNumbers.join(', ')}: `
-      + 'personal service provider at approval and not now, or the other way round).');
+  constructor(readonly changes: Array<{ employee: string; was: string; now: string }>) {
+    super('This month was approved under a different tax status; switch the status back to recalculate it ('
+      + changes.map((c) => `employee ${c.employee}: ${c.was} at approval, ${c.now} now`).join('; ')
+      + '). To correct a mis-recorded status or entity: set it back, recalculate, and correct it in the current month.');
     this.name = 'PspStatusChangedSinceApproval';
   }
 }

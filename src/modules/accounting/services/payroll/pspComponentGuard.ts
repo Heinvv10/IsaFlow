@@ -72,23 +72,33 @@ export async function assertPspRunComponents(
 }
 
 /**
- * M2: a REOPENED run (reopened_at set) is not recalculated under a different PSP treatment than its approved lines carry
- * (flat_psp or not, read from each stored line's own flag): 409 PSP_STATUS_CHANGED_SINCE_APPROVAL, naming the employees,
- * before any write. A run never approved recalculates freely (its month is costed whole under the status of the day).
+ * M2: a REOPENED run (reopened_at set) is not recalculated under a different PSP treatment than its approved lines carry:
+ * flat_psp or not, and (round 3) the PSP's entity, each read from the stored line's own flag. 409
+ * PSP_STATUS_CHANGED_SINCE_APPROVAL, naming each employee with the treatment at approval and now, before any write. A run
+ * never approved recalculates freely (its month is costed whole under the status of the day).
  */
 export async function assertReopenedRunKeepsPspTreatment(
   companyId: string, runId: string, employeeIds: readonly string[], db: TxSql = sql,
 ): Promise<void> {
   const rows = (await db`
-    SELECT e.employee_number
-      FROM payroll_run_lines l
-      JOIN payroll_run_headers h ON h.id = l.run_id
-      JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
-     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid AND h.reopened_at IS NOT NULL
-       AND l.employee_id::text = ANY(${[...employeeIds]}::text[])
-       AND COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) <> (e.tax_status = ${PSP})
-     ORDER BY e.employee_number
+    SELECT x.employee_number, x.was, x.now FROM (
+      SELECT e.employee_number,
+             CASE WHEN COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
+                  THEN 'personal service provider (' || COALESCE((
+                    SELECT v->'psp'->>'entity' FROM jsonb_array_elements(l.validation_results) v
+                     WHERE v->>'code' = 'PAYE_OUTSIDE_TABLES' AND v->>'treatment' = 'flat_psp' LIMIT 1), 'entity not recorded') || ')'
+                  ELSE 'not a personal service provider' END AS was,
+             CASE WHEN e.tax_status = ${PSP} THEN 'personal service provider (' || COALESCE(e.psp_entity_type, 'no entity') || ')'
+                  ELSE 'not a personal service provider' END AS now
+        FROM payroll_run_lines l
+        JOIN payroll_run_headers h ON h.id = l.run_id
+        JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+       WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid AND h.reopened_at IS NOT NULL
+         AND l.employee_id::text = ANY(${[...employeeIds]}::text[])
+    ) x
+     WHERE x.was <> x.now
+     ORDER BY x.employee_number
   `) as DbRow[];
   if (rows.length === 0) return;
-  throw new PspStatusChangedSinceApproval(rows.map((r) => String(r.employee_number)));
+  throw new PspStatusChangedSinceApproval(rows.map((r) => ({ employee: String(r.employee_number), was: String(r.was), now: String(r.now) })));
 }

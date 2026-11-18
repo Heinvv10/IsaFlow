@@ -187,17 +187,17 @@ describe('a PSP trust in March, an employee from April', () => {
     expect(body.data.runWarnings.some((w) => w.includes('TSB-psp-switch') && w.includes('personal service provider'))).toBe(true);
   });
 
-  it('security: a viewer (aggregate-only route) gets one PSP total, no name, employee number or per-month PSP PAYE', async () => {
+  it('security: a viewer (aggregate-only route), one PSP payee: no PSP figure at all, the note; no name, number or per-month PSP PAYE', async () => {
     const asViewer = await viewerOf(f);
     const out = await asViewer(reconciliationRoute as Route, 'GET', '/api/payroll/emp501/reconciliation?taxYear=2027', undefined, { query: { taxYear: '2027' } });
     expect(out.statusCode).toBe(200);
     const body = out.body as unknown as { data: { rows: Array<Record<string, unknown>>; runWarnings: string[] } };
     expect(body.data.rows.every((r) => !('pspPaye' in r) && !('unexplainedVariance' in r) && r.status !== 'explained_psp')).toBe(true);
-    expect((body.data as unknown as { totalPspPaye: number }).totalPspPaye).toBe(22_500);
+    const data = body.data as unknown as Record<string, unknown>;
+    expect(['totalPspPaye' in data, 'totalUnexplainedVariance' in data, data.pspNote]).toEqual([false, false, 'PSP detail is available to payroll roles']);
     const text = JSON.stringify(body.data.runWarnings);
-    expect(text).not.toMatch(/TSB-psp-switch|Extra/);
-    expect(body.data.runWarnings.filter((w) => w.includes('of PAYE on personal service provider pay is not on the'))).toHaveLength(1);
-    expect(text).not.toMatch(/payee/);
+    expect(text).not.toMatch(/TSB-psp-switch|Extra|22[ ,]?500|payee/);
+    expect(body.data.runWarnings.filter((w) => w.includes('PSP detail is available to payroll roles'))).toHaveLength(1);
   });
 });
 
@@ -277,7 +277,57 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
     expect(data.runWarnings.some((w) => w.includes('TSB-psp-ye'))).toBe(true);
     const viewer = await (await viewerOf(f))(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
     expect(JSON.stringify(viewer.body)).not.toMatch(/TSB-psp-ye|Extra/);
-    expect(JSON.stringify(viewer.body)).toContain('of PAYE on personal service provider pay is not on the');
+    const vEmp = (viewer.body as unknown as { data: { emp501: Record<string, unknown> } }).data.emp501;
+    expect(['pspPaye' in vEmp, 'unexplainedVariance' in vEmp, vEmp.pspNote]).toEqual([false, false, 'PSP detail is available to payroll roles']);
+    // The PSP fields and lines carry no figure. KNOWN LIMIT (reported): emp501.totalVariance (EMP201 - IRP5) still equals it here.
+    expect(JSON.stringify((viewer.body as unknown as { data: { runWarnings: string[] } }).data.runWarnings)).not.toMatch(/10[ ,]?800|payee/);
     expect(JSON.stringify(viewer.body)).not.toMatch(/payee/);
+  });
+});
+
+describe('round 3: a PSP entity change, and a viewer with two PSP payees', () => {
+  it('(1) March approved as a company (27%), entity moved to trust: the PATCH names March; a reopen refuses to recalculate at 45%', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp entity flip', 30_000);
+    const who = await addEmployee(pool, f, 'psp-flip', PAY);
+    await toPsp(f, who, 'company');
+    const march = await newRun(pool, f, 3);
+    await calculatePayrollRun(march, f.company);
+    await approve(march);
+    const moved = await updatePayrollEmployee(who, f.company, { pspEntityType: 'trust' });
+    expect(moved?.warnings?.some((w) => w.includes('from company to trust') && w.includes('March 2026'))).toBe(true);
+    await reopenPayrollRun({ runId: march, companyId: f.company, userId: f.admin, reason: 'reopen after an entity change' });
+    const before = (await pool.query('SELECT paye FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [march, who])).rows;
+    const err = await calculatePayrollRun(march, f.company).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(PspStatusChangedSinceApproval);
+    expect((err as Error).message).toContain('personal service provider (company) at approval, personal service provider (trust) now');
+    expect((err as Error).message).toContain('set it back, recalculate, and correct it in the current month');
+    expect((await pool.query('SELECT paye FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [march, who])).rows).toEqual(before);
+    // An entity change with no month at the old entity is silent.
+    const fresh = await addEmployee(pool, f, 'psp-flip-fresh', PAY);
+    await toPsp(f, fresh, 'company');
+    expect((await updatePayrollEmployee(fresh, f.company, { pspEntityType: 'trust' }))?.warnings).toBeUndefined();
+    // Set back: it recalculates.
+    await updatePayrollEmployee(who, f.company, { pspEntityType: 'company' });
+    await expect(calculatePayrollRun(march, f.company)).resolves.toBeTruthy();
+  });
+
+  it('L2: with two PSP payees a viewer sees the PSP totals (no names), on the reconciliation and the year-end checklist', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp two payees', 30_000);
+    const a = await addEmployee(pool, f, 'psp-two-a', PAY);
+    const b = await addEmployee(pool, f, 'psp-two-b', PAY);
+    await toPsp(f, a, 'company');
+    await toPsp(f, b, 'trust');
+    const march = await newRun(pool, f, 3);
+    await calculatePayrollRun(march, f.company);
+    await approve(march);
+    const asViewer = await viewerOf(f);
+    const recon = await asViewer(reconciliationRoute as Route, 'GET', '/api/payroll/emp501/reconciliation?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    const rd = (recon.body as unknown as { data: Record<string, unknown> & { runWarnings: string[] } }).data;
+    expect([rd.totalPspPaye, rd.totalUnexplainedVariance, 'pspNote' in rd]).toEqual([28_800, 0, false]); // 10 800 + 18 000
+    expect(JSON.stringify(rd)).not.toMatch(/TSB-psp-two|Extra|payee/);
+    const ye = await asViewer(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    const yd = (ye.body as unknown as { data: { emp501: Record<string, unknown> } }).data;
+    expect([yd.emp501.pspPaye, yd.emp501.unexplainedVariance, 'pspNote' in yd.emp501]).toEqual([28_800, 0, false]);
+    expect(JSON.stringify(ye.body)).not.toMatch(/TSB-psp-two|Extra|payee/);
   });
 });

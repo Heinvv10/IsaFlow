@@ -99,11 +99,56 @@ export async function pspSwitchWarning(
 }
 
 /**
+ * Round 3: a PSP's entity type changed (company <-> trust) in a tax year whose final runs carry PSP lines at the other
+ * entity. Not refused, but named: those months keep the rate they were approved at, and a reopen of one refuses to
+ * recalculate it at the new entity (PSP_STATUS_CHANGED_SINCE_APPROVAL). Null when no such month exists.
+ */
+export async function pspEntityChangeWarning(
+  companyId: string, employeeId: string, before: string | null, after: string | null, today = new Date(),
+): Promise<string | null> {
+  if (!before || !after || before === after) return null;
+  const taxYear = payeTaxYearOf(today.getMonth() + 1, today.getFullYear());
+  const { start, end } = payeTaxYearBounds(taxYear);
+  const rows = (await sql`
+    SELECT DISTINCT h.period_year, h.period_month
+      FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
+     WHERE h.company_id = ${companyId}::uuid AND l.employee_id = ${employeeId}::uuid
+       AND ${sql.unsafe(payRunFinalSql('h'))}
+       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
+       AND l.validation_results @> ${pspLineFlag}::jsonb
+       AND NOT l.validation_results @> ${JSON.stringify([{ code: 'PAYE_OUTSIDE_TABLES', treatment: 'flat_psp', psp: { entity: after } }])}::jsonb
+     ORDER BY h.period_year, h.period_month
+  `) as DbRow[];
+  if (rows.length === 0) return null;
+  const months = rows.map((r) => new Date(Number(r.period_year), Number(r.period_month) - 1, 1)
+    .toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' }));
+  return `The personal service provider's entity moved from ${before} to ${after}. ${months.join(', ')} ${months.length === 1 ? 'was' : 'were'} `
+    + `approved as a ${before} and keep${months.length === 1 ? 's' : ''} that rate; a reopen of ${months.length === 1 ? 'it' : 'any of them'} `
+    + `refuses to recalculate it as a ${after}. If the entity was recorded wrongly: set it back, recalculate, and correct it in the current month.`;
+}
+
+/** What a reader without payroll-detail access sees in place of PSP figures when they would identify one person. */
+export const PSP_DETAIL_NOTE = 'PSP detail is available to payroll roles';
+
+/**
+ * Whether a reader without payroll-detail access may see the year's PSP totals: only with 2 or more PSP payees, since
+ * with one the total is that person's PAYE (review round 3, L2).
+ */
+export function pspTotalsVisibleToViewer(totals: readonly PspFilingTotal[]): boolean {
+  return totals.length >= 2;
+}
+
+/**
  * The same for a reader without payroll-detail access (a viewer of an aggregate-only route): one line, the PSP lines'
- * total PAYE only: no count, name, employee number or per-person amount. Null when there is none.
+ * total PAYE only (no count, name, employee number or per-person amount), and with fewer than 2 payees not even that.
+ * Null when there is none.
  */
 export function pspAggregateWarning(totals: readonly PspFilingTotal[], filing: string): string | null {
   if (totals.length === 0) return null;
+  if (!pspTotalsVisibleToViewer(totals)) {
+    return `Personal service provider pay is not on the ${filing} (a PSP's certificate is not produced here). ${PSP_DETAIL_NOTE}.`;
+  }
   const paye = Math.round(totals.reduce((t, x) => t + x.paye, 0) * 100) / 100;
   // No payee count: with one PSP it would let a viewer read that person's PAYE (review Low). The detail lines name each one.
   return `${formatMoney(paye)} of PAYE on personal service provider pay is not on the `

@@ -17,7 +17,9 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
-import { listPspFilingTotals, pspAggregateWarning, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import {
+  listPspFilingTotals, PSP_DETAIL_NOTE, pspAggregateWarning, pspFilingWarning, pspTotalsVisibleToViewer,
+} from '@/modules/accounting/services/payroll/pspFiling';
 import { canWrite } from '@/lib/auth/writeRoles';
 
 type Row = DbRow;
@@ -49,8 +51,10 @@ export interface Emp501Summary {
   totalIrp5: number;
   totalVariance: number;
   /** All PSP PAYE in the year, and the variance it does not explain: aggregate figures, for every role (review H). */
-  totalPspPaye: number;
-  totalUnexplainedVariance: number;
+  totalPspPaye?: number;
+  totalUnexplainedVariance?: number;
+  /** In place of the two above for a reader without payroll-detail access when the year has fewer than 2 PSP payees. */
+  pspNote?: string;
   /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
   runWarnings: string[];
 }
@@ -135,8 +139,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalEmp201: rows.reduce((s, r) => s + r.emp201Paye, 0),
     totalIrp5: rows.reduce((s, r) => s + r.irp5Paye, 0),
     totalVariance: rows.reduce((s, r) => s + r.variance, 0),
-    totalPspPaye: Math.round([...pspMap.values()].reduce((s, v) => s + v, 0) * 100) / 100,
-    totalUnexplainedVariance: Math.round((rows.reduce((s, r) => s + r.variance, 0) - [...pspMap.values()].reduce((s, v) => s + v, 0)) * 100) / 100,
+    // A viewer sees the PSP totals only when they identify nobody (2+ payees, round 3 L2); else the note.
+    ...(detail || pspTotalsVisibleToViewer(psp) ? {
+      totalPspPaye: Math.round([...pspMap.values()].reduce((s, v) => s + v, 0) * 100) / 100,
+      totalUnexplainedVariance: Math.round((rows.reduce((s, r) => s + r.variance, 0) - [...pspMap.values()].reduce((s, v) => s + v, 0)) * 100) / 100,
+    } : psp.length > 0 ? { pspNote: PSP_DETAIL_NOTE } : {}),
     runWarnings: [
       ...await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
       // The PAYE difference a PSP's months leave, explained by name (pspFiling; UNVERIFIED until the PSP certificate is produced).

@@ -1,4 +1,4 @@
-import { pspSwitchWarning } from './pspFiling';
+import { pspEntityChangeWarning, pspSwitchWarning } from './pspFiling';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -246,8 +246,12 @@ export async function updatePayrollEmployee(
   }
 
   // H2 (wave 6 PSP): a move into or out of PSP in a year with final runs is named, not refused.
-  const warning = updated && locked ? await pspSwitchWarning(companyId, id, String(locked.tax_status ?? ''), updated.taxStatus ?? null) : null;
-  return updated && warning ? { ...updated, warnings: [warning] } : updated;
+  const warnings = updated && locked ? [
+    await pspSwitchWarning(companyId, id, String(locked.tax_status ?? ''), updated.taxStatus ?? null),
+    // Round 3: an entity change names the months approved at the other entity (a reopen of one refuses).
+    await pspEntityChangeWarning(companyId, id, locked.psp_entity_type == null ? null : String(locked.psp_entity_type), updated.pspEntityType ?? null),
+  ].filter((w): w is string => w !== null) : [];
+  return updated && warnings.length > 0 ? { ...updated, warnings } : updated;
 }
 
 export async function listTaxNumbersForCompany(

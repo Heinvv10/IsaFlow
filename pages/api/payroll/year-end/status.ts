@@ -22,7 +22,9 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
-import { pspAggregateWarning, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import {
+  PSP_DETAIL_NOTE, pspAggregateWarning, pspFilingWarning, pspTotalsVisibleToViewer,
+} from '@/modules/accounting/services/payroll/pspFiling';
 import { canWrite } from '@/lib/auth/writeRoles';
 import {
   validateCompanyComponents,
@@ -163,8 +165,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalEmp201,
       totalIrp5,
       totalVariance,
-      pspPaye,
-      unexplainedVariance: Math.round((totalVariance - pspPaye) * 100) / 100,
+      // A viewer sees PSP figures only when they identify nobody (2+ payees, round 3 L2); else the note.
+      ...(canWrite(companyRole) || pspTotalsVisibleToViewer(pspTotals)
+        ? { pspPaye, unexplainedVariance: Math.round((totalVariance - pspPaye) * 100) / 100 }
+        : pspTotals.length > 0 ? { pspNote: PSP_DETAIL_NOTE } : {}),
     },
     periodLock: { locked: lockedAtYearEnd, lockdownDate: lockDate },
     runWarnings: [
