@@ -11,12 +11,12 @@
   },
   {
     "case": "ri-overtime-10h-at-1-5x",
-    "reason": "The BCEA s10(2) multiplier was read only in the Act as gazetted (GG 18491, 5 Dec 1997, gov.za a75-97.pdf), not a current consolidation; the engine prices the overtime row at that multiplier (payrollRunInputUnits.overtimeAmountCents) and equals the hand figure. Signed by the adversarial payroll review of #1580 (round 1, 2026-11-18) against the Act's text; kept here because no current consolidation was read.",
+    "reason": "The BCEA s10(2) multiplier was read only in the Act as gazetted (GG 18491, 5 Dec 1997, gov.za a75-97.pdf), not a current consolidation; the engine prices the overtime row at that multiplier (payrollRunInputUnits.overtimeAmountCents) and equals the hand figure. Signed by the adversarial payroll review of #1580 (round 1, 2026-11-18): the multiplier is an input to the case, and the PAYE and UIF arithmetic was checked against the 2027 tables; kept here because no current consolidation of the BCEA was read.",
     "wouldVerify": "The consolidated BCEA 75 of 1997 s10(2) as currently in force, or a Sage or SimplePay payslip with the same overtime."
   },
   {
     "case": "ri-sunday-8h-at-2x",
-    "reason": "The BCEA s16(1) multiplier was read only in the Act as gazetted (GG 18491, 5 Dec 1997, gov.za a75-97.pdf), not a current consolidation; the engine prices the overtime row at that multiplier (payrollRunInputUnits.overtimeAmountCents) and equals the hand figure. Signed by the adversarial payroll review of #1580 (round 1, 2026-11-18) against the Act's text; kept here because no current consolidation was read.",
+    "reason": "The BCEA s16(1) multiplier was read only in the Act as gazetted (GG 18491, 5 Dec 1997, gov.za a75-97.pdf), not a current consolidation; the engine prices the overtime row at that multiplier (payrollRunInputUnits.overtimeAmountCents) and equals the hand figure. Signed by the adversarial payroll review of #1580 (round 1, 2026-11-18): the multiplier is an input to the case, and the PAYE and UIF arithmetic was checked against the 2027 tables; kept here because no current consolidation of the BCEA was read.",
     "wouldVerify": "The consolidated BCEA 75 of 1997 s16(1) as currently in force, or a Sage or SimplePay payslip with the same overtime."
   },
   {

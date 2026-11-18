@@ -67,7 +67,6 @@ export function overtimeHourlyRate(
   return rate == null || !(rate > 0) ? null : cents(rate) / 100;
 }
 
-
 /**
  * The line's components with each km row split as SARS treats it: the part within the prescribed rate (3702 / 3703, not
  * taxed, not UIF or SDL remuneration) and the excess (3722, taxed with periodic pay, UIF and SDL). Other rows unchanged.

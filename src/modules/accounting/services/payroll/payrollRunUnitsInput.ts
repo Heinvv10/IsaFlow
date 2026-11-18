@@ -57,7 +57,7 @@ export async function setRunUnits(companyId: string, runId: string, employeeId: 
   let cents = 0;
   if (quantity !== null) {
     const rate = travel ? ratePerKm! : overtimeHourlyRate(employee, await monthlyBasicOf(companyId, employee, period));
-    if (rate == null) throw refuse('Set the employee\'s hourly rate, or their hours a week beside a monthly Basic Salary, before entering overtime.');
+    if (rate == null) throw refuse('Set the employee\'s hourly rate, or their hours a week and one earning named "Basic Salary" (when there are several 3601 earnings, name one "Basic Salary"), before entering overtime.');
     cents = travel ? hoursAmountCents(quantity, rate) : overtimeAmountCents(quantity, rate, multiplier!);
   }
 
