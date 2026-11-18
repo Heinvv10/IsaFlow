@@ -91,6 +91,10 @@ describe('review findings', () => {
     forwardLogError({ message: 'direct lookup', data: e });
     expect(m.captureException).toHaveBeenCalledTimes(2);
   });
+  it('never throws into the logger, even when data has a throwing getter', () => {
+    const data = { details: { get boom(): never { throw new Error('getter'); } } };
+    expect(() => forwardLogError({ message: 'getter case', data })).not.toThrow();
+  });
   it('drops the bare default "error" message with no Error (junk shared issue)', () => {
     forwardLogError({ message: 'error', component: 'API', data: { type: 'error' } });
     expect(m.withScope).not.toHaveBeenCalled();

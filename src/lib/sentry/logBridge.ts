@@ -77,7 +77,7 @@ function rateLimited(fingerprint: string, now: number): boolean {
   return false;
 }
 
-export function forwardLogError(input: LogErrorInput): void {
+function forward(input: LogErrorInput): void {
   if (process.env.SENTRY_ENABLED !== 'true') return;
   const { message, component, requestId, data } = input;
   // A call site that already captures the exception itself (withErrorHandler, deferredEnd) says so.
@@ -92,19 +92,25 @@ export function forwardLogError(input: LogErrorInput): void {
   const limitKey = err ? `${fingerprint}::${err.name}::${topFrame(err)}` : fingerprint;
   if (rateLimited(limitKey, Date.now())) return;
 
-  try {
-    Sentry.withScope((scope) => {
-      scope.setFingerprint(err ? ['{{ default }}', fingerprint] : [fingerprint]);
-      if (component) scope.setTag('component', component);
-      const companyId = pick(data, 'companyId', 'company_id');
-      const userId = pick(data, 'userId', 'user_id');
-      if (companyId) scope.setTag('company_id', companyId);
-      if (userId) scope.setTag('user_id', userId);
-      if (requestId) scope.setTag('request_id', requestId);
-      if (err) Sentry.captureException(err);
-      else Sentry.captureMessage(message.replace(EMAIL_RE, '<email>'), 'error');
+  Sentry.withScope((scope) => {
+    scope.setFingerprint(err ? ['{{ default }}', fingerprint] : [fingerprint]);
+    if (component) scope.setTag('component', component);
+    const companyId = pick(data, 'companyId', 'company_id');
+    const userId = pick(data, 'userId', 'user_id');
+    if (companyId) scope.setTag('company_id', companyId);
+    if (userId) scope.setTag('user_id', userId);
+    if (requestId) scope.setTag('request_id', requestId);
+    if (err) Sentry.captureException(err);
+    else Sentry.captureMessage(message.replace(EMAIL_RE, '<email>'), 'error');
     });
+}
+
+export function forwardLogError(input: LogErrorInput): void {
+  // Reporting must never break the caller (a throwing getter in data included); the journal line is already written.
+  try {
+    forward(input);
   } catch {
-    // Reporting must never break the caller; the journal line is already written.
+    // swallowed by design: logging from inside the logger would recurse
   }
 }
+
