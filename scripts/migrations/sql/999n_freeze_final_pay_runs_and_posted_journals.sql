@@ -481,8 +481,10 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_entry uuid;
+  v_company uuid;
   v_debit numeric;
   v_credit numeric;
+  v_caller text := CASE current_setting('role') WHEN 'none' THEN session_user::text ELSE current_setting('role') END;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
@@ -492,12 +494,20 @@ BEGIN
   IF NOT FOUND THEN
     RETURN NULL;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = v_entry AND e.status IN ('posted', 'reversed')) THEN
+  SELECT e.company_id INTO v_company FROM public.gl_journal_entries e
+   WHERE e.id = v_entry AND e.status IN ('posted', 'reversed');
+  IF NOT FOUND THEN
     RETURN NULL;
   END IF;
   SELECT COALESCE(SUM(l.debit), 0), COALESCE(SUM(l.credit), 0) INTO v_debit, v_credit
     FROM public.gl_journal_lines l WHERE l.journal_entry_id = v_entry;
   IF v_debit <> v_credit THEN
+    -- Figures only for a caller who could see the journal under RLS (the payroll_run_final_state test): a definer's
+    -- error must not hand another tenant a journal id and its totals (security review S2).
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
+       AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid()) THEN
+      RAISE EXCEPTION 'gl_journal_entries: a posted journal does not balance' USING ERRCODE = '23514';
+    END IF;
     RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', v_entry, v_debit, v_credit
       USING ERRCODE = '23514';
   END IF;

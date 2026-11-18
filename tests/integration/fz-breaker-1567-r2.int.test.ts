@@ -144,7 +144,7 @@ describe('999n breaker round 2: refused', () => {
     } finally { await c.query('ROLLBACK'); c.release(); }
     expect(await journal(je)).toEqual({ status: 'posted', n: 3, dr: '1000.00', cr: '1000.00' });
   });
-  it('X1e [app_user, tenant B]: a line in a journal tenant B cannot see is neither added nor removed (fails closed)', async () => {
+  it('X1e/S1 [app_user, tenant B]: a line in a journal tenant B cannot see (A\'s posted journal) is neither added nor removed: it fails closed', async () => {
     const je = await mkJournal('2026-03-13', 'manual');
     const c = await su.connect();
     try {
@@ -160,6 +160,27 @@ describe('999n breaker round 2: refused', () => {
       await expect(c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, B]))
         .rejects.toThrow(/cannot see/);
     } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+  it('S2 [app_service, tenant B claims]: the balance check\'s error gives a caller who cannot see the journal no id and no totals', async () => {
+    const je = await mkJournal('2026-03-14', 'manual');
+    const c = await su.connect();
+    let message = '';
+    try {
+      await c.query('BEGIN');
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+        VALUES ($1, 'FZ-B2', 'FZ B', 'expense', 'debit') RETURNING id`, [B])).rows[0].id;
+      // Reach the deferred check from a caller who cannot see A's journal: the line-set rule (S1) and app_user's RLS
+      // would refuse first, so the rule is switched off inside this rolled-back transaction and the line is written
+      // as app_service (its policies admit any row; not RLS-bypassing, so the tenant test applies) with B's claims.
+      await c.query('ALTER TABLE gl_journal_lines DISABLE TRIGGER trg_gl_jl_posted_set_frozen');
+      await c.query('SET LOCAL ROLE app_service');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 7, 0, $3)', [je, acct, B]);
+      await c.query('SET CONSTRAINTS ALL IMMEDIATE').catch((e: Error) => { message = e.message; });
+    } finally { await c.query('ROLLBACK'); c.release(); }
+    expect(message).toBe('gl_journal_entries: a posted journal does not balance');
+    expect(message).not.toContain(je);
+    expect(message).not.toMatch(/debit|credit|1007|1000/);
   });
   it('D1 [app_user, tenant B]: tenant B learns nothing of A\'s run finality, takes no lock on A\'s header, and its line write is refused', async () => {
     const { run: finalA } = await finalRun();
