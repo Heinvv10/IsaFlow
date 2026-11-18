@@ -84,7 +84,6 @@ company_directors
 company_document_numbers
 company_documents
 company_feature_overrides
-company_group_members
 company_messages
 company_udf_definitions
 company_user_permissions
@@ -118,7 +117,6 @@ flow_purchases
 flow_wallet
 fraud_alerts
 goods_received_notes
-group_coa_mappings
 imap_mirror_connections
 imap_mirror_scan_log
 item_bundle_lines

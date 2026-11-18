@@ -15,7 +15,7 @@ const access = vi.hoisted(() => ({
 }));
 const svc = vi.hoisted(() => ({
   getGroup: vi.fn(), listGroupsForUser: vi.fn(), createGroup: vi.fn(), updateGroup: vi.fn(), deleteGroup: vi.fn(),
-  addMember: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), getGroupMembers: vi.fn(), getGroupAccounts: vi.fn(),
+  addMember: vi.fn(), findMember: vi.fn(), getTransactionParties: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), getGroupMembers: vi.fn(), getGroupAccounts: vi.fn(),
   createGroupAccount: vi.fn(), updateGroupAccount: vi.fn(), deleteGroupAccount: vi.fn(), autoGenerateGroupCOA: vi.fn(),
   getCoaMappings: vi.fn(), setCoaMapping: vi.fn(), removeCoaMapping: vi.fn(), autoMapAccounts: vi.fn(), getUnmappedAccounts: vi.fn(),
   listIntercompanyTransactions: vi.fn(), createIntercompanyTransaction: vi.fn(), matchIntercompanyTransactions: vi.fn(),
@@ -68,13 +68,15 @@ async function call(c: Case) {
   const [, route, method, query, body] = c;
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), end: vi.fn() };
   const handler = (route === 'groups' ? groupsHandler : intercoHandler) as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>;
-  await handler({ method, query, body, user: { id: 'u1' } } as unknown as NextApiRequest, res as unknown as NextApiResponse);
+  await handler({ method, query, body, user: { id: 'u1' }, companyId: CO } as unknown as NextApiRequest, res as unknown as NextApiResponse);
   return res;
 }
 const msg = (res: { json: ReturnType<typeof vi.fn> }) => JSON.stringify(res.json.mock.calls[0]?.[0] ?? {});
 
 beforeEach(() => {
   for (const fn of Object.values(svc)) fn.mockReset().mockResolvedValue({ id: 'x' });
+  svc.findMember.mockResolvedValue({ companyId: CO });
+  svc.getTransactionParties.mockResolvedValue([]);
   access.userBelongsToCompany.mockReset().mockResolvedValue(true);
   access.userBelongsToGroup.mockReset().mockResolvedValue(true);
   access.userCanWriteGroup.mockReset().mockResolvedValue(true);
