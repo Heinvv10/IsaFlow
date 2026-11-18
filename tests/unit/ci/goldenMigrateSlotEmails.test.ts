@@ -293,6 +293,19 @@ describe('migrate-slot-emails main', () => {
       expect(read(target())).toBe('UNRELATED=1\n');
     });
 
+    it('an unreadable file outside the root is a problem, not a clean skip', async () => {
+      if (process.getuid?.() === 0) return;
+      chmodSync(target(), 0o000);
+      try {
+        expect(await run()).toBe(0);
+        const out = said.join('\n');
+        expect(out).toContain(`${f('ws', 'IsaFlow-out', '.env.local')}: cannot be read`);
+        expect(out).not.toContain('skipped');
+        said = []; w.log.length = 0;
+        expect(await run(['--apply'])).toBe(1);
+      } finally { chmodSync(target(), 0o600); }
+    });
+
     it('a file outside the root that holds a lookalike or unknown old-domain line still blocks', async () => {
       put(target(), 'SMTP_FROM=x <a@isaflow.dev>\n');
       said = []; w.log.length = 0;
