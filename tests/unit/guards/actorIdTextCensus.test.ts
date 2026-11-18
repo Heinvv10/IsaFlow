@@ -92,10 +92,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     269: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
-    47: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
-    121: 'submitted_by = ${userId}, updated_at = NOW()',
-    125: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
-    205: 'submitted_by = ${actorUserId},',
+    48: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
+    122: 'submitted_by = ${userId}, updated_at = NOW()',
+    126: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    209: 'submitted_by = ${actorUserId},',
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     81: 'submitted_by = ${userId},',
@@ -123,7 +123,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 234: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
-    126: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
+    127: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
