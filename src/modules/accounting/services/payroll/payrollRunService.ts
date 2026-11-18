@@ -8,7 +8,7 @@ import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
 import {
-  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
+  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, PayrollRunNotFoundError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
 import type { LineCadence, PayrollEmployee, PayrollPeriod } from './payrollTypes';
@@ -49,7 +49,7 @@ export async function calculatePayrollRun(
   // never reads its year-to-date and later-month warnings while an approval is in flight.
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
-  if (!run) throw new Error('Payroll run not found');
+  if (!run) throw new PayrollRunNotFoundError();
 
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));

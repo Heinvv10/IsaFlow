@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
-import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollRunLockedError, PayrollRunNotFoundError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
@@ -52,6 +52,8 @@ async function handler(
     }
     // Wave 6 HYb: a non-UUID preparer of a run R-035 governs, refused before any write.
     if (err instanceof PreparerIdNotSupportedError) return apiResponse.conflict(res, err.message, { code: err.code });
+    // Not this company's, or a draft deleted while this request waited on its lock (wave 6 FQd, review #1622 L3).
+    if (err instanceof PayrollRunNotFoundError) return apiResponse.notFound(res, 'PayrollRun', id);
     if (err instanceof PayrollRunLockedError) {
       return apiResponse.badRequest(res, err.message, { lockedStatus: err.status });
     }

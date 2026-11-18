@@ -13,4 +13,5 @@ export const PAYROLL_REFUSAL_CODES = [
   'EMPLOYEE_PORTAL_REFUSED', // SS employeePortalRefusal: a portal invite, revoke or sign-in refused before any write or send.
   'PAY_WEEK_LOCKED', // FQd payrollPayWeekSettings: the pay week is fixed for the tax year by an approved weekly/fortnightly run.
   'RUN_NOT_DELETABLE', // FQd payrollRunDelete: only a draft never calculated or approved is deleted; nothing written.
+  'PAYROLL_RUN_NOT_FOUND', // FQd payrollRunLock: calculate of a run that is not this company's or was deleted while it waited.
 ] as const;

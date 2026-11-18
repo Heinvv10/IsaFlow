@@ -4,8 +4,8 @@
  *    (403 IMPERSONATION_FORBIDDEN) and an agent token (403 AGENT_FORBIDDEN), writing nothing and auditing nothing.
  *  - L1: a weekly create waits for a pay-week change in flight (the lock the pay-week PUT takes) and is judged on the
  *    pay week it then reads: a Monday start refused once the week starts on Tuesday.
- *  - L3: delete racing calculate on one draft: the delete wins (calculate 4xx, no header, no line) or the calculate
- *    wins (delete 409, header and lines kept). Never a header gone with lines, or a calculated run deleted.
+ *  - L3: delete and calculate on one draft, each order forced on the approval lock: delete first wins (calculate 404,
+ *    no header, no line; it was a 500 before review #1622 L3); calculate first wins (delete 409, header and lines kept).
  *
  * Disposable DB only (rig -> assertDisposable).
  */
@@ -107,22 +107,50 @@ describe('L1 lock move: two creates of one period at once are still serialised',
   });
 });
 
-describe('L3: delete racing calculate on one draft', () => {
-  it('one wins cleanly, every time', async () => {
-    await a.employee(20000);
-    for (let month = 1; month <= 6; month++) {
-      const run = String((await a.api.createRun(month)).body.data!.id);
-      const [d, c] = month % 2 === 0
-        ? await Promise.all([del(run), a.api.calculate(run)])
-        : await Promise.all([a.api.calculate(run), del(run)]).then(([x, y]) => [y, x] as const);
-      const header = await one('SELECT id FROM payroll_run_headers WHERE id = $1', [run]);
-      const lines = (await one('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n;
-      if (d.statusCode === 200) {
-        expect([c.statusCode >= 400 && c.statusCode < 500, header, lines], `month ${month}: delete won`).toEqual([true, undefined, 0]);
-      } else {
-        expect([d.statusCode, reason(d), c.statusCode], `month ${month}: calculate won`).toEqual([409, 'RUN_NOT_DELETABLE', 200]);
-        expect([header?.id, lines > 0], `month ${month}`).toEqual([run, true]);
-      }
+describe('L3: delete racing calculate on one draft, each order forced', () => {
+  /**
+   * Both take the company payroll-approval lock first (the census in the PR body). Held here by hand, the first request
+   * queues on it, then the second; on release PostgreSQL grants the waiters in arrival order, so `first` runs to the
+   * end before `second` starts.
+   */
+  async function inOrder<A, B>(first: () => Promise<A>, second: () => Promise<B>): Promise<[A, B]> {
+    const client = await a.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended('payroll_approval:' || $1, 0))", [a.company]);
+      const one = first();
+      await new Promise((r) => setTimeout(r, 400));
+      const two = second();
+      await new Promise((r) => setTimeout(r, 400));
+      await client.query('COMMIT');
+      return [await one, await two];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
+  }
+  const state = async (run: string) => ({
+    header: (await one('SELECT count(*)::int AS n FROM payroll_run_headers WHERE id = $1', [run])).n,
+    lines: (await one('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n,
+  });
+
+  it('delete first: the delete wins (200); the calculate finds no run (404); no header, no line', async () => {
+    await a.employee(20000);
+    const run = String((await a.api.createRun(1)).body.data!.id);
+    const [d, c] = await inOrder(() => del(run), () => a.api.calculate(run));
+    expect(d.statusCode).toBe(200);
+    expect(c.statusCode).toBe(404);
+    expect(await state(run)).toEqual({ header: 0, lines: 0 });
+  });
+
+  it('calculate first: the calculate wins (200); the delete is refused (409 RUN_NOT_DELETABLE); header and lines kept', async () => {
+    const run = String((await a.api.createRun(2)).body.data!.id);
+    const [c, d] = await inOrder(() => a.api.calculate(run), () => del(run));
+    expect(c.statusCode).toBe(200);
+    expect([d.statusCode, reason(d)]).toEqual([409, 'RUN_NOT_DELETABLE']);
+    const after = await state(run);
+    expect([after.header, after.lines > 0]).toEqual([1, true]);
   });
 });
