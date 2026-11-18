@@ -251,6 +251,25 @@ describe('migrate-slot-emails main', () => {
       expect(rewriteEnvFiles([f('ws', 'IsaFlow-a', '.env.local')], knownAccounts(), dir).length).toBe(1);
     });
 
+    it('a sibling directory that merely starts with the root\'s name is outside it', () => {
+      const evil = `${dir}-evil`;
+      mkdirSync(evil);
+      try {
+        put(join(evil, 'x.env'), `GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+        expect(rewriteEnvFiles([join(evil, 'x.env')], knownAccounts(), dir)).toEqual([]);
+        expect(read(join(evil, 'x.env'))).toBe(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+      } finally { rmSync(evil, { recursive: true, force: true }); }
+    });
+
+    it('without --allowed-root the root is /home/hein: files elsewhere are not writable', async () => {
+      const argv = ['--env-file', ciEnv, '--deploy-env-file', deployEnv, '--secrets-dir', secrets, '--workspace-root', ws];
+      expect(await main(argv, mkIo(w))).toBe(0);
+      expect(said.join('\n')).toContain(`${ciEnv}: resolves outside /home/hein, will not be written`);
+      said = []; w.log.length = 0;
+      expect(await main([...argv, '--apply'], mkIo(w))).toBe(1);
+      untouched();
+    });
+
     it('is reported by path in a dry run, and --apply refuses before any write', async () => {
       expect(await run()).toBe(0);
       expect(said.join('\n')).toContain(`${f('ws', 'IsaFlow-out', '.env.local')}: resolves outside ${dir}, will not be written`);
