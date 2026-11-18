@@ -68,7 +68,7 @@ async function createJournalEntryInTransaction(
     // post was committed by every route that answers the refusal with a 4xx.
     // Opted in (human-initiated, vatLateClaimPlan.ts): a draft the s16(3) split can post is let through.
     if (opts?.allowLateInputClaim) await planLockedVatPosting(companyId, input.entryDate, input.lines);
-    else await assertJournalVatPeriodOpen(companyId, input.entryDate, input.lines);
+    else await assertJournalVatPeriodOpen(companyId, input.entryDate, input.lines, undefined, input.source);
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {

@@ -92,7 +92,7 @@ async function postJournalEntryInner(
     // (filed) VAT period. Before the UPDATE, like the two refusals above, and
     // it takes the shared advisory lock a VAT lock's figure snapshot excludes.
     // Reversals reach here with a date already rolled past any lock.
-    await assertJournalVatPeriodOpen(companyId, entry.entryDate, entry.lines ?? []);
+    await assertJournalVatPeriodOpen(companyId, entry.entryDate, entry.lines ?? [], undefined, entry.source);
     return await markPosted();
   } catch (err) {
     log.error('Failed to post journal entry', { id, error: err }, 'accounting');
