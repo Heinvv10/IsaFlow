@@ -1,9 +1,9 @@
 /**
  * One intercompany connection.
- * PUT    — edit THIS company's own side (customer, supplier, settlement mode, loan account, default expense
- *          account, auto-accept (group only), cut-over date, interest rate). A body key left out is unchanged;
- *          null clears.
- * DELETE — revoke the connection (either party).
+ * PUT    — edit THIS company's own side: customer, supplier, loan account, default expense account, auto-accept
+ *          (group only). A body key left out is unchanged; null clears. The pair's settlement mode, cut-over date
+ *          and interest rate are agreed on ./settings, not here.
+ * DELETE — revoke the connection (either party, with a write role in its own company).
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';

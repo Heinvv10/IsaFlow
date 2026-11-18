@@ -79,7 +79,7 @@ the sender's own data only; the sender never reads the receiver's ledger.
 
 ## Revised after P1 review (2026-11-17)
 
-These supersede the Data model above wherever they differ (migration 999p carries them).
+These supersede the Data model above wherever they differ (migration 999z carries them).
 
 - **Pair-level agreement.** `settlement_mode`, `cutover_date` and `interest_rate_pct` live on `intercompany_connections`, not on a
   side: they are one agreement between the two companies. A group connection's change needs a write role in BOTH companies (service and
@@ -104,6 +104,34 @@ These supersede the Data model above wherever they differ (migration 999p carrie
 - **Messages.** `handled_via` (`user` | `auto`) is set server-side; the payload is at most 256 KiB; a dismissed message can be restored to
   pending; a message is accepted only while its connection is active. For the `allocation` and `payment` kinds `source_doc` is the allocation /
   payment ROW id, so a repeat event is a distinct message. `error` holds a generic sentence for a person, never raw SQL or exception text.
+
+### Round 2 (2026-11-18)
+
+- **Migration prefix.** `999z_intercompany_connections.sql` (master took 999p; 999q-999y are in other open PRs).
+- **Viewers read only.** Every app_user write on the five tables needs `intercompany_user_can_write(<acting company>)` in the table's
+  guard: a connection's status (revoke, accept, re-activate), a side, a message's sending or handling, a link's insert, confirmation or
+  unlink, a key. P2's auto-accept worker therefore runs with the claims of a write-role user of the RECEIVER (it sets
+  `request.jwt.claims` and `app.current_company_id` for that company); there is no user-less write path, by design.
+- **A deleted group ends its connections.** `intercompany_in_one_group` and the revoke-on-leave trigger both require `company_groups.is_active`;
+  a trigger on `company_groups` (is_active, DELETE) revokes the connections of a group that is deleted (`deleteGroup` clears `is_active`).
+  The revocation is stamped `system:group-membership`; the connections guard accepts it only from migration_admin with a transaction-local
+  flag set by the definer trigger function (the flag alone is settable by any session, so it proves nothing by itself).
+- **`intercompany_in_one_group` is not a membership oracle.** It is false unless the caller is a party (a user of one of the two companies, or
+  a session whose company is one of them); the unrestricted check is internal (`intercompany_shared_group`, executable by migration_admin only).
+- **Point-in-time race.** A connection or message created in the same instant that a company leaves a group (or the group is deleted) can
+  commit just after the revoking trigger ran: the helper is checked at insert time, not held as a lock. The window is closed by re-checking
+  at ACTION time: P2's auto-accept worker calls `intercompany_in_one_group` again, as the receiver, immediately before it creates the draft
+  and approves it, and refuses (leaving the message pending) when it is false; the connection guard also makes any later message insert
+  fail. A message sent inside the window is therefore at worst an inbox item a person decides on, never an automatic posting.
+- **Links.** A pending pairing holds no unique slot (the unique indexes cover ACTIVE links only; confirming re-checks them), so a partner
+  cannot squat a document by proposing it. Confirming needs the connection active (unlinking does not), and the confirmed side's document must
+  exist in its company (`intercompany_document_exists_as_writer`, a registered definer that answers only for a company in which the caller
+  writes). One mirror link per message.
+- **Messages.** An accepted invoice / credit_note / interest_invoice message names a document that exists in the receiver's company;
+  `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group connection; accept, reject and restore need the
+  connection active.
+- **Hard deletes.** A side's references are `ON DELETE SET NULL`; the foreign key's own UPDATE (one trigger level down, only references going to
+  NULL) passes the sides guard whatever the connection's state, so a purge or a migration rollback is never blocked by a revoked connection.
 
 ## Phases (each = one PR, TDD, blind `/review`; GL-writing PRs get the adversarial ledger reviewer)
 

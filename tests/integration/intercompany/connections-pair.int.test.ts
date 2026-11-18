@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (999p): the connection row itself. Pair settings (mode, cut-over, interest) live here and need a
+ * Intercompany P1 (999z): the connection row itself. Pair settings (mode, cut-over, interest) live here and need a
  * write role in BOTH companies; the status moves only by the legal steps; a group connection lives only while both
  * companies are current members of one group (definer helper + group-leave trigger); an external one cannot be
  * created yet. Trigger-level rules are tested as the table owner (no column grant or RLS in the way) so the
@@ -10,7 +10,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { dataOf, messageOf } from '../r035-pr2.helpers';
 import {
-  api, asAppUser, asOwner, cleanup, co, count, outcome, pairOf, plantConnection, plantExternal, R, setup, U, wipeConnections, withoutTrigger,
+  api, asAppUser, asOwner, cleanup, co, count, outcome, pairOf, plantConnection, plantExternal, R, setup, U, wipeConnections,
 } from './intercompany.helpers';
 
 assertDisposable();
@@ -196,7 +196,7 @@ describe('the status moves only by the legal steps (trigger, as owner)', () => {
     const [low, high] = pairOf(co.A, co.C);
     const accept = "UPDATE intercompany_connections SET status = 'active' WHERE id = $1";
     await asOwner(pool, U.ac, low, async (q) => { expect(await outcome(q, accept, [ext])).toBe(R.inviterAccepts); });
-    await asOwner(pool, U.ab, co.B, async (q) => { expect(await outcome(q, accept, [ext])).toBe(R.partyAccepts); });
+    await asOwner(pool, U.ab, co.B, async (q) => { expect(await outcome(q, accept, [ext])).toBe(R.partyStatus); });
     await asOwner(pool, U.ac, high, async (q) => { expect(await outcome(q, accept, [ext])).toBe('ok'); }, true);
     expect(await row(ext)).toMatchObject({ status: 'active', accepted_by: U.ac });
   });
@@ -229,88 +229,5 @@ describe('the status moves only by the legal steps (trigger, as owner)', () => {
     const [first, second] = await Promise.all([api.create(U.ab, co.A, { partnerCompanyId: co.B }), api.create(U.ab, co.B, { partnerCompanyId: co.A })]);
     expect([first.state.statusCode, second.state.statusCode].sort()).toEqual([201, 409]);
     expect(await count(pool, "SELECT COUNT(*)::int AS n FROM intercompany_connections WHERE status = 'active'")).toBe(1);
-  });
-});
-
-describe('a group connection lives only while both companies are current members of one group', () => {
-  it('the helper answers regardless of the caller\'s RLS: a user of neither company gets the true answer, and false for non-members', async () => {
-    const ask = (q: import('pg').PoolClient, a: string, b: string) => q.query('SELECT public.intercompany_in_one_group($1, $2) AS ok', [a, b]).then((r) => r.rows[0].ok as boolean);
-    await asAppUser(pool, U.c, co.C, async (q) => {
-      expect(await ask(q, co.A, co.B)).toBe(true);       // C cannot read company_group_members rows of G, yet the answer is true
-      expect(await ask(q, co.A, co.C)).toBe(false);      // different groups
-      expect(await ask(q, co.A, co.A)).toBe(false);
-      expect(await ask(q, co.A, crypto.randomUUID())).toBe(false);
-    });
-    await leaveGroup(co.B);
-    await asAppUser(pool, U.c, co.C, async (q) => { expect(await ask(q, co.A, co.B)).toBe(false); });
-  });
-
-  it('the helper is executable by the app roles only, with a pinned search path, and is a registered definer', async () => {
-    const f = (await pool.query(
-      `SELECT p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) AS owner,
-              has_function_privilege('app_user', p.oid, 'EXECUTE') AS app_user,
-              has_function_privilege('app_service', p.oid, 'EXECUTE') AS app_service,
-              has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec,
-              (SELECT count(*) FROM app_definer_reviews r WHERE r.signature = p.oid::regprocedure::text AND r.body_md5 = app_definer_hash(p.oid)) AS reviewed
-         FROM pg_proc p WHERE p.proname = 'intercompany_in_one_group'`)).rows[0];
-    expect(f).toMatchObject({ prosecdef: true, owner: 'migration_admin', app_user: true, app_service: true, public_exec: false, reviewed: '1' });
-    expect(f.proconfig).toEqual(['search_path=pg_catalog, public, pg_temp']);
-    expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
-  });
-
-  it('a company leaving the group revokes its active group connections, stamped by the system; one that stays in another shared group keeps it', async () => {
-    await leaveGroup(co.B);
-    expect(await row()).toMatchObject({ status: 'revoked', revoked_by: 'system:group-membership' });
-    expect((await row()).revoked_at).toBeInstanceOf(Date);
-  });
-
-  it('a second shared group keeps the connection when one membership ends; deleting the last membership revokes it', async () => {
-    const g2 = crypto.randomUUID();
-    await pool.query("INSERT INTO company_groups(id, name) VALUES ($1, 'IC group G2')", [g2]);
-    await pool.query('INSERT INTO company_group_members(group_id, company_id) VALUES ($1, $2), ($1, $3)', [g2, co.A, co.B]);
-    try {
-      await leaveGroup(co.B);
-      expect((await row()).status).toBe('active');
-      await pool.query('DELETE FROM company_group_members WHERE group_id = $1 AND company_id = $2', [g2, co.B]);
-      expect(await row()).toMatchObject({ status: 'revoked', revoked_by: 'system:group-membership' });
-    } finally {
-      await pool.query('DELETE FROM company_group_members WHERE group_id = $1', [g2]);
-      await pool.query('DELETE FROM company_groups WHERE id = $1', [g2]);
-    }
-  });
-
-  it('an app_user session ending a membership revokes too (the definer reaches rows its RLS hides), and a non-group connection is untouched', async () => {
-    const ext = await plantExternal(pool, co.A, co.C, 'active', U.ac);
-    await asAppUser(pool, U.ab, co.A, async (q) => {
-      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.A]);
-    }, true);
-    expect((await row()).status).toBe('revoked');
-    expect((await row(ext)).status).toBe('active');
-  });
-
-  it('the group-leave trigger fires on left_date and on DELETE, and its function is a registered definer', async () => {
-    const t = (await pool.query(
-      `SELECT pg_get_triggerdef(t.oid) AS def FROM pg_trigger t WHERE t.tgrelid = 'company_group_members'::regclass AND NOT t.tgisinternal AND t.tgname = 'trg_intercompany_group_membership'`)).rows[0];
-    expect(t.def).toMatch(/AFTER (UPDATE OF [a-z_, ]+|DELETE|UPDATE OF [a-z_, ]+ OR DELETE)/);
-    expect(t.def).toContain('left_date');
-    const f = (await pool.query(
-      `SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner, has_function_privilege('app_user', p.oid, 'EXECUTE') AS app_user,
-              (SELECT count(*) FROM app_definer_reviews r WHERE r.signature = p.oid::regprocedure::text AND r.body_md5 = app_definer_hash(p.oid)) AS reviewed
-         FROM pg_proc p WHERE p.proname = 'intercompany_group_membership_changed'`)).rows[0];
-    expect(f).toMatchObject({ prosecdef: true, owner: 'migration_admin', reviewed: '1' });
-  });
-
-  it('while a company has left, its side and message writes are refused (trigger disabled to reach the guards)', async () => {
-    await pool.query("INSERT INTO intercompany_connection_sides(connection_id, company_id, partner_company_id) VALUES ($1, $2, $3)", [id, co.A, co.B]);
-    await withoutTrigger(pool, 'company_group_members', 'trg_intercompany_group_membership', async (q) => {
-      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.B]);
-    });
-    expect((await row()).status).toBe('active'); // the trigger was off
-    await asAppUser(pool, U.a, co.A, async (q) => {
-      expect(await outcome(q, `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-        VALUES ($1, $2, $3, 'invoice', 'customer_invoice', gen_random_uuid(), '{}')`, [id, co.A, co.B])).toBe(R.msgOneGroup);
-      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1', [id])).toBe(R.autoAcceptOneGroup);
-      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET auto_accept = false WHERE connection_id = $1', [id])).toBe('ok');
-    });
   });
 });

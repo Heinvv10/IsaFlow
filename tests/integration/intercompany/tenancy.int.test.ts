@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (999p): the two halves of every tenant policy, the connection-key table, and the side-options
+ * Intercompany P1 (999z): the two halves of every tenant policy, the connection-key table, and the side-options
  * route. Every policy is `<party column> = app.current_company_id() AND <party column> IN (auth.user_companies())`:
  * a session of a company is not enough, the user must also BELONG to it, so a user who is a member of nothing (or of
  * another company) with the company id forged to A's sees nothing of A's and changes nothing.
@@ -9,7 +9,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { dataOf } from '../r035-pr2.helpers';
 import {
-  acct, api, asAppUser, cleanup, co, count, outcome, party, plantConnection, plantLink, plantMessage, plantSide, R, setup, U, wipeConnections,
+  acct, api, asAppUser, cleanup, co, count, outcome, party, plantConnection, plantKey, plantLink, plantMessage, plantSide, R, setup, U, wipeConnections,
 } from './intercompany.helpers';
 
 assertDisposable();
@@ -30,7 +30,7 @@ async function seedEverything() {
   await plantSide(pool, id, co.A, co.B, { customer_id: party.aCustomer });
   await plantMessage(pool, id, co.A, co.B);
   await plantLink(pool, id);
-  await pool.query('INSERT INTO company_connection_keys(company_id, key_hash) VALUES ($1, $2)', [co.A, hash('e')]);
+  await plantKey(pool, co.A, hash('e'));
 }
 
 describe('the user_companies() half of every policy', () => {
@@ -54,8 +54,7 @@ describe('the user_companies() half of every policy', () => {
       expect((await q.query("UPDATE intercompany_messages SET status = 'dismissed'")).rowCount).toBe(0);
       expect((await q.query("UPDATE intercompany_document_links SET status = 'unlinked'")).rowCount).toBe(0);
       expect((await q.query("UPDATE company_connection_keys SET key_hash = repeat('f', 64)")).rowCount).toBe(0);
-      expect(await outcome(q, "INSERT INTO company_connection_keys(company_id, key_hash) VALUES ($1, $2)", [co.A, hash('9')]))
-        .toBe('42501: new row violates row-level security policy for table "company_connection_keys"');
+      expect(await outcome(q, "INSERT INTO company_connection_keys(company_id, key_hash) VALUES ($1, $2)", [co.A, hash('9')])).toBe(R.keyWriteRole);
       expect(await outcome(q, `INSERT INTO intercompany_connections(company_low_id, company_high_id, kind, status, invited_by_company_id) VALUES ($1, $2, 'group', 'active', $1)`, [co.A, co.B]))
         .toBe(R.needsWriteBoth);
       expect(await outcome(q, 'INSERT INTO intercompany_connection_sides(connection_id, company_id, partner_company_id) VALUES ($1, $2, $3)', [id, co.A, co.B])).toBe(R.noNoConnection);
@@ -95,9 +94,15 @@ describe('company_connection_keys', () => {
   });
 
   it('refuses another company\'s key, a second key for one company, a repeated hash and a malformed hash', async () => {
-    await pool.query(KEY, [co.A, hash('a')]);
+    await plantKey(pool, co.A, hash('a'));
     await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, KEY, [co.A, hash('c')])).toBe(R.keyWriteRole);   // B's user does not write in A
+    });
+    // a user who writes in BOTH, acting as B, passes the guard and meets the policy
+    await asAppUser(pool, U.ab, co.B, async (q) => {
       expect(await outcome(q, KEY, [co.A, hash('c')])).toBe('42501: new row violates row-level security policy for table "company_connection_keys"');
+    });
+    await asAppUser(pool, U.b, co.B, async (q) => {
       expect(await outcome(q, KEY, [co.B, hash('a')])).toBe('23505: duplicate key value violates unique constraint "company_connection_keys_key_hash_key"');
       expect(await outcome(q, KEY, [co.B, 'not-a-hash'])).toBe('23514: new row for relation "company_connection_keys" violates check constraint "company_connection_keys_key_hash_check"');
       expect(await outcome(q, KEY, [co.B, hash('A')])).toBe('23514: new row for relation "company_connection_keys" violates check constraint "company_connection_keys_key_hash_check"');
@@ -109,7 +114,7 @@ describe('company_connection_keys', () => {
   });
 
   it('another company reads no key row', async () => {
-    await pool.query(KEY, [co.A, hash('d')]);
+    await plantKey(pool, co.A, hash('d'));
     expect(await asAppUser(pool, U.b, co.B, (q) => count(q, 'SELECT COUNT(*)::int AS n FROM company_connection_keys'))).toBe(0);
     expect(await asAppUser(pool, U.a, co.A, (q) => count(q, 'SELECT COUNT(*)::int AS n FROM company_connection_keys'))).toBe(1);
   });

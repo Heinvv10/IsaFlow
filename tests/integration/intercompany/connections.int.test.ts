@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (migration 999p), the headline guards, proved with real PostgreSQL as app_user and through the
+ * Intercompany P1 (migration 999z), the headline guards, proved with real PostgreSQL as app_user and through the
  * real routes:
  *   1. a third company (C) cannot see, change or end a connection between A and B;
  *   2. a company cannot edit its partner's side (B cannot edit A's);
@@ -11,7 +11,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { dataOf, messageOf } from '../r035-pr2.helpers';
 import {
-  api, asAppUser, cleanup, co, count, outcome, pairOf, party, plantConnection, plantExternal, plantLink, plantSide, R, setup, U, wipeConnections,
+  api, asAppUser, asOwner, cleanup, co, count, outcome, pairOf, party, plantConnection, plantExternal, plantKey, plantLink, plantMessage, plantSide, R, setup, U, wipeConnections,
 } from './intercompany.helpers';
 
 assertDisposable();
@@ -30,12 +30,9 @@ describe('1. a third company sees and changes nothing of the A-B connection', ()
   it('C reads no row of any of the five tables, as app_user, and the list route is empty for C', async () => {
     const id = await plantConnection(pool, co.A, co.B);
     await plantSide(pool, id, co.A, co.B);
-    const message = await pool.query(
-      `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-       VALUES ($1, $2, $3, 'invoice', 'customer_invoice', gen_random_uuid(), '{}') RETURNING id`, [id, co.A, co.B]);
+    await plantMessage(pool, id, co.A, co.B);
     await plantLink(pool, id);
-    await pool.query("INSERT INTO company_connection_keys(company_id, key_hash) VALUES ($1, repeat('a', 64))", [co.A]);
-    expect(message.rows).toHaveLength(1);
+    await plantKey(pool, co.A, 'a'.repeat(64));
 
     const tables = ['intercompany_connections', 'intercompany_connection_sides', 'intercompany_messages', 'intercompany_document_links', 'company_connection_keys'];
     const seenByC = await asAppUser(pool, U.c, co.C, async (q) => {
@@ -83,9 +80,8 @@ describe("2. a company cannot edit its partner's side", () => {
     await asAppUser(pool, U.b, co.B, async (q) => {
       expect(await count(q, 'SELECT COUNT(*)::int AS n FROM intercompany_connection_sides WHERE company_id = $1', [co.A])).toBe(0);
       expect((await q.query('UPDATE intercompany_connection_sides SET customer_id = NULL WHERE company_id = $1', [co.A])).rowCount).toBe(0);
-      // B can see the connection, so the guard passes the shape and the policy's WITH CHECK refuses.
-      expect(await outcome(q, SIDE_INSERT, [id, co.A, co.B, false]))
-        .toBe('42501: new row violates row-level security policy for table "intercompany_connection_sides"');
+      // B can see the connection, so the guard passes the shape; B's user is no writer of A, so the guard refuses (before the policy's WITH CHECK).
+      expect(await outcome(q, SIDE_INSERT, [id, co.A, co.B, false])).toBe(R.sideWriteRole);
     });
     // A user who belongs to BOTH companies is still held to the session company.
     await asAppUser(pool, U.ab, co.B, async (q) => {
@@ -120,7 +116,9 @@ describe('3. auto-accept is only for a group connection, in the database', () =>
 
   it('even a superuser (RLS bypassed) cannot store it: the trigger is ENABLE ALWAYS', async () => {
     const id = await plantExternal(pool, co.A, co.C, 'active');
-    await expect(pool.query(SIDE_INSERT, [id, co.A, co.C, true])).rejects.toMatchObject({ code: '23514', message: R.autoAcceptGroupOnly.slice(7) });
+    await asOwner(pool, U.ac, co.A, async (q) => {
+      expect(await outcome(q, SIDE_INSERT, [id, co.A, co.C, true])).toBe(R.autoAcceptGroupOnly);
+    });
     expect(await count(pool, 'SELECT COUNT(*)::int AS n FROM intercompany_connection_sides WHERE connection_id = $1', [id])).toBe(0);
   });
 

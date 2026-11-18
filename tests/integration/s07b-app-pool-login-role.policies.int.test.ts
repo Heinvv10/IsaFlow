@@ -18,7 +18,7 @@ afterAll(() => teardown(ids, []));
 const FORGEABLE: RegExp[] = [
   /(\w+\.)?company_id IN \( SELECT company_users\.company_id FROM company_users WHERE \(company_users\.user_id = auth\.uid\(\)\)\)/g,
   /(\w+\.)?id IN \( SELECT company_users\.company_id FROM company_users WHERE \(company_users\.user_id = auth\.uid\(\)\)\)/g,
-  // 999p: the party columns of the intercompany tables (a shared row names two companies) are the same claim.
+  // 999z: the party columns of the intercompany tables (a shared row names two companies) are the same claim.
   /(\w+\.)?(?:company_id|company_low_id|company_high_id|invited_by_company_id|from_company_id|to_company_id|company_a_id|company_b_id) = app\.current_company_id\(\)/g,
   /(\w+\.)?(?:company_id|company_low_id|company_high_id|invited_by_company_id|from_company_id|to_company_id|company_a_id|company_b_id) IN \( SELECT auth\.user_companies\(\) AS user_companies\)/g,
   /(\w+\.)?(company_id|id) IN \( SELECT auth\.user_admin_companies\(\) AS user_admin_companies\)/g,

@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (999p): the message table is a table only in P1 (no code writes it yet), but the rules P2-P6 stand
+ * Intercompany P1 (999z): the message table is a table only in P1 (no code writes it yet), but the rules P2-P6 stand
  * on are in the database now: one message per source document, a message only on an active connection between its two
  * companies (a group one only while both stay in one group), the sender only inserts and the receiver only moves a
  * pending message on, handled messages are final (a dismissal can be restored), the handling is stamped server-side.
@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { asAppUser, asOwner, cleanup, co, count, outcome, plantConnection, plantMessage, R, setup, U, wipeConnections } from './intercompany.helpers';
+import { asAppUser, asOwner, cleanup, co, count, outcome, plantConnection, plantDocument, plantMessage, plantSide, R, setup, U, wipeConnections } from './intercompany.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -25,6 +25,8 @@ const MSG = `INSERT INTO intercompany_messages(connection_id, from_company_id, t
              VALUES ($1, $2, $3, $4, 'customer_invoice', $5, '{"number":"INV-1"}') RETURNING id`;
 const DOC = crypto.randomUUID();
 const msgRow = async (m: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [m])).rows[0];
+/** The SET clause that accepts an invoice message with the supplier invoice the receiver created for it. */
+const accept = async () => `status = 'accepted', target_doc_type = 'supplier_invoice', target_doc_id = '${await plantDocument(pool, 'supplier_invoice', co.B)}'`;
 const handle = (user: string, company: string, m: string, set: string) =>
   asAppUser(pool, user, company, async (q) => outcome(q, `UPDATE intercompany_messages SET ${set} WHERE id = $1`, [m]), true);
 
@@ -40,7 +42,11 @@ describe('inserting', () => {
   });
 
   it('the sender writes only as itself, between the two companies of an ACTIVE connection', async () => {
+    // a user who writes in B only cannot send as A (the guard); a user who writes in BOTH, acting as B, is stopped by the policy
     await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', DOC])).toBe(R.msgSendRole);
+    });
+    await asAppUser(pool, U.ab, co.B, async (q) => {
       expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', DOC])).toBe('42501: new row violates row-level security policy for table "intercompany_messages"');
     });
     await asAppUser(pool, U.ac, co.A, async (q) => {
@@ -109,27 +115,36 @@ describe('handling', () => {
     expect(r.handled_at).toBeInstanceOf(Date);
   });
 
-  it("handled_via is 'auto' only when the session says so, and a made-up value is 'user'", async () => {
-    const m1 = await plantMessage(pool, id, co.A, co.B);
-    const m2 = await plantMessage(pool, id, co.A, co.B);
-    await asAppUser(pool, U.b, co.B, async (q) => {
-      await q.query("SELECT set_config('app.intercompany_handled_via', 'auto', true)");
-      await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m1]);
-      await q.query("SELECT set_config('app.intercompany_handled_via', 'robot', true)");
-      await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m2]);
-    }, true);
-    expect((await msgRow(m1)).handled_via).toBe('auto');
-    expect((await msgRow(m2)).handled_via).toBe('user');
+  it("handled_via is 'auto' only when the session says so AND the receiver's side has auto-accept on an active group connection", async () => {
+    const via = async (setting: string | null) => {
+      const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+      await asAppUser(pool, U.b, co.B, async (q) => {
+        if (setting) await q.query("SELECT set_config('app.intercompany_handled_via', $1, true)", [setting]);
+        await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]);
+      }, true);
+      return (await msgRow(m)).handled_via;
+    };
+    expect(await via('auto')).toBe('user');              // no side, no auto-accept: a person's act whatever the session says
+    await plantSide(pool, id, co.B, co.A, { auto_accept: false });
+    expect(await via('auto')).toBe('user');
+    await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1', [id]), true);
+    expect(await via('auto')).toBe('auto');
+    expect(await via('robot')).toBe('user');             // a made-up value
+    expect(await via(null)).toBe('user');
+    // the SENDER's auto-accept does not make the receiver's act automatic
+    await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = false WHERE connection_id = $1', [id]), true);
+    await plantSide(pool, id, co.A, co.B, { auto_accept: true });
+    expect(await via('auto')).toBe('user');
   });
 
   it('accepted and rejected are final; a dismissal can only be restored to pending, which clears the handling', async () => {
     const m = await plantMessage(pool, id, co.A, co.B);
     expect(await handle(U.b, co.B, m, "status = 'dismissed'")).toBe('ok');
-    expect(await handle(U.b, co.B, m, "status = 'accepted'")).toBe(R.msgDismissed);
+    expect(await handle(U.b, co.B, m, await accept())).toBe(R.msgDismissed);
     expect(await handle(U.b, co.B, m, "status = 'rejected', reason = 'r'")).toBe(R.msgDismissed);
     expect(await handle(U.b, co.B, m, "status = 'pending'")).toBe('ok');
     expect(await msgRow(m)).toMatchObject({ status: 'pending', handled_by: null, handled_at: null, handled_via: null });
-    expect(await handle(U.b, co.B, m, "status = 'accepted'")).toBe('ok');
+    expect(await handle(U.b, co.B, m, await accept())).toBe('ok');
     expect(await handle(U.b, co.B, m, "status = 'pending'")).toBe(R.msgFinal);
     expect(await handle(U.b, co.B, m, "status = 'dismissed'")).toBe(R.msgFinal);
     const rej = await plantMessage(pool, id, co.A, co.B);
@@ -140,14 +155,16 @@ describe('handling', () => {
   it('a failed message is not final: it can be retried', async () => {
     const m = await plantMessage(pool, id, co.A, co.B);
     expect(await handle(U.b, co.B, m, "status = 'failed', error = 'The invoice could not be created.'")).toBe('ok');
-    expect(await handle(U.b, co.B, m, "status = 'accepted'")).toBe('ok');
+    expect(await handle(U.b, co.B, m, await accept())).toBe('ok');
   });
 
   it('a message is accepted only while the connection is active', async () => {
     const m = await plantMessage(pool, id, co.A, co.B);
     await asOwner(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
-    expect(await handle(U.b, co.B, m, "status = 'accepted'")).toBe(R.msgAcceptActive);
-    expect(await handle(U.b, co.B, m, "status = 'dismissed'")).toBe('ok'); // a refusal or dismissal is still possible
+    expect(await handle(U.b, co.B, m, await accept())).toBe(R.msgAcceptActive);
+    expect(await handle(U.b, co.B, m, "status = 'rejected', reason = 'r'")).toBe(R.msgAcceptActive);
+    expect(await handle(U.b, co.B, m, "status = 'dismissed'")).toBe('ok'); // a dismissal is still possible
+    expect(await handle(U.b, co.B, m, "status = 'pending'")).toBe(R.msgAcceptActive); // and so is not restored
   });
 
   it('the payload, parties and source cannot be rewritten by anyone (trigger, as owner)', async () => {
