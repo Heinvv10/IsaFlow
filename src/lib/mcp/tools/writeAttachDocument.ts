@@ -2,9 +2,14 @@
  * MCP write tool: attach_document — put a receipt / invoice scan on a bank
  * transaction. Posts nothing, so no requiresPost.
  *
- * The bytes travel base64 in the args (decision 2026-09-02: no upload URL
- * yet). The transport caps a request body at 1 MB; base64 inflates by a third
- * and the JSON-RPC envelope needs room, so the effective file cap is 750 KB.
+ * The bytes travel base64 in the args. The transport body cap is 3 MB, so the
+ * file cap is the bank store's own 2 MB (base64 ~2.7 MB). Many or larger files
+ * go through create_upload_urls / finalize_uploads, which carry no bytes.
+ * A file whose exact bytes (sha256 of what the line stores) are already on the
+ * line is not stored again: it comes back duplicate: true, shaped like a fresh
+ * attachment. The same name and size with other bytes is a different file and is
+ * stored. The duplicate read runs under the same (company, line, sha256) advisory
+ * lock finalize_uploads takes, so concurrent writes of one file store it once.
  * Every refusal here — and every refusal the service returns — happens BEFORE
  * its INSERT, so returning toolError is safe; a failure after the insert
  * would be a throw, which the registry savepoint unwinds.
@@ -16,19 +21,22 @@ import {
   type AttachmentMime,
 } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { decodeUploadPayload } from '@/lib/fileMagic';
+import { findBankLineShaDuplicate } from '@/modules/accounting/services/bank/bankLineShaDuplicate';
+import { lockUploadTarget, sha256Hex } from '@/modules/accounting/services/core/mcpUploadIntentStore';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { pickTxSelector, resolveTxId } from './txSelectorResolve';
 
-export const ATTACH_MAX_BYTES = 750 * 1024;
+export const ATTACH_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_NAME = 200;
 
 export const attachDocumentTool: McpTool = {
   name: 'attach_document',
   description:
     'Attach a document (JPEG, PNG or PDF — a receipt, slip or invoice scan) to a bank transaction, named by transaction_id or by bank_reference (plus bank_account_id to narrow an ambiguous reference). ' +
-    'content is the file as base64 (a data: URL is also accepted). Maximum 750 KB of file bytes per call — larger files must be reduced before sending. ' +
+    'content is the file as base64 (a data: URL is also accepted). Maximum 2 MB of file bytes per call. For many files, or to keep file bytes out of the tool call, use create_upload_urls then finalize_uploads instead. ' +
     'The declared mime_type is checked against the file\'s real bytes and refused on mismatch. ' +
-    'Posts nothing and changes no allocation; the same file sent twice under different idempotency keys is stored twice.',
+    'If the line already holds the same file (the same bytes, whatever its name), nothing is stored and that attachment comes back with duplicate: true, so a sync can be re-run safely; a different file with the same name and size is stored. ' +
+    'Posts nothing and changes no allocation.',
   scope: 'write:bank-tx',
   write: true,
   inputSchema: {
@@ -60,6 +68,10 @@ export const attachDocumentTool: McpTool = {
     if (!content) return toolError('content is required');
     const bytes = decodeUploadPayload(content);
     if (!bytes) return toolError('content is not valid base64');
+    // Before any lookup: an oversize file is refused without reading the line (or resolving a reference).
+    if (bytes.length > ATTACH_MAX_BYTES) {
+      return toolError(`File exceeds the ${ATTACH_MAX_BYTES / (1024 * 1024)} MB limit (got ${bytes.length} bytes)`);
+    }
 
     const selector = pickTxSelector(args);
     if (typeof selector === 'string') return toolError(selector);
@@ -68,6 +80,23 @@ export const attachDocumentTool: McpTool = {
     if (bad) return bad;
     const resolved = await resolveTxId(selector, ctx.companyId);
     if ('error' in resolved) return toolError(resolved.error);
+
+    // The duplicate read sees only rows of a line that is the company's (the finder joins its company_id); a foreign
+    // or unknown line finds nothing and the service below refuses it as Not found.
+    const sha256 = sha256Hex(bytes);
+    await lockUploadTarget(ctx.companyId, 'bank_transaction', resolved.id, sha256);
+    const same = await findBankLineShaDuplicate(ctx.companyId, resolved.id, sha256, bytes.length);
+    if (same) {
+      return ok({
+        attachment_id: same.id,
+        transaction_id: resolved.id,
+        file_name: same.fileName,
+        file_size: same.fileSize,
+        mime_type: same.mimeType,
+        created_at: same.createdAt,
+        duplicate: true,
+      });
+    }
 
     const result = await addBankTxAttachment(ctx.companyId, {
       bankTransactionId: resolved.id,
@@ -82,7 +111,7 @@ export const attachDocumentTool: McpTool = {
         // Cross-tenant and genuine miss read identically.
         case 'bank_tx_not_found': return toolError(NOT_FOUND);
         case 'type_mismatch': return toolError(`File contents do not match mime_type ${mimeType}`);
-        case 'too_large': return toolError(`File exceeds the ${Math.floor(ATTACH_MAX_BYTES / 1024)} KB limit (got ${bytes.length} bytes)`);
+        case 'too_large': return toolError(`File exceeds the ${ATTACH_MAX_BYTES / (1024 * 1024)} MB limit (got ${bytes.length} bytes)`);
         case 'empty': return toolError('content decoded to zero bytes');
       }
     }
@@ -94,6 +123,7 @@ export const attachDocumentTool: McpTool = {
       file_size: a.fileSize,
       mime_type: a.mimeType,
       created_at: a.createdAt,
+      duplicate: false,
     });
   },
 };
