@@ -55,7 +55,7 @@ beforeAll(async () => {
     bonusOf[r.company] = (await r.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
       VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [r.company])).rows[0].id;
   }
-  for (const k of ['x', 'open', 'race', 'stayer', 'paidLeaver', 'leaver']) p[k] = (await a.employee(12_000)).employee;
+  for (const k of ['x', 'open', 'race', 'race2', 'stayer', 'paidLeaver', 'leaver']) p[k] = (await a.employee(12_000)).employee;
   for (const k of ['early', 'late']) p[k] = (await b.employee(12_000)).employee;
   // Left in November before the regular run: that run pays the notice pay (findPaidTerminationRun).
   await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-10', termination_reason = 'resignation',
@@ -165,6 +165,22 @@ describe('M2: every create refusal writes nothing', () => {
     expect(got.map((g) => g.statusCode).sort()).toEqual([201, 409]);
     expect(await runs(a)).toBe(before + 1);
     expect(await n(a, 'SELECT count(*) AS n FROM payroll_off_cycle_employees WHERE employee_id = $1', [p.race])).toBe(1);
+  });
+
+  it('a create waits for the month\'s regular run row: a peer holding it (FOR SHARE) holds the create until it lets go', async () => {
+    const holder = await a.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM payroll_run_headers WHERE id = $1 FOR SHARE', [regular[a.company]]);
+      let settled = false;
+      const pending = bonus(a, p.race2!, '2026-11-26').then((r) => { settled = true; return r; });
+      await new Promise((r) => setTimeout(r, 1_000));
+      expect(settled, 'the create must wait on the regular run\'s row lock').toBe(false);
+      await holder.query('COMMIT');
+      expect((await pending).statusCode).toBe(201);
+    } finally {
+      holder.release();
+    }
   });
 });
 
