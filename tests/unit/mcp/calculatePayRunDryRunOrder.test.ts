@@ -9,6 +9,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
 }));
+// Wave 6 HYb: the preparer guard reads approval_rules; its own tests are tests/integration/hyb-nonuuid-preparer.int.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollPreparerGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollPreparerGuard')>(),
+  assertPreparerSupported: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollEmployeeService')>(),
   listPayrollRunEmployees: vi.fn(async () => []),
