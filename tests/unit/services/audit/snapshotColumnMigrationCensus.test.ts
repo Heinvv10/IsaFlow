@@ -107,6 +107,10 @@ const READ_BY_HAND = new Set([
   // 981 (2026-11-12, bank review reset): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER on bank_transactions;
   // "journal" is only the bank line's matched_journal_line_id column. No DDL on gl_journal_entries / gl_journal_lines.
   '981_bank_tx_review_reset_on_rematch.sql',
+  // 999r (2026-11-17, company-group row security): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER; "journal" is the
+  // read-only definer rls_intercompany_parties_ok's check that a journal entry id belongs to its company. No DDL on
+  // gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '999r_company_groups_rls.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */
