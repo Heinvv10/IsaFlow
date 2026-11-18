@@ -89,14 +89,11 @@ describe('a mirror link', () => {
     await asAppUser(pool, U.b, co.B, async (q) => {
       expect(await outcome(q, LINK, args)).toBe('23505: duplicate key value violates unique constraint "intercompany_links_doc_a_active"');
     });
-    // a second message that targets the SAME receiver document, with a new source document: only the receiver's side clashes
-    const again = await acceptedMessage(pool, id, co.A, co.B, { tgt });
-    const receiverSide = co.B === low() ? 'a' : 'b';
-    // a third message (another kind) from the SAME source document to a new receiver document: only the sender's side clashes
+    // (a second accepted message naming the same RECEIVER document is refused at the message: see messages-documents)
+    // a second message (another kind) from the SAME source document to a new receiver document: only the sender's side clashes
     const third = await acceptedMessage(pool, id, co.A, co.B, { src, kind: 'interest_invoice' });
-    const senderSide = receiverSide === 'a' ? 'b' : 'a';
+    const senderSide = co.A === low() ? 'a' : 'b';
     await asAppUser(pool, U.b, co.B, async (q) => {
-      expect(await outcome(q, LINK, mirrorArgs(id, co.A, again.m, again.src, tgt))).toBe(`23505: duplicate key value violates unique constraint "intercompany_links_doc_${receiverSide}_active"`);
       expect(await outcome(q, LINK, mirrorArgs(id, co.A, third.m, src, third.tgt))).toBe(`23505: duplicate key value violates unique constraint "intercompany_links_doc_${senderSide}_active"`);
     });
     await asAppUser(pool, U.b, co.B, (q) => q.query("UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = $1", [first]), true);

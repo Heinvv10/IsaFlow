@@ -126,6 +126,72 @@ describe('accepting: the target is the receiver\'s and fits the kind', () => {
   });
 });
 
+describe('a receiver document is the target of ONE accepted message per connection', () => {
+  it('a second message naming it is refused (and one that targets another document is not)', async () => {
+    const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
+    const first = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const second = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const other = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    expect(await handle(U.b, co.B, first, accepting('supplier_invoice', tgt))).toBe('ok');
+    expect(await handle(U.b, co.B, second, accepting('supplier_invoice', tgt))).toBe(R.msgTargetTaken);
+    expect(await handle(U.b, co.B, other, accepting('supplier_invoice', await plantDocument(pool, 'supplier_invoice', co.B)))).toBe('ok');
+    // still pending, so it can be rejected or accepted against a document of its own
+    expect(await handle(U.b, co.B, second, accepting('supplier_invoice', await plantDocument(pool, 'supplier_invoice', co.B)))).toBe('ok');
+  });
+
+  it('only an ACCEPTED message holds it: rejected and failed ones that carry the same target do not, and the document can still be accepted', async () => {
+    const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
+    const rejected = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const failed = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const wins = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    expect(await handle(U.b, co.B, rejected, `status = 'rejected', reason = 'r', target_doc_type = 'supplier_invoice', target_doc_id = '${tgt}'`)).toBe('ok');
+    expect(await handle(U.b, co.B, failed, `status = 'failed', error = 'x', target_doc_type = 'supplier_invoice', target_doc_id = '${tgt}'`)).toBe('ok');
+    expect(await handle(U.b, co.B, wins, accepting('supplier_invoice', tgt))).toBe('ok');
+  });
+
+  it('it is per connection: the same document is the accepted target on another connection of the receiver', async () => {
+    const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
+    await pool.query("INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, 'owner')", [co.C, U.b]);   // a writer of both B and C
+    const k = crypto.randomUUID();
+    await pool.query("INSERT INTO company_groups(id, name) VALUES ($1, 'IC target group K')", [k]);
+    await pool.query('INSERT INTO company_group_members(group_id, company_id) VALUES ($1, $2), ($1, $3)', [k, co.B, co.C]);
+    try {
+      const other = await plantConnection(pool, co.B, co.C, U.b);
+      const first = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+      const second = await plantMessage(pool, other, co.C, co.B, { kind: 'invoice', user: U.b });
+      expect(await handle(U.b, co.B, first, accepting('supplier_invoice', tgt))).toBe('ok');
+      expect(await handle(U.b, co.B, second, accepting('supplier_invoice', tgt))).toBe('ok');
+    } finally {
+      await pool.query('DELETE FROM intercompany_messages WHERE connection_id IN (SELECT id FROM intercompany_connections WHERE company_low_id = ANY($1) AND company_high_id = ANY($1) AND NOT (company_low_id = ANY($2) AND company_high_id = ANY($2)))', [[co.B, co.C], [co.A, co.B]]);
+      await pool.query('DELETE FROM intercompany_connections WHERE company_low_id = ANY($1) AND company_high_id = ANY($1) AND NOT (company_low_id = ANY($2) AND company_high_id = ANY($2))', [[co.B, co.C], [co.A, co.B]]);
+      await pool.query('DELETE FROM company_group_members WHERE group_id = $1', [k]);
+      await pool.query('DELETE FROM company_groups WHERE id = $1', [k]);
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [co.C, U.b]);
+    }
+  });
+
+  it('the index holds when the guard cannot see the other writer (guard off): 23505', async () => {
+    const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
+    const first = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const second = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    await handle(U.b, co.B, first, accepting('supplier_invoice', tgt));
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', async (q) => {
+      expect(await outcome(q, `UPDATE intercompany_messages SET status = 'accepted', target_doc_type = 'supplier_invoice', target_doc_id = $2 WHERE id = $1`, [second, tgt]))
+        .toBe('23505: duplicate key value violates unique constraint "intercompany_messages_target_uq"');
+    });
+  });
+
+  it('two concurrent accepts of one document: one wins, the other is refused, neither deadlocks', async () => {
+    const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
+    const a = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const b = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
+    const run = (m: string) => asAppUser(pool, U.b, co.B, (q) => outcome(q, `UPDATE intercompany_messages SET ${accepting('supplier_invoice', tgt)} WHERE id = $1`, [m]), true);
+    const results = await Promise.all([run(a), run(b)]);
+    expect(results.filter((r) => r === 'ok')).toHaveLength(1);
+    expect(results.find((r) => r !== 'ok')).toMatch(/^(23514: a document is the target of one accepted message per connection|23505: duplicate key value violates unique constraint "intercompany_messages_target_uq")$/);
+  });
+});
+
 describe('intercompany_message_documents_ok answers the receiver only', () => {
   it('true for the receiving session when both documents fit; false for the sender, a third company and a message that does not fit', async () => {
     const src = await plantDocument(pool, 'customer_invoice', co.A);

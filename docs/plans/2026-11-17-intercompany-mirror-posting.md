@@ -119,12 +119,19 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   flag set by the definer trigger function (the flag alone is settable by any session, so it proves nothing by itself).
 - **`intercompany_in_one_group` is not a membership oracle.** It is false unless the caller is a party (a user of one of the two companies, or
   a session whose company is one of them); the unrestricted check is internal (`intercompany_shared_group`, executable by migration_admin only).
-- **Leave-vs-create race (closed).** `intercompany_in_one_group` takes FOR SHARE locks on the shared group's `company_group_members` and
-  `company_groups` rows when it answers true, so a connection created or re-activated, a side's auto-accept switched on, or a message sent on
-  the strength of the group holds them to commit. A company leaving (or the group being deleted) at the same moment waits, and its revoking
-  trigger then sees and revokes what the other transaction created; a writer that comes second sees the membership gone and is refused.
-  Tested with two real connections (`group-race.int.test.ts`). A message is still only an inbox item until a person (or, from P2, the
-  receiver's auto-accept worker, which re-checks `intercompany_in_one_group` at action time) acts on it.
+- **Group topology is serialised (closed).** Under READ COMMITTED a check of "do A and B share a group" is stale by the time its writer commits,
+  and two memberships changed at the same moment each see the other's change uncommitted (write skew: both leaves pass, no group is left,
+  the connection stays active). One lock protocol, documented in 1002's header: every DECIDER (`intercompany_in_one_group`: a connection
+  created or re-activated, auto-accept switched on, a message sent) takes one advisory lock SHARED after its party check and holds it to
+  commit; every CHANGER (the revoking trigger on `company_group_members` / `company_groups`) takes it EXCLUSIVE, after locking the candidate
+  connections' sides rows (a session holding a side row, switching auto-accept on, would otherwise wait for the shared lock while the release
+  UPDATE needs its row: a deadlock), then re-reads membership and revokes. Leaves, deactivations and writers therefore serialise, in every
+  order, without 40P01 (`group-race.int.test.ts`, two real connections per case). One key for the whole topology, not one per pair: a pair whose
+  connection is being created is invisible to a scan, which made per-pair locking leaky, and a leave is rare. Limits: one statement changing
+  several membership rows fires its row triggers one at a time (safe, but two such statements over the same rows in opposite orders can
+  deadlock: one aborts with 40P01, nothing is corrupted); a company that joins the group while the deactivation waits is picked up (the
+  members are re-read after the lock), a company that joins after that is simply not yet in a connection. A message is still only an inbox
+  item until a person (or, from P2, the receiver's auto-accept worker, which re-checks `intercompany_in_one_group` at action time) acts on it.
 - **Links.** A pending pairing holds no unique slot (the unique indexes cover ACTIVE links only; confirming re-checks them), so a partner
   cannot squat a document by proposing it. Confirming needs the connection active (unlinking does not), and the confirmed side's document must
   exist in its company (`intercompany_document_exists_as_writer`, a registered definer that answers only for a company in which the caller
@@ -135,7 +142,8 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   rule. A kind that creates no document (payment, allocation, reject, credit_request) carries no target (cleared). The mirror link re-checks
   both documents (`intercompany_message_documents_ok`, a registered definer that answers only for the receiver's session, because the
   receiver cannot see the sender's documents). `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group
-  connection; accept, reject and restore need the connection active.
+  connection; accept, reject and restore need the connection active (holding its row FOR SHARE, so a revocation at the same moment waits). A receiver
+  document is the target of ONE accepted message per connection (guard + unique index `intercompany_messages_target_uq`).
 - **A revoked connection also switches auto-accept off** (the release trigger), so a re-activated connection never starts auto-handling
   by itself; a no-op UPDATE of a connection (`SET status = status`) needs the same write role as a change (the migration's own backfill
   runs it as the system path).
