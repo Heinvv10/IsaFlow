@@ -8,7 +8,8 @@
 --   ledger_gap_ledger_net, ledger_gap_report_net  NUMERIC(15,2) NULL, ledger_gap_reason TEXT NULL: a settlement made
 --                      although the VAT control accounts' net VAT differed from the VAT201's, acknowledged by an
 --                      owner or admin with a reason (coordinator ruling on review round 1). All three or none
---                      (vat_returns_ledger_gap_ck); the reason holds visible text.
+--                      (vat_returns_ledger_gap_ck); the reason holds a visible character (971's set, as the service's
+--                      visibleText) and at most 1000 characters (the route's cap).
 --   vat_returns_return_version_fk  (company_id, return_version_id, period_start, period_end)
 --                      -> tax_return_versions (company_id, id, period_start, period_end): a settlement can name only a
 --                      version of its own company AND its own period (a plain FK on id would accept another tenant's,
@@ -37,6 +38,9 @@
 --           unique index still refuses a second NULL row for the period, as the old constraint did.
 --   update  the old code never updates vat_returns.
 --   read    SELECT * returns one more column; mapRow names the columns it reads.
+--   top-ups After a code-only rollback, the old readers (getVatReturnRecord's rows[0], the VAT recon, period close,
+--           month-end) show ONE arbitrary row of a period that has top-ups, not their sum. Follow a rollback with a
+--           forward fix; do not leave it in place.
 --   tax_return_versions  the old code inserts versions with gen_random_uuid ids: the new unique index on
 --           (company_id, id, period_start, period_end) cannot fire for a fresh id. It never deletes one (969's trigger).
 --
@@ -76,7 +80,10 @@ BEGIN
     -- Every existing row has all three NULL (the columns are new), so the check scans and passes.
     ALTER TABLE vat_returns ADD CONSTRAINT vat_returns_ledger_gap_ck CHECK (
       (ledger_gap_reason IS NULL AND ledger_gap_ledger_net IS NULL AND ledger_gap_report_net IS NULL)
-      OR (ledger_gap_reason IS NOT NULL AND btrim(ledger_gap_reason) <> ''
+      -- A visible character: 971's set (whitespace, zero-width and invisible characters do not count), the same set
+      -- returnGuards.visibleText refuses in the service; keep the three in step. btrim strips spaces only.
+      OR (ledger_gap_reason IS NOT NULL AND ledger_gap_reason ~ '[^[:space:]­\u0085 ͏؜ᅟ-ᅠ ឴-឵᠋-᠏ -‏ -  -⁯⠀　ㅤ︀-️﻿ﾠ￹-￻\U000E0000-\U000E0FFF\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A]'
+          AND char_length(ledger_gap_reason) <= 1000
           AND ledger_gap_ledger_net IS NOT NULL AND ledger_gap_report_net IS NOT NULL));
   END IF;
 END $$;

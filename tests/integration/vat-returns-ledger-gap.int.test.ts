@@ -17,6 +17,7 @@ import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } f
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
 import vatReturns from '../../pages/api/accounting/vat-returns/index';
+import { inAppUserTx } from './helpers/appUserTx';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -94,6 +95,9 @@ describeIfDb('VR: a ledger gap is acknowledged with a reason; drift is never ove
     expect(asManager.status).toBe(403);
     const noReason = await settle(rf.admin.token, GAP, { acknowledgeLedgerGap: true });
     expect(noReason.status).toBe(400);
+    const tooLong = await settle(rf.admin.token, GAP, { acknowledgeLedgerGap: true, ledgerGapReason: 'x'.repeat(1001) });
+    expect(tooLong.status).toBe(400); // the cap is 1000 characters (round-2 security L-c)
+    expect(JSON.stringify(tooLong.body)).toContain('at most 1000 characters');
     expect(await counts(c)).toEqual(before);
 
     const ok = await settle(rf.admin.token, GAP, { acknowledgeLedgerGap: true, ledgerGapReason: REASON });
@@ -126,4 +130,26 @@ describeIfDb('VR: a ledger gap is acknowledged with a reason; drift is never ove
     }
     expect(await counts(c)).toEqual(before);
   });
+
+  it.each([
+    ['spaces and a tab', ' \t'],
+    ['a zero-width space', '\u200B'],
+    ['1001 characters', 'x'.repeat(1001)],
+  ])('the database refuses a gap reason of %s, as app_user (vat_returns_ledger_gap_ck)', async (_what, reason) => {
+    const err = await inAppUserTx(rf.fx, () => sql`INSERT INTO vat_returns (company_id, period_start, period_end,
+        total_output_tax, total_input_tax, net_vat, ledger_gap_ledger_net, ledger_gap_report_net, ledger_gap_reason)
+      VALUES (${rf.fx.companyId}::UUID, '2025-02-01'::DATE, '2025-03-31'::DATE, 0, 0, 0, 1, 2, ${reason})`)
+      .then(() => null, (e: unknown) => e as { code?: string; constraint?: string });
+    expect(err).toMatchObject({ code: '23514', constraint: 'vat_returns_ledger_gap_ck' });
+  });
+
+  it('the database accepts a visible reason of exactly 1000 characters, as app_user', async () => {
+    await inAppUserTx(rf.fx, async () => {
+      await sql`INSERT INTO vat_returns (company_id, period_start, period_end, total_output_tax, total_input_tax, net_vat,
+          ledger_gap_ledger_net, ledger_gap_report_net, ledger_gap_reason)
+        VALUES (${rf.fx.companyId}::UUID, '2025-02-01'::DATE, '2025-03-31'::DATE, 0, 0, 0, 1, 2, ${'y'.repeat(1000)})`;
+      await sql`DELETE FROM vat_returns WHERE company_id = ${rf.fx.companyId}::UUID AND period_start = '2025-02-01'::DATE`;
+    });
+  });
 });
+

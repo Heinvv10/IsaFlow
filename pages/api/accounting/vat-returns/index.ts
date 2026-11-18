@@ -35,6 +35,9 @@ import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersionTypes';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 
+/** 999g's vat_returns_ledger_gap_ck holds the same cap. */
+const LEDGER_GAP_REASON_MAX = 1000;
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
@@ -66,6 +69,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     if (acknowledgeLedgerGap === true && typeof ledgerGapReason !== 'string') {
       return apiResponse.badRequest(res, 'ledgerGapReason is required with acknowledgeLedgerGap');
+    }
+    if (typeof ledgerGapReason === 'string' && ledgerGapReason.length > LEDGER_GAP_REASON_MAX) {
+      return apiResponse.badRequest(res, `ledgerGapReason is at most ${LEDGER_GAP_REASON_MAX} characters`);
     }
     const { companyRole } = req as CompanyAuthedRequest;
 
