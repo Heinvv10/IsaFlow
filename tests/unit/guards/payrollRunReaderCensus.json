@@ -90,6 +90,9 @@
    {"line":30,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"EXISTS a final line"},
    {"line":35,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): the latest run in pay order (payrollRunOrder), not ORDER BY month LIMIT 1"}
   ],
+  "src/modules/accounting/services/payroll/employeePortalReads.ts": [
+   {"line":34,"text":"JOIN payroll_run_headers h ON h.id = prl.run_id","class":"S","owner":"FQb1","why":"SS: a list of the signed-in employee's own final slips, one row per run (regular monthly only), ordered by month"}
+  ],
   "src/modules/accounting/services/payroll/etiBooking.ts": [
    {"line":64,"text":"SELECT id, period_year, period_month, journal_entry_id, total_paye, total_eti FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): the month's in-force run journals (inForceRunHeaders), summed per month; a run can leave itself out (etiForRun)"}
   ],
