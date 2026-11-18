@@ -21,8 +21,8 @@ export function resolveBankTxKey(key: string, ctx: BankTxKeyContext): BankTxKeyA
     return key === 'Escape' ? 'blur-to-row' : null;
   }
   switch (key) {
-    case 'ArrowDown': return 'next';
-    case 'ArrowUp':   return 'prev';
+    case 'ArrowDown': case 'j': case 'J': return 'next';
+    case 'ArrowUp': case 'k': case 'K':   return 'prev';
     case 'Enter':     return ctx.canAccept ? 'accept' : 'edit';
     case 'e': case 'E': return 'edit';
     case 'x': case 'X': return 'exclude';

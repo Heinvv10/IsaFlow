@@ -29,15 +29,20 @@ export interface RowProps {
   onClick: () => void;
 }
 
+/** The keys the grid itself takes (to enter or move the stream): the arrows and their J/K twins. */
+const GRID_KEYS = new Set(['ArrowUp', 'ArrowDown', 'j', 'J', 'k', 'K']);
+
 /** An accept / exclude / split that has not settled after this long no longer locks its row. */
 const IN_FLIGHT_LIMIT_MS = 30_000;
 
-function isTypingTarget(el: Element | null): boolean {
+export function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
-  // A kit Select's trigger is a div with role="combobox": its Enter, Space and letters choose and type ahead.
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.getAttribute('role') === 'combobox'
-    || (el as HTMLElement).isContentEditable;
+  const role = el.getAttribute('role');
+  // A kit Select's trigger is a div with role="combobox": its Enter, Space and letters choose and type ahead. A listbox, an
+  // option, or anything inside the Selection popover (its buttons are the options) owns its keys too.
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || role === 'combobox' || role === 'listbox' || role === 'option'
+    || !!el.closest('[data-bank-dropdown]') || (el as HTMLElement).isContentEditable;
 }
 
 /**
@@ -172,7 +177,7 @@ export function useBankTxKeyboardNav({
     }
     // The grid itself takes only the arrows: after a click on empty grid space or a Shift+Tab, Enter and X would
     // otherwise act on whichever row the stream last held.
-    if (target === e.currentTarget && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    if (target === e.currentTarget && !GRID_KEYS.has(e.key)) return;
     if (rowIndex >= 0 && rowIndex !== focusedIndex) return; // a row that is not the stream's current one
     if (focusedIndex === null) {
       // Nothing focused yet: only an arrow key enters the stream (focus row 0).
