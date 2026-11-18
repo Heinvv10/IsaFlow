@@ -38,21 +38,21 @@ const props = (selectedCount: number): BankTxFiltersProps => ({
 });
 
 describe('the bulk-accept trigger in the WP4b toolbar', () => {
-  it('is a pill in the toolbar row, after More: "Accept 3" on screen, the full name for assistive tech', async () => {
+  it('is a pill in the toolbar row, after More: "Bulk accept 3" on screen, the full name for assistive tech', async () => {
     const { container } = render(<BankTxFilters {...props(0)} />);
     const toolbar = screen.getByTestId('bank-tx-toolbar');
-    const trigger = await within(toolbar).findByRole('button', { name: 'Accept 3 high-confidence suggestions' });
+    const trigger = await within(toolbar).findByRole('button', { name: 'Bulk accept 3 high-confidence suggestions' });
     expect(trigger.parentElement).toBe(within(toolbar).getByRole('button', { name: 'Refresh' }).parentElement); // the actions row, not a row of its own
     const more = within(toolbar).getByRole('button', { name: 'More' });
     expect(more.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // after More
     const shown = Array.from(trigger.childNodes).filter((n) => !(n instanceof HTMLElement && n.classList.contains('sr-only'))).map((n) => n.textContent).join('');
-    expect(shown).toBe('Accept 3');
+    expect(shown).toBe('Bulk accept 3');
     expect(container.firstElementChild).toBe(toolbar); // nothing added outside the toolbar
   });
 
   it('ticking rows hides the trigger, and an open dialog is the same node before and after', async () => {
     const { rerender } = render(<BankTxFilters {...props(0)} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Bulk accept 3 high-confidence suggestions' }));
     await screen.findByRole('button', { name: /Confirm and post 3/ });
     const dialog = screen.getByRole('dialog');
     rerender(<BankTxFilters {...props(2)} />);

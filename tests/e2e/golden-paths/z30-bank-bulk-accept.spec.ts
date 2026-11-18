@@ -3,7 +3,7 @@
  * Golden path z30 (WP6): bulk accept of high-confidence suggestions - preview, confirm, undo batch.
  *
  * Seeds three imported lines and a suggest-only rule over them, runs the categoriser so each carries a 0.95 suggestion,
- * then drives the page: the "Accept N high-confidence suggestions" button opens the preview (rows, totals), Confirm posts
+ * then drives the page: the "Bulk accept N high-confidence suggestions" button opens the preview (rows, totals), Confirm posts
  * the batch, the result says "Posted 3", Undo batch reverses exactly that batch and the lines are back to imported.
  *
  * Sandbox only (the z12 pattern): everything runs in the dedicated "0GP Golden Bank Bulk Accept Sandbox" company, found by
@@ -169,7 +169,7 @@ test('bulk accept: preview, confirm, undo batch', async ({ baseURL, page, contex
     step('page count read answered');
     const button = page.getByRole('button', { name: /high-confidence suggestion/ });
     await expect(button).toBeVisible({ timeout: 60_000 });
-    await expect(button).toHaveText(/Accept 3\+? high-confidence suggestions/);
+    await expect(button).toHaveText(/Bulk accept 3\+? high-confidence suggestions/);
     await button.click();
     const dialog = page.getByRole('dialog', { name: /Accept 3 high-confidence suggestions/ });
     await expect(dialog).toBeVisible();

@@ -53,7 +53,7 @@ afterEach(cleanup);
 describe('the real bank-transactions page with a bulk accept in progress', () => {
   it('after Confirm answers 200 the dialog shows "Posted 3 lines" and stays; the page does not remount', async () => {
     render(<BankTransactionsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /Accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole('button', { name: /Bulk accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
     await screen.findByRole('dialog');
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
     expect((await screen.findByTestId('bulk-result')).textContent).toMatch(/Posted 3 lines/);
@@ -77,7 +77,7 @@ describe('the real bank-transactions page with a bulk accept in progress', () =>
       return ok({});
     });
     const view = render(<BankTransactionsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /Accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole('button', { name: /Bulk accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
     await screen.findByRole('button', { name: 'Posting…' });
     const listReads = count(/GET \/api\/accounting\/bank-transactions\?/);
@@ -88,7 +88,7 @@ describe('the real bank-transactions page with a bulk accept in progress', () =>
 
   it('under StrictMode (reactStrictMode is on) Done after a batch still reloads the page', async () => {
     render(<StrictMode><BankTransactionsPage /></StrictMode>);
-    fireEvent.click(await screen.findByRole('button', { name: /Accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole('button', { name: /Bulk accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
     await screen.findByTestId('bulk-result');
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });

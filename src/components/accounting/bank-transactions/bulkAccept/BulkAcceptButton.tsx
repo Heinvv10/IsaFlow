@@ -1,4 +1,4 @@
-/** "Accept N high-confidence suggestions": the button on the New tab, with the modal it opens. */
+/** "Bulk accept N high-confidence suggestions": the toolbar pill on the New tab, with the modal it opens. */
 import { useEffect, useRef, useState } from 'react';
 import { CheckCheck } from 'lucide-react';
 import { BulkAcceptModal } from './BulkAcceptModal';
@@ -23,15 +23,18 @@ export function BulkAcceptButton({ bankAccountId, active, onChanged, refreshKey,
   const trigger = useRef<HTMLButtonElement>(null);
   const hidden = !bankAccountId || !active || (count !== null && count.n === 0);
 
-  // The button went away (the count reached 0) while focus was on it, or on nothing after the dialog closed: the grid takes it.
-  const wasHidden = useRef(hidden);
+  // The button went away (the count reached 0, or rows were ticked and the selection bar took its place) while focus was on
+  // it, or on nothing after the dialog closed: the grid takes it.
+  const gone = hidden || hideTrigger;
+  const wasGone = useRef(gone);
   useEffect(() => {
     // Never behind an open dialog: its own focus handling (and the shell's return on close) owns focus then.
-    if (hidden && !wasHidden.current && !open && (!document.activeElement || document.activeElement === document.body)) grid()?.focus();
-    wasHidden.current = hidden;
-  }, [hidden, open]);
+    if (gone && !wasGone.current && !open && (!document.activeElement || document.activeElement === document.body)) grid()?.focus();
+    wasGone.current = gone;
+  }, [gone, open]);
 
-  const shown = count ? `Accept ${count.n}${count.more ? '+' : ''}` : 'Accept';
+  // "Bulk accept", not "Accept": the rows' own buttons are "Accept, <line>" right below it.
+  const shown = count ? `Bulk accept ${count.n}${count.more ? '+' : ''}` : 'Bulk accept';
   const rest = ` high-confidence suggestion${count && count.n === 1 && !count.more ? '' : 's'}`;
   // ONE tree position for the dialog, whether or not the trigger shows: a dialog that moved between two positions would be
   // REMOUNTED when the tab or account flips under it, losing a confirm in flight (its result, run and undo key).
