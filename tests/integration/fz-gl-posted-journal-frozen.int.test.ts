@@ -157,23 +157,33 @@ describe('FZ: a posted journal refuses amount changes', () => {
     expect(await postedCount()).toBe(n);
   }, 60_000);
 
-  it('a line added to or removed from a posted journal must leave it balanced', async () => {
+  it('a posted journal takes no added or removed line, balanced or not; a journal born posted in this transaction must balance', async () => {
+    const SET_FROZEN = /cannot be added or removed/;
     await expect(asAppUser((c) => c.query(
-      'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
-      .rejects.toThrow(UNBALANCED);
+      'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0), ($1, $2, $4, 0, 100)',
+      [je, a.company, expense, bankAcct]))).rejects.toThrow(SET_FROZEN);
     await expect(asAppUser((c) => c.query('DELETE FROM gl_journal_lines WHERE id = (SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND debit > 0 LIMIT 1)', [je])))
-      .rejects.toThrow(UNBALANCED);
+      .rejects.toThrow(SET_FROZEN);
     await expect(asRole('platform_admin', (c) => c.query(
       'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
-      .rejects.toThrow(UNBALANCED);
+      .rejects.toThrow(SET_FROZEN);
+    // Born posted here: lines may come and go until COMMIT, and the deferred check judges the result.
+    await expect(bornPosted([[expense, 100, 0], [bankAcct, 0, 100], [expense, 5, 0]])).rejects.toThrow(UNBALANCED);
   }, 60_000);
-  it('session_replication_role = replica skips none of the four GL triggers (all ENABLE ALWAYS)', async () => {
+  it('session_replication_role = replica skips none of the GL triggers (all ENABLE ALWAYS)', async () => {
     await expect(inReplica((c) => c.query('UPDATE gl_journal_lines SET debit = debit + 1 WHERE journal_entry_id = $1 AND debit > 0', [je])))
       .rejects.toThrow(FROZEN);
     await expect(inReplica((c) => c.query("UPDATE gl_journal_entries SET status = 'draft' WHERE id = $1", [je]))).rejects.toThrow(FROZEN);
     await expect(inReplica((c) => c.query(
       'INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [je, a.company, expense])))
-      .rejects.toThrow(UNBALANCED);
+      .rejects.toThrow(/cannot be added or removed/);
+    await expect(inReplica((c) => c.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]))).rejects.toThrow(/cannot be deleted/);
+    await expect(inReplica(async (c) => {
+      const born = (await c.query(
+        `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+         VALUES ($1, '2026-01-25', 'FZ born posted', 'manual', 'posted', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 100, 0)', [born, a.company, expense]);
+    })).rejects.toThrow(UNBALANCED);
   }, 60_000);
 });
 
