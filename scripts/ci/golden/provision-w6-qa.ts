@@ -1,5 +1,5 @@
 /**
- * Provision the wave-6 golden QA user on isaflow_dev: golden-qa-w6@isaflow.dev, owner of ONE company of its own,
+ * Provision the wave-6 golden QA user on isaflow_dev: golden-qa-w6@isaflow.co.za, owner of ONE company of its own,
  * "0W6 Golden Sandbox", and of nothing else. Wave-6 goldens that write sign in as it (loginAs) so they never share a
  * session, or an active company, with the reporting-qa users peers switch around.
  *
@@ -28,9 +28,9 @@ import { provisionTenant } from '../../../src/modules/onboarding/services/tenant
 import { FetchContext } from './fetchContext';
 import { assertLocalBaseUrl } from './seedSlotClient';
 import { writeEnvFileAtomic } from './slotEnvFile';
-import { assertConnectedToDev, assertDevDatabaseUrl, assertGoTrueUrl, parseEnvFile, upsertEnvKeys } from './slotConfig';
+import { W6_EMAIL, assertConnectedToDev, assertDevDatabaseUrl, assertGoTrueUrl, parseEnvFile, upsertEnvKeys } from './slotConfig';
 
-export const W6_EMAIL = 'golden-qa-w6@isaflow.dev';
+export { W6_EMAIL };
 export const W6_COMPANY_NAME = '0W6 Golden Sandbox';
 const DEFAULT_ENV_FILE = join(homedir(), '.secrets', 'isaflow-dev-golden-qa.env');
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
