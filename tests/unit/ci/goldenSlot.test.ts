@@ -53,6 +53,10 @@ describe('describeGoldenCompany', () => {
     expect(describeGoldenCompany({})).toBe('the Demo company');
   });
 
+  it('names the Deploy Verification company when the suite logs in as the verify user (post-deploy verify)', () => {
+    expect(describeGoldenCompany({ E2E_ADMIN_EMAIL: 'deploy-verify@isaflow.dev' })).toBe('the Deploy Verification company');
+  });
+
   it('names the slot, its company and user, and the command that rebuilds it', () => {
     const text = describeGoldenCompany(SLOT_ENV);
     expect(text).toContain('GOLDEN SLOT 2');

@@ -3,7 +3,9 @@
 #
 # Verifies a running IsaFlow instance end-to-end:
 #   1. /api/health responds
-#   2. golden-paths E2E suite passes against the Demo company
+#   2. golden-paths E2E suite passes in the Deploy Verification company (its own
+#      hidden company and login, scripts/deploy/provision-verify-company.ts);
+#      without that login it runs on the Demo company, loudly
 #   3. accounting integrity check passes against the instance's DB
 #      (with the committed prod baseline waiving ONLY the known
 #      HUMAN-GATED failure — new failures still fail the gate)
@@ -14,13 +16,27 @@
 # Env:
 #   DATABASE_URL           DB for the integrity check (required unless
 #                          VERIFY_SKIP_INTEGRITY=1)
-#   E2E_ADMIN_EMAIL/_PASSWORD   Demo login for the golden suite; if unset,
-#                          sourced from /home/hein/isaflow-deploy.env (0600)
+#   E2E_VERIFY_EMAIL/_PASSWORD   The dedicated verification login, whose only company is
+#                          the hidden Deploy Verification company. When both are set
+#                          (exported, or in the creds file) the golden suite logs in as
+#                          it: every spec, including the ones that create sandbox
+#                          companies, then writes there and never to Demo. The pair
+#                          becomes the suite's E2E_ADMIN_* and E2E_APPROVER_* is dropped
+#                          (a company with one owner approves its own pay run). z22 (the
+#                          platform admin console) keeps the platform admin: the
+#                          GOLDEN_PLATFORM_ADMIN_* pair, else the E2E_ADMIN_* pair below.
+#                          One of the two alone FAILs. Neither set: the old behaviour, on
+#                          Demo, with one loud line saying so.
+#   E2E_ADMIN_EMAIL/_PASSWORD   Demo login for the golden suite (and z22's platform admin
+#                          once the verify login is set); if unset, sourced from
+#                          /home/hein/isaflow-deploy.env (0600; VERIFY_CREDS_FILE names
+#                          another file, for tests)
 #   E2E_APPROVER_EMAIL/_PASSWORD   OPTIONAL second Demo user (owner/admin of the
 #                          same company) who approves the golden payroll run:
 #                          prod Demo has several approvers, so the admin cannot
 #                          approve its own request (SELF_APPROVAL_FORBIDDEN).
 #                          Read from the same file; both or neither (one alone FAILs).
+#                          Ignored when the verify login is used.
 #   Precedence: per key, an exported variable beats the creds file, so a half-exported
 #                          admin pair mixes sources; a key repeated in the file is last-wins.
 #   VERIFY_BASELINE        integrity baseline file (default: the prod baseline)
@@ -33,7 +49,7 @@ set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_URL="${1:?usage: verify-deploy.sh <BASE_URL>}"
 VERIFY_BASELINE="${VERIFY_BASELINE:-$REPO_DIR/scripts/integrity-baseline-prod.json}"
-CREDS_FILE="/home/hein/isaflow-deploy.env"
+CREDS_FILE="${VERIFY_CREDS_FILE:-/home/hein/isaflow-deploy.env}"
 BUN="${BUN:-/home/hein/.bun/bin/bun}"
 
 echo "=== Post-deploy verification: $BASE_URL ==="
@@ -87,7 +103,7 @@ if [ -f "$CREDS_FILE" ]; then
   # generated password (same hazard deploy.sh documents for .env.local).
   # A variable already exported wins over the file; a key repeated in the file is last-wins.
   PRE_EXPORTED=" "
-  for key in E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD E2E_APPROVER_EMAIL E2E_APPROVER_PASSWORD; do
+  for key in E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD E2E_APPROVER_EMAIL E2E_APPROVER_PASSWORD E2E_VERIFY_EMAIL E2E_VERIFY_PASSWORD; do
     [ -n "${!key}" ] && PRE_EXPORTED="$PRE_EXPORTED$key "
   done
   while IFS= read -r line; do
@@ -95,17 +111,44 @@ if [ -f "$CREDS_FILE" ]; then
     key="${line%%=*}"
     case "$PRE_EXPORTED" in *" $key "*) continue ;; esac
     export "$line"
-  done < <(grep -E '^E2E_(ADMIN|APPROVER)_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
+  done < <(grep -E '^E2E_(ADMIN|APPROVER|VERIFY)_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
 fi
-if [ -n "$E2E_APPROVER_EMAIL" ] && [ -z "$E2E_APPROVER_PASSWORD" ] || { [ -z "$E2E_APPROVER_EMAIL" ] && [ -n "$E2E_APPROVER_PASSWORD" ]; }; then
-  echo "FAIL: only one of E2E_APPROVER_EMAIL/E2E_APPROVER_PASSWORD is set — set both or neither."
+# Which company the suite works in. The verify login is the whole selection: the specs and helpers read the suite's
+# login from E2E_ADMIN_* (tests/e2e/_creds.ts, the global setup, Api.login), so pointing that pair at the verify user
+# moves every spec, and the sandbox companies they create, off Demo. z22 alone needs a platform admin, so it is
+# handed the pair that was E2E_ADMIN_* (unless a GOLDEN_PLATFORM_ADMIN_* pair is already exported).
+if { [ -n "$E2E_VERIFY_EMAIL" ] && [ -z "$E2E_VERIFY_PASSWORD" ]; } || { [ -z "$E2E_VERIFY_EMAIL" ] && [ -n "$E2E_VERIFY_PASSWORD" ]; }; then
+  echo "FAIL: only one of E2E_VERIFY_EMAIL/E2E_VERIFY_PASSWORD is set — set both or neither."
   exit 1
 fi
-if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
-  echo "FAIL: E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD not set and $CREDS_FILE missing —"
-  echo "      a blocking gate must not skip silently. Create $CREDS_FILE (chmod 600)"
-  echo "      with the Demo admin credentials, or export both vars."
-  exit 1
+if [ -n "$E2E_VERIFY_EMAIL" ]; then
+  if [ -z "$GOLDEN_PLATFORM_ADMIN_EMAIL$GOLDEN_PLATFORM_ADMIN_PASSWORD" ]; then
+    if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
+      echo "FAIL: the verify login is set, but z22 (admin console) still needs a platform admin: set E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD"
+      echo "      (or GOLDEN_PLATFORM_ADMIN_EMAIL/_PASSWORD) next to E2E_VERIFY_*; a blocking gate must not skip silently."
+      exit 1
+    fi
+    for part in EMAIL PASSWORD; do
+      from="E2E_ADMIN_$part"; export "GOLDEN_PLATFORM_ADMIN_$part=${!from}"
+    done
+  fi
+  for part in EMAIL PASSWORD; do
+    from="E2E_VERIFY_$part"; export "E2E_ADMIN_$part=${!from}"
+  done
+  unset E2E_APPROVER_EMAIL E2E_APPROVER_PASSWORD
+  echo "OK: deploy checks run in the Deploy Verification company as $E2E_VERIFY_EMAIL (not Demo)"
+else
+  if [ -n "$E2E_APPROVER_EMAIL" ] && [ -z "$E2E_APPROVER_PASSWORD" ] || { [ -z "$E2E_APPROVER_EMAIL" ] && [ -n "$E2E_APPROVER_PASSWORD" ]; }; then
+    echo "FAIL: only one of E2E_APPROVER_EMAIL/E2E_APPROVER_PASSWORD is set — set both or neither."
+    exit 1
+  fi
+  if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
+    echo "FAIL: E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD not set and $CREDS_FILE missing —"
+    echo "      a blocking gate must not skip silently. Create $CREDS_FILE (chmod 600)"
+    echo "      with the Demo admin credentials, or export both vars."
+    exit 1
+  fi
+  echo "WARNING: deploy checks ran on the Demo company: provision the verify company (scripts/deploy/provision-verify-company.sh)"
 fi
 cd "$REPO_DIR"
 "$BUN"x playwright install chromium >/dev/null 2>&1 || true

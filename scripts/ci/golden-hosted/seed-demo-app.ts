@@ -23,7 +23,8 @@
 import { randomUUID } from 'node:crypto';
 import { CUSTOMER_INVOICES, FIXTURE_SUPPLIER, seedCustomerInvoices, seedFixtureSupplier } from './seed-golden-fixtures';
 
-const COUNTS = { suppliers: 8, invoices: 80, journals: 10, bankRows: 200, customers: 4 } as const;
+export interface SeedCounts { suppliers: number; invoices: number; journals: number; bankRows: number; customers: number }
+const COUNTS: SeedCounts = { suppliers: 8, invoices: 80, journals: 10, bankRows: 200, customers: 4 };
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 
@@ -106,9 +107,9 @@ function say(msg: string): void {
   process.stdout.write(`[golden-seed] ${msg}\n`);
 }
 
-export async function seedPeople(api: Client): Promise<string[]> {
+export async function seedPeople(api: Client, counts: SeedCounts = COUNTS): Promise<string[]> {
   const customerIds: string[] = [];
-  for (let k = 1; k <= COUNTS.customers; k++) {
+  for (let k = 1; k <= counts.customers; k++) {
     const made = await api.post<{ id: string }>('/api/accounting/customers', { name: `Demo Customer ${k}`, email: `demo-customer-${k}@example.test` });
     customerIds.push(made.id);
   }
@@ -118,7 +119,7 @@ export async function seedPeople(api: Client): Promise<string[]> {
     idNumber: '9001015800086', taxNumber: '1234567890', dateOfBirth: '1990-01-01',
   });
   await api.post(`/api/payroll/employees/${employee.id}/components`, { componentId: component.id, amount: 25000, effectiveFrom: '2025-03-01' });
-  say(`${COUNTS.customers} customers, 1 employee`);
+  say(`${counts.customers} customers, 1 employee`);
   return customerIds;
 }
 
@@ -170,15 +171,15 @@ export async function seedPayRun(api: Client, months: string[]): Promise<void> {
   say('WARNING: no pay run seeded; the z17 EMP201 drill test will fail in CI');
 }
 
-async function seedSuppliersAndInvoices(api: Client, months: string[]): Promise<void> {
+export async function seedSuppliersAndInvoices(api: Client, months: string[], counts: SeedCounts = COUNTS): Promise<void> {
   const suppliers: string[] = [];
-  for (let k = 1; k <= COUNTS.suppliers; k++) {
+  for (let k = 1; k <= counts.suppliers; k++) {
     const made = await api.post<{ id: string }>('/api/accounting/suppliers-list', {
       name: `Demo Supplier ${k}`, email: `demo-supplier-${k}@example.test`, payment_terms: 30,
     });
     suppliers.push(made.id);
   }
-  for (let i = 1; i <= COUNTS.invoices; i++) {
+  for (let i = 1; i <= counts.invoices; i++) {
     const date = seedDate(months, i);
     const made = await api.post<{ id: string }>('/api/accounting/supplier-invoices', {
       invoiceNumber: `DEMO-AP-${i}`,
@@ -193,15 +194,15 @@ async function seedSuppliersAndInvoices(api: Client, months: string[]): Promise<
     });
     await api.post('/api/accounting/supplier-invoices-action', { action: 'approve', invoiceId: made.id });
   }
-  say(`${COUNTS.suppliers} suppliers, ${COUNTS.invoices} approved supplier invoices`);
+  say(`${counts.suppliers} suppliers, ${counts.invoices} approved supplier invoices`);
 }
 
-async function seedJournals(api: Client, months: string[]): Promise<void> {
+export async function seedJournals(api: Client, months: string[], counts: SeedCounts = COUNTS): Promise<void> {
   const accounts = await api.get<Array<{ id: string; isSystemAccount?: boolean }>>('/api/accounting/chart-of-accounts?subtype=default_revenue');
   const revenue = accounts.find((a) => a.isSystemAccount === true);
   const bank = (await api.get<Array<{ id: string }>>('/api/accounting/bank-accounts'))[0];
   if (!revenue || !bank) throw new Error('seed: the company needs a default revenue account and a bank account');
-  for (let m = 1; m <= COUNTS.journals; m++) {
+  for (let m = 1; m <= counts.journals; m++) {
     const description = `DEMO-JNL-${m}`;
     const amount = 1000 + m * 250;
     const entry = await api.post<{ id: string }>('/api/accounting/journal-entries', {
@@ -214,15 +215,15 @@ async function seedJournals(api: Client, months: string[]): Promise<void> {
     });
     await api.post('/api/accounting/journal-entries-action', { id: entry.id, action: 'post' });
   }
-  say(`${COUNTS.journals} posted journals`);
+  say(`${counts.journals} posted journals`);
 }
 
-async function seedBankRows(api: Client, months: string[], today: string): Promise<void> {
+export async function seedBankRows(api: Client, months: string[], today: string, counts: SeedCounts = COUNTS): Promise<void> {
   const bank = (await api.get<Array<{ id: string }>>('/api/accounting/bank-accounts'))[0];
   if (!bank) throw new Error('seed: the company needs a bank account');
   let balance = 10000;
   const lines = ['Date,Description,Amount,Balance,Reference'];
-  for (let i = 1; i <= COUNTS.bankRows; i++) {
+  for (let i = 1; i <= counts.bankRows; i++) {
     const amount = i % 3 === 0 ? 400 + i : -(25 + ((i * 13) % 300));
     balance += amount;
     const date = seedDate(months, i).replace(/-/g, '/');
@@ -232,7 +233,7 @@ async function seedBankRows(api: Client, months: string[], today: string): Promi
     bankAccountId: bank.id, bulkImportId: randomUUID(), bulkSequence: 1, filename: 'demo-statement.csv', fileType: 'csv',
     statementDate: today, csvContent: lines.join('\n'), bankFormat: 'fnb', applyBankRules: false,
   });
-  say(`${COUNTS.bankRows} bank rows imported`);
+  say(`${counts.bankRows} bank rows imported`);
 }
 
 /**

@@ -5,12 +5,15 @@
  * One login per run matters: /api/auth/login is rate-limited to 10 attempts
  * per email per 15 minutes. Eleven specs logging in individually would spend
  * the whole window on a single run (and break post-deploy verification
- * against prod Demo).
+ * against production).
  *
  * In CI the job sets GOLDEN_COMPANY_ID/_USER_EMAIL/_USER_PASSWORD (see
  * helpers/goldenSlot.ts) and the login is the slot user's, switched into the
  * slot company. Without them nothing changes: E2E_ADMIN_*, that user's default
- * company.
+ * company. In the post-deploy run scripts/verify-deploy.sh points E2E_ADMIN_* at
+ * the dedicated verify user (E2E_VERIFY_*), whose only company is the hidden
+ * Deploy Verification company, so no spec writes to Demo; without that login it
+ * is the Demo admin and says so.
  */
 import { request as pwRequest, type FullConfig } from '@playwright/test';
 import { mkdirSync } from 'fs';
