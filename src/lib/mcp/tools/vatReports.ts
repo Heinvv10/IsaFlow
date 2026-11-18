@@ -38,7 +38,7 @@ export const vatReconciliationTool: McpTool = {
     'Reconciles VAT month by month across three sources: what the general ledger posted, what the invoices say, and what was actually submitted on a VAT return. Returns each month with GL revenue and VAT, invoice revenue and VAT, the submitted return where one exists, the capital-goods split, the variance between each pair, and the effective VAT rate. '
     + 'issues[] flags a month whose effective rate falls outside 14–16% (a misclassification of zero-rated or exempt supplies), a revenue or output-VAT variance above the threshold, and any month with no return submitted at all. '
     + 'USE IT FOR: "does the VAT control account agree with what we filed", and "how much VAT is sitting in the ledger that SARS has never been told about" — R1,383,192 of apparent shortfall on one company was assembled by hand from a bank export before this existed. '
-    + 'LIMITS: a month with no vat_returns record shows returnOutputVat null and a variance of 0, which means NOT SUBMITTED, not "agrees". Supplier-invoice input VAT is not carried in the invoice column (invoiceInputVat is always 0) — compare glInputVat instead. It reports; it files nothing.',
+    + 'LIMITS: a month with no VAT201 filing (a finalised or filed return version, or for older periods a vat_returns record) shows returnOutputVat null and a variance of 0, which means NOT SUBMITTED, not "agrees"; returnStatus says finalised, filed or submitted. Supplier-invoice input VAT is not carried in the invoice column (invoiceInputVat is always 0) — compare glInputVat instead. It reports; it files nothing.',
   scope: 'read:vat',
   write: false,
   inputSchema: {
