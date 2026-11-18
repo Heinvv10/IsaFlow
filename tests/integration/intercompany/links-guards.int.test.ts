@@ -162,10 +162,10 @@ describe('a message has one mirror link', () => {
 });
 
 describe('the mirror match is NULL-safe', () => {
-  it.each([['A to B'], ['B to A']])('a payment message accepted with no target cannot be mirror-linked to arbitrary documents (%s)', async (direction) => {
+  it.each([['A to B'], ['B to A']])('an invoice message accepted with no target (planted with the message guard off) cannot be mirror-linked to arbitrary documents (%s)', async (direction) => {
     const [from, to] = direction === 'A to B' ? [co.A, co.B] : [co.B, co.A];
-    const m = await plantMessage(pool, id, from, to, { kind: 'payment', user: ownerOf(from) });
-    await asAppUser(pool, ownerOf(to), to, (q) => q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]), true);
+    const m = await plantMessage(pool, id, from, to, { kind: 'invoice', user: ownerOf(from) });
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]));
     const src = (await pool.query('SELECT source_doc_id FROM intercompany_messages WHERE id = $1', [m])).rows[0].source_doc_id as string;
     await asAppUser(pool, ownerOf(to), to, async (q) => {
       expect(await outcome(q, LINK, mirrorArgs(id, from, m, crypto.randomUUID(), crypto.randomUUID()))).toBe(R.mirrorDocs);

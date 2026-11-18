@@ -24,7 +24,7 @@ beforeEach(() => wipeConnections(pool));
 const SIDE_INSERT = `INSERT INTO intercompany_connection_sides(connection_id, company_id, partner_company_id, auto_accept)
                      VALUES ($1, $2, $3, $4)`;
 const MESSAGE = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-                 VALUES ($1, $2, $3, 'invoice', 'customer_invoice', gen_random_uuid(), '{}')`;
+                 VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')`;
 
 describe('1. a third company sees and changes nothing of the A-B connection', () => {
   it('C reads no row of any of the five tables, as app_user, and the list route is empty for C', async () => {

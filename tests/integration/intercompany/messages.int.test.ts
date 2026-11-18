@@ -22,7 +22,7 @@ beforeEach(async () => {
 });
 
 const MSG = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-             VALUES ($1, $2, $3, $4, 'customer_invoice', $5, '{"number":"INV-1"}') RETURNING id`;
+             VALUES ($1, $2, $3, $4, 'payment', $5, '{"number":"INV-1"}') RETURNING id`;
 const DOC = crypto.randomUUID();
 const msgRow = async (m: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [m])).rows[0];
 /** The SET clause that accepts an invoice message with the supplier invoice the receiver created for it. */
@@ -32,30 +32,30 @@ const handle = (user: string, company: string, m: string, set: string) =>
 
 describe('inserting', () => {
   it('one message per (from company, source type, source id, kind); another kind or document is fine', async () => {
-    await plantMessage(pool, id, co.A, co.B, { doc: DOC });
+    await plantMessage(pool, id, co.A, co.B, { doc: DOC, kind: 'payment' });
     await asAppUser(pool, U.a, co.A, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', DOC]))
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC]))
         .toBe('23505: duplicate key value violates unique constraint "intercompany_messages_once"');
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'credit_note', DOC])).toBe('ok');
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', crypto.randomUUID()])).toBe('ok');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'allocation', DOC])).toBe('ok');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', crypto.randomUUID()])).toBe('ok');
     });
   });
 
   it('the sender writes only as itself, between the two companies of an ACTIVE connection', async () => {
     // a user who writes in B only cannot send as A (the guard); a user who writes in BOTH, acting as B, is stopped by the policy
     await asAppUser(pool, U.b, co.B, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', DOC])).toBe(R.msgSendRole);
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC])).toBe(R.msgSendRole);
     });
     await asAppUser(pool, U.ab, co.B, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', DOC])).toBe('42501: new row violates row-level security policy for table "intercompany_messages"');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC])).toBe('42501: new row violates row-level security policy for table "intercompany_messages"');
     });
     await asAppUser(pool, U.ac, co.A, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.C, 'invoice', DOC])).toBe(R.msgParties);
-      expect(await outcome(q, MSG, [id, co.A, co.A, 'invoice', DOC])).toBe(R.msgParties);
+      expect(await outcome(q, MSG, [id, co.A, co.C, 'payment', DOC])).toBe(R.msgParties);
+      expect(await outcome(q, MSG, [id, co.A, co.A, 'payment', DOC])).toBe(R.msgParties);
     });
     await asAppUser(pool, U.a, co.A, async (q) => {
       await q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]);
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', crypto.randomUUID()])).toBe(R.msgNotActive);
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', crypto.randomUUID()])).toBe(R.msgNotActive);
     });
   });
 
@@ -64,7 +64,7 @@ describe('inserting', () => {
       const big = JSON.stringify({ blob: 'x'.repeat(262144) });
       const ok = JSON.stringify({ blob: 'x'.repeat(1000) });
       const insert = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-                      VALUES ($1, $2, $3, 'invoice', 'customer_invoice', gen_random_uuid(), $4::jsonb)`;
+                      VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), $4::jsonb)`;
       expect(await outcome(q, insert, [id, co.A, co.B, big]))
         .toBe('23514: new row for relation "intercompany_messages" violates check constraint "intercompany_messages_payload_size"');
       expect(await outcome(q, insert, [id, co.A, co.B, ok])).toBe('ok');
@@ -74,13 +74,13 @@ describe('inserting', () => {
   it('a sender cannot choose the status or the handling through the grant, and the trigger resets them when the grant is there (owner)', async () => {
     await asAppUser(pool, U.a, co.A, async (q) => {
       expect(await outcome(q, `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload, status)
-        VALUES ($1, $2, $3, 'invoice', 'customer_invoice', gen_random_uuid(), '{}', 'accepted')`, [id, co.A, co.B])).toBe('42501: permission denied for table intercompany_messages');
+        VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}', 'accepted')`, [id, co.A, co.B])).toBe('42501: permission denied for table intercompany_messages');
     });
     const doc = crypto.randomUUID();
     await asOwner(pool, U.a, co.A, async (q) => {
       await q.query(`INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload,
           status, target_doc_type, target_doc_id, reason, error, handled_by, handled_at, handled_via, created_at)
-        VALUES ($1, $2, $3, 'invoice', 'customer_invoice', $4, '{}', 'accepted', 'supplier_invoice', gen_random_uuid(), 'r', 'e', 'someone', now(), 'auto', '2001-01-01')`,
+        VALUES ($1, $2, $3, 'payment', 'payment', $4, '{}', 'accepted', 'supplier_invoice', gen_random_uuid(), 'r', 'e', 'someone', now(), 'auto', '2001-01-01')`,
       [id, co.A, co.B, doc]);
     }, true);
     const r = (await pool.query('SELECT * FROM intercompany_messages WHERE source_doc_id = $1', [doc])).rows[0];
@@ -93,7 +93,7 @@ describe('inserting', () => {
     try {
       await pool.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.B]);
       await asAppUser(pool, U.a, co.A, async (q) => {
-        expect(await outcome(q, MSG, [id, co.A, co.B, 'invoice', DOC])).toBe(R.msgOneGroup);
+        expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC])).toBe(R.msgOneGroup);
       });
     } finally {
       await pool.query('ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_membership');

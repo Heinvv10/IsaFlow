@@ -119,18 +119,26 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   flag set by the definer trigger function (the flag alone is settable by any session, so it proves nothing by itself).
 - **`intercompany_in_one_group` is not a membership oracle.** It is false unless the caller is a party (a user of one of the two companies, or
   a session whose company is one of them); the unrestricted check is internal (`intercompany_shared_group`, executable by migration_admin only).
-- **Point-in-time race.** A connection or message created in the same instant that a company leaves a group (or the group is deleted) can
-  commit just after the revoking trigger ran: the helper is checked at insert time, not held as a lock. The window is closed by re-checking
-  at ACTION time: P2's auto-accept worker calls `intercompany_in_one_group` again, as the receiver, immediately before it creates the draft
-  and approves it, and refuses (leaving the message pending) when it is false; the connection guard also makes any later message insert
-  fail. A message sent inside the window is therefore at worst an inbox item a person decides on, never an automatic posting.
+- **Leave-vs-create race (closed).** `intercompany_in_one_group` takes FOR SHARE locks on the shared group's `company_group_members` and
+  `company_groups` rows when it answers true, so a connection created or re-activated, a side's auto-accept switched on, or a message sent on
+  the strength of the group holds them to commit. A company leaving (or the group being deleted) at the same moment waits, and its revoking
+  trigger then sees and revokes what the other transaction created; a writer that comes second sees the membership gone and is refused.
+  Tested with two real connections (`group-race.int.test.ts`). A message is still only an inbox item until a person (or, from P2, the
+  receiver's auto-accept worker, which re-checks `intercompany_in_one_group` at action time) acts on it.
 - **Links.** A pending pairing holds no unique slot (the unique indexes cover ACTIVE links only; confirming re-checks them), so a partner
   cannot squat a document by proposing it. Confirming needs the connection active (unlinking does not), and the confirmed side's document must
   exist in its company (`intercompany_document_exists_as_writer`, a registered definer that answers only for a company in which the caller
   writes). One mirror link per message.
-- **Messages.** An accepted invoice / credit_note / interest_invoice message names a document that exists in the receiver's company;
-  `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group connection; accept, reject and restore need the
-  connection active.
+- **Messages and their documents.** An invoice / credit_note / interest_invoice message names a SOURCE document that exists in the sending
+  company when it is sent (invoice, interest_invoice: a customer invoice; credit_note: a customer credit note), and an accepted one names a
+  TARGET that exists in the receiving company (a supplier invoice; a supplier credit note); any target a handler sets is held to the same
+  rule. A kind that creates no document (payment, allocation, reject, credit_request) carries no target (cleared). The mirror link re-checks
+  both documents (`intercompany_message_documents_ok`, a registered definer that answers only for the receiver's session, because the
+  receiver cannot see the sender's documents). `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group
+  connection; accept, reject and restore need the connection active.
+- **A revoked connection also switches auto-accept off** (the release trigger), so a re-activated connection never starts auto-handling
+  by itself; a no-op UPDATE of a connection (`SET status = status`) needs the same write role as a change (the migration's own backfill
+  runs it as the system path).
 - **Hard deletes.** A side's references are `ON DELETE SET NULL`; the foreign key's own UPDATE (one trigger level down, only references going to
   NULL) passes the sides guard whatever the connection's state, so a purge or a migration rollback is never blocked by a revoked connection.
 

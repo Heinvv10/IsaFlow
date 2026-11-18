@@ -63,10 +63,10 @@ describe('intercompany_in_one_group is no membership oracle', () => {
               has_function_privilege('app_user', p.oid, 'EXECUTE') AS app_user, has_function_privilege('app_service', p.oid, 'EXECUTE') AS app_service,
               has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec, has_function_privilege('migration_admin', p.oid, 'EXECUTE') AS admin,
               (SELECT count(*) FROM app_definer_reviews r WHERE r.signature = p.oid::regprocedure::text AND r.body_md5 = app_definer_hash(p.oid)) AS reviewed
-         FROM pg_proc p WHERE p.proname IN ('intercompany_in_one_group', 'intercompany_document_exists_as_writer', 'intercompany_group_membership_changed', 'intercompany_shared_group')
+         FROM pg_proc p WHERE p.proname IN ('intercompany_in_one_group', 'intercompany_document_exists_as_writer', 'intercompany_message_documents_ok', 'intercompany_group_membership_changed', 'intercompany_shared_group')
         ORDER BY p.proname`)).rows;
     const by = Object.fromEntries(f.map((r) => [r.proname, r]));
-    for (const n of ['intercompany_in_one_group', 'intercompany_document_exists_as_writer']) {
+    for (const n of ['intercompany_in_one_group', 'intercompany_document_exists_as_writer', 'intercompany_message_documents_ok']) {
       expect(by[n], n).toMatchObject({ prosecdef: true, owner: 'migration_admin', app_user: true, app_service: true, public_exec: false, reviewed: '1' });
       expect(by[n].proconfig).toEqual(['search_path=pg_catalog, public, pg_temp']);
     }

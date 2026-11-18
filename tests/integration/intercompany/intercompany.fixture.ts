@@ -105,7 +105,7 @@ export async function wipeConnections(pool: Pool): Promise<void> {
 
 
 /** An invoice document of `company`, as the manual-pairing check finds it. */
-export async function plantDocument(pool: Pool, type: 'customer_invoice' | 'supplier_invoice' | 'credit_note', company: string, by = U.ab): Promise<string> {
+export async function plantDocument(pool: Pool, type: 'customer_invoice' | 'supplier_invoice' | 'credit_note', company: string, by = U.ab, creditType: 'customer' | 'supplier' = 'customer'): Promise<string> {
   const id = crypto.randomUUID();
   if (type === 'customer_invoice') {
     const customer = crypto.randomUUID();
@@ -128,7 +128,7 @@ export async function plantDocument(pool: Pool, type: 'customer_invoice' | 'supp
   } else {
     await pool.query(
       `INSERT INTO credit_notes(id, company_id, credit_note_number, type, credit_date, total_amount, created_by)
-       VALUES ($1, $2, $3, 'customer', DATE '2026-09-05', 100, $4)`, [id, company, `ICN-${id.slice(0, 8)}`, by]);
+       VALUES ($1, $2, $3, $5, DATE '2026-09-05', 100, $4)`, [id, company, `ICN-${id.slice(0, 8)}`, by, creditType]);
     invoices.credit.push(id);
   }
   return id;

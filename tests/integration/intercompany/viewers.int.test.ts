@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { api, asAppUser, cleanup, co, count, outcome, pairOf, party, plantConnection, plantExternal, plantKey, plantSide, R, setup, U, wipeConnections } from './intercompany.helpers';
+import { api, asAppUser, asOwner, cleanup, co, count, outcome, pairOf, party, plantConnection, plantExternal, plantKey, plantSide, R, setup, U, wipeConnections } from './intercompany.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -35,6 +35,26 @@ describe('connections', () => {
       expect(await outcome(q, "UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id])).toBe('ok');
     }, true);
     expect(await status()).toBe('revoked');
+  });
+
+  it('a no-op UPDATE of the connection (SET status = status, or a settings value to itself) needs the write role too', async () => {
+    const noops = ['status = status', "status = 'active'", 'settlement_mode = settlement_mode', 'cutover_date = cutover_date'];
+    for (const set of noops) {
+      await asAppUser(pool, U.va, co.A, async (q) => {
+        expect(await outcome(q, `UPDATE intercompany_connections SET ${set} WHERE id = $1`, [id]), `viewer: ${set}`).toBe(R.statusWriteRole);
+      });
+      await asAppUser(pool, U.avb, co.B, async (q) => {
+        expect(await outcome(q, `UPDATE intercompany_connections SET ${set} WHERE id = $1`, [id]), `A's owner viewing B: ${set}`).toBe(R.statusWriteRole);
+      });
+    }
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_connections SET status = status WHERE id = $1', [id])).toBe('ok');
+    });
+    // a session of a company that is no party (the table's owner sees the row; RLS would hide it from app_user)
+    await asOwner(pool, U.c, co.C, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_connections SET status = status WHERE id = $1', [id])).toBe(R.partyStatus);
+    });
+    expect(await status()).toBe('active');
   });
 
   it('a viewer cannot re-activate a revoked connection or accept an invitation', async () => {

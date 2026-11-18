@@ -10,7 +10,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { dataOf } from '../r035-pr2.helpers';
 import {
-  acct, api, asAppUser, asOwner, cleanup, co, dim, outcome, party, plantConnection, plantSide, R, setup, U, wipeConnections, withoutTrigger,
+  acct, api, asAppUser, asOwner, cleanup, co, dim, outcome, party, plantConnection, plantMessage, plantSide, R, setup, U, wipeConnections, withoutTrigger,
 } from './intercompany.helpers';
 
 assertDisposable();
@@ -48,10 +48,34 @@ describe('a revoked connection releases the links', () => {
       expect(await status()).toBe('revoked');
       expect(await sideOf(co.A)).toMatchObject({
         customer_id: null, supplier_id: null, loan_account_id: acct.aLoan, default_expense_account_id: acct.aExpense,
-        default_cc1_id: dim.aCc1, default_bu_id: dim.aBu, auto_accept: true,
+        default_cc1_id: dim.aCc1, default_bu_id: dim.aBu, auto_accept: false,
       });
-      expect(await sideOf(co.B)).toMatchObject({ customer_id: null, supplier_id: null });
+      expect(await sideOf(co.B)).toMatchObject({ customer_id: null, supplier_id: null, auto_accept: false });
     }
+  });
+
+  it('auto-accept goes off with the revocation, whatever holds the side (also a side that links nothing), and a re-activation does not bring it back', async () => {
+    await plantSide(pool, id, co.A, co.B, { auto_accept: true }, U.a);          // no customer, no supplier: only auto_accept
+    await plantSide(pool, id, co.B, co.A, { auto_accept: true, supplier_id: party.bSupplier }, U.b);
+    await api.revoke(U.a, co.A, id);
+    expect(await sideOf(co.A)).toMatchObject({ auto_accept: false });
+    expect(await sideOf(co.B)).toMatchObject({ auto_accept: false, supplier_id: null });
+    expect((await api.create(U.ab, co.A, { partnerCompanyId: co.B })).state.statusCode).toBe(201);
+    expect(await status()).toBe('active');
+    expect(await sideOf(co.A)).toMatchObject({ auto_accept: false });
+    expect(await sideOf(co.B)).toMatchObject({ auto_accept: false });
+  });
+
+  it('a message handled after the re-activation is not marked auto, although the worker asks for it: the receiver\'s switch is off', async () => {
+    await plantSide(pool, id, co.B, co.A, { auto_accept: true }, U.b);
+    await api.revoke(U.a, co.A, id);
+    await api.create(U.ab, co.A, { partnerCompanyId: co.B });
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      await q.query("SELECT set_config('app.intercompany_handled_via', 'auto', true)");
+      await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]);
+      expect((await q.query('SELECT handled_via FROM intercompany_messages WHERE id = $1', [m])).rows[0].handled_via).toBe('user');
+    });
   });
 
   it("the partner's side is released too although the revoking session cannot see or write it (definer)", async () => {
@@ -111,7 +135,7 @@ describe('a revoked connection releases the links', () => {
     const again = await api.create(U.ab, co.A, { partnerCompanyId: co.B });
     expect(again.state.statusCode).toBe(201);
     const view = dataOf<{ side: { customerId: string | null; loanAccountId: string }; checklist: { items: Array<{ key: string; done: boolean }> } }>(again);
-    expect(view.side).toMatchObject({ customerId: null, loanAccountId: acct.aLoan });
+    expect(view.side).toMatchObject({ customerId: null, loanAccountId: acct.aLoan, autoAccept: false });
     expect(view.checklist.items.find((i) => i.key === 'customer')?.done).toBe(false);
   });
 
@@ -202,6 +226,35 @@ describe('1002 on a database that already holds rows', () => {
     await pool.query('DELETE FROM company_group_members WHERE group_id = $1', [g2]);
     await pool.query('DELETE FROM company_groups WHERE id = $1', [g2]);
     await pool.query('DELETE FROM customers WHERE id = $1', [other]);
+  });
+
+  it('the backfill switches off the auto-accept a connection revoked before 1002 still holds (a side with no links, and a live connection\'s stays)', async () => {
+    await plantSide(pool, id, co.A, co.B, { auto_accept: true }, U.a);
+    await asOwner(pool, U.ab, co.A, async (q) => {
+      await q.query('ALTER TABLE intercompany_connections DISABLE TRIGGER trg_intercompany_release_links');
+      await q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]);
+      await q.query('ALTER TABLE intercompany_connections ENABLE ALWAYS TRIGGER trg_intercompany_release_links');
+    }, true);
+    expect((await sideOf(co.A)).auto_accept).toBe(true);
+    const g2 = crypto.randomUUID();
+    await pool.query("INSERT INTO company_groups(id, name) VALUES ($1, 'IC backfill group 2')", [g2]);
+    await pool.query('INSERT INTO company_group_members(group_id, company_id) VALUES ($1, $2), ($1, $3)', [g2, co.A, co.C]);
+    const live = await plantConnection(pool, co.A, co.C, U.ac);
+    await plantSide(pool, live, co.A, co.C, { auto_accept: true }, U.ac);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(MIGRATION.slice(MIGRATION.indexOf('-- ── 9. Backfill')));
+      await client.query('COMMIT');
+    } finally {
+      client.release();
+    }
+    expect((await sideOf(co.A)).auto_accept).toBe(false);
+    expect((await sideOf(co.A, live)).auto_accept).toBe(true);
+    await pool.query('DELETE FROM intercompany_connection_sides WHERE connection_id = $1', [live]);
+    await pool.query('DELETE FROM intercompany_connections WHERE id = $1', [live]);
+    await pool.query('DELETE FROM company_group_members WHERE group_id = $1', [g2]);
+    await pool.query('DELETE FROM company_groups WHERE id = $1', [g2]);
   });
 
   it('the whole migration can be applied again on a database holding rows, and changes nothing observable', async () => {

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { purgeExpiredDeletes } from '../../../src/modules/accounting/services/core/softDeleteService';
-import { asAppUser, asOwner, cleanup, co, outcome, plantConnection, plantSide, R, setup, U, wipeConnections } from './intercompany.helpers';
+import { asAppUser, asOwner, cleanup, co, outcome, plantConnection, plantSide, R, setup, U, wipeConnections, withoutTrigger } from './intercompany.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -112,5 +112,33 @@ describe('the same UPDATE written by a user is not a foreign key action', () => 
     expect(await attempt("customer_id = '" + other + "'")).toBe(R.sideRevoked);          // re-pointed, not cleared
     expect(await attempt('customer_id = NULL, auto_accept = true')).toBe(R.sideRevoked);   // cleared, but something else changed
     expect(await attempt('customer_id = NULL')).toBe('ok');                               // the control: references going to NULL only
+  });
+
+  it('a nested UPDATE may switch auto_accept OFF (the release trigger does), and nothing else about it: not on, not with another change', async () => {
+    const ids = await referencedSide();
+    const other = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES ($1, $2, $3)', [other, co.A, 'FK other']);
+    await revoke();
+    // the release trigger has switched auto_accept off; put it back on with the sides guard off, to see what a nested UPDATE may do
+    const setAutoAccept = (on: boolean) => withoutTrigger(pool, 'intercompany_connection_sides', 'trg_intercompany_sides_guard',
+      (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = $2 WHERE connection_id = $1 AND company_id = $3', [id, on, co.A]));
+    await setAutoAccept(true);
+    const attempt = async (assignment: string) => asOwner(pool, U.ab, co.A, async (q) => {
+      await q.query(`CREATE FUNCTION public.ic_test_nested_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        UPDATE intercompany_connection_sides SET ${assignment} WHERE connection_id = '${id}' AND company_id = '${co.A}'; RETURN NEW; END $$`);
+      await q.query('CREATE TRIGGER ic_test_nested AFTER UPDATE ON customers FOR EACH ROW EXECUTE FUNCTION public.ic_test_nested_update()');
+      return outcome(q, 'UPDATE customers SET name = name WHERE id = $1', [ids.customer]);
+    });
+    expect(await attempt(`auto_accept = false, customer_id = '${other}'`)).toBe(R.sideRevoked);   // off, but a reference re-pointed
+    expect(await attempt('auto_accept = false, loan_account_id = default_expense_account_id')).toBe(R.sideRevoked);
+    expect(await attempt('auto_accept = false, loan_account_id = NULL')).toBe('ok');              // off + a reference to NULL
+    expect(await attempt('auto_accept = false')).toBe('ok');                                      // exactly true to false
+    await setAutoAccept(false);
+    expect(await attempt('auto_accept = true')).toBe(R.sideRevoked);                               // never on
+    // a user's own write of the same value is not a nested action
+    await setAutoAccept(true);
+    await asAppUser(pool, U.a, co.A, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET auto_accept = false WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
+    });
   });
 });

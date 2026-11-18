@@ -93,7 +93,7 @@ describe('a mirror link', () => {
     const again = await acceptedMessage(pool, id, co.A, co.B, { tgt });
     const receiverSide = co.B === low() ? 'a' : 'b';
     // a third message (another kind) from the SAME source document to a new receiver document: only the sender's side clashes
-    const third = await acceptedMessage(pool, id, co.A, co.B, { src, kind: 'credit_note' });
+    const third = await acceptedMessage(pool, id, co.A, co.B, { src, kind: 'interest_invoice' });
     const senderSide = receiverSide === 'a' ? 'b' : 'a';
     await asAppUser(pool, U.b, co.B, async (q) => {
       expect(await outcome(q, LINK, mirrorArgs(id, co.A, again.m, again.src, tgt))).toBe(`23505: duplicate key value violates unique constraint "intercompany_links_doc_${receiverSide}_active"`);

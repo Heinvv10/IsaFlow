@@ -1,6 +1,6 @@
 /** Rows the intercompany (1000 + 1002) suites plant: through the guards where the guards are what is tested, with one off where a fixture needs it. */
 import type { Pool } from 'pg';
-import { U } from './intercompany.fixture';
+import { U, plantDocument } from './intercompany.fixture';
 import { asAppUser, asOwner, pairOf, withoutTrigger } from './intercompany.session';
 
 /** A group connection as a session that may create one does (the guard triggers run). */
@@ -53,11 +53,19 @@ export async function plantLink(pool: Pool, connection: string, over: Partial<{ 
     [connection, low, high, over.doc_a ?? crypto.randomUUID(), over.doc_b ?? crypto.randomUUID(), over.status ?? 'pending_confirmation', U.ab])).rows[0].id as string);
 }
 
-/** A message as superuser plants it (the guard still runs, with the sender's claims). */
+/** The kinds whose source document is an invoice / credit note of the sender (the others name a payment or allocation row). */
+export const DOCUMENT_KINDS = ['invoice', 'credit_note', 'interest_invoice'];
+
+/**
+ * A message as a session of the sender sends it (the guard runs). A document kind names a real source document of the sender
+ * (planted unless `doc` is given): customer_invoice for invoice and interest_invoice, a customer credit note for credit_note.
+ */
 export async function plantMessage(pool: Pool, connection: string, from: string, to: string, over: { kind?: string; doc?: string; user?: string } = {}): Promise<string> {
+  const kind = over.kind ?? 'invoice';
+  const sourceType = kind === 'credit_note' ? 'credit_note' : DOCUMENT_KINDS.includes(kind) ? 'customer_invoice' : 'payment';
+  const doc = over.doc ?? (DOCUMENT_KINDS.includes(kind) ? await plantDocument(pool, sourceType as 'credit_note' | 'customer_invoice', from) : crypto.randomUUID());
   return asAppUser(pool, over.user ?? U.ab, from, async (q) => (await q.query(
     `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-     VALUES ($1, $2, $3, $4, 'customer_invoice', $5, '{"number":"INV-1"}') RETURNING id`,
-    [connection, from, to, over.kind ?? 'invoice', over.doc ?? crypto.randomUUID()])).rows[0].id as string, true);
+     VALUES ($1, $2, $3, $4, $5, $6, '{"number":"INV-1"}') RETURNING id`,
+    [connection, from, to, kind, sourceType, doc])).rows[0].id as string, true);
 }
-

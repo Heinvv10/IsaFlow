@@ -18,27 +18,37 @@
 --     on the connection's status), so the partial unique indexes do not hold a customer or supplier on a dead connection.
 --   - Sides: a foreign key's ON DELETE SET NULL (one trigger level down, references going to NULL only) passes the guard whatever
 --     the connection's state; supersedes 1000's narrower revoked-only exemption.
---   - Messages: accepting an invoice / credit_note / interest_invoice names a document that exists in the receiving company;
---     accept, reject and restore need an active connection; handled_via 'auto' only with the receiver's auto_accept on an active
---     group connection.
+--   - Messages: an invoice / credit_note / interest_invoice names a source document that exists in the SENDING company and fits
+--     its kind (invoice, interest_invoice: a customer invoice; credit_note: a customer credit note); accepting one names a target
+--     that exists in the RECEIVING company and fits it (a supplier invoice; a supplier credit note); a kind that creates no
+--     document (payment, allocation, reject, credit_request) carries no target (cleared); accept, reject and restore need an
+--     active connection; handled_via 'auto' only with the receiver's auto_accept on an active group connection.
 --   - Links: confirming needs an active connection and the confirmed side's document in its company
 --     (intercompany_document_exists_as_writer, a registered definer); a pending pairing holds no unique slot (indexes over ACTIVE
---     links); one mirror link per message; the mirror match is NULL-safe.
+--     links); one mirror link per message; the mirror match is NULL-safe and re-checks, for a message that creates a document,
+--     that both documents belong to the message's two companies (intercompany_message_documents_ok, a registered definer).
+--   - A group connection's creation, re-activation, auto-accept and a message take FOR SHARE locks on the shared group's rows
+--     (intercompany_in_one_group), so a company leaving the group at the same moment (READ COMMITTED) cannot leave an active
+--     connection behind: the leave waits for the creating transaction, then revokes what it created.
+--   - A revoked connection also switches its sides' auto_accept off; a no-op status UPDATE needs the same write role as a change.
 --   - Backfill for rows 1000 may already hold: group connections whose group is gone are revoked (stamp system:group-membership),
---     and revoked connections release their customer and supplier links (by a no-op status UPDATE that fires the release trigger).
+--     and revoked connections release their customer and supplier links and auto-accept (by a no-op status UPDATE, as the system
+--     path, that fires the release trigger).
 --
 -- DEFINER FUNCTIONS (registered in app_definer_reviews, 930; owner migration_admin; pinned search_path, pg_temp last; EXECUTE for
--- app_user and app_service only, none for the trigger functions): intercompany_in_one_group, intercompany_document_exists_as_writer
--- (reads); intercompany_group_membership_changed, intercompany_release_links (trigger functions, write). 1000 registered the first
--- and the third; their rows are updated here.
+-- app_user and app_service only, none for the trigger functions): intercompany_in_one_group (reads, and takes FOR SHARE row locks),
+-- intercompany_document_exists_as_writer, intercompany_message_documents_ok (reads); intercompany_group_membership_changed,
+-- intercompany_release_links (trigger functions, write). 1000 registered the first and the fourth; their rows are updated here.
 --
 -- Rollback (code first; 1000's behaviour returns only by re-applying its function bodies):
 --   DROP TRIGGER IF EXISTS trg_intercompany_release_links ON intercompany_connections;
 --   DROP TRIGGER IF EXISTS trg_intercompany_group_deactivated ON company_groups;
 --   DROP TRIGGER IF EXISTS trg_intercompany_keys_guard ON company_connection_keys;
 --   DROP FUNCTION IF EXISTS public.intercompany_release_links(), public.intercompany_keys_guard(),
---     public.intercompany_document_exists_as_writer(text, uuid, uuid), public.intercompany_shared_group(uuid, uuid);
---   DELETE FROM app_definer_reviews WHERE signature IN ('intercompany_document_exists_as_writer(text,uuid,uuid)', 'intercompany_release_links()');
+--     public.intercompany_document_exists_as_writer(text, uuid, uuid), public.intercompany_message_documents_ok(uuid),
+--     public.intercompany_message_doc_exists(text, text, text, uuid, uuid), public.intercompany_shared_group(uuid, uuid);
+--   DELETE FROM app_definer_reviews WHERE signature IN ('intercompany_document_exists_as_writer(text,uuid,uuid)',
+--     'intercompany_message_documents_ok(uuid)', 'intercompany_release_links()');
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -80,18 +90,37 @@ GRANT EXECUTE ON FUNCTION public.intercompany_shared_group(uuid, uuid) TO migrat
 -- True when both companies are in one current, active group, whatever the caller's RLS shows of company_group_members,
 -- AND the caller is a party: a user of p_a or p_b (auth.user_companies()), or a session whose company is one of them (the
 -- worker's context). For anyone else it is false, so it cannot be used to ask whether two other companies are grouped.
--- SECURITY DEFINER, owned by migration_admin (BYPASSRLS).
+-- A true answer holds FOR SHARE locks on the shared group's membership rows and the group row until the transaction ends: a
+-- company that leaves (left_date set) or a group that is deleted at the same moment waits for the transaction that is
+-- creating, re-activating or messaging on the strength of the answer, and its revoking trigger then sees that row's effect.
+-- (Under READ COMMITTED an unlocked check is stale by the time the writer commits.) VOLATILE for that reason: a locking read
+-- is not allowed in a STABLE function. SECURITY DEFINER, owned by migration_admin (BYPASSRLS).
 CREATE OR REPLACE FUNCTION public.intercompany_in_one_group(p_a uuid, p_b uuid)
 RETURNS boolean
-LANGUAGE sql
-STABLE
+LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT public.intercompany_shared_group(p_a, p_b)
-     AND (app.current_company_id() IN (p_a, p_b)
+BEGIN
+  IF p_a IS NULL OR p_b IS NULL OR p_a = p_b THEN
+    RETURN false;
+  END IF;
+  IF NOT (app.current_company_id() IN (p_a, p_b)
           OR EXISTS (SELECT 1 FROM public.company_users cu
-                      WHERE cu.user_id = auth.uid() AND cu.company_id IN (p_a, p_b)))
+                      WHERE cu.user_id = auth.uid() AND cu.company_id IN (p_a, p_b))) THEN
+    RETURN false;
+  END IF;
+  RETURN EXISTS (
+    SELECT 1
+      FROM public.company_group_members a
+      JOIN public.company_group_members b ON b.group_id = a.group_id
+      JOIN public.company_groups g ON g.id = a.group_id
+     WHERE a.company_id = p_a AND b.company_id = p_b
+       AND a.left_date IS NULL AND b.left_date IS NULL
+       AND g.is_active IS NOT FALSE
+       FOR SHARE OF a, b, g);
+END;
 $$;
 ALTER FUNCTION public.intercompany_in_one_group(uuid, uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_in_one_group(uuid, uuid) FROM PUBLIC;
@@ -154,6 +183,54 @@ $$;
 ALTER FUNCTION public.intercompany_document_exists_as_writer(text, uuid, uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_document_exists_as_writer(text, uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_document_exists_as_writer(text, uuid, uuid) TO app_user, app_service;
+
+-- Is the document one a message of `p_kind` carries, in the company? `p_role` is 'source' (the sender's document) or 'target'
+-- (the one the receiver created for it). An invoice or interest invoice goes from a customer invoice to a supplier invoice; a
+-- credit note from a customer credit note to a supplier credit note. Any other kind carries no document: false. Under the
+-- caller's RLS: only the session company's own documents are visible (the company is also matched, so another of the session
+-- user's companies is refused too). Never NULL.
+CREATE OR REPLACE FUNCTION public.intercompany_message_doc_exists(p_kind text, p_role text, p_type text, p_id uuid, p_company uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE(CASE
+    WHEN p_kind IN ('invoice', 'interest_invoice') AND p_role = 'source' THEN p_type = 'customer_invoice'
+      AND EXISTS (SELECT 1 FROM public.customer_invoices WHERE id = p_id AND company_id = p_company)
+    WHEN p_kind IN ('invoice', 'interest_invoice') AND p_role = 'target' THEN p_type = 'supplier_invoice'
+      AND EXISTS (SELECT 1 FROM public.supplier_invoices WHERE id = p_id AND company_id = p_company)
+    WHEN p_kind = 'credit_note' AND p_role = 'source' THEN p_type = 'credit_note'
+      AND EXISTS (SELECT 1 FROM public.credit_notes WHERE id = p_id AND company_id = p_company AND type = 'customer')
+    WHEN p_kind = 'credit_note' AND p_role = 'target' THEN p_type = 'credit_note'
+      AND EXISTS (SELECT 1 FROM public.credit_notes WHERE id = p_id AND company_id = p_company AND type = 'supplier')
+    ELSE false
+  END, false)
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_message_doc_exists(text, text, text, uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_message_doc_exists(text, text, text, uuid, uuid) TO app_user, app_service, migration_admin;
+
+-- Does the accepted message's source document exist in the sender's company and its target in the receiver's, each of the type
+-- its kind needs? The receiver's session cannot see the sender's documents, so this is a definer. It answers only for the
+-- receiver's own session company (a mirror link is made by the receiver); for any other caller it is false, so it is no way to
+-- ask whether a document id exists in someone else's books. Calls the invoker check above as migration_admin (BYPASSRLS).
+CREATE OR REPLACE FUNCTION public.intercompany_message_documents_ok(p_message uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE((
+    SELECT public.intercompany_message_doc_exists(m.kind, 'source', m.source_doc_type, m.source_doc_id, m.from_company_id)
+       AND public.intercompany_message_doc_exists(m.kind, 'target', m.target_doc_type, m.target_doc_id, m.to_company_id)
+      FROM public.intercompany_messages m
+     WHERE m.id = p_message AND m.to_company_id = app.current_company_id()), false)
+$$;
+ALTER FUNCTION public.intercompany_message_documents_ok(uuid) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_message_documents_ok(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_message_documents_ok(uuid) TO app_user, app_service;
 
 -- ── 3. Connections guard ────────────────────────────────────────────────────
 
@@ -219,11 +296,10 @@ BEGIN
     END IF;
   END IF;
 
-  IF NEW.status = OLD.status THEN
-    RETURN NEW;
-  END IF;
-
   IF system THEN
+    IF NEW.status = OLD.status THEN
+      RETURN NEW;                         -- the backfill's no-op UPDATE (it only fires the release trigger)
+    END IF;
     IF NEW.status <> 'revoked' THEN
       RAISE EXCEPTION 'the group-membership revocation only revokes' USING ERRCODE = '23514';
     END IF;
@@ -243,6 +319,9 @@ BEGIN
     RAISE EXCEPTION 'changing a connection''s status needs a write role in the company' USING ERRCODE = '42501';
   END IF;
 
+  IF NEW.status = OLD.status THEN
+    RETURN NEW;                           -- settings only (checked above); a no-op too, by a user who may write
+  END IF;
   IF NEW.status = 'revoked' THEN
     NEW.revoked_by := auth.uid();
     NEW.revoked_at := clock_timestamp();
@@ -336,10 +415,11 @@ BEGIN
     RAISE EXCEPTION 'a side keeps its connection and its company' USING ERRCODE = '23514';
   END IF;
   -- A referenced customer, supplier, account, centre or unit that is hard-deleted (a purge, a migration rollback) is nulled
-  -- here by its foreign key's SET NULL action, which runs as a trigger of the referenced table (depth 2). That must pass
-  -- whatever the connection's state: the only change is a reference going to NULL.
+  -- here by its foreign key's SET NULL action, which runs as a trigger of the referenced table (depth 2), and a revoked
+  -- connection's release trigger (intercompany_release_links) sets references to NULL and auto_accept off the same way. That
+  -- must pass whatever the connection's state: the only changes are a reference going to NULL and auto_accept going true to false.
   IF TG_OP = 'UPDATE' AND pg_trigger_depth() >= 2
-     AND NEW.auto_accept = OLD.auto_accept
+     AND (NEW.auto_accept = OLD.auto_accept OR (OLD.auto_accept AND NOT NEW.auto_accept))
      AND (NEW.customer_id IS NULL OR NEW.customer_id = OLD.customer_id)
      AND (NEW.supplier_id IS NULL OR NEW.supplier_id = OLD.supplier_id)
      AND (NEW.loan_account_id IS NULL OR NEW.loan_account_id = OLD.loan_account_id)
@@ -433,6 +513,12 @@ BEGIN
     IF NOT public.intercompany_user_can_write(NEW.from_company_id) THEN
       RAISE EXCEPTION 'a message is sent by a user with a write role in the sending company' USING ERRCODE = '42501';
     END IF;
+    -- A message that carries a document names one of the SENDER's (the session company), of the type its kind needs: nobody
+    -- can send, and the receiver then mirror-link, another company's invoice.
+    IF NEW.kind IN ('invoice', 'credit_note', 'interest_invoice')
+       AND NOT public.intercompany_message_doc_exists(NEW.kind, 'source', NEW.source_doc_type, NEW.source_doc_id, NEW.from_company_id) THEN
+      RAISE EXCEPTION 'a document message names a source document of the sending company that fits its kind' USING ERRCODE = '23514';
+    END IF;
     NEW.status := 'pending';
     NEW.target_doc_type := NULL;
     NEW.target_doc_id := NULL;
@@ -467,11 +553,17 @@ BEGIN
   IF NOT public.intercompany_user_can_write(OLD.to_company_id) THEN
     RAISE EXCEPTION 'a message is handled by a user with a write role in the receiving company' USING ERRCODE = '42501';
   END IF;
-  -- A message that creates a document is accepted with that document: it exists in the receiver's company.
-  -- (intercompany_document_exists is false for a NULL type or id, so a missing target is refused here too.)
-  IF NEW.status = 'accepted' AND NEW.kind IN ('invoice', 'credit_note', 'interest_invoice')
-     AND NOT public.intercompany_document_exists(NEW.target_doc_type, NEW.target_doc_id, OLD.to_company_id) THEN
-    RAISE EXCEPTION 'an accepted message names the document it created in the receiving company' USING ERRCODE = '23514';
+  -- A message that creates a document is accepted with that document: it exists in the receiver's company and is of the type
+  -- its kind needs. Any target a handler sets (accepting or not) is held to the same rule. (The check is false for a NULL type
+  -- or id, so a missing target is refused too.) A kind that creates no document carries no target: whatever was sent is cleared.
+  IF NEW.kind IN ('invoice', 'credit_note', 'interest_invoice') THEN
+    IF (NEW.status = 'accepted' OR NEW.target_doc_type IS DISTINCT FROM OLD.target_doc_type OR NEW.target_doc_id IS DISTINCT FROM OLD.target_doc_id)
+       AND NOT public.intercompany_message_doc_exists(NEW.kind, 'target', NEW.target_doc_type, NEW.target_doc_id, OLD.to_company_id) THEN
+      RAISE EXCEPTION 'a message targets a document of the receiving company that fits its kind, and an accepted one names it' USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    NEW.target_doc_type := NULL;
+    NEW.target_doc_id := NULL;
   END IF;
   NEW.updated_at := clock_timestamp();
   IF NEW.status = 'pending' THEN
@@ -547,12 +639,19 @@ BEGIN
       IF msg.status <> 'accepted' THEN
         RAISE EXCEPTION 'a mirror link needs an accepted message' USING ERRCODE = '23514';
       END IF;
+      IF msg.kind NOT IN ('invoice', 'credit_note', 'interest_invoice') THEN
+        RAISE EXCEPTION 'a mirror link needs a message that creates a document' USING ERRCODE = '23514';
+      END IF;
       src_is_a := msg.from_company_id = conn.company_low_id;
       IF NOT (CASE WHEN src_is_a
                 THEN NEW.doc_a_type IS NOT DISTINCT FROM msg.source_doc_type AND NEW.doc_a_id IS NOT DISTINCT FROM msg.source_doc_id
                  AND NEW.doc_b_type IS NOT DISTINCT FROM msg.target_doc_type AND NEW.doc_b_id IS NOT DISTINCT FROM msg.target_doc_id
                 ELSE NEW.doc_b_type IS NOT DISTINCT FROM msg.source_doc_type AND NEW.doc_b_id IS NOT DISTINCT FROM msg.source_doc_id
                  AND NEW.doc_a_type IS NOT DISTINCT FROM msg.target_doc_type AND NEW.doc_a_id IS NOT DISTINCT FROM msg.target_doc_id END) THEN
+        RAISE EXCEPTION 'a mirror link joins the message''s source and target documents' USING ERRCODE = '23514';
+      END IF;
+      -- Both documents belong to the message's two companies and fit its kind, whatever the message row holds.
+      IF NOT public.intercompany_message_documents_ok(msg.id) THEN
         RAISE EXCEPTION 'a mirror link joins the message''s source and target documents' USING ERRCODE = '23514';
       END IF;
       NEW.status := 'active';
@@ -692,7 +791,8 @@ ALTER TABLE company_connection_keys ENABLE ALWAYS TRIGGER trg_intercompany_keys_
 -- ── 7. A revoked connection releases its sides' customer and supplier links ─────────────────
 
 -- SECURITY DEFINER: either party may revoke, and a company cannot see or update its partner's side. The UPDATE it runs is a
--- second trigger level and only sets references to NULL, which the sides guard lets through whatever the connection's state.
+-- second trigger level and only sets references to NULL and auto_accept to false, which the sides guard lets through whatever
+-- the connection's state. (A re-activated group connection then starts with auto-accept off: the receiver turns it on again.)
 CREATE OR REPLACE FUNCTION public.intercompany_release_links()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -701,8 +801,8 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   UPDATE public.intercompany_connection_sides
-     SET customer_id = NULL, supplier_id = NULL
-   WHERE connection_id = NEW.id AND (customer_id IS NOT NULL OR supplier_id IS NOT NULL);
+     SET customer_id = NULL, supplier_id = NULL, auto_accept = false
+   WHERE connection_id = NEW.id AND (customer_id IS NOT NULL OR supplier_id IS NOT NULL OR auto_accept);
   RETURN NULL;
 END;
 $$;
@@ -726,19 +826,23 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_in_one_group(uuid,uuid)', 'public.intercompany_in_one_group(uuid, uuid)',
-     'nothing (read of company_group_members, company_groups and company_users: are two companies in one current, active group; false unless the caller is a party)'),
+     'nothing (read of company_group_members, company_groups and company_users: are two companies in one current, active group; false unless the caller is a party; a true answer holds FOR SHARE row locks on the shared group''s company_group_members and company_groups rows until the transaction ends)'),
+    ('intercompany_message_documents_ok(uuid)', 'public.intercompany_message_documents_ok(uuid)',
+     'nothing (read of intercompany_messages, customer_invoices, supplier_invoices, credit_notes: do an accepted message''s source and target documents exist in its sender and receiver, of the types its kind needs; false unless the session company is the receiver)'),
     ('intercompany_document_exists_as_writer(text,uuid,uuid)', 'public.intercompany_document_exists_as_writer(text, uuid, uuid)',
      'nothing (read of customer_invoices, supplier_invoices, credit_notes: does a document exist in a company in which the session user holds a write role; false otherwise)'),
     ('intercompany_group_membership_changed()', 'public.intercompany_group_membership_changed()',
      'intercompany_connections.status = ''revoked'' (its revoked_by / revoked_at stamps, through the connections guard system path) for a group connection whose companies no longer share a current active group; trigger function on company_group_members and company_groups, no EXECUTE for app roles'),
     ('intercompany_release_links()', 'public.intercompany_release_links()',
-     'intercompany_connection_sides.customer_id and supplier_id = NULL for the sides of a connection that has just been revoked (through the sides guard''s foreign-key-action path); trigger function on intercompany_connections, no EXECUTE for app roles')
+     'intercompany_connection_sides.customer_id and supplier_id = NULL and auto_accept = false for the sides of a connection that has just been revoked (through the sides guard''s foreign-key-action path); trigger function on intercompany_connections, no EXECUTE for app roles')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 DO $$
 BEGIN
   IF pg_catalog.has_function_privilege('public', 'public.intercompany_in_one_group(uuid, uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_documents_ok(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_doc_exists(text, text, text, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_document_exists_as_writer(text, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_group_membership_changed()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_membership_changed()', 'EXECUTE')
@@ -753,19 +857,20 @@ END $$;
 
 -- Group connections whose group has gone (deleted, or a company left) are revoked, as the new triggers would have done. The
 -- revocation is the connections guard's system path: migration_admin plus the transaction-local flag. The release trigger then
--- frees their links.
+-- frees their links and switches their auto-accept off.
 SELECT pg_catalog.set_config('app.intercompany_system_revoke', 'on', true);
 SET LOCAL ROLE migration_admin;
 UPDATE public.intercompany_connections c SET status = 'revoked'
  WHERE c.kind = 'group' AND c.status <> 'revoked'
    AND NOT public.intercompany_shared_group(c.company_low_id, c.company_high_id);
-RESET ROLE;
-SELECT pg_catalog.set_config('app.intercompany_system_revoke', '', true);
 
--- Connections revoked before this migration still hold their links. A status UPDATE to the value a row already has changes
--- nothing (the connections guard returns the row as it is, stamps included) and fires the release trigger, whose own UPDATE of
--- the sides is a second trigger level, which the sides guard lets through. No trigger is switched off.
+-- Connections revoked before this migration still hold their links and their auto-accept. A status UPDATE to the value a row
+-- already has is, on the system path, a no-op for the guard (it returns the row; only updated_at, which every guarded
+-- UPDATE stamps, moves) and fires the release trigger, whose own UPDATE of the sides is a second trigger level, which the sides
+-- guard lets through. No trigger is switched off.
 UPDATE public.intercompany_connections c SET status = 'revoked'
  WHERE c.status = 'revoked'
    AND EXISTS (SELECT 1 FROM public.intercompany_connection_sides s
-                WHERE s.connection_id = c.id AND (s.customer_id IS NOT NULL OR s.supplier_id IS NOT NULL));
+                WHERE s.connection_id = c.id AND (s.customer_id IS NOT NULL OR s.supplier_id IS NOT NULL OR s.auto_accept));
+RESET ROLE;
+SELECT pg_catalog.set_config('app.intercompany_system_revoke', '', true);
