@@ -154,6 +154,22 @@ describe('a fortnightly run', () => {
     expect(list.body.data).toEqual([]);
     expect((await getWeek(b)).body.data).toMatchObject({ fortnightAnchor: null, locked: { week: false, anchor: false } });
   });
+
+  it('a weekly and a fortnightly run paid in the SAME month both insert (999y dropped the per-month key)', async () => {
+    // The first Monday of the month after next: weekly paid on its Friday (by the 11th), the fortnight on the next (by the 18th).
+    const firstOfMonth = new Date(Date.UTC(Number(MON.slice(0, 4)), Number(MON.slice(5, 7)) + 1, 1));
+    const f = dayNumber(firstOfMonth.toISOString().slice(0, 10))!;
+    const X = isoOfDay(f + ((8 - isoDow(f)) % 7));
+    expect((await putWeek(b, { payWeekStartDow: 1, payWeekday: 5, fortnightAnchor: X })).statusCode).toBe(200);
+    const weekly = await create(b, { frequency: 'weekly', periodStart: X });
+    const fortnightly = await create(b, { frequency: 'fortnightly', periodStart: X });
+    expect([weekly.statusCode, fortnightly.statusCode]).toEqual([201, 201]);
+    const rows = (await b.pool.query(
+      'SELECT pay_frequency, period_year, period_month FROM payroll_run_headers WHERE company_id = $1 ORDER BY pay_frequency', [b.company])).rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.period_month).toBe(rows[1]!.period_month);
+    expect(rows[0]!.period_year).toBe(rows[1]!.period_year);
+  });
 });
 
 describe('the employee\'s pay frequency', () => {
