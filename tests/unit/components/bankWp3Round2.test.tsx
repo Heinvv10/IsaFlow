@@ -238,6 +238,7 @@ describe('an invalid amount draft does not survive Clear or an account switch', 
   it('the amount input drops its unsent draft when the filters\' resetKey changes', () => {
     const props = filterProps();
     const { rerender } = render(<BankTxFilters {...props} resetKey={0} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ })); // the amounts fold behind Filters at a narrow width (WP4b)
     const min = () => screen.getByLabelText('Min R') as HTMLInputElement;
     fireEvent.change(min(), { target: { value: '-5' } });
     expect(screen.getByRole('alert')).toBeTruthy();

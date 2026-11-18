@@ -1,7 +1,7 @@
 /**
  * Reads for the intercompany connections page: this company's connections (each with its OWN side only: a
  * company never reads its partner's) and the group companies a group connection could be made with.
- * Everything runs on the request's transaction, so RLS (999z) already limits rows to this company's.
+ * Everything runs on the request's transaction, so RLS (1000) already limits rows to this company's.
  */
 import { sql } from '@/lib/neon';
 import { DEFAULT_WRITE_ROLES } from '@/lib/auth/writeRoles';

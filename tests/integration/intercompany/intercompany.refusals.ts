@@ -1,4 +1,4 @@
-/** The exact refusals of migration 999z, as `outcome` reports them: `<SQLSTATE>: <message>`. */
+/** The exact refusals of migration 1000, as `outcome` reports them: `<SQLSTATE>: <message>`. */
 export const R = {
   externalNotYet: '0A000: external connections are not available yet',
   groupCreatedActive: '23514: a group connection is created active',

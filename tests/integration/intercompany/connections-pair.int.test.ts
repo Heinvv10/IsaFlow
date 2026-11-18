@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (999z): the connection row itself. Pair settings (mode, cut-over, interest) live here and need a
+ * Intercompany P1 (1000): the connection row itself. Pair settings (mode, cut-over, interest) live here and need a
  * write role in BOTH companies; the status moves only by the legal steps; a group connection lives only while both
  * companies are current members of one group (definer helper + group-leave trigger); an external one cannot be
  * created yet. Trigger-level rules are tested as the table owner (no column grant or RLS in the way) so the

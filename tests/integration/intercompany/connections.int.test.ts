@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (migration 999z), the headline guards, proved with real PostgreSQL as app_user and through the
+ * Intercompany P1 (migration 1000), the headline guards, proved with real PostgreSQL as app_user and through the
  * real routes:
  *   1. a third company (C) cannot see, change or end a connection between A and B;
  *   2. a company cannot edit its partner's side (B cannot edit A's);

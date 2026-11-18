@@ -1,5 +1,5 @@
 /**
- * Fixture for the intercompany (999z) suites: real PostgreSQL, synthetic rows only.
+ * Fixture for the intercompany (1000) suites: real PostgreSQL, synthetic rows only.
  *
  *   A, B   current members of group G           C   in another group (H), never with A or B
  *   ab owner of A and B     a owner of A     b owner of B     c owner of C     ac owner of A and C

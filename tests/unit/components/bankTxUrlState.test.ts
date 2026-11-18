@@ -32,10 +32,13 @@ describe('serializeUrlView', () => {
 
 describe('parseUrlView', () => {
   it('round-trips what serialize wrote', () => {
-    const v = view({ tab: 'excluded', page: 7 }, { search: 'a b&c=d', fromAmount: '12.34', allocationFilter: 'allocated', reconFilter: 'unreconciled' });
+    const v = view({ tab: 'excluded', page: 7 }, { search: 'a b&c=d', fromAmount: '12.34', reconFilter: 'unreconciled' });
     const p = parseUrlView(serializeUrlView(v));
     expect(p).toMatchObject({ account: 'acc-1', tab: 'excluded', page: 7 });
     expect({ ...DEFAULT_FILTERS, ...p.filters }).toEqual(v.filters);
+    // The status filter is the New tab's (WP4b): it round-trips there; another tab is read without it.
+    const n = view({ tab: 'new', page: 2 }, { allocationFilter: 'allocated' });
+    expect({ ...DEFAULT_FILTERS, ...parseUrlView(serializeUrlView(n)).filters }).toEqual(n.filters);
   });
   it.each([
     ['an unknown tab', { tab: 'hax' }, 'tab'],
@@ -111,7 +114,7 @@ describe('ownedQueryKey / mergeOwnedQuery', () => {
     expect(merged).toEqual({ line: 'tx-9', account_id: 'new' });
   });
   it('URL_KEYS are exactly the keys serialize can write', () => {
-    const all = serializeUrlView(view({ tab: 'reviewed', page: 2 }, { search: 'a', fromDate: '2026-01-01', toDate: '2026-01-02', fromAmount: '1', toAmount: '2', sortOrder: 'asc', allocationFilter: 'allocated', txType: 'spent', allocType: 'account', hasSuggestion: 'no', reconFilter: 'reconciled' }));
+    const all = serializeUrlView(view({ tab: 'reviewed', page: 2 }, { search: 'a', fromDate: '2026-01-01', toDate: '2026-01-02', fromAmount: '1', toAmount: '2', sortOrder: 'asc', allocationFilter: 'allocated', txType: 'spent', allocType: 'account', hasSuggestion: 'no', reconFilter: 'reconciled', pageSize: 50 }));
     expect(Object.keys(all).sort()).toEqual([...URL_KEYS].sort());
   });
 });

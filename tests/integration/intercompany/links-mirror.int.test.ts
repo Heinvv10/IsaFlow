@@ -1,5 +1,5 @@
 /**
- * Intercompany (999z) mirror links: made by the receiver of an accepted message, joining exactly that message's two documents,
+ * Intercompany (1000) mirror links: made by the receiver of an accepted message, joining exactly that message's two documents,
  * active at once. Trigger-level rules are tested as the table owner so the trigger's own refusal is what is asserted.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';

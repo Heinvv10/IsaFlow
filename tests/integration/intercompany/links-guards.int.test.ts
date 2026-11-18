@@ -1,5 +1,5 @@
 /**
- * Intercompany (999z) links, the rules a review found missing: a viewer links nothing, a pairing is not confirmed after the
+ * Intercompany (1000) links, the rules a review found missing: a viewer links nothing, a pairing is not confirmed after the
  * connection is revoked (it can still be unlinked), the confirmer's own document must exist in the confirmer's company, a
  * pending pairing holds no slot (a partner cannot squat a document), a message has one mirror link, and the mirror match
  * is NULL-safe.

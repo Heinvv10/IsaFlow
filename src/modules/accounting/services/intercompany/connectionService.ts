@@ -1,6 +1,6 @@
 /**
  * Intercompany connections (P1): create a GROUP connection, revoke one, and (in the sibling services) edit the
- * pair's settings and this company's own side. Rules, in the service and again in the database (999z): both
+ * pair's settings and this company's own side. Rules, in the service and again in the database (1000): both
  * companies are current members of one group and the caller can write in both; a revoked group connection is
  * re-activated, never duplicated; either party may revoke. External connections arrive in P6. Messages,
  * accepting, pairing, loans and interest are later phases.

@@ -1,5 +1,5 @@
 /**
- * Intercompany (999z): a side's references (customer, supplier, accounts, centres, unit) are ON DELETE SET NULL. The
+ * Intercompany (1000): a side's references (customer, supplier, accounts, centres, unit) are ON DELETE SET NULL. The
  * foreign key's own UPDATE of the side runs one trigger level down and must pass whatever the connection's state, so a
  * hard delete (the soft-delete purge, a migration rollback) is never blocked by a revoked connection. The same UPDATE
  * written by a user does not pass.

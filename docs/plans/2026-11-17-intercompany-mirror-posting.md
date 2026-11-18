@@ -79,7 +79,7 @@ the sender's own data only; the sender never reads the receiver's ledger.
 
 ## Revised after P1 review (2026-11-17)
 
-These supersede the Data model above wherever they differ (migration 999z carries them).
+These supersede the Data model above wherever they differ (migration 1000 carries them).
 
 - **Pair-level agreement.** `settlement_mode`, `cutover_date` and `interest_rate_pct` live on `intercompany_connections`, not on a
   side: they are one agreement between the two companies. A group connection's change needs a write role in BOTH companies (service and
@@ -107,7 +107,7 @@ These supersede the Data model above wherever they differ (migration 999z carrie
 
 ### Round 2 (2026-11-18)
 
-- **Migration prefix.** `999z_intercompany_connections.sql` (master took 999p; 999q-999y are in other open PRs).
+- **Migration prefix.** `1000_intercompany_connections.sql` (master took 999p; 999q-999y are in other open PRs).
 - **Viewers read only.** Every app_user write on the five tables needs `intercompany_user_can_write(<acting company>)` in the table's
   guard: a connection's status (revoke, accept, re-activate), a side, a message's sending or handling, a link's insert, confirmation or
   unlink, a key. P2's auto-accept worker therefore runs with the claims of a write-role user of the RECEIVER (it sets

@@ -53,7 +53,7 @@ function merged(current: ConnectionView['side'], input: SideInput) {
   };
 }
 
-/** A customer or supplier already linked on another connection of this company (the unique indexes of 999z). */
+/** A customer or supplier already linked on another connection of this company (the unique indexes of 1000). */
 function linkedElsewhere(err: unknown): ConnectionRefusal | null {
   const e = err as { code?: string; constraint?: string };
   if (e.code !== '23505') return null;

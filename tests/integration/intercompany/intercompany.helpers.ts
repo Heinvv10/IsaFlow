@@ -1,5 +1,5 @@
 /**
- * Barrel and routes for the intercompany (999z) suites: the fixture, sessions, planted rows and refusals, and the real
+ * Barrel and routes for the intercompany (1000) suites: the fixture, sessions, planted rows and refusals, and the real
  * routes called with real signed tokens.
  */
 import connectionsRoute from '../../../pages/api/accounting/intercompany/connections';

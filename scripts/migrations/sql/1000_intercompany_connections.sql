@@ -1,4 +1,4 @@
--- 999z: Intercompany mirror posting, P1 (connections). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md.
+-- 1000: Intercompany mirror posting, P1 (connections). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md.
 --
 -- WHAT. The five tables of the plan's data model. P1's code reads and writes only the first two; the other three
 -- are tables, grants, RLS and guards so that P2-P6 add code, not schema.
@@ -967,7 +967,7 @@ BEGIN
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_group_membership_changed()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_membership_changed()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_shared_group(uuid, uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION '999z: a role it must not reach can execute an intercompany function';
+    RAISE EXCEPTION '1000: a role it must not reach can execute an intercompany function';
   END IF;
 END $$;
 

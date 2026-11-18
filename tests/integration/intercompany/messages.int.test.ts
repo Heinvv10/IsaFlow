@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (999z): the message table is a table only in P1 (no code writes it yet), but the rules P2-P6 stand
+ * Intercompany P1 (1000): the message table is a table only in P1 (no code writes it yet), but the rules P2-P6 stand
  * on are in the database now: one message per source document, a message only on an active connection between its two
  * companies (a group one only while both stay in one group), the sender only inserts and the receiver only moves a
  * pending message on, handled messages are final (a dismissal can be restored), the handling is stamped server-side.
