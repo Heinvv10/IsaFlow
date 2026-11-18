@@ -117,8 +117,10 @@ export interface BankTransaction {
   transferJournalEntryId?: string;
   /** The asset / fleet record this line is annotated with (mig 853) — never a posting. */
   link?: BankTxLink;
-  /** Files in bank_transaction_attachments (TX_SELECT only); > 0 highlights the row's paperclip. */
+  /** Own files (bank_transaction_attachments, linked captures) plus settled-document evidence (TX_SELECT only); > 0 highlights the row's paperclip. */
   attachmentCount?: number;
+  /** Of attachmentCount, the documents of the bills / invoices the line settles (read-only evidence). */
+  settledDocumentCount?: number;
   /** A client query about this line is open (sent, or replied and not resolved). */
   queried?: boolean;
 }
