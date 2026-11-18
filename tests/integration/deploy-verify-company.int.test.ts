@@ -72,7 +72,7 @@ describeIfDb('the Deploy Verification company database step', () => {
 
   it('creates both users, a hidden internal company owned by the verify user with the approver an admin, and the periods the specs post into', async () => {
     const first = await run();
-    expect(first).toMatchObject({ userCreated: true, approverCreated: true, companyCreated: true, approverJoined: true });
+    expect(first).toMatchObject({ userCreated: true, approverCreated: true, companyCreated: true, approverJoined: true, approverRole: 'manager' });
     expect(first.periodsCreated).toBeGreaterThan(24);
 
     const company = (await pool.query(`SELECT name, is_demo, is_active, status, vat_number FROM companies WHERE id = $1::uuid`, [first.companyId])).rows[0];
@@ -80,7 +80,7 @@ describeIfDb('the Deploy Verification company database step', () => {
     expect(company.vat_number).toBeTruthy();
     const members = (await pool.query(`SELECT user_id, role, is_default FROM company_users WHERE company_id = $1::uuid ORDER BY role`, [first.companyId])).rows;
     expect(members).toEqual([
-      { user_id: ids.approver, role: APPROVER_ROLE, is_default: true },
+      { user_id: ids.approver, role: APPROVER_ROLE, is_default: true }, // manager: the pay-run rule's own demand
       { user_id: ids.verify, role: 'owner', is_default: true },
     ]);
     // The six system accounts and an open 2027-02 (the payroll sandbox month): what the suite's own precondition reads.
@@ -108,7 +108,7 @@ describeIfDb('the Deploy Verification company database step', () => {
     const before = await footprint(first.companyId);
     const named = Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n);
     const second = await run();
-    expect(second).toEqual({ companyId: first.companyId, userCreated: false, approverCreated: false, companyCreated: false, approverJoined: false, periodsCreated: 0 });
+    expect(second).toEqual({ companyId: first.companyId, userCreated: false, approverCreated: false, companyCreated: false, approverJoined: false, approverRole: 'manager', periodsCreated: 0 });
     expect(await footprint(first.companyId)).toEqual(before);
     expect(Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n)).toBe(named);
   }, 120_000);
@@ -190,6 +190,35 @@ describeIfDb('the Deploy Verification company database step', () => {
     await expect(run()).rejects.toThrow(/without the verify user as a member/);
   });
 
+  describe('readiness: what must hold before the logins are published', () => {
+    const problems = async (companyId: string) => companyProblems(pool as unknown as PoolClient, companyId, ids);
+
+    it('the pay-run rule is the fixed `manager` one (a trigger refuses changes), so manager is the least that decides; a lower or owner approver is a problem', async () => {
+      const made = await run();
+      const rule = (await pool.query(`SELECT approver_role FROM approval_rules WHERE company_id = $1::uuid AND document_type = 'pay_run' AND is_active`, [made.companyId])).rows;
+      expect(rule).toEqual([{ approver_role: 'manager' }]);
+      await expect(pool.query(`UPDATE approval_rules SET approver_role = 'owner' WHERE company_id = $1::uuid AND document_type = 'pay_run'`, [made.companyId])).rejects.toThrow(/cannot be changed/);
+      expect((await problems(made.companyId)).filter((p) => /approver|two-person/.test(p))).toEqual([]);
+      await pool.query(`UPDATE company_users SET role = 'viewer' WHERE company_id = $1::uuid AND user_id = $2`, [made.companyId, ids.approver]);
+      expect((await problems(made.companyId)).join()).toMatch(/approver \(role viewer\) cannot decide a pay run: the company's rule demands manager/);
+      await pool.query(`UPDATE company_users SET role = 'owner' WHERE company_id = $1::uuid AND user_id = $2`, [made.companyId, ids.approver]);
+      expect((await problems(made.companyId)).join()).toMatch(/approver is an owner/);
+    });
+
+    it('the approver belonging to any other company is a problem; the verify login in a non-demo company is one, in a demo sandbox is not', async () => {
+      const made = await run();
+      const other = await pool.query<{ id: string }>(`INSERT INTO companies (name, is_demo) VALUES ('Some Real Co', false) RETURNING id::text AS id`);
+      await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1::uuid, $2, 'viewer', false)`, [other.rows[0]!.id, ids.approver]);
+      expect((await problems(made.companyId)).join()).toMatch(/approver login also belongs to "Some Real Co"/);
+      await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1::uuid, $2, 'viewer', false)`, [other.rows[0]!.id, ids.verify]);
+      expect((await problems(made.companyId)).join()).toMatch(/verify login also belongs to "Some Real Co", which is not a demo company/);
+      await pool.query(`UPDATE companies SET is_demo = true WHERE id = $1::uuid`, [other.rows[0]!.id]);
+      const after = (await problems(made.companyId)).join();
+      expect(after).not.toMatch(/verify login also belongs/);
+      expect(after).toMatch(/approver login also belongs/);
+    });
+  });
+
   describe('the blocks\' SQL, against the real columns', () => {
     const ctx = async () => {
       const made = await run();
@@ -216,13 +245,13 @@ describeIfDb('the Deploy Verification company database step', () => {
       expect(plans.customers).toBe(false); // 2 of 4 (and the look-alike "Demo Customer 2 extra" is not a marker): resumable, not complete
     }, 120_000);
 
-    it('the migration sandbox is complete only when the verify user is in it AND it is is_demo', async () => {
+    it('a sandbox company is complete only when the verify user is in it AND it is is_demo', async () => {
       const c = await ctx();
-      const sandbox = (await buildBlocks().find((b) => b.name === 'migration sandbox company')!.plan(c));
+      const sandbox = (await buildBlocks().find((b) => b.name.startsWith('sandbox company'))!.plan(c));
       expect(sandbox.complete).toBe(false);
       const made = await pool.query<{ id: string }>(`INSERT INTO companies (name, is_demo) VALUES ('0GP Golden Migration Sandbox', false) RETURNING id::text AS id`);
       await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1::uuid, $2, 'owner', false)`, [made.rows[0]!.id, ids.verify]);
-      const block = buildBlocks().find((b) => b.name === 'migration sandbox company')!;
+      const block = buildBlocks().find((b) => b.name.startsWith('sandbox company'))!;
       expect((await block.plan(c)).complete).toBe(false); // exists, not is_demo
       await pool.query(`UPDATE companies SET is_demo = true WHERE id = $1::uuid`, [made.rows[0]!.id]);
       expect((await block.plan(c)).complete).toBe(true);

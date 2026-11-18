@@ -12,7 +12,7 @@ function run(prodEnv: string, ownerEnv: string | null, args: string[] = []) {
   const dir = mkdtempSync(path.join(tmpdir(), 'prov-wrapper-'));
   const seen = path.join(dir, 'seen.txt');
   const bun = path.join(dir, 'bun');
-  writeFileSync(bun, `#!/bin/bash\n{ printf 'ARGS=%s\\n' "$*"; printf 'DB=%s\\nGOTRUE=%s\\nKEY=%s\\n' "$VERIFY_COMPANY_DATABASE_URL" "$GOTRUE_URL" "$SUPABASE_SERVICE_ROLE_KEY"; } > "${seen}"\nexit 7\n`);
+  writeFileSync(bun, `#!/bin/bash\n{ printf 'ARGS=%s\\n' "$*"; printf 'DB=%s\\nGOTRUE=%s\\nKEY=%s\\nJWT=%s\\nANON=%s\\n' "$VERIFY_COMPANY_DATABASE_URL" "$GOTRUE_URL" "$SUPABASE_SERVICE_ROLE_KEY" "$JWT_SECRET" "$SUPABASE_ANON_KEY"; } > "${seen}"\nexit 7\n`);
   chmodSync(bun, 0o755);
   const prod = path.join(dir, 'prod.env.local');
   writeFileSync(prod, prodEnv);
@@ -42,6 +42,13 @@ describe('provision-verify-company.sh', () => {
     expect(r.got.KEY).toBe('svc.key.value');
     expect(r.got.ARGS).toContain('--expect-database isaflow --base-url http://127.0.0.1:3101 --env-file /x/deploy.env --dry-run');
     for (const secret of ['owner:o', 'svc.key.value']) expect(r.got.ARGS).not.toContain(secret);
+  });
+
+  it('passes the app\'s JWT_SECRET and SUPABASE_ANON_KEY by environment (a reset needs both), and empty ones when the app env has none', () => {
+    const got = run(lines('JWT_SECRET=jwt-value', 'SUPABASE_ANON_KEY=anon-value', ...PROD.split('\n').filter(Boolean)), null).got;
+    expect(got).toMatchObject({ JWT: 'jwt-value', ANON: 'anon-value' });
+    expect(run(PROD, null).got).toMatchObject({ JWT: '', ANON: '' });
+    expect(run(lines('JWT_SECRET=jwt-value', ...PROD.split('\n').filter(Boolean)), null, ['--dry-run']).got.ARGS).not.toContain('jwt-value');
   });
 
   it('falls back to the app env for the database url, as owner_database_url_for does', () => {

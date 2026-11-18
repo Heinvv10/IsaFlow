@@ -19,57 +19,21 @@
  * --dry-run reads GoTrue, runs the database step in a rolled-back transaction and writes nothing anywhere. Passwords are never
  * printed; they sit in this process's environment and the env file (mode 0600) and nowhere else.
  *
+ * A real run holds the deploy locks (/tmp/isaflow-deploy.lock, /tmp/isaflow-colours.lock) throughout and is refused while a deploy,
+ * rollback or restart runs: it changes GoTrue passwords before it writes the env file, and a verification in that window would
+ * log in with the old password. A GoTrue login that exists and was not created by this tool is never adopted. --reset-password
+ * also ends the login's sessions (it needs JWT_SECRET and SUPABASE_ANON_KEY, the app's own, to do so).
+ *
  * A login whose password the env file does not hold (a run that failed before it finished and a pre-pending-key file, or a
  * hand-deleted key) needs --reset-password. GoTrue is ONE instance for dev and production: never pass it against dev's.
  */
-import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { adminCreateUser, adminUpdateUser, findUserByEmail } from '../../src/lib/auth/gotrue';
 import { assertConnectedToDatabase } from '../ci/golden/slotConfig';
 import { parseOptions } from './verifyCompany/config';
-import { readLogin, readPending, writeLogins, writePending } from './verifyCompany/envFile';
-import { releaseRunLock, tryRunLock } from './verifyCompany/lock';
-import { ensureUserAndCompany } from './verifyCompany/provisionDb';
-import { companyProblems } from './verifyCompany/readiness';
-import { budgetProblems } from './verifyCompany/budgetReadiness';
-import { runProvisioning, type Deps } from './verifyCompany/run';
-import { planBlocks, seedVerifyCompany } from './verifyCompany/seedVerifyCompany';
-import { VERIFY_LOGIN } from './verifyCompany/identity';
-import { Client } from '../ci/golden-hosted/seed-demo-app';
+import { realDeps } from './verifyCompany/realDeps';
+import { runProvisioning } from './verifyCompany/run';
 
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
-
-function realDeps(db: pg.Client, envFile: string, baseUrl: string): Deps {
-  return {
-    say,
-    now: () => new Date(),
-    newId: randomUUID,
-    db,
-    lock: { acquire: tryRunLock, release: releaseRunLock },
-    goTrue: {
-      find: (email) => findUserByEmail(email),
-      create: (who, password) => adminCreateUser({
-        email: who.email, password, email_confirm: true, user_metadata: { purpose: 'deploy verification (scripts/deploy/provision-verify-company.ts)' },
-      }),
-      setPassword: async (id, password) => { await adminUpdateUser(id, { password, email_confirm: true }); },
-    },
-    env: {
-      readLogin: (who) => readLogin(envFile, who),
-      readPending: (who) => readPending(envFile, who),
-      writePending: (who, password) => { writePending(envFile, who, password); },
-      writeLogins: (logins) => writeLogins(envFile, logins),
-    },
-    ensureDb: ensureUserAndCompany,
-    plan: (d, ctx) => planBlocks(d, ctx),
-    seed: async (d, o) => {
-      let api: Client | null = null;
-      const ran = await seedVerifyCompany(d, { baseUrl, email: VERIFY_LOGIN.email, password: o.password, companyId: o.companyId, verifyUserId: o.verifyUserId, now: o.now }, undefined,
-        async (url, email, password) => { api = new Client(url); await api.login(email, password); return api; });
-      return { ran, problems: api ? await budgetProblems(api, o.now) : ['the seed never logged in'] };
-    },
-    companyProblems,
-  };
-}
 
 async function main(): Promise<void> {
   const opts = parseOptions(process.argv.slice(2), process.env);
@@ -78,7 +42,9 @@ async function main(): Promise<void> {
   await db.connect();
   try {
     say(`database ${await assertConnectedToDatabase(db, opts.expectDatabase)}${opts.dryRun ? ' (dry run: the database step rolls back, nothing else is written)' : ''}`);
-    await runProvisioning(opts, realDeps(db, opts.envFile, opts.baseUrl));
+    // PROVISION_LOCK_FILES (colon-separated) replaces the deploy's lock files: for drills on a throwaway stack, never for production.
+    const lockFiles = process.env.PROVISION_LOCK_FILES ? process.env.PROVISION_LOCK_FILES.split(':') : undefined;
+    await runProvisioning(opts, realDeps(db, opts.envFile, opts.baseUrl, say, lockFiles));
   } finally {
     await db.end();
   }

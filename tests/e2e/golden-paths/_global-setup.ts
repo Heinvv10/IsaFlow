@@ -20,9 +20,27 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { loginGolden } from './helpers/goldenLogin';
 import { readGoldenSlot } from './helpers/goldenSlot';
-import { isVerifyLogin, verifyCompanyProblems, type UserCompany } from './helpers/verifyCompany';
+import { approverCompanyProblems, budgetYearWarning, budgetYears, isVerifyLogin, verifyCompanyProblems, type UserCompany } from './helpers/verifyCompany';
 
 export const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
+
+/** The approver login (E2E_APPROVER_*, set by verify-deploy.sh from E2E_VERIFY_APPROVER_*) must reach the verify company and nothing else. */
+async function verifyApprover(baseURL: string): Promise<void> {
+  const email = process.env.E2E_APPROVER_EMAIL;
+  const password = process.env.E2E_APPROVER_PASSWORD;
+  if (!email || !password) return;
+  const actx = await pwRequest.newContext({ baseURL });
+  try {
+    const login = await actx.post('/api/auth/login', { data: { email, password } });
+    if (login.status() !== 200) throw new Error(`golden-paths: the approver login failed: ${login.status()}`);
+    const res = await actx.get('/api/accounting/companies?action=user-companies');
+    const body = (await res.json().catch(() => null)) as { data?: { items?: UserCompany[] } } | null;
+    const problems = approverCompanyProblems(body?.data?.items ?? []);
+    if (problems.length > 0) throw new Error(`golden-paths: ${problems.join('; ')}. No spec runs: re-run scripts/deploy/provision-verify-company.sh or fix the approver's memberships.`);
+  } finally {
+    await actx.dispose();
+  }
+}
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const baseURL = config.projects[0]?.use?.baseURL;
@@ -69,6 +87,13 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
         + 'No spec runs: they would write to the wrong company. Re-run scripts/deploy/provision-verify-company.sh, or fix the login\'s memberships.');
     }
     process.stdout.write('golden-paths: verified: the active company is "Deploy Verification" (is_demo) and the verify login owns nothing else\n');
+    await verifyApprover(baseURL);
+    const today = new Date();
+    const versions = await ctx.get(`/api/accounting/budget-versions?fiscalYear=${budgetYears(today).next}`).then((r) => r.json()).catch(() => null) as { data?: { items?: unknown[] } } | null;
+    const current = await ctx.get(`/api/accounting/budget-versions?fiscalYear=${budgetYears(today).current}`).then((r) => r.json()).catch(() => null) as { data?: { items?: unknown[] } } | null;
+    const have = (year: number) => ((year === budgetYears(today).next ? versions : current)?.data?.items?.length ?? 0) > 0;
+    const warning = budgetYearWarning(today, have);
+    if (warning) process.stdout.write(`${warning}\n`);
   }
 
   mkdirSync(dirname(GOLDEN_STATE_FILE), { recursive: true });

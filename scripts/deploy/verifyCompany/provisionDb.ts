@@ -10,6 +10,7 @@
  * cannot both find no company and each create one.
  */
 import type { ClientBase } from 'pg';
+import { actorRank, requiredRank } from '../../../src/modules/accounting/services/gl/approvalRank';
 import { APPROVER_LOGIN, APPROVER_ROLE, VERIFY_COMPANY_NAME, VERIFY_LOGIN, type LoginIdentity } from './identity';
 import { lockTransaction } from './lock';
 
@@ -19,6 +20,8 @@ export interface DbOutcome {
   approverCreated: boolean;
   companyCreated: boolean;
   approverJoined: boolean;
+  /** The role the approver holds (chosen from the company's pay-run rule). */
+  approverRole: string;
   /** Fiscal periods created by this run (a re-run on the same day creates none). */
   periodsCreated: number;
 }
@@ -102,12 +105,31 @@ async function createCompany(db: ClientBase, userId: string): Promise<string> {
   return id;
 }
 
-/** The approver is a plain `admin` member of the company, never its default company's owner; an existing membership is left as it is. */
-async function ensureApproverMember(db: ClientBase, companyId: string, approverId: string): Promise<boolean> {
+/**
+ * The least role that can decide a pay-run request in this company: `manager` when the pay-run rule demands no more than that
+ * (migration 951 seeds it so; the decide path ratchets to max(request snapshot, rule today)), `admin` only if the rule has been
+ * raised above manager. No rule: the code's own default demand, admin. A rule above admin is refused: the approver login is
+ * never made an owner (a second owner could remove the first, and the verify login is the company's only owner by design).
+ */
+export function chooseApproverRole(ruleRole: string | null): string {
+  const demanded = ruleRole ?? 'admin';
+  if (actorRank('manager') >= requiredRank(demanded)) return APPROVER_ROLE;
+  if (actorRank('admin') >= requiredRank(demanded)) return 'admin';
+  throw new Error(`the pay-run approval rule of the verify company demands "${demanded}", above admin: refusing to make the approver login an owner; lower the rule or decide this by hand`);
+}
+
+async function payRunRuleRole(db: ClientBase, companyId: string): Promise<string | null> {
+  const r = await db.query<{ approver_role: string | null }>(
+    `SELECT approver_role FROM approval_rules WHERE company_id = $1::uuid AND document_type = 'pay_run' AND is_active ORDER BY priority LIMIT 1`, [companyId]);
+  return r.rows[0]?.approver_role ?? null;
+}
+
+/** The approver is a plain member of the company at the least role that can decide a pay run, never its owner; an existing membership is left as it is. */
+async function ensureApproverMember(db: ClientBase, companyId: string, approverId: string, role: string): Promise<boolean> {
   const made = await db.query(
     `INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1::uuid, $2, $3, true)
      ON CONFLICT (user_id, company_id) DO NOTHING`,
-    [companyId, approverId, APPROVER_ROLE]);
+    [companyId, approverId, role]);
   return (made.rowCount ?? 0) > 0;
 }
 
@@ -125,6 +147,7 @@ export async function ensureUserAndCompany(db: ClientBase, ids: UserIds, today: 
   let companyId = await findCompany(db, ids.verify);
   const companyCreated = companyId === null;
   if (companyId === null) companyId = await createCompany(db, ids.verify);
-  const approverJoined = await ensureApproverMember(db, companyId, ids.approver);
-  return { companyId, userCreated, approverCreated, companyCreated, approverJoined, periodsCreated: await ensurePeriods(db, companyId, today) };
+  const approverRole = chooseApproverRole(await payRunRuleRole(db, companyId));
+  const approverJoined = await ensureApproverMember(db, companyId, ids.approver, approverRole);
+  return { companyId, userCreated, approverCreated, companyCreated, approverJoined, approverRole, periodsCreated: await ensurePeriods(db, companyId, today) };
 }

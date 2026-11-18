@@ -9,7 +9,7 @@ import { MARK, complete, markerIndex, missing, type Progress } from '../../../sc
 import { buildBlocks, type Block } from '../../../scripts/deploy/verifyCompany/seedBlocks';
 import { planBlocks, seedVerifyCompany } from '../../../scripts/deploy/verifyCompany/seedVerifyCompany';
 import { budgetProblems } from '../../../scripts/deploy/verifyCompany/budgetReadiness';
-import { fyLabel, fyStartYear, midFy, periodAnchors } from '../../../scripts/deploy/verifyCompany/provisionDb';
+import { chooseApproverRole, fyLabel, fyStartYear, midFy, periodAnchors } from '../../../scripts/deploy/verifyCompany/provisionDb';
 
 const NOW = new Date('2026-11-18T10:00:00Z');
 const MONTHS = ['2026-01', '2026-02', '2026-03'];
@@ -75,7 +75,7 @@ describe('planBlocks', () => {
     expect(names.indexOf('customers')).toBeLessThan(names.indexOf('approved customer invoices'));
     expect(names).toContain('budget original version, current year');
     expect(names).toContain('budget original version, next year');
-    expect(names).toContain('migration sandbox company');
+    expect(names).toContain('sandbox company "0GP Golden Migration Sandbox"');
     expect(names).toContain('prior-year actuals journal');
   });
 });
@@ -233,5 +233,21 @@ describe('budgetProblems', () => {
   it('names a missing line band and a year the app and this run disagree on', async () => {
     expect((await budgetProblems(api({ grid: lines('turnover', 'operating_expense') }), NOW)).join()).toMatch(/no active cost_of_sales line/);
     expect((await budgetProblems(api({ years: 2026 }), NOW)).join()).toMatch(/current budget year is 2026, not 2027/);
+  });
+});
+
+describe('chooseApproverRole (least privilege: the approver decides the pay-run rule\'s demand, no more)', () => {
+  it('is manager for the rule migration 951 seeds, and for any rule at or below manager', () => {
+    expect(chooseApproverRole('manager')).toBe('manager');
+    expect(chooseApproverRole('accountant')).toBe('manager');
+    expect(chooseApproverRole('bookkeeper')).toBe('manager');
+  });
+  it('is admin only when the rule was raised above manager, or there is no rule (the code\'s default demand is admin)', () => {
+    expect(chooseApproverRole('admin')).toBe('admin');
+    expect(chooseApproverRole(null)).toBe('admin');
+  });
+  it('refuses to make the approver an owner: a rule above admin is an error naming it', () => {
+    expect(() => chooseApproverRole('owner')).toThrow(/demands "owner", above admin/);
+    expect(() => chooseApproverRole('super_admin')).toThrow(/above admin/);
   });
 });

@@ -30,6 +30,16 @@
 #                          (self-approval refused, a second user approves). Both or neither
 #                          (one alone FAILs); absent, the gate is only proved by refusal and
 #                          a WARNING says so. Any E2E_APPROVER_* of the Demo company is dropped.
+#                          Also checked by the suite's global setup, which fails the run: the approver
+#                          login belongs to the Deploy Verification company and nothing else. It prints a
+#                          WARNING line (in this output) when the verify company has no budget version for
+#                          the current budget year, or none for the next one within 60 days of its start
+#                          (re-run the provisioner: it tops up by year).
+#   h-payroll-run (every environment, including the Demo fallback below): with E2E_APPROVER_* set it
+#                          first TRIES to approve the pay run as the suite user and requires
+#                          SELF_APPROVAL_FORBIDDEN before the approver decides; a company where the
+#                          suite user may approve their own run (a sole approver) fails that spec
+#                          instead of passing through the approver as before.
 #   z22 (the platform admin console) keeps a platform admin: the GOLDEN_PLATFORM_ADMIN_*
 #                          pair (both or neither), else the E2E_ADMIN_* pair below.
 #   Coverage that changes with the verify company (a smaller, young company, not the long-lived

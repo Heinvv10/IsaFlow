@@ -4,7 +4,7 @@
  * run is unfinished, are ever created, replaced or removed; every other line stays byte for byte, and values are never
  * printed. The file must be private: one that group or others can read is refused, not written.
  */
-import { chmodSync, chownSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { upsertEnvKeys } from '../../ci/golden/slotConfig';
 import type { LoginIdentity } from './identity';
 
@@ -79,10 +79,13 @@ function update(path: string, change: (before: string) => string): boolean {
     writeFileSync(path, text, { mode: 0o600, flag: 'wx' });
     return true;
   }
-  const before = readFileSync(path, 'utf8');
+  // A symlinked env file (the CI file is one) is written THROUGH: the temp file and the rename belong beside the target, so the
+  // link, and whatever its group and mode give other readers, survive.
+  const real = realpathSync(path);
+  const before = readFileSync(real, 'utf8');
   const after = change(before);
   if (after === before) return false;
-  writeAtomic(path, after);
+  writeAtomic(real, after);
   return true;
 }
 

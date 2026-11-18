@@ -44,6 +44,10 @@ export function parseOptions(argv: string[], env: Record<string, string | undefi
     ...REQUIRED.env.filter((k) => !env[k]),
   ];
   if (missing.length) throw new Error(`refusing to run without: ${missing.join(', ')}`);
+  // A reset ends the login's sessions through GoTrue's global logout: a token minted with the app's JWT secret, sent with its anon key.
+  // Both are needed BEFORE any password changes, so a reset never stops half way.
+  const resetMissing = argv.includes('--reset-password') ? ['JWT_SECRET', 'SUPABASE_ANON_KEY'].filter((k) => !env[k]) : [];
+  if (resetMissing.length) throw new Error(`refusing --reset-password without ${resetMissing.join(', ')}: a reset must also end the login's sessions, which needs them`);
   const expectDatabase = option(argv, '--expect-database')!;
   const databaseUrl = env.VERIFY_COMPANY_DATABASE_URL!;
   assertDatabaseUrlNames(databaseUrl, expectDatabase);

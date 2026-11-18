@@ -129,3 +129,32 @@ describe('reading', () => {
     expect(readLogin(join(dir, 'b.env'), VERIFY_LOGIN)).toBeNull();
   });
 });
+
+describe('a symlinked env file', () => {
+  it('is written THROUGH: the link survives, the target is replaced, and the target\'s own mode decides', async () => {
+    const { symlinkSync, lstatSync, readlinkSync } = await import('node:fs');
+    const dir = scratch();
+    const target = join(dir, 'real.env');
+    const link = join(dir, 'isaflow-deploy.env');
+    writeFileSync(target, text('A=1'), { mode: 0o600 });
+    symlinkSync(target, link);
+    expect(writeLogins(link, BOTH)).toBe(true);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(link)).toBe(target);
+    expect(readFileSync(target, 'utf8')).toBe(text('A=1', ...VERIFY_TEXT));
+    expect(readdirSync(dir).sort()).toEqual(['isaflow-deploy.env', 'real.env']);
+    expect(mode(target)).toBe(0o600);
+    expect(writePending(link, VERIFY_LOGIN, 'x')).toBe(true);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  });
+
+  it('refuses when the TARGET is group-readable, though the link itself looks fine', async () => {
+    const { symlinkSync } = await import('node:fs');
+    const dir = scratch();
+    const target = join(dir, 'real.env');
+    writeFileSync(target, text('A=1'), { mode: 0o600 });
+    chmodSync(target, 0o640);
+    symlinkSync(target, join(dir, 'link.env'));
+    expect(() => writeLogins(join(dir, 'link.env'), BOTH)).toThrow(/chmod 600/);
+  });
+});

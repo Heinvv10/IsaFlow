@@ -115,3 +115,13 @@ describe('the database guards name what they guard', () => {
     await expect(assertConnectedToDatabase(says('isaflow_dev'), 'isaflow')).rejects.toThrow(/not isaflow/);
   });
 });
+
+describe('--reset-password needs the JWT secret (it ends the login\'s sessions)', () => {
+  it('is refused without JWT_SECRET, and accepted with it; a plain run needs neither', () => {
+    expect(() => parseOptions([...ARGV, '--reset-password'], ENV)).toThrow(/JWT_SECRET, SUPABASE_ANON_KEY/);
+    expect(() => parseOptions([...ARGV, '--reset-password'], { ...ENV, JWT_SECRET: 'j' })).toThrow(/SUPABASE_ANON_KEY/);
+    expect(() => parseOptions([...ARGV, '--reset-password'], { ...ENV, SUPABASE_ANON_KEY: 'a' })).toThrow(/JWT_SECRET/);
+    expect(parseOptions([...ARGV, '--reset-password'], { ...ENV, JWT_SECRET: 'j', SUPABASE_ANON_KEY: 'a' }).resetPassword).toBe(true);
+    expect(parseOptions(ARGV, ENV).resetPassword).toBe(false);
+  });
+});

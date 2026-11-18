@@ -12,8 +12,8 @@ import {
 } from '../../ci/golden-hosted/seed-demo-app';
 import { CUSTOMER_INVOICES, FIXTURE_SUPPLIER, seedCustomerInvoices, seedFixtureSupplier } from '../../ci/golden-hosted/seed-golden-fixtures';
 import { MARK, complete, type Marker, type Progress } from '../../ci/golden-hosted/seedMarkers';
-import { MIGRATION_SANDBOX_ONBOARDING_ID, sandboxSetupBody } from '../../../tests/e2e/golden-paths/helpers/sandboxSetup';
-import { MIGRATION_SANDBOX_NAME } from './identity';
+import { sandboxSetupBody } from '../../../tests/e2e/golden-paths/helpers/sandboxSetup';
+import { PRECREATED_SANDBOXES, type PrecreatedSandbox } from './sandboxes';
 import { fyLabel, midFy } from './provisionDb';
 
 /** Small on purpose; the hosted Demo's 8 / 80 / 10 / 200 / 4 is for specs that measure volume. */
@@ -178,34 +178,32 @@ const budgetBlock = (offset: 0 | 1): Block => ({
 });
 
 /**
- * The migration-wizard spec's company, made here through the SAME request the spec sends (sandboxSetupBody, fixed key) and
+ * A spec's sandbox company (sandboxes.ts), made here through the SAME request the spec sends (sandboxSetupBody, fixed key) and
  * flagged is_demo, so the spec finds it and the suite never owns a company outside the demo flag (global setup refuses that).
  */
-const migrationSandboxBlock: Block = {
-  name: 'migration sandbox company',
+const sandboxBlock = (sb: PrecreatedSandbox): Block => ({
+  name: `sandbox company "${sb.name}"`,
   plan: async ({ db, verifyUserId }) => {
     const find = async (d: ClientBase) => (await d.query<{ id: string; is_demo: boolean }>(
       `SELECT c.id::text AS id, c.is_demo FROM companies c JOIN company_users cu ON cu.company_id = c.id AND cu.user_id = $2 WHERE c.name = $1`,
-      [MIGRATION_SANDBOX_NAME, verifyUserId])).rows;
+      [sb.name, verifyUserId])).rows;
     const have = await find(db);
     return {
       complete: have.length === 1 && have[0]!.is_demo,
       run: async ({ api, db: d }) => {
-        if (have.length === 0) {
-          await api.post('/api/onboarding/complete-setup', sandboxSetupBody({ name: MIGRATION_SANDBOX_NAME, onboardingId: MIGRATION_SANDBOX_ONBOARDING_ID }));
-        }
+        if (have.length === 0) await api.post('/api/onboarding/complete-setup', sandboxSetupBody(sb));
         const now = await find(d);
-        if (now.length !== 1) throw new Error(`expected one "${MIGRATION_SANDBOX_NAME}" for the verify user, found ${now.length}`);
+        if (now.length !== 1) throw new Error(`expected one "${sb.name}" for the verify user, found ${now.length}`);
         await d.query(`UPDATE companies SET is_demo = true WHERE id = $1::uuid AND is_demo = false`, [now[0]!.id]);
       },
     };
   },
-};
+});
 
 /** Dependency order: a block may read what the ones before it made. */
 export function buildBlocks(c: SeedCounts = VERIFY_COUNTS): Block[] {
   return [
     customersBlock(c), employeeBlock, customerInvoicesBlock, fixtureSupplierBlock, purchasesBlock(c), journalsBlock(c),
-    priorYearJournalBlock, bankRowsBlock(c), costOfSalesBlock, budgetBlock(0), budgetBlock(1), migrationSandboxBlock,
+    priorYearJournalBlock, bankRowsBlock(c), costOfSalesBlock, budgetBlock(0), budgetBlock(1), ...PRECREATED_SANDBOXES.map(sandboxBlock),
   ];
 }
