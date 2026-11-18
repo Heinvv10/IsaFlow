@@ -29,7 +29,7 @@ export function useOffCycleSources() {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let live = true;
-    (async () => {
+    void (async () => {
       try {
         const all = await data<Array<RegularRunOption & { status: string; runKind?: string; payFrequency?: string }>>('/api/payroll/runs', 'Could not load the payroll runs');
         const comps = await data<Array<{ id: string; name: string; sarsSourceCode: string; componentType: string }>>('/api/payroll/components', 'Could not load the pay components');

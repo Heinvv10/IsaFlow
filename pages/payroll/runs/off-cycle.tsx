@@ -39,7 +39,10 @@ export default function NewOffCycleRunPage() {
     [reason, onRun, leavers, run],
   );
   const picked = people.filter((p) => chosen[p.employeeId]);
-  const lastDay = run ? new Date(Date.UTC(run.periodYear, run.periodMonth, 0)).toISOString().slice(0, 10) : undefined;
+  // The run's last calendar day, from its year and month alone (no time zone: day 0 of the next month is this month's last).
+  const lastDay = run
+    ? `${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}-${String(new Date(run.periodYear, run.periodMonth, 0).getDate()).padStart(2, '0')}`
+    : undefined;
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

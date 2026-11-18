@@ -16,6 +16,9 @@
   "src/modules/accounting/services/payroll/payrollMonthOrderGate.ts": [
    "SELECT h.*, ${runOrderKeySql('h')} AS run_key, to_char(h.period_start, 'YYYY-MM-DD') AS label,"
   ],
+  "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
+   "AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}"
+  ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
    "ORDER BY ${runOrderKeySql('h')} DESC"
   ],
@@ -46,7 +49,7 @@
   {"file":"src/lib/mcp/tools/writePayroll.ts","line":68,"text":"const clash = existing.rows.find((r) => r.periodMonth === month && r.runKind === 'regular' && r.payFrequency === 'monthly');","class":"S","owner":"FQb1","why":"FQb1 converted (R): the clash is the month's regular monthly run (the 999a key); an off-cycle run is none"},
   {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":150,"text":"const notFinal = runs.filter(r => r.final !== true);","class":"S","owner":"FQb2","why":"FQb2 converted (R; review #1549 L3): every run of the month judged by payRunFinalSql; the runs not final are named"},
   {"file":"src/modules/accounting/services/gl/integrityChecks/payrollChecks.ts","line":59,"text":"const monthRuns = headers.filter((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);","class":"S","owner":"FQb2","why":"FQb2 converted (R): the month is pre-ET when ANY of its runs is"},
-  {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"S","owner":"FQc","why":"FQc converted (F2): `period` carries the run's own dates (runPeriodOf), so the pro-rata band is the run's"},
+  {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = offCycle ? [] : await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"S","owner":"FQc","why":"FQc converted (F2): `period` carries the run's own dates (runPeriodOf), so the pro-rata band is the run's; an off-cycle run pays no recurring row, so it reads none (OC)"},
   {"file":"src/modules/accounting/services/payroll/payrollYearToDate.ts","line":119,"text":"AND ${runIsBeforeSql('h', companyId, runId, period)}","class":"S","owner":"FQc","why":"FQc converted (F2): the year-to-date bound is the run, in pay order"},
   {"file":"src/modules/accounting/services/payroll/payslipYearToDate.ts","line":67,"text":"AND (prh.id = ${run.id}::uuid OR ${runIsBeforeSql('prh', companyId, run.id)})","class":"S","owner":"FQc","why":"FQc converted (F2): the payslip year to date is up to this run, in pay order"},
   {"file":"src/modules/accounting/services/payroll/etiCarryRead.ts","line":66,"text":"export async function etiMonthForRun(","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B1): the run's ETI month line counts the month's other in-force run journals, and etiForRun books only what they left"},
@@ -73,8 +76,8 @@
    {"line":12,"text":"SELECT COUNT(*) AS n, COALESCE(SUM(h.total_gross), 0) AS gross FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"count and gross sum of the month's other final runs (review #1549 L4)"}
   ],
   "src/modules/accounting/services/cashForecast13/readPayroll.ts": [
-   {"line":55,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast: a gap assigned to OC by the coordinator (a bonus run's net pay and statutory payments are not forecast), not a month lookup"},
-   {"line":57,"text":"WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AND run_kind = 'regular'","class":"S","owner":"FQb2","why":"the final-run filter of the query above (the alias argument names the table); regular monthly runs only, as that row says"}
+   {"line":68,"text":"FROM payroll_run_headers","class":"S","owner":"OC","why":"OC closed FQb2's gap: every final run is read, sorted into regular monthly runs (one per period by the 999a regular-period key, so the month-keyed map is one run each) and off-cycle monthly runs, each forecast on its own pay date (run_date), never as the month's run; weekly/fortnightly regular runs only raise unsupportedFrequency"},
+   {"line":70,"text":"WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"OC","why":"the final-run filter of the query above (the alias argument names the table); the kinds are split in code, as that row says"}
   ],
   "src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts": [
    {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"S","owner":"FQc","why":"FQc converted (R, F2): by run id; the run's own last day (h.period_end), not its month's"}
@@ -532,6 +535,19 @@
   "src/modules/bureau/services/ownerCashPositionService.ts": [
    {"line":155,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
    {"line":159,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
+   {"line":33,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the run being reopened, by id"},
+   {"line":34,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"EXISTS-style list of every final off-cycle run of the reopened regular run's month and frequency: correct with several runs a month"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
+   {"line":51,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed, by id"},
+   {"line":52,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a sum over the month's final runs of the same frequency BEFORE this run in pay order (runOrderKeySql): every earlier run counts, whatever their number"}
+  ],
+  "src/modules/accounting/services/payroll/payrollOffCycleRun.ts": [
+   {"line":87,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS of a final regular MONTHLY run in the month (run_kind and pay_frequency filtered; the 999a regular-period key allows one), locked FOR SHARE"},
+   {"line":98,"text":"EXISTS (SELECT 1 FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id","class":"S","owner":"OC","why":"EXISTS: the employee is on any open off-cycle run of the month"},
+   {"line":141,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"OC","why":"inserts one off-cycle run; until FQx the per-month unique answers 23505, mapped to a 409 with nothing written"}
   ]
  }
 }
