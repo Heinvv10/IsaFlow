@@ -1,5 +1,6 @@
 /** BankPrimaryCard — one primary bank account in the bank-transactions card row (fixed 280px). */
 
+import { Check } from 'lucide-react';
 import { fmtCents } from './bankCents';
 import { ToCodeLine } from './ToCodeLine';
 import { MiddleTruncate } from './MiddleTruncate';
@@ -21,6 +22,8 @@ export function BankPrimaryCard({ b, active, onSelect }: { b: BankAccountSummary
       <div className={`w-2 rounded-full shrink-0 ${active ? 'bg-teal-500' : 'bg-[var(--ff-border-light)]'}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
+          {/* The selected card is marked by a check as well as by colour (aria-current says it to a screen reader). */}
+          {active && <Check data-testid="card-selected-mark" aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-teal-700 dark:text-teal-400" />}
           <MiddleTruncate name={b.accountName} testId="card-name"
             className={`text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`} />
           {!b.isActive && (

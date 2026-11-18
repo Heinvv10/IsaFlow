@@ -16,6 +16,7 @@ import { notify } from '@/utils/toast';
 import { composeBankTxQueryMessage } from '@/modules/accounting/services/capture/bankTxQueryMessage';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { BankTxModalShell, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
   const [companyName, setCompanyName] = useState('');
   const [priorQuery, setPriorQuery] = useState<QueryRow | null>(null);
   const [sending, setSending] = useState(false);
+  const locked = useModalBusy(sending); // the shell, Escape and the close buttons wait for a save/send in flight (released if it hangs)
   const [inlineError, setInlineError] = useState('');
   const [loadingSettings, setLoadingSettings] = useState(false);
 
@@ -168,11 +170,8 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
   if (!tx) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Ask the client">
-      <div
-        className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]"
-        onClick={e => e.stopPropagation()}
-      >
+    <BankTxModalShell label="Ask the client" onClose={onClose} busy={locked}>
+      <div className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)] shrink-0">
           <div className="p-2 rounded-lg bg-green-500/10">
@@ -184,11 +183,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
               <p className="text-xs text-[var(--ff-text-tertiary)] truncate">{tx.description}</p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
-          >
+          <button onClick={onClose} disabled={locked} aria-label="Close" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -274,8 +269,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <div className="border-t border-[var(--ff-border-light)] px-5 py-3 flex items-center justify-end gap-2 shrink-0">
           <button
-            onClick={onClose}
-            disabled={sending}
+            onClick={onClose} disabled={locked}
             className="px-4 py-1.5 rounded text-xs border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50 transition-colors"
           >
             Cancel
@@ -299,6 +293,6 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </BankTxModalShell>
   );
 }

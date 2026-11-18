@@ -25,6 +25,9 @@ import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLin
 import { FAMILIES, ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS, ROUND_NINE_LABELS } from '../../print/fixtures/anywhereFamilies';
 import { printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { demoWithoutBudget, SCALE, withWidenedTable } from './fixtures/widenedFigures';
+import { useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 const WIDEST = FALLBACK.label400.widest;
 const codePoints = (t: string): number => [...t].length;
