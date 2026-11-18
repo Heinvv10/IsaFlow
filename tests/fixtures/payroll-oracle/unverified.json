@@ -13,5 +13,10 @@
     "case": "weekly-week-53-pay-sunday",
     "reason": "No SARS page covers a 53rd pay day in a tax year: G20 s7.2 pp. 8-9 / G21 p. 9 say x total pay periods in the tax year (x53 would give 203.77 a week), the weekly tables use x52, and SimplePay documents YTD x 52 / periods worked. The engine (FQc) annualises x52 over n = 53 periods, which is the hand figure in the case notes (197.31).",
     "wouldVerify": "A SARS ruling or guide page on 53 weekly pay days in one year of assessment, or a SimplePay or Sage payslip for week 53 of a Sunday-paid year."
+  },
+  {
+    "case": "weekly-week-53-medical-retirement",
+    "reason": "As weekly-week-53-pay-sunday: no SARS page covers a 53rd pay day (x52 over n = 53, SimplePay's averaging). The period ratios (s11F cap, s6A credit) are bounded at a year, min(n, P) / P (AN, review #1578), so week 53 takes no credit: the hand figure in the case notes.",
+    "wouldVerify": "A SARS ruling or guide page on 53 weekly pay days in one year of assessment with medical scheme fees, or a SimplePay or Sage week-53 payslip with a medical credit."
   }
 ]

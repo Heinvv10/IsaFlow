@@ -14,7 +14,9 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
 // Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
 // A rehire's earlier ETI months (etiPriorEmployment) have their own tests (etiEligibility.test.ts).
 // Wave 6 FQc: the frequency guard and the weekly cadence read the database; a monthly run passes and has none.
-vi.mock('@/modules/accounting/services/payroll/payrollFrequencyGuard', () => ({ assertFrequencyCostable: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/payroll/payrollFrequencyGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollFrequencyGuard')>(), assertFrequencyCostable: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunCadence', () => ({ loadLineCadences: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/payroll/etiPriorEmployment', () => ({ withEtiPriorMonths: async (_c: string, e: unknown[]) => e }));
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({

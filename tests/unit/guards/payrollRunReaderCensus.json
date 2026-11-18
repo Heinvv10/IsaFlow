@@ -13,6 +13,9 @@
   "src/modules/accounting/services/payroll/payrollMedicalRecord.ts": [
    "(array_agg(l.medical_credit IS NOT NULL ORDER BY ${runOrderKeySql('h')} DESC)"
   ],
+  "src/modules/accounting/services/payroll/payrollMonthOrderGate.ts": [
+   "SELECT h.*, ${runOrderKeySql('h')} AS run_key, to_char(h.period_start, 'YYYY-MM-DD') AS label,"
+  ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
    "ORDER BY ${runOrderKeySql('h')} DESC"
   ],
@@ -62,6 +65,9 @@
   ],
   "src/lib/mcp/tools/payrollSars.ts": [
    {"line":47,"text":"'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +","class":"L","owner":"FQb1","why":"tool description text"}
+  ],
+  "src/lib/mcp/tools/writePayrollRunCalculate.ts": [
+   {"line":89,"text":"const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${ctx.companyId}::uuid`) as DbRow[])[0] ?? {};","class":"S","owner":"FQc","why":"by run id: the dry run reads the run's own period, pay date and kind as calculatePayrollRun does (review #1575 L2)"}
   ],
   "src/modules/accounting/services/ask/askPayRunMonth.ts": [
    {"line":12,"text":"SELECT COUNT(*) AS n, COALESCE(SUM(h.total_gross), 0) AS gross FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"count and gross sum of the month's other final runs (review #1549 L4)"}
@@ -291,6 +297,9 @@
   ],
   "src/modules/accounting/services/payroll/payrollMedicalRecord.ts": [
    {"line":71,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQb1 converted (R): latest_recorded = array_agg ORDER BY the run order key DESC"}
+  ],
+  "src/modules/accounting/services/payroll/payrollMonthOrderGate.ts": [
+   {"line":26,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"the month's runs of the same frequency, judged in pay order (runOrderKeySql), refusing out-of-order approval (review #1575 H1)"}
   ],
   "src/modules/accounting/services/payroll/payrollNonCashFiling.ts": [
    {"line":56,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"},

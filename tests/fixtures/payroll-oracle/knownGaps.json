@@ -40,7 +40,7 @@
       "uifEmployer": 100,
       "paye": 2192.06
     },
-    "reason": "PAYE is 6c above the ×12 figure (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; over the 5c cap, so pinned here, and that part never closes: a ruled departure). UIF is costed per line, so the termination run levies 1% of R10 000 although June's regular run already reached the month's ceiling.",
+    "reason": "PAYE is 6c above the ×12 figure (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; over the 5c cap, so pinned here, and that part never closes: a ruled departure). UIF is costed per line, so the termination run levies 1% of R10 000 although June's regular run already reached the month's ceiling. OC re-judges this pin when it costs off-cycle runs (its PAYE part under AN included); it is re-judged, not deleted.",
     "closedBy": "OC (wave 6): termination runs, the month's UIF ceiling across runs."
   },
   {

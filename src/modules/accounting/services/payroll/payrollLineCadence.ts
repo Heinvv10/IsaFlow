@@ -9,7 +9,7 @@
  *    week's pay is not read as a month's (which would understate the day pay 4.33 times).
  * SDL needs nothing here: it is cumulative over the tax year's lines whatever their length (sdlLeviableCumulative).
  */
-import { annualisationFactor } from './annualisationFactor';
+import { annualisationFactor, periodsInYear } from './annualisationFactor';
 import { employedShareOfMonth } from './employmentTerms';
 import { PERIOD_DAYS, periodShareOf } from './payFrequencyPeriods';
 import type { PayFrequency, PayrollLineInput } from './payrollTypes';
@@ -17,6 +17,8 @@ import type { PayFrequency, PayrollLineInput } from './payrollTypes';
 export interface CadenceTerms {
   frequency: PayFrequency;
   factor: number;
+  /** P, the statutory periods in a year (12, 26, 52): AN's period ratios, min(n, P) ÷ P. */
+  periodsInYear: number;
   periodShare: number;
   uifMonthToDate: number;
   /** The earnings and share of the period employed, as employmentTerms reads a month. */
@@ -30,14 +32,15 @@ export function cadenceTermsOf(input: PayrollLineInput): CadenceTerms {
   const frequency = cadence?.frequency ?? 'monthly';
   if (frequency === 'monthly' || !cadence) {
     return {
-      frequency: 'monthly', factor: annualisationFactor('monthly'), periodShare: 1, uifMonthToDate: 0,
+      frequency: 'monthly', factor: annualisationFactor('monthly'), periodsInYear: periodsInYear('monthly'), periodShare: 1, uifMonthToDate: 0,
       dayPay: (earnings) => ({ earnings, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate) }),
     };
   }
   const periodShare = periodShareOf(frequency, { start: cadence.periodStart, end: cadence.periodEnd }, employee.startDate, employee.endDate);
   const weeks = PERIOD_DAYS[frequency] / 7;
   return {
-    frequency, factor: annualisationFactor(frequency), periodShare, uifMonthToDate: cadence.uifMonthToDate,
+    frequency, factor: annualisationFactor(frequency), periodsInYear: periodsInYear(frequency), periodShare,
+    uifMonthToDate: cadence.uifMonthToDate,
     dayPay: (earnings) => ({ earnings: (earnings * WEEKS_PER_MONTH) / weeks, employedShare: periodShare }),
   };
 }

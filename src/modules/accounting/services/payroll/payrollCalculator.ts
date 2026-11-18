@@ -123,7 +123,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       periodicRemuneration, annualPaymentRemuneration,
       ytd: ytdForTables ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
       taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
-      factor: cadence.factor, periodShare: cadence.periodShare,
+      factor: cadence.factor, periodsInYear: cadence.periodsInYear, periodShare: cadence.periodShare,
     },
     ytd: ytdForTables,
   });

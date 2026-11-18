@@ -19,7 +19,7 @@ export function costPayeWithDonations(input: {
   /** Taxable 4030 deductions (signed). */
   donations: number;
   receiptHeld: boolean;
-  /** `factor` and `periodShare` by the line's frequency (payrollLineCadence; monthly: 365 ÷ 30.4166 and 1). */
+  /** `factor`, `periodsInYear` and `periodShare` by the line's frequency (payrollLineCadence; monthly: 365 ÷ 30.4166, 12, 1). */
   payeInput: Omit<CumulativePayeInput, 'regularTaxable' | 'annualPayments' | 'donations'>;
   ytd: PayeYearToDate | undefined;
 }) {

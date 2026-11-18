@@ -36,6 +36,9 @@ export interface CumulativePayeInput {
    * first period counts 3 of 7 days as 0.4285 of a period in n (G20 s7.2 p. 9 / G21 p. 10). Absent = 1 (a whole period).
    */
   periodShare?: number;
+  /** P, the statutory periods in a year for the frequency (annualisationFactor.periodsInYear: 12, 26, 52), for the period
+   *  ratios statute fixes: the s11F cap to date and the medical credits, each × min(n, P) ÷ P (wave-6 AN). */
+  periodsInYear: number;
 }
 
 export interface CumulativePayeResult {
@@ -63,6 +66,8 @@ export interface CumulativePayeTrace {
   paid: boolean;
   /** F, the annualisation factor (annualisationFactor.ts): AE = periodic to date × F ÷ periods. */
   factor: number;
+  /** P, the statutory periods in a year (CumulativePayeInput.periodsInYear). */
+  periodsInYear: number;
   periods: number; ytdPeriodicTaxable: number; regularTaxable: number; periodicToDate: number; annualEquivalent: number;
   contributionsToDate: number; donationsToDate: number; annualisedContributions: number; deductionBase: number;
   /** The s11F deduction on annual figures, the part off the annual equivalent, and the part off the annual payments. */

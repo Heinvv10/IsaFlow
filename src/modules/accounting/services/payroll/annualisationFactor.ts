@@ -20,6 +20,9 @@ import type { PayFrequency } from './payrollTypesRun';
 export const SAGE_DAYS_PER_MONTH = 30.4166;
 export const DAYS_PER_YEAR = 365;
 
+/** The statutory periods in a year (G21 p. 8's × 12 / × 26 / × 52). */
+const PERIODS: Record<PayFrequency, number> = { monthly: 12, fortnightly: 26, weekly: 52 };
+
 const FACTORS: Record<PayFrequency, number> = {
   monthly: DAYS_PER_YEAR / SAGE_DAYS_PER_MONTH,
   fortnightly: 26,
@@ -32,12 +35,12 @@ export function annualisationFactor(frequency: PayFrequency): number {
 }
 
 /**
- * The statutory periods in a year for a factor: 12 for the monthly days factor, else the factor itself (26, 52). The
+ * The statutory periods in a year for a pay frequency, P: 12, 26 or 52. The
  * period ratios statute fixes (the s11F cap to date, G21 p. 10; the s6A credit "in respect of each month", and s6B's
  * three times it) use this, never F (coordinator ruling 2026-11-17): a monthly amount × 12 ÷ P a period.
  */
-export function periodsInYear(factor: number): number {
-  return factor === FACTORS.monthly ? 12 : factor;
+export function periodsInYear(frequency: PayFrequency): number {
+  return PERIODS[frequency];
 }
 
 /** How a factor reads in an explanation: "365 ÷ 30.4166" for the monthly one, else the number (26, 52). */

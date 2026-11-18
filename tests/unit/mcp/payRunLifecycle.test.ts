@@ -19,6 +19,12 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
 }));
+// Wave 6 FQc: the dry run reads the run's row as calculatePayrollRun does (review #1575 L2): a weekly header here.
+const headerRow = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+vi.mock('@/lib/neon', async (orig) => {
+  const real = await orig<typeof import('@/lib/neon')>();
+  return { ...real, sql: Object.assign(vi.fn(async () => [headerRow.value]), { unsafe: real.sql.unsafe }) };
+});
 // Wave 6 FQc: so does the frequency guard; its own tests are payrollFrequencyGuard*.test.ts.
 vi.mock('@/modules/accounting/services/payroll/payrollFrequencyGuard', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollFrequencyGuard')>(),
@@ -79,6 +85,7 @@ import { payrollJournalInForce } from '@/modules/accounting/services/payroll/pay
 import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
+import { assertFrequencyCostable, frequencyRunOf } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const RUN = '22222222-2222-4222-8222-222222222222';
@@ -209,6 +216,18 @@ describe('calculate_pay_run', () => {
     expect(errText(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
       .toBe('Not found');
     expect(calculatePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('wave 6 FQc (review #1575 L2): the dry run judges the frequency guard on the run row\'s own period, pay date and kind, as calculate does', async () => {
+    headerRow.value = { period_year: 2026, period_month: 6, pay_frequency: 'weekly', run_kind: 'regular', run_date: '2026-06-12',
+      period_start: '2026-06-06', period_end: '2026-06-12' };
+    try {
+      parseOk(await calculatePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx()));
+      expect(vi.mocked(assertFrequencyCostable).mock.calls.at(-1)?.[1]).toEqual(frequencyRunOf(headerRow.value));
+      expect(frequencyRunOf(headerRow.value)).toEqual({
+        frequency: 'weekly', period: { year: 2026, month: 6, start: '2026-06-06', end: '2026-06-12' }, runDate: '2026-06-12', runKind: 'regular',
+      });
+    } finally { headerRow.value = {}; }
   });
 
   it('dry run writes nothing', async () => {

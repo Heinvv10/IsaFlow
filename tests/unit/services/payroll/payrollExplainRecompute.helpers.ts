@@ -6,9 +6,6 @@ import { expect } from 'vitest';
 import type { PayrollLineResult } from '@/modules/accounting/services/payroll/payrollTypes';
 import type { ExplainStep, FigureExplanation } from '@/modules/accounting/services/payroll/payrollExplainTypes';
 
-/** Statutory periods in a year for a factor, written out here: 12 for Sage's monthly 365 ÷ 30.4166, else the factor (26, 52). */
-const periodsInYear = (f: number) => (f === 365 / 30.4166 ? 12 : f);
-
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 export const cents = (n: number) => Math.round(n * 100);
 
@@ -81,6 +78,9 @@ function recomputePaye(fig: FigureExplanation): number {
     // The factor the explanation states: Sage's monthly days basis (wave-6 AN, ruling 5), or 52 / 26 for weekly and
     // fortnightly (ruling 16, FQc); nothing else. Then used throughout.
     const f = r.amt('paye.annualisationFactor');
+    // P, the statutory periods in a year: the period ratios never pass a year's worth, min(n, P) ÷ P (review #1578 M).
+    const P = r.amt('paye.periodsInYear');
+    const yearRatio = (k: number) => Math.min(k, P) / P;
     expect([365 / 30.4166, 52, 26]).toContain(f);
     const toDate = r.amt('paye.ytdPeriodicTaxable') + r.amt('paye.regularTaxable');
     const ae = n > 0 ? (toDate * f) / n : 0;
@@ -91,7 +91,7 @@ function recomputePaye(fig: FigureExplanation): number {
       const share = r.amt('paye.retirement.rate') * Math.max(0, r.amt('paye.retirement.base'));
       expect(r.amt('paye.retirement.rateLimit')).toBeCloseTo(share, 6);
       // The annual cap on the annual-equivalent scale: the s11F cap × F ÷ 12.
-      expect(r.amt('paye.retirement.cap')).toBeCloseTo((r.amt('paye.retirement.statutoryCap') * f) / periodsInYear(f), 6);
+      expect(r.amt('paye.retirement.cap')).toBeCloseTo((r.amt('paye.retirement.statutoryCap') * f) / P, 6);
       const allowed = Math.max(0, Math.min(r.amt('paye.retirement.annualised'), share, r.amt('paye.retirement.cap')));
       expect(r.amt('paye.retirement.allowed')).toBeCloseTo(allowed, 6);
       off = r.amt('paye.retirement');
@@ -105,9 +105,11 @@ function recomputePaye(fig: FigureExplanation): number {
     let taxEarlier = taxAE;
     if (r.has('paye.offAnnual')) {
       // The cap to date is a statutory period ratio, n ÷ 12 (G21 p. 10; coordinator ruling 2026-11-17), not ÷ F.
-      const capToDate = (r.amt('paye.retirement.statutoryCap') * r.amt('paye.offAnnual.capPeriods')) / periodsInYear(f);
+      const capToDate = r.amt('paye.retirement.statutoryCap') * yearRatio(r.amt('paye.offAnnual.capPeriods'));
       expect(r.amt('paye.offAnnual.capToDate')).toBeCloseTo(capToDate, 6);
       expect(r.amt('paye.offAnnual.capLeft')).toBeCloseTo(capToDate - r.amt('paye.offAnnual.offPeriodicToDate'), 6);
+      // The deduction left, on the year's scale: the allowed deduction less the AE part over a whole year, × P ÷ F (review #1578 L2).
+      expect(r.amt('paye.offAnnual.deductionLeft')).toBeCloseTo(r.amt('paye.retirement.allowed') - (off * P) / f, 6);
       const limits = ['deductionLeft', 'annualPayments', 'contributionsLeft', 'capLeft'].map(k => r.amt(`paye.offAnnual.${k}`));
       expect(-r.amt('paye.offAnnual')).toBeCloseTo(Math.max(0, Math.min(...limits)), 6);
     }
@@ -123,7 +125,7 @@ function recomputePaye(fig: FigureExplanation): number {
     // Never past the tax after rebates to date (MTC then AMTC are each capped by what is left; their sum is the same).
     const creditsAE = taxAfterRebates(r, 'paye.atAE') - taxAE;
     const afterRebates = ((taxAE + creditsAE) * n) / f;
-    const liability = afterRebates - Math.min((creditsAE * n) / periodsInYear(f), afterRebates) + (taxAll - taxAE);
+    const liability = afterRebates - Math.min(creditsAE * yearRatio(n), afterRebates) + (taxAll - taxAE);
     expect(r.amt('paye.liability')).toBeCloseTo(liability, 6);
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));

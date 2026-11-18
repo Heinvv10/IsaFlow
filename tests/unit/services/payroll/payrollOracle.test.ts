@@ -90,6 +90,7 @@ const EXPECTED_CASE_IDS = [
   'weekly-6000-third-week-month-uif-ceiling',
   'weekly-starter-fourth-week-averaged',
   'weekly-starter-g21-3-of-7-days',
+  'weekly-week-53-medical-retirement',
   'weekly-week-53-pay-sunday',
 ];
 
@@ -127,7 +128,7 @@ describe('payroll oracle fixtures', () => {
     'sage-2027-03-marco': 'PARITY',
     });
     // FQc: week 53 (UNVERIFIED, x52 over n = 53) equals its hand figure, so it moves to unverified.json.
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'weekly-week-53-pay-sunday']);
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are not gaps', () => {

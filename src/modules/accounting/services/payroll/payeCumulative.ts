@@ -124,7 +124,6 @@
 import { annualTaxAfterCredits, calculatePAYE } from './payeEngine';
 import { retirementDeductionLimits } from './retirementFund';
 import { getTaxYearConfig } from './taxTables';
-import { periodsInYear } from './annualisationFactor';
 import type { CumulativePayeInput, CumulativePayeResult, CumulativePayeTrace } from './payeCumulativeTypes';
 
 export type { CumulativePayeInput, CumulativePayeResult, CumulativePayeTrace } from './payeCumulativeTypes';
@@ -133,8 +132,10 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export function calculateCumulativePaye(input: CumulativePayeInput): CumulativePayeResult {
   const { ytd, factor: F } = input;
-  // P: the statutory periods in a year (12 a month), for the period ratios statute fixes (annualisationFactor.ts).
-  const P = periodsInYear(F);
+  // P: the statutory periods in a year (12 a month), for the period ratios statute fixes (annualisationFactor.ts). Those
+  // ratios never pass a whole year: a 53rd week or a 13th line in a tax year counts as the year (review #1578 M).
+  const P = input.periodsInYear;
+  const ratio = (n: number) => Math.min(n, P) / P;
   const hasPeriodic = input.periodicRemuneration > 0;
   // A part period counts its share (FQc: a weekly or fortnightly starter; monthly is always 1).
   const share = input.periodShare ?? 1;
@@ -177,15 +178,18 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // What can come off the annual equivalent: itself, plus the periodic donations a year the deduction's base added back.
   const offPeriodicCeiling = annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0);
   const offPeriodic = Math.min(deduction, offPeriodicCeiling);
-  const periodicToDate = (offPeriodic * periods) / F;
+  // Weighted n ÷ F as the liability is, but never past a year's worth (min(n, P)): at P periods it is the year's D.
+  const periodicToDate = (offPeriodic * Math.min(periods, P)) / F;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic ? share : input.annualPaymentRemuneration > 0 ? 1 : 0); // FQc: a part period counts its share
   // A STATUTORY PERIOD RATIO, NOT AN ANNUALISATION (coordinator ruling 2026-11-17: statute over unproven parity): the cap
   // to date is cap × n ÷ 12 (G21 (2027) Rev 1 p. 10, "the same ratio as the period ... bears to a whole year"), never ÷ F,
   // so twelve months reach exactly R430 000. Pinned by payeAnnualisation.test.ts ("twelve equal months at the cap").
-  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / P;
+  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * ratio(Math.max(capPeriods, 1)));
   const offAnnualLimits = {
-    deductionLeft: deduction - offPeriodic, annualPayments: annualBefore + annualNow,
+    // On the year's scale, as the cap and the contributions to date are (review #1578 L2): the part off periodic pay over a
+    // whole year is offPeriodic × P ÷ F, so a year's deduction is D exactly (with F = P, deduction − offPeriodic as before).
+    deductionLeft: deduction - (offPeriodic * P) / F, annualPayments: annualBefore + annualNow,
     contributionsLeft: contributions - periodicToDate, capLeft: capToDate - periodicToDate,
   };
   const offAnnual = Math.max(0, Math.min(offAnnualLimits.deductionLeft, offAnnualLimits.annualPayments,
@@ -203,10 +207,10 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // (s6A; s6B's three times the MTC) and come off × n ÷ 12, a period ratio (coordinator ruling 2026-11-17), in the
   // order the tax takes them and never past that tax, so a line never records a credit its PAYE did not use.
   const afterRebatesToDate = ((atAE.annualTax + atAE.medicalCreditUsed + atAE.additionalMedicalCreditUsed) * periods) / F;
-  const mtcOnAE = Math.min((atAE.medicalCreditUsed * periods) / P, afterRebatesToDate);
-  const amtcOnAE = Math.min((atAE.additionalMedicalCreditUsed * periods) / P, afterRebatesToDate - mtcOnAE);
+  const mtcOnAE = Math.min(atAE.medicalCreditUsed * ratio(periods), afterRebatesToDate);
+  const amtcOnAE = Math.min(atAE.additionalMedicalCreditUsed * ratio(periods), afterRebatesToDate - mtcOnAE);
   const traceOf = (paid: boolean, liability: number, due: number, annualDue: number): CumulativePayeTrace => ({
-    paid, factor: F, periods, ytdPeriodicTaxable: ytd.periodicTaxable, regularTaxable: Math.max(0, input.regularTaxable),
+    paid, factor: F, periodsInYear: P, periods, ytdPeriodicTaxable: ytd.periodicTaxable, regularTaxable: Math.max(0, input.regularTaxable),
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,
     annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, annualCap: limits.cap, offPeriodicCeiling,
     offPeriodic, offAnnual, donationSpill, offAnnualLimits, hasPeriodic, capPeriods: Math.max(capPeriods, 1), capToDate, deductionOffPeriodicToDate: periodicToDate,
