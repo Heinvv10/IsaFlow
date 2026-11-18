@@ -83,7 +83,8 @@ describeIfDb('MCP document tools: a bank line is an entity type', () => {
 
   it('attach_document and attach_entity_document write the same store, listed together', async () => {
     const viaOld = await attachDocumentTool.handler({
-      transaction_id: tx, file_name: 'second.png', mime_type: 'image/png', content: PNG.toString('base64'), idempotency_key: 'k2',
+      // Different bytes: attach_document now refuses the same bytes on the line as a duplicate.
+      transaction_id: tx, file_name: 'second.png', mime_type: 'image/png', content: Buffer.concat([PNG, Buffer.from('2')]).toString('base64'), idempotency_key: 'k2',
     }, writer());
     expect(viaOld.isError).toBeFalsy();
     const listed = json(await listDocumentsTool.handler({ entity_type: 'bank_transaction', entity_id: tx }, reader()));
