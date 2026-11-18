@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 export const EMPLOYEE_PORTAL_COOKIE = 'employee_portal_session';
 export const EMPLOYEE_PORTAL_TTL_SECS = 8 * 60 * 60;
 const AUDIENCE = 'isaflow-employee-portal';
+const ISSUER = 'isaflow';
 const KEY_LABEL = 'isaflow employee portal session v1';
 
 export interface EmployeePortalClaims { accessId: string; companyId: string; employeeId: string; sessionVersion: number }
@@ -26,6 +27,7 @@ export async function signEmployeePortalToken(c: EmployeePortalClaims): Promise<
   return new SignJWT({ cid: c.companyId, eid: c.employeeId, sv: c.sessionVersion })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(c.accessId)
+    .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(`${EMPLOYEE_PORTAL_TTL_SECS}s`)
@@ -34,7 +36,7 @@ export async function signEmployeePortalToken(c: EmployeePortalClaims): Promise<
 
 export async function verifyEmployeePortalToken(token: string): Promise<EmployeePortalClaims | null> {
   try {
-    const { payload } = await jwtVerify(token, key(), { algorithms: ['HS256'], audience: AUDIENCE });
+    const { payload } = await jwtVerify(token, key(), { algorithms: ['HS256'], audience: AUDIENCE, issuer: ISSUER });
     const { sub, cid, eid, sv } = payload;
     if (typeof sub !== 'string' || typeof cid !== 'string' || typeof eid !== 'string' || !Number.isInteger(sv)) return null;
     return { accessId: sub, companyId: cid, employeeId: eid, sessionVersion: sv as number };

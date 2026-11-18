@@ -165,7 +165,7 @@ describe('employee portal login', () => {
     const ip = '192.0.2.50';
     for (let i = 0; i < 20; i += 1) expect((await doLogin({}, { email: `nobody-${i}@example.invalid`, password: PW }, ip)).statusCode).toBe(401);
     expect((await doLogin({}, { email: 'nobody-x@example.invalid', password: PW }, ip)).statusCode).toBe(429);
-  });
+  }, 180_000); // 26 sign-ins, each padded to 5 bcrypt compares (review #1570 L2)
 
   it('a revoke ends the login and every session; a re-invite starts afresh', async () => {
     const emp = await person(a, 'revoke@example.invalid');

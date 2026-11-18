@@ -22,21 +22,29 @@
 -- OLD COLOUR (the release before this one, running against this schema while the deploy switches colours):
 --   nothing old reads or writes employee_portal_access or the new column grant. Additive.
 --
--- LOCKS. A new table; one GRANT on payroll_company_settings (brief). Bounded by lock_timeout.
+-- LOCKS. A new table; one GRANT on payroll_company_settings (brief). If uq_payroll_employees_id_company is missing
+--   (it exists on dev), building it holds a SHARE lock on payroll_employees (a small table) for the build. All bounded
+--   by lock_timeout.
 --
 -- Rollback (down SQL; roll the code back first, to a release that never reads these):
 --   DROP TABLE IF EXISTS public.employee_portal_access;
 --   REVOKE INSERT (employee_portal_enabled), UPDATE (employee_portal_enabled) ON public.payroll_company_settings FROM app_user;
 --   SELECT public.app_service_sync_policies();
+--   (uq_payroll_employees_id_company is left in place: it predates 999u on dev, and nothing is harmed by it.)
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
+-- The login names its employee by (id, company_id), so a row can never pair one company with another's employee
+-- (review #1570 L4). The key it references exists on dev (uq_payroll_employees_id_company); made here if missing.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_employees_id_company ON public.payroll_employees (id, company_id);
+
 CREATE TABLE IF NOT EXISTS public.employee_portal_access (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
-  employee_id UUID NOT NULL REFERENCES public.payroll_employees(id) ON DELETE CASCADE,
-  email TEXT NOT NULL CHECK (char_length(email) <= 254 AND email ~ '^[^@\s,;<>"()\[\]\\[:cntrl:]]+@[^@\s,;<>"()\[\]\\[:cntrl:]]+\.[^@\s,;<>"()\[\]\\[:cntrl:]]+$'),
+  employee_id UUID NOT NULL,
+  -- Stored in the portal's one spelling (employeePortalAddress: trimmed, NFKC, lowercase, ASCII; review M1).
+  email TEXT NOT NULL CHECK (email = lower(email) AND email !~ '[^\x01-\x7f]' AND char_length(email) <= 254 AND email ~ '^[^@\s,;<>"()\[\]\\[:cntrl:]]+@[^@\s,;<>"()\[\]\\[:cntrl:]]+\.[^@\s,;<>"()\[\]\\[:cntrl:]]+$'),
   password_hash TEXT,
   status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'active', 'revoked')),
   invite_token_hash TEXT CHECK (invite_token_hash ~ '^[0-9a-f]{64}$'),
@@ -51,6 +59,7 @@ CREATE TABLE IF NOT EXISTS public.employee_portal_access (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (company_id, employee_id),
+  FOREIGN KEY (employee_id, company_id) REFERENCES public.payroll_employees (id, company_id) ON DELETE CASCADE,
   CHECK (status <> 'active' OR (password_hash IS NOT NULL AND activated_at IS NOT NULL)),
   CHECK (status <> 'invited' OR (invite_token_hash IS NOT NULL AND invite_expires_at IS NOT NULL)),
   CHECK (status <> 'revoked' OR revoked_at IS NOT NULL)
@@ -59,7 +68,7 @@ CREATE TABLE IF NOT EXISTS public.employee_portal_access (
 CREATE UNIQUE INDEX IF NOT EXISTS employee_portal_access_invite_token_key
   ON public.employee_portal_access (invite_token_hash) WHERE invite_token_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS employee_portal_access_email_idx
-  ON public.employee_portal_access (lower(email)) WHERE status = 'active';
+  ON public.employee_portal_access (email) WHERE status = 'active';
 
 COMMENT ON TABLE public.employee_portal_access IS
   'Wave 6 SS (999u): an employee''s self-service portal login. Written on migration_admin only; app roles read all but the secrets.';

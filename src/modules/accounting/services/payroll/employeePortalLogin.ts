@@ -8,7 +8,10 @@
  *
  * Sign-in judges the password FIRST and says nothing else to a caller who has not proved it: a wrong password, an
  * unknown address and a revoked login all answer null. Only then: the platform switch, the company setting and a live
- * company (portalClosedReason), and the leaver window (ACCESS_ENDED). One address may hold logins at several
+ * company (portalClosedReason), and the leaver window (ACCESS_ENDED). The login's address must still be the one on
+ * the employee record (review #1570 M2a): an invitation sent to an address since corrected opens nothing. Sign-in
+ * always runs MAX_CANDIDATES bcrypt compares, padding with a dummy hash, so its time says nothing about how many
+ * logins an address has (review L2). `email` arrives normalised (employeePortalAddress). One address may hold logins at several
  * employers; when the password opens more than one, the caller must pick (`choose`), naming only those employers.
  */
 import bcrypt from 'bcryptjs';
@@ -24,7 +27,7 @@ export const PASSWORD_MIN = 10;
 /** bcrypt reads at most 72 bytes; a longer password would be cut silently. */
 export const PASSWORD_MAX_BYTES = 72;
 const MAX_CANDIDATES = 5;
-/** Compared against when no login has the address, so an unknown address takes as long as a wrong password. */
+/** Compared against to pad every sign-in to MAX_CANDIDATES compares, whatever the address holds. */
 let dummyHash: string | null = null;
 
 interface LoginRow {
@@ -35,7 +38,7 @@ interface LoginRow {
 const LOGIN_SELECT = `
   SELECT a.id, a.company_id, a.employee_id, a.password_hash, a.session_version, e.status, e.end_date, c.name AS employer
     FROM employee_portal_access a
-    JOIN payroll_employees e ON e.id = a.employee_id AND e.company_id = a.company_id
+    JOIN payroll_employees e ON e.id = a.employee_id AND e.company_id = a.company_id AND a.email = lower(e.email)
     JOIN companies c ON c.id = a.company_id`;
 
 async function admitted(row: LoginRow): Promise<EmployeePortalClaims> {
@@ -61,13 +64,15 @@ export type SignInResult =
 
 export async function signInEmployee(email: string, password: string, accessId?: string): Promise<SignInResult> {
   const rows = await migrationAdminTx('employee portal login lookup', async (client) => (await client.query(
-    `${LOGIN_SELECT} WHERE lower(a.email) = lower($1) AND a.status = 'active' ORDER BY a.activated_at, a.id LIMIT ${MAX_CANDIDATES}`,
+    `${LOGIN_SELECT} WHERE a.email = $1 AND a.status = 'active' ORDER BY a.activated_at, a.id LIMIT ${MAX_CANDIDATES}`,
     [email],
   )).rows as LoginRow[]);
-  if (rows.length === 0) await bcrypt.compare(password, dummyHash ??= await bcrypt.hash('employee-portal-timing', BCRYPT_COST));
+  const dummy = dummyHash ??= await bcrypt.hash('employee-portal-timing', BCRYPT_COST);
   const matches: LoginRow[] = [];
-  for (const row of rows) {
-    if (row.password_hash && await bcrypt.compare(password, row.password_hash)) matches.push(row);
+  for (let i = 0; i < MAX_CANDIDATES; i += 1) {
+    const row = rows[i];
+    const opened = await bcrypt.compare(password, row?.password_hash ?? dummy);
+    if (opened && row?.password_hash) matches.push(row);
   }
   const chosen = accessId === undefined ? matches : matches.filter((m) => m.id === accessId);
   if (chosen.length === 0) return { kind: 'refused' };

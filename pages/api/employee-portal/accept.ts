@@ -3,7 +3,8 @@
  *
  * Wave 6 SS (employeePortalLogin.acceptEmployeeInvite). The token is the one in the invitation link's fragment; it
  * works once, within 7 days, and only while the portal is open for the employer and the employee. Judged before the
- * write: the IP limit (10 in 15 minutes), the body, the password rule. Every answer is no-store.
+ * write: a same-origin JSON POST only (login CSRF, review #1570 L1), the IP limit (10 in 15 minutes), the body, the
+ * password rule. Every answer is no-store.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
@@ -11,6 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { setEmployeePortalCookie } from '@/lib/auth/employeePortalAuth';
+import { withEmployeePortalSameOrigin } from '@/lib/auth/employeePortalSameOrigin';
 import { respondIfEmployeePortalRefused } from '@/lib/employeePortalApi';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { acceptEmployeeInvite, judgePassword } from '@/modules/accounting/services/payroll/employeePortalLogin';
@@ -34,4 +36,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withNoStore(withErrorHandler(handler, { maskBodyKeys: ['token', 'password'] }));
+export default withNoStore(withErrorHandler(withEmployeePortalSameOrigin(handler), { maskBodyKeys: ['token', 'password'] }));

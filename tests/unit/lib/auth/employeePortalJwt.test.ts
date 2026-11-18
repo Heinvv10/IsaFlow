@@ -1,5 +1,6 @@
 /** Wave 6 SS: the employee portal's token verifies only under its own derived key and audience. */
 import { beforeAll, describe, expect, it } from 'vitest';
+import { createHmac } from 'crypto';
 import { SignJWT } from 'jose';
 import { signEmployeePortalToken, verifyEmployeePortalToken } from '@/lib/auth/employeePortalJwt';
 
@@ -16,6 +17,17 @@ describe('employee portal token', () => {
       .setSubject(claims.accessId).setAudience('isaflow-employee-portal').setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.PORTAL_JWT_SECRET));
     expect(await verifyEmployeePortalToken(forged)).toBeNull();
+  });
+  it('refuses its own key and audience without the issuer, or with another (review #1570 L1)', async () => {
+    const key = new Uint8Array(createHmac('sha256', process.env.PORTAL_JWT_SECRET!).update('isaflow employee portal session v1').digest());
+    const make = (issuer?: string) => {
+      const jwt = new SignJWT({ cid: claims.companyId, eid: claims.employeeId, sv: 3 }).setProtectedHeader({ alg: 'HS256' })
+        .setSubject(claims.accessId).setAudience('isaflow-employee-portal').setExpirationTime('1h');
+      return (issuer ? jwt.setIssuer(issuer) : jwt).sign(key);
+    };
+    expect(await verifyEmployeePortalToken(await make('isaflow'))).toEqual(claims);
+    expect(await verifyEmployeePortalToken(await make())).toBeNull();
+    expect(await verifyEmployeePortalToken(await make('someone-else'))).toBeNull();
   });
   it('refuses a token with no session version', async () => {
     const token = await signEmployeePortalToken({ ...claims, sessionVersion: 1.5 });

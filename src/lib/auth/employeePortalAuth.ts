@@ -5,8 +5,8 @@
  *
  * The token alone is not the session (8 hours). Every request re-checks, on the service pool by the token's ids
  * (compared as TEXT, so a non-UUID claim matches nothing instead of a 500): an ACTIVE login with that id, company and
- * employee, at the token's session_version (a revoke or re-invite bumps it), whose employee row is still that
- * company's; then the platform switch, the company setting and a live company (portalClosedReason); then the leaver
+ * employee, at the token's session_version (a revoke, a re-invite or an address change bumps it), whose employee row
+ * is still that company's and still carries the login's address (review #1570 M2a); then the platform switch, the company setting and a live company (portalClosedReason); then the leaver
  * window. Anything else is 401 EMPLOYEE_PORTAL_AUTH, exactly as a forged token. Every answer is no-store.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -30,7 +30,7 @@ export async function currentEmployeePortalSession(token: string | undefined): P
   const rows = (await sql`
     SELECT e.status, e.end_date
       FROM employee_portal_access a
-      JOIN payroll_employees e ON e.id = a.employee_id AND e.company_id = a.company_id
+      JOIN payroll_employees e ON e.id = a.employee_id AND e.company_id = a.company_id AND a.email = lower(e.email)
      WHERE a.id::TEXT = ${claims.accessId} AND a.company_id::TEXT = ${claims.companyId}
        AND a.employee_id::TEXT = ${claims.employeeId} AND a.status = 'active' AND a.session_version = ${claims.sessionVersion}
   `) as Array<{ status: string; end_date: string | null }>;
