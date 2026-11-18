@@ -30,6 +30,7 @@ import { offCycleReasonOf, payFrequencyOf, runKindOf, runPeriodOf } from './payr
 import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
 import { loadLineCadences } from './payrollRunCadence';
 import { listOffCycleEmployees, prepareOffCycleComponents, type OffCyclePrepared } from './payrollOffCyclePopulation';
+import { assertOffCycleBeforeClose } from './payrollOffCycleRun';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -78,6 +79,8 @@ export async function calculatePayrollRun(
   // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
   const frequencyRun = frequencyRunOf(run);
   if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
+  // Wave 6 OC: an off-cycle run paid on or after its month's closing regular run is refused (409, no write).
+  await assertOffCycleBeforeClose(companyId, run);
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;

@@ -14,6 +14,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import { laterOffCycleRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
+import { calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
+import type { McpToolContext } from '@/lib/mcp/types';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
@@ -146,6 +148,27 @@ describe('OC: refusals change no row', () => {
     expect(made.statusCode).toBe(409);
     expect(b.msg(made)).toMatch(/no approved regular run/);
     expect(await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [b.company])).toBe(before);
+  });
+
+  it('paid on or after the month\'s closing regular run (30 November): 409 at create, at calculate and in the MCP dry run (review #1575 carry 1)', async () => {
+    const before = await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company]);
+    const made = await create(a, { runDate: '2026-11-30', reason: 'bonus', employees: [{ employeeId: people.spare1, componentId: bonusComponent, amount: 75 }] });
+    expect(made.statusCode).toBe(409);
+    expect(a.msg(made)).toMatch(/on or after the month's regular run \(paid 2026-11-30\)/);
+    expect(await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).toBe(before);
+    // A run that reached the database with that pay date (a direct write) is refused at calculate too, writing no line.
+    const late = (await a.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind,
+      off_cycle_reason, period_start, period_end, run_date) VALUES ($1, 11, 2026, 'monthly', 'off_cycle', 'bonus', '2026-11-01', '2026-11-30', '2026-11-30')
+      RETURNING id`, [a.company])).rows[0].id as string;
+    const calc = await a.api.calculate(late);
+    expect(calc.statusCode).toBe(409);
+    expect(a.msg(calc)).toMatch(/closed the month's UIF and ETI/);
+    const ctx = { companyId: a.company, userId: a.admin, scopes: ['write:payroll'], tokenJti: null, oauthAppId: null, role: 'admin' } as McpToolContext;
+    const dry = await calculatePayRunTool.handler({ run_id: late, dry_run: true, idempotency_key: crypto.randomUUID() }, ctx);
+    expect(dry.isError).toBe(true);
+    expect(dry.content[0]!.text).toMatch(/closed the month's UIF and ETI/);
+    expect(await count('SELECT count(*) AS n FROM payroll_run_lines WHERE run_id = $1', [late])).toBe(0);
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [late]);
   });
 
   it('a weekly employee: 409 (off-cycle runs are monthly only; review #1575 carry 1), nothing written', async () => {

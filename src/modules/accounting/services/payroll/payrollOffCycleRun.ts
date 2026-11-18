@@ -21,6 +21,8 @@ import { todayInSast } from '@/lib/saDateParser';
 import { payRunFinalSql } from './payRunFinalSql';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
+import { offCycleAfterCloseRefusal } from './payrollOffCycleGates';
+import { dateColumnOf } from './payrollFrequency';
 import type { OffCycleReason, PayrollPeriod } from './payrollTypesRun';
 
 export interface OffCycleEmployeeInput { employeeId: string; componentId?: string | null; amount?: number | null }
@@ -91,6 +93,9 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
   `) as DbRow[];
   if (!regular[0]) throw state(`${monthName(period)} has no approved regular run: approve it before an off-cycle run`);
   const regularId = String(regular[0].id);
+  // Paid on or after the month's closing regular run (review #1575 carry 1): after the month's close.
+  const late = await offCycleAfterCloseRefusal(companyId, period, input.runDate, tx);
+  if (late) throw state(late);
   const ids = employees.map((e) => e.employeeId);
   const people = (await tx`
     SELECT e.id, e.employee_number, e.pay_frequency, e.end_date::text AS end_date,
@@ -165,4 +170,11 @@ export async function createOffCycleRun(companyId: string, input: OffCycleRunInp
     }
     throw err;
   }
+}
+
+/** Calculate's (and the MCP dry run's) re-check of the month's close: refused with 409 before any write. */
+export async function assertOffCycleBeforeClose(companyId: string, run: DbRow): Promise<void> {
+  if (run.run_kind !== 'off_cycle') return;
+  const late = await offCycleAfterCloseRefusal(companyId, { year: Number(run.period_year), month: Number(run.period_month) }, dateColumnOf(run.run_date));
+  if (late) throw state(late);
 }
