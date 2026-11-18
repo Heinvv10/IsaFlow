@@ -197,6 +197,17 @@ describe('another tab switches company: this tab\'s gating follows (round 5)', (
     expect(result.current).toBe(THIRD);
     expect(renders).toBe(1);                    // one render for the new props, none for syncing state
   });
+  it('A -> B -> A in the context does not bring back an override read in the first A', () => {
+    store(HERE);
+    const { result, rerender } = renderHook(({ id }: { id: string }) => useLiveActiveCompanyId(id), { initialProps: { id: HERE } });
+    act(() => { store(ELSEWHERE); window.dispatchEvent(new Event('focus')); });    // another tab switched: override read against HERE
+    expect(result.current).toBe(ELSEWHERE);
+    rerender({ id: THIRD });                                                       // this tab switches to THIRD ...
+    expect(result.current).toBe(THIRD);
+    store(HERE);
+    rerender({ id: HERE });                                                        // ... and back to HERE; storage holds HERE
+    expect(result.current).toBe(HERE);                                             // not the stale ELSEWHERE, with no event in between
+  });
   it('member rows are re-gated against the new active company without a reload', () => {
     store(HERE);
     function Screen() {
