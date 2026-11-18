@@ -115,12 +115,24 @@ jobs:
       # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap.
       # archive.ubuntu.com is a fallback mirror: hosted runners lost DNS for the Azure mirror on 11 Nov.
       # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
+      # Each attempt is bounded (update 90 s, install 240 s, 3 attempts, update repeated) and the downloaded .debs
+      # are cached per week (apt checks them against the signed index), so a cache hit skips the mirror.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        id: aptweek
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs/*.deb
+          key: apt-${{ runner.os }}-ghostscript-${{ steps.aptweek.outputs.week }}
+          restore-keys: apt-${{ runner.os }}-ghostscript-
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get update -q
-          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends ghostscript && break; [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
+          mkdir -p "$HOME/apt-debs/partial"
+          sudo chmod -R a+rwX "$HOME/apt-debs"
+          for i in 1 2 3; do { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" ghostscript; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -223,12 +235,24 @@ jobs:
       # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap.
       # archive.ubuntu.com is a fallback mirror: hosted runners lost DNS for the Azure mirror on 11 Nov.
       # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
+      # Each attempt is bounded (update 90 s, install 240 s, 3 attempts, update repeated) and the downloaded .debs
+      # are cached per week (apt checks them against the signed index), so a cache hit skips the mirror.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        id: aptweek
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs/*.deb
+          key: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector+libreoffice-calc-nogui+poppler-utils-${{ steps.aptweek.outputs.week }}
+          restore-keys: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector+libreoffice-calc-nogui+poppler-utils-
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get update -q
-          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils && break; [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
+          mkdir -p "$HOME/apt-debs/partial"
+          sudo chmod -R a+rwX "$HOME/apt-debs"
+          for i in 1 2 3; do { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
 
       # As in static.
@@ -432,12 +456,24 @@ jobs:
       # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap.
       # archive.ubuntu.com is a fallback mirror: hosted runners lost DNS for the Azure mirror on 11 Nov.
       # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
+      # Each attempt is bounded (update 90 s, install 240 s, 3 attempts, update repeated) and the downloaded .debs
+      # are cached per week (apt checks them against the signed index), so a cache hit skips the mirror.
+      - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        id: aptweek
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs/*.deb
+          key: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector-${{ steps.aptweek.outputs.week }}
+          restore-keys: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector-
       - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get update -q
-          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector && break; [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
+          mkdir -p "$HOME/apt-debs/partial"
+          sudo chmod -R a+rwX "$HOME/apt-debs"
+          for i in 1 2 3; do { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
 
       - name: Install dependencies
