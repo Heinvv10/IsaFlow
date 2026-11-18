@@ -10,11 +10,26 @@ export interface Attachment {
   created_at: string;
   /** A captured document linked to the line (copied or not). Remove unlinks it rather than deleting a copy. */
   document_id?: string;
-  /** 'captured': a linked captured document. With no copy its file_url is the route that serves its bytes. */
-  source?: 'captured';
+  /**
+   * 'captured': a linked captured document. With no copy its file_url is the route that serves its bytes.
+   * 'settled_document': a document of a bill / invoice the line settles (include_settled=1); read-only, never removed.
+   */
+  source?: 'captured' | 'settled_document';
+  /** settled_document only: the payment the line went through. */
+  via?: { kind: 'supplier_payment' | 'customer_payment'; payment_id: string; payment_number: string | null };
+  /** settled_document only: what the document belongs to and what this payment applied to it. */
+  settles?: {
+    entity_type: 'supplier_invoice' | 'customer_invoice' | 'credit_note';
+    entity_id: string; number: string | null; total: number; applied: number;
+    /** Still open after every live payment and credit note; outstanding is that amount (null for a credit note). */
+    partial: boolean; outstanding: number | null;
+    invoice_id: string; invoice_number: string | null;
+  };
   /** The type a captured document claims. Decides View and the download extension; the viewer trusts only its bytes. */
   content_type?: string | null;
 }
+
+export const isSettled = (a: Attachment): boolean => a.source === 'settled_document';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
