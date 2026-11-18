@@ -22,6 +22,7 @@ import { ChevronDown } from 'lucide-react';
 import { isFlyout, type Tab, type DropdownItem } from '../accounting/accountingNavConfig';
 import { ACCENT_CLASSES, type AccentColor } from './moduleNavAccent';
 import { FlyoutDropdown, FlatDropdown, panelItems } from './ModuleNavMenus';
+import { focusInPanel } from './useFlyoutPlacement';
 
 export { ACCENT_CLASSES };
 export type { AccentColor };
@@ -79,7 +80,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath, ariaLabe
   // A menu opened from the keyboard moves focus to its first entry.
   const focusFirst = (id: string) => {
     const panel = navRef.current?.querySelector<HTMLElement>(`[data-tour="nav-${id}"] [data-nav-panel]`);
-    if (panel) panelItems(panel)[0]?.focus();
+    if (panel) focusInPanel(panelItems(panel)[0]);
   };
   useEffect(() => {
     if (!openTab || !focusOnOpen.current) return;
@@ -120,9 +121,9 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath, ariaLabe
     if (e.key !== 'Escape' || openTab === null) return;
     const trigger = e.currentTarget.querySelector<HTMLElement>('[data-nav-trigger]');
     const panel = e.currentTarget.querySelector<HTMLElement>('[data-nav-panel]');
-    const focusInPanel = !!panel && panel.contains(document.activeElement);
+    const focusWasInPanel = !!panel && panel.contains(document.activeElement);
     setOpenTab(null);
-    if (focusInPanel) trigger?.focus();
+    if (focusWasInPanel) focusInPanel(trigger);
   };
 
   const textCls = (t: Tab) =>
@@ -138,8 +139,10 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath, ariaLabe
       : <FlatDropdown items={t.items as DropdownItem[]} {...props} />;
   };
 
+  // The main row and the section bar under it are sibling navs: the one with an open menu goes on top, or the other
+  // bar paints over the part of the menu that overlaps it.
   return (
-    <nav ref={navRef} aria-label={ariaLabel} className="bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative z-30">
+    <nav ref={navRef} aria-label={ariaLabel} className={`bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative ${openTab ? 'z-40' : 'z-30'}`}>
       <div className="flex items-center gap-0 px-2">
         {(tabs ?? []).map(t => {
           const menu = hasMenu(t);

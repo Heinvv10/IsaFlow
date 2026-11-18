@@ -4,17 +4,24 @@
  *
  * Keyboard: a section row is a button (Enter, Space or ArrowRight opens its sub-panel and focuses the first entry;
  * ArrowLeft or Escape closes it and returns focus to the row). ArrowDown/ArrowUp move between a panel's entries.
+ *
+ * One section of a panel is open at a time, with hover intent (useFlyoutSection); every panel is placed inside the
+ * viewport (useFlyoutPlacement) and focus never scrolls the shell (focusInPanel).
  */
-import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useRef, useEffect, useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { isFlyout, activeHrefAmong, type Tab, type NavItem } from '../accounting/accountingNavConfig';
 import { NavLinksBlock } from './NavLinksBlock';
+import type { FlyoutDir } from './menuPosition';
+import { useOpenSection, type OpenSection } from './useFlyoutSection';
+import { useFlyoutPlacement, focusInPanel } from './useFlyoutPlacement';
 
 // ─── Shared styles ──────────────────────────────────────────────────────────
 
-export const panelCls = 'bg-[var(--ff-canvas-mid)] border border-[var(--ff-canvas-border)] rounded-lg shadow-2xl min-w-[210px] py-1';
+// w-max: the width the panel had when it always opened at the sidebar's edge, wherever it is placed now.
+export const panelCls = 'bg-[var(--ff-canvas-mid)] border border-[var(--ff-canvas-border)] rounded-lg shadow-2xl min-w-[210px] w-max py-1';
 
 const linkCls = (active: boolean) =>
   `block px-4 py-1.5 text-sm whitespace-nowrap transition-colors ${
@@ -36,59 +43,58 @@ export function moveInPanel(e: ReactKeyboardEvent<HTMLElement>) {
   if (!next) return;
   e.preventDefault();
   e.stopPropagation();
-  next.focus();
+  focusInPanel(next);
 }
 
 // ─── Recursive section flyout using portals ─────────────────────────────────
 
-function SectionFlyout({ label, items, asPath, onNav }: { label: string; items: NavItem[]; asPath: string; onNav: () => void }) {
+interface SectionFlyoutProps {
+  label: string;
+  items: NavItem[];
+  asPath: string;
+  onNav: () => void;
+  /** The open section among this row's siblings. */
+  state: OpenSection;
+  /** The way the panel holding this row opened: the sub-panel tries the same way first. */
+  dir: FlyoutDir;
+  /** Where the panel holding this row is: the sub-panel is re-placed when it moves. */
+  parentAt: string;
+}
+
+function SectionFlyout({ label, items, asPath, onNav, state, dir, parentAt }: SectionFlyoutProps) {
   const activeHref = activeHrefAmong(items, asPath);
-  const [open, setOpen] = useState(false);
-  const [subPos, setSubPos] = useState<{ top: number; left: number } | null>(null);
+  const open = state.open === label;
+  const nested = useOpenSection();
   const ref = useRef<HTMLDivElement>(null);
   const row = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const focusOnOpen = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cl = () => { if (timer.current) clearTimeout(timer.current); };
-  const dl = () => { timer.current = setTimeout(() => setOpen(false), 150); };
-  useEffect(() => () => cl(), []);
+  const place = useFlyoutPlacement(open, () => ref.current, panel, { side: 'beside', prefer: dir, nested: items.some(isFlyout), follow: parentAt });
+  useLayoutEffect(() => { if (open) state.register(panel.current); }, [open, state]);
   useEffect(() => {
-    if (!open || !focusOnOpen.current) return;
-    focusOnOpen.current = false;
-    panelEntries(panel.current)[0]?.focus();
-  }, [open, subPos]);
-
-  const handleEnter = () => {
-    cl();
-    setOpen(true);
-    if (ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      setSubPos({ top: rect.top, left: rect.right });
-    }
-  };
+    if (!open || !state.takeKeyboardOpen()) return;
+    focusInPanel(panelEntries(panel.current)[0]);
+  }, [open, state]);
 
   const onRowKey = (e: ReactKeyboardEvent) => {
     if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     e.stopPropagation();
-    focusOnOpen.current = true;
-    handleEnter();
+    state.show(label, true);
   };
 
   const onPanelKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ArrowLeft' || e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      setOpen(false);
-      row.current?.focus();
+      state.hide();
+      focusInPanel(row.current);
       return;
     }
     moveInPanel(e);
   };
 
   return (
-    <div ref={ref} onMouseEnter={handleEnter} onMouseLeave={dl}>
+    <div ref={ref} onMouseEnter={e => state.hover(label, { x: e.clientX, y: e.clientY })} onMouseLeave={state.later}>
       <div
         ref={row}
         role="button"
@@ -107,13 +113,13 @@ function SectionFlyout({ label, items, asPath, onNav }: { label: string; items: 
         <ChevronRight className="h-3.5 w-3.5 ml-4 flex-shrink-0" />
       </div>
 
-      {open && subPos && createPortal(
+      {open && createPortal(
         <div
           ref={panel}
-          style={{ position: 'fixed', top: subPos.top, left: subPos.left, zIndex: 99999 }}
+          style={{ ...place.style, zIndex: 99999 }}
           className={panelCls}
-          onMouseEnter={cl}
-          onMouseLeave={dl}
+          onMouseEnter={state.cancel}
+          onMouseLeave={state.later}
           onKeyDown={onPanelKey}
           data-sidebar-flyout=""
         >
@@ -126,7 +132,8 @@ function SectionFlyout({ label, items, asPath, onNav }: { label: string; items: 
               );
             }
             // Nested section → recurse
-            return <SectionFlyout key={item.section} label={item.section} items={item.items} asPath={asPath} onNav={onNav} />;
+            return <SectionFlyout key={item.section} label={item.section} items={item.items} asPath={asPath} onNav={onNav}
+              state={nested} dir={place.dir} parentAt={place.at} />;
           })}
         </div>,
         document.body
@@ -137,7 +144,8 @@ function SectionFlyout({ label, items, asPath, onNav }: { label: string; items: 
 
 // ─── Tab flyout content ─────────────────────────────────────────────────────
 
-export function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; onNav: () => void }) {
+export function TabFlyoutContent({ tab, asPath, onNav, dir, parentAt }: { tab: Tab; asPath: string; onNav: () => void; dir: FlyoutDir; parentAt: string }) {
+  const state = useOpenSection();
   const hasSections = tab.items?.some(isFlyout) ?? false;
   const activeHref = activeHrefAmong(tab.items ?? [], asPath);
 
@@ -167,7 +175,8 @@ export function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: str
         if (!isFlyout(item)) {
           return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
         }
-        return <SectionFlyout key={item.section} label={item.section} items={item.items} asPath={asPath} onNav={onNav} />;
+        return <SectionFlyout key={item.section} label={item.section} items={item.items} asPath={asPath} onNav={onNav}
+          state={state} dir={dir} parentAt={parentAt} />;
       })}
 
       {/* Flat items */}
