@@ -133,12 +133,12 @@ describe('items: a tracked item is physical, accounts are foreign keys held to t
     expect((got.item as { code: string }).code).toBe('R-UP');
   });
 
-  it('the GL account merge sweep sees an account an item names, and the database refuses to delete it', async () => {
-    const refs = await findConfigurationReferences(w.a.u.homeCompanyId, w.a.revenue);
-    expect(refs).toContainEqual({ table: 'items', column: 'sales_account_id', rows: expect.any(Number) });
-    const purchases = await findConfigurationReferences(w.a.u.homeCompanyId, w.a.expense);
-    expect(purchases.map((r) => `${r.table}.${r.column}`)).toContain('items.purchases_account_id');
+  it('the database refuses to delete an account an item names, and the merge sweep leaves items to the repoint (accountMergeDocumentRows)', async () => {
     await expect(pool.query('DELETE FROM gl_accounts WHERE id = $1', [w.a.revenue])).rejects.toThrow(/items_sales_account_id_fkey|foreign key/);
+    const refs = await findConfigurationReferences(w.a.u.homeCompanyId, w.a.revenue);
+    expect(refs.map((r) => r.table)).not.toContain('items');
+    const purchases = await findConfigurationReferences(w.a.u.homeCompanyId, w.a.expense);
+    expect(purchases.map((r) => `${r.table}.${r.column}`)).not.toContain('items.purchases_account_id');
   });
 });
 
