@@ -21,7 +21,7 @@ The tenant gap: `stock_movements` and `stock_levels` have no `company_id` and no
 it from `products.company_id`, adds a BEFORE INSERT trigger (SECURITY INVOKER) that fills a missing `company_id` from the row's
 product, and gives both tables the same RLS policies as `items`. Tenant scope is therefore trigger + RLS; there is no NOT NULL
 CHECK (a movement of a product with no company stays NULL, and only a superuser or owner can write one: master's valuation
-tests do). A row's `item_id` must belong to its company: a composite FK on `stock_movements`, a trigger on the four line tables.
+tests do). A row's `product_id` and `item_id` must belong to its company: composite FKs (on `stock_movements` and `stock_levels` for the product, on `stock_movements` for the item; FK checks ignore RLS), and a trigger on the four line tables for the item.
 `po_items` gets the same treatment in Phase B.
 
 ## Phase A — item master

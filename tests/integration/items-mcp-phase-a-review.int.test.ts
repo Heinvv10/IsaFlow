@@ -508,28 +508,45 @@ describe('round 2 breaker: VAT on resent lines, merged refs, header-FK trigger, 
     expect((await pool.query('SELECT 1 FROM po_items WHERE purchase_order_id = $1', [aPoId])).rowCount).toBe(1);
   });
 
-  it('a stock row in company A that names company B\'s product is refused, for movements and levels', async () => {
+  it('a company-A stock row naming company B\'s product is refused by the composite FK even as app_user, to whom B\'s product is invisible; also on UPDATE; a NULL company skips it', async () => {
     const bProduct = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-BP', 'IR-BP') RETURNING id`, [w.b.u.homeCompanyId])).rows[0].id);
-    await expect(pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.a.u.homeCompanyId, bProduct]))
-      .rejects.toThrow(/belongs to another company/);
+    const aProduct = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-AP', 'IR-AP') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
     const wh = String((await pool.query(`INSERT INTO warehouses (company_id, code, name) VALUES ($1, 'IR-W', 'IR-W') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
-    await expect(pool.query(`INSERT INTO stock_levels (company_id, product_id, warehouse_id, quantity) VALUES ($1, $2, $3, 1)`, [w.a.u.homeCompanyId, bProduct, wh]))
-      .rejects.toThrow(/belongs to another company/);
-    // its own company's product is fine
+    const sess = (sql: string, params: unknown[]) => asAppUser(w.a.u.homeCompanyId, w.a.u.userId, (q) => q(sql, params));
+    // as the tenant: the product is not even visible, yet the row is refused for the right reason (the FK, not the visibility)
+    expect((await sess('SELECT 1 FROM products WHERE id = $1', [bProduct])).rows).toHaveLength(0);
+    await expect(sess(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.a.u.homeCompanyId, bProduct]))
+      .rejects.toThrow(/stock_movements_company_product_fkey/);
+    await expect(sess(`INSERT INTO stock_levels (company_id, product_id, warehouse_id, quantity) VALUES ($1, $2, $3, 1)`, [w.a.u.homeCompanyId, bProduct, wh]))
+      .rejects.toThrow(/stock_levels_company_product_fkey/);
+    // and for the owner / superuser alike
+    await expect(pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.a.u.homeCompanyId, bProduct]))
+      .rejects.toThrow(/stock_movements_company_product_fkey/);
+    // UPDATE of product_id or company_id onto a mismatch is refused too
+    const own = String((await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1) RETURNING id`, [w.a.u.homeCompanyId, aProduct])).rows[0].id);
+    await expect(pool.query('UPDATE stock_movements SET product_id = $2 WHERE id = $1', [own, bProduct])).rejects.toThrow(/stock_movements_company_product_fkey/);
+    await expect(pool.query('UPDATE stock_movements SET company_id = $2 WHERE id = $1', [own, w.b.u.homeCompanyId])).rejects.toThrow(/stock_movements_company_product_fkey/);
+    // the fill also fires on UPDATE: blanking company_id gets the product's back
+    expect((await pool.query('UPDATE stock_movements SET company_id = NULL WHERE id = $1 RETURNING company_id', [own])).rows[0].company_id).toBe(w.a.u.homeCompanyId);
+    // its own company's product is fine; the constraints are valid
     await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.b.u.homeCompanyId, bProduct]);
-    await pool.query('DELETE FROM stock_movements WHERE product_id = $1', [bProduct]);
-    await pool.query('DELETE FROM stock_levels WHERE product_id = $1', [bProduct]);
-    await pool.query('DELETE FROM products WHERE id = $1', [bProduct]);
+    expect((await pool.query(`SELECT conname, convalidated FROM pg_constraint WHERE conname LIKE '%_company_product_fkey' ORDER BY 1`)).rows)
+      .toEqual([{ conname: 'stock_levels_company_product_fkey', convalidated: true }, { conname: 'stock_movements_company_product_fkey', convalidated: true }]);
+    for (const pid of [aProduct, bProduct]) {
+      await pool.query('DELETE FROM stock_movements WHERE product_id = $1', [pid]);
+      await pool.query('DELETE FROM products WHERE id = $1', [pid]);
+    }
+    await pool.query('DELETE FROM warehouses WHERE id = $1', [wh]);
   });
 
-  it('the valuation counts only movements of the product\'s own company (a row written around the trigger by a superuser is left out)', async () => {
+  it('the valuation counts only movements of the product\'s own company (a row written around the constraint by a superuser is left out)', async () => {
     const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-VAL', 'IR-VAL') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
     await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 3, 30)`, [w.a.u.homeCompanyId, product]);
-    await pool.query('ALTER TABLE stock_movements DISABLE TRIGGER USER');
+    await pool.query('ALTER TABLE stock_movements DISABLE TRIGGER ALL');
     try {
       await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 5, 50)`, [w.b.u.homeCompanyId, product]);
     } finally {
-      await pool.query('ALTER TABLE stock_movements ENABLE TRIGGER USER');
+      await pool.query('ALTER TABLE stock_movements ENABLE TRIGGER ALL');
     }
     const valuation = await getStockValuation(w.a.u.homeCompanyId, '2099-01-01');
     expect(valuation.rows.find((r) => r.code === 'IR-VAL')).toMatchObject({ quantityOnHand: 3, value: 30 });

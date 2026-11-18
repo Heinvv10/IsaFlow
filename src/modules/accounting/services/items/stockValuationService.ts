@@ -102,7 +102,7 @@ export async function getStockValuation(
   //  · `p.company_id` sits in WHERE because the join to products IS the tenant
   //    boundary. In a LEFT JOIN's ON clause it would restrict nothing and
   //    unmatched movements would survive into the SUM.
-  //  · `sm.company_id = p.company_id` also sits in the ON clause (migration 1005): the fill trigger refuses a row naming another
+  //  · `sm.company_id = p.company_id` also sits in the ON clause (migration 1005): the composite FK refuses a row naming another
   //    company's product, and this keeps a row written around it (a superuser's) out of this company's figures.
   //  · `sm.created_at <= asOf` sits in the LEFT JOIN's ON clause, and MUST. In
   //    WHERE it would turn the outer join inner and drop any product whose only

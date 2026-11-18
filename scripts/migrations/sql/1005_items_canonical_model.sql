@@ -40,8 +40,12 @@
 --                         is written or its item or header is changed. LIMIT, stated plainly: it does not fire when a
 --                         HEADER's own company_id is changed afterwards (the line rows are not touched); RLS stops an
 --                         app_user doing that, a superuser or owner could. Rows written before 1005 are not rechecked.
---   stock fill trigger    also refuses a row whose product belongs to ANOTHER company than the row's company_id (a movement
---                         cannot name a product of company B while claiming company A).
+--   stock product guard   a stock row's product must belong to the row's company: composite FKs (company_id, product_id) ->
+--                         products(company_id, id) on stock_movements and stock_levels, on a new unique index
+--                         products_company_id_id_key (NOT VALID, validated when clean). A foreign-key check reads the
+--                         referenced table WITHOUT row level security, so it refuses company B's product for a company-A
+--                         row even though B's product is invisible to A's session (a trigger reading products as the caller
+--                         could not tell). A NULL company_id (the orphan row only a superuser can write) skips it.
 --
 -- ORDER. The backfill runs BEFORE row level security is switched on, so it sees every row.
 --
@@ -57,6 +61,9 @@
 --
 -- Rollback (down SQL; roll the code back first, and only while no row uses what is dropped):
 --   ALTER TABLE public.stock_movements DROP CONSTRAINT IF EXISTS stock_movements_company_item_fkey;
+--   ALTER TABLE public.stock_movements DROP CONSTRAINT IF EXISTS stock_movements_company_product_fkey;
+--   ALTER TABLE public.stock_levels DROP CONSTRAINT IF EXISTS stock_levels_company_product_fkey;
+--   DROP INDEX IF EXISTS public.products_company_id_id_key;
 --   DROP INDEX IF EXISTS public.items_company_id_id_key;
 --   DROP TRIGGER IF EXISTS po_items_item_company ON public.po_items;
 --   DROP TRIGGER IF EXISTS supplier_invoice_items_item_company ON public.supplier_invoice_items;
@@ -140,25 +147,22 @@ UPDATE public.stock_levels sl SET company_id = p.company_id
 
 -- A writer that names no company_id gets its product's. SECURITY INVOKER: under a tenant session products is read through
 -- that session's RLS, so another company's product yields NULL (then the policy's WITH CHECK refuses the row).
+-- It only FILLS: a company_id that disagrees with the product's is refused by the composite FKs below, not here (a trigger
+-- reads products as the caller, and RLS hides another company's product from it).
 CREATE OR REPLACE FUNCTION public.stock_row_fill_company() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
-DECLARE
-  v_company uuid;
 BEGIN
-  SELECT p.company_id INTO v_company FROM public.products p WHERE p.id = NEW.product_id;
   IF NEW.company_id IS NULL THEN
-    NEW.company_id := v_company;
-  ELSIF v_company IS NOT NULL AND v_company <> NEW.company_id THEN
-    RAISE EXCEPTION '%: the product belongs to another company than the row''s company_id', TG_TABLE_NAME USING ERRCODE = 'foreign_key_violation';
+    SELECT p.company_id INTO NEW.company_id FROM public.products p WHERE p.id = NEW.product_id;
   END IF;
   RETURN NEW;
 END $$;
 
 DROP TRIGGER IF EXISTS stock_movements_fill_company ON public.stock_movements;
-CREATE TRIGGER stock_movements_fill_company BEFORE INSERT ON public.stock_movements
+CREATE TRIGGER stock_movements_fill_company BEFORE INSERT OR UPDATE OF product_id, company_id ON public.stock_movements
   FOR EACH ROW EXECUTE FUNCTION public.stock_row_fill_company();
 DROP TRIGGER IF EXISTS stock_levels_fill_company ON public.stock_levels;
-CREATE TRIGGER stock_levels_fill_company BEFORE INSERT ON public.stock_levels
+CREATE TRIGGER stock_levels_fill_company BEFORE INSERT OR UPDATE OF product_id, company_id ON public.stock_levels
   FOR EACH ROW EXECUTE FUNCTION public.stock_row_fill_company();
 
 CREATE INDEX IF NOT EXISTS idx_stock_movements_company ON public.stock_movements (company_id);
@@ -251,6 +255,31 @@ BEGIN
   ELSE
     RAISE NOTICE '1005: stock_movements has row(s) naming another company''s item; stock_movements_company_item_fkey stays NOT VALID';
   END IF;
+END $$;
+
+-- A stock row's product belongs to the row's company (see the header). products.id is the primary key, so (company_id, id) is
+-- unique by construction; the index is what a composite FK needs to reference.
+CREATE UNIQUE INDEX IF NOT EXISTS products_company_id_id_key ON public.products (company_id, id);
+
+DO $$
+DECLARE
+  t text;
+  v_orphans bigint;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['stock_movements', 'stock_levels'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = format('public.%I', t)::regclass AND conname = t || '_company_product_fkey') THEN
+      EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (company_id, product_id) REFERENCES public.products (company_id, id) NOT VALID',
+                     t, t || '_company_product_fkey');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = format('public.%I', t)::regclass AND conname = t || '_company_product_fkey' AND convalidated) THEN
+      EXECUTE format('SELECT count(*) FROM public.%I r WHERE r.company_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.products p WHERE p.id = r.product_id AND p.company_id = r.company_id)', t) INTO v_orphans;
+      IF v_orphans = 0 THEN
+        EXECUTE format('ALTER TABLE public.%I VALIDATE CONSTRAINT %I', t, t || '_company_product_fkey');
+      ELSE
+        RAISE NOTICE '1005: % has % row(s) naming another company''s product; %_company_product_fkey stays NOT VALID', t, v_orphans, t;
+      END IF;
+    END IF;
+  END LOOP;
 END $$;
 
 -- The line tables carry no company_id: the item's company is compared with the header's (on INSERT, and on an UPDATE of the item
