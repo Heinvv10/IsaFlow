@@ -28,6 +28,8 @@
  * than re-booking a payment the directive no longer records (recognised by its
  * narrative). UIF-declaration journals are not judged.
  */
+import { RUN_KEYED_JOURNAL } from './payrollJournalDescription';
+import { runOrderKeySql } from './payrollRunOrder';
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
@@ -94,25 +96,36 @@ async function etiPeriodReversalRefusal(
   return laterEtiJournalRefusal(companyId, { year: Number(root.entryDate.slice(0, 4)), month: Number(root.entryDate.slice(5, 7)) });
 }
 
-/** The description postPayrollRunJournal gives a run's journal (payrollJournalBuilder). */
+/** The description a monthly regular run's journal carries (payrollJournalDescription). */
 const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
 
 interface RunRef { id: string; status: string; linksRoot: boolean; planHash: string | null }
 
 /**
- * The run this journal belongs to: the one linking it, else the run for the period it names. The description names
- * a month only, so it is read as the month's regular run, never an off-cycle run of that month (wave 6 FQb1).
+ * The run this journal belongs to: the one linking it, else the run its description names (payrollJournalDescription):
+ *  - "Payroll run 2026-05": the month's monthly regular run, never another run of that month (wave 6 FQb1);
+ *  - "Payroll run 2026-05 <kind>, paid <date>" (wave 6 FQc, carried from review #1507 item 2): the run of that month of
+ *    that kind (a weekly or fortnightly regular run, or an off-cycle bonus or termination run) paid on that date
+ *    (run_date, else period_end). Two such runs on one pay date are both that description: the one first in pay order
+ *    is judged (named limit; both are the same kind on the same day).
  */
 async function payRunOf(companyId: string, rootId: string, description: string, db: TxSql): Promise<RunRef | null> {
   const period = RUN_JOURNAL.exec(description);
+  const keyed = RUN_KEYED_JOURNAL.exec(description);
+  const year = period ? Number(period[1]) : keyed ? Number(keyed[1]) : -1;
+  const month = period ? Number(period[2]) : keyed ? Number(keyed[2]) : -1;
+  const kind = keyed ? keyed[3]! : null;
   const rows = (await db`
     SELECT id, status, (journal_entry_id = ${rootId}::uuid) AS links_root, approved_plan_hash
-      FROM payroll_run_headers
+      FROM payroll_run_headers h
      WHERE company_id = ${companyId}::uuid
        AND (journal_entry_id = ${rootId}::uuid
-            OR (period_year = ${period ? Number(period[1]) : -1} AND period_month = ${period ? Number(period[2]) : -1}
-                AND run_kind = 'regular' AND pay_frequency = 'monthly'))
-     ORDER BY (journal_entry_id = ${rootId}::uuid) DESC NULLS LAST
+            OR (period_year = ${year} AND period_month = ${month}
+                AND (CASE WHEN ${kind}::text IS NULL THEN run_kind = 'regular' AND pay_frequency = 'monthly'
+                          ELSE COALESCE(run_date, period_end) = ${keyed ? keyed[4]! : null}::date
+                           AND (CASE WHEN run_kind = 'off_cycle' THEN off_cycle_reason ELSE pay_frequency END) = ${kind}::text
+                           AND NOT (run_kind = 'regular' AND pay_frequency = 'monthly') END)))
+     ORDER BY (journal_entry_id = ${rootId}::uuid) DESC NULLS LAST, ${runOrderKeySql('h')}
      LIMIT 1
   `) as DbRow[];
   return rows[0] ? {

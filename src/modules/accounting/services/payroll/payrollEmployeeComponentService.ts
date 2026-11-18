@@ -1,4 +1,5 @@
 import { sql, withTransaction } from '@/lib/neon';
+import { assertComponentAssignableAtFrequency } from './payrollFrequencyGuard';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
@@ -125,6 +126,7 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
+    await assertComponentAssignableAtFrequency(companyId, employeeId, componentId, percentOfRfi); // wave 6 FQc, §0a.11
     await judgeFundAssignment(tx, companyId, componentId);
     if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount, isRecurring);
     await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });
