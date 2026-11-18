@@ -44,6 +44,17 @@ BEGIN
       WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
   END IF;
 
+  -- Fail closed: a permissive policy covering app_user or PUBLIC that does not scope by company_id (USING (true), no
+  -- qual) would expose every tenant's rows now that app_user can read the table.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_policies
+    WHERE schemaname = 'public' AND tablename = 'vat_returns' AND permissive = 'PERMISSIVE'
+      AND (roles && ARRAY['app_user', 'public']::pg_catalog.name[])
+      AND cmd IN ('ALL', 'SELECT') AND (qual IS NULL OR qual NOT LIKE '%company_id%')
+  ) THEN
+    RAISE EXCEPTION '1003: a permissive policy on vat_returns for app_user/PUBLIC does not scope by company_id';
+  END IF;
+
   FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE'] LOOP
     IF NOT pg_catalog.has_table_privilege('app_user', 'public.vat_returns', v_priv) THEN
       RAISE EXCEPTION '1003: app_user still lacks % on vat_returns (is the migration role its owner?)', v_priv;

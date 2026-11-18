@@ -50,4 +50,14 @@ describe('1003: vat_returns grant', () => {
       expect(pol).toEqual([{ policyname: 'vat_returns_tenant_isolation' }]);
     });
   }, 60000);
+
+  it('refuses when a permissive policy for app_user does not scope by company_id', async () => {
+    await rolledBack(async (q) => {
+      await q(`DO $$ DECLARE p text; BEGIN FOR p IN SELECT policyname FROM pg_policies
+        WHERE tablename = 'vat_returns' AND 'app_user' = ANY (roles) LOOP
+        EXECUTE format('DROP POLICY %I ON public.vat_returns', p); END LOOP; END $$`);
+      await q('CREATE POLICY open_all ON public.vat_returns FOR ALL TO app_user USING (true)');
+      await expect(q(M1003)).rejects.toThrow(/does not scope by company_id/);
+    });
+  }, 60000);
 });
