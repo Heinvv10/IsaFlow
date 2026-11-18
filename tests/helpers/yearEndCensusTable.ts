@@ -145,6 +145,7 @@ export const entries: Array<[string, Category, string?]> = [
 /** Templates that are not an sql/tx statement but still name the journal tables. */
 export const COMPOSED: Array<[string, Category]> = [
   ['bank/bankTxQueryFragments.ts', 'BANK'],
+  ['bank/settledDocumentSql.ts', 'BANK'],
   ['gl/dimensions/journalDimensionSetSql.ts', 'FRAGMENT'],
   ['gl/journalVatLockGuard.ts', 'VAT'],
   ['gl/vatLockLineClassification.ts', 'VAT'],
