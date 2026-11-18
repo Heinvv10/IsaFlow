@@ -177,14 +177,14 @@ export default function BankRulesPage() {
               onChange={e => rules.setSearch(e.target.value)}
               placeholder="Search rules by name, pattern, account…"
               aria-label="Search rules"
-              className="ff-input w-full pl-9 pr-8"
+              className="ff-input w-full pl-9 pr-8 max-lg:min-h-11"
             />
             {rules.search && (
               <button
                 type="button"
                 onClick={() => rules.setSearch('')}
                 aria-label="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center lg:right-3"
               >
                 <X className="h-4 w-4" />
               </button>

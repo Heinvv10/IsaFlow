@@ -39,10 +39,11 @@ export function BankRulesTable({
 
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-      <table className="w-full text-sm">
+      <table className="table-cards w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
             <th className="px-3 py-3 w-8">
+              <label className="max-lg:flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center">
               <input
                 type="checkbox"
                 checked={allChecked}
@@ -58,8 +59,9 @@ export function BankRulesTable({
                   onSelectChange(next);
                 }}
                 aria-label="Select all visible rules"
-                className="rounded border-[var(--ff-border-light)] accent-yellow-500"
+                className="rounded border-[var(--ff-border-light)] accent-yellow-500 max-lg:h-5 max-lg:w-5"
               />
+              </label>
             </th>
             <th className="px-4 py-3">Rule</th>
             <th className="px-4 py-3">Match</th>
