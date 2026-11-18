@@ -76,7 +76,7 @@ afterEach(() => { cleanup(); });
 async function open(query: Record<string, string> = {}) {
   cap.router = makeFakeRouter(query);
   render(<BankTransactionsPage />);
-  await screen.findByTestId('bank-tx-selection-bar');
+  await screen.findByTestId('bank-tx-selection-live');
   await waitFor(() => expect(ids().length).toBeGreaterThan(0));
   await settle();
 }
@@ -119,7 +119,7 @@ describe('the drawer link dropping `line` keeps a pending write of the view', ()
     cap.router = makeFakeRouter({ account_id: 'a', line: 'gone-1' });
     cap.router.setLatency(40);
     render(<BankTransactionsPage />);
-    await screen.findByTestId('bank-tx-selection-bar');
+    await screen.findByTestId('bank-tx-selection-live');
     await waitFor(() => expect(ids().length).toBeGreaterThan(0));
     await call(cap.filters, 'onTxTypeChange', 'spent');   // a write is on its way (the router is slow)...
     expect(cap.router.query().type).toBeUndefined();
@@ -135,7 +135,7 @@ describe('React StrictMode', () => {
   it('its double effect run on mount does not undo a restore from the URL (tab, search and page survive)', async () => {
     cap.router = makeFakeRouter({ account_id: 'a', tab: 'reviewed', q: 'rent', page: '2', type: 'spent' });
     render(<StrictMode><BankTransactionsPage /></StrictMode>);
-    await screen.findByTestId('bank-tx-selection-bar');
+    await screen.findByTestId('bank-tx-selection-live');
     await waitFor(() => expect(ids().length).toBeGreaterThan(0));
     await settle();
     expect(tabSelected()).toMatch(/^Reviewed/);

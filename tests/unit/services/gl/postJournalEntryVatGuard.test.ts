@@ -39,7 +39,7 @@ const LINES = [
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   getJournalEntryById: vi.fn(async () => {
     h.log.push('read-entry');
-    return { id: 'je-1', status: 'draft', entryDate: '2026-06-10', fiscalPeriodId: 'fp-1', lines: LINES };
+    return { id: 'je-1', status: 'draft', entryDate: '2026-06-10', fiscalPeriodId: 'fp-1', lines: LINES, source: 'manual' };
   }),
   createJournalEntry: vi.fn(),
   resolveUserUuid: vi.fn(async (u: string) => u),
@@ -72,7 +72,7 @@ describe('postJournalEntry — VAT period lock', () => {
     await postJournalEntry(CO, 'je-1', USER);
 
     expect(assertJournalVatPeriodOpen).toHaveBeenCalledTimes(1);
-    expect(assertJournalVatPeriodOpen).toHaveBeenCalledWith(CO, '2026-06-10', LINES);
+    expect(assertJournalVatPeriodOpen).toHaveBeenCalledWith(CO, '2026-06-10', LINES, undefined, 'manual'); // the source decides the VR exemption
 
     const at = (step: string) => h.log.indexOf(step);
     expect(at('lock-row')).toBe(0);

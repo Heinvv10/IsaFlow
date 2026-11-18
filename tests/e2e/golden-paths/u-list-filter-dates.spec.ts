@@ -43,7 +43,19 @@ async function openScreen(page: Page, s: Screen): Promise<void> {
   await page.goto(s.path);
   await expect(page.getByRole('heading', { name: s.heading, exact: true })).toBeVisible({ timeout: 30_000 });
   expect(new URL(page.url()).pathname, 'no redirect').toBe(s.path);
+  if (s === BANK) await openBankFilters(page);
   await page.locator('input[placeholder="dd MMM yyyy"]').first().waitFor({ state: 'visible', timeout: 30_000 });
+}
+
+/**
+ * The bank list's dates fold behind its "Filters" toggle below 1536px (WP4b): open it when it is closed (the golden
+ * viewport is 1280x720). A wide viewport may already show it open, so it is opened only when it says it is not.
+ */
+async function openBankFilters(page: Page): Promise<void> {
+  const toggle = page.getByRole('button', { name: /^Filters( \(\d+\))?$/ });
+  await expect(toggle).toBeVisible({ timeout: 30_000 });
+  if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 }
 
 async function snap(page: Page, name: string): Promise<void> {
