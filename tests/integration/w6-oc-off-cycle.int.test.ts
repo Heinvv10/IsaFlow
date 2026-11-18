@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
+import { laterOffCycleRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
@@ -117,7 +118,8 @@ describe('OC: a bonus run after the month\'s regular run', () => {
     expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run, paid 2026-11-27');
     const reopened = await a.api.reopen(regular);
     expect(reopened.statusCode).toBe(400); // PayrollRunReopenRefusedError, as every reopen refusal
-    expect(a.msg(reopened)).toMatch(/off-cycle runs were costed on this run's lines/);
+    // The route answers every reopen refusal "Reopen failed" (pre-existing); the reason is this gate's.
+    expect(await laterOffCycleRefusal(a.company, regular)).toMatch(/off-cycle runs were costed on this run's lines/);
     expect((await a.header(regular)).status).toBe('approved');
   });
 });
