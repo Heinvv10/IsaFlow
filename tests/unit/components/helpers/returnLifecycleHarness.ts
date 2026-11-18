@@ -15,7 +15,7 @@ export const V1 = {
   // Wave 6 EFa: the filing file was generated, so Mark filed is offered (filingFileActions.test.tsx covers the unstamped state).
   filingFileSha256: 'a'.repeat(64) as string | null, filingFileKind: 'vat201_capture_csv@1' as string | null,
   filingFileAt: '2026-09-02T11:00:00Z' as string | null, filingFileBy: 'u-owner' as string | null,
-  drift: { drifted: false, fields: [], changed: [], unfinalRuns: 0 } as unknown, lockRemoved: false,
+  drift: { drifted: false, fields: [], changed: [], unfinalRuns: 0 } as unknown, lockRemoved: false, filingWarnings: [] as string[],
 };
 
 export type Reply = { status: number; body: unknown };

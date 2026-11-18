@@ -25,11 +25,24 @@ const refusal = async (p: Promise<unknown>) => p.then(() => null, (e: unknown) =
 beforeEach(() => vi.clearAllMocks());
 
 describe('the PRN is the company\'s', () => {
-  it('passes when the tax number matches, or when none (or a malformed one) is recorded', async () => {
-    for (const vat of ['4123456789', '412 345 6789', null, '', 'N/A', '123', '7123456789']) {
+  it('passes, with no warning, when the tax number matches or none is recorded', async () => {
+    for (const vat of ['4123456789', '412 345 6789', '412-345-6789', null, '', '  ']) {
       db({ vat_number: vat, paye_reference_number: null });
-      expect(await refusal(assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, PRN)), String(vat)).toBeNull();
+      expect(await assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, PRN), String(vat)).toBeNull();
     }
+  });
+
+  it('passes with the named warning PRN_NOT_CROSS_CHECKED when the recorded number is not a valid SARS number', async () => {
+    for (const vat of ['N/A', '123', '7123456789', '41234567890', '412345678X']) {
+      db({ vat_number: vat, paye_reference_number: null });
+      expect(await assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, PRN), vat).toEqual({
+        code: 'PRN_NOT_CROSS_CHECKED',
+        message: 'The company VAT number on file is not a valid SARS number; the PRN was not cross-checked.',
+      });
+    }
+    db({ vat_number: null, paye_reference_number: '4123456789' }); // a VAT number in the PAYE field
+    expect(await assertFilingReferenceIsTheCompanys('c1', EMP_VERSION, '7123456789L00000001'))
+      .toMatchObject({ code: 'PRN_NOT_CROSS_CHECKED', message: expect.stringMatching(/PAYE reference on file/) });
   });
 
   it('refuses a PRN of another VAT number (400) and of another PAYE reference on an EMP201', async () => {

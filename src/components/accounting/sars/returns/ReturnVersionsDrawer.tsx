@@ -58,6 +58,9 @@ export function ReturnVersionsDrawer({ open, onClose, form, versions, vatReturn,
                 {/* An amend releases its version's lock by design: only a live version's released lock is news. */}
                 {v.status !== 'superseded' && v.lockRemoved && <Badge variant="danger">Lock removed outside the lifecycle</Badge>}
               </div>
+              {(v.filingWarnings ?? []).map((w) => (
+                <p key={w} className="rounded-md bg-amber-500/10 p-2 text-xs text-[var(--ff-text-primary)]" data-testid="filing-warning">{w}</p>
+              ))}
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                 <dt className="text-[var(--ff-text-secondary)]">Finalised</dt>
                 <dd className="text-[var(--ff-text-primary)]">{nameOf(v.finalisedBy)}, {formatDate(v.finalisedAt)}</dd>

@@ -164,6 +164,28 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
     expect((await row(apr)).status).toBe('finalised');
   });
 
+  it('a VAT number on file that is not a valid SARS number: the filing goes ahead with the named warning, which the drawer shows', async () => {
+    const FEB = { periodStart: '2026-02-01', periodEnd: '2026-03-31' };
+    await sql`UPDATE companies SET vat_number = 'N/A' WHERE id = ${a.fx.companyId}::UUID`;
+    try {
+      const id = String(versionOf(await fin(FEB)).id);
+      const filed = await fileV(id, { reference: '4555555555V00000009' });
+      expect(filed.status).toBe(200);
+      expect((filed.body as { data: { warnings: unknown[] } }).data.warnings).toEqual([{
+        code: 'PRN_NOT_CROSS_CHECKED',
+        message: 'The company VAT number on file is not a valid SARS number; the PRN was not cross-checked.',
+      }]);
+      const shown = ((await drawer(FEB)).body as { data: { versions: Array<{ id: string; filingWarnings: string[] }> } }).data.versions;
+      expect(shown.find((v) => v.id === id)!.filingWarnings).toEqual([
+        'The company VAT number on file is not a valid SARS number; the PRN was not cross-checked.']);
+      // A filing that WAS cross-checked carries no warning (June, filed above against 4123456789).
+      const jun = ((await drawer(JUN)).body as { data: { versions: Array<{ filingWarnings: string[] }> } }).data.versions;
+      expect(jun.every((v) => v.filingWarnings.length === 0)).toBe(true);
+    } finally {
+      await sql`UPDATE companies SET vat_number = '4123456789' WHERE id = ${a.fx.companyId}::UUID`;
+    }
+  });
+
   it('EMP201 versions are payroll detail: a viewer gets 403 and no figures; VAT201 versions stay readable', async () => {
     const emp = await drawer(APR, a.viewer.token, 'emp201');
     expect(emp.status).toBe(403);

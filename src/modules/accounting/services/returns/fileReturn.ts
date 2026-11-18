@@ -18,7 +18,7 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { driftOf } from './returnDrift';
-import { assertFilingReferenceIsTheCompanys, parseFilingReference } from './filingReference';
+import { assertFilingReferenceIsTheCompanys, parseFilingReference, type FilingWarning } from './filingReference';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
@@ -26,6 +26,8 @@ import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm,
 export interface FiledReturn {
   version: ReturnVersion;
   submission: SARSSubmission;
+  /** Named warnings the filing went ahead with (PRN_NOT_CROSS_CHECKED). */
+  warnings: FilingWarning[];
 }
 
 export interface FileOptions {
@@ -71,7 +73,7 @@ export async function markReturnFiled(
     throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
       'FILING_FILE_REQUIRED');
   }
-  await assertFilingReferenceIsTheCompanys(companyId, v, ref);
+  const prnWarning = await assertFilingReferenceIsTheCompanys(companyId, v, ref);
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,
       'The VAT period lock of this version was removed outside the return lifecycle. Amend the return, then finalise again.');
@@ -135,10 +137,11 @@ export async function markReturnFiled(
         fields: [{ field: 'status', old: 'finalised', new: 'filed', label: 'Status' }],
         metadata: {
           reference: ref, submissionId: submission.id, ...(overrideReason ? { vatGateOverridden: 'yes' } : {}),
+          ...(prnWarning ? { prnNotCrossChecked: prnWarning.message } : {}),
           ...(correction ? { supersededLegacySubmissions: legacy.map((l) => l.id).join(','), correctionReason: correction } : {}),
         },
       },
     });
-    return { version, submission };
+    return { version, submission, warnings: prnWarning ? [prnWarning] : [] };
   });
 }
