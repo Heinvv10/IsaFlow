@@ -96,8 +96,9 @@ type HostedStep = { uses: string; with: Record<string, unknown> } | { run: strin
  * group's apt steps: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice, poppler). Each install
  * is bounded with retries (apt: update 90 s + install 240 s per attempt, 3 attempts; playwright 15 min, one retry): a slow-but-alive mirror
  * stalled Browser & integration 37-46 min three times on 6 Nov, and a 600 s x 2 bound still failed 7+ jobs on 18 Nov, which the Acquire
- * timeouts (dead connections only) do not catch. The apt steps are three: the week (cache rotation), actions/cache of the downloaded .debs
- * (a hit skips the mirror; apt verifies every .deb against the signed index, so a poisoned cache cannot install anything), the install.
+ * timeouts (dead connections only) do not catch. The apt steps: the week (cache rotation), actions/cache of the downloaded .debs
+ * (a hit skips the mirror; apt verifies every .deb against the signed index, so a poisoned cache cannot install anything), the required install,
+ * and velo's best-effort LibreOffice install. Each retry rotates the mirror (a stall was always on one mirror's 43 MB libreoffice-core).
  */
 const HOSTED_TOOLS: HostedStep[] = [
   { uses: 'actions/setup-node@v6', with: { 'node-version': 20 } },
@@ -111,23 +112,38 @@ const HOSTED_TOOLS: HostedStep[] = [
     },
   },
 ];
-const APT_PACKAGES: Record<string, string> = {
-  static: 'ghostscript',
-  velo: 'postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils',
+/** Required packages (a failed install fails the job) and best-effort ones (a failed install warns; their suites skip without them). */
+const APT_PACKAGES: Record<string, { required: string; optional?: string }> = {
+  static: { required: 'ghostscript' },
+  velo: { required: 'postgresql-16 postgresql-16-pgvector poppler-utils', optional: 'libreoffice-calc-nogui' },
 };
-/** The apt steps of a group, exactly: week bucket, .deb cache, then update + install (the `locale-gen` tail is the velo group's, for the integration clusters). */
+/** A retry must not hit the mirror that stalled: attempt 2 uses archive.ubuntu.com alone, attempt 3 the Azure mirror, then archive.ubuntu.com. */
+const APT_MIRROR_FN = [
+  'apt_mirror() { case "$1" in',
+  "  2) printf '%s\\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;",
+  "  3) printf '%s\\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;",
+  '  esac; }',
+];
+const aptInstall = (pkgs: string): string => `{ sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" ${pkgs}; }`;
+const APT_RETRY = "echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done";
+/**
+ * The apt steps of a group, exactly: week bucket, .deb cache, the required install (the `locale-gen` tail is the velo group's, for the
+ * integration clusters), and for velo the best-effort LibreOffice install: its two suites skip without soffice, so a stalled mirror warns
+ * (annotation + job summary) instead of failing the part. It then drops the downloaded .debs so a partial set is not cached for the week.
+ */
 function hostedApt(group: string): HostedStep[] {
-  const pkgs = APT_PACKAGES[group];
-  const prefix = `apt-\${{ runner.os }}-${pkgs.split(' ').join('+')}-`;
+  const { required, optional } = APT_PACKAGES[group];
+  const prefix = `apt-\${{ runner.os }}-${[required, optional].filter(Boolean).join(' ').split(' ').join('+')}-`;
   const run = [
     'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null',
     "echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null",
     'mkdir -p "$HOME/apt-debs/partial"',
     'sudo chmod -R a+rwX "$HOME/apt-debs"',
-    `for i in 1 2 3; do { sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" ${pkgs}; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done`,
+    ...APT_MIRROR_FN,
+    `for i in 1 2 3; do apt_mirror "$i"; ${aptInstall(required)} && break; [ "$i" = 3 ] && exit 1; ${APT_RETRY}`,
     ...(group === 'velo' ? ['sudo locale-gen en_US.UTF-8'] : []),
   ].join('\n');
-  return [
+  const steps: HostedStep[] = [
     { id: 'aptweek', run: 'echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"' },
     {
       uses: 'actions/cache@v4',
@@ -135,6 +151,18 @@ function hostedApt(group: string): HostedStep[] {
     },
     { run },
   ];
+  if (optional) {
+    steps.push({
+      run: [
+        ...APT_MIRROR_FN,
+        `for i in 1 2 3; do apt_mirror "$i"; ${aptInstall(optional)} && exit 0; ${APT_RETRY}`,
+        'rm -f "$HOME"/apt-debs/*.deb',
+        "echo '::warning::libreoffice install failed; soffice tests will skip'",
+        "echo '### LibreOffice install failed: the soffice suites (xlsxNormaliseScanNames, budget-grid-import-libreoffice) skip in this part' >> \"$GITHUB_STEP_SUMMARY\"",
+      ].join('\n'),
+    });
+  }
+  return steps;
 }
 const HOSTED_APT: Record<string, HostedStep[]> = { static: hostedApt('static'), velo: hostedApt('velo') };
 /** Hosted-only, between install and the gate: Chromium at the locked playwright's revision. */
