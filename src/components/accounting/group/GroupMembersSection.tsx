@@ -11,7 +11,7 @@ import {
   CONSOLIDATION_METHODS,
 } from './types';
 import { addMemberBody, updateMemberBody, removeMemberQuery } from './groupRequests';
-import { isActiveCompany, switchToAdd, switchToChange } from './groupActiveCompany';
+import { disabledAction, isActiveCompany, rowHint, switchToAdd } from './groupActiveCompany';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Props {
@@ -95,6 +95,13 @@ export function GroupMembersSection({ group, members, availableCompanies, active
         </button>
       </div>
 
+      {!activeCompanyId && (
+        <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-[var(--ff-text-primary)]">
+          <span>Your active company could not be loaded, so member changes are paused.</span>
+          <button onClick={() => window.location.reload()} className={BTN_SECONDARY}>Retry</button>
+        </div>
+      )}
+
       {showAddMember && (
         <div className="mb-4 p-4 bg-[var(--ff-bg-primary)] rounded-lg border border-[var(--ff-border-primary)] space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -108,7 +115,7 @@ export function GroupMembersSection({ group, members, availableCompanies, active
                 <option value="">-- Select Company --</option>
                 {availableCompanies.map(c => (
                   <option key={c.id} value={c.id} disabled={!isActiveCompany(c.id, activeCompanyId)}>
-                    {isActiveCompany(c.id, activeCompanyId) ? c.name : switchToAdd(c.name)}
+                    {isActiveCompany(c.id, activeCompanyId) ? c.name : switchToAdd(c.name, !!activeCompanyId)}
                   </option>
                 ))}
               </select>
@@ -158,7 +165,8 @@ export function GroupMembersSection({ group, members, availableCompanies, active
             <tbody>
               {members.map(m => {
                 const here = isActiveCompany(m.companyId, activeCompanyId);
-                const hint = here ? undefined : switchToChange(m.companyName ?? 'that company');
+                const name = m.companyName ?? 'that company';
+                const hint = here ? undefined : rowHint(name, !!activeCompanyId);
                 return (
                 <tr key={m.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                   <td className="py-3 text-[var(--ff-text-primary)]">
@@ -206,13 +214,13 @@ export function GroupMembersSection({ group, members, availableCompanies, active
                           }}
                           disabled={!here}
                           className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                          title={hint ?? 'Edit'} aria-label={hint ?? 'Edit'}
+                          title={here ? 'Edit' : disabledAction('Edit', name, !!activeCompanyId)} aria-label={here ? 'Edit' : disabledAction('Edit', name, !!activeCompanyId)}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button onClick={() => void handleRemoveMember(m.id)} disabled={!here}
                           className="p-1.5 rounded hover:bg-red-500/10 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                          title={hint ?? 'Remove'} aria-label={hint ?? 'Remove'}>
+                          title={here ? 'Remove' : disabledAction('Remove', name, !!activeCompanyId)} aria-label={here ? 'Remove' : disabledAction('Remove', name, !!activeCompanyId)}>
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>

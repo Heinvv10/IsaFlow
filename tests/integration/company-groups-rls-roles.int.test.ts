@@ -63,7 +63,7 @@ describe('intercompany_transactions: changed by the writer of a party, and only 
   });
   it('matching through the service updates both rows (the writer of A1 and A4 writes both parties)', async () => {
     await asService(u.UA, co.A1, async (client) => {
-      await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA);
+      await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UA);
       const r = await client.query('SELECT id, match_status, variance_amount FROM intercompany_transactions WHERE id = ANY($1::uuid[]) ORDER BY 1', [[row.txA1A4, row.txA4]]);
       expect(r.rows.map((x: { match_status: string }) => x.match_status)).toEqual(['variance', 'variance']);
       expect(Number(r.rows[0].variance_amount)).toBe(93);
@@ -73,7 +73,7 @@ describe('intercompany_transactions: changed by the writer of a party, and only 
     // UW owns A1 only: txA1A4 (source A1) is writable, txA4 (A4 -> A4) is not, so row security would change 1 of 2.
     await asService(u.UW, co.A1, async (client) => {
       const before = (await client.query('SELECT id, match_status FROM intercompany_transactions WHERE id = ANY($1::uuid[]) ORDER BY 1', [[row.txA1A4, row.txA4]])).rows;
-      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA)).rejects.toBeInstanceOf(IntercompanyMatchRefusedError);
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UW)).rejects.toBeInstanceOf(IntercompanyMatchRefusedError);
       const after = (await client.query('SELECT id, match_status FROM intercompany_transactions WHERE id = ANY($1::uuid[]) ORDER BY 1', [[row.txA1A4, row.txA4]])).rows;
       expect(after).toEqual(before);
     });

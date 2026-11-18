@@ -8,6 +8,16 @@ export function isActiveCompany(companyId: string, activeCompanyId: string | nul
   return !!activeCompanyId && companyId.toLowerCase() === activeCompanyId.toLowerCase();
 }
 
-/** The hint on a member row or picker entry that is not the active company. */
-export const switchToChange = (companyName: string): string => `Switch to ${companyName} to change this`;
-export const switchToAdd = (companyName: string): string => `${companyName} (switch to this company to add it)`;
+/**
+ * The name of a disabled action on a member row: the action and the reason ("Edit - switch to X to change this"), so
+ * two disabled buttons on one row are not announced alike. With no active company known the reason is that, not a switch.
+ */
+export const disabledAction = (action: string, companyName: string, activeKnown: boolean): string =>
+  activeKnown ? `${action} - switch to ${companyName} to change this` : `${action} ${companyName} - your active company has not loaded`;
+
+/** The hint under a member row's name. */
+export const rowHint = (companyName: string, activeKnown: boolean): string =>
+  activeKnown ? `Switch to ${companyName} to change this` : 'Your active company has not loaded: reload to change this';
+
+export const switchToAdd = (companyName: string, activeKnown: boolean): string =>
+  activeKnown ? `${companyName} (switch to this company to add it)` : companyName;

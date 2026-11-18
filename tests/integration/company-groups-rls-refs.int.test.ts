@@ -175,13 +175,23 @@ describe('the services under the narrower policies: nothing is reported done tha
       expect(await removeMember(id, g.GA)).toBe(false);
     });
   });
+  it('a re-match is signed by whoever re-matched: never a fresh matched_at over a stale matched_by', async () => {
+    await asService(u.UA, co.A1, async (client) => {
+      await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UA);
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: u.UX })]);   // UX writes A4: both parties of both rows
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [co.A4]);
+      await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UX);
+      const r = await client.query('SELECT matched_by FROM intercompany_transactions WHERE id = ANY($1::uuid[])', [[row.txA1A4, row.txA4]]);
+      expect(r.rows.map((x: { matched_by: string }) => x.matched_by)).toEqual([u.UX, u.UX]);
+    });
+  });
   it('a match that only one of the two rows allows throws, and the route can tell beforehand who writes which party', async () => {
     await asService(u.UW, co.A1, async (client) => {      // UW writes A1 (source of txA1A4), neither party of txA4
       const parties = await getTransactionParties([row.txA1A4, row.txA4], g.GA);
       expect(parties.find((p) => p.id === row.txA1A4)).toMatchObject({ sourceCompanyId: co.A1, targetCompanyId: co.A4 });
       expect(parties.find((p) => p.id === row.txA4)).toMatchObject({ sourceCompanyId: co.A4, targetCompanyId: co.A4 });
       await client.query('SAVEPOINT m');
-      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA)).rejects.toThrow(/1 of 2/);
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UW)).rejects.toThrow(/1 of 2/);
       await client.query('ROLLBACK TO SAVEPOINT m');
     });
     await asService(u.UA, co.A1, async (client) => {
@@ -192,8 +202,9 @@ describe('the services under the narrower policies: nothing is reported done tha
       await client.query('SAVEPOINT forged');
       await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UB)).rejects.toMatchObject({ code: FROZEN });   // not another user's name
       await client.query('ROLLBACK TO SAVEPOINT forged');
-      await expect(matchIntercompanyTransactions(row.txA1A4.toUpperCase(), row.txA1A4, g.GA)).rejects.toThrow(/itself/i);   // mixed case is the same row
-      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA1A4, g.GA)).rejects.toThrow(/itself/i);   // a row is never matched with itself
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, undefined as never)).rejects.toThrow(/matchedBy is required/);   // never an unsigned match
+      await expect(matchIntercompanyTransactions(row.txA1A4.toUpperCase(), row.txA1A4, g.GA, u.UA)).rejects.toThrow(/itself/i);   // mixed case is the same row
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA1A4, g.GA, u.UA)).rejects.toThrow(/itself/i);   // a row is never matched with itself
     });
   });
 });

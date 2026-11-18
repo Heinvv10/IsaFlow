@@ -214,7 +214,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
       .mockResolvedValueOnce([{ id: 'tgt', amount: '100', group_id: GROUP_A }] as never) // target SELECT
       .mockResolvedValueOnce([{ id: 'src' }, { id: 'tgt' }] as never); // UPDATE ... RETURNING id
 
-    await matchIntercompanyTransactions('src', 'tgt', GROUP_A);
+    await matchIntercompanyTransactions('src', 'tgt', GROUP_A, 'u1');
 
     const values = flatSqlValues();
     // GROUP_A must appear (multiple times — once per SELECT + UPDATE)
@@ -229,7 +229,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
       .mockResolvedValueOnce([{ id: B186_TARGET_B, amount: '500', group_id: GROUP_B }] as never);
 
     await expect(
-      matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A)
+      matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A, 'u1')
     ).rejects.toThrow(/not found/);
 
     // GROUP_A should have been passed to the SELECT
@@ -245,7 +245,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
       .mockResolvedValueOnce([] as never);
 
     await expect(
-      matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A)
+      matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A, 'u1')
     ).rejects.toThrow(/not found/);
   });
 
@@ -255,7 +255,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
       .mockResolvedValueOnce([{ id: B186_TARGET_B, amount: '200', group_id: GROUP_A }] as never)
       .mockResolvedValueOnce([{ id: B186_SOURCE_B }, { id: B186_TARGET_B }] as never);
 
-    await matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A);
+    await matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A, 'u1');
 
     const values = flatSqlValues();
     expect(values).not.toContain(GROUP_B);

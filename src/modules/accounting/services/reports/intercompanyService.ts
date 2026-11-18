@@ -182,9 +182,10 @@ export async function matchIntercompanyTransactions(
   sourceId: string,
   targetId: string,
   groupId: string,
-  /** Who matched them: stamped on both rows (an audit trail; the database pins it to the caller). */
-  matchedBy?: string,
+  /** Who matched them: stamped on both rows with matched_at (an audit trail; the database pins it to the caller). */
+  matchedBy: string,
 ): Promise<void> {
+  if (!matchedBy) throw new Error('matchedBy is required: a match is signed by the user who made it');
   if (sourceId.toLowerCase() === targetId.toLowerCase()) throw new Error('An intercompany transaction cannot be matched with itself');
   const sources = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${sourceId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
   const targets = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${targetId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
@@ -206,7 +207,7 @@ export async function matchIntercompanyTransactions(
         match_status = ${status},
         variance_amount = ${variance},
         matched_at = NOW(),
-        matched_by = COALESCE(${matchedBy ?? null}::UUID, matched_by)
+        matched_by = ${matchedBy}::UUID
       WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
         AND group_id = ${groupId}::UUID
       RETURNING id

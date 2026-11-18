@@ -107,7 +107,7 @@ export function GroupDetailsTab({
               <option value="">-- Select --</option>
               {userCompanies.map(c => (
                 <option key={c.id} value={c.id} disabled={!isActiveCompany(c.id, activeCompanyId)}>
-                  {isActiveCompany(c.id, activeCompanyId) ? c.name : switchToAdd(c.name)}
+                  {isActiveCompany(c.id, activeCompanyId) ? c.name : switchToAdd(c.name, !!activeCompanyId)}
                 </option>
               ))}
             </select>
