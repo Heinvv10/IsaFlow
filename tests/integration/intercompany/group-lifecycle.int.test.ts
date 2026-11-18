@@ -88,6 +88,7 @@ describe('a company leaving a group takes its group connections with it', () => 
     await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'active' WHERE id = $1", [id]), true);
     await leave(co.A);
     expect(await row()).toMatchObject(REVOKED_BY_SYSTEM);
+    expect((await row(other)).status).toBe('active');   // an external connection of A is not a group connection: not touched
   });
 
   it("an app_user session ending the membership revokes too (the definer reaches rows its RLS hides); the stamp is still the system's", async () => {
@@ -197,6 +198,19 @@ describe('the system path cannot be forged', () => {
       expect(await outcome(q, REVOKE, [id])).toBe('ok');
     }, true);
     expect(await row()).toMatchObject(REVOKED_BY_SYSTEM);
+  });
+});
+
+describe('the system flag lives only inside the revoking trigger', () => {
+  it('after a membership change in the same transaction the flag is gone: a later status change is held to the user rules again', async () => {
+    const ext = await plantExternal(pool, co.A, co.C, 'active', U.ac);
+    await asOwner(pool, null, co.A, async (q) => {
+      await q.query('SET LOCAL ROLE migration_admin');
+      await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.B]);
+      expect((await q.query('SELECT status FROM intercompany_connections WHERE id = $1', [id])).rows[0].status).toBe('revoked');
+      expect((await q.query("SELECT current_setting('app.intercompany_system_revoke', true) AS v")).rows[0].v).toBe('');
+      expect(await outcome(q, "UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [ext])).toBe(R.statusNeedsUser);
+    });
   });
 });
 

@@ -21,6 +21,9 @@ beforeEach(async () => {
   id = await plantConnection(pool, co.A, co.B);
 });
 
+const lowUser = () => (low() === co.A ? U.a : U.b);
+const highUser = () => (high() === co.A ? U.a : U.b);
+
 describe('a manual pairing', () => {
   it('starts pending with the inserter\'s side confirmed, and names no message', async () => {
     const a = await plantDocument(pool, 'customer_invoice', low());
@@ -137,6 +140,16 @@ describe('a manual pairing', () => {
     });
     await asAppUser(pool, lowUser, low(), (q) => q.query("UPDATE intercompany_document_links SET confirmed_by_a = 'x' WHERE id = $1", [link]), true);
     expect(await linkRow(pool, link)).toMatchObject({ status: 'active', confirmed_by_a: lowUser, confirmed_by_b: highUser });
+  });
+
+  it('the HIGH company\'s writer cannot confirm the LOW side', async () => {
+    const a = await plantDocument(pool, 'customer_invoice', low());
+    const b = await plantDocument(pool, 'supplier_invoice', high());
+    const link = await asAppUser(pool, highUser(), high(), async (q) => (await q.query(LINK, pairing(id, a, b))).rows[0].id as string, true);
+    await asAppUser(pool, highUser(), high(), async (q) => {
+      expect(await outcome(q, "UPDATE intercompany_document_links SET confirmed_by_a = 'x' WHERE id = $1", [link])).toBe(R.linkConfirmRole);
+    });
+    expect((await linkRow(pool, link)).status).toBe('pending_confirmation');
   });
 
   it('either party may unlink; the stamps are server-side; an unlinked link is final; unlinking changes nothing else', async () => {

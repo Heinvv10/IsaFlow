@@ -624,9 +624,9 @@ BEGIN
     RAISE EXCEPTION 'a message is handled by a user with a write role in the receiving company' USING ERRCODE = '42501';
   END IF;
   -- A message that creates a document is accepted with that document: it exists in the receiver's company.
+  -- (intercompany_document_exists is false for a NULL type or id, so a missing target is refused here too.)
   IF NEW.status = 'accepted' AND NEW.kind IN ('invoice', 'credit_note', 'interest_invoice')
-     AND (NEW.target_doc_type IS NULL OR NEW.target_doc_id IS NULL
-          OR NOT public.intercompany_document_exists(NEW.target_doc_type, NEW.target_doc_id, OLD.to_company_id)) THEN
+     AND NOT public.intercompany_document_exists(NEW.target_doc_type, NEW.target_doc_id, OLD.to_company_id) THEN
     RAISE EXCEPTION 'an accepted message names the document it created in the receiving company' USING ERRCODE = '23514';
   END IF;
   NEW.updated_at := clock_timestamp();

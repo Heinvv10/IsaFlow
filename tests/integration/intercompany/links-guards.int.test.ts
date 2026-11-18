@@ -132,6 +132,22 @@ describe('a pending pairing holds no slot', () => {
   });
 });
 
+describe('a pending pairing holds no slot on the LOW side either', () => {
+  it('two pendings may name one low document; only one can be confirmed', async () => {
+    const a = await plantDocument(pool, 'customer_invoice', low());
+    const b1 = await plantDocument(pool, 'supplier_invoice', high());
+    const b2 = await plantDocument(pool, 'supplier_invoice', high());
+    const make = (b: string) => asAppUser(pool, highUser(), high(), async (q) => (await q.query(LINK, pairing(id, a, b))).rows[0].id as string, true);
+    const first = await make(b1);
+    const second = await make(b2);
+    await asAppUser(pool, lowUser(), low(), (q) => q.query(CONFIRM_A, [first]), true);
+    expect((await linkRow(pool, first)).status).toBe('active');
+    await asAppUser(pool, lowUser(), low(), async (q) => {
+      expect(await outcome(q, CONFIRM_A, [second])).toBe('23505: duplicate key value violates unique constraint "intercompany_links_doc_a_active"');
+    });
+  });
+});
+
 describe('a message has one mirror link', () => {
   it('a second active mirror link for the same message is refused by the index alone (the guard is off to reach it)', async () => {
     const { m, src, tgt } = await acceptedMessage(pool, id, co.A, co.B);

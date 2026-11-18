@@ -135,6 +135,15 @@ describe('handling', () => {
     await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = false WHERE connection_id = $1', [id]), true);
     await plantSide(pool, id, co.A, co.B, { auto_accept: true });
     expect(await via('auto')).toBe('user');
+    // a dismissal on a REVOKED connection is allowed, and is a person's act even with auto-accept on
+    await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1', [id]), true);
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+    await asOwner(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      await q.query("SELECT set_config('app.intercompany_handled_via', 'auto', true)");
+      await q.query("UPDATE intercompany_messages SET status = 'dismissed' WHERE id = $1", [m]);
+    }, true);
+    expect((await msgRow(m)).handled_via).toBe('user');
   });
 
   it('accepted and rejected are final; a dismissal can only be restored to pending, which clears the handling', async () => {

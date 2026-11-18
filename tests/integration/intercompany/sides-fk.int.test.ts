@@ -95,4 +95,20 @@ describe('the same UPDATE written by a user is not a foreign key action', () => 
     });
     expect((await side()).supplier_id).toBe(ids.supplier);
   });
+
+  it('a nested UPDATE that changes more than references going to NULL is not let through (a test trigger one level down, rolled back)', async () => {
+    const ids = await referencedSide();
+    const other = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES ($1, $2, $3)', [other, co.A, 'FK other']);
+    await revoke();
+    const attempt = async (assignment: string) => asOwner(pool, U.ab, co.A, async (q) => {
+      await q.query(`CREATE FUNCTION public.ic_test_nested_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        UPDATE intercompany_connection_sides SET ${assignment} WHERE connection_id = '${id}' AND company_id = '${co.A}'; RETURN NEW; END $$`);
+      await q.query('CREATE TRIGGER ic_test_nested AFTER UPDATE ON customers FOR EACH ROW EXECUTE FUNCTION public.ic_test_nested_update()');
+      return outcome(q, 'UPDATE customers SET name = name WHERE id = $1', [ids.customer]);
+    });
+    expect(await attempt("customer_id = '" + other + "'")).toBe(R.sideRevoked);          // re-pointed, not cleared
+    expect(await attempt('customer_id = NULL, auto_accept = true')).toBe(R.sideRevoked);   // cleared, but something else changed
+    expect(await attempt('customer_id = NULL')).toBe('ok');                               // the control: references going to NULL only
+  });
 });
