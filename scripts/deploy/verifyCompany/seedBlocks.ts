@@ -24,7 +24,7 @@ export const COST_OF_SALES = { accountCode: '5150', accountName: 'Cost of Sales'
 export const PRIOR_YEAR_JOURNAL = 'DEMO-JNL-PY';
 export const budgetVersionName = (fy: number): string => `Deploy Verification original FY${fy}`;
 
-export interface PlanContext { db: ClientBase; companyId: string; verifyUserId: string; now: Date }
+export interface PlanContext { db: ClientBase; companyId: string; verifyUserId: string; now: Date; financialYearStart: number }
 export interface RunContext extends PlanContext { api: Client; months: string[] }
 export interface BlockPlan { complete: boolean; run: (ctx: RunContext) => Promise<void> }
 export interface Block { name: string; plan: (ctx: PlanContext) => Promise<BlockPlan> }
@@ -114,7 +114,7 @@ const journalsBlock = (c: SeedCounts): Block => ({
  */
 const priorYearJournalBlock: Block = {
   name: 'prior-year actuals journal',
-  plan: async ({ db, companyId, now }) => {
+  plan: async ({ db, companyId, now, financialYearStart }) => {
     const r = await db.query<{ id: string; posted: boolean }>(
       `SELECT id::text AS id, status = 'posted' AS posted FROM gl_journal_entries WHERE company_id = $1::uuid AND description = $2`, [companyId, PRIOR_YEAR_JOURNAL]);
     const have = r.rows[0];
@@ -128,7 +128,7 @@ const priorYearJournalBlock: Block = {
           const bank = (await api.get<Array<{ id: string }>>('/api/accounting/bank-accounts'))[0];
           if (!revenue || !bank) throw new Error('seed: the company needs a default revenue account and a bank account');
           id = (await api.post<{ id: string }>('/api/accounting/journal-entries', {
-            entryDate: midFy(now, -1), description: PRIOR_YEAR_JOURNAL,
+            entryDate: midFy(now, -1, financialYearStart), description: PRIOR_YEAR_JOURNAL,
             lines: [
               { glAccountId: bank.id, debit: 5000, credit: 0, description: `${PRIOR_YEAR_JOURNAL} dr` },
               { glAccountId: revenue.id, debit: 0, credit: 5000, description: `${PRIOR_YEAR_JOURNAL} cr` },
@@ -163,14 +163,14 @@ const costOfSalesBlock: Block = {
  */
 const budgetBlock = (offset: 0 | 1): Block => ({
   name: offset === 0 ? 'budget original version, current year' : 'budget original version, next year',
-  plan: async ({ db, companyId, now }) => {
-    const fy = fyLabel(now) + offset;
+  plan: async ({ db, companyId, now, financialYearStart }) => {
+    const fy = fyLabel(now, financialYearStart) + offset;
     const r = await db.query(`SELECT 1 FROM budget_versions WHERE company_id = $1::uuid AND fiscal_year = $2 AND kind = 'original'`, [companyId, fy]);
     return {
       complete: (r.rowCount ?? 0) > 0,
       run: async ({ api }) => {
         const years = await api.get<{ fiscalYear: number }>('/api/accounting/budgets?years_only=1');
-        if (years.fiscalYear !== fyLabel(now)) throw new Error(`the app's current budget year is ${years.fiscalYear}, this run computed ${fyLabel(now)}: the clock or the year-end setting differs; nothing was seeded for it`);
+        if (years.fiscalYear !== fyLabel(now, financialYearStart)) throw new Error(`the app's current budget year is ${years.fiscalYear}, this run computed ${fyLabel(now, financialYearStart)}: the clock or the year-end setting differs; nothing was seeded for it`);
         await api.post('/api/accounting/budget-versions', { fiscalYear: fy, name: budgetVersionName(fy), kind: 'original' });
       },
     };

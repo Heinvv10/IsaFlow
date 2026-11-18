@@ -12,12 +12,15 @@ const NOW = new Date('2026-11-18T10:00:00Z');
 interface Rig { deps: Deps; log: string[]; saved: Map<string, string>; finals: Map<string, Login>; goTrue: Map<string, string> }
 
 /** `existing`: emails already in GoTrue; `file`/`pending`: what the env file holds. */
-function rig(init: { existing?: string[]; foreign?: string[]; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
+function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[]; legacyIds?: Record<string, string>; signOutFailsOnce?: boolean; approverActual?: string; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
   const log: string[] = [];
   const saved = new Map<string, string>(Object.entries(init.pending ?? {}));
   const finals = new Map<string, Login>((init.file ?? []).map((l) => [l.email, l]));
-  const goTrue = new Map<string, string>([...(init.existing ?? []), ...(init.foreign ?? [])].map((e) => [e, `id-${e}`]));
+  const goTrue = new Map<string, string>([...(init.existing ?? []), ...(init.foreign ?? []), ...(init.legacy ?? [])].map((e) => [e, `id-${e}`]));
   const foreign = new Set(init.foreign ?? []);
+  const legacy = new Set(init.legacy ?? []);
+  const ids = new Map<string, string>(Object.entries(init.legacyIds ?? {}));
+  let signOutFailed = false;
   const fail = (step: string) => { if (init.failAt === step) throw new Error(`boom at ${step}`); };
   const db = { query: async (sql: string) => { log.push(`db:${sql.split(' ')[0]}`); if (sql === 'ROLLBACK' && init.rollbackFails) throw new Error('rollback socket closed'); return { rows: [] }; } } as unknown as ClientBase;
   const deps: Deps = {
@@ -34,18 +37,21 @@ function rig(init: { existing?: string[]; foreign?: string[]; pending?: Record<s
       },
     },
     goTrue: {
-      find: async (email) => { const id = goTrue.get(email); return id ? { id, purpose: foreign.has(email) ? 'someone elses' : LOGIN_PURPOSE } : null; },
+      find: async (email) => { const id = goTrue.get(email); return id ? { id, purpose: foreign.has(email) ? 'someone elses' : legacy.has(email) ? null : LOGIN_PURPOSE, legacyPurpose: legacy.has(email) ? LOGIN_PURPOSE : null } : null; },
+      stamp: async (id) => { log.push(`gotrue:stamp:${id}`); legacy.delete([...goTrue].find(([, v]) => v === id)![0]); },
       create: async (who, password) => { log.push(`gotrue:create:${who.email}`); fail('create'); goTrue.set(who.email, `id-${who.email}`); void password; return { id: `id-${who.email}`, purpose: init.createdForeign ? null : LOGIN_PURPOSE }; },
       setPassword: async (id) => { log.push(`gotrue:setPassword:${id}`); },
-      signOut: async (id) => { log.push(`gotrue:signOut:${id}`); },
+      signOut: async (id) => { log.push(`gotrue:signOut:${id}`); if (init.signOutFailsOnce && !signOutFailed) { signOutFailed = true; throw new Error('gotrue unreachable'); } },
     },
     env: {
       readLogin: (who) => finals.get(who.email) ?? null,
       readPending: (who) => saved.get(who.pendingKey) ?? null,
+      readId: (who) => ids.get(who.idKey) ?? null,
+      recordId: (who, id) => { log.push(`env:id:${who.email}`); ids.set(who.idKey, id); },
       writePending: (who, pw) => { log.push(`env:pending:${who.email}`); saved.set(who.pendingKey, pw); },
       writeLogins: (logins) => { log.push('env:final'); fail('env'); for (const { who, login } of logins) { finals.set(who.email, login); saved.delete(who.pendingKey); } return true; },
     },
-    ensureDb: async (_d, ids) => { log.push(`ensureDb:${ids.verify}|${ids.approver}`); fail('db'); return { companyId: 'co-1', userCreated: true, approverCreated: true, companyCreated: init.companyCreated ?? true, approverJoined: true, approverRole: 'manager', periodsCreated: 36 }; },
+    ensureDb: async (_d, ids) => { log.push(`ensureDb:${ids.verify}|${ids.approver}`); fail('db'); return { companyId: 'co-1', userCreated: true, approverCreated: true, companyCreated: init.companyCreated ?? true, approverJoined: true, approverRole: 'manager', approverActualRole: init.approverActual ?? 'manager', financialYearStart: 3, periodsCreated: 36 }; },
     plan: async (_d, ctx) => { log.push(`plan:${ctx ? 'company' : 'none'}`); return [{ name: 'b1', state: 'make' }]; },
     seed: async () => { log.push('seed'); fail('seed'); return { ran: ['b1'], problems: init.seedProblems ?? [] }; },
     companyProblems: async () => { log.push('gate'); return init.problems ?? []; },
@@ -83,7 +89,7 @@ describe('runProvisioning, review round 2', () => {
     await expect(runProvisioning(OPTS, rig({ createdForeign: true }).deps)).rejects.toThrow(/made in the meantime/);
   });
 
-  it('--reset-password ends the login\'s sessions after setting the new password; a plain resume does not', async () => {
+  it('--reset-password ends the login\'s sessions after setting the new password; so does a resume (the run it resumes may have died before the sign-out); a plain run with nothing pending does not', async () => {
     const reset = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email] });
     await runProvisioning({ ...OPTS, resetPassword: true }, reset.deps);
     const e = effects(reset.log);
@@ -93,7 +99,54 @@ describe('runProvisioning, review round 2', () => {
     }
     const resumed = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: { [VERIFY_LOGIN.pendingKey]: 'p1', [APPROVER_LOGIN.pendingKey]: 'p2' } });
     await runProvisioning(OPTS, resumed.deps);
-    expect(effects(resumed.log).some((x) => x.startsWith('gotrue:signOut'))).toBe(false);
+    const re = effects(resumed.log);
+    for (const w of [VERIFY_LOGIN, APPROVER_LOGIN]) expect(re.indexOf(`gotrue:signOut:id-${w.email}`)).toBeGreaterThan(re.indexOf(`gotrue:setPassword:id-${w.email}`));
+    const plain = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], file: [{ email: VERIFY_LOGIN.email, password: 'a' }, { email: APPROVER_LOGIN.email, password: 'b' }] });
+    await runProvisioning(OPTS, plain.deps);
+    expect(effects(plain.log).some((x) => x.startsWith('gotrue:signOut') || x.startsWith('gotrue:setPassword'))).toBe(false);
+  });
+
+  it('a reset whose sign-out failed is finished by the plain re-run: the saved password is set again and the sessions ended', async () => {
+    const first = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], signOutFailsOnce: true });
+    await expect(runProvisioning({ ...OPTS, resetPassword: true }, first.deps)).rejects.toThrow(/gotrue unreachable/);
+    expect(first.saved.size).toBe(1); // the verify login's new password is still pending (the approver was never reached)
+    const again = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: Object.fromEntries(first.saved), file: [{ email: APPROVER_LOGIN.email, password: 'b' }] });
+    await runProvisioning(OPTS, again.deps); // no --reset-password
+    const e = effects(again.log);
+    expect(e).toContain(`gotrue:setPassword:id-${VERIFY_LOGIN.email}`);
+    expect(e.indexOf(`gotrue:signOut:id-${VERIFY_LOGIN.email}`)).toBeGreaterThan(e.indexOf(`gotrue:setPassword:id-${VERIFY_LOGIN.email}`));
+    expect(again.saved.size).toBe(0);
+  });
+
+  it('the admin-only marker proves a login ours; a user_metadata one (earlier version) only when its GoTrue id is recorded in the env file', async () => {
+    const recorded = rig({ legacy: [VERIFY_LOGIN.email], existing: [APPROVER_LOGIN.email], legacyIds: { [VERIFY_LOGIN.idKey]: `id-${VERIFY_LOGIN.email}` }, file: [{ email: VERIFY_LOGIN.email, password: 'a' }, { email: APPROVER_LOGIN.email, password: 'b' }] });
+    await runProvisioning(OPTS, recorded.deps);
+    expect(effects(recorded.log)).toContain(`gotrue:stamp:id-${VERIFY_LOGIN.email}`); // migrated to app_metadata
+    const stranger = rig({ legacy: [VERIFY_LOGIN.email], existing: [APPROVER_LOGIN.email], legacyIds: { [VERIFY_LOGIN.idKey]: 'some-other-id' } });
+    await expect(runProvisioning(OPTS, stranger.deps)).rejects.toThrow(/not created by this provisioner/);
+    const unrecorded = rig({ legacy: [VERIFY_LOGIN.email], existing: [APPROVER_LOGIN.email] });
+    await expect(runProvisioning({ ...OPTS, resetPassword: true }, unrecorded.deps)).rejects.toThrow(/refusing to adopt/);
+    expect(effects(unrecorded.log).filter((x) => x.startsWith('gotrue:'))).toEqual([]);
+  });
+
+  it('records each new login\'s GoTrue id right after the create, and publishes the ids with the final keys', async () => {
+    const r = rig();
+    await runProvisioning(OPTS, r.deps);
+    const e = effects(r.log);
+    expect(e.indexOf(`env:id:${VERIFY_LOGIN.email}`)).toBe(e.indexOf(`gotrue:create:${VERIFY_LOGIN.email}`) + 1);
+    expect(r.finals.size).toBe(2);
+  });
+
+  it('says the approver\'s ACTUAL role, and warns when an existing membership is above the least role that can decide', async () => {
+    const said = (r: Rig) => r.log.filter((l) => l.startsWith('say:')).join('\n');
+    const ok = rig();
+    await runProvisioning(OPTS, ok.deps);
+    expect(said(ok)).toContain('approver added as manager');
+    expect(said(ok)).not.toContain('warning: the approver');
+    const above = rig({ approverActual: 'admin' });
+    await runProvisioning(OPTS, above.deps);
+    expect(said(above)).toContain('added as admin');
+    expect(said(above)).toMatch(/warning: the approver's existing membership is admin, above the least role .*\(manager\).*lower it by hand/);
   });
 
   it('a failed ROLLBACK does not hide the error that caused it', async () => {
@@ -116,8 +169,8 @@ describe('runProvisioning', () => {
     expect(out).toEqual({ companyId: 'co-1', ran: ['b1'], wroteEnv: true });
     expect(effects(r.log)).toEqual([
       'deploylocks', 'lock',
-      `env:pending:${VERIFY_LOGIN.email}`, `gotrue:create:${VERIFY_LOGIN.email}`,
-      `env:pending:${APPROVER_LOGIN.email}`, `gotrue:create:${APPROVER_LOGIN.email}`,
+      `env:pending:${VERIFY_LOGIN.email}`, `gotrue:create:${VERIFY_LOGIN.email}`, `env:id:${VERIFY_LOGIN.email}`,
+      `env:pending:${APPROVER_LOGIN.email}`, `gotrue:create:${APPROVER_LOGIN.email}`, `env:id:${APPROVER_LOGIN.email}`,
       'db:BEGIN', `ensureDb:id-${VERIFY_LOGIN.email}|id-${APPROVER_LOGIN.email}`, 'db:COMMIT',
       'plan:company', 'seed', 'gate', 'env:final', 'unlock', 'deploy-unlock',
     ]);

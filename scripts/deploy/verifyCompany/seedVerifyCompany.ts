@@ -12,14 +12,14 @@ export interface PlanLine { name: string; state: 'make' | 'skip' }
 
 /** What a run would do, per block, without writing: for --dry-run. With no company yet (a dry run that would create it) every block is `make`. */
 export async function planBlocks(
-  db: ClientBase, ctx: { companyId: string; verifyUserId: string; now: Date } | null, blocks: Block[] = buildBlocks(),
+  db: ClientBase, ctx: { companyId: string; verifyUserId: string; now: Date; financialYearStart: number } | null, blocks: Block[] = buildBlocks(),
 ): Promise<PlanLine[]> {
   const lines: PlanLine[] = [];
   for (const b of blocks) lines.push({ name: b.name, state: ctx && (await b.plan({ db, ...ctx })).complete ? 'skip' : 'make' });
   return lines;
 }
 
-export interface SeedOptions { baseUrl: string; email: string; password: string; companyId: string; verifyUserId: string; now?: Date }
+export interface SeedOptions { baseUrl: string; email: string; password: string; companyId: string; verifyUserId: string; now?: Date; financialYearStart?: number }
 
 /** The seam tests use: the logged-in client is built by `connect`. */
 export type Connect = (baseUrl: string, email: string, password: string) => Promise<Client>;
@@ -44,7 +44,7 @@ export async function seedVerifyCompany(
   if (mine.activeCompanyId !== opts.companyId) {
     throw new Error(`the app at ${opts.baseUrl} puts the verify user in company ${mine.activeCompanyId ?? 'none'}, not ${opts.companyId}: it is not backed by the database that was provisioned; nothing was seeded`);
   }
-  const ctx = { db, companyId: opts.companyId, verifyUserId: opts.verifyUserId, now };
+  const ctx = { db, companyId: opts.companyId, verifyUserId: opts.verifyUserId, now, financialYearStart: opts.financialYearStart ?? 3 };
   const months = seedMonths(now);
   const ran: string[] = [];
   for (const b of blocks) {

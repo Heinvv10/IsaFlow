@@ -58,7 +58,10 @@ function parseEnvelope(text: string): Envelope | null {
 /** A logged-in client of the dev server: cookie jar, CSRF double-submit, {success,data} unwrapping. */
 export class Client {
   private readonly jar = new Map<string, string>();
-  constructor(private readonly base: string) {}
+  /** `timeoutMs` > 0 bounds every request (a hung app must not hold a run for ever); 0, the hosted CI default, leaves it to Playwright's own limits. */
+  constructor(private readonly base: string, private readonly timeoutMs = 0) {}
+
+  private signal(): AbortSignal | undefined { return this.timeoutMs > 0 ? AbortSignal.timeout(this.timeoutMs) : undefined; }
 
   private absorb(res: Response): void {
     for (const c of res.headers.getSetCookie()) {
@@ -77,11 +80,12 @@ export class Client {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),
+      signal: this.signal(),
     });
     this.absorb(res);
     if (res.status !== 200) throw new Error(`seed login failed: ${res.status}`);
     // The middleware issues the CSRF cookie on any routed request.
-    this.absorb(await fetch(`${this.base}/accounting`, { headers: { cookie: this.cookie() }, redirect: 'manual' }));
+    this.absorb(await fetch(`${this.base}/accounting`, { headers: { cookie: this.cookie() }, redirect: 'manual', signal: this.signal() }));
     if (!this.jar.get('isaflow_csrf')) throw new Error('seed: no isaflow_csrf cookie after login');
   }
 
@@ -90,6 +94,7 @@ export class Client {
       method,
       headers: { cookie: this.cookie(), 'content-type': 'application/json', 'x-csrf-token': this.jar.get('isaflow_csrf') ?? '' },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: this.signal(),
     });
     const text = await res.text();
     const json = parseEnvelope(text);

@@ -37,6 +37,11 @@ export function readPending(path: string, who: LoginIdentity): string | null {
   return read(path)[who.pendingKey] || null;
 }
 
+/** The GoTrue id recorded for `who` when its login was created (or published), or null. */
+export function readId(path: string, who: LoginIdentity): string | null {
+  return read(path)[who.idKey] || null;
+}
+
 /** Drops every line of `keys` after its first, so the one upsertEnvKeys replaces is the one verify-deploy.sh would read. */
 function withoutRepeats(text: string, keys: string[]): string {
   const seen = new Set<string>();
@@ -94,16 +99,22 @@ export function writePending(path: string, who: LoginIdentity, password: string)
   return update(path, (before) => upsertEnvKeys(before, { [who.pendingKey]: password }));
 }
 
+/** Records `who`'s GoTrue id right after the login is created: what later proves, for a login an earlier version stamped differently, that it is ours. */
+export function recordId(path: string, who: LoginIdentity, id: string): boolean {
+  return update(path, (before) => upsertEnvKeys(before, { [who.idKey]: id }));
+}
+
 /**
- * Writes every login's two keys and drops their pending keys, in one replacement of the file. A file that already holds
+ * Writes every login's two keys (and its GoTrue id) and drops their pending keys, in one replacement of the file. A file that already holds
  * exactly these values is not written at all.
  * @returns whether the file changed
  */
-export function writeLogins(path: string, logins: Array<{ who: LoginIdentity; login: Login }>): boolean {
+export function writeLogins(path: string, logins: Array<{ who: LoginIdentity; login: Login; id?: string }>): boolean {
   const entries: Record<string, string> = {};
-  for (const { who, login } of logins) {
+  for (const { who, login, id } of logins) {
     entries[who.emailKey] = login.email;
     entries[who.passwordKey] = login.password;
+    if (id) entries[who.idKey] = id;
   }
   const pending = logins.map(({ who }) => who.pendingKey);
   return update(path, (before) => upsertEnvKeys(withoutKeys(withoutRepeats(before, Object.keys(entries)), pending), entries));

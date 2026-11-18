@@ -66,13 +66,16 @@ describeIfDb('the Deploy Verification company database step', () => {
     // Independent tests: new users, and any company an earlier test (or run) made is renamed out of the way.
     ids = { verify: randomUUID(), approver: randomUUID() };
     await pool.query(`UPDATE companies SET name = name || ' (earlier ' || id::text || ')' WHERE name = $1`, [VERIFY_COMPANY_NAME]);
-    await pool.query(`DELETE FROM users WHERE lower(email) = ANY($1::text[])`, [[VERIFY_LOGIN.email, APPROVER_LOGIN.email]]).catch(() => undefined);
+    // Tidying only: a users row an earlier test still has company_users rows for cannot be deleted (foreign key, 23503); the UPDATE
+    // below renames it out of the way instead. Anything else is a real failure.
+    await pool.query(`DELETE FROM users WHERE lower(email) = ANY($1::text[])`, [[VERIFY_LOGIN.email, APPROVER_LOGIN.email]])
+      .catch((err: { code?: string }) => { if (err.code !== '23503') throw err; });
     await pool.query(`UPDATE users SET email = 'old-' || id::text || '@isaflow.test' WHERE lower(email) = ANY($1::text[])`, [[VERIFY_LOGIN.email, APPROVER_LOGIN.email]]);
   });
 
-  it('creates both users, a hidden internal company owned by the verify user with the approver an admin, and the periods the specs post into', async () => {
+  it('creates both users, a hidden internal company owned by the verify user with the approver a manager, and the periods the specs post into', async () => {
     const first = await run();
-    expect(first).toMatchObject({ userCreated: true, approverCreated: true, companyCreated: true, approverJoined: true, approverRole: 'manager' });
+    expect(first).toMatchObject({ userCreated: true, approverCreated: true, companyCreated: true, approverJoined: true, approverRole: 'manager', approverActualRole: 'manager', financialYearStart: 3 });
     expect(first.periodsCreated).toBeGreaterThan(24);
 
     const company = (await pool.query(`SELECT name, is_demo, is_active, status, vat_number FROM companies WHERE id = $1::uuid`, [first.companyId])).rows[0];
@@ -97,6 +100,23 @@ describeIfDb('the Deploy Verification company database step', () => {
     expect(prefs).toEqual(['onboarding_tour_completed', 'setup-guide-first-seen']);
   }, 120_000);
 
+  it('an approver membership that already exists is left as it is, and its ACTUAL role is what the outcome reports', async () => {
+    const first = await run();
+    await pool.query(`UPDATE company_users SET role = 'admin' WHERE company_id = $1::uuid AND user_id = $2`, [first.companyId, ids.approver]);
+    const again = await run();
+    expect(again).toMatchObject({ approverJoined: false, approverRole: 'manager', approverActualRole: 'admin' });
+    expect((await pool.query(`SELECT role FROM company_users WHERE company_id = $1::uuid AND user_id = $2`, [first.companyId, ids.approver])).rows[0].role).toBe('admin');
+  }, 120_000);
+
+  it('the year start is the COMPANY\'s: a July-year company gets periods for its own previous, current and next year', async () => {
+    const first = await run();
+    await pool.query(`UPDATE companies SET financial_year_start = 7 WHERE id = $1::uuid`, [first.companyId]);
+    const again = await run(ids, undefined, new Date('2030-11-18T10:00:00Z')); // FY2031 = Jul 2030 - Jun 2031
+    expect(again.financialYearStart).toBe(7);
+    const starts = (await pool.query(`SELECT start_date::text AS s FROM fiscal_periods WHERE company_id = $1::uuid AND start_date >= '2029-07-01' AND start_date < '2031-08-01' ORDER BY start_date`, [first.companyId])).rows.map((r) => r.s);
+    expect(starts).toEqual(expect.arrayContaining(['2030-07-01', '2030-11-01']));
+  }, 120_000);
+
   it('the company gets periods for the previous, current and next financial year of the run date, whichever month that is', async () => {
     const feb = await run(ids, undefined, new Date('2027-02-10T10:00:00Z')); // FY2027 ends this month: the previous year is FY2026
     const years = (await pool.query(`SELECT fiscal_year FROM fiscal_years WHERE company_id = $1::uuid ORDER BY fiscal_year`, [feb.companyId])).rows.map((r) => Number(r.fiscal_year));
@@ -108,7 +128,7 @@ describeIfDb('the Deploy Verification company database step', () => {
     const before = await footprint(first.companyId);
     const named = Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n);
     const second = await run();
-    expect(second).toEqual({ companyId: first.companyId, userCreated: false, approverCreated: false, companyCreated: false, approverJoined: false, approverRole: 'manager', periodsCreated: 0 });
+    expect(second).toEqual({ companyId: first.companyId, userCreated: false, approverCreated: false, companyCreated: false, approverJoined: false, approverRole: 'manager', approverActualRole: 'manager', financialYearStart: 3, periodsCreated: 0 });
     expect(await footprint(first.companyId)).toEqual(before);
     expect(Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n)).toBe(named);
   }, 120_000);
@@ -137,6 +157,7 @@ describeIfDb('the Deploy Verification company database step', () => {
       expect(firstOut).toMatchObject({ userCreated: false, approverCreated: false });
       expect(Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n)).toBe(1);
     } finally {
+      // Cleanup of a transaction that has normally COMMITted already: a ROLLBACK outside one only warns; a dead connection must not mask the assertion that failed.
       await a.query('ROLLBACK').catch(() => undefined);
       await b.query('ROLLBACK').catch(() => undefined);
       a.release();
@@ -155,7 +176,7 @@ describeIfDb('the Deploy Verification company database step', () => {
       await a.query('COMMIT');
       expect(await held()).toBe(0);
     } finally {
-      await a.query('ROLLBACK').catch(() => undefined);
+      await a.query('ROLLBACK').catch(() => undefined); // as above
       a.release();
     }
   }, 120_000);

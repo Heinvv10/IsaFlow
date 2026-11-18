@@ -251,3 +251,28 @@ describe('chooseApproverRole (least privilege: the approver decides the pay-run 
     expect(() => chooseApproverRole('super_admin')).toThrow(/above admin/);
   });
 });
+
+describe('the financial years for any year-start month', () => {
+  const d = (iso: string) => new Date(`${iso}T10:00:00Z`);
+  it('fyStartYear, fyLabel and midFy follow the start month; March (the default) is unchanged', () => {
+    expect(fyStartYear(d('2026-11-18'), 1)).toBe(2026);
+    expect(fyLabel(d('2026-11-18'), 1)).toBe(2026); // Jan - Dec 2026
+    expect(fyStartYear(d('2026-05-02'), 7)).toBe(2025);
+    expect(fyLabel(d('2026-05-02'), 7)).toBe(2026); // Jul 2025 - Jun 2026
+    expect(fyLabel(d('2026-08-02'), 7)).toBe(2027);
+    expect(midFy(d('2026-11-18'), -1, 1)).toBe('2025-06-15'); // five months after 1 January 2025
+    expect(midFy(d('2026-11-18'), 1, 7)).toBe('2027-12-15'); // five months after 1 July 2027
+    expect(midFy(d('2026-11-18'), -1)).toBe(midFy(d('2026-11-18'), -1, 3));
+    expect(midFy(d('2027-02-10'), -1)).toBe('2025-08-15');
+  });
+  it('the anchors cover the previous, current and next year of that company\'s year', () => {
+    expect(periodAnchors(d('2026-11-18'), 1)).toEqual(expect.arrayContaining(['2025-06-15', '2026-11-18', '2027-06-15']));
+  });
+  it('budgetProblems asks for the version of the year that company is in', async () => {
+    const asked: string[] = [];
+    const api = { get: async (p: string) => { asked.push(p); return p.startsWith('/api/accounting/budgets?') ? { fiscalYear: 2026 } : p.includes('budget-versions') ? { items: [1] } : p.includes('prior-actuals') ? { cells: [] } : { accounts: [] }; } } as unknown as Pick<Client, 'get'>;
+    await budgetProblems(api, d('2026-11-18'), 1);
+    expect(asked).toContain('/api/accounting/budget-versions?fiscalYear=2026');
+    expect(asked).toContain('/api/accounting/budget-versions?fiscalYear=2027');
+  });
+});

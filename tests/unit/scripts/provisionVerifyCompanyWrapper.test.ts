@@ -44,11 +44,13 @@ describe('provision-verify-company.sh', () => {
     for (const secret of ['owner:o', 'svc.key.value']) expect(r.got.ARGS).not.toContain(secret);
   });
 
-  it('passes the app\'s JWT_SECRET and SUPABASE_ANON_KEY by environment (a reset needs both), and empty ones when the app env has none', () => {
-    const got = run(lines('JWT_SECRET=jwt-value', 'SUPABASE_ANON_KEY=anon-value', ...PROD.split('\n').filter(Boolean)), null).got;
-    expect(got).toMatchObject({ JWT: 'jwt-value', ANON: 'anon-value' });
-    expect(run(PROD, null).got).toMatchObject({ JWT: '', ANON: '' });
-    expect(run(lines('JWT_SECRET=jwt-value', ...PROD.split('\n').filter(Boolean)), null, ['--dry-run']).got.ARGS).not.toContain('jwt-value');
+  it('reads and passes JWT_SECRET and SUPABASE_ANON_KEY ONLY for a --reset-password run; a plain or dry run never has them in its environment', () => {
+    const env = lines('JWT_SECRET=jwt-value', 'SUPABASE_ANON_KEY=anon-value', ...PROD.split('\n').filter(Boolean));
+    expect(run(env, null, ['--reset-password']).got).toMatchObject({ JWT: 'jwt-value', ANON: 'anon-value' });
+    expect(run(env, null).got).toMatchObject({ JWT: '', ANON: '' });
+    expect(run(env, null, ['--dry-run']).got).toMatchObject({ JWT: '', ANON: '' });
+    expect(run(env, null, ['--reset-password']).got.ARGS).not.toContain('jwt-value');
+    expect(run(PROD, null, ['--reset-password']).got).toMatchObject({ JWT: '', ANON: '' }); // none in the app env: the CLI then refuses the reset
   });
 
   it('falls back to the app env for the database url, as owner_database_url_for does', () => {

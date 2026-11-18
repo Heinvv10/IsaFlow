@@ -10,10 +10,27 @@ import type { ClientBase } from 'pg';
 import type { Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
 import { budgetProblems } from '../../../scripts/deploy/verifyCompany/budgetReadiness';
 import { seedVerifyCompany } from '../../../scripts/deploy/verifyCompany/seedVerifyCompany';
+import { EXPECTED_ROUTES, missingRoutes, recordKey, trimBody } from '../../../scripts/deploy/verifyCompany/recordRoutes';
 
 const R = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/verifyCompanyRoutes.json'), 'utf8')) as Record<string, any>;
 const NOW = new Date('2026-11-18T10:00:00Z');
 const isId = (v: unknown) => typeof v === 'string' && /^[0-9a-f-]{36}$/.test(v);
+
+describe('the fixture and its recorder', () => {
+  it('carries a _recorded header (when, by what, how to redo it) and every route the consumers call', () => {
+    expect(R._recorded).toMatchObject({ by: 'scripts/deploy/verifyCompany/recordRoutes.ts', redo: expect.stringContaining('recordRoutes.ts') });
+    expect(Number.isNaN(Date.parse(R._recorded.at))).toBe(false);
+    expect(missingRoutes(Object.fromEntries(Object.entries(R).filter(([k]) => !k.startsWith('_'))))).toEqual([]);
+    expect(EXPECTED_ROUTES.length).toBeGreaterThan(15);
+  });
+
+  it('recordKey masks uuids and keeps the query; trimBody cuts long arrays at every depth; missingRoutes names what a re-run (no POSTs) lacks', () => {
+    expect(recordKey('GET', '/api/payroll/employees/3a84c42b-f780-4b9e-b965-6b20b8791b9b/components?x=1')).toBe('GET /api/payroll/employees/:id/components?x=1');
+    expect(trimBody({ a: Array.from({ length: 50 }, (_, i) => ({ b: [1, 2, 3], i })) }, 2)).toEqual({ a: [{ b: [1, 2], i: 0 }, { b: [1, 2], i: 1 }] });
+    expect(missingRoutes({ 'GET /api/accounting/budgets?years_only=1': {} })).toContain('POST /api/accounting/journal-entries');
+    expect(missingRoutes({ 'GET /api/accounting/budget-grid?fiscal_year=2031': {} })).not.toContain('GET /api/accounting/budget-grid?fiscal_year=2027');
+  });
+});
 
 describe('the recorded bodies carry what each consumer reads', () => {
   it.each([

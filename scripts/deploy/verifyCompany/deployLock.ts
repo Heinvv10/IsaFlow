@@ -51,7 +51,7 @@ export async function acquireDeployLocks(files: readonly string[]): Promise<Held
     }
     if (child === null) {
       await releaseAll();
-      throw new Error(`a deploy, rollback, restart or cutover holds ${file}: a provisioning run must not change passwords while one runs. Wait for it to finish`);
+      throw new Error(`a deploy, rollback, restart or cutover holds ${file}: a provisioning run must not change passwords while one runs. Find the holder with \`lsof ${file}\` (or \`fuser -v ${file}\`), wait for it to finish, then run again`);
     }
     held.push(child);
   }

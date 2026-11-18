@@ -24,7 +24,7 @@ function stubGoTrue(users: Array<{ id: string; email: string; user_metadata?: Re
     if (url.includes('/admin/users?filter=')) return new Response(JSON.stringify({ users }), { status: 200 });
     if (url.endsWith('/admin/users') && init.method === 'POST') {
       const b = JSON.parse(String(init.body));
-      return new Response(JSON.stringify({ id: 'new-id', email: b.email, user_metadata: b.user_metadata }), { status: 200 });
+      return new Response(JSON.stringify({ id: 'new-id', email: b.email, app_metadata: b.app_metadata, user_metadata: b.user_metadata }), { status: 200 });
     }
     if (url.includes('/admin/users/') && init.method === 'PUT') return new Response(JSON.stringify({ id: 'x', email: 'x' }), { status: 200 });
     if (url.includes('/logout')) return new Response(null, { status: 204 });
@@ -50,21 +50,32 @@ const deps = (lockFiles?: string[]) => realDeps(fakeDb, join(dir, 'deploy.env'),
 
 describe('realDeps: GoTrue', () => {
   it('find reads the admin user list and returns the login with its purpose marker (null when absent or not a string)', async () => {
-    stubGoTrue([{ id: 'u1', email: VERIFY_LOGIN.email, user_metadata: { purpose: LOGIN_PURPOSE } }, { id: 'u2', email: APPROVER_LOGIN.email, user_metadata: { purpose: 7 } }]);
+    stubGoTrue([
+      { id: 'u1', email: VERIFY_LOGIN.email, app_metadata: { purpose: LOGIN_PURPOSE } },
+      { id: 'u2', email: APPROVER_LOGIN.email, app_metadata: { purpose: 7 }, user_metadata: { purpose: LOGIN_PURPOSE } },
+    ]);
     const d = deps();
-    expect(await d.goTrue.find(VERIFY_LOGIN.email)).toEqual({ id: 'u1', purpose: LOGIN_PURPOSE });
-    expect(await d.goTrue.find(APPROVER_LOGIN.email)).toEqual({ id: 'u2', purpose: null });
+    expect(await d.goTrue.find(VERIFY_LOGIN.email)).toEqual({ id: 'u1', purpose: LOGIN_PURPOSE, legacyPurpose: null });
+    // a user_metadata marker (which the user could write) is reported apart and is never the admin-only one
+    expect(await d.goTrue.find(APPROVER_LOGIN.email)).toEqual({ id: 'u2', purpose: null, legacyPurpose: LOGIN_PURPOSE });
     expect(await d.goTrue.find('nobody@x')).toBeNull();
     expect(calls[0]).toMatchObject({ method: 'GET', auth: 'Bearer service-key' });
   });
 
-  it('create posts the admin user with the email CONFIRMED, the password and our purpose marker, and returns the marker GoTrue echoes', async () => {
+  it('create posts the admin user with the email CONFIRMED, the password and our marker in the ADMIN-ONLY app_metadata, and returns the marker GoTrue echoes', async () => {
     stubGoTrue([]);
     const made = await deps().goTrue.create(VERIFY_LOGIN, 'pw-1');
     expect(made).toEqual({ id: 'new-id', purpose: LOGIN_PURPOSE });
     const post = calls.find((c) => c.method === 'POST')!;
     expect(post.url).toBe('http://gotrue.test/auth/v1/admin/users');
-    expect(post.body).toEqual({ email: VERIFY_LOGIN.email, password: 'pw-1', email_confirm: true, user_metadata: { purpose: LOGIN_PURPOSE } });
+    expect(post.body).toEqual({ email: VERIFY_LOGIN.email, password: 'pw-1', email_confirm: true, app_metadata: { purpose: LOGIN_PURPOSE } });
+  });
+
+  it('stamp migrates an earlier version\'s login to the admin-only marker without touching its password', async () => {
+    stubGoTrue([]);
+    await deps().goTrue.stamp('u1');
+    expect(calls[0]).toMatchObject({ method: 'PUT', url: 'http://gotrue.test/auth/v1/admin/users/u1', body: { app_metadata: { purpose: LOGIN_PURPOSE } } });
+    expect(calls[0]!.body).not.toHaveProperty('password');
   });
 
   it('setPassword puts the new password (email stays confirmed); signOut sends a GLOBAL logout with a bearer token', async () => {
@@ -88,6 +99,8 @@ describe('realDeps: env file, locks, database', () => {
     expect(d.env.writeLogins([{ who: VERIFY_LOGIN, login: { email: VERIFY_LOGIN.email, password: 'final' } }])).toBe(true);
     expect(d.env.readLogin(VERIFY_LOGIN)).toEqual({ email: VERIFY_LOGIN.email, password: 'final' });
     expect(d.env.readPending(VERIFY_LOGIN)).toBeNull();
+    d.env.recordId(VERIFY_LOGIN, 'gotrue-id-1');
+    expect(d.env.readId(VERIFY_LOGIN)).toBe('gotrue-id-1');
     expect(readFileSync(join(dir, 'deploy.env'), 'utf8')).toContain(`${VERIFY_LOGIN.emailKey}=${VERIFY_LOGIN.email}`);
   });
 

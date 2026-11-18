@@ -3,6 +3,7 @@
  * tests/unit/ci/verifyCompanyConfig.test.ts can pin them.
  */
 import { assertDatabaseUrlNames } from '../../ci/golden/slotConfig';
+import { PRODUCTION_DATABASE } from './identity';
 
 export interface Options {
   dryRun: boolean;
@@ -12,6 +13,8 @@ export interface Options {
   databaseUrl: string;
   expectDatabase: string;
   goTrueUrl: string;
+  /** Drill-only replacement for the deploy's lock files (PROVISION_LOCK_FILES); undefined in any real run. */
+  lockFiles?: string[];
 }
 
 /** The input names, printed in usage and error messages. */
@@ -51,6 +54,10 @@ export function parseOptions(argv: string[], env: Record<string, string | undefi
   const expectDatabase = option(argv, '--expect-database')!;
   const databaseUrl = env.VERIFY_COMPANY_DATABASE_URL!;
   assertDatabaseUrlNames(databaseUrl, expectDatabase);
+  // The deploy locks are what keeps a deploy from logging in mid-run: swapping them out is for a throwaway stack, never production.
+  if (env.PROVISION_LOCK_FILES && expectDatabase === PRODUCTION_DATABASE) {
+    throw new Error(`refusing PROVISION_LOCK_FILES against the production database (${PRODUCTION_DATABASE}): the deploy locks must be the real ones`);
+  }
   return {
     dryRun: argv.includes('--dry-run'),
     resetPassword: argv.includes('--reset-password'),
@@ -59,5 +66,6 @@ export function parseOptions(argv: string[], env: Record<string, string | undefi
     databaseUrl,
     expectDatabase,
     goTrueUrl: httpUrl('GOTRUE_URL', env.GOTRUE_URL!),
+    lockFiles: env.PROVISION_LOCK_FILES ? env.PROVISION_LOCK_FILES.split(':') : undefined,
   };
 }

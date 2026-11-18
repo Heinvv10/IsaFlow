@@ -37,20 +37,31 @@ export function approverCompanyProblems(items: UserCompany[]): string[] {
 }
 
 const DAY = 86_400_000;
-/** The budget year label (calendar year it ends in) and the first day of the next one, for a March financial year. */
-export function budgetYears(today: Date): { current: number; next: number; nextStarts: Date } {
-  const y = today.getUTCFullYear();
-  const current = today.getUTCMonth() >= 2 ? y + 1 : y;
-  return { current, next: current + 1, nextStarts: new Date(Date.UTC(current, 2, 1)) };
+/**
+ * The budget year label (the calendar year it ends in; a January start ends in its own year) and the first day of the next one, for a
+ * company whose financial year starts in month `startMonth` (1-12): take it from the company, never assume March.
+ */
+export function budgetYears(today: Date, startMonth = 3): { current: number; next: number; nextStarts: Date } {
+  const startYear = today.getUTCMonth() + 1 >= startMonth ? today.getUTCFullYear() : today.getUTCFullYear() - 1;
+  const current = startYear + (startMonth === 1 ? 0 : 1);
+  return { current, next: current + 1, nextStarts: new Date(Date.UTC(startYear + 1, startMonth - 1, 1)) };
+}
+
+/** The start month of the company's current budget year, from what GET /api/accounting/budgets?years_only=1 says (`year.startDate`); null if it says nothing usable. */
+export function startMonthOf(budgets: { year?: { startDate?: unknown } } | null | undefined): number | null {
+  const m = /^\d{4}-(\d{2})-\d{2}/.exec(String(budgets?.year?.startDate ?? ''));
+  const n = m ? Number(m[1]) : NaN;
+  return n >= 1 && n <= 12 ? n : null;
 }
 
 /**
  * A loud line when the budget specs are about to lose their year: the next budget year starts within `windowDays` and has no
  * budget version yet, or the current year has none already. Re-running the provisioner (it tops up by year) is the cure.
  * @param hasVersion whether the verify company holds a budget version for that year label
+ * @param startMonth the company's financial year start month (startMonthOf)
  */
-export function budgetYearWarning(today: Date, hasVersion: (year: number) => boolean, windowDays = 60): string | null {
-  const { current, next, nextStarts } = budgetYears(today);
+export function budgetYearWarning(today: Date, hasVersion: (year: number) => boolean, windowDays = 60, startMonth = 3): string | null {
+  const { current, next, nextStarts } = budgetYears(today, startMonth);
   const remedy = 'run scripts/deploy/provision-verify-company.sh (it adds the missing year\'s version); the budget specs skip otherwise and the gate fails';
   if (!hasVersion(current)) return `WARNING: the Deploy Verification company has no budget version for FY${current}, the current budget year: ${remedy}`;
   const days = Math.ceil((nextStarts.getTime() - today.getTime()) / DAY);

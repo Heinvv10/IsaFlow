@@ -1,6 +1,6 @@
 // The post-deploy suite proves its own company when it runs as the verify user: the email decides to check, the data decides the answer.
 import { describe, expect, it } from 'vitest';
-import { approverCompanyProblems, budgetYearWarning, budgetYears, isVerifyLogin, verifyCompanyProblems } from '../../e2e/golden-paths/helpers/verifyCompany';
+import { approverCompanyProblems, budgetYearWarning, budgetYears, isVerifyLogin, startMonthOf, verifyCompanyProblems } from '../../e2e/golden-paths/helpers/verifyCompany';
 import { MIGRATION_SANDBOX_ONBOARDING_ID, sandboxSetupBody } from '../../e2e/golden-paths/helpers/sandboxSetup';
 
 const home = { companyId: 'c1', companyName: 'Deploy Verification', isDemo: true };
@@ -96,5 +96,34 @@ describe('budgetYearWarning', () => {
 
   it('warns at once when the current year has no version (the specs would skip)', () => {
     expect(budgetYearWarning(d('2026-11-18'), have(2028))).toMatch(/^WARNING: .* no budget version for FY2027, the current budget year/);
+  });
+});
+
+describe('the financial year comes from the company, not from March', () => {
+  const d = (iso: string) => new Date(`${iso}T10:00:00Z`);
+
+  it('budgetYears for a January, a July and a March start', () => {
+    expect(budgetYears(d('2026-11-18'), 1)).toMatchObject({ current: 2026, next: 2027 });
+    expect(budgetYears(d('2026-11-18'), 1).nextStarts.toISOString().slice(0, 10)).toBe('2027-01-01');
+    expect(budgetYears(d('2026-11-18'), 7)).toMatchObject({ current: 2027, next: 2028 }); // Jul 2026 - Jun 2027
+    expect(budgetYears(d('2026-11-18'), 7).nextStarts.toISOString().slice(0, 10)).toBe('2027-07-01');
+    expect(budgetYears(d('2026-05-02'), 7)).toMatchObject({ current: 2026 }); // Jul 2025 - Jun 2026
+    expect(budgetYears(d('2026-11-18'), 3)).toEqual(budgetYears(d('2026-11-18'))); // the default is March, as before
+  });
+
+  it('startMonthOf reads the month of the current budget year\'s first day from the app\'s answer, or says nothing', () => {
+    expect(startMonthOf({ year: { startDate: '2026-03-01' } })).toBe(3);
+    expect(startMonthOf({ year: { startDate: '2026-07-01' } })).toBe(7);
+    expect(startMonthOf({ year: { startDate: '2026-01-01' } })).toBe(1);
+    expect(startMonthOf({})).toBeNull();
+    expect(startMonthOf(null)).toBeNull();
+    expect(startMonthOf({ year: { startDate: 'junk' } })).toBeNull();
+  });
+
+  it('the warning follows the company\'s year start: for a July year, 45 days before 1 July, not before 1 March', () => {
+    const none = (y: number) => y === 2026; // only the current (FY2026 = Jul 2025 - Jun 2026) has a version
+    expect(budgetYearWarning(d('2026-05-17'), none, 60, 7)).toMatch(/FY2027 starts in 45 day/);
+    expect(budgetYearWarning(d('2026-01-15'), none, 60, 7)).toBeNull(); // 167 days out
+    expect(budgetYearWarning(d('2027-01-15'), (y) => y === 2027, 60, 3)).toMatch(/FY2028 starts in 45 day/); // March, as before
   });
 });

@@ -1,27 +1,25 @@
 {
+ "_recorded": {
+  "at": "2026-11-18T12:20:08.547Z",
+  "by": "scripts/deploy/verifyCompany/recordRoutes.ts",
+  "from": "the hosted golden stack (scripts/ci/golden-hosted/up.sh) with next dev, through the real provisioner (realDeps)",
+  "redo": "see the header of scripts/deploy/verifyCompany/recordRoutes.ts"
+ },
  "GET /api/accounting/companies?action=user-companies": {
   "items": [
    {
-    "companyId": "b340fef1-f04d-4b33-bf9c-23e6be6280a6",
+    "companyId": "62d9c11b-013c-4eb1-919a-a6511dca9a72",
     "companyName": "Deploy Verification",
     "role": "owner",
     "isDefault": true,
     "isDemo": true,
     "hasLogo": false
-   },
-   {
-    "companyId": "e9a7d6fa-a920-4eda-8a2b-5f17f6b1c96f",
-    "companyName": "0GP Golden Migration Sandbox",
-    "role": "owner",
-    "isDefault": false,
-    "isDemo": true,
-    "hasLogo": false
    }
   ],
-  "activeCompanyId": "b340fef1-f04d-4b33-bf9c-23e6be6280a6"
+  "activeCompanyId": "62d9c11b-013c-4eb1-919a-a6511dca9a72"
  },
  "POST /api/accounting/customers": {
-  "id": "122b69ce-ead6-40d2-84a7-a4d84300c93f",
+  "id": "06a8b37d-bfa0-4fb2-801e-6a49e4ff2258",
   "name": "Demo Customer 1",
   "email": "demo-customer-1@example.test",
   "phone": null,
@@ -34,9 +32,9 @@
   "credit_limit": null,
   "is_active": true,
   "notes": null,
-  "created_at": "2026-11-18T12:00:27.442Z",
-  "updated_at": "2026-11-18T12:00:27.442Z",
-  "company_id": "b340fef1-f04d-4b33-bf9c-23e6be6280a6",
+  "created_at": "2026-11-18T12:19:21.227Z",
+  "updated_at": "2026-11-18T12:19:21.227Z",
+  "company_id": "62d9c11b-013c-4eb1-919a-a6511dca9a72",
   "category_id": null,
   "sales_rep_id": null,
   "mobile": null,
@@ -64,7 +62,7 @@
   "default_revenue_account_id": null
  },
  "POST /api/payroll/components": {
-  "id": "cb0a361a-24fe-4494-88f5-e16295e38ce5",
+  "id": "d2fa93f6-5e67-4062-bcab-4d581d91fb9b",
   "name": "Basic Salary",
   "sarsSourceCode": "3601",
   "componentType": "earning",
@@ -75,8 +73,8 @@
   "countsAsRfi": true
  },
  "POST /api/payroll/employees": {
-  "id": "1d59877f-9bbd-4fdf-a50a-064dfe48bcb3",
-  "companyId": "b340fef1-f04d-4b33-bf9c-23e6be6280a6",
+  "id": "2dc14bc9-22cc-4fb7-9e9f-7b779dc9f516",
+  "companyId": "62d9c11b-013c-4eb1-919a-a6511dca9a72",
   "employeeNumber": "E001",
   "firstName": "Thandi",
   "lastName": "Nkosi",
@@ -104,9 +102,9 @@
   "etiIdDocument": null
  },
  "POST /api/payroll/employees/:id/components": {
-  "id": "c4bd9259-e1e6-4ccb-83db-566051b7fc51",
-  "employeeId": "1d59877f-9bbd-4fdf-a50a-064dfe48bcb3",
-  "componentId": "cb0a361a-24fe-4494-88f5-e16295e38ce5",
+  "id": "2e5989d7-ef48-4684-820e-7557d6fa021e",
+  "employeeId": "2dc14bc9-22cc-4fb7-9e9f-7b779dc9f516",
+  "componentId": "d2fa93f6-5e67-4062-bcab-4d581d91fb9b",
   "amount": 25000,
   "effectiveFrom": "2025-03-01T00:00:00.000Z",
   "effectiveTo": null,
@@ -115,19 +113,19 @@
   "employerFundAsCash": false
  },
  "POST /api/accounting/customer-invoices-create": {
-  "id": "3a84c42b-f780-4b9e-b965-6b20b8791b9b",
+  "id": "23ea40ff-3a55-46a5-888e-02a7ca4a67ef",
   "invoiceNumber": "INV0000001",
-  "shownDigest": "bb20c511b952b543c8fe21f37fc9fd50b5c15f6c8e5136e46c3851acf4d409d2",
-  "draftDigest": "21ba42a3db8453e84e783934206fbf2eecc0092bf75d013d4e983af348346b49"
+  "shownDigest": "9a6857b0a104d89ce879e76bb281108732b99745c81d9d075d637dc1137daff9",
+  "draftDigest": "e687a8b1300942749f53e76b1f8370a3032696591f544db1e17603b1aebe645f"
  },
  "POST /api/accounting/customer-invoices-detail": {
-  "id": "3a84c42b-f780-4b9e-b965-6b20b8791b9b",
+  "id": "23ea40ff-3a55-46a5-888e-02a7ca4a67ef",
   "status": "approved",
-  "glJournalEntryId": "0502c245-f896-4a03-98f4-8a4b2b07c2e6",
+  "glJournalEntryId": "4f197614-fb49-4be8-9046-b67557d59137",
   "evidenceDocumentId": null
  },
  "POST /api/accounting/suppliers-list": {
-  "id": "f3ed03b1-1e34-4709-ae80-c7a338be1181",
+  "id": "199fa14a-fe25-4429-a710-573409de1457",
   "name": "0GP-Golden-Supplier",
   "company_name": null,
   "email": "gp-golden-supplier@example.test",
@@ -151,12 +149,12 @@
   "auto_allocate_payments": false,
   "subject_to_drc_vat": false,
   "whatsapp_number": null,
-  "created_at": "2026-11-18T12:00:49.494Z"
+  "created_at": "2026-11-18T12:19:38.835Z"
  },
  "POST /api/accounting/supplier-invoices": {
-  "id": "e727a7f9-6d5b-42ec-83d5-9e016199230f",
+  "id": "834f0732-5696-4e18-848f-856bffdebea6",
   "invoiceNumber": "DEMO-AP-1",
-  "supplierId": "49786957-e1bd-40c6-bbf3-8d91f5edbded",
+  "supplierId": "782641ca-8630-459c-b4be-0553c5359fa1",
   "invoiceDate": "2026-01-10",
   "dueDate": "2026-02-09",
   "dueDateSource": "terms",
@@ -170,18 +168,18 @@
   "currency": "ZAR",
   "status": "draft",
   "matchStatus": "unmatched",
-  "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "createdAt": "Wed Nov 18 2026 14:00:52 GMT+0200 (South Africa Standard Time)",
-  "updatedAt": "Wed Nov 18 2026 14:00:52 GMT+0200 (South Africa Standard Time)",
+  "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "createdAt": "Wed Nov 18 2026 14:19:42 GMT+0200 (South Africa Standard Time)",
+  "updatedAt": "Wed Nov 18 2026 14:19:42 GMT+0200 (South Africa Standard Time)",
   "hasDocument": false,
   "hasPo": false,
   "isPossibleDuplicate": false,
   "paymentRunEligible": false
  },
  "POST /api/accounting/supplier-invoices-action": {
-  "id": "e727a7f9-6d5b-42ec-83d5-9e016199230f",
+  "id": "834f0732-5696-4e18-848f-856bffdebea6",
   "invoiceNumber": "DEMO-AP-1",
-  "supplierId": "49786957-e1bd-40c6-bbf3-8d91f5edbded",
+  "supplierId": "782641ca-8630-459c-b4be-0553c5359fa1",
   "invoiceDate": "2026-01-10",
   "dueDate": "2026-02-09",
   "receivedDate": "2026-11-18",
@@ -194,21 +192,21 @@
   "currency": "ZAR",
   "status": "approved",
   "matchStatus": "unmatched",
-  "glJournalEntryId": "ff160ffa-7b4b-439c-bed5-b06703cdaec1",
-  "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "approvedBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "approvedAt": "Wed Nov 18 2026 14:00:54 GMT+0200 (South Africa Standard Time)",
-  "createdAt": "Wed Nov 18 2026 14:00:52 GMT+0200 (South Africa Standard Time)",
-  "updatedAt": "Wed Nov 18 2026 14:00:54 GMT+0200 (South Africa Standard Time)"
+  "glJournalEntryId": "844a3328-45f1-4700-9154-8b25311901de",
+  "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "approvedBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "approvedAt": "Wed Nov 18 2026 14:19:43 GMT+0200 (South Africa Standard Time)",
+  "createdAt": "Wed Nov 18 2026 14:19:42 GMT+0200 (South Africa Standard Time)",
+  "updatedAt": "Wed Nov 18 2026 14:19:43 GMT+0200 (South Africa Standard Time)"
  },
  "GET /api/accounting/chart-of-accounts?subtype=default_revenue": [
   {
-   "id": "fcda92f2-5a13-460b-889f-6b71219c5d02",
+   "id": "7aa5ec90-4e06-4ad6-bbd4-388ced7e1973",
    "accountCode": "4100",
    "accountName": "Sales Revenue",
    "accountType": "revenue",
    "accountSubtype": "default_revenue",
-   "parentAccountId": "0a8c6cc5-5e90-4d41-a108-808f02b83fb7",
+   "parentAccountId": "d94b0783-0bef-47f1-9e92-d2be97557ed6",
    "isActive": true,
    "isSystemAccount": true,
    "normalBalance": "credit",
@@ -216,14 +214,14 @@
    "displayOrder": 410,
    "defaultVatCode": "none",
    "vatInputDenied": false,
-   "createdAt": "Wed Nov 18 2026 14:00:12 GMT+0200 (South Africa Standard Time)",
-   "updatedAt": "Wed Nov 18 2026 14:00:12 GMT+0200 (South Africa Standard Time)",
+   "createdAt": "Wed Nov 18 2026 14:19:06 GMT+0200 (South Africa Standard Time)",
+   "updatedAt": "Wed Nov 18 2026 14:19:06 GMT+0200 (South Africa Standard Time)",
    "hasTransactions": true
   }
  ],
  "GET /api/accounting/bank-accounts": [
   {
-   "id": "0caf0126-fe12-444d-9048-d396e4104814",
+   "id": "bdac2fe7-241f-44a9-9712-b53d84e296bb",
    "accountCode": "1110",
    "accountName": "Bank - Primary",
    "description": null,
@@ -255,37 +253,37 @@
   }
  ],
  "POST /api/accounting/journal-entries": {
-  "id": "2a8d95c1-6eb6-453b-a2b5-7d6e786153ad",
+  "id": "546ed590-2c96-47f7-b6fb-33d782465076",
   "entryNumber": "JE-2026-00025",
   "entryDate": "2026-01-15",
-  "fiscalPeriodId": "bc749470-ff29-4e47-a470-bf16d1c73cea",
+  "fiscalPeriodId": "42c29c8f-d2a8-4d38-9afa-0be920bea462",
   "description": "DEMO-JNL-1",
   "source": "manual",
   "status": "draft",
-  "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "createdAt": "Wed Nov 18 2026 14:01:06 GMT+0200 (South Africa Standard Time)",
-  "updatedAt": "Wed Nov 18 2026 14:01:06 GMT+0200 (South Africa Standard Time)"
+  "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "createdAt": "Wed Nov 18 2026 14:19:52 GMT+0200 (South Africa Standard Time)",
+  "updatedAt": "Wed Nov 18 2026 14:19:52 GMT+0200 (South Africa Standard Time)"
  },
  "POST /api/accounting/journal-entries-action": {
-  "id": "2a8d95c1-6eb6-453b-a2b5-7d6e786153ad",
+  "id": "546ed590-2c96-47f7-b6fb-33d782465076",
   "entryNumber": "JE-2026-00025",
   "entryDate": "2026-01-15",
-  "fiscalPeriodId": "bc749470-ff29-4e47-a470-bf16d1c73cea",
+  "fiscalPeriodId": "42c29c8f-d2a8-4d38-9afa-0be920bea462",
   "description": "DEMO-JNL-1",
   "source": "manual",
   "status": "posted",
-  "postedBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "postedAt": "Wed Nov 18 2026 14:01:07 GMT+0200 (South Africa Standard Time)",
-  "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "createdAt": "Wed Nov 18 2026 14:01:06 GMT+0200 (South Africa Standard Time)",
-  "updatedAt": "Wed Nov 18 2026 14:01:07 GMT+0200 (South Africa Standard Time)"
+  "postedBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "postedAt": "Wed Nov 18 2026 14:19:53 GMT+0200 (South Africa Standard Time)",
+  "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "createdAt": "Wed Nov 18 2026 14:19:52 GMT+0200 (South Africa Standard Time)",
+  "updatedAt": "Wed Nov 18 2026 14:19:53 GMT+0200 (South Africa Standard Time)"
  },
  "POST /api/accounting/bank-transactions-bulk-commit": {
   "filename": "demo-statement.csv",
   "status": "imported",
-  "bulkImportId": "c1f5b732-7d41-4536-b367-ff915606fa58",
+  "bulkImportId": "ffe90b18-104a-4990-a599-7bd33b969f67",
   "bulkSequence": 1,
-  "batchId": "5e1b7aa0-ed10-480c-aeb2-9160d2a751ec",
+  "batchId": "587a56ce-0bab-49ec-9b95-6e282563ad23",
   "transactionCount": 40,
   "duplicateCount": 0,
   "totalParsed": 40,
@@ -297,7 +295,7 @@
   }
  },
  "POST /api/accounting/chart-of-accounts": {
-  "id": "b7a97d38-96b7-468c-b04f-2dbd16a5ddbe",
+  "id": "2ffbfd3c-be27-490f-ba12-484e3747eb9a",
   "accountCode": "5150",
   "accountName": "Cost of Sales",
   "accountType": "expense",
@@ -309,8 +307,8 @@
   "displayOrder": 0,
   "defaultVatCode": "none",
   "vatInputDenied": false,
-  "createdAt": "Wed Nov 18 2026 14:01:13 GMT+0200 (South Africa Standard Time)",
-  "updatedAt": "Wed Nov 18 2026 14:01:13 GMT+0200 (South Africa Standard Time)"
+  "createdAt": "Wed Nov 18 2026 14:19:59 GMT+0200 (South Africa Standard Time)",
+  "updatedAt": "Wed Nov 18 2026 14:19:59 GMT+0200 (South Africa Standard Time)"
  },
  "GET /api/accounting/budgets?years_only=1": {
   "fiscalYear": 2027,
@@ -418,7 +416,7 @@
   ]
  },
  "POST /api/accounting/budget-versions": {
-  "id": "c3101fc4-c5a6-483e-ae8c-5eb479a11e9c",
+  "id": "2ec10411-97b0-4561-9ab2-e4dcc0d0684c",
   "fiscalYear": 2027,
   "name": "Deploy Verification original FY2027",
   "kind": "original",
@@ -432,20 +430,20 @@
   "unlockedBy": null,
   "unlockedAt": null,
   "unlockReason": null,
-  "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-  "createdAt": "2026-11-18T12:01:14.223085Z",
-  "updatedAt": "2026-11-18T12:01:14.223085Z",
+  "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+  "createdAt": "2026-11-18T12:20:01.912485Z",
+  "updatedAt": "2026-11-18T12:20:01.912485Z",
   "amountCount": 0,
   "total": 0
  },
  "POST /api/onboarding/complete-setup": {
-  "companyId": "e9a7d6fa-a920-4eda-8a2b-5f17f6b1c96f",
+  "companyId": "217286ec-b2bd-4d13-ab4e-026d45e559dd",
   "replayed": false
  },
  "GET /api/accounting/budget-versions?fiscalYear=2027": {
   "items": [
    {
-    "id": "c3101fc4-c5a6-483e-ae8c-5eb479a11e9c",
+    "id": "2ec10411-97b0-4561-9ab2-e4dcc0d0684c",
     "fiscalYear": 2027,
     "name": "Deploy Verification original FY2027",
     "kind": "original",
@@ -459,9 +457,9 @@
     "unlockedBy": null,
     "unlockedAt": null,
     "unlockReason": null,
-    "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-    "createdAt": "2026-11-18T12:01:14.223085Z",
-    "updatedAt": "2026-11-18T12:01:14.223085Z",
+    "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+    "createdAt": "2026-11-18T12:20:01.912485Z",
+    "updatedAt": "2026-11-18T12:20:01.912485Z",
     "amountCount": 0,
     "total": 0
    }
@@ -470,7 +468,7 @@
  "GET /api/accounting/budget-versions?fiscalYear=2028": {
   "items": [
    {
-    "id": "acf55ed2-3f5a-4f0e-ad41-5d1b26dc53ef",
+    "id": "9a1a80e0-5194-4097-9c7e-cfc6f9fb450c",
     "fiscalYear": 2028,
     "name": "Deploy Verification original FY2028",
     "kind": "original",
@@ -484,9 +482,9 @@
     "unlockedBy": null,
     "unlockedAt": null,
     "unlockReason": null,
-    "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-    "createdAt": "2026-11-18T12:01:14.625716Z",
-    "updatedAt": "2026-11-18T12:01:14.625716Z",
+    "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+    "createdAt": "2026-11-18T12:20:02.504361Z",
+    "updatedAt": "2026-11-18T12:20:02.504361Z",
     "amountCount": 0,
     "total": 0
    }
@@ -494,7 +492,7 @@
  },
  "GET /api/accounting/budget-grid?fiscal_year=2027": {
   "version": {
-   "id": "c3101fc4-c5a6-483e-ae8c-5eb479a11e9c",
+   "id": "2ec10411-97b0-4561-9ab2-e4dcc0d0684c",
    "fiscalYear": 2027,
    "name": "Deploy Verification original FY2027",
    "kind": "original",
@@ -508,13 +506,13 @@
    "unlockedBy": null,
    "unlockedAt": null,
    "unlockReason": null,
-   "createdBy": "9bee7294-941b-4866-b891-6b15188f91ae",
-   "createdAt": "2026-11-18T12:01:14.223085Z",
-   "updatedAt": "2026-11-18T12:01:14.223085Z",
+   "createdBy": "89d488e5-884a-4b1b-b77c-ae89cebebe08",
+   "createdAt": "2026-11-18T12:20:01.912485Z",
+   "updatedAt": "2026-11-18T12:20:01.912485Z",
    "amountCount": 0,
    "total": 0
   },
-  "updatedAt": "2026-11-18T12:01:14.223085Z",
+  "updatedAt": "2026-11-18T12:20:01.912485Z",
   "year": {
    "fiscalYear": 2027,
    "startDate": "2026-03-01",
@@ -537,7 +535,7 @@
   },
   "accounts": [
    {
-    "id": "0a8c6cc5-5e90-4d41-a108-808f02b83fb7",
+    "id": "d94b0783-0bef-47f1-9e92-d2be97557ed6",
     "code": "4000",
     "name": "Revenue",
     "type": "revenue",
@@ -548,10 +546,10 @@
     "depth": 0,
     "isHeader": true,
     "childIds": [
-     "fcda92f2-5a13-460b-889f-6b71219c5d02",
-     "40f1762d-a635-4fa3-8d70-9de5507c3a10",
-     "13c2aeb5-2c21-4d12-952d-20575dac8e89",
-     "6184299d-4df1-4e92-9ae0-b85a1c1dad5a"
+     "7aa5ec90-4e06-4ad6-bbd4-388ced7e1973",
+     "e5303d17-e728-4535-89e5-72221eb22a65",
+     "b1a4f084-66f1-4b29-9dbe-47cceda9e514",
+     "84bef20e-2a0a-4d31-9876-21a2ce60d357"
     ],
     "ownAmounts": false,
     "grain": null,
@@ -572,14 +570,14 @@
     "note": null
    },
    {
-    "id": "fcda92f2-5a13-460b-889f-6b71219c5d02",
+    "id": "7aa5ec90-4e06-4ad6-bbd4-388ced7e1973",
     "code": "4100",
     "name": "Sales Revenue",
     "type": "revenue",
     "subtype": "default_revenue",
     "band": "turnover",
     "isActive": true,
-    "parentId": "0a8c6cc5-5e90-4d41-a108-808f02b83fb7",
+    "parentId": "d94b0783-0bef-47f1-9e92-d2be97557ed6",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -589,14 +587,14 @@
     "note": null
    },
    {
-    "id": "40f1762d-a635-4fa3-8d70-9de5507c3a10",
+    "id": "e5303d17-e728-4535-89e5-72221eb22a65",
     "code": "4200",
     "name": "Service Revenue",
     "type": "revenue",
     "subtype": "revenue",
     "band": "turnover",
     "isActive": true,
-    "parentId": "0a8c6cc5-5e90-4d41-a108-808f02b83fb7",
+    "parentId": "d94b0783-0bef-47f1-9e92-d2be97557ed6",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -606,14 +604,14 @@
     "note": null
    },
    {
-    "id": "13c2aeb5-2c21-4d12-952d-20575dac8e89",
+    "id": "b1a4f084-66f1-4b29-9dbe-47cceda9e514",
     "code": "4300",
     "name": "Other Income",
     "type": "revenue",
     "subtype": "other_income",
     "band": "other_income",
     "isActive": true,
-    "parentId": "0a8c6cc5-5e90-4d41-a108-808f02b83fb7",
+    "parentId": "d94b0783-0bef-47f1-9e92-d2be97557ed6",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -623,14 +621,14 @@
     "note": null
    },
    {
-    "id": "6184299d-4df1-4e92-9ae0-b85a1c1dad5a",
+    "id": "84bef20e-2a0a-4d31-9876-21a2ce60d357",
     "code": "4410",
     "name": "Profit / Loss on Disposal of Assets",
     "type": "revenue",
     "subtype": "disposal_profit_loss",
     "band": "turnover",
     "isActive": true,
-    "parentId": "0a8c6cc5-5e90-4d41-a108-808f02b83fb7",
+    "parentId": "d94b0783-0bef-47f1-9e92-d2be97557ed6",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -640,7 +638,7 @@
     "note": null
    },
    {
-    "id": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "id": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "code": "5000",
     "name": "Expenses",
     "type": "expense",
@@ -651,15 +649,15 @@
     "depth": 0,
     "isHeader": true,
     "childIds": [
-     "2d8b0c54-817f-4d85-95ae-e9a75efdf5e7",
-     "3e7430fd-4885-43ee-a578-3c0c1f875aa2",
-     "b922375b-60ac-464e-ada7-6c1812114608",
-     "e8cc92d9-b897-4620-bf3b-b00c50673422",
-     "a2c9bae7-c5f3-4bf8-8728-c3131dea1d7a",
-     "5358c569-8a42-4a47-b096-df01144a4393",
-     "094ef936-dabe-4d3d-89c3-bde9f473e988",
-     "c0987015-6390-4107-a468-80020eacfea9",
-     "b262e668-ad6a-4e8e-80d6-e25be536ff30"
+     "664d67ae-3c58-4cd0-a18a-7ac627b55b52",
+     "d70fd37b-8925-4f9d-aca9-463b896acf5c",
+     "8ad80f22-b6f0-4a23-a5c1-e0c35bcff2da",
+     "94f223a7-8d81-4300-a27e-7ff53d1c8707",
+     "cf2f2ba0-011c-4c5d-a076-031d1828e3aa",
+     "b1ceaa10-1da9-4a12-94f5-205b97be13e4",
+     "0f29c7c8-95ee-48cb-ab16-f0ce3cd92697",
+     "ea0ca4b1-b0d4-47f7-8bf5-563274f0d667",
+     "86f02bde-6b00-4854-85e2-fe537ed3cf59"
     ],
     "ownAmounts": false,
     "grain": null,
@@ -680,14 +678,14 @@
     "note": null
    },
    {
-    "id": "2d8b0c54-817f-4d85-95ae-e9a75efdf5e7",
+    "id": "664d67ae-3c58-4cd0-a18a-7ac627b55b52",
     "code": "5100",
     "name": "Materials & Supplies",
     "type": "expense",
     "subtype": "default_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -697,14 +695,14 @@
     "note": null
    },
    {
-    "id": "3e7430fd-4885-43ee-a578-3c0c1f875aa2",
+    "id": "d70fd37b-8925-4f9d-aca9-463b896acf5c",
     "code": "5200",
     "name": "Labour Costs",
     "type": "expense",
     "subtype": "operating_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -714,14 +712,14 @@
     "note": null
    },
    {
-    "id": "b922375b-60ac-464e-ada7-6c1812114608",
+    "id": "8ad80f22-b6f0-4a23-a5c1-e0c35bcff2da",
     "code": "5300",
     "name": "Subcontractor Costs",
     "type": "expense",
     "subtype": "operating_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -731,14 +729,14 @@
     "note": null
    },
    {
-    "id": "e8cc92d9-b897-4620-bf3b-b00c50673422",
+    "id": "94f223a7-8d81-4300-a27e-7ff53d1c8707",
     "code": "5400",
     "name": "Transport & Fuel",
     "type": "expense",
     "subtype": "operating_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -748,14 +746,14 @@
     "note": null
    },
    {
-    "id": "a2c9bae7-c5f3-4bf8-8728-c3131dea1d7a",
+    "id": "cf2f2ba0-011c-4c5d-a076-031d1828e3aa",
     "code": "5500",
     "name": "Equipment Costs",
     "type": "expense",
     "subtype": "operating_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -765,14 +763,14 @@
     "note": null
    },
    {
-    "id": "5358c569-8a42-4a47-b096-df01144a4393",
+    "id": "b1ceaa10-1da9-4a12-94f5-205b97be13e4",
     "code": "5600",
     "name": "Administrative Expenses",
     "type": "expense",
     "subtype": "admin_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -782,14 +780,14 @@
     "note": null
    },
    {
-    "id": "094ef936-dabe-4d3d-89c3-bde9f473e988",
+    "id": "0f29c7c8-95ee-48cb-ab16-f0ce3cd92697",
     "code": "5700",
     "name": "Bank Charges",
     "type": "expense",
     "subtype": "operating_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -799,14 +797,14 @@
     "note": null
    },
    {
-    "id": "c0987015-6390-4107-a468-80020eacfea9",
+    "id": "ea0ca4b1-b0d4-47f7-8bf5-563274f0d667",
     "code": "5800",
     "name": "Depreciation Expense",
     "type": "expense",
     "subtype": "depreciation_expense",
     "band": "operating_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -816,14 +814,14 @@
     "note": null
    },
    {
-    "id": "b262e668-ad6a-4e8e-80d6-e25be536ff30",
+    "id": "86f02bde-6b00-4854-85e2-fe537ed3cf59",
     "code": "5810",
     "name": "Interest Expense",
     "type": "expense",
     "subtype": "finance_cost",
     "band": "other_expense",
     "isActive": true,
-    "parentId": "d1316a19-aecb-453e-8d78-48a9b0809f71",
+    "parentId": "54c5c562-9e6b-477a-a8a0-1287134e8d8c",
     "depth": 1,
     "isHeader": false,
     "childIds": [],
@@ -833,7 +831,7 @@
     "note": null
    },
    {
-    "id": "b7a97d38-96b7-468c-b04f-2dbd16a5ddbe",
+    "id": "2ffbfd3c-be27-490f-ba12-484e3747eb9a",
     "code": "5150",
     "name": "Cost of Sales",
     "type": "expense",
@@ -1019,31 +1017,31 @@
   ],
   "cells": [
    {
-    "glAccountId": "2d8b0c54-817f-4d85-95ae-e9a75efdf5e7",
+    "glAccountId": "664d67ae-3c58-4cd0-a18a-7ac627b55b52",
     "dimensionId": null,
     "month": "2027-01",
     "amount": 1795
    },
    {
-    "glAccountId": "2d8b0c54-817f-4d85-95ae-e9a75efdf5e7",
+    "glAccountId": "664d67ae-3c58-4cd0-a18a-7ac627b55b52",
     "dimensionId": null,
     "month": "2027-02",
     "amount": 1320
    },
    {
-    "glAccountId": "fcda92f2-5a13-460b-889f-6b71219c5d02",
+    "glAccountId": "7aa5ec90-4e06-4ad6-bbd4-388ced7e1973",
     "dimensionId": null,
     "month": "2026-08",
     "amount": 5000
    },
    {
-    "glAccountId": "fcda92f2-5a13-460b-889f-6b71219c5d02",
+    "glAccountId": "7aa5ec90-4e06-4ad6-bbd4-388ced7e1973",
     "dimensionId": null,
     "month": "2027-01",
     "amount": 4105
    },
    {
-    "glAccountId": "fcda92f2-5a13-460b-889f-6b71219c5d02",
+    "glAccountId": "7aa5ec90-4e06-4ad6-bbd4-388ced7e1973",
     "dimensionId": null,
     "month": "2027-02",
     "amount": 3254

@@ -15,12 +15,12 @@
  * Deploy Verification company, so no spec writes to Demo; without that login it
  * is the Demo admin and says so.
  */
-import { request as pwRequest, type FullConfig } from '@playwright/test';
+import { request as pwRequest, type APIRequestContext, type FullConfig } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { loginGolden } from './helpers/goldenLogin';
 import { readGoldenSlot } from './helpers/goldenSlot';
-import { approverCompanyProblems, budgetYearWarning, budgetYears, isVerifyLogin, verifyCompanyProblems, type UserCompany } from './helpers/verifyCompany';
+import { approverCompanyProblems, budgetYearWarning, budgetYears, isVerifyLogin, startMonthOf, verifyCompanyProblems, type UserCompany } from './helpers/verifyCompany';
 
 export const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
 
@@ -40,6 +40,19 @@ async function verifyApprover(baseURL: string): Promise<void> {
   } finally {
     await actx.dispose();
   }
+}
+
+/** Prints the budget-year WARNING (helpers/verifyCompany.ts budgetYearWarning) for the company the suite is in, its year start taken from the app. */
+async function warnBudgetYear(ctx: APIRequestContext): Promise<void> {
+  const json = async (p: string) => (await ctx.get(p).then((r) => r.json()).catch(() => null)) as { data?: any } | null;
+  const startMonth = startMonthOf((await json('/api/accounting/budgets?years_only=1'))?.data);
+  if (startMonth === null) return; // the app did not say: no guess
+  const today = new Date();
+  const { current, next } = budgetYears(today, startMonth);
+  const has = new Map<number, boolean>();
+  for (const year of [current, next]) has.set(year, ((await json(`/api/accounting/budget-versions?fiscalYear=${year}`))?.data?.items?.length ?? 0) > 0);
+  const warning = budgetYearWarning(today, (y) => has.get(y) === true, 60, startMonth);
+  if (warning) process.stdout.write(`${warning}\n`);
 }
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
@@ -88,12 +101,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     }
     process.stdout.write('golden-paths: verified: the active company is "Deploy Verification" (is_demo) and the verify login owns nothing else\n');
     await verifyApprover(baseURL);
-    const today = new Date();
-    const versions = await ctx.get(`/api/accounting/budget-versions?fiscalYear=${budgetYears(today).next}`).then((r) => r.json()).catch(() => null) as { data?: { items?: unknown[] } } | null;
-    const current = await ctx.get(`/api/accounting/budget-versions?fiscalYear=${budgetYears(today).current}`).then((r) => r.json()).catch(() => null) as { data?: { items?: unknown[] } } | null;
-    const have = (year: number) => ((year === budgetYears(today).next ? versions : current)?.data?.items?.length ?? 0) > 0;
-    const warning = budgetYearWarning(today, have);
-    if (warning) process.stdout.write(`${warning}\n`);
+    await warnBudgetYear(ctx);
   }
 
   mkdirSync(dirname(GOLDEN_STATE_FILE), { recursive: true });

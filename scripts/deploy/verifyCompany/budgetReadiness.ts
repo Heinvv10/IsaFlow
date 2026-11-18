@@ -9,8 +9,8 @@ import { fyLabel } from './provisionDb';
 interface GridAccount { id: string; band: string; isActive: boolean; isHeader: boolean }
 type Reader = Pick<Client, 'get'>;
 
-export async function budgetProblems(api: Reader, now: Date): Promise<string[]> {
-  const year = fyLabel(now);
+export async function budgetProblems(api: Reader, now: Date, financialYearStart = 3): Promise<string[]> {
+  const year = fyLabel(now, financialYearStart);
   const problems: string[] = [];
   const years = await api.get<{ fiscalYear: number }>('/api/accounting/budgets?years_only=1');
   if (years.fiscalYear !== year) problems.push(`the app's current budget year is ${years.fiscalYear}, not ${year}`);

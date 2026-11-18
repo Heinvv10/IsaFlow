@@ -1,7 +1,7 @@
 /**
  * Provision the Deploy Verification company: the hidden company the post-deploy golden-path specs run in (scripts/verify-deploy.sh)
  * instead of the production Demo company, its dedicated login deploy-verify@isaflow.co.za (the owner and only person who
- * raises things) and a second login, deploy-verify-approver@isaflow.co.za, an admin who decides the pay run the first raises
+ * raises things) and a second login, deploy-verify-approver@isaflow.co.za, a manager (the least role that can decide) who decides the pay run the first raises
  * (R-035: nobody approves their own request while another member can).
  *
  *   VERIFY_COMPANY_DATABASE_URL=<owner url> GOTRUE_URL=<url> SUPABASE_SERVICE_ROLE_KEY=<key> \
@@ -19,7 +19,9 @@
  * --dry-run reads GoTrue, runs the database step in a rolled-back transaction and writes nothing anywhere. Passwords are never
  * printed; they sit in this process's environment and the env file (mode 0600) and nowhere else.
  *
- * A real run holds the deploy locks (/tmp/isaflow-deploy.lock, /tmp/isaflow-colours.lock) throughout and is refused while a deploy,
+ * PROVISION_LOCK_FILES (colon-separated) replaces the lock files for drills on a throwaway stack; it is refused against the production
+ * database name. A real run is ended after 20 minutes (the watchdog; the locks drop with the process) and every request to the app is bounded (60 s;
+ * GoTrue's admin calls are bounded at 5 s). It holds the deploy locks (/tmp/isaflow-deploy.lock, /tmp/isaflow-colours.lock) throughout and is refused while a deploy,
  * rollback or restart runs: it changes GoTrue passwords before it writes the env file, and a verification in that window would
  * log in with the old password. A GoTrue login that exists and was not created by this tool is never adopted. --reset-password
  * also ends the login's sessions (it needs JWT_SECRET and SUPABASE_ANON_KEY, the app's own, to do so).
@@ -30,21 +32,22 @@
 import pg from 'pg';
 import { assertConnectedToDatabase } from '../ci/golden/slotConfig';
 import { parseOptions } from './verifyCompany/config';
+import { RUN_WATCHDOG_MS } from './verifyCompany/identity';
 import { realDeps } from './verifyCompany/realDeps';
 import { runProvisioning } from './verifyCompany/run';
+import { startWatchdog } from './verifyCompany/watchdog';
 
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
 
 async function main(): Promise<void> {
   const opts = parseOptions(process.argv.slice(2), process.env);
+  startWatchdog(RUN_WATCHDOG_MS); // a hung request or query must not hold the deploy locks for ever
   process.env.GOTRUE_URL = opts.goTrueUrl;
   const db = new pg.Client({ connectionString: opts.databaseUrl });
   await db.connect();
   try {
     say(`database ${await assertConnectedToDatabase(db, opts.expectDatabase)}${opts.dryRun ? ' (dry run: the database step rolls back, nothing else is written)' : ''}`);
-    // PROVISION_LOCK_FILES (colon-separated) replaces the deploy's lock files: for drills on a throwaway stack, never for production.
-    const lockFiles = process.env.PROVISION_LOCK_FILES ? process.env.PROVISION_LOCK_FILES.split(':') : undefined;
-    await runProvisioning(opts, realDeps(db, opts.envFile, opts.baseUrl, say, lockFiles));
+    await runProvisioning(opts, realDeps(db, opts.envFile, opts.baseUrl, say, opts.lockFiles));
   } finally {
     await db.end();
   }

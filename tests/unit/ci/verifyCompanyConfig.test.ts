@@ -125,3 +125,14 @@ describe('--reset-password needs the JWT secret (it ends the login\'s sessions)'
     expect(parseOptions(ARGV, ENV).resetPassword).toBe(false);
   });
 });
+
+describe('PROVISION_LOCK_FILES (drill-only) is refused against the production database', () => {
+  it('is accepted for a throwaway database, split on colons, and refused when the expected database is the production name', () => {
+    const drill = { ...ENV, VERIFY_COMPANY_DATABASE_URL: `${SCHEME}://owner:s3cret@db.example:7772/isaflow_golden`, PROVISION_LOCK_FILES: '/a.lock:/b.lock' };
+    const argv = ['--expect-database', 'isaflow_golden', '--base-url', 'http://127.0.0.1:3101', '--env-file', '/x/deploy.env'];
+    expect(parseOptions(argv, drill).lockFiles).toEqual(['/a.lock', '/b.lock']);
+    expect(parseOptions(argv, { ...drill, PROVISION_LOCK_FILES: undefined }).lockFiles).toBeUndefined();
+    expect(() => parseOptions(ARGV, { ...ENV, PROVISION_LOCK_FILES: '/a.lock' })).toThrow(/refusing PROVISION_LOCK_FILES against the production database \(isaflow\)/);
+    expect(parseOptions(ARGV, ENV).lockFiles).toBeUndefined(); // production, no override: the real locks
+  });
+});

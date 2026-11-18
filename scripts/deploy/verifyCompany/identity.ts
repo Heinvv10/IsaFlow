@@ -11,6 +11,8 @@ export interface LoginIdentity {
   emailKey: string;
   passwordKey: string;
   pendingKey: string;
+  /** Where the login's GoTrue id is recorded once created: the proof, for a login made by an earlier version, that it is ours. */
+  idKey: string;
 }
 
 /**
@@ -24,6 +26,7 @@ export const VERIFY_LOGIN: LoginIdentity = {
   emailKey: 'E2E_VERIFY_EMAIL',
   passwordKey: 'E2E_VERIFY_PASSWORD',
   pendingKey: 'E2E_VERIFY_PENDING_PASSWORD',
+  idKey: 'E2E_VERIFY_GOTRUE_ID',
 };
 
 /** The second member, an admin of the same company: decides the pay run the verify login raises (R-035 two-person gate). */
@@ -34,6 +37,7 @@ export const APPROVER_LOGIN: LoginIdentity = {
   emailKey: 'E2E_VERIFY_APPROVER_EMAIL',
   passwordKey: 'E2E_VERIFY_APPROVER_PASSWORD',
   pendingKey: 'E2E_VERIFY_APPROVER_PENDING_PASSWORD',
+  idKey: 'E2E_VERIFY_APPROVER_GOTRUE_ID',
 };
 
 /** Hidden from platform metrics because is_demo = true; the verify login's default (first) company. */
@@ -46,7 +50,11 @@ export const MIGRATION_SANDBOX_NAME = '0GP Golden Migration Sandbox';
  * the company's actual rule and gives `admin` only if the rule demands more than `manager` (see chooseApproverRole).
  */
 export const APPROVER_ROLE = 'manager';
-/** What `user_metadata.purpose` carries on a GoTrue login this provisioner created: a login without it is somebody else's and is never adopted. */
+/**
+ * What `app_metadata.purpose` carries on a GoTrue login this provisioner created: a login without it is somebody else's and is
+ * never adopted. app_metadata is writable by admins only, so a user cannot stamp their own login with it (user_metadata they can).
+ * An earlier version stamped user_metadata: that is accepted only for a login whose GoTrue id is recorded in the deploy env file.
+ */
 export const LOGIN_PURPOSE = 'deploy verification (scripts/deploy/provision-verify-company.ts)';
 /**
  * The locks a deploy holds (scripts/deploy.sh: /tmp/isaflow-deploy.lock for the whole deploy; scripts/deploy/bluegreen.sh
@@ -54,3 +62,10 @@ export const LOGIN_PURPOSE = 'deploy verification (scripts/deploy/provision-veri
  * The provisioner takes both for a whole real run, so no verification can log in while a password and the env file disagree.
  */
 export const DEPLOY_LOCK_FILES = ['/tmp/isaflow-deploy.lock', '/tmp/isaflow-colours.lock'] as const;
+
+/** The production database's name (deploy.sh, the wrapper's default): drill-only switches are refused against it. */
+export const PRODUCTION_DATABASE = 'isaflow';
+/** A whole real run may not take longer than this: the watchdog ends it (the deploy locks drop with the process). */
+export const RUN_WATCHDOG_MS = 20 * 60_000;
+/** One request to the running app, or to GoTrue's admin API, may not take longer than this. */
+export const REQUEST_TIMEOUT_MS = 60_000;

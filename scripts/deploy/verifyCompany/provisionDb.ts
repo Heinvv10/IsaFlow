@@ -22,6 +22,10 @@ export interface DbOutcome {
   approverJoined: boolean;
   /** The role the approver holds (chosen from the company's pay-run rule). */
   approverRole: string;
+  /** The role the approver actually holds: an existing membership is never changed, so it can differ from the one chosen. */
+  approverActualRole: string;
+  /** The company's own financial year start month (companies.financial_year_start). */
+  financialYearStart: number;
   /** Fiscal periods created by this run (a re-run on the same day creates none). */
   periodsCreated: number;
 }
@@ -49,16 +53,16 @@ const STATIC_ANCHORS = ['2025-06-01', '2026-06-01', '2027-01-15', '2027-06-01'];
 
 const iso = (d: Date): string => d.toISOString().slice(0, 10);
 
-/** The financial year (start month March) holding `d`: the year its March 1st falls in. */
-export function fyStartYear(d: Date): number { return d.getUTCMonth() >= 2 ? d.getUTCFullYear() : d.getUTCFullYear() - 1; }
-/** The budget label of that year: the calendar year it ends in (FY2027 = Mar 2026 - Feb 2027). */
-export function fyLabel(d: Date): number { return fyStartYear(d) + 1; }
-/** A day in the middle (August) of the financial year `yearsAhead` years from the one holding `d`. */
-export function midFy(d: Date, yearsAhead: number): string { return `${fyStartYear(d) + yearsAhead}-08-15`; }
+/** The financial year holding `d` for a company whose year starts in month `startMonth` (1-12): the calendar year its first day falls in. */
+export function fyStartYear(d: Date, startMonth = 3): number { return d.getUTCMonth() + 1 >= startMonth ? d.getUTCFullYear() : d.getUTCFullYear() - 1; }
+/** The budget label of that year: the calendar year it ends in (March start: FY2027 = Mar 2026 - Feb 2027; January start: FY2027 = Jan - Dec 2027). */
+export function fyLabel(d: Date, startMonth = 3): number { return fyStartYear(d, startMonth) + (startMonth === 1 ? 0 : 1); }
+/** A day in the middle of the financial year `yearsAhead` years from the one holding `d`: the 15th, five months after its first day. */
+export function midFy(d: Date, yearsAhead: number, startMonth = 3): string { return iso(new Date(Date.UTC(fyStartYear(d, startMonth) + yearsAhead, startMonth - 1 + 5, 15))); }
 
 /** Every date whose year gets periods: the static anchors, and the previous, current and next year of the run's date. */
-export function periodAnchors(today: Date): string[] {
-  return [...new Set([...STATIC_ANCHORS, midFy(today, -1), iso(today), midFy(today, 1)])];
+export function periodAnchors(today: Date, startMonth = 3): string[] {
+  return [...new Set([...STATIC_ANCHORS, midFy(today, -1, startMonth), iso(today), midFy(today, 1, startMonth)])];
 }
 
 async function ensureUserRow(db: ClientBase, who: LoginIdentity, userId: string): Promise<boolean> {
@@ -134,9 +138,9 @@ async function ensureApproverMember(db: ClientBase, companyId: string, approverI
 }
 
 /** Fills every month of the years holding the anchor dates that has no period yet; existing periods are untouched. */
-async function ensurePeriods(db: ClientBase, companyId: string, today: Date): Promise<number> {
+async function ensurePeriods(db: ClientBase, companyId: string, today: Date, startMonth: number): Promise<number> {
   const made = await db.query<{ n: number }>(
-    `SELECT fiscal_periods_generate(fiscal_year_ensure($1::uuid, d::date)) AS n FROM unnest($2::text[]) AS d`, [companyId, periodAnchors(today)]);
+    `SELECT fiscal_periods_generate(fiscal_year_ensure($1::uuid, d::date)) AS n FROM unnest($2::text[]) AS d`, [companyId, periodAnchors(today, startMonth)]);
   return made.rows.reduce((sum, r) => sum + Number(r.n), 0);
 }
 
@@ -149,5 +153,11 @@ export async function ensureUserAndCompany(db: ClientBase, ids: UserIds, today: 
   if (companyId === null) companyId = await createCompany(db, ids.verify);
   const approverRole = chooseApproverRole(await payRunRuleRole(db, companyId));
   const approverJoined = await ensureApproverMember(db, companyId, ids.approver, approverRole);
-  return { companyId, userCreated, approverCreated, companyCreated, approverJoined, approverRole, periodsCreated: await ensurePeriods(db, companyId, today) };
+  const actual = await db.query<{ role: string }>(`SELECT role FROM company_users WHERE company_id = $1::uuid AND user_id = $2`, [companyId, ids.approver]);
+  const fy = await db.query<{ m: number | null }>(`SELECT financial_year_start AS m FROM companies WHERE id = $1::uuid`, [companyId]);
+  const financialYearStart = Number(fy.rows[0]?.m ?? 3); // the column's own default is March
+  return {
+    companyId, userCreated, approverCreated, companyCreated, approverJoined, approverRole, approverActualRole: actual.rows[0]?.role ?? approverRole,
+    financialYearStart, periodsCreated: await ensurePeriods(db, companyId, today, financialYearStart),
+  };
 }

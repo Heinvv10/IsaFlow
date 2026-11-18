@@ -9,7 +9,7 @@
 #   OWNER_DATABASE_URL         /etc/isaflow/owner.env, else $PROD_ENV (owner_database_url_for, as deploy.sh resolves it)
 #   GOTRUE_URL                 $PROD_ENV (/home/velo/isaflow/.env.local), the instance the app logs in against
 #   SUPABASE_SERVICE_ROLE_KEY  $PROD_ENV
-#   JWT_SECRET, SUPABASE_ANON_KEY  $PROD_ENV (optional: only --reset-password uses them, to end the login's sessions)
+#   JWT_SECRET, SUPABASE_ANON_KEY  $PROD_ENV (ONLY with --reset-password: it uses them to end the login's sessions)
 # Both files are root/velo-only: read with `sudo cat`, as deploy.sh does. The secrets travel in the environment of the child,
 # never its arguments.
 #
@@ -20,7 +20,9 @@
 # The secrets sit in the child process's environment for the run (readable by the same user, as the deploy's are): accepted.
 # Never pass --reset-password to a GoTrue that is also dev's (it is one instance): it resets production's login.
 # A real run holds /tmp/isaflow-deploy.lock and /tmp/isaflow-colours.lock (the deploy's own locks) for its whole duration and is
-# refused while a deploy, rollback or restart runs; a --dry-run takes neither. The deploy env file ($PROVISION_ENV_FILE) must be
+# refused while a deploy, rollback or restart runs; a --dry-run takes neither. The flock needs the SAME Unix user as deploy.sh (today
+# both are hein: the lock files are hein:hein 0664 and fs.protected_regular=2 refuses opening a file another user owns in a sticky
+# /tmp), so run this as the user who runs deploys; as another user it is refused with a flock error, never silently unlocked. The deploy env file ($PROVISION_ENV_FILE) must be
 # mode 0600 (or stricter) and is written through its symlink target if it is one; a looser mode is refused, not widened.
 # Run it outside 08:00-17:00 SAST Mon-Fri like any production write, and with Hein's approval.
 set -euo pipefail
@@ -51,8 +53,12 @@ env_value() { clean "$($SUDO cat "$PROD_ENV" | grep -m1 "^$1=" | cut -d= -f2- ||
 DB_URL="$(clean "$(owner_database_url_for "$PROD_ENV" $SUDO || true)")"
 GOTRUE="$(env_value GOTRUE_URL)"
 KEY="$(env_value SUPABASE_SERVICE_ROLE_KEY)"
-JWT="$(env_value JWT_SECRET)"          # only a --reset-password needs these two (to end the login's sessions);
-ANON="$(env_value SUPABASE_ANON_KEY)"  # the CLI refuses a reset without them, before changing anything
+# Only a --reset-password needs these two (to end the login's sessions): read and handed over for that run alone, so a plain
+# run never has them in its environment. The CLI refuses a reset without them, before changing anything.
+JWT=""; ANON=""
+for arg in "$@"; do
+  if [ "$arg" = "--reset-password" ]; then JWT="$(env_value JWT_SECRET)"; ANON="$(env_value SUPABASE_ANON_KEY)"; fi
+done
 for pair in "OWNER_DATABASE_URL/DATABASE_URL:$DB_URL" "GOTRUE_URL:$GOTRUE" "SUPABASE_SERVICE_ROLE_KEY:$KEY"; do
   [ -n "${pair#*:}" ] || { echo "ERROR: ${pair%%:*} not found in ${OWNER_ENV_FILE:-/etc/isaflow/owner.env} or $PROD_ENV" >&2; exit 1; }
 done
