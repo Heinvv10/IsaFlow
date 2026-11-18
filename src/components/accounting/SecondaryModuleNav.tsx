@@ -1,8 +1,7 @@
 /**
  * Secondary in-module nav bar. Rendered under the primary nav while the user
- * is inside a module reached through Library (Inventory, Accounting, Practice:
- * see hasSectionBar). Reuses ModuleNav with a subordinate accent, presenting
- * that module's sections as dropdown tabs.
+ * is inside a demoted module (Sales, Purchases, …). Reuses ModuleNav with a
+ * subordinate accent, presenting that module's sections as dropdown tabs.
  */
 import { useRouter } from 'next/router';
 import { ModuleNav } from '@/components/layout/ModuleNav';

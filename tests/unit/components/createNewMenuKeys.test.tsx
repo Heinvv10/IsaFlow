@@ -59,6 +59,17 @@ describe('Create new menu keys', () => {
     expect(h.push).not.toHaveBeenCalled();
   });
 
+  it('typing N and O in a contenteditable (a rich-text note) neither opens the menu nor navigates', () => {
+    render(<><CreateNewMenu /><div contentEditable suppressContentEditableWarning aria-label="note">text</div></>);
+    const note = screen.getByLabelText('note');
+    expect(note.isContentEditable).toBe(true);
+    note.focus();
+    fireEvent.keyDown(note, { key: 'n' });
+    fireEvent.keyDown(note, { key: 'o' });
+    expect(screen.queryByRole('menu', { name: 'Create new' })).toBeNull();
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
   it('with the menu open, a letter typed in a field does not navigate', () => {
     render(<><CreateNewMenu /><input aria-label="field" /></>);
     fireEvent.keyDown(document, { key: 'n' });

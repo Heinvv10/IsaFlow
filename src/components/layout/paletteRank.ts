@@ -46,10 +46,16 @@ function scoreLabel(raw: string, q: string): number {
   return 0;
 }
 
-/** An alias ("Profit & Loss") scores as the label does: it is a name the nav shows for the same page. */
+/**
+ * An alias ("Profit & Loss") scores as the label does: it is a name the nav shows for the same page. One exception: a
+ * query that is exactly one page's own name and exactly another page's alias goes to the page it names, so an exact
+ * alias scores a hair under an exact label (still above every partial match). "bank transactions" is the Bank
+ * Transactions report's label and the Banking page's daily-link alias.
+ */
+const EXACT_ALIAS = 4.9;
 function scoreEntry(e: NavIndexEntry, q: string): number {
   const names = [e.label, ...(e.aliases ?? [])];
-  const best = Math.max(...names.map((n) => scoreLabel(n, q)));
+  const best = Math.max(scoreLabel(e.label, q), ...(e.aliases ?? []).map((a) => Math.min(scoreLabel(a, q), EXACT_ALIAS)));
   if (best > 0) return best;
   if (e.trail.some((t) => norm(t).includes(q))) return 2;
   if (q.length >= 2 && names.some((n) => isInitials(q, norm(n)))) return 1;

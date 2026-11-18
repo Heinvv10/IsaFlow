@@ -17,7 +17,7 @@ import { startSessionHeartbeat } from '@/lib/auth/sessionHeartbeat';
 import { AccountingNav } from '@/components/accounting/AccountingNav';
 import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
 import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
-import { hasSectionBar } from '@/components/accounting/navSections/secondaryNav';
+import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 // Only the admin host renders it; it loads the admin palette as a separate chunk, out of the tenant bundle.
 import { LazyAdminCommandPalette } from '@/components/admin/LazyAdminCommandPalette';
@@ -55,9 +55,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
     router.pathname,
     router.query as Record<string, string | string[] | undefined>,
   );
-  // The section bar only under a module that has no main-row tab of its own (Inventory, Accounting, Practice): the
-  // others open the same sections from their tab's menu. ShellSkeleton reserves the bar's row on the same rule.
-  const hasModuleNav = hasSectionBar(activeModuleId);
+  const hasModuleNav = !!MODULE_BY_ID[activeModuleId];
   const { user, loading } = useAuth();
   const { activeCompany, loading: companyLoading } = useCompany();
   // Listens from the first render: beforeinstallprompt can fire during the session check. Dashboards only.

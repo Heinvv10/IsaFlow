@@ -33,8 +33,8 @@ test.describe('preference', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
     await settle(page);
-    // From lg the theme control sits in the Settings cog's menu, not in the header bar.
-    const light = page.getByRole('menu', { name: 'Settings' }).getByRole('group', { name: 'Colour theme' }).getByRole('button', { name: 'Light', exact: true });
+    // From lg the theme control sits in the Settings cog's popover (Display group), not in the header bar.
+    const light = page.getByRole('group', { name: 'Settings', exact: true }).getByRole('group', { name: 'Colour theme' }).getByRole('button', { name: 'Light', exact: true });
     const openCog = () => page.locator('header').getByRole('button', { name: 'Settings', exact: true }).click();
     await openCog();
     await light.click();

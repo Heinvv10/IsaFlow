@@ -70,7 +70,7 @@ describe('nav landmarks', () => {
 describe('settings cog', () => {
   it('is current on a settings page and marks that page in its panel', () => {
     at('/accounting/user-access');
-    render(<SettingsMenu />);
+    render(<SettingsMenu displayClassName="hidden lg:block" />);
     const cog = screen.getByRole('button', { name: 'Settings' });
     expect(cog.getAttribute('aria-current')).toBe('true');
     fireEvent.click(cog);
@@ -79,7 +79,7 @@ describe('settings cog', () => {
   });
 
   it('is not current on the dashboard', () => {
-    render(<SettingsMenu />);
+    render(<SettingsMenu displayClassName="hidden lg:block" />);
     expect(screen.getByRole('button', { name: 'Settings' }).getAttribute('aria-current')).toBeNull();
   });
 });

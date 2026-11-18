@@ -99,8 +99,9 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
           unread badge must show on a phone too, so it is not folded into MobileHeaderMenu. */}
       {!isAdminHost && <NotificationBell />}
 
-      {/* Settings cog (hidden on admin subdomain) */}
-      {!isAdminHost && <SettingsMenu />}
+      {/* Settings cog (hidden on admin subdomain). Its popover shows the density and theme toggles from the breakpoint
+          where they used to sit inline here; below it MobileHeaderMenu has them, so they are in one place at every width. */}
+      {!isAdminHost && <SettingsMenu displayClassName={inline} />}
 
       {/* Nav mode toggle (hidden on admin subdomain: its sidebar is the accounting one) */}
       {!isAdminHost && (
@@ -115,8 +116,8 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
         </button>
       )}
 
-      {/* Table density and theme are set-once controls: in the app they live in the Settings cog's menu (and below lg
-          in MobileHeaderMenu). The admin host has no cog, so there they stay inline from lg. */}
+      {/* Table density and theme are set-once controls: in the app they live in the Settings cog's popover (and below
+          lg, xl in sidebar mode, in MobileHeaderMenu). The admin host has no cog, so there they stay inline from lg. */}
       {isAdminHost && <div className={inline}><TableDensityToggle /></div>}
       {isAdminHost && <div className={inline}><ThemeToggle /></div>}
 

@@ -12,10 +12,11 @@ vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ activeCompany: { id: 'c1', name: 'QA Co' }, companies: [{ id: 'c1', name: 'QA Co' }], loading: false, switchCompany: vi.fn() }),
 }));
 vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn(), pathname: '/accounting', asPath: '/accounting', query: {} }) }));
-for (const m of ['CreateNewMenu', 'NotificationBell', 'MobileHeaderMenu']) {
+vi.mock('@/components/layout/MobileHeaderMenu', () => ({ MobileHeaderMenu: ({ className }: { className: string }) => <span data-testid="mobile-menu" data-class={className} /> }));
+for (const m of ['CreateNewMenu', 'NotificationBell']) {
   vi.doMock(`@/components/layout/${m}`, () => ({ [m]: () => null }));
 }
-vi.mock('@/components/layout/SettingsMenu', () => ({ SettingsMenu: () => <span data-testid="cog" /> }));
+vi.mock('@/components/layout/SettingsMenu', () => ({ SettingsMenu: ({ displayClassName }: { displayClassName: string }) => <span data-testid="cog" data-display={displayClassName} /> }));
 vi.mock('@/components/layout/ThemeToggle', () => ({ ThemeToggle: () => <span data-testid="theme-toggle" /> }));
 vi.mock('@/components/ui/TableDensityToggle', () => ({ TableDensityToggle: () => <span data-testid="density-toggle" /> }));
 vi.mock('@/components/onboarding/SetupGuideButton', () => ({ SetupGuideButton: () => null }));
@@ -29,16 +30,20 @@ async function header(navMode: 'top' | 'side', isAdminHost: boolean) {
 }
 
 describe('AppHeader display toggles', () => {
-  it.each(['top', 'side'] as const)('the app (%s nav): not in the header bar; the cog is there', async (mode) => {
+  // The cog shows them from where MobileHeaderMenu hides (lg:hidden / xl:hidden): exactly one place at every width.
+  it.each([['top', 'hidden lg:block'], ['side', 'hidden xl:block']] as const)('the app (%s nav): not in the header bar; the cog shows them %s', async (mode, cls) => {
     await header(mode, false);
     expect(screen.queryByTestId('theme-toggle')).toBeNull();
     expect(screen.queryByTestId('density-toggle')).toBeNull();
-    expect(screen.getByTestId('cog')).toBeTruthy();
+    expect(screen.getByTestId('cog').getAttribute('data-display')).toBe(cls);
+    // MobileHeaderMenu (the other home of the toggles) hides at exactly that breakpoint.
+    expect(screen.getByTestId('mobile-menu').getAttribute('data-class')).toBe(cls.replace('hidden ', '').replace(':block', ':hidden'));
   });
 
   it('the admin host (no cog): both stay inline from lg', async () => {
     await header('top', true);
     expect(screen.queryByTestId('cog')).toBeNull();
+    expect(screen.getByTestId('mobile-menu').getAttribute('data-class')).toBe('lg:hidden');
     for (const id of ['theme-toggle', 'density-toggle']) {
       expect(screen.getByTestId(id).parentElement!.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'lg:block']));
     }
