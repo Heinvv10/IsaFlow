@@ -467,6 +467,26 @@ describe('round 2 breaker: VAT on resent lines, merged refs, header-FK trigger, 
       .toEqual([{ item_id: zeroItem, tax_rate: '0.00', vat_classification: 'zero_rated' }]);
   });
 
+  it('a bill written with tax_rate 0 stays at 0 when its item lines are sent again, changed, or joined by a new item line, with no rate', async () => {
+    await upsert([{ code: 'R2-STD', description: 'std', vat_on_purchases: 'standard', vat_on_sales: 'standard', purchases_account_id: w.a.expense }]);
+    const std = await idOf('R2-STD');
+    const rows = async (id: string) => (await pool.query('SELECT description, tax_rate, tax_amount FROM supplier_invoice_items WHERE supplier_invoice_id = $1 ORDER BY description', [id])).rows;
+    const header = async (id: string) => (await pool.query('SELECT tax_rate, tax_amount FROM supplier_invoices WHERE id = $1', [id])).rows[0];
+    const bill = String((await A.ok('create_supplier_invoice', { supplier_id: w.a.supplier, invoice_number: 'R2-NOVAT', invoice_date: '2026-11-10', tax_rate: 0,
+      lines: [{ description: 'a', quantity: 1, unit_price: 100, item_id: std }] })).id);
+    expect(await rows(bill)).toEqual([{ description: 'a', tax_rate: '0.00', tax_amount: '0.00' }]);
+    // the same line again, and a second line naming the item: no rate anywhere in the edit
+    await A.ok('update_supplier_invoice', { invoice_id: bill, lines: [{ description: 'a', quantity: 1, unit_price: 100 }, { description: 'b', quantity: 1, unit_price: 50, item_id: std }] });
+    expect(await rows(bill)).toEqual([{ description: 'a', tax_rate: '0.00', tax_amount: '0.00' }, { description: 'b', tax_rate: '0.00', tax_amount: '0.00' }]);
+    expect(await header(bill)).toEqual({ tax_rate: '0.00', tax_amount: '0.00' });
+
+    // a bill written with NO rate, whose line named 0 itself: the line keeps its own stored rate on a resend
+    const own = String((await A.ok('create_supplier_invoice', { supplier_id: w.a.supplier, invoice_number: 'R2-LINE0', invoice_date: '2026-11-10',
+      lines: [{ description: 'a', quantity: 1, unit_price: 100, item_id: std, tax_rate: 0 }] })).id);
+    await A.ok('update_supplier_invoice', { invoice_id: own, lines: [{ description: 'a', quantity: 1, unit_price: 100 }, { description: 'b', quantity: 1, unit_price: 50 }] });
+    expect(await rows(own)).toEqual([{ description: 'a', tax_rate: '0.00', tax_amount: '0.00' }, { description: 'b', tax_rate: '15.00', tax_amount: '7.50' }]);
+  });
+
   it('PO PUT answers 400 (not a 500 on the UUID cast) for a non-string item_id', async () => {
     const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'n', quantity: 1, unitPrice: 1, taxRate: 15 }] }, '/api/accounting/purchase-orders');
     const poId = String((po.body.data as { id: string }).id);

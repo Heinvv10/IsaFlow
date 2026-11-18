@@ -155,6 +155,23 @@ describe('review round 2: VAT on lines nobody changed, and a non-string item_id'
     expect((await resolveEditLineItems(COMPANY, 'sales', [line({ glAccountId: OWN })], [stored(ITEM_A, 'Fibre')], label, { deriveTax: true }))[0]!.taxRate).toBeUndefined();
   });
 
+  it('a kept line whose stored line carries a rate keeps THAT rate, not the item\'s: a bill written at 0% stays at 0% on a resend', async () => {
+    db([item(ITEM_A, { vat_on_purchases: 'standard' })]);
+    const at = (taxRate: number | null) => [{ ...stored(ITEM_A), taxRate }];
+    // sent without item_id (inherited) and sent with the item it already had
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN })], at(0), label, { deriveTax: true }))[0]).toMatchObject({ itemId: ITEM_A, taxRate: 0 });
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN, itemId: ITEM_A })], at(0), label, { deriveTax: true }))[0]!.taxRate).toBe(0);
+    expect(itemReads()).toBe(0); // nothing is derived, so the item is not read
+    // a rate on the sent line still wins; a stored line with no rate falls back to the item's VAT
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN, taxRate: 15 })], at(0), label, { deriveTax: true }))[0]!.taxRate).toBe(15);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN })], at(null), label, { deriveTax: true }))[0]!.taxRate).toBe(15);
+    // a line naming a NEW item is not a kept line: it takes its own item's VAT
+    db([item(ITEM_A, { vat_on_purchases: 'standard' }), item(ITEM_B, { vat_on_purchases: 'standard' })]);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN, itemId: ITEM_B })], at(0), label, { deriveTax: true }))[0]!.taxRate).toBe(15);
+    // without deriveTax the line is left for the document's rate
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line()], at(0), label))[0]!.taxRate).toBeUndefined();
+  });
+
   it('the item read for the derivation is company-scoped', async () => {
     db([exempt({ id: ITEM_A })]);
     await resolveEditLineItems(COMPANY, 'purchase', [line()], [stored(ITEM_A)], label, { deriveTax: true });

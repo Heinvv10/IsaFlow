@@ -7,7 +7,9 @@
  *  - a line sent WITHOUT an item inherits the item of an identical stored line (description, quantity, unit price; each
  *    stored line is used once, in order) and is NOT re-checked: like a stored account, an item deactivated since must not
  *    refuse every save of the draft (the document's approval re-checks what it posts);
- *  - `item_id: null` clears the link; a line whose description, quantity or price changed loses it.
+ *  - `item_id: null` clears the link; a line whose description, quantity or price changed loses it;
+ *  - with `deriveTax`, such a kept line sent with no rate keeps the rate its stored line carries (when the caller passes it):
+ *    the rate was settled when the line was written, by the item or by a rate the caller named then.
  * Reads only (the item read of the lines that need a check); every refusal is an `ItemLineRefusal` before any write.
  */
 import {
@@ -19,6 +21,8 @@ export interface StoredItemLine {
   description: string;
   quantity: number;
   unitPrice: number;
+  /** Percent. Given, a kept item line sent with no rate keeps it instead of taking the item's VAT again. */
+  taxRate?: number | null;
 }
 
 interface EditLine {
@@ -46,12 +50,13 @@ export async function resolveEditLineItems<T extends EditLine>(
   sent.forEach((l, i) => {
     if (l.itemId !== undefined && l.itemId !== null && typeof l.itemId !== 'string') throw new ItemLineRefusal(`${label(i)}.item_id must be a UUID`);
   });
-  const pool = stored.map((s) => ({ key: key(s.description, s.quantity, s.unitPrice), itemId: s.itemId?.toLowerCase() ?? null, used: false }));
-  const inherited = sent.map((l) => {
+  const pool = stored.map((s) => ({ key: key(s.description, s.quantity, s.unitPrice), itemId: s.itemId?.toLowerCase() ?? null, taxRate: s.taxRate ?? null, used: false }));
+  const hits = sent.map((l) => {
     const hit = pool.find((p) => !p.used && p.key === key(l.description, l.quantity, l.unitPrice));
     if (hit) hit.used = true;
-    return hit?.itemId ?? null;
+    return hit;
   });
+  const inherited = hits.map((h) => h?.itemId ?? null);
   // Only a line naming an item its identical stored line did not carry is read and defaulted.
   const check = sent.map((l, i) => typeof l.itemId === 'string' && l.itemId !== '' && l.itemId.toLowerCase() !== inherited[i]);
   const checked = await applyItemLineDefaults(
@@ -71,11 +76,16 @@ export async function resolveEditLineItems<T extends EditLine>(
   // A resent or inherited line (not newly named, so not read above) that ends with an item and no rate takes the item's VAT as
   // it did at create: an exempt item's line must not fall back to the document's 15% because it was saved again unchanged.
   if (!opts.deriveTax) return resolved;
-  const need = resolved.flatMap((l, i) => (!check[i] && typeof l.itemId === 'string' && l.itemId !== '' && (l.taxRate === undefined || l.taxRate === null) ? [i] : []));
-  if (need.length === 0) return resolved;
-  const vat = await itemVatTreatments(companyId, kind, need.map((i) => resolved[i]!.itemId as string));
+  const unrated = resolved.flatMap((l, i) => (!check[i] && typeof l.itemId === 'string' && l.itemId !== '' && (l.taxRate === undefined || l.taxRate === null) ? [i] : []));
+  // Where the stored line's own rate is known it stands: a bill written at 0% (a supplier that is not a VAT vendor) must not
+  // become a 15% input-VAT claim because its lines were sent again. Only a line with no stored rate takes the item's VAT.
+  const storedRate = (i: number): number | null => (unrated.includes(i) ? hits[i]?.taxRate ?? null : null);
+  const kept = resolved.map((l, i) => (storedRate(i) === null ? l : { ...l, taxRate: storedRate(i) }));
+  const need = unrated.filter((i) => storedRate(i) === null);
+  if (need.length === 0) return kept;
+  const vat = await itemVatTreatments(companyId, kind, need.map((i) => kept[i]!.itemId as string));
   const derived = new Set<number>(); // a standard rate taken from the item is a claim nobody chose: guarded as at create
-  const rated = resolved.map((l, i) => {
+  const rated = kept.map((l, i) => {
     const t = need.includes(i) ? vat.get((l.itemId as string).toLowerCase()) : undefined;
     if (t && t.taxRate > 0) derived.add(i);
     return t ? { ...l, taxRate: t.taxRate, ...(t.vatClassification && !l.vatClassification ? { vatClassification: t.vatClassification } : {}) } : l;
