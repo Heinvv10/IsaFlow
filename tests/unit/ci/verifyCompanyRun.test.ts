@@ -29,12 +29,12 @@ function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[];
     newId: () => 'random-uuid',
     canSignOut: () => !init.cannotSignOut,
     db,
-    lock: { acquire: async () => { log.push('lock'); return !init.busy; }, release: async () => { log.push('unlock'); if (init.unlockFails) throw new Error('connection gone'); } },
+    lock: { acquire: async () => { log.push('lock'); return !init.busy; }, unlock: async () => { log.push('unlock'); if (init.unlockFails) throw new Error('connection gone'); } },
     deployLocks: {
       acquire: async () => {
         log.push('deploylocks');
         if (init.deployBusy) throw new Error('a deploy, rollback, restart or cutover holds /tmp/isaflow-deploy.lock');
-        return { release: async () => { log.push('deploy-unlock'); } };
+        return { unlock: async () => { log.push('deploy-unlock'); } };
       },
     },
     goTrue: {

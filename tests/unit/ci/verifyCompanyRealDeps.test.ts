@@ -108,14 +108,14 @@ describe('realDeps: env file, locks, database', () => {
     const files = [join(dir, 'a.lock'), join(dir, 'b.lock')];
     const held = await deps(files).deployLocks.acquire();
     expect(files.map((f) => spawnSync('flock', ['-n', f, 'true']).status)).toEqual([1, 1]);
-    await held.release();
+    await held.unlock();
     expect(files.map((f) => spawnSync('flock', ['-n', f, 'true']).status)).toEqual([0, 0]);
   });
 
   it('the run lock is the advisory-lock SQL on the run\'s own connection', async () => {
     const d = deps();
     expect(await d.lock.acquire(fakeDb)).toBe(true);
-    await d.lock.release(fakeDb);
+    await d.lock.unlock(fakeDb);
     expect(queries.map((q) => q.sql)).toEqual(['SELECT pg_try_advisory_lock(hashtext($1)) AS ok', 'SELECT pg_advisory_unlock(hashtext($1))']);
     expect(queries[0]!.params).toEqual(['provision-verify-company']);
   });

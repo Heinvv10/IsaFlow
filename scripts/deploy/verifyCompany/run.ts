@@ -28,9 +28,9 @@ export interface Deps {
   /** Whether a GoTrue sign-out can be done here (JWT_SECRET and SUPABASE_ANON_KEY present): checked before any change that needs one. */
   canSignOut(): boolean;
   db: ClientBase;
-  lock: { acquire(db: ClientBase): Promise<boolean>; release(db: ClientBase): Promise<void> };
+  lock: { acquire(db: ClientBase): Promise<boolean>; unlock(db: ClientBase): Promise<void> };
   /** The deploy locks (deployLock.ts), taken for a real run only: rejects when a deploy holds one. */
-  deployLocks: { acquire(): Promise<{ release(): Promise<void> }> };
+  deployLocks: { acquire(): Promise<{ unlock(): Promise<void> }> };
   goTrue: {
     /** `purpose`: the login's app_metadata.purpose (admin-only), which marks one this provisioner created; `legacyPurpose`: the user_metadata one an earlier version stamped. */
     find(email: string): Promise<{ id: string; purpose: string | null; legacyPurpose: string | null } | null>;
@@ -114,14 +114,17 @@ async function apply(o: RunOptions, d: Deps, x: Inspected): Promise<Resolved> {
 /** Rolls back without ever hiding the error that brought it here: a failed ROLLBACK is logged and the connection is not trusted again. */
 async function transact<T>(db: ClientBase, commit: boolean, body: () => Promise<T>): Promise<T> {
   await db.query('BEGIN');
+  let out: T;
   try {
-    const out = await body();
-    await db.query(commit ? 'COMMIT' : 'ROLLBACK');
-    return out;
+    out = await body();
+    if (commit) await db.query('COMMIT');
   } catch (err) {
     await rollbackFailed(db, 'provision-verify-company');
     throw err;
   }
+  // A dry run's ROLLBACK goes through the same bounded helper (R-176); one that fails leaves the outcome unknown, so the run fails.
+  if (!commit && (await rollbackFailed(db, 'provision-verify-company'))) throw new Error('the dry run could not be rolled back');
+  return out;
 }
 
 /** A cleanup that fails must not replace the run's own error (or its success): it is said and let go. */
@@ -137,10 +140,10 @@ export async function runProvisioning(o: RunOptions, d: Deps): Promise<RunResult
     try {
       return await provision(o, d);
     } finally {
-      await quietly(d.say, 'releasing the run lock', () => d.lock.release(d.db));
+      await quietly(d.say, 'releasing the run lock', () => d.lock.unlock(d.db));
     }
   } finally {
-    if (deployLocks) await quietly(d.say, 'releasing the deploy locks', () => deployLocks.release());
+    if (deployLocks) await quietly(d.say, 'releasing the deploy locks', () => deployLocks.unlock());
   }
 }
 

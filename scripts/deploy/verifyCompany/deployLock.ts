@@ -10,7 +10,7 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
-export interface HeldLocks { release(): Promise<void> }
+export interface HeldLocks { unlock(): Promise<void> }
 
 function take(file: string): Promise<ChildProcessWithoutNullStreams | null> {
   return new Promise((resolve, reject) => {
@@ -55,5 +55,5 @@ export async function acquireDeployLocks(files: readonly string[]): Promise<Held
     }
     held.push(child);
   }
-  return { release: releaseAll };
+  return { unlock: releaseAll };
 }

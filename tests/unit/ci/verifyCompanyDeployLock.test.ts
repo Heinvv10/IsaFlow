@@ -28,7 +28,7 @@ describe('acquireDeployLocks', () => {
     const files = lockFiles();
     const held = await acquireDeployLocks(files);
     expect(files.map(free)).toEqual([false, false]);
-    await held.release();
+    await held.unlock();
     expect(files.map(free)).toEqual([true, true]);
   });
 

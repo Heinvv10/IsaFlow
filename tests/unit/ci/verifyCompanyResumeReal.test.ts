@@ -35,8 +35,8 @@ function deps(): Deps {
   const real = realDeps(db, envFile, 'http://app.test', () => undefined, [join(dir, 'a.lock'), join(dir, 'b.lock')]);
   return {
     ...real,
-    lock: { acquire: async () => true, release: async () => undefined },
-    deployLocks: { acquire: async () => ({ release: async () => undefined }) },
+    lock: { acquire: async () => true, unlock: async () => undefined },
+    deployLocks: { acquire: async () => ({ unlock: async () => undefined }) },
     ensureDb: async () => ({ companyId: 'co', userCreated: false, approverCreated: false, companyCreated: false, approverJoined: false, approverRole: 'manager', approverActualRole: 'manager', financialYearStart: 3, periodsCreated: 0 }),
     plan: async () => [],
     seed: async () => ({ ran: [], problems: [] }),

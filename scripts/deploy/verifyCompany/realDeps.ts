@@ -27,7 +27,7 @@ export function realDeps(db: pg.Client, envFile: string, baseUrl: string, say: (
     newId: randomUUID,
     canSignOut: () => Boolean(process.env.JWT_SECRET && process.env.SUPABASE_ANON_KEY),
     db,
-    lock: { acquire: tryRunLock, release: releaseRunLock },
+    lock: { acquire: tryRunLock, unlock: releaseRunLock },
     deployLocks: { acquire: () => acquireDeployLocks(lockFiles) },
     goTrue: {
       find: async (email) => {
