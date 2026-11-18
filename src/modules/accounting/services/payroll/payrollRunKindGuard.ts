@@ -33,7 +33,7 @@ export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contract
 export type RunKindClause =
   | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment' | 'garnishee_order' | 'garnishee_deduction'
   // Wave 6 FQc (payrollFrequencyGuard): terms a weekly or fortnightly run cannot cost, the EMP201 month, a mid-year change.
-  | 'frequency_terms' | 'emp201_month' | 'frequency_change';
+  | 'frequency_terms' | 'emp201_month' | 'frequency_change' | 'pay_period_overlap';
 
 export interface RunKindReason {
   clause: RunKindClause;

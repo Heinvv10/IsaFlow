@@ -20,6 +20,8 @@ import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrol
 import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDateGate';
 import { monthOrderRefusal } from '@/modules/accounting/services/payroll/payrollMonthOrderGate';
 import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
+import { calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
+import type { McpToolContext } from '@/lib/mcp/types';
 import { loadLineCadences } from '@/modules/accounting/services/payroll/payrollRunCadence';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { applyPackageToEmployee, createPayPackage, setPackageComponents } from '@/modules/accounting/services/payroll/payPackageService';
@@ -212,7 +214,7 @@ const monthlyRun = async (t: Tenant, month: number, extra: { offCycle?: string; 
   [t.company, month, extra.offCycle ? 'off_cycle' : 'regular', extra.offCycle ?? null, extra.runDate ?? null])).rows[0].id);
 
 describe('round 2 (G1-G5): the month-order gate', () => {
-  it('G1 a stray DRAFT run of the month, never calculated, blocks no week; calculated after them, it is refused (arm b)', async () => {
+  it('G1 a stray DRAFT run of the month, never calculated, blocks no week', async () => {
     const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
       await seedWeekly(c, A);
       const ids: string[] = [];
@@ -222,13 +224,34 @@ describe('round 2 (G1-G5): the month-order gate', () => {
       const gates: Array<string | null> = [];
       for (const id of ids) { await calculatePayrollRun(id, A.company); gates.push(await gate(id)); if (gates.at(-1) === null) await approve(c, id); }
       const strayLines = Number((await c.query('SELECT count(*) FROM payroll_run_lines WHERE run_id = $1', [stray])).rows[0].count);
-      // Calculated after the weeks it sits among, the stray is refused by arm (b) until they are reopened.
-      await calculatePayrollRun(stray, A.company);
-      return { gates, strayLines, strayGate: await gate(stray) };
+      return { gates, strayLines };
     });
     expect(got.gates).toEqual([null, null, null, null]);
     expect(got.strayLines).toBe(0);
-    expect(got.strayGate).toBe('pay_order_in_month');
+  });
+
+  it('G6 the stray overlapping weeks 1-2 is refused at calculate (409 PAY_PERIOD_OVERLAP, naming both runs), in the MCP dry run too; June pays four weeks', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      const a = await seedWeekly(c, A);
+      await seedWeekly(c, B);
+      for (const week of WEEKS) await weeklyRun(c, B, week); // another tenant's identical weeks never overlap A's
+      for (const week of WEEKS) { const id = await weeklyRun(c, A, week); await calculatePayrollRun(id, A.company); await approve(c, id); }
+      const stray = await weeklyRun(c, A, ['2026-05-31', '2026-06-06']);
+      const calc = await calculatePayrollRun(stray, A.company).then(() => null, (e: unknown) => e as { code?: string; status?: number; message: string });
+      const ctx = { companyId: A.company, userId: A.user, scopes: ['write:payroll'], tokenJti: null, oauthAppId: null, role: 'admin' } as McpToolContext;
+      const dry = await calculatePayRunTool.handler({ run_id: stray, dry_run: true, idempotency_key: crypto.randomUUID() }, ctx);
+      const strayLines = Number((await c.query('SELECT count(*) FROM payroll_run_lines WHERE run_id = $1', [stray])).rows[0].count);
+      const gross = Number((await c.query(`SELECT COALESCE(SUM(l.gross_pay), 0)::float8 AS g FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
+                                            WHERE l.employee_id = $1 AND h.status = 'approved'`, [a.big])).rows[0].g);
+      return { calc, dry: JSON.stringify(dry), strayLines, gross };
+    });
+    expect(got.calc).toMatchObject({ code: 'PAY_PERIOD_OVERLAP', status: 409 });
+    expect(got.calc?.message).toContain('2026-05-30 to 2026-06-05');
+    expect(got.calc?.message).toContain('2026-06-06 to 2026-06-12');
+    expect(got.dry).toContain('overlap');
+    expect(got.dry).toContain('2026-05-30 to 2026-06-05');
+    expect(got.strayLines).toBe(0);
+    expect(got.gross).toBe(24000);
   });
 
   it('G2 two tenants: A\'s open week 1 does not block B\'s week 2', async () => {

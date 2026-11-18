@@ -26,8 +26,11 @@ import type { PayFrequency, PayrollPeriod } from './payrollTypes';
 import { dateColumnOf, payFrequencyOf, runPeriodOf } from './payrollFrequency';
 
 export class PayFrequencyRefusedError extends Error {
-  readonly code = 'PAY_FREQUENCY_REFUSED';
-  constructor(readonly status: 400 | 409, readonly reasons: RunKindReason[]) {
+  constructor(
+    readonly status: 400 | 409, readonly reasons: RunKindReason[],
+    /** PAY_PERIOD_OVERLAP: the run's dates overlap another regular run of its frequency (review #1575 G6). */
+    readonly code: 'PAY_FREQUENCY_REFUSED' | 'PAY_PERIOD_OVERLAP' = 'PAY_FREQUENCY_REFUSED',
+  ) {
     super(`Refused: ${reasons.map((r) => r.detail).join('; ')}.`);
     this.name = 'PayFrequencyRefusedError';
   }
@@ -83,13 +86,39 @@ function termsReasons(row: DbRow, frequency: string): RunKindReason[] {
 }
 
 /** What the guard reads of a run. `runKind` absent: regular. */
-export interface FrequencyRun { frequency: PayFrequency; period: PayrollPeriod; runDate: string | null; runKind?: string }
+export interface FrequencyRun { frequency: PayFrequency; period: PayrollPeriod; runDate: string | null; runKind?: string; runId?: string }
 
 /** A payroll_run_headers row (SELECT * shape) as the guard reads it: the one mapping calculate and its MCP dry run share. */
 export function frequencyRunOf(row: Record<string, unknown>): FrequencyRun | null {
   const frequency = payFrequencyOf(row.pay_frequency);
   if (frequency === 'unsupported') return null;
-  return { frequency, period: runPeriodOf(row), runDate: dateColumnOf(row.run_date), runKind: String(row.run_kind ?? 'regular') };
+  return {
+    frequency, period: runPeriodOf(row), runDate: dateColumnOf(row.run_date), runKind: String(row.run_kind ?? 'regular'),
+    ...(row.id == null ? {} : { runId: String(row.id) }),
+  };
+}
+
+/**
+ * A regular weekly or fortnightly run whose dates overlap another calculated, non-cancelled regular run of the company at
+ * the same frequency would pay the overlap twice, and no run can be removed once calculated (review #1575 G6). 409. The
+ * first of two overlapping runs to be calculated is costed; the other is refused.
+ */
+async function refuseOverlappingRun(companyId: string, run: FrequencyRun, start: string, end: string): Promise<void> {
+  if ((run.runKind ?? 'regular') !== 'regular') return;
+  const rows = (await sql`
+    SELECT to_char(h.period_start, 'YYYY-MM-DD') AS start, to_char(h.period_end, 'YYYY-MM-DD') AS stop
+      FROM payroll_run_headers h
+     WHERE h.company_id = ${companyId}::uuid AND h.pay_frequency = ${run.frequency} AND h.run_kind = 'regular'
+       AND h.status <> 'cancelled' AND h.id IS DISTINCT FROM ${run.runId ?? null}::uuid
+       AND daterange(h.period_start, h.period_end, '[]') && daterange(${start}::date, ${end}::date, '[]')
+       -- Calculated runs only: a draft never calculated pays nobody and, with no cancel path, must not block (as G1).
+       AND EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id)
+     ORDER BY h.period_start
+  `) as DbRow[];
+  if (rows.length === 0) return;
+  throw new PayFrequencyRefusedError(409, [{ clause: 'pay_period_overlap', detail: `its dates ${start} to ${end} overlap the ${run.frequency} `
+    + `run${rows.length > 1 ? 's' : ''} for ${rows.map((r) => `${String(r.start)} to ${String(r.stop)}`).join(', ')}: the overlap would be paid twice, `
+    + 'so this run is not calculated' }], 'PAY_PERIOD_OVERLAP');
 }
 
 /** At calculate, before any write. `employeeIds`: the run's population. */
@@ -104,6 +133,7 @@ export async function assertFrequencyCostable(
       + 'bonus and termination runs are monthly only' }]);
   }
   if (frequency !== 'monthly' && period.start && period.end) {
+    await refuseOverlappingRun(companyId, run, period.start, period.end);
     const payDate = payDateOf(period, run.runDate) ?? period.end;
     const due = emp201MonthOf(payDate);
     if (due.year !== period.year || due.month !== period.month) {

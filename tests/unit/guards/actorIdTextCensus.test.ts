@@ -45,7 +45,7 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
   // wave 6 FQc: a payroll component (the frequency refusal) and the run whose payslip year to date is read
-  'componentId', 'run.id',
+  'componentId', 'run.id', 'run.runId ?? null',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
