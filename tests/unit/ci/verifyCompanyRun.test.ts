@@ -9,7 +9,7 @@ import type { Login } from '../../../scripts/deploy/verifyCompany/envFile';
 const OPTS: RunOptions = { dryRun: false, resetPassword: false, baseUrl: 'http://app', envFile: '/x/deploy.env' };
 const NOW = new Date('2026-11-18T10:00:00Z');
 
-interface Rig { deps: Deps; log: string[]; saved: Map<string, string>; finals: Map<string, Login>; goTrue: Map<string, string> }
+interface Rig { deps: Deps; log: string[]; ids?: Map<string, string>; saved: Map<string, string>; finals: Map<string, Login>; goTrue: Map<string, string> }
 
 /** `existing`: emails already in GoTrue; `file`/`pending`: what the env file holds. */
 function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[]; legacyIds?: Record<string, string>; signOutFailsOnce?: boolean; approverActual?: string; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
@@ -49,14 +49,14 @@ function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[];
       readId: (who) => ids.get(who.idKey) ?? null,
       recordId: (who, id) => { log.push(`env:id:${who.email}`); ids.set(who.idKey, id); },
       writePending: (who, pw) => { log.push(`env:pending:${who.email}`); saved.set(who.pendingKey, pw); },
-      writeLogins: (logins) => { log.push('env:final'); fail('env'); for (const { who, login } of logins) { finals.set(who.email, login); saved.delete(who.pendingKey); } return true; },
+      writeLogins: (logins) => { log.push('env:final'); fail('env'); for (const { who, login, id } of logins) { finals.set(who.email, login); saved.delete(who.pendingKey); if (id) ids.set(who.idKey, id); } return true; },
     },
     ensureDb: async (_d, ids) => { log.push(`ensureDb:${ids.verify}|${ids.approver}`); fail('db'); return { companyId: 'co-1', userCreated: true, approverCreated: true, companyCreated: init.companyCreated ?? true, approverJoined: true, approverRole: 'manager', approverActualRole: init.approverActual ?? 'manager', financialYearStart: 3, periodsCreated: 36 }; },
     plan: async (_d, ctx) => { log.push(`plan:${ctx ? 'company' : 'none'}`); return [{ name: 'b1', state: 'make' }]; },
     seed: async () => { log.push('seed'); fail('seed'); return { ran: ['b1'], problems: init.seedProblems ?? [] }; },
     companyProblems: async () => { log.push('gate'); return init.problems ?? []; },
   };
-  return { deps, log, saved, finals, goTrue };
+  return { deps, log, saved, finals, goTrue, ids };
 }
 
 const effects = (log: string[]) => log.filter((l) => !l.startsWith('say:'));
@@ -135,6 +135,8 @@ describe('runProvisioning, review round 2', () => {
     const e = effects(r.log);
     expect(e.indexOf(`env:id:${VERIFY_LOGIN.email}`)).toBe(e.indexOf(`gotrue:create:${VERIFY_LOGIN.email}`) + 1);
     expect(r.finals.size).toBe(2);
+    expect(r.ids?.get(VERIFY_LOGIN.idKey)).toBe(`id-${VERIFY_LOGIN.email}`);
+    expect(r.ids?.get(APPROVER_LOGIN.idKey)).toBe(`id-${APPROVER_LOGIN.email}`);
   });
 
   it('says the approver\'s ACTUAL role, and warns when an existing membership is above the least role that can decide', async () => {

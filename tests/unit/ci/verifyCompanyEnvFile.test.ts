@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseEnvKeys, readLogin, readPending, writeLogins, writePending } from '../../../scripts/deploy/verifyCompany/envFile';
+import { parseEnvKeys, readId, readLogin, readPending, recordId, writeLogins, writePending } from '../../../scripts/deploy/verifyCompany/envFile';
 import { APPROVER_LOGIN, VERIFY_LOGIN } from '../../../scripts/deploy/verifyCompany/identity';
 
 const dirs: string[] = [];
@@ -156,5 +156,21 @@ describe('a symlinked env file', () => {
     chmodSync(target, 0o640);
     symlinkSync(target, join(dir, 'link.env'));
     expect(() => writeLogins(join(dir, 'link.env'), BOTH)).toThrow(/chmod 600/);
+  });
+});
+
+describe('the recorded GoTrue ids', () => {
+  it('recordId saves a login\'s id under its own key; the final write publishes ids and a second write is a no-op', () => {
+    const file = join(scratch(), 'isaflow-deploy.env');
+    expect(readId(file, VERIFY_LOGIN)).toBeNull();
+    expect(recordId(file, VERIFY_LOGIN, 'id-v')).toBe(true);
+    expect(readId(file, VERIFY_LOGIN)).toBe('id-v');
+    expect(readId(file, APPROVER_LOGIN)).toBeNull();
+    const withIds = [{ who: VERIFY_LOGIN, login: V, id: 'id-v' }, { who: APPROVER_LOGIN, login: A, id: 'id-a' }];
+    expect(writeLogins(file, withIds)).toBe(true);
+    expect(readId(file, APPROVER_LOGIN)).toBe('id-a');
+    expect(readFileSync(file, 'utf8')).toContain('E2E_VERIFY_APPROVER_GOTRUE_ID=id-a');
+    expect(writeLogins(file, withIds)).toBe(false);
+    expect(mode(file)).toBe(0o600);
   });
 });
