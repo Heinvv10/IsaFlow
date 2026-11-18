@@ -186,16 +186,25 @@ describe('another tab switches company: this tab\'s gating follows (round 5)', (
     act(() => { window.dispatchEvent(new Event('focus')); });
     expect(screen.getByRole('alert')).toBeTruthy();
   });
-  it('a same-tab switch (the context moves) is used at once: no stale override, no extra render', () => {
+  it('a same-tab switch (the context moves) is used at once, in one render when no override exists', () => {
     store(HERE);
     let renders = 0;
     const { result, rerender } = renderHook(({ id }: { id: string }) => { renders += 1; return useLiveActiveCompanyId(id); }, { initialProps: { id: HERE } });
-    act(() => { store(ELSEWHERE); window.dispatchEvent(new Event('focus')); });
-    expect(result.current).toBe(ELSEWHERE);
     renders = 0;
-    rerender({ id: THIRD });                    // a same-tab switch: the context moves, and the old override (read against HERE) no longer applies
+    rerender({ id: THIRD });
     expect(result.current).toBe(THIRD);
     expect(renders).toBe(1);                    // one render for the new props, none for syncing state
+  });
+  it('a stale override (read against the old context id) is never returned once the context moves, not even for one render', () => {
+    store(HERE);
+    const seen: Array<string | null> = [];
+    const { result, rerender } = renderHook(({ id }: { id: string }) => { const v = useLiveActiveCompanyId(id); seen.push(v); return v; }, { initialProps: { id: HERE } });
+    act(() => { store(ELSEWHERE); window.dispatchEvent(new Event('focus')); });
+    expect(result.current).toBe(ELSEWHERE);
+    seen.length = 0;
+    rerender({ id: THIRD });
+    expect(result.current).toBe(THIRD);
+    expect(seen).not.toContain(ELSEWHERE);       // no render in between showed the stale company
   });
   it('A -> B -> A in the context does not bring back an override read in the first A', () => {
     store(HERE);
