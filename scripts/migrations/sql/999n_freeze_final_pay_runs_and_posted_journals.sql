@@ -85,6 +85,8 @@
 --            lines in one transaction (year-end, depreciation); merge/late-claim/tagging write account and dimensions.
 --            No app path updates a posted line's amount, adds or deletes a line of a journal posted in an earlier
 --            transaction, deletes a posted journal, or moves a journal back to draft.
+--   repair   scripts/fixes/repair-reversed-journal-status.ts (reversed -> posted) is refused by 999n (reversed is final)
+--            and retired: production held 0 status = 'reversed' rows (scripts/mcp-recon-benchmark.ts:18).
 --   reseed   an older colour's Demo reseed inserts paid runs before their lines, so 999n refuses it: the reseed is one
 --            transaction and rolls back whole, leaving the Demo as it was, until the new colour's reseed runs.
 --
