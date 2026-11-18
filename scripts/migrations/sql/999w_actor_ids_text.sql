@@ -25,8 +25,10 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
--- Every table locked up front, in one statement and a fixed (alphabetical) order, so a lock_timeout fails the whole
--- migration before any ALTER runs, never with payroll_run_headers held while a later table waits.
+-- Every table locked up front, in one statement and a fixed (alphabetical) order, before any ALTER. LOCK TABLE takes
+-- the tables one at a time, so an earlier table (payroll_run_headers, say) can be held while a later one waits, for up
+-- to the 5 s lock_timeout. If any table is contended past that, the whole migration aborts cleanly before any ALTER
+-- has run, and every lock it took is released with the rollback.
 LOCK TABLE public.payroll_external_imports, public.payroll_leave_requests, public.payroll_run_headers,
   public.sars_efiling_events, public.sars_source_codes, public.sars_submissions, public.tax_directive_payments,
   public.tax_directives, public.uif_declarations, public.vat_adjustments, public.vat_returns

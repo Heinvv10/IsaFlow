@@ -15,6 +15,8 @@ import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { withAlsTransaction } from '@/lib/alsTransaction';
 import { createVATAdjustment } from '@/modules/accounting/services/reports/vatAdjustmentService';
+import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmissionService';
+import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 let r: Awaited<ReturnType<typeof rig>>;
 const N = `sage-import-bot-hyb-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -113,6 +115,22 @@ describe('HYb: a non-UUID preparer and a pay run under R-035 approval', () => {
     const row = (await r.pool.query('SELECT created_by FROM vat_adjustments WHERE id = $1 AND company_id = $2', [adj.id, r.company])).rows[0];
     expect(row.created_by).toBe(N);
     await r.pool.query('DELETE FROM vat_adjustments WHERE company_id = $1', [r.company]);
+  }, 60000);
+
+  it("a non-UUID user's VAT return records that user's own id as submitted_by, not a stand-in", async () => {
+    // A nil period (no documents): no journal is posted, only the vat_returns row. The accounts it resolves first.
+    await r.pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+       VALUES ($1,'2201','HYb VAT output','liability','credit',1,'vat_output',true),
+              ($1,'2202','HYb VAT input','asset','debit',1,'vat_input',true),
+              ($1,'2130','HYb accrued','liability','credit',1,null,false)
+       ON CONFLICT DO NOTHING`, [r.company]);
+    clearSystemAccountCache(r.company); // the payroll cases above cached this company's roles
+    const vr = await withAlsTransaction({ userId: N, companyId: r.company }, () =>
+      submitVATReturn(r.company, { periodStart: '2024-01-01', periodEnd: '2024-02-29' } as never, N));
+    const row = (await r.pool.query('SELECT submitted_by FROM vat_returns WHERE id = $1 AND company_id = $2', [vr.id, r.company])).rows[0];
+    await r.pool.query('DELETE FROM vat_returns WHERE company_id = $1', [r.company]);
+    expect(row.submitted_by).toBe(N);
   }, 60000);
 
   // A request whose authors cannot be computed (a non-UUID preparer: unreachable through the routes now, so written
