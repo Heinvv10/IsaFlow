@@ -45,7 +45,7 @@ const call = (obj: Record<string, unknown>, name: string, ...args: unknown[]) =>
 const selectedProp = () => [...(cap.table.selectedIds as Set<string>)].sort();
 /** The list frame's busy mark: set while the SAME list reloads (its rows stay mounted), clear once the latest load ends. */
 const frameBusy = () => screen.getByTestId('bank-tx-list-frame').getAttribute('aria-busy');
-const bar = () => screen.getByTestId('bank-tx-selected-count').textContent;
+const bar = () => screen.getByTestId('bank-tx-selection-live').textContent;
 
 let list: (url: string) => Response | Promise<Response>;
 beforeEach(() => {
@@ -63,7 +63,7 @@ afterEach(cleanup);
 
 async function loaded() {
   render(<BankTransactionsPage />);
-  await screen.findByTestId('bank-tx-selection-bar');
+  await screen.findByTestId('bank-tx-selection-live');
   await waitFor(() => expect((cap.table.transactions as unknown[] | undefined)?.length).toBe(3));
 }
 
