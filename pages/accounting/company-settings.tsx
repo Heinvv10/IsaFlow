@@ -8,13 +8,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, CheckCircle2 } from 'lucide-react';
+import { Building2, Save, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument, documentsFromList } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 import { companySavePayload } from '@/components/accounting/settings/companySavePayload';
 import { SettingsErrorBanner } from '@/components/accounting/settings/SettingsErrorBanner';
+import { SettingsSavedBanner } from '@/components/accounting/settings/SettingsSavedBanner';
 import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
 import { parseTabId, settingsTabTitle, type TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
@@ -44,7 +45,7 @@ export default function CompanySettingsPage() {
   const [error, setError] = useState('');
   const [loadedMonth, setLoadedMonth] = useState(3); // the financial year start the form was loaded with (companySavePayload)
   const [stale, setStale] = useState(false); // the save found it changed since (409): offer Reload
-  const [reloads, setReloads] = useState(0); // Reload remounts General, so its year panel reads the year again too
+  const [reloads, setReloads] = useState(0); // a reload remounts General, so its year panel reads the year again too
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('details');
 
@@ -134,6 +135,7 @@ export default function CompanySettingsPage() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
+  const reload = (companyId: string) => { setReloads(n => n + 1); void fetchCompany(companyId); };
   const update = (field: keyof Company, value: unknown) => {
     setCompany(prev => prev ? { ...prev, [field]: value } as Company : prev);
   };
@@ -153,7 +155,9 @@ export default function CompanySettingsPage() {
       await assertOk(r, 'Could not save the company details - try again');
       companySaved = true;
       const row = ((await r.json()) as { data?: Record<string, unknown> | null }).data;
-      setLoadedMonth(row ? mapApiCompany(row).financialYearStart : company.financialYearStart); // the month now stored
+      const month = row ? mapApiCompany(row).financialYearStart : company.financialYearStart; // the month now stored
+      setLoadedMonth(month);
+      if (month !== loadedMonth && activeCompany?.id) reload(activeCompany.id); // a change rebuilt the periods: re-read them
       const after = 'Company details saved, but some settings could not be saved - try again';
       await Promise.all([
         docNumbers.length > 0 && put('/api/accounting/company-settings?type=document-numbers',
@@ -260,14 +264,10 @@ export default function CompanySettingsPage() {
 
         {error && (
           <SettingsErrorBanner message={error} onReload={stale && activeCompany?.id ? () => {
-            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id);
+            setError(''); setStale(false); reload(activeCompany.id);
           } : undefined} />
         )}
-        {saved && (
-          <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3 flex items-center gap-2 text-teal-500 text-sm">
-            <CheckCircle2 className="h-4 w-4" /> Changes saved successfully
-          </div>
-        )}
+        {saved && <SettingsSavedBanner />}
 
         {loading && (
           <div className="flex justify-center py-12">
