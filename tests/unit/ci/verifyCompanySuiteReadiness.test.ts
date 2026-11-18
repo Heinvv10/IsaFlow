@@ -7,7 +7,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { request as pwRequest } from '@playwright/test';
-import { SuiteSession } from '../../../scripts/deploy/verifyCompany/suiteSession';
+import { SuiteSession, parseSetCookie } from '../../../scripts/deploy/verifyCompany/suiteSession';
 import { suiteProblems } from '../../../scripts/deploy/verifyCompany/suiteReadiness';
 import { VERIFY_LOGIN, APPROVER_LOGIN } from '../../../scripts/deploy/verifyCompany/identity';
 
@@ -74,7 +74,7 @@ describe('SuiteSession keeps cookies as the suite\'s client (Playwright) does', 
 });
 
 /** One request as the server saw it. */
-interface Seen { method: string; url: string; cookie: string }
+interface Seen { method: string; url: string; cookie: string; type: string; length: string; body: string }
 interface Reply { status?: number; set?: string[]; location?: string }
 type Routes = Record<string, Reply | (() => Reply)>;
 
@@ -83,15 +83,18 @@ async function startScript(routes: Routes | ((port: number) => Routes)): Promise
   const seen: Seen[] = [];
   let port = 0;
   server = http.createServer((req, res) => {
-    seen.push({ method: req.method ?? '', url: req.url ?? '', cookie: req.headers.cookie ?? '' });
-    const r = (typeof routes === 'function' ? routes(port) : routes)[`${req.method} ${req.url}`];
-    const reply = (typeof r === 'function' ? r() : r) ?? {};
-    if (reply.set) res.setHeader('Set-Cookie', reply.set);
-    if (reply.location) res.setHeader('Location', reply.location);
-    res.statusCode = reply.status ?? 200;
-    res.setHeader('content-type', 'application/json');
-    req.resume();
-    res.end('{}');
+    const entry: Seen = { method: req.method ?? '', url: req.url ?? '', cookie: req.headers.cookie ?? '', type: String(req.headers['content-type'] ?? ''), length: String(req.headers['content-length'] ?? ''), body: '' };
+    seen.push(entry);
+    req.on('data', (c) => { entry.body += c; });
+    req.on('end', () => {
+      const r = (typeof routes === 'function' ? routes(port) : routes)[`${req.method} ${req.url}`];
+      const reply = (typeof r === 'function' ? r() : r) ?? {};
+      if (reply.set) res.setHeader('Set-Cookie', reply.set);
+      if (reply.location) res.setHeader('Location', reply.location);
+      res.statusCode = reply.status ?? 200;
+      res.setHeader('content-type', 'application/json');
+      res.end('{}');
+    });
   });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   port = (server.address() as AddressInfo).port;
@@ -122,6 +125,19 @@ async function parity(host: string, routes: Routes | ((port: number) => Routes),
 const subLocalhostResolves = await dns.lookup('sub.localhost').then(() => true, () => false);
 const LOGIN = 'POST /api/auth/login';
 const cookiesSeen = (log: Seen[], url: string): string[] => log.filter((r) => r.url === url).map((r) => r.cookie);
+
+describe('parseSetCookie: the Domain rules, with no network (playwright-core cookieStore.js parseRawCookie + fetch.js)', () => {
+  const domainOf = (header: string, url: string): string | undefined => parseSetCookie(header, new URL(url))?.domain;
+  it.each([
+    ['a dotless Domain stays as written', 'a=1; Domain=localhost', 'http://localhost/', 'localhost'],
+    ['a dotted Domain without a leading dot gets one', 'a=1; Domain=a.b', 'http://a.b/', '.a.b'],
+    ['a dotted Domain with a leading dot keeps a single one', 'a=1; Domain=.a.b', 'http://a.b/', '.a.b'],
+    ['a dotted Domain without a leading dot matches a subdomain host', 'a=1; Domain=foo.localhost', 'http://sub.foo.localhost/', '.foo.localhost'],
+    ['a dotless Domain does not match a subdomain host: dropped', 'a=1; Domain=localhost', 'http://sub.localhost/', undefined],
+    ['the Domain is lowercased', 'a=1; Domain=A.B', 'http://a.b/', '.a.b'],
+    ['no Domain is the response host', 'a=1', 'http://127.0.0.1:3101/x', '127.0.0.1'],
+  ])('%s', (_name, header, url, domain) => { expect(domainOf(header, url)).toBe(domain); });
+});
 
 describe('SuiteSession cookie and redirect parity with Playwright, request for request', () => {
   const NOW_PLUS = (s: number) => new Date(Date.now() + s * 1000).toUTCString();
@@ -192,9 +208,17 @@ describe('SuiteSession cookie and redirect parity with Playwright, request for r
     expect(mine).toEqual(pw);
   });
 
-  it('a 307 keeps the POST', async () => {
-    const { pw, mine } = await parity('localhost', { [LOGIN]: { status: 307, location: '/api/auth/login2' }, 'POST /api/auth/login2': { set: ['a=1; Path=/'] } }, ['/probe']);
-    expect(pw[1]).toMatchObject({ method: 'POST', url: '/api/auth/login2' });
+  it.each([307, 308])('a %i keeps the POST, its body and its body headers', async (status) => {
+    const { pw, mine } = await parity('localhost', { [LOGIN]: { status, location: '/api/auth/login2' }, 'POST /api/auth/login2': { set: ['a=1; Path=/'] } }, ['/probe']);
+    expect(pw[1]).toMatchObject({ method: 'POST', url: '/api/auth/login2', type: 'application/json', body: '{"email":"a","password":"b"}' });
+    expect(pw[1]!.length).not.toBe('');
+    expect(mine).toEqual(pw);
+  });
+
+  it.each([301, 302, 303])('a %i after a POST becomes a GET without its body or body headers', async (status) => {
+    const { pw, mine } = await parity('localhost', { [LOGIN]: { status, location: '/after' } }, ['/probe']);
+    expect(pw[1]).toEqual({ method: 'GET', url: '/after', cookie: '', type: '', length: '', body: '' });
+    expect(pw[0]).toMatchObject({ type: 'application/json', body: '{"email":"a","password":"b"}' });
     expect(mine).toEqual(pw);
   });
 
