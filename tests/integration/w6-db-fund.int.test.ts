@@ -241,6 +241,17 @@ describe('C is the marked contribution; none marked blocks approval', () => {
 });
 
 describe('the approval gate and the run grid', () => {
+  it('A, June: two marked 4001 rows anyway (set past the service): the line errors DB_FUND_MEMBER_CONTRIBUTION_MULTIPLE and the gate refuses', async () => {
+    await pool.query('UPDATE payroll_employee_components SET db_fund_member_contribution = true WHERE id = $1', [row.avcA]);
+    try {
+      const runId = await calculatedRun(call, 6, { company: A });
+      expect((await lineOf(runId)).validation_results.map((v) => v.code)).toContain('DB_FUND_MEMBER_CONTRIBUTION_MULTIPLE');
+      expect((await runLinesRefusal(A, runId))?.code).toBe('db_fund_unsettled');
+    } finally {
+      await pool.query('UPDATE payroll_employee_components SET db_fund_member_contribution = false WHERE id = $1', [row.avcA]);
+    }
+  });
+
   it('A, May: switching counts_as_rfi on the line\'s salary after calculation says recalculate', async () => {
     const runId = await calculatedRun(call, 5, { company: A });
     expect(await runLinesRefusal(A, runId)).toBeNull();
