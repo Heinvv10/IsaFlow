@@ -76,13 +76,15 @@ describe('SuiteSession keeps cookies as the suite\'s client (Playwright) does', 
 /** One request as the server saw it. */
 interface Seen { method: string; url: string; cookie: string }
 interface Reply { status?: number; set?: string[]; location?: string }
+type Routes = Record<string, Reply | (() => Reply)>;
 
 /** A scripted app that answers `METHOD /path` from `routes` (200 otherwise) and records every request it gets. Returns its port and log. */
-async function startScript(routes: Record<string, Reply | (() => Reply)>): Promise<{ port: number; seen: Seen[] }> {
+async function startScript(routes: Routes | ((port: number) => Routes)): Promise<{ port: number; seen: Seen[] }> {
   const seen: Seen[] = [];
+  let port = 0;
   server = http.createServer((req, res) => {
     seen.push({ method: req.method ?? '', url: req.url ?? '', cookie: req.headers.cookie ?? '' });
-    const r = routes[`${req.method} ${req.url}`];
+    const r = (typeof routes === 'function' ? routes(port) : routes)[`${req.method} ${req.url}`];
     const reply = (typeof r === 'function' ? r() : r) ?? {};
     if (reply.set) res.setHeader('Set-Cookie', reply.set);
     if (reply.location) res.setHeader('Location', reply.location);
@@ -92,7 +94,8 @@ async function startScript(routes: Record<string, Reply | (() => Reply)>): Promi
     res.end('{}');
   });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
-  return { port: (server.address() as AddressInfo).port, seen };
+  port = (server.address() as AddressInfo).port;
+  return { port, seen };
 }
 
 /**
@@ -100,7 +103,7 @@ async function startScript(routes: Record<string, Reply | (() => Reply)>): Promi
  * /accounting), then a GET of every probe. What the app saw (method, url and Cookie header, every hop) must be identical, and so must the
  * outcome (a status, or that the call threw).
  */
-async function parity(host: string, routes: Record<string, Reply | (() => Reply)>, probes: string[]): Promise<{ pw: Seen[]; mine: Seen[]; outcomes: string[] }> {
+async function parity(host: string, routes: Routes | ((port: number) => Routes), probes: string[]): Promise<{ pw: Seen[]; mine: Seen[]; outcomes: string[] }> {
   const { port, seen } = await startScript(routes);
   const base = `http://${host}:${port}`;
   const outcome = async (run: () => Promise<number>): Promise<string> => run().then(String, (e: Error) => (/Max redirect count exceeded/.test(e.message) ? 'threw max redirects' : `threw ${e.message}`));
@@ -169,6 +172,12 @@ describe('SuiteSession cookie and redirect parity with Playwright, request for r
   it.skipIf(!subLocalhostResolves).each([['Domain=localhost', false], ['Domain=.localhost', true]] as const)('host sub.localhost with %s: the cookie is sent: %s', async (domain, sent) => {
     const { pw, mine } = await parity('sub.localhost', { [LOGIN]: { set: [`a=1; Path=/; ${domain}`] } }, ['/probe']);
     expect(cookiesSeen(pw, '/probe')).toEqual([sent ? 'a=1' : '']);
+    expect(mine).toEqual(pw);
+  });
+
+  it('a Domain the response\'s host does not match is dropped at once: a redirect to the host it names does not get it', async () => {
+    const { pw, mine } = await parity('localhost', (port) => ({ [LOGIN]: { status: 302, location: `http://127.0.0.1:${port}/hop`, set: ['a=1; Path=/; Domain=127.0.0.1'] } }), ['/probe']);
+    expect(cookiesSeen(pw, '/hop')).toEqual(['']);
     expect(mine).toEqual(pw);
   });
 
