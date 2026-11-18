@@ -45,12 +45,13 @@ const OLD_DIGEST = definition('874_customer_invoice_line_revenue_coding.sql', 'a
 const OLD_AUTHORS = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_authors');
 /**
  * The pay_run wrappers as they stand today: only these three functions, never the rest of their migrations (951 stamps
- * payroll rows database-wide). approval_request_document_facts was last re-created by 999x (an off-cycle run's
- * reference names its kind, wave 6 OC).
+ * payroll rows database-wide). approval_document_authors was last re-created by 999w (prepared_by is TEXT there, and
+ * 951's body no longer compiles against it); approval_request_document_facts by 999x (an off-cycle run's reference
+ * names its kind and pay date, wave 6 OC).
  */
 const CURRENT_APPROVAL_WRAPPERS = ([
   ['951_pay_run_approval.sql', 'approval_document_digest'],
-  ['951_pay_run_approval.sql', 'approval_document_authors'],
+  ['999w_actor_ids_text.sql', 'approval_document_authors'],
   ['999x_payroll_off_cycle_runs.sql', 'approval_request_document_facts'],
 ] as const).map(([file, fn]) => definition(file, fn));
 

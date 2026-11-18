@@ -103,7 +103,8 @@ const HELPERS: Record<string, HelperPin> = {
     result: 'TABLE(user_id text, role text, is_active boolean, status text, suspended_at timestamp with time zone)', definer: true, volatility: 's' },
   'public.approval_credit_note_gate_amount(numeric,numeric,numeric)': { md5: '984ecd4536dc94245da9b5c14ac440f3', result: 'numeric', definer: false, volatility: 'i' },
   'public.approval_customer_invoice_gate_amount(numeric,numeric)': { md5: '1283c834d9495799241fbcc89655329f', result: 'numeric', definer: false, volatility: 'i' },
-  'public.approval_document_authors(uuid,text,uuid)': { md5: '2312d72dc5fc947e9fbfa74b06e11611', result: 'uuid[]', definer: false, volatility: 's' },
+  // 999w (HYb): the pay-run branch casts the now-TEXT prepared_by to uuid; every other branch unchanged.
+  'public.approval_document_authors(uuid,text,uuid)': { md5: '83d867eeca7ae87231a24d6ff24cb561', result: 'uuid[]', definer: false, volatility: 's' },
   'public.approval_document_authors_pre_payroll_951(uuid,text,uuid)': { md5: 'be4e8084971b533e65a8abd2579f7d12', result: 'uuid[]', definer: false, volatility: 's' },
   'public.approval_manual_journal_gate_amount(uuid,uuid)': { md5: 'bfddd2d79c4775e6d22ea7a03d3bb7be', result: 'numeric', definer: false, volatility: 's' },
   'public.approval_payment_batch_gate_amount(uuid,uuid)': { md5: '005d7606d5694d15c8606d0ded8b3eaa', result: 'numeric', definer: false, volatility: 's' },

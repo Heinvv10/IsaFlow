@@ -1,9 +1,9 @@
 /**
  * Wave 6 F9: the run-keyed reader census, BY TABLE (FQb1 / FQb2 / FQc).
  *
- * THIS IS A RATCHET (a source-text census), NOT A BEHAVIOUR TEST. Until FQx drops it, payroll_run_headers is
- * UNIQUE (company_id, period_year, period_month). Every reader that leans on that (one run per company-month) must
- * be converted before FQx ships. This test makes sure every reader has been LOOKED AT and classified once:
+ * THIS IS A RATCHET (a source-text census), NOT A BEHAVIOUR TEST. Until FQx (999y) dropped it, payroll_run_headers was
+ * UNIQUE (company_id, period_year, period_month). Every reader that leaned on that (one run per company-month) had to
+ * be converted before FQx shipped. This test makes sure every reader has been LOOKED AT and classified once:
  *
  *   S  correct with several runs in a month: a sum, an EXISTS, a list, or a read/write by run id;
  *   R  assumes one run per company-month (a lookup by month, LIMIT 1 / find / a Map keyed by month, an ON CONFLICT

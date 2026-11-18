@@ -31,6 +31,7 @@ import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard
 import { loadLineCadences } from './payrollRunCadence';
 import { listOffCycleEmployees, prepareOffCycleComponents, type OffCyclePrepared } from './payrollOffCyclePopulation';
 import { assertOffCycleBeforeClose } from './payrollOffCycleRun';
+import { assertPreparerSupported } from './payrollPreparerGuard';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -55,6 +56,8 @@ export async function calculatePayrollRun(
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
   }
+  // Wave 6 HYb: the preparer this calculation records must be one R-035 approval can carry (payrollPreparerGuard).
+  await assertPreparerSupported(companyId, preparedBy ?? (run.created_by == null ? null : String(run.created_by)));
   // A weekly or fortnightly run carries its own dates (wave 6 FQc): its reads, population and pro-rata follow them.
   const period: PayrollPeriod = runPeriodOf(run);
   const taxYear = getTaxYear(period.month, period.year);
