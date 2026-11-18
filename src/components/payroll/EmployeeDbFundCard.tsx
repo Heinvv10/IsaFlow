@@ -127,7 +127,7 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
           ))}
         </ul>
       )}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_10rem_12rem_auto] sm:items-end">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_15rem_12rem_auto] sm:items-end">
         <Select id="db-component" label="Employer fund contribution" value={componentId} options={options} onChange={setComponentId}
           placeholder={options.length ? 'Select a 3817 or 3825 component…' : 'No 3817 or 3825 component'} />
         <div>

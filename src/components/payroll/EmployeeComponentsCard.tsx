@@ -156,7 +156,7 @@ export function EmployeeComponentsCard({
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium text-right">Amount</th>
               <th className="py-2 pl-6 text-[var(--ff-text-secondary)] font-medium">From</th>
               <th className="py-2 pl-4 text-[var(--ff-text-secondary)] font-medium">To</th>
-              <th className="py-2"></th>
+              <th className="py-2"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
