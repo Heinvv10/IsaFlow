@@ -93,6 +93,20 @@ describe('L1: a create is judged on the pay week as it is once a change in fligh
   });
 });
 
+describe('L1 lock move: two creates of one period at once are still serialised', () => {
+  it('one 201, the other 409 PAY_PERIOD_EXISTS (never a 500 from the unique key), one row', async () => {
+    const week = isoOfDay(dayNumber(MON)! + 14);
+    for (let i = 0; i < 3; i++) {
+      const results = await Promise.all([create(week), create(week)]);
+      expect(results.map((r) => r.statusCode).sort(), `round ${i}`).toEqual([201, 409]);
+      expect(reason(results.find((r) => r.statusCode === 409)!), `round ${i}`).toBe('PAY_PERIOD_EXISTS');
+      const rows = (await a.pool.query('SELECT id FROM payroll_run_headers WHERE company_id = $1 AND period_start = $2', [a.company, week])).rows;
+      expect(rows).toHaveLength(1);
+      expect((await del(String(rows[0]!.id))).statusCode).toBe(200);
+    }
+  });
+});
+
 describe('L3: delete racing calculate on one draft', () => {
   it('one wins cleanly, every time', async () => {
     await a.employee(20000);
