@@ -5,6 +5,8 @@
  *   T8b  an amend moving output AND input equally (net unchanged) posts a journal for both, not a nil row.
  *   T9   the next-lock exemption accepts only THE net-VAT account the settlement posts to: with an active 2130, a trade
  *        payables line is refused; the same clearing onto 2130 posts.
+ *   T10  (security round 3) the exemption reads only the company's OWN accounts: a settlement-shaped clearing journal of
+ *        company A with a line on company B's vat_output account is refused by the lock guard (VAT_PERIOD_LOCKED).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -15,12 +17,13 @@ import amend from '../../pages/api/accounting/sars/returns/[form]/amend';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
 import vatReturns from '../../pages/api/accounting/vat-returns/index';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
-import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 type Row = Record<string, unknown>;
 type P = { periodStart: string; periodEnd: string };
 let rf: ReturnFixture;
+let other: ReturnFixture;
 const one = async (q: Promise<unknown>) => ((await q) as Row[])[0]!;
 const acct = async (code: string) => String((await one(sql`SELECT id FROM gl_accounts
   WHERE company_id = ${rf.fx.companyId}::UUID AND account_code = ${code}`)).id);
@@ -60,6 +63,7 @@ describeIfDb('VR review round 3: nil rows hide nothing; the exemption takes only
   beforeAll(async () => {
     assertNotProductionDb('This test seeds companies, journals, invoices, accounts, VAT locks, return versions and settlements.');
     rf = await seedReturnFixture('VR3', DATABASE_URL!);
+    other = await seedReturnFixture('VR3B', DATABASE_URL!);
     await sql`UPDATE companies SET vat_period = 'bi-monthly', vat_period_alignment = 'odd' WHERE id = ${rf.fx.companyId}::UUID`;
   }, 240000);
   afterAll(async () => {
@@ -68,6 +72,7 @@ describeIfDb('VR review round 3: nil rows hide nothing; the exemption takes only
     await sql`DELETE FROM customer_invoices WHERE company_id = ${rf.fx.companyId}::UUID`;
     await sql`DELETE FROM customers WHERE company_id = ${rf.fx.companyId}::UUID`;
     await dropReturnFixture(rf);
+    if (other) await dropReturnFixture(other);
   }, 120000);
 
   it('T8a nil row cannot hide a report-side tax change: amend changes VAT201 tax, ledger unchanged -> gap 409 unless acked', async () => {
@@ -143,4 +148,27 @@ describeIfDb('VR review round 3: nil rows hide nothing; the exemption takes only
       ] }, rf.admin.userId).then((e) => e, (e: unknown) => e);
     expect(ok).not.toBeInstanceOf(Error);
   }, 120000);
+
+  it('T10 the exemption reads only the company\'s own accounts: a line on another tenant\'s vat_output account is refused', async () => {
+    const c = rf.fx.companyId;
+    // T9 left P4 finalised and P5 locked from 2025-06-01. Company B's own VAT output account:
+    const foreignVat = String((await one(sql`SELECT id FROM gl_accounts WHERE company_id = ${other.fx.companyId}::UUID
+      AND account_code = '2120'`)).id);
+    const lines = [{ glAccountId: foreignVat }, { glAccountId: await acct('1140') }];
+    // The lock guard itself (every posting path runs it): B's account is not one of A's, so this is no clearing.
+    const err = await assertJournalVatPeriodOpen(c, '2025-06-01', lines, undefined, 'auto_vat_submission')
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(VatPeriodLockedError);
+    expect((err as { code?: string }).code).toBe('VAT_PERIOD_LOCKED');
+    // Through createJournalEntry it never gets that far: the line-ownership guard refuses B's account first.
+    const viaCreate = await createJournalEntry(c, { entryDate: '2025-06-01', description: 'cross-tenant clearing',
+      source: 'auto_vat_submission', lines: [
+        { glAccountId: foreignVat, debit: 50, credit: 0 },
+        { glAccountId: await acct('1140'), debit: 0, credit: 50 },
+      ] }, rf.admin.userId).then(() => null, (e: unknown) => e);
+    expect(viaCreate).toBeInstanceOf(Error);
+    expect(Number((await one(sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${c}::UUID
+      AND description = 'cross-tenant clearing'`)).n)).toBe(0);
+  }, 120000);
 });
+
