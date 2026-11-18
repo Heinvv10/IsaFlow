@@ -44,6 +44,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'entry.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
+  // wave 6 EFa: a tax return version's row id
+  'v.id',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
