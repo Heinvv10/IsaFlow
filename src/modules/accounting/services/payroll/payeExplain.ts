@@ -9,8 +9,8 @@ import type { CumulativePayeTrace } from './payeCumulative';
 import type { EmploymentClass } from './employmentTerms';
 import { earningStep } from './earningExplain';
 import type { EarningPart } from './payrollLineAccumulate';
-import { RETIREMENT_DEDUCTION_RATE } from './retirementFund';
-import { getTaxYearConfig } from './taxTables';
+import { annualisationFactorWords } from './annualisationFactor';
+import { annualPaymentsStep, retirementStep } from './payeExplainRetirement';
 import { NON_STANDARD_RATE, type PayeTreatment } from './taxStatusTreatment';
 import { SOURCES, footed, pct, sourceFor, type ExplainStep, type FigureExplanation } from './payrollExplainTypes';
 
@@ -90,80 +90,16 @@ function taxBlock(key: string, label: string, t: AnnualTaxAfterCredits, taxYear:
   return { key, label, amount: t.annualTax, children };
 }
 
-function retirementStep(input: PayeExplainInput): ExplainStep {
-  const { trace: t, taxYear } = input;
-  return {
-    key: 'paye.retirement', label: 'Less the retirement fund deduction off the annual equivalent', amount: t.offPeriodic,
-    formula: 'the lesser of the deduction allowed a year and the annual equivalent (plus periodic donations a year)',
-    source: sourceFor(SOURCES.retirement, taxYear),
-    children: [
-      {
-        key: 'paye.retirement.allowed', label: 'Deduction allowed a year', amount: t.annualDeduction,
-        formula: `the least of: contributions a year, ${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration, the annual cap`,
-        children: [
-          {
-            key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions,
-            formula: t.periods > 0 ? 'to date × 12 ÷ periods' : 'no periodic pay yet: taken as it stands',
-            children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006, and the employer\'s 3817, 3825, 3828 deemed paid by the employee)', amount: t.contributionsToDate }],
-          },
-          {
-            key: 'paye.retirement.rateLimit', label: `${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration a year`, amount: t.shareOfRemuneration,
-            formula: `${pct(RETIREMENT_DEDUCTION_RATE)} × ${r(t.deductionBase)}`,
-            children: [
-              { key: 'paye.retirement.base', label: 'Remuneration a year before the deduction (donations added back)', amount: t.deductionBase },
-              { key: 'paye.retirement.rate', label: 'Share', amount: RETIREMENT_DEDUCTION_RATE, unit: 'percent' },
-            ],
-          },
-          { key: 'paye.retirement.cap', label: 'Annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap },
-        ],
-      },
-      { key: 'paye.retirement.ceiling', label: 'The annual equivalent, plus periodic donations a year', amount: t.offPeriodicCeiling },
-      {
-        key: 'paye.retirement.recorded', label: 'Recorded on this line (to date, less what earlier lines recorded)', amount: input.retirementRecorded,
-        note: 'The deduction this payslip and the IRP5 carry.',
-      },
-    ],
-  };
+const creditsUsed = (a: AnnualTaxAfterCredits) => a.medicalCreditUsed + a.additionalMedicalCreditUsed;
+
+/** The annual equivalent's part of the liability: tax after rebates × n ÷ F, less the credits it used × n ÷ 12. */
+function liabilityAE(t: CumulativePayeTrace): string {
+  const f = annualisationFactorWords(t.factor);
+  const c = creditsUsed(t.atAE);
+  if (c <= 0) return `${r(t.atAE.annualTax)} × ${t.periods} ÷ (${f})`;
+  return `(${r(t.atAE.annualTax + c)} × ${t.periods} ÷ (${f}) − ${r(t.creditsOnAEToDate)})`;
 }
 
-/** Annual payments to date as the tax on them takes them: less the deduction and any donation that came off them. */
-function annualPaymentsStep(input: PayeExplainInput): ExplainStep {
-  const { trace: t, taxYear } = input;
-  const parts: ExplainStep[] = [footed({ key: 'paye.annualNow', label: 'This period', amount: t.annualNow }, [
-    { key: 'paye.annualNow.paid', label: 'Paid this period', amount: input.annualBeforeDonation },
-    ...(input.donationOffAnnual > 0 ? [{
-      key: 'paye.annualNow.donation', label: 'Less the s18A donation larger than periodic pay', amount: -input.donationOffAnnual, source: sourceFor(SOURCES.donations, taxYear),
-    }] : []),
-  ])];
-  parts.push({ key: 'paye.annualBefore', label: 'Earlier periods', amount: t.annualBefore });
-  if (t.offAnnual > 0) {
-    parts.push({
-      key: 'paye.offAnnual', label: 'Less the retirement fund deduction taken off them', amount: -t.offAnnual, source: sourceFor(SOURCES.retirement, taxYear),
-      formula: 'the least of these limits, never below nil',
-      children: [
-        { key: 'paye.offAnnual.deductionLeft', label: 'The deduction a year left after the annual equivalent', amount: t.offAnnualLimits.deductionLeft },
-        { key: 'paye.offAnnual.annualPayments', label: 'The annual payments to date', amount: t.offAnnualLimits.annualPayments },
-        { key: 'paye.offAnnual.contributionsLeft', label: 'Contributions to date, less the part off periodic pay to date', amount: t.offAnnualLimits.contributionsLeft },
-        {
-          key: 'paye.offAnnual.capLeft', label: 'The cap to date, less that part', amount: t.offAnnualLimits.capLeft,
-          formula: `${r(t.capToDate)} − ${r(t.deductionOffPeriodicToDate)}`,
-          children: [
-            { key: 'paye.offAnnual.capToDate', label: 'Cap to date (the annual cap × periods ÷ 12)', amount: t.capToDate },
-            { key: 'paye.offAnnual.capPeriods', label: 'Periods for the cap (periodic pay or an annual payment)', amount: t.capPeriods, unit: 'count' },
-            { key: 'paye.offAnnual.offPeriodicToDate', label: 'The deduction off periodic pay to date', amount: t.deductionOffPeriodicToDate },
-          ],
-        },
-      ],
-    });
-  }
-  if (t.donationSpill > 0) {
-    parts.push({
-      key: 'paye.donationSpill', label: 'Less the retirement deduction the donations left no periodic pay for', amount: -t.donationSpill,
-      source: sourceFor(SOURCES.donations, taxYear),
-    });
-  }
-  return footed({ key: 'paye.annualPayments', label: 'Annual payments to date (bonus and other 3605)', amount: t.annualAll, source: sourceFor(SOURCES.annualPayment, taxYear) }, parts);
-}
 
 function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   const { trace: t, taxYear } = input;
@@ -191,15 +127,25 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
       amount: t.periods, unit: 'count',
     },
     {
+      key: 'paye.annualisationFactor', label: 'Periods in a year (the annualisation factor)', amount: t.factor, unit: 'count',
+      formula: annualisationFactorWords(t.factor), source: SOURCES.annualisationFactor,
+      note: 'Days-based, as Sage Payroll annualises a month (365 days ÷ 30.4166), not the × 12 of the SARS guide: a few cents a year apart.',
+    },
+    {
+      key: 'paye.periodsInYear', label: 'Statutory periods in a year (for the s11F cap and the medical credits)', amount: t.periodsInYear, unit: 'count',
+      note: 'The cap to date and the medical credits are period ratios the statute fixes: × periods ÷ this, never more than a year\'s worth.',
+    },
+    {
       key: 'paye.annualEquivalent', label: 'Annual equivalent', amount: t.annualEquivalent,
-      formula: t.periods > 0 ? `${r(t.periodicToDate)} × 12 ÷ ${t.periods}` : 'no periodic pay to date: nil', source: sourceFor(SOURCES.annualEquivalent, taxYear),
-      note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it equals the SARS tables; a mid-year change is spread over the rest of the year.',
+      formula: t.periods > 0 ? `${r(t.periodicToDate)} × ${annualisationFactorWords(t.factor)} ÷ ${t.periods}` : 'no periodic pay to date: nil',
+      source: sourceFor(SOURCES.annualEquivalent, taxYear),
+      note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it is within cents of the SARS tables; a mid-year change is spread over the rest of the year.',
     },
   ];
   if (input.medicalFees.total !== 0) {
     steps.push(footed({
       key: 'paye.medicalFees', label: 'Medical scheme fees this period (for the medical credits)', amount: input.medicalFees.total,
-      note: 'With the earlier periods\' fees, taken a year (× 12 ÷ periods) inside the tax for the year below.', source: sourceFor(SOURCES.additionalMedical, taxYear),
+      note: `With the earlier periods' fees, taken a year (× ${t.periodsInYear} ÷ ${t.periods}: the credits are monthly amounts) inside the tax for the year below.`, source: sourceFor(SOURCES.additionalMedical, taxYear),
     }, [
       { key: 'paye.medicalFees.employee', label: 'Deducted from the employee (4005)', amount: input.medicalFees.employee },
       ...(input.medicalFees.employer !== 0 ? [{
@@ -209,6 +155,13 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
     ]));
   }
   if (t.annualDeduction > 0 || t.contributionsToDate > 0) steps.push(retirementStep(input));
+  if (t.deductionBounded) {
+    steps.push({
+      key: 'paye.retirement.toDate', label: 'The deduction off periodic pay to date, bounded by the cap to date', amount: t.deductionOffPeriodicToDate,
+      formula: `the lesser of ${r(t.offPeriodic)} × ${t.periods} ÷ (${annualisationFactorWords(t.factor)}) and the cap to date ${r(t.capToDate)}`,
+      children: [{ key: 'paye.retirement.taxed', label: 'So the deduction off the annual equivalent', amount: t.offPeriodicTaxed, formula: `${r(t.deductionOffPeriodicToDate)} × (${annualisationFactorWords(t.factor)}) ÷ ${t.periods}` }],
+    });
+  }
   steps.push({ key: 'paye.taxedAnnualEquivalent', label: 'Annual equivalent taxed', amount: t.taxedAnnualEquivalent, formula: 'annual equivalent − the deduction off it (never below nil)' });
   steps.push(taxBlock('paye.atAE', 'Tax for the year on the annual equivalent', t.atAE, taxYear));
   if (t.annualAll > 0) {
@@ -221,7 +174,8 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   }
   steps.push({
     key: 'paye.liability', label: 'Tax due for the year to date', amount: t.liability,
-    formula: `${r(t.atAE.annualTax)} × ${t.periods} ÷ 12${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
+    formula: `${liabilityAE(t)}${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
+    ...(creditsUsed(t.atAE) > 0 ? { note: `The medical credits are monthly amounts (s6A): the tax for the year before them comes off × periods ÷ the factor, and the ${r(creditsUsed(t.atAE))} of credits it used × ${Math.min(t.periods, t.periodsInYear)} ÷ ${t.periodsInYear} (${r(t.creditsOnAEToDate)}), never more than that tax${t.periods > t.periodsInYear ? ' (a year\'s worth at most)' : ''}.` } : {}),
   });
   steps.push({ key: 'paye.ytdTablePaye', label: 'Less PAYE already deducted this tax year (tables)', amount: t.ytdTablePaye });
   steps.push({ key: 'paye.due', label: 'PAYE this period from the tables', amount: t.due, formula: 'due to date − already deducted, rounded to the cent, never below nil' });

@@ -82,7 +82,8 @@ describe('R1 review 2: a later month calculated from an earlier version of this 
     const feb = await mk(f, 2027, 2);
     await calcOnly(f, feb); // X's year-to-date includes January's taxed X line
     const ytd = async () => (await loadPayeYearToDate(f.company, feb, { year: 2027, month: 2 }, [f.employee])).get(f.employee);
-    expect(await ytd()).toMatchObject({ periods: 11, tablePaye: 11 * 2115 });
+    // AN (F = 365 / 30.4166): eleven flat months deduct 23 265.04 (× 12: 11 × 2 115).
+    expect(await ytd()).toMatchObject({ periods: 11, tablePaye: 23_265.04 });
     ok(await reopenRun(f, jan));
     // January corrected: X was paid only an untaxed allowance that month.
     await pool.query(`UPDATE payroll_employee_components SET effective_to = '2026-12-31' WHERE employee_id = $1 AND effective_to IS NULL`, [f.employee]);
@@ -106,8 +107,11 @@ describe('R1 review 2: a later month calculated from an earlier version of this 
     ok(await reopenRun(f, feb));
     ok(await approveRun(f, jan));
     // February's year-to-date no longer counts January's old taxed line (and its R2 115 PAYE) for X.
-    expect(await ytd()).toMatchObject({ periods: 10, tablePaye: 10 * 2115 });
-    // No journal reversal: February's figures come out the same, so it is approved onto its own journal.
+    expect(await ytd()).toMatchObject({ periods: 10, tablePaye: 21_150.03 }); // AN (× 12: 10 × 2 115)
+    // Under × 12 February's figures came out the same (2 115 either way) and it was approved onto its own journal. Under AN
+    // (F = 365 / 30.4166) a period's tax depends on n, so February's PAYE moves by cents (tax(220 000 × F ÷ 11) × 11 ÷ F
+    // − 21 150.03, not 2 115.00): its journal is reversed first, as January's was, and approving posts a new one.
+    await reverseJournal(f, feb);
     await calcOnly(f, feb);
     ok(await approveRun(f, feb));
   });
