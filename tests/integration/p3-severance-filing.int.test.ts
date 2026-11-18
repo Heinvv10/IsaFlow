@@ -20,13 +20,16 @@ import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Serv
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import {
   approvedDirective, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, seedRetrenchedEmployee,
-  SALARY_PAYE, type SeveranceFixture,
+  type SeveranceFixture,
 } from './p3-severance.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 let f: SeveranceFixture;
-const APRIL_PAYE = SALARY_PAYE + 2192;
+// × 12: SALARY_PAYE + 2 192 = 4 307. Wave-6 AN (365 ÷ 30.4166, ruling 5): the AE is 20 000 × F = 240 000.53, so the
+// R10 000 leave pay reaches 0.53 further into the 26% bracket (from 245 100): 2 192.04, and the month 2 115.0033; the
+// liability to date 4 307.045 rounds to 4 307.05 (4102 = 4 307.05).
+const APRIL_PAYE = 4_307.05;
 
 beforeAll(async () => {
   f = await seedRetrenchedEmployee(pool, '2026-04-30', 'P3 filing');
@@ -90,7 +93,7 @@ describe('P3: filing carries severance paid by directive in the run', () => {
     await (easyfile as Route)(req as never, out.res as never);
     expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
     const fields = file.split(/\r\n/);
-    for (const want of ['3601,20000', '3605,10000', '4102,4307.00', '3901,30000', '4115,3000.00',
+    for (const want of ['3601,20000', '3605,10000', '4102,4307.05', '3901,30000', '4115,3000.00',
       '3230,"9876543210"', '3231,20260505', '3232,3901', '3233,30000']) {
       expect(fields, want).toContain(want);
     }
