@@ -53,6 +53,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { canonicalSubtype } from './accountSubtypes';
 import { VAT_TAX_SUBTYPES } from '../reports/vatBoxBasis';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from '../reports/vatSubmissionClearing';
 
 /** A line as the guard needs it. `vatType` absent means untagged. */
 export interface VatLineRef {
@@ -187,6 +188,26 @@ export async function findActiveVatLock(
 }
 
 /**
+ * The ONE journal that may post into a locked VAT period although it moves VAT figures (wave 6 VR, coordinator
+ * ruling): the VAT settlement's clearing journal (`VAT_SUBMISSION_CLEARING_SOURCE`, written only by
+ * submitVATReturn), dated on the FIRST day of the locked period, when the period ending the day before has a live
+ * (finalised or filed) VAT201 version, i.e. the period it settles. It clears the control accounts for the previous
+ * period, and every VAT201, lock snapshot and drift reader excludes that source (vatEntryMembership), so it changes no
+ * figure of the locked return. Any other source, any other date, or no finalised previous period: refused as before.
+ */
+export async function settlementClearingExempt(
+  companyId: string, date: string, lock: ActiveVatLock, source: string | null | undefined, q: SqlExec = sql,
+): Promise<boolean> {
+  if (source !== VAT_SUBMISSION_CLEARING_SOURCE || lock.periodStart !== date) return false;
+  const rows = (await q`
+    SELECT 1 FROM tax_return_versions
+    WHERE company_id = ${companyId}::UUID AND form_type = 'VAT201' AND status IN ('finalised', 'filed')
+      AND period_end = ${date}::DATE - 1
+    LIMIT 1`) as Row[];
+  return rows.length > 0;
+}
+
+/**
  * Refuse a journal dated inside an active VAT lock when it moves a VAT figure.
  *
  * Call it BEFORE the write that makes the journal posted (the status UPDATE, or
@@ -200,12 +221,15 @@ export async function assertJournalVatPeriodOpen(
   entryDate: string | Date,
   lines: readonly VatLineRef[],
   q: SqlExec = sql,
+  /** The journal's source: only the VAT settlement's clearing journal can be exempt (settlementClearingExempt). */
+  source?: string | null,
 ): Promise<void> {
   await takeVatLockShared(companyId, q);
   const date = fmtDate(entryDate);
   const lock = await findActiveVatLock(companyId, date, q);
   if (!lock) return;
   if (await journalMovesVatFigure(companyId, lines, q)) {
+    if (await settlementClearingExempt(companyId, date, lock, source, q)) return;
     throw new VatPeriodLockedError(date, lock);
   }
 }
