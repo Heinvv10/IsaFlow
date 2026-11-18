@@ -32,6 +32,8 @@ import { splitContractorIncome } from '@/modules/accounting/services/payroll/eas
 import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
+import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -56,6 +58,15 @@ export interface EasyFileInput {
 export async function assembleEasyFileInput(companyId: string, taxYear: number, kind: Emp501Kind = 'annual'): Promise<EasyFileInput> {
   const period = emp501Period(taxYear, kind);
   const { startMonth, startYear, endMonth, endYear } = period;
+  // Every final run it certifies must be one this release can file (RunKindUnsupportedError otherwise), as the IRP5
+  // data service and the EMP201 judge theirs (review #1568 M1): an off-cycle or weekly run is refused, never certified.
+  const finalRunIds = (await sql`
+    SELECT h.id FROM payroll_run_headers h
+    WHERE h.company_id = ${companyId}::uuid AND ${sql.unsafe(payRunFinalSql('h'))}
+      AND make_date(h.period_year, h.period_month, 1) BETWEEN ${period.start}::date AND ${period.end}::date
+    ORDER BY h.period_year, h.period_month, h.id
+  `) as DbRow[];
+  for (const runId of finalRunIds.map((r) => String(r.id))) await assertRunKindSupported(companyId, runId, 'irp5');
   // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
   // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).
 

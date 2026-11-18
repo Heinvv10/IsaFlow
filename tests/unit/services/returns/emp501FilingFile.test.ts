@@ -9,7 +9,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { emp501FileOf } from '@/modules/accounting/services/returns/emp501FilingFile';
-import { canonical } from '@/modules/accounting/services/returns/emp501Figures';
+import { canonical, storeEmployee } from '@/modules/accounting/services/returns/emp501Figures';
 
 const golden = readFileSync(path.join(__dirname, '..', 'payroll', 'fixtures', 'easyfile-irp5.golden.txt'), 'utf8');
 
@@ -57,12 +57,19 @@ describe('emp501FileOf', () => {
     expect(f.filename).toBe('IRP5_2025_2026_7123456789_08.irp5');
   });
 
-  it('a date of birth stored through JSONB (an ISO string) gives the bytes the Date gave at finalise', () => {
+  it('a date of birth is stored as its calendar day and rebuilds the bytes the Date gave at finalise', () => {
     const withDob = { ...employee, dateOfBirth: new Date(1990, 0, 1) };
     const atFinalise = buildIrp5File({ employer, employees: [withDob] });
     expect(atFinalise.split('\r\n')).toContain('3080,19900101');
-    const f = emp501FileOf(version({ taxYear: 2026, kind: 'annual', employer, employees: [withDob] }));
+    const stored = storeEmployee(withDob);
+    expect(stored.dateOfBirth).toBe('1990-01-01');
+    const f = emp501FileOf(version({ taxYear: 2026, kind: 'annual', employer, employees: [stored] }));
     expect(f.body).toBe(atFinalise);
+  });
+
+  it('a stored day gives 3080 = that day whatever the process TZ (run under TZ=UTC too)', () => {
+    const f = emp501FileOf(version({ taxYear: 2026, kind: 'annual', employer, employees: [{ ...employee, dateOfBirth: '1990-01-01' }] }));
+    expect(f.body.split('\r\n')).toContain('3080,19900101');
   });
 
   it('drift compares a Date as the ISO string JSONB stored, so an unchanged date of birth is not drift', () => {

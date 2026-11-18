@@ -20,6 +20,7 @@ import { log } from '@/lib/logger';
 import { buildIrp5File, UsageError } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '@/modules/accounting/services/payroll/easyFileInput';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -41,6 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   try {
     input = await assembleEasyFileInput(companyId, taxYear, periodRaw);
   } catch (err) {
+    if (respondIfRunKindUnsupported(res, err)) return;
     if (!(err instanceof EasyFileInputRefusal)) throw err;
     if (err.kind === 'not_found') return apiResponse.notFound(res, err.message);
     if (err.kind === 'bad_request') return apiResponse.badRequest(res, err.message);

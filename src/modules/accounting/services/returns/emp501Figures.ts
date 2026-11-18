@@ -12,6 +12,7 @@ import type { DbRow } from '@/lib/neon';
 import { buildIrp5File, UsageError, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '@/modules/accounting/services/payroll/easyFileInput';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import type { Emp501Kind, Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { ReturnRefusal } from './returnVersionTypes';
 import type { ReturnDrift } from './returnDrift';
@@ -19,11 +20,23 @@ import type { ReturnDrift } from './returnDrift';
 export interface Emp501Totals { certificates: number; paye: number; uif: number; sdl: number }
 export interface Emp501Run { id: string; approvedPlanHash: string | null; approvedAt: string | null }
 
+/** A certificate as stored: the date of birth as its calendar day (YYYY-MM-DD), so the bytes never depend on the TZ. */
+export type StoredEmployee = Omit<EmployeeInput, 'dateOfBirth'> & { dateOfBirth?: string | null };
+
+const ymd = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** The calendar day of the builder's local-midnight Date (localDay), which emp501FileOf revives with localDay. */
+export function storeEmployee(e: EmployeeInput): StoredEmployee {
+  const { dateOfBirth, ...rest } = e;
+  return dateOfBirth === undefined ? rest : { ...rest, dateOfBirth: dateOfBirth === null ? null : ymd(dateOfBirth) };
+}
+
 export interface Emp501Figures {
   taxYear: number;
   kind: Emp501Kind;
   employer: EmployerInput;
-  employees: EmployeeInput[];
+  employees: StoredEmployee[];
   warnings: string[];
   totals: Emp501Totals;
   runs: Emp501Run[];
@@ -46,7 +59,7 @@ export function canonical(v: unknown): string {
   return JSON.stringify(norm(v) ?? null);
 }
 
-export function emp501Totals(employees: EmployeeInput[]): Emp501Totals {
+export function emp501Totals(employees: Array<Pick<EmployeeInput, 'paye4102' | 'lumpSums' | 'uifEmployee' | 'uifEmployer' | 'sdl4142'>>): Emp501Totals {
   let paye = 0, uif = 0, sdl = 0;
   for (const e of employees) {
     paye += e.paye4102 + (e.lumpSums ?? []).reduce((t, l) => t + l.paye, 0);
@@ -78,6 +91,9 @@ export async function buildEmp501Figures(companyId: string, p: Emp501Period, loc
   try {
     input = await assembleEasyFileInput(companyId, p.taxYear, p.kind);
   } catch (err) {
+    if (isRunKindUnsupported(err)) {
+      throw new ReturnRefusal(409, err.message, err.code, { action: err.action, reasons: err.reasons });
+    }
     if (!(err instanceof EasyFileInputRefusal)) throw err;
     if (err.kind === 'not_found') throw new ReturnRefusal(404, 'Company not found.');
     throw new ReturnRefusal(409, err.message, null, err.details ?? null);
@@ -89,7 +105,7 @@ export async function buildEmp501Figures(companyId: string, p: Emp501Period, loc
     throw err;
   }
   return {
-    taxYear: p.taxYear, kind: p.kind, employer: input.employer, employees: input.employees, warnings: input.warnings,
+    taxYear: p.taxYear, kind: p.kind, employer: input.employer, employees: input.employees.map(storeEmployee), warnings: input.warnings,
     totals: emp501Totals(input.employees), runs: await finalRuns(companyId, p, lock),
   };
 }

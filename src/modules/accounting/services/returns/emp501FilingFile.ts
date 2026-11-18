@@ -5,6 +5,8 @@
  */
 import { createHash } from 'node:crypto';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
+import { localDay } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
+import type { StoredEmployee } from './emp501Figures';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { FILING_FILE_KIND } from './filingFileContent';
 import { stampFilingFile, storedContent } from './filingFileService';
@@ -18,9 +20,10 @@ export interface Emp501File { body: string; filename: string; sha256: string }
 
 export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Emp501File {
   if (v.formType !== 'EMP501') throw new Error(`emp501FileOf: a ${v.formType} version has no e@syFile file`);
-  const f = v.figures as { taxYear: number; kind: string; employer: EmployerInput; employees: EmployeeInput[] };
-  // JSONB stores the date of birth as an ISO string; the builder reads it as a Date.
-  const employees = f.employees.map((e) => (typeof e.dateOfBirth === 'string' ? { ...e, dateOfBirth: new Date(e.dateOfBirth) } : e));
+  const f = v.figures as { taxYear: number; kind: string; employer: EmployerInput; employees: StoredEmployee[] };
+  // The date of birth is stored as its calendar day (storeEmployee); the builder reads a local-midnight Date (localDay).
+  const employees: EmployeeInput[] = f.employees.map(({ dateOfBirth, ...e }) =>
+    (dateOfBirth === undefined ? e : { ...e, dateOfBirth: dateOfBirth === null ? null : localDay(dateOfBirth) }));
   const body = buildIrp5File({ employer: f.employer, employees });
   const filename = `IRP5_${f.taxYear - 1}_${f.taxYear}_${f.employer.payeReferenceNumber}${f.kind === 'interim' ? '_08' : ''}.irp5`;
   return { body, filename, sha256: createHash('sha256').update(body, 'utf8').digest('hex') };

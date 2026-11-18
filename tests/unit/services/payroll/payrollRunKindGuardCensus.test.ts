@@ -22,6 +22,8 @@ const GUARDED: Array<{ file: string; fn: string; action: string }> = [
   // Wave 6 EF: the declarations, called from their own services (grill F4).
   { file: 'src/modules/accounting/services/reports/emp201Service.ts', fn: 'generateEMP201', action: 'emp201' },
   { file: `${P}/irp5DataService.ts`, fn: 'getIrp5EmployeeTotals', action: 'irp5' },
+  // Wave 6 EFb (review #1568 M1): the e@syFile input, which the export route and the EMP501 lifecycle certify from.
+  { file: `${P}/easyFileInput.ts`, fn: 'assembleEasyFileInput', action: 'irp5' },
 ];
 
 /** The body of `export async function fn(` up to the next top-level `}` line. */
@@ -63,6 +65,10 @@ const CALLERS = [
   'src/modules/accounting/services/reports/emp201Service.ts',
   'src/modules/accounting/services/returns/finaliseEmpReturn.ts',
   'src/modules/accounting/services/returns/returnDrift.ts',
+  // Wave 6 EFb: the e@syFile export (route 409 via respondIfRunKindUnsupported) and the EMP501 figures (409 ReturnRefusal).
+  'pages/api/payroll/irp5/easyfile-export.ts',
+  `${P}/easyFileInput.ts`,
+  'src/modules/accounting/services/returns/emp501Figures.ts',
 ];
 
 describe('run-kind guard census (wave 6 FQa, grill F28)', () => {

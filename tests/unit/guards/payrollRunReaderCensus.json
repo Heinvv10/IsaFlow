@@ -83,6 +83,9 @@
   "src/modules/accounting/services/payroll/easyFileCertificateAggregates.ts": [
    {"line":47,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum"}
   ],
+  "src/modules/accounting/services/payroll/easyFileInput.ts": [
+   {"line":64,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"every final run of the period, each through the run-kind guard (review #1568 M1)"}
+  ],
   "src/modules/accounting/services/payroll/easyFileRegularDirectives.ts": [
    {"line":26,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"MIN month per directive over the year"}
   ],
@@ -480,8 +483,9 @@
   "src/modules/accounting/services/returns/emp501Figures.ts": [
    {"line":62,"text":"SELECT h.id, h.approved_plan_hash, h.approved_at FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"every final run of the EMP501 period, listed by id and share-locked at finalise"}
   ],
-  "src/modules/accounting/services/returns/emp501Readiness.ts": [
-   {"line":36,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"DISTINCT months that have any live run, each checked for a filed EMP201 (EXISTS)"}
+  "src/modules/accounting/services/returns/emp501Months.ts": [
+   {"line":41,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"final runs' lines summed per month (GROUP BY month), every run of the month counted"},
+   {"line":61,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"DISTINCT months that have any non-final live run (a warning)"}
   ],
   "src/modules/accounting/services/returns/empDrift.ts": [
    {"line":38,"text":"SELECT id, approved_plan_hash FROM payroll_run_headers","class":"S","owner":"FQb2/EF","why":"by run ids"}

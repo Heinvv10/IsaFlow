@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+import { callRoute, dropReturnFixture, loginAsToken, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { refreshCache } from '../../src/modules/accounting/services/payroll/sarsCodesService';
 import listSubmissions from '../../pages/api/accounting/sars/sars-submissions';
@@ -148,6 +148,19 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     expect(figures.employer.reconciliationPeriod).toBe(202608);
     // The other tenant's R99 000 is not in this company's figures.
     expect(figures.employees.map((e) => e.grossSalary3601)).toEqual([30_000, 20_000]);
+  });
+
+  it('a Login-as session: finalise and the filing file are 403, and no row changes (versions, stamp, audit)', async () => {
+    const imp = await loginAsToken(rf);
+    const snapshot = async () => JSON.stringify({
+      versions: await sql`SELECT id, status, version_no, filing_file_sha256, filing_file_content FROM tax_return_versions
+        WHERE company_id = ${c()}::UUID ORDER BY version_no`,
+      audit: await sql`SELECT count(*)::int AS n FROM audit_log WHERE company_id = ${c()}::UUID`,
+    });
+    const before = await snapshot();
+    expect((await post({ action: 'finalise', periodStart: '2025-03-01', periodEnd: '2026-02-28' }, imp)).status).toBe(403);
+    expect((await download(versionId, imp)).status).toBe(403);
+    expect(await snapshot()).toBe(before);
   });
 
   it('mark filed before the filing file was downloaded: 409, no submission', async () => {

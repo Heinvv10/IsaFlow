@@ -1,16 +1,15 @@
 /**
  * What stops an EMP501 being finalised (wave 6 EFb): IRP5 pre-validation errors for the return's period (PV,
- * preValidateTaxYear: an error is a certificate e@syFile would reject), and a month of the period that has a pay run
- * but no filed EMP201. Read-only; the GET shows it and the finalise refuses on it before its first write.
- *
- * A month counts as filed when its EMP201 has a FILED lifecycle version (tax_return_versions), or a legacy submission
- * of the month that is submitted or accepted (filed before the lifecycle existed). A month with no live pay run needs
- * none here: a company not yet paying staff files no EMP201 this check could find.
+ * preValidateTaxYear: an error is a certificate e@syFile would reject), and, per month the EMP501 reconciles
+ * (emp501Months: a final pay run or a standalone directive payment), an EMP201 that is not filed, a filed EMP201 whose
+ * PAYE, UIF or SDL differ from the month's certificates, or a filed EMP201 that has drifted (driftOf). A run that is not
+ * final is not in the EMP501: a warning, never a refusal. Read-only; the GET shows it and the finalise refuses on it
+ * before its first write.
  */
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
 import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
+import { emp201Differences, emp501Months, monthName, notFinalRunMonths } from './emp501Months';
+import { driftOf } from './returnDrift';
 import { ReturnRefusal } from './returnVersionTypes';
 
 export const EMP501_NOT_READY = 'EMP501_NOT_READY';
@@ -21,33 +20,18 @@ export interface Emp501Readiness {
   /** Names of the employees with an error, at most 10. */
   employeesWithErrors: string[];
   codeReleaseLoaded: boolean;
-  /** YYYY-MM of every month with a live pay run and no filed EMP201, in order. */
+  /** YYYY-MM of every month with a final pay run or a standalone directive payment and no filed EMP201, in order. */
   unfiledEmp201Months: string[];
+  /** A filed EMP201 whose totals are not the month's certificates: 'March 2025: PAYE 4000.00 filed, 9000.00 on the certificates'. */
+  emp201Mismatches: string[];
+  /** YYYY-MM of every month whose filed EMP201 has drifted from the payroll. */
+  driftedEmp201Months: string[];
+  /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501). */
+  warnings: string[];
   ready: boolean;
 }
 
 const NAMED = 10;
-
-async function unfiledEmp201Months(companyId: string, p: Emp501Period): Promise<string[]> {
-  const rows = (await sql`
-    SELECT DISTINCT to_char(m.month, 'YYYY-MM') AS month
-    FROM (
-      SELECT make_date(h.period_year, h.period_month, 1) AS month
-      FROM payroll_run_headers h
-      WHERE h.company_id = ${companyId}::UUID AND h.status <> 'cancelled'
-    ) m
-    WHERE m.month BETWEEN ${p.start}::DATE AND ${p.end}::DATE
-      AND NOT EXISTS (
-        SELECT 1 FROM tax_return_versions v
-        WHERE v.company_id = ${companyId}::UUID AND v.form_type = 'EMP201' AND v.status = 'filed' AND v.period_start = m.month)
-      AND NOT EXISTS (
-        SELECT 1 FROM sars_submissions s
-        WHERE s.company_id = ${companyId}::UUID AND s.form_type = 'EMP201' AND s.status IN ('submitted', 'accepted')
-          AND s.period_start <= m.month AND s.period_end >= (m.month + INTERVAL '1 month' - INTERVAL '1 day')::DATE)
-    ORDER BY 1
-  `) as DbRow[];
-  return rows.map((r) => String(r.month));
-}
 
 export async function emp501Readiness(companyId: string, p: Emp501Period): Promise<Emp501Readiness> {
   // Scoped to the return's period (coordinator ruling): an interim return judges employees paid March to August only,
@@ -56,14 +40,27 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     taxYear: p.taxYear, ...(p.kind === 'interim' ? { throughMonth: p.endYear * 100 + p.endMonth } : {}),
   });
   const withErrors = (pv?.employees ?? []).filter((e) => e.severity === 'error');
-  const unfiled = await unfiledEmp201Months(companyId, p);
+  const months = await emp501Months(companyId, p);
+  const unfiled = months.filter((m) => m.emp201.kind === 'unfiled').map((m) => m.month);
+  const emp201Mismatches = months.flatMap((m) => {
+    const d = emp201Differences(m);
+    return d.length > 0 ? [`${monthName(m.month)}: ${d.join(', ')}`] : [];
+  });
+  const driftedEmp201Months: string[] = [];
+  for (const m of months) {
+    if (m.emp201.kind === 'version' && (await driftOf(companyId, m.emp201.version)).drifted) driftedEmp201Months.push(m.month);
+  }
+  const warnings = (await notFinalRunMonths(companyId, p)).map((m) => `${monthName(m)} has a run that is not final`);
   const validationErrors = pv?.errors ?? 0;
   return {
     validationErrors,
     employeesWithErrors: withErrors.slice(0, NAMED).map((e) => e.name),
     codeReleaseLoaded: pv?.codeReleaseLoaded ?? false,
     unfiledEmp201Months: unfiled,
-    ready: validationErrors === 0 && unfiled.length === 0,
+    emp201Mismatches,
+    driftedEmp201Months,
+    warnings,
+    ready: validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && driftedEmp201Months.length === 0,
   };
 }
 
@@ -78,6 +75,11 @@ export async function assertEmp501Ready(companyId: string, p: Emp501Period): Pro
       + `${r.codeReleaseLoaded ? '' : '; no SARS source-code release is loaded for this tax year'}`);
   }
   if (r.unfiledEmp201Months.length > 0) parts.push(`the EMP201 for ${r.unfiledEmp201Months.join(', ')} is not filed`);
+  if (r.emp201Mismatches.length > 0) parts.push(`the filed EMP201 does not match the certificates (${r.emp201Mismatches.join('; ')}): amend and file it again`);
+  if (r.driftedEmp201Months.length > 0) {
+    parts.push(`the payroll changed after the EMP201 for ${r.driftedEmp201Months.join(', ')} was filed: amend and file it again`);
+  }
   throw new ReturnRefusal(409, `This EMP501 cannot be finalised: ${parts.join('; and ')}. Fix these first.`, EMP501_NOT_READY,
-    { validationErrors: r.validationErrors, unfiledEmp201Months: r.unfiledEmp201Months });
+    { validationErrors: r.validationErrors, unfiledEmp201Months: r.unfiledEmp201Months, emp201Mismatches: r.emp201Mismatches,
+      driftedEmp201Months: r.driftedEmp201Months });
 }
