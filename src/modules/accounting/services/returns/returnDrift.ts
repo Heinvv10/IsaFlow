@@ -4,10 +4,17 @@
  *
  * DRIFT = re-generate the return now and compare it with what was finalised. Only the live
  * (non-superseded) version is compared; a superseded one is history.
+ *
+ * BY DESIGN, uncoded revenue posted into a VAT-locked period after finalise is drift. A revenue line with no VAT code
+ * raises no VAT leg, so the VAT lock does not stop it, but the form counts it as zero-rated (field 2,
+ * NilRatedSupplies.uncodedAssumedZeroRated): the recorded field 2 no longer matches, and the version must be amended.
+ * When field 2 alone moved and such revenue exists, the drift carries UNCODED_REVENUE_NOTE, which the filing refusal says.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
+import { getVat201Report, type Vat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { buildVat201SarsFields } from '@/modules/accounting/services/reports/vat201SarsFields';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { listVersionRows } from './returnVersionStore';
 import { getVatReturnRecord } from './vatReturnRecord';
@@ -32,6 +39,13 @@ export interface ReturnVersionView extends ReturnVersion {
   drift: ReturnDrift | null;
   /** The VAT period lock behind this version has been unlocked outside the lifecycle. */
   lockRemoved: boolean;
+  /** Warnings its filing went ahead with, from the filing's audit row (wave 6 EFa: PRN_NOT_CROSS_CHECKED). */
+  filingWarnings: string[];
+  /**
+   * Whether this version must have its filing file generated before it is marked filed: finalised at or after 999v's
+   * cut-off, by the same SQL check markReturnFiled and the trigger make. False for a version finalised before it.
+   */
+  filingFileRequired: boolean;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -49,15 +63,52 @@ function recordedDirective(figures: Record<string, unknown>): Record<string, unk
   return { directiveCount: t.count, directiveGross: t.gross, directivePaye: t.paye };
 }
 
+/** JSON with every object's keys sorted: jsonb stores keys in its own order, so a raw stringify is not a comparison. */
+function canonical(v: unknown): string {
+  return JSON.stringify(v, (_k, x: unknown) => (x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : x));
+}
+
+/**
+ * Whether the SARS form moved since finalise, like for like: a version that recorded the form (figures.sarsForm, wave 6
+ * EFa) is compared field by field, amount for amount, with the form built now from the same two sources; an older
+ * version (report boxes only) with the boxes now, key order aside.
+ */
+export const UNCODED_REVENUE_NOTE = 'A revenue line without a VAT code was posted after finalise; amend.';
+
+async function sarsFormChanged(
+  companyId: string, v: ReturnVersion, r: Vat201Report,
+): Promise<{ changed: boolean; uncodedRevenue: boolean }> {
+  const stored = v.figures.sarsForm;
+  if (!Array.isArray(stored)) {
+    return { changed: canonical(v.figures.sarsFields ?? []) !== canonical(JSON.parse(JSON.stringify(r.boxes))), uncodedRevenue: false };
+  }
+  const nilRated = await getNilRatedSupplies(companyId, v.periodStart, v.periodEnd);
+  const now = buildVat201SarsFields(r, nilRated);
+  const was = new Map(stored.map((f) => {
+    const x = f as { field?: unknown; amount?: unknown };
+    return [String(x.field), x.amount === null || x.amount === undefined ? null : cents(num(x.amount))];
+  }));
+  if (now.length !== was.size) return { changed: true, uncodedRevenue: false };
+  const moved = now.filter((f) => !was.has(f.field) || was.get(f.field) !== (f.amount === null ? null : cents(f.amount)));
+  return {
+    changed: moved.length > 0,
+    uncodedRevenue: moved.length === 1 && moved[0]!.field === '2' && nilRated.uncodedAssumedZeroRated !== 0,
+  };
+}
+
 export async function driftOf(companyId: string, v: ReturnVersion): Promise<ReturnDrift> {
   const { formType: form, periodStart: start, periodEnd: end, figures } = v;
   if (form === 'VAT201') {
     const r = await getVat201Report(companyId, start, end, { detail: 'summary' });
     const fields = compare(figures, { outputTax: r.totals.outputTax, inputTax: r.totals.inputTax, netVat: r.totals.netVat });
-    // Both sides went through JSON, so the same producer gives the same key order.
-    const changed = JSON.stringify(figures.sarsFields ?? []) !== JSON.stringify(JSON.parse(JSON.stringify(r.boxes)))
-      ? ['sarsFields'] : [];
-    return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };
+    const sars = await sarsFormChanged(companyId, v, r);
+    const changed = sars.changed ? ['sarsFields'] : [];
+    return {
+      drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0,
+      ...(sars.uncodedRevenue && fields.length === 0 ? { notes: [UNCODED_REVENUE_NOTE] } : {}),
+    };
   }
   const e = await generateEMP201(companyId, start, end);
   const run = await empRunDrift(companyId, figures, e);
@@ -87,18 +138,47 @@ async function removedLocks(companyId: string, versions: ReturnVersion[]): Promi
   return new Set(rows.map((r) => String(r.id)));
 }
 
+/** The PRN warnings recorded on the filing audit rows of these versions (fileReturn's metadata.prnNotCrossChecked). */
+async function filingWarnings(companyId: string, versions: ReturnVersion[]): Promise<Map<string, string[]>> {
+  const ids = versions.filter((v) => v.status !== 'finalised').map((v) => v.id);
+  if (ids.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT entity_id::TEXT AS id, changes #>> '{metadata,prnNotCrossChecked}' AS warning FROM audit_log
+    WHERE company_id = ${companyId}::UUID AND entity_type = 'tax_return_version' AND entity_id = ANY(${ids}::UUID[])
+      AND changes #>> '{metadata,prnNotCrossChecked}' IS NOT NULL
+  `) as DbRow[];
+  const out = new Map<string, string[]>();
+  for (const r of rows) out.set(String(r.id), [...(out.get(String(r.id)) ?? []), String(r.warning)]);
+  return out;
+}
+
+/** The versions finalised at or after 999v's cut-off, judged in SQL from the rows (as fileReturn's check is). */
+async function filingFileRequiredIds(companyId: string, versions: ReturnVersion[]): Promise<Set<string>> {
+  if (versions.length === 0) return new Set();
+  const rows = (await sql`
+    SELECT id FROM tax_return_versions
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${versions.map((v) => v.id)}::UUID[])
+      AND finalised_at >= public.tax_return_versions_filing_file_cutoff()
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.id)));
+}
+
 export async function listVersions(
   companyId: string, form: ReturnForm, start: string, end: string,
 ): Promise<{ versions: ReturnVersionView[]; vatReturn: VatReturnRecord | null }> {
   const versions = await listVersionRows(companyId, form, start, end);
   const live = versions.find((v) => v.status !== 'superseded');
   const removed = await removedLocks(companyId, versions);
+  const warned = await filingWarnings(companyId, versions);
+  const fileRequired = await filingFileRequiredIds(companyId, versions);
   const view: ReturnVersionView[] = [];
   for (const v of versions) {
     view.push({
       ...v,
       drift: v === live ? await driftOf(companyId, v) : null,
       lockRemoved: v.vatPeriodLockId !== null && removed.has(v.vatPeriodLockId),
+      filingWarnings: warned.get(v.id) ?? [],
+      filingFileRequired: fileRequired.has(v.id),
     });
   }
   const vatReturn = form === 'VAT201'

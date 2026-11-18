@@ -55,6 +55,7 @@ const DEV_ONLY_SPECS = [
   'z21-ask',
   'z24-payslip-email',
   'z26-salary-bank-file',
+  'z27-filing-files',
   'z28-late-claims',
   'z29-pre-validation',
   'z2b-invoice-held-back',

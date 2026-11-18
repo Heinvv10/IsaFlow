@@ -8,11 +8,15 @@
  * insert and may still fire for a lock that then rolls back; that is a forensic copy, not a record).
  * A lock that already exists was not made by this finalise, so `created: false` is a 409; when a
  * version names that lock, the loser of a race is told so. The version row copies the lock row's
- * figures: nothing is computed a second time.
+ * figures: nothing is computed a second time. Wave 6 EFa: it also records the SARS form as IsaFlow lays it out
+ * (buildVat201SarsFields: fields 1 to 20, from the same report and the period's nil-rated supplies, read under the same
+ * exclusive VAT key) as figures.sarsForm, which the filing file renders field for field and the drift check compares.
  */
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import { lockVatPeriod } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { buildVat201SarsFields } from '@/modules/accounting/services/reports/vat201SarsFields';
 import { assertNoLiveOverlap, insertVersion, listVersionRows, nextVersion } from './returnVersionStore';
 import { getVatReturnRecord } from './vatReturnRecord';
 import {
@@ -25,6 +29,7 @@ export async function finaliseVatReturn(
   companyId: string, periodStart: string, periodEnd: string, actor: ReturnActor, opts: FinaliseOptions,
 ): Promise<{ version: ReturnVersion; vatReturn: VatReturnRecord | null }> {
   const { figures, report } = await computeVatLockFigures(companyId, periodStart, periodEnd);
+  const sarsForm = buildVat201SarsFields(report, await getNilRatedSupplies(companyId, periodStart, periodEnd));
   // The exclusive VAT key is held now: a finalise that committed while this one waited is seen here.
   await assertNoLiveOverlap(companyId, 'VAT201', periodStart, periodEnd);
   if (report.rateCheck.ties === false && opts.force !== true) {
@@ -59,7 +64,7 @@ export async function finaliseVatReturn(
   const version = await insertVersion({
     companyId, form: 'VAT201', periodStart, periodEnd, ...nextVersion(existing),
     figures: {
-      outputTax: lock.outputTax, inputTax: lock.inputTax, netVat: lock.netVat, sarsFields: report.boxes,
+      outputTax: lock.outputTax, inputTax: lock.inputTax, netVat: lock.netVat, sarsFields: report.boxes, sarsForm,
       ...(meta ? { meta } : {}),
     },
     postedThrough: lock.postedThrough,
