@@ -16,6 +16,8 @@ import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
 import vatReturns from '../../pages/api/accounting/vat-returns/index';
 import journalEntries from '../../pages/api/accounting/journal-entries';
 import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
+import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -98,6 +100,22 @@ describeIfDb('VR: the settlement clearing journal is exempt from the next period
     });
     expect(r.status).not.toBe(200);
     expect(JSON.stringify(r.body)).toMatch(/locked because its VAT201 has been filed/);
+    expect(Number((await one(sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${c}::UUID`)).n))
+      .toBe(before);
+  });
+
+  it.each(['manual', 'auto_vat_adjustment'] as const)('the lock guard itself (no s16(3) plan): a %s VAT journal on that day is refused', async (source) => {
+    const c = rf.fx.companyId;
+    const before = Number((await one(sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${c}::UUID`)).n);
+    const err = await createJournalEntry(c, {
+      entryDate: '2025-10-01', description: `VR: ${source} VAT journal into a locked period`, source,
+      lines: [
+        { glAccountId: await acct('1100'), debit: 115, credit: 0 },
+        { glAccountId: await acct('2120'), debit: 0, credit: 15 },
+        { glAccountId: await acct('6000'), debit: 0, credit: 100 },
+      ],
+    }, rf.admin.userId).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(VatPeriodLockedError);
     expect(Number((await one(sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${c}::UUID`)).n))
       .toBe(before);
   });
