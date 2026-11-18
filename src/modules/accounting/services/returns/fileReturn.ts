@@ -38,9 +38,14 @@ export interface FileOptions {
   reason?: string;
 }
 
-/** Whether 999v's trigger requires this version's filing file before it is filed (finalised at or after the cut-off). */
-async function finalisedAfterFilingFileCutoff(v: ReturnVersion): Promise<boolean> {
-  const rows = (await sql`SELECT ${v.finalisedAt}::TIMESTAMPTZ >= public.tax_return_versions_filing_file_cutoff() AS after`) as DbRow[];
+/**
+ * Whether 999v's trigger requires this version's filing file before it is filed (finalised at or after the cut-off),
+ * judged in SQL from the row itself: a JS Date round trip truncates finalised_at's microseconds, and a version finalised
+ * in the cut-off's own millisecond would then pass here and be refused by the trigger (a 500, not this 409).
+ */
+async function finalisedAfterFilingFileCutoff(companyId: string, v: ReturnVersion): Promise<boolean> {
+  const rows = (await sql`SELECT finalised_at >= public.tax_return_versions_filing_file_cutoff() AS after
+    FROM tax_return_versions WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   return rows[0]?.after === true;
 }
 
@@ -76,7 +81,7 @@ export async function markReturnFiled(
   }
   // Wave 6 EFa: filed from the file IsaFlow generated for this version, for a version finalised at or after 999v's
   // cut-off, exactly as the trigger holds. One finalised before it (mid-cycle at the release) files without one, as before.
-  if (!v.filingFileSha256 && await finalisedAfterFilingFileCutoff(v)) {
+  if (!v.filingFileSha256 && await finalisedAfterFilingFileCutoff(companyId, v)) {
     throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
       'FILING_FILE_REQUIRED');
   }

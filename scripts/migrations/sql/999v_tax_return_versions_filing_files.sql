@@ -26,8 +26,9 @@
 -- a return finalised from now on is filed from the file IsaFlow generated.
 --
 -- Rollback: CREATE OR REPLACE tax_return_versions_immutable() with 971's body; REVOKE UPDATE (filing_file_content,
--- filing_file_sha256, filing_file_kind, filing_file_at, filing_file_by) ON tax_return_versions FROM app_user; DROP FUNCTION
--- public.tax_return_versions_filing_file_cutoff(). The columns and the wider CHECK can stay (nothing old reads them).
+-- filing_file_sha256, filing_file_kind, filing_file_at, filing_file_by) ON tax_return_versions FROM app_user. Drop
+-- public.tax_return_versions_filing_file_cutoff() only AFTER the code rollback is live: this release's markReturnFiled
+-- calls it, so dropping it first fails every filing. The columns and the wider CHECK can stay (nothing old reads them).
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';

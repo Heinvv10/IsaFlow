@@ -49,6 +49,14 @@ export function parseFilingReference(form: ReturnForm, raw: string): string {
   return value;
 }
 
+/**
+ * The per-company lock every write of a filing reference takes (this check and the legacy mark-submitted route), held to
+ * the transaction's commit, so a reference is checked against everything committed before it is written.
+ */
+export async function lockCompanyFilingReferences(companyId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`efa-prn:${companyId}`}, 0))`;
+}
+
 export const PRN_NOT_CROSS_CHECKED = 'PRN_NOT_CROSS_CHECKED';
 export interface FilingWarning { code: typeof PRN_NOT_CROSS_CHECKED; message: string }
 
@@ -63,7 +71,8 @@ export async function assertFilingReferenceIsTheCompanys(
   const rows = (await sql`SELECT vat_number, paye_reference_number FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
   const recorded = rows[0]?.[shape.number];
   const text = typeof recorded === 'string' ? recorded.trim() : '';
-  const digits = text.replace(/[\s-]/g, '');
+  // One optional leading label ("VAT 4123456789", "PAYE: 7…"), then every non-digit ("4123.456.789") goes.
+  const digits = text.replace(/^(?:VAT|PAYE)\b/i, '').replace(/\D/g, '');
   const valid = /^\d{10}$/.test(digits) && digits[0] === prn[0];
   if (valid && prn.slice(0, 10) !== digits) {
     throw new ReturnRefusal(400, `This PRN starts with ${prn.slice(0, 10)}, but the company's ${shape.name} is ${digits}. `
@@ -71,7 +80,7 @@ export async function assertFilingReferenceIsTheCompanys(
   }
   // One filing of the company at a time from this check to its commit (a transaction lock: the caller's withAuth
   // transaction holds it until the filed reference is written), so two periods cannot both take one PRN.
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`efa-prn:${companyId}`}, 0))`;
+  await lockCompanyFilingReferences(companyId);
   const reused = (await sql`
     SELECT period_start::TEXT AS period_start, period_end::TEXT AS period_end FROM tax_return_versions
     WHERE company_id = ${companyId}::UUID AND filed_reference = ${prn}

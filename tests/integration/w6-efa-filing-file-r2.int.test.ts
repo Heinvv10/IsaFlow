@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
-import { fileV, fin, genFile, PRN, row, useFixture, versionOf } from './helpers/returnFileCalls';
+import { draftRow, fileV, fin, genFile, legacy, PRN, row, useFixture, versionOf } from './helpers/returnFileCalls';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -47,6 +47,41 @@ describeIfDb('EFa delta: pre-cut-off filing, one PRN per period under concurrenc
     const dl = await genFile(id, 'vat201', 'csv');
     expect(dl.status).toBe(409);
     expect(JSON.stringify(dl.body)).toMatch(/FILING_FILE_NO_FORM_LAYOUT/);
+  });
+
+  it('final delta L1: a version finalised in the cut-off\'s own millisecond is judged by its row in SQL: 409, not a 500', async () => {
+    const lock = String((await one(sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax,
+      net_vat, posted_through, locked_by, actor_type) VALUES (${a.fx.companyId}::UUID, '2024-12-01', '2025-01-31', 0, 0, 0, now(),
+      ${a.admin.userId}, 'human') RETURNING id`)).id);
+    // finalised_at = the cut-off to the microsecond: a JS Date drops the microseconds and reads it as before the cut-off.
+    const at = await one(sql`SELECT (public.tax_return_versions_filing_file_cutoff() - date_trunc('milliseconds',
+      public.tax_return_versions_filing_file_cutoff())) > interval '0' AS sub_ms`);
+    const id = String((await one(sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
+      posted_through, finalised_by, finalised_at, vat_period_lock_id) VALUES (${a.fx.companyId}::UUID, 'VAT201', '2024-12-01',
+      '2025-01-31', 1, ${JSON.stringify({ outputTax: 0, inputTax: 0, netVat: 0, sarsFields: [] })}::JSONB, now(), ${a.admin.userId},
+      public.tax_return_versions_filing_file_cutoff(), ${lock}::UUID) RETURNING id`)).id);
+    expect(at.sub_ms).toBe(true); // the cut-off has microseconds a JS Date would lose, so the window is really exercised
+    const r = await fileV(id, { reference: PRN('vat201', 77), withoutFile: true });
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(r.body)).toMatch(/FILING_FILE_REQUIRED/);
+  });
+
+  it('final delta L3: a legacy mark-submitted waits for the company\'s filing-reference lock', async () => {
+    const draft = await draftRow('VAT201', '2024-02-01', '2024-03-31');
+    const holder = await a.fx.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`efa-prn:${a.fx.companyId}`]);
+      let done = false;
+      const pending = legacy(draft, PRN('vat201', 88)).then((r) => { done = true; return r; });
+      await new Promise((res) => { setTimeout(res, 1500); });
+      expect(done).toBe(false); // blocked on the lock
+      await holder.query('ROLLBACK');
+      expect((await pending).status).toBe(200);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+    }
   });
 
   it('L2: two concurrent filings of two periods with one PRN: exactly one succeeds, the other is FILING_REFERENCE_REUSED', async () => {
