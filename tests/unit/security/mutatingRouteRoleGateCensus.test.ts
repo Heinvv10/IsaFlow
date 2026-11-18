@@ -98,6 +98,7 @@ const OTHER_ENTRY: Record<string, string> = {
   'pages/api/accounting/capture/inbound/whatsapp.ts': 'Twilio signature',
   'pages/api/audit-portal/download.ts': 'audit-portal share token',
   'pages/api/mcp/index.ts': 'PAT/OAuth bearer; every write tool is role-fenced in the registry (roleFence.ts)',
+  'pages/api/mcp/uploads/[token].ts': 'one-shot HMAC-signed upload token minted by create_upload_urls (write:invoices, role-fenced in the registry); stages bytes only, finalize_uploads writes the document under the creating principal',
   'pages/api/accounting/gl-lines-export.ts': 'GET only; withBearerOrCookieAuth: a cookie session is withAuth, a PAT/OAuth bearer the shared pipeline, both under withScope(read:reports)',
   'pages/api/invite/[token].ts': 'public GET by token; POST withUserAuth with an email match',
   'pages/api/contact.ts': 'public contact form, rate-limited',
