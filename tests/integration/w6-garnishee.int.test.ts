@@ -188,6 +188,25 @@ describe('garnishee orders', () => {
     expect((await orderRows(a)).find((o) => o.id === id)).toMatchObject({ balance: 1000, status: 'active' });
   });
 
+  it('the SERVICE never moves a balance at calculate (the deductions guard trigger is off, so only the code decides)', async () => {
+    const made = await post(a, emp, order({ reference: 'EAO 8/2026', instalment: 1000, totalDebt: 3000, startDate: '2026-08-01' }));
+    expect(made.statusCode).toBe(201);
+    const id = String(made.body.data!.id);
+    const guard = (on: boolean) => a.pool.query(
+      `ALTER TABLE payroll_garnishee_deductions ${on ? 'ENABLE ALWAYS' : 'DISABLE'} TRIGGER payroll_garnishee_deductions_guard`);
+    let run8 = '';
+    await guard(false);
+    try {
+      run8 = await a.calculatedRun(8);
+    } finally {
+      await guard(true);
+    }
+    const rows = await deductions(a, run8);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((d) => !d.balance_applied)).toBe(true);
+    expect((await orderRows(a)).find((o) => o.id === id)!.balance).toBe(3000);
+  });
+
   it('F13 lock: two first orders of a company at once create ONE payable (the role-write lock serialises them)', async () => {
     const made = await Promise.all([
       post(b, empB, order({ reference: 'RACE 1' })), post(b, empB, order({ kind: 'maintenance', reference: 'RACE 2', totalDebt: null })),
