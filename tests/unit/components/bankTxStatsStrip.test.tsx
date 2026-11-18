@@ -12,7 +12,7 @@ import { summaryAcct } from '../helpers/bankSummaryFixture';
 
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 afterEach(cleanup);
-const n = (id: string) => Number(screen.getByTestId(id).querySelector('p')!.textContent);
+const n = (id: string) => Number(screen.getByTestId(id).getAttribute('data-count')); // each tile carries its figure (WP4b)
 const counts = { posted: 20, allocated: 9, provisional: 2, suggested: 4, unallocated: 5, excluded: 2, awaitingReview: 11, pendingAtBank: 3 };
 
 describe('BankTxStatsStrip', () => {
