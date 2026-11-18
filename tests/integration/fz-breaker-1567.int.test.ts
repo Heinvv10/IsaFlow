@@ -9,7 +9,16 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 
 const su = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
-afterAll(async () => { await su.end(); });
+afterAll(async () => {
+  // Everything the suite made, as the superuser (999n exempts it): the deploy-checks guard judges the shared fixture.
+  await su.query('DELETE FROM payroll_run_headers WHERE company_id = $1', [A]);
+  await su.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [A]);
+  await su.query('DELETE FROM payroll_employees WHERE company_id = $1', [A]);
+  await su.query('DELETE FROM gl_accounts WHERE company_id = $1', [A]);
+  await su.query('DELETE FROM company_users WHERE company_id = $1', [A]);
+  await su.query('DELETE FROM companies WHERE id = $1', [A]);
+  await su.end();
+});
 
 const A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const USER_A = '11111111-1111-1111-1111-111111111111';
@@ -183,6 +192,32 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     // The stated boundary: the owner may delete a whole run header (the reseed wipes this way); the cascade passes.
     await as('postgres', (c) => c.query('DELETE FROM payroll_run_headers WHERE id = $1', [run]));
     expect((await one('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe(0);
+  });
+  it('H4: finality is judged past RLS: a calculated run\'s line, edited by a caller who cannot see its header, is not frozen', async () => {
+    // Tenancy on payroll_run_lines is the RLS PR's job; 999n judges only finality, the same for every caller.
+    const { run } = await finalRun();
+    await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [run]);
+    await as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay WHERE run_id = $1', [run]));
+  });
+  it('Demo: the exemption covers the GL DELETE rules only; a posted Demo journal still takes no new line', async () => {
+    const DEMO = '00000000-0000-0000-0000-000000000001';
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query("INSERT INTO companies (id, name) VALUES ($1, 'Demo') ON CONFLICT DO NOTHING", [DEMO]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+        VALUES ($1, 'FZ-D1', 'FZ demo', 'expense', 'debit') RETURNING id`, [DEMO])).rows[0].id;
+      const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-31', 'fz demo', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, DEMO])).rows[0].id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 5, 0, $3), ($1, $2, 0, 5, $3)', [je, acct, DEMO]);
+      await c.query("UPDATE gl_journal_entries SET status = 'posted', created_at = now() - interval '1 day' WHERE id = $1", [je]);
+      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query('SAVEPOINT ins');
+      await expect(c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, DEMO]))
+        .rejects.toThrow(/cannot be added or removed/);
+      await c.query('ROLLBACK TO SAVEPOINT ins');
+      await c.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]); // the reseed's wipe: entry and lines go
+    } finally { await c.query('ROLLBACK'); c.release(); }
   });
   it('B10 [postgres, NOSUPERUSER] (the stated limit): the table owner can still DISABLE the freeze', async () => {
     const c = await su.connect();

@@ -157,6 +157,24 @@ describe('FZ: a posted journal refuses amount changes', () => {
     expect(await postedCount()).toBe(n);
   }, 60_000);
 
+  it('a line DELETE re-arms the check too, and a journal born reversed is checked as a posted one is', async () => {
+    const born = async (c: PoolClient, status: string) => (await c.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+       VALUES ($1, '2026-01-25', 'FZ born posted', 'manual', $3, $2) RETURNING id`, [a.company, a.admin, status])).rows[0]!.id;
+    await expect(asAppUser(async (c) => {
+      const je = await born(c, 'posted');
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,10,0),($1,$2,$4,0,10)',
+        [je, a.company, expense, bankAcct]);
+      await c.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await c.query('SET CONSTRAINTS ALL DEFERRED');
+      await c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit > 0', [je]);
+    })).rejects.toThrow(UNBALANCED);
+    await expect(asAppUser(async (c) => {
+      const je = await born(c, 'reversed');
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 10, 0)', [je, a.company, expense]);
+    })).rejects.toThrow(UNBALANCED);
+  }, 60_000);
+
   it('a posted journal takes no added or removed line, balanced or not; a journal born posted in this transaction must balance', async () => {
     const SET_FROZEN = /cannot be added or removed/;
     await expect(asAppUser((c) => c.query(
