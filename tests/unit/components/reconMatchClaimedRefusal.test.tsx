@@ -1,7 +1,8 @@
 /**
- * The reconciliation screen's Match, refused because the GL line is already claimed (LINE_CLAIMED, 409): the person
+ * The reconciliation screen's Match, refused because the GL line is already claimed (LINE_CLAIMED): the person
  * reads the server's sentence, not "Could not match" and not raw JSON. The provisional-held wording is the one
- * `assertMatchTargets` (bankTxStatusMutations) raises for a line a bank-first provisional's own statement line carries.
+ * `assertMatchTargets` (bankTxStatusMutations) raises for a line a bank-first provisional's own statement line carries;
+ * the route answers it 400 (tests/integration/recon-gl-provisional-held.int.test.ts).
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -34,7 +35,7 @@ describe('recon screen: a LINE_CLAIMED refusal of Match', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
       if (u.includes('bank-transactions-action') && init?.method === 'POST') {
-        return new Response(JSON.stringify({ success: false, error: { code: 'CONFLICT', message: CLAIMED } }), { status: 409 });
+        return new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: CLAIMED } }), { status: 400 });
       }
       if (u.includes('bank-reconciliations?id=')) return ok(RECON);
       if (u.includes('bank-transactions?reconciliation_id=')) return ok({ transactions: [TX] });

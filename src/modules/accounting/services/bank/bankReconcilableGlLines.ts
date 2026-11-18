@@ -10,6 +10,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
+import { provisionallyHeldJournalIds } from './bankProvisionalHeldJournals';
 import type { DbRow } from '@/types/db';
 
 /** Most lines one list call returns; `total` says how many match, so a longer list is never shown as the whole. */
@@ -20,7 +21,8 @@ export const RECON_GL_SEARCH_MAX = 100;
  * The WHERE predicate over `gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id` (each caller
  * writes that FROM, and its own company_id scope, in its own statement, so the ledger censuses (BL-13, G-01) still
  * read them there; the predicate scopes by company as well): this company's POSTED lines on the bank account,
- * on a journal that stands (not reversed out of the ledger), not already matched to any statement line, and, inside a
+ * on a journal that stands (not reversed out of the ledger) and that no bank-first provisional holds
+ * (bankProvisionalHeldJournals), not already matched to any statement line, and, inside a
  * session, dated on or before its statement date while it is in progress (a missing or completed session makes the
  * date NULL, so nothing qualifies: fail closed). `sessionId` null = no session (auto-match without one).
  */
@@ -32,6 +34,9 @@ export function reconcilableGlLineWhere(companyId: string, bankAccountId: string
         -- D11 round 5: only journals that STAND (not reversed out of the ledger): matchTransaction refuses a line on a
         -- reversed chain, which answered 400 with the earlier matches committed behind it.
         AND ${journalStandsUnbrokenFragment('je.id', companyId)}
+        -- A bank-first provisional's journal (down its reversal chain) is held by its own statement line:
+        -- matchTransaction refuses a second line on it (LINE_CLAIMED), so it is never a candidate.
+        AND jl.journal_entry_id NOT IN (${provisionallyHeldJournalIds(companyId)})
         -- company_id on the subquery: unscoped it read every tenant's rows.
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
