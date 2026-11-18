@@ -15,7 +15,18 @@ vi.mock('@/modules/accounting/services/payroll/preValidationService', () => ({ p
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCompanyPayrollApprovals: m.lock }));
 vi.mock('@/modules/accounting/services/returns/emp501Figures', () => ({ buildEmp501Figures: m.figures }));
 vi.mock('@/modules/accounting/services/returns/emp501Months', async (orig) => ({
-  ...(await orig<typeof import('@/modules/accounting/services/returns/emp501Months')>()), emp501Months: m.months, notFinalRunMonths: m.notFinal,
+  ...(await orig<typeof import('@/modules/accounting/services/returns/emp501Months')>()),
+  // The months as given; their filed versions, so the period check sums what the months declare.
+  emp501Filings: async () => {
+    const months = (await m.months()) as Array<{ month: string; totals: unknown; emp201: { kind: string; version?: unknown } }>;
+    return {
+      months,
+      filedVersions: months.flatMap((x) => (x.emp201.kind === 'version' ? [x.emp201.version] : [])),
+      legacyRows: [],
+      certificates: new Map(months.map((x) => [x.month, x.totals])),
+    };
+  },
+  notFinalRunMonths: m.notFinal,
 }));
 vi.mock('@/modules/accounting/services/returns/returnDrift', () => ({ driftOf: m.driftOf }));
 vi.mock('@/modules/accounting/services/returns/returnVersionStore', () => ({
@@ -51,7 +62,7 @@ beforeEach(() => {
   m.preValidate.mockResolvedValue(clean);
   m.listVersionRows.mockResolvedValue([]);
   m.insertVersion.mockImplementation(async (v: unknown) => v);
-  m.figures.mockResolvedValue({ taxYear: 2026, kind: 'annual', employer: {}, employees: [], warnings: [], totals: {}, runs: [
+  m.figures.mockResolvedValue({ taxYear: 2026, kind: 'annual', employer: {}, employees: [], warnings: [], totals: { certificates: 0, paye: 0, uif: 0, sdl: 0 }, runs: [
     { id: 'r1', approvedPlanHash: 'h', approvedAt: '2026-02-27T10:00:00.000Z' },
   ] });
 });
@@ -107,6 +118,16 @@ describe('finaliseEmp501Return', () => {
     const r = await refusal('2025-03-01', '2025-08-31');
     expect(r.message).toContain('March 2025: PAYE 4000.00 filed, 9000.00 on the certificates');
     expect(r.refusalDetails).toMatchObject({ driftedEmp201Months: ['2025-04'] });
+    expect(m.insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('refuses 409 when the certificates\' totals differ from the sum of the filed EMP201s, in cents', async () => {
+    const version = { id: 'e1', status: 'filed', figures: { totalPAYE: 4000.01, totalUIF: 0, totalSDL: 0 } };
+    m.months.mockResolvedValue([{ month: '2025-03', totals: { paye: 4000.01, uif: 0, sdl: 0 }, emp201: { kind: 'version', version } }]);
+    m.figures.mockResolvedValue({ taxYear: 2026, kind: 'interim', employer: {}, employees: [], warnings: [],
+      totals: { certificates: 1, paye: 4000, uif: 0, sdl: 0 }, runs: [] });
+    const r = await refusal('2025-03-01', '2025-08-31');
+    expect(r.message).toContain('PAYE 4000.01 on the filed EMP201s, 4000.00 on the certificates (difference -0.01)');
     expect(m.insertVersion).not.toHaveBeenCalled();
   });
 

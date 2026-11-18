@@ -10,7 +10,7 @@ import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preVal
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import {
-  emp201Differences, emp501Months, filedEmp201PeriodTotals, filedTotals, monthName, notFinalRunMonths, type MonthTotals,
+  cents, emp201Mismatches as mismatchesOf, emp501Filings, filedPeriodTotals, legacyWarnings, monthName, notFinalRunMonths, type MonthTotals,
 } from './emp501Months';
 import { driftOf } from './returnDrift';
 import { ReturnRefusal } from './returnVersionTypes';
@@ -31,8 +31,6 @@ export interface Emp501Readiness {
   driftedEmp201Months: string[];
   /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501); an EMP201 filed without figures. */
   warnings: string[];
-  /** Every month's filed EMP201 has figures, so the EMP501's totals can be checked against their sum (finalise). */
-  crossChecked: boolean;
   ready: boolean;
 }
 
@@ -45,12 +43,10 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     taxYear: p.taxYear, ...(p.kind === 'interim' ? { throughMonth: p.endYear * 100 + p.endMonth } : {}),
   });
   const withErrors = (pv?.employees ?? []).filter((e) => e.severity === 'error');
-  const months = await emp501Months(companyId, p);
+  const filings = await emp501Filings(companyId, p);
+  const { months } = filings;
   const unfiled = months.filter((m) => m.emp201.kind === 'unfiled').map((m) => m.month);
-  const emp201Mismatches = months.flatMap((m) => {
-    const d = emp201Differences(m);
-    return d.length > 0 ? [`${monthName(m.month)}: ${d.join(', ')}`] : [];
-  });
+  const emp201Mismatches = mismatchesOf(filings);
   const driftedEmp201Months: string[] = [];
   for (const m of months) {
     if (m.emp201.kind !== 'version') continue;
@@ -65,10 +61,9 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     }
     if (drifted) driftedEmp201Months.push(m.month);
   }
-  const uncompared = months.filter((m) => m.emp201.kind === 'legacy' && m.emp201.totals === null).map((m) => m.month);
   const warnings = [
     ...(await notFinalRunMonths(companyId, p)).map((m) => `${monthName(m)} has a run that is not final`),
-    ...uncompared.map((m) => `EMP201 for ${monthName(m)} was filed before figures were stored; not cross-checked`),
+    ...legacyWarnings(filings),
   ];
   const validationErrors = pv?.errors ?? 0;
   return {
@@ -79,7 +74,6 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     emp201Mismatches,
     driftedEmp201Months,
     warnings,
-    crossChecked: months.every((m) => filedTotals(m.emp201) !== null),
     ready: validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && driftedEmp201Months.length === 0,
   };
 }
@@ -105,15 +99,16 @@ export async function assertEmp501Ready(companyId: string, p: Emp501Period): Pro
 }
 
 /**
- * The EMP501's totals (its certificates) must equal the sum of the period's filed EMP201s (review #1568 round 2 M): PAYE
- * on an EMP201 that no certificate carries (a directive naming no employee, an employee with no certificate) refuses.
+ * The EMP501's totals (its certificates) must equal the sum of the period's filed EMP201s, in cents (review #1568 rounds
+ * 2-3), always: PAYE on an EMP201 no certificate carries (a directive naming no employee, an employee with no
+ * certificate) refuses. A legacy row without usable totals counts as its months' certificates (filedPeriodTotals).
  */
 export async function assertEmp501MatchesFiledEmp201s(companyId: string, p: Emp501Period, totals: MonthTotals): Promise<void> {
-  const filed = await filedEmp201PeriodTotals(companyId, p);
+  const filed = filedPeriodTotals(await emp501Filings(companyId, p));
   const diffs = (['paye', 'uif', 'sdl'] as const)
-    .filter((k) => Math.abs(filed[k] - totals[k]) > 0.01)
-    .map((k) => `${k.toUpperCase()} ${filed[k].toFixed(2)} on the filed EMP201s, ${totals[k].toFixed(2)} on the certificates `
-      + `(difference ${(totals[k] - filed[k]).toFixed(2)})`);
+    .filter((k) => cents(filed[k]) !== cents(totals[k]))
+    .map((k) => `${k.toUpperCase()} ${filed[k].toFixed(2)} on the filed EMP201s, ${cents(totals[k]).toFixed(2)} on the certificates `
+      + `(difference ${cents(totals[k] - filed[k]).toFixed(2)})`);
   if (diffs.length === 0) return;
   throw new ReturnRefusal(409, `This EMP501 cannot be finalised: its totals do not equal the EMP201s filed for the period: ${diffs.join('; ')}. `
     + 'Correct the payroll or the EMP201s first.', EMP501_NOT_READY, { periodTotals: { filed, certificates: { paye: totals.paye, uif: totals.uif, sdl: totals.sdl } } });

@@ -166,8 +166,8 @@ describeIfDb('PR #1568 round 2 adversarial', () => {
     await run2(rf, 3, [[alice, 30_000, 4_000]]);
     await legacyFiled(rf, 3);
     const g = await readiness(rf);
-    expect(g.warnings).toEqual(['EMP201 for March 2025 was filed before figures were stored; not cross-checked']);
-    expect(g).toMatchObject({ ready: true, crossChecked: false, emp201Mismatches: [] });
+    expect(g.warnings).toEqual(['EMP201 for March 2025 was filed before figures were stored (no stored totals); not cross-checked']);
+    expect(g).toMatchObject({ ready: true, emp201Mismatches: [] });
     expect((await finaliseEmp501(rf)).status).toBe(200);
   });
 
@@ -178,7 +178,7 @@ describeIfDb('PR #1568 round 2 adversarial', () => {
     await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, submission_reference, submitted_at, form_data)
       VALUES (${rf.fx.companyId}::UUID, 'EMP201', '2025-03-01', '2025-03-31', 'submitted', 'LEGACY-3', now(),
         ${JSON.stringify({ totalPAYE: 4000, totalUIF: 354.24, totalSDL: 300 })}::JSONB)`;
-    expect(await readiness(rf)).toMatchObject({ ready: true, crossChecked: true, warnings: [] });
+    expect(await readiness(rf)).toMatchObject({ ready: true, warnings: [] });
     expect((await finaliseEmp501(rf)).status).toBe(200);
   });
 
