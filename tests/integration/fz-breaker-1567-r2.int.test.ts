@@ -204,6 +204,24 @@ describe('999n breaker round 2: refused', () => {
       expect(await journal(ja)).toEqual(INTACT);
     });
   }
+  it('M1c [app_user]: a line moves only into a DRAFT, not into a visible journal of its own company in any other state (a legacy NULL status)', async () => {
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE gl_journal_entries DROP CONSTRAINT gl_journal_entries_status_not_null');
+      await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_status_not_null');
+      const legacy = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-17', 'fz legacy', 'manual', NULL, $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      const draftA = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-17', 'a draft', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+        VALUES ($1, $2, 10, 0, $3) RETURNING id`, [draftA, ACC.sal, A])).rows[0].id;
+      await c.query('ALTER TABLE gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_status_not_null');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_A, role: 'authenticated' })]);
+      await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, legacy])).rejects.toThrow(/moves only between draft journals/);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
   it('M1b: a line move re-checks both journals at COMMIT (second line of defence, the move rule switched off)', async () => {
     const ja = await mkJournal('2026-03-16', 'manual');
     const c = await su.connect();
