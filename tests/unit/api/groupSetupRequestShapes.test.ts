@@ -37,7 +37,7 @@ const svc = {
   updateMember: vi.fn(async () => ({ id: 'm1' })),
   updateGroup: vi.fn(async () => ({ id: 'g1' })),
   removeMember: vi.fn(async () => true),
-  findMember: vi.fn(async () => ({ companyId: 'c1' })),
+  findMember: vi.fn(async () => ({ companyId: '10000000-0000-4000-8000-0000000000a1' })),
   createGroupAccount: vi.fn(async () => ({ id: 'a1' })),
   updateGroupAccount: vi.fn(async () => ({ id: 'a1' })),
   autoGenerateGroupCOA: vi.fn(async () => 7),
@@ -103,7 +103,7 @@ const CA1 = '82000000-0000-4000-8000-0000000000c1';
 const GA1 = '81000000-0000-4000-8000-0000000000b1';
 
 function call(method: string, body: Record<string, unknown> = {}, query: Record<string, string> = {}) {
-  const req = { method, query, body, user: { id: 'user-1' } } as unknown as NextApiRequest;
+  const req = { method, query, body, user: { id: 'user-1' }, companyId: COMPANY } as unknown as NextApiRequest;
   const res = {
     statusCode: 0,
     sent: undefined as unknown,

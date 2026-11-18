@@ -50,7 +50,7 @@
 --   - intercompany_eliminations: the parent (group_company_id) company's own rows, in 944's form; read by
 --     its members, written by a write role.
 --   - company_groups: UPDATE (rename, deactivate) by a group writer. A change of holding_company_id must
---     name one of the caller's companies, and created_by never changes (trigger: a WITH CHECK cannot see
+--     name a company the caller writes, and created_by never changes (trigger: a WITH CHECK cannot see
 --     the old row, and a check on the unchanged value would refuse a writer outside the holding company).
 --   - consolidation_adjustments_on_company_periods(): the fiscal-period census counts adjustments that
 --     point at a company's periods across every group, including one the company has since left.
@@ -59,7 +59,7 @@
 --     and the intercompany transaction it came from belongs to the same group (rls_adjustment_refs_ok); the
 --     group, period and source of a stored adjustment never change (posting and reversing change its status).
 --   - intercompany_transactions: besides the parties and amounts, created_at never changes and matched_by, when
---     it changes, is the caller. variance_amount, match_status and matched_at are the matching fields: they
+--     it changes, is the caller and clears only with an unmatch; a new row is recorded unmatched, unsigned and created now (trigger). variance_amount, match_status and matched_at are the matching fields: they
 --     stay writable, to a writer of a party, as part of matching.
 --
 -- NOT CHANGED, on purpose: a session still reads company_group_members rows of its own companies only,
@@ -286,14 +286,39 @@ BEGIN
     RAISE EXCEPTION 'intercompany_transactions: a recorded transaction keeps its group, parties, journals, amount, currency, type, date, description and creation time; matching changes only its status'
       USING ERRCODE = '23514';
   END IF;
-  -- matched_by, when it changes, is whoever matched it: a request's caller cannot sign another user's name.
-  IF NEW.matched_by IS DISTINCT FROM OLD.matched_by AND NEW.matched_by IS NOT NULL
-     AND (auth.uid() IS NULL OR NEW.matched_by::pg_catalog.text <> auth.uid()) AND current_user = 'app_user' THEN
-    RAISE EXCEPTION 'intercompany_transactions: matched_by is the user who matched it' USING ERRCODE = '23514';
+  -- matched_by, when it changes, is whoever matched it (a request's caller cannot sign another user's name) and is
+  -- cleared only by an unmatch: together with match_status back to 'unmatched'.
+  IF NEW.matched_by IS DISTINCT FROM OLD.matched_by AND current_user = 'app_user'
+     AND ((NEW.matched_by IS NULL AND NEW.match_status IS DISTINCT FROM 'unmatched')
+          OR (NEW.matched_by IS NOT NULL AND (auth.uid() IS NULL OR NEW.matched_by::pg_catalog.text <> auth.uid()))) THEN
+    RAISE EXCEPTION 'intercompany_transactions: matched_by is the user who matched it, and is cleared only by an unmatch' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
 END;
 $$;
+-- A transaction is RECORDED unmatched and unsigned, now: a session cannot insert one already 'matched', signed by another
+-- tenant's user, or backdated. Matching (an UPDATE) is what sets those. Only for app_user: the service pool, a migration
+-- or a seed is held to its own role's reach.
+CREATE OR REPLACE FUNCTION public.intercompany_transaction_recorded_fresh()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_user = 'app_user' THEN
+    IF NEW.match_status IS DISTINCT FROM 'unmatched' OR NEW.matched_by IS NOT NULL OR NEW.matched_at IS NOT NULL
+       OR COALESCE(NEW.variance_amount, 0) <> 0 THEN
+      RAISE EXCEPTION 'intercompany_transactions: a new transaction is unmatched, unsigned and without variance' USING ERRCODE = '23514';
+    END IF;
+    NEW.created_at := pg_catalog.now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_intercompany_transaction_recorded_fresh ON intercompany_transactions;
+CREATE TRIGGER trg_intercompany_transaction_recorded_fresh BEFORE INSERT ON intercompany_transactions
+  FOR EACH ROW EXECUTE FUNCTION public.intercompany_transaction_recorded_fresh();
+
 DROP TRIGGER IF EXISTS trg_intercompany_transaction_parties_immutable ON intercompany_transactions;
 CREATE TRIGGER trg_intercompany_transaction_parties_immutable BEFORE UPDATE ON intercompany_transactions
   FOR EACH ROW EXECUTE FUNCTION public.intercompany_transaction_parties_immutable();
@@ -319,7 +344,8 @@ CREATE TRIGGER trg_consolidation_adjustment_refs_immutable
   BEFORE UPDATE OF group_id, fiscal_period_id, source_intercompany_id ON consolidation_adjustments
   FOR EACH ROW EXECUTE FUNCTION public.consolidation_adjustment_refs_immutable();
 
--- company_groups: created_by never changes, and a CHANGED holding company must be one of the caller's. A statement with
+-- company_groups: created_by never changes, and a CHANGED holding company must be one the caller holds a write role in
+-- (the route's userCanWriteCompany). A statement with
 -- no claims is a path in no request (a migration, the service pool), held to its own role's reach, EXCEPT in role
 -- app_user: a session there that has cleared its claims mid-statement (set_config in the SET list) is refused.
 CREATE OR REPLACE FUNCTION public.company_groups_guard()
@@ -340,8 +366,8 @@ BEGIN
   IF creator_changed THEN
     RAISE EXCEPTION 'company_groups: created_by never changes' USING ERRCODE = '23514';
   END IF;
-  IF holding_changed AND NEW.holding_company_id NOT IN (SELECT auth.user_companies()) THEN
-    RAISE EXCEPTION 'company_groups: the holding company must be one of your companies' USING ERRCODE = '42501';
+  IF holding_changed AND NEW.holding_company_id NOT IN (SELECT public.rls_user_write_company_ids()) THEN
+    RAISE EXCEPTION 'company_groups: the holding company must be a company you hold a write role in' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END;
@@ -360,10 +386,10 @@ DROP POLICY IF EXISTS tenant_isolation_update ON company_groups;
 DROP POLICY IF EXISTS tenant_isolation_delete ON company_groups;
 CREATE POLICY tenant_isolation_select ON company_groups FOR SELECT TO app_user
   USING (id IN (SELECT public.rls_user_group_ids()) OR created_by::text = auth.uid());
--- A group is created in the caller's own name, and its holding company (if any) is one of the caller's.
+-- A group is created in the caller's own name, and its holding company (if any) is one the caller holds a write role in.
 CREATE POLICY tenant_isolation_insert ON company_groups FOR INSERT TO app_user
   WITH CHECK (created_by::text = auth.uid()
-              AND (holding_company_id IS NULL OR holding_company_id IN (SELECT auth.user_companies())));
+              AND (holding_company_id IS NULL OR holding_company_id IN (SELECT public.rls_user_write_company_ids())));
 CREATE POLICY tenant_isolation_update ON company_groups FOR UPDATE TO app_user
   USING (id IN (SELECT public.rls_user_write_group_ids()))
   WITH CHECK (id IN (SELECT public.rls_user_write_group_ids()));

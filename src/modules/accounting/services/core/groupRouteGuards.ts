@@ -131,3 +131,15 @@ export async function refuseGroupCompanyWrite(userId: string, groupId: string, c
   }
   return null;
 }
+
+/** Two UUID strings name the same id whatever their case. */
+export const sameUuid = (a: unknown, b: unknown): boolean =>
+  typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+
+/**
+ * A member row (and a holding company's member row at group creation) is written with ITS company as the active one:
+ * that is row security's rule (999r keeps it). A company that is not the active one is a 403 saying so, never the 500 of
+ * the database's refusal.
+ */
+export const ACTIVE_COMPANY_REFUSED =
+  "Group membership is changed with that company as your active company: switch to it, then repeat the change.";

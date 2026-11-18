@@ -68,7 +68,7 @@ async function call(c: Case) {
   const [, route, method, query, body] = c;
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), end: vi.fn() };
   const handler = (route === 'groups' ? groupsHandler : intercoHandler) as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>;
-  await handler({ method, query, body, user: { id: 'u1' } } as unknown as NextApiRequest, res as unknown as NextApiResponse);
+  await handler({ method, query, body, user: { id: 'u1' }, companyId: CO } as unknown as NextApiRequest, res as unknown as NextApiResponse);
   return res;
 }
 const msg = (res: { json: ReturnType<typeof vi.fn> }) => JSON.stringify(res.json.mock.calls[0]?.[0] ?? {});

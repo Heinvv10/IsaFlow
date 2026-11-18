@@ -46,10 +46,10 @@ const M = '70000000-0000-4000-8000-0000000000e1';
 const T1 = '60000000-0000-4000-8000-0000000000a1';
 const T2 = '60000000-0000-4000-8000-0000000000a2';
 
-async function call(route: 'groups' | 'interco', method: string, query: Record<string, unknown>, body: Record<string, unknown>) {
+async function call(route: 'groups' | 'interco', method: string, query: Record<string, unknown>, body: Record<string, unknown>, active = CO) {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), end: vi.fn() };
   const handler = (route === 'groups' ? groupsHandler : intercoHandler) as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>;
-  await handler({ method, query, body, user: { id: 'u1' } } as unknown as NextApiRequest, res as unknown as NextApiResponse);
+  await handler({ method, query, body, user: { id: 'u1' }, companyId: active } as unknown as NextApiRequest, res as unknown as NextApiResponse);
   return res;
 }
 const status = (res: { status: ReturnType<typeof vi.fn> }) => res.status.mock.calls[0]?.[0];
@@ -148,5 +148,52 @@ describe('interco match', () => {
     svc.getTransactionParties.mockResolvedValue([]);
     expect(status(await match())).toBe(200);
     expect(svc.matchIntercompanyTransactions).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Row security keeps a member row written with ITS company active (999r): the routes say so as a 403, never as a 500.
+describe('a member company that is not the active company is a 403 that says to switch', () => {
+  const switchMsg = (res: { json: ReturnType<typeof vi.fn> }) => JSON.stringify(res.json.mock.calls[0]?.[0] ?? {});
+  it('add-member (and so a re-join: the same route and service call)', async () => {
+    const res = await call('groups', 'POST', {}, { action: 'add-member', groupId: G, companyId: CO2 }, CO);
+    expect(status(res)).toBe(403);
+    expect(switchMsg(res)).toContain('active company');
+    expect(svc.addMember).not.toHaveBeenCalled();
+    expect(status(await call('groups', 'POST', {}, { action: 'add-member', groupId: G, companyId: CO2 }, CO2))).toBe(200);
+  });
+  it('update-member and remove-member', async () => {
+    svc.findMember.mockResolvedValue({ companyId: CO2 });
+    const upd = await call('groups', 'PUT', {}, { action: 'update-member', memberId: M, groupId: G, ownershipPct: 60 }, CO);
+    expect(status(upd)).toBe(403);
+    expect(switchMsg(upd)).toContain('active company');
+    expect(svc.updateMember).not.toHaveBeenCalled();
+    const del = await call('groups', 'DELETE', { action: 'remove-member', member_id: M, group_id: G }, {}, CO);
+    expect(status(del)).toBe(403);
+    expect(svc.removeMember).not.toHaveBeenCalled();
+    expect(status(await call('groups', 'DELETE', { action: 'remove-member', member_id: M, group_id: G }, {}, CO2))).toBe(200);
+  });
+  it('the active company is compared whatever the case of the ids', async () => {
+    svc.findMember.mockResolvedValue({ companyId: CO.toUpperCase() });
+    expect(status(await call('groups', 'DELETE', { action: 'remove-member', member_id: M, group_id: G }, {}, CO))).toBe(200);
+  });
+  it('a new group\'s holding company, whose member row is inserted with it', async () => {
+    expect(status(await call('groups', 'POST', {}, { name: 'g', holdingCompanyId: CO2 }, CO))).toBe(403);
+    expect(svc.createGroup).not.toHaveBeenCalled();
+    expect(status(await call('groups', 'POST', {}, { name: 'g', holdingCompanyId: CO }, CO))).toBe(200);
+  });
+});
+
+describe('update-group: the holding company id is compared whatever its case (round 3: 6)', () => {
+  it('an unchanged holding company in upper case is not a change', async () => {
+    access.userCanWriteCompany.mockResolvedValue(false);
+    expect(status(await call('groups', 'PUT', {}, { groupId: G, name: 'r', holdingCompanyId: CO.toUpperCase() }))).toBe(200);
+  });
+});
+
+describe('interco match: a transaction is never matched with itself (round 3: 3)', () => {
+  it('the same id twice, in any case, is a 400 and nothing is looked up or matched', async () => {
+    expect(status(await call('interco', 'POST', {}, { action: 'match', groupId: G, sourceId: T1, targetId: T1.toUpperCase() }))).toBe(400);
+    expect(svc.getTransactionParties).not.toHaveBeenCalled();
+    expect(svc.matchIntercompanyTransactions).not.toHaveBeenCalled();
   });
 });

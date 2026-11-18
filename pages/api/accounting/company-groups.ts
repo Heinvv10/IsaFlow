@@ -9,7 +9,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   userBelongsToGroup,
@@ -17,7 +17,7 @@ import {
   userCanWriteGroup,
 } from '@/modules/accounting/services/core/companyAccessService';
 import {
-  COMPANY_CHART_REFUSED, creatorMayBootstrapGroup, groupRequestError, mappingAccountsBelong, mappingCompanyId,
+  ACTIVE_COMPANY_REFUSED, COMPANY_CHART_REFUSED, creatorMayBootstrapGroup, sameUuid, groupRequestError, mappingAccountsBelong, mappingCompanyId,
   refuseGroupCompanyRead, refuseGroupCompanyWrite, type Refusal,
 } from '@/modules/accounting/services/core/groupRouteGuards';
 import {
@@ -31,6 +31,8 @@ import {
 // always validated against company_group_members joined with company_users.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  const activeCompanyId = (req as CompanyAuthedRequest).companyId;
+  const refuseInactive = (companyId: unknown): boolean => sameUuid(companyId, activeCompanyId) ? false : (apiResponse.forbidden(res, ACTIVE_COMPANY_REFUSED), true);
   const action = (req.query.action || req.body?.action) as string | undefined;
   // An unknown action is refused on every method (DELETE used to fall through to delete-group),
   // and every id is UUID-checked before any ::UUID cast, whatever the action; see groupRouteGuards.
@@ -48,9 +50,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const refuseMemberChange = async (gId: string, memberId: string): Promise<boolean> => {
     const target = await findMember(memberId, gId);
     if (!target) { apiResponse.notFound(res, 'Member'); return true; }
-    if (await userCanWriteCompany(userId, target.companyId)) return false;
-    apiResponse.forbidden(res, 'Changing or removing a group member needs an owner, admin or manager role in that company.');
-    return true;
+    if (!(await userCanWriteCompany(userId, target.companyId))) {
+      apiResponse.forbidden(res, 'Changing or removing a group member needs an owner, admin or manager role in that company.');
+      return true;
+    }
+    return refuseInactive(target.companyId);
   };
 
   // Every POST / PUT / DELETE on an existing group changes what the consolidation
@@ -125,6 +129,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.forbidden(res, member ? 'Your role in this group does not allow this change.' : 'Access denied to this group');
       }
       if (!(await userCanWriteCompany(userId, companyId))) return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
+      if (refuseInactive(companyId)) return;
       const member = await addMember(groupId, companyId, {
         ownershipPct: ownershipPct ?? 100,
         consolidationMethod: consolidationMethod ?? 'full',
@@ -193,6 +198,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (holdingCompanyId && !(await userCanWriteCompany(userId, holdingCompanyId))) {
       return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
     }
+    if (holdingCompanyId && refuseInactive(holdingCompanyId)) return;
     const group = await createGroup({ name, holdingCompanyId, defaultCurrency, financialYearStart }, userId);
     return apiResponse.success(res, group);
   }
@@ -229,7 +235,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // UI sent `id` instead of `groupId`, so fixing that casing would otherwise
     // have activated an ungated body-supplied companyId.
     // Only when it CHANGES: the details tab sends the unchanged holding company on every save.
-    const holdingChanged = !!updates.holdingCompanyId && updates.holdingCompanyId !== (await getGroup(groupId))?.holdingCompanyId;
+    const holdingChanged = !!updates.holdingCompanyId && !sameUuid(updates.holdingCompanyId, (await getGroup(groupId))?.holdingCompanyId);
     if (holdingChanged && !(await userCanWriteCompany(userId, updates.holdingCompanyId))) {
       return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
     }

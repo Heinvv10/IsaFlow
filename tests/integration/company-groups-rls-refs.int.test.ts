@@ -111,6 +111,42 @@ describe('intercompany_transactions: created_at is frozen and matched_by is the 
   });
 });
 
+describe('intercompany_transactions: recorded as unmatched, matched_by moves only to the caller (round 3: 2, 4)', () => {
+  const INS = `INSERT INTO intercompany_transactions (group_id, source_company_id, target_company_id, transaction_type, amount, transaction_date, match_status, matched_by, matched_at, created_at, variance_amount)
+               VALUES ($1, $2, $3, 'loan', 1, '2026-03-02', $4, $5::UUID, $6, $7, $8) RETURNING created_at`;
+  it('a new row is unmatched, unsigned and created now: anything else is refused, a backdated created_at is overwritten', async () => {
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      const base = [g.GA, co.A1, co.A4];
+      expect(await F.codeOf(q, INS, [...base, 'matched', null, null, new Date(), 0]), 'matched').toBe(FROZEN);
+      expect(await F.codeOf(q, INS, [...base, 'unmatched', u.UB, null, new Date(), 0]), 'matched_by').toBe(FROZEN);
+      expect(await F.codeOf(q, INS, [...base, 'unmatched', null, new Date(), new Date(), 0]), 'matched_at').toBe(FROZEN);
+      expect(await F.codeOf(q, INS, [...base, 'unmatched', null, null, new Date(), 5]), 'variance').toBe(FROZEN);
+      const r = await q.query(INS, [...base, 'unmatched', null, null, '2001-01-01', 0]);
+      expect(new Date(r.rows[0].created_at).getFullYear()).toBeGreaterThan(2020);
+    });
+  });
+  it('matched_by changes only to the caller, and clears only together with match_status back to unmatched', async () => {
+    const set = (v: string, extra = '') => `UPDATE intercompany_transactions SET matched_by = ${v}${extra} WHERE id = $1`;
+    await F.asAppUser(u.UA, co.A1, async (q) => {
+      expect(await F.codeOf(q, set('$2::UUID', ", match_status = 'matched'"), [row.txA1A4, u.UA])).toBe('ok');
+      expect(await F.codeOf(q, set('NULL'), [row.txA1A4]), 'cleared, still matched').toBe(FROZEN);
+      expect(await F.codeOf(q, set('NULL', ", match_status = 'unmatched', matched_at = NULL"), [row.txA1A4]), 'unmatch').toBe('ok');
+    });
+  });
+});
+
+describe('company_groups: a holding company is one the caller WRITES (round 3: 5)', () => {
+  it('a viewer-only company cannot become the holding company of an existing group, nor of a new one', async () => {
+    await F.asAppUser(u.UW, co.A1, async (q) => {        // owner of A1 (writes GA), only a viewer of A4
+      expect(await F.codeOf(q, 'UPDATE company_groups SET holding_company_id = $2 WHERE id = $1', [g.GA, co.A4])).toBe(DENIED);
+      expect(await F.codeOf(q, 'UPDATE company_groups SET holding_company_id = $2 WHERE id = $1', [g.GA, co.A1])).toBe('ok');
+    });
+    await F.asAppUser(u.UV, co.A1, async (q) => {
+      expect(await F.codeOf(q, 'INSERT INTO company_groups (name, created_by, holding_company_id) VALUES ($1, $2::UUID, $3)', ['x', u.UV, co.A1])).toBe(DENIED);
+    });
+  });
+});
+
 describe('the services under the narrower policies: nothing is reported done that was not (1, 3, 4)', () => {
   it('a company that left is re-activated by addMember under the INSERT gate, once; a current member is null', async () => {
     await asService(u.UA, co.A4, async () => {
@@ -150,7 +186,7 @@ describe('the services under the narrower policies: nothing is reported done tha
     });
     await asService(u.UA, co.A1, async () => {
       await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA);              // both parties written: both rows
-      await matchIntercompanyTransactions(row.txA1A4, row.txA1A4, g.GA);            // the same row twice is one row
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA1A4, g.GA)).rejects.toThrow(/itself/i);   // a row is never matched with itself
     });
   });
 });

@@ -133,6 +133,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (badMatch) return apiResponse.badRequest(res, `${badMatch} must be a valid UUID`);
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
+      if (String(sourceId).toLowerCase() === String(targetId).toLowerCase()) return apiResponse.badRequest(res, 'sourceId and targetId must be two different transactions');
       // Row security (999r) lets a transaction be updated by a write role in one of ITS parties: check each row here, so the
       // refusal is a 403 and never a half-applied match. A row not found is the service's typed 404, as before.
       for (const row of await getTransactionParties([sourceId, targetId], matchGroupId as string)) {

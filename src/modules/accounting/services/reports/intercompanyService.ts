@@ -183,6 +183,7 @@ export async function matchIntercompanyTransactions(
   targetId: string,
   groupId: string,
 ): Promise<void> {
+  if (sourceId.toLowerCase() === targetId.toLowerCase()) throw new Error('An intercompany transaction cannot be matched with itself');
   const sources = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${sourceId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
   const targets = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${targetId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
 

@@ -44,7 +44,7 @@ const CO2 = '10000000-0000-4000-8000-0000000000a2';
 type H = (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>;
 async function call(handler: unknown, method: string, body: Record<string, unknown>, query: Record<string, unknown> = {}) {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), end: vi.fn() };
-  await (handler as H)({ method, query, body, companyId: CO2, companyRole: 'admin', user: { id: 'u1' } } as unknown as NextApiRequest,
+  await (handler as H)({ method, query, body, companyId: CO, companyRole: 'admin', user: { id: 'u1' } } as unknown as NextApiRequest,
     res as unknown as NextApiResponse);
   return res;
 }

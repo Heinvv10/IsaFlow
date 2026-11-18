@@ -68,7 +68,7 @@ function wireSql(opts: { hasGroupAccess: boolean; isCompanyMember: boolean }): v
 }
 
 function makeReq(body: Record<string, unknown>): NextApiRequest {
-  return { method: 'POST', query: {}, body, user: { id: USER_ID } } as unknown as NextApiRequest;
+  return { method: 'POST', query: {}, body, user: { id: USER_ID }, companyId: (body.companyId ?? body.holdingCompanyId) } as unknown as NextApiRequest;
 }
 function makeRes(): NextApiResponse {
   const res = { status: vi.fn(), json: vi.fn() } as unknown as NextApiResponse;
