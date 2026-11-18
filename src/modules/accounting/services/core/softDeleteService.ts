@@ -295,6 +295,7 @@ export async function purgeExpiredDeletes(companyId: string): Promise<number> {
  * FKs have no ON DELETE): one referenced item must not fail the purge of every other.
  * The NOT EXISTS probe reads under the caller's row level security, which hides a legacy NULL-company stock movement; the
  * FK still sees it. So each DELETE has its own savepoint, and a 23503 skips that one item (logged), never the rest.
+ * Each DELETE repeats the eligibility test: an item restored (or deleted again) after the candidate read is not purged.
  */
 async function purgeItems(companyId: string): Promise<DbRow[]> {
   const candidates = (await sql`
@@ -310,7 +311,10 @@ async function purgeItems(companyId: string): Promise<DbRow[]> {
   for (const [n, c] of candidates.entries()) {
     try {
       const rows = await withSavepoint(`purge_item_${n}`, async () =>
-        (await sql`DELETE FROM items WHERE id = ${String(c.id)}::uuid AND company_id = ${companyId}::uuid RETURNING id, company_id`) as DbRow[]);
+        (await sql`
+          DELETE FROM items WHERE id = ${String(c.id)}::uuid AND company_id = ${companyId}::uuid
+            AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+          RETURNING id, company_id`) as DbRow[]);
       purged.push(...rows);
     } catch (err) {
       if ((err as { code?: string }).code !== '23503') throw err;
