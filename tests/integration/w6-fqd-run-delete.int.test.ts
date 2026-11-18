@@ -2,7 +2,8 @@
  * Wave 6 FQd: deleting a draft pay run through the real route (DELETE /api/payroll/runs/[id]; withAuth, app_user, RLS)
  * on two tenants (coordinator r3 ruling on #1575: cancel/delete for draft runs is FQd's). Claims:
  *  - a draft never calculated and never approved is deleted, audited once, and its period can be created again;
- *  - a calculated draft (it has lines), an approved run and a reopened one are refused 409 RUN_NOT_DELETABLE with the
+ *  - a calculated draft (it has lines), one with an approval request, an approved run and a reopened one are refused
+ *    409 RUN_NOT_DELETABLE with the
  *    row, its lines and the audit unchanged;
  *  - a viewer is 403; another tenant's run is 404; neither changes a row.
  *
@@ -64,6 +65,13 @@ describe('deleting a draft pay run', () => {
     expect(calc.body.error?.message).toContain('calculated');
     expect([await header(a, id), await lineCount(a, id)]).toEqual([{ status: 'draft', approved: false }, 1]);
     await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [id]);
+    await a.pool.query(
+      "INSERT INTO approval_requests (company_id, document_type, document_id, requested_by) VALUES ($1, 'pay_run', $2, $3)",
+      [a.company, id, a.admin]);
+    const asked = await del(a, id);
+    expect([asked.statusCode, asked.body.error?.message]).toEqual([409, expect.stringContaining('approval has been requested')]);
+    expect(await header(a, id)).toEqual({ status: 'draft', approved: false });
+    await a.pool.query('DELETE FROM approval_requests WHERE document_id = $1', [id]);
     for (const [status, approved] of [['approved', true], ['calculated', true]] as const) {
       await a.pool.query(`UPDATE payroll_run_headers SET status = $2, approved_at = ${approved ? 'now()' : 'NULL'} WHERE id = $1`, [id, status]);
       const res = await del(a, id);
