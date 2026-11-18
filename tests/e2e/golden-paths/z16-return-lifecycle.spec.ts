@@ -26,6 +26,7 @@ import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { vatPrn } from './helpers/prn';
+import { settleAnimations } from './helpers/settleAnimations';
 import { THEMES, rootTheme, settle } from '../helpers/themeSpec';
 
 const PAGE = '/accounting/sars/vat201';
@@ -57,11 +58,6 @@ async function generate(page: Page, p: { startText: string; endText: string }): 
   await page.getByRole('button', { name: 'Generate' }).click();
 }
 
-/** The modal zooms in over 200 ms; axe mid-animation reads blended colours. */
-async function settled(page: Page): Promise<void> {
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
-}
-
 const status = (page: Page) => page.getByTestId('return-lifecycle-status');
 /** The sandbox company as period() read it; its VAT number begins every PRN. */
 let company: Record<string, unknown> = {};
@@ -81,7 +77,7 @@ async function act(page: Page, button: RegExp, fill?: { label: RegExp | string; 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   if (fill) await dialog.getByLabel(fill.label).fill(fill.value);
-  if (axeKey) await settled(page);
+  if (axeKey) await settleAnimations(page);
   if (axeKey) await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: axeKey, baseline: NOTHING_EXCUSED });
   await dialog.getByRole('button', { name: button }).click();
   // A refusal stays in the dialog in the server's words: fail with it rather than with a bare timeout.
@@ -139,7 +135,7 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
   await expect(dialog.getByTestId('return-refusal')).toContainText(`already finalised as version ${n + 1}. Amend it before finalising again.`);
   await expect(status(page)).toHaveText(`Finalised (v${n + 1}), not filed`);
   await expect(dialog.getByRole('button', { name: 'Amend instead' })).toBeVisible();
-  await settled(page);
+  await settleAnimations(page);
   await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: 'z16-stale-refusal', baseline: NOTHING_EXCUSED });
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'vat201-stale-refusal-1568.png') });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();

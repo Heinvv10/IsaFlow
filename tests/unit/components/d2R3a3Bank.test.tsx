@@ -35,7 +35,7 @@ const reconOthers = (diff: number, txs: unknown[], skip: (u: string, i?: Request
   if (skip(u, i)) return undefined;
   if (u.includes('bank-reconciliations?id=')) return ok(RECON(diff));
   if (u.includes('bank-transactions?reconciliation_id=')) return ok({ transactions: txs });
-  if (u.includes('journal-entries?')) return ok({ entries: [] });
+  if (u.includes('bank-reconciliation-gl-lines?')) return ok({ lines: [], total: 0, truncated: false });
   return undefined;
 };
 const post = (path: string) => (u: string, i?: RequestInit) => u.includes(path) && i?.method === 'POST';
