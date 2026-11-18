@@ -44,11 +44,11 @@ describe('setting a defined-benefit factor under Login-as', () => {
 
 describe('marking the compulsory fund contribution (C) under Login-as (#1571 round 2, M1)', () => {
   it('is refused before any statement runs; a self session goes on to the lookup', async () => {
-    await expect(setDbFundMemberContribution('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true, ACTOR))
+    await expect(setDbFundMemberContribution('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true, ACTOR))
       .rejects.toBeInstanceOf(ImpersonationForbiddenError);
     expect(sqlCalls).toEqual([]);
     actor = 'self';
-    expect(await setDbFundMemberContribution('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true, ACTOR)).toBe(false);
+    expect(await setDbFundMemberContribution('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true, ACTOR)).toBe(false);
     expect(sqlCalls.length).toBeGreaterThan(0);
   });
 });

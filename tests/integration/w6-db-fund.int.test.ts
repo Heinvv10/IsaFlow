@@ -183,6 +183,15 @@ describe('C is the marked contribution; none marked blocks approval', () => {
     expect((await mark(A, salaryRow, true)).statusCode).toBe(400);
     expect((await mark(A, row.pensionA!, 'yes')).statusCode).toBe(400);
     expect((await mark(A, row.pensionB!, true)).statusCode).toBe(404);
+    // Another employee of the same company in the URL (review L1): 404, nothing marked.
+    const other = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
+       VALUES ($1, 'DBF-2', 'Other', 'Employee', '2020-01-01', '1985-01-01', '0123456787') RETURNING id`, [A])).rows[0]!.id;
+    const wrongUrl = await call(assignments as Route, 'PATCH', `/api/payroll/employees/${other}/components`, other,
+      { company: A, query: { aid: row.pensionA! }, body: { dbFundMemberContribution: true } });
+    expect(wrongUrl.statusCode).toBe(404);
+    expect(await count('SELECT count(*) AS n FROM payroll_employee_components WHERE id = $1 AND db_fund_member_contribution', [row.pensionA])).toBe(0);
+    await pool.query('DELETE FROM payroll_employees WHERE id = $1', [other]);
     expect((await mark(A, row.pensionA!, true)).statusCode).toBe(200);
     expect((await mark(B, row.pensionB!, true)).statusCode).toBe(200);
     expect(await count("SELECT count(*) AS n FROM audit_log WHERE entity_id = $1 AND changes->'metadata'->>'kind' = 'db_fund_contribution_mark'", [row.pensionA])).toBe(1);

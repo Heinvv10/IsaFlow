@@ -63,9 +63,12 @@ export async function refuseSecondDbFactorRow(
 
 /**
  * Mark (or unmark) the employee's 4001 / 4003 deduction assignment as the compulsory contribution to the defined-benefit
- * fund. Returns false when the assignment is not the company's. Refused to a Login-as session, before any read or write.
+ * fund. Returns false when the assignment is not that employee's in the company (the URL's employee, so one employee's page
+ * cannot mark another's row). Refused to a Login-as session, before any read or write.
  */
-export async function setDbFundMemberContribution(companyId: string, assignmentId: string, marked: unknown, actor: ComponentChangeActor): Promise<boolean> {
+export async function setDbFundMemberContribution(
+  companyId: string, employeeId: string, assignmentId: string, marked: unknown, actor: ComponentChangeActor,
+): Promise<boolean> {
   await assertNotImpersonating();
   if (typeof marked !== 'boolean') throw new EmployeeComponentRefused('dbFundMemberContribution must be true or false.');
   return withTransaction(async (tx) => {
@@ -75,7 +78,7 @@ export async function setDbFundMemberContribution(companyId: string, assignmentI
         FROM payroll_employee_components c
         JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
         JOIN payroll_components pc ON pc.id = c.component_id AND pc.company_id = ${companyId}::uuid
-       WHERE c.id = ${assignmentId}::uuid FOR UPDATE OF c
+       WHERE c.id = ${assignmentId}::uuid AND c.employee_id = ${employeeId}::uuid FOR UPDATE OF c
     `) as DbRow[])[0];
     if (!row) return false;
     if (row.component_type !== 'deduction' || !Object.values(DEFINED_BENEFIT_CODES).includes(String(row.code))) {

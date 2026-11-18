@@ -95,7 +95,7 @@ async function handler(
     const { aid } = req.query;
     if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
     try {
-      const changed = await setDbFundMemberContribution(companyId, aid, (req.body as { dbFundMemberContribution: unknown }).dbFundMemberContribution,
+      const changed = await setDbFundMemberContribution(companyId, id, aid, (req.body as { dbFundMemberContribution: unknown }).dbFundMemberContribution,
         { userId: req.user.id, userEmail: req.user.email, channel: 'rest' });
       if (!changed) return apiResponse.notFound(res, 'Component assignment');
       return apiResponse.success(res, { updated: aid });

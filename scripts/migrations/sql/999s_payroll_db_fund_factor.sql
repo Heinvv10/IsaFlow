@@ -10,7 +10,7 @@
 --
 --   payroll_employee_components.db_member_category_factor: A, as a fraction (0.12 = 12%), more than 0 and at most 1. Its
 --     `amount` is what the employer actually pays the fund (GL 2175 / labour, IRP5 4472 / 4473; BRS V25.3.0 p. 103), not
---     X; 0 only when the employer pays nothing. Never with percent_of_rfi (975). The service allows a factor only on a
+--     X; the CHECK holds amount >= 0 (0 only when the employer pays nothing). Never with percent_of_rfi (975). The service allows a factor only on a
 --     recurring employer pension (3817) or provident (3825) contribution earning (definedBenefitFund.dbFactorRefusal).
 --   payroll_employee_components.db_member_retired: the member has retired from the fund, or is a dependant or nominee of
 --     a deceased member: para 12D(6), no value; the contribution is reported as 4585 / 4586 (BRS p. 105-106). Only on a
