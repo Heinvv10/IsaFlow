@@ -14,13 +14,14 @@ import {
   listIntercompanyTransactions,
   createIntercompanyTransaction,
   matchIntercompanyTransactions,
+  getTransactionParties,
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
-import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
-  INTERCOMPANY_TRANSACTION_TYPES, IntercompanyNotFoundError,
+  INTERCOMPANY_TRANSACTION_TYPES, IntercompanyMatchRefusedError, IntercompanyNotFoundError,
 } from '@/modules/accounting/services/reports/intercompanyService';
 
 /**
@@ -132,10 +133,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (badMatch) return apiResponse.badRequest(res, `${badMatch} must be a valid UUID`);
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
+      if (String(sourceId).toLowerCase() === String(targetId).toLowerCase()) return apiResponse.badRequest(res, 'sourceId and targetId must be two different transactions');
+      // Row security (999r) lets a transaction be updated by a write role in one of ITS parties: check each row here, so the
+      // refusal is a 403 and never a half-applied match. A row not found is the service's typed 404, as before.
+      for (const row of await getTransactionParties([sourceId, targetId], matchGroupId as string)) {
+        if (!(await userCanWriteCompany(userId, row.sourceCompanyId)) && !(await userCanWriteCompany(userId, row.targetCompanyId))) {
+          return apiResponse.forbidden(res, 'Matching needs an owner, admin or manager role in the source or target company of each transaction.');
+        }
+      }
       try {
-        await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
+        await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string, userId);
       } catch (err) {
         if (err instanceof IntercompanyNotFoundError) return apiResponse.notFound(res, 'Intercompany transaction', err.missing.join(', '));
+        if (err instanceof IntercompanyMatchRefusedError) {
+          return apiResponse.forbidden(res, 'Matching needs an owner, admin or manager role in the source or target company of each transaction; nothing was matched.');
+        }
         throw err;
       }
       return apiResponse.success(res, { matched: true });
@@ -152,6 +164,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (badValue) return apiResponse.badRequest(res, badValue);
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
     if (!(await userCanWriteGroup(userId, gId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
+
+    // The row is recorded FROM the source company: a write role in it, as the row-security policy (999r) requires, so the
+    // refusal is this 403 and not a 500 from the database.
+    if (!(await userCanWriteCompany(userId, sourceCompanyId as string))) {
+      return apiResponse.forbidden(res, 'Recording an intercompany transaction needs an owner, admin or manager role in the source company.');
+    }
 
     // Both source and target companies must be active members of the group — reject
     // forged/foreign companyIds before they reach the INSERT (cross-tenant forgery).

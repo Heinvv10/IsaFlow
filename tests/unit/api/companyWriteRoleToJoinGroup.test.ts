@@ -14,7 +14,7 @@ const access = vi.hoisted(() => ({
   userCreatedGroup: vi.fn(), userCanWriteCompany: vi.fn(),
 }));
 const svc = vi.hoisted(() => ({
-  createGroup: vi.fn(), updateGroup: vi.fn(), addMember: vi.fn(), getGroup: vi.fn(), listGroupsForUser: vi.fn(),
+  createGroup: vi.fn(), updateGroup: vi.fn(), addMember: vi.fn(), findMember: vi.fn(), getTransactionParties: vi.fn(), getGroup: vi.fn(), listGroupsForUser: vi.fn(),
   deleteGroup: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), getGroupMembers: vi.fn(), getGroupAccounts: vi.fn(),
   createGroupAccount: vi.fn(), updateGroupAccount: vi.fn(), deleteGroupAccount: vi.fn(), autoGenerateGroupCOA: vi.fn(),
   getCoaMappings: vi.fn(), setCoaMapping: vi.fn(), removeCoaMapping: vi.fn(), autoMapAccounts: vi.fn(), getUnmappedAccounts: vi.fn(),
@@ -44,7 +44,7 @@ const CO2 = '10000000-0000-4000-8000-0000000000a2';
 type H = (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>;
 async function call(handler: unknown, method: string, body: Record<string, unknown>, query: Record<string, unknown> = {}) {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), end: vi.fn() };
-  await (handler as H)({ method, query, body, companyId: CO2, companyRole: 'admin', user: { id: 'u1' } } as unknown as NextApiRequest,
+  await (handler as H)({ method, query, body, companyId: CO, companyRole: 'admin', user: { id: 'u1' } } as unknown as NextApiRequest,
     res as unknown as NextApiResponse);
   return res;
 }
@@ -53,6 +53,8 @@ const msg = (res: { json: ReturnType<typeof vi.fn> }) => JSON.stringify(res.json
 beforeEach(() => {
   for (const fn of [...Object.values(svc), ...Object.values(rel)]) fn.mockReset().mockResolvedValue({ id: 'x' });
   rel.remove.mockResolvedValue(true);
+  svc.findMember.mockResolvedValue({ companyId: '10000000-0000-4000-8000-0000000000a1' });
+  svc.getTransactionParties.mockResolvedValue([]);
   for (const fn of Object.values(access)) fn.mockReset().mockResolvedValue(true);
 });
 
@@ -105,6 +107,6 @@ describe('intercompany ids are UUID-checked before any query', () => {
   it('valid ids pass through to the match', async () => {
     const res = await call(intercoHandler, 'POST', MATCH);
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(svc.matchIntercompanyTransactions).toHaveBeenCalledWith(CO, CO2, G);
+    expect(svc.matchIntercompanyTransactions).toHaveBeenCalledWith(CO, CO2, G, 'u1');
   });
 });
