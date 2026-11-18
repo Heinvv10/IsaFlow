@@ -161,7 +161,7 @@ describe('999n breaker round 2: refused', () => {
         .rejects.toThrow(/cannot see/);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
-  it('S2 [app_service, tenant B claims]: the balance check\'s error gives a caller who cannot see the journal no id and no totals', async () => {
+  it('S2 [a tenant-B caller]: the balance check\'s error gives a caller who cannot see the journal no id and no totals', async () => {
     const je = await mkJournal('2026-03-14', 'manual');
     const c = await su.connect();
     let message = '';
@@ -170,10 +170,13 @@ describe('999n breaker round 2: refused', () => {
       const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
         VALUES ($1, 'FZ-B2', 'FZ B', 'expense', 'debit') RETURNING id`, [B])).rows[0].id;
       // Reach the deferred check from a caller who cannot see A's journal: the line-set rule (S1) and app_user's RLS
-      // would refuse first, so the rule is switched off inside this rolled-back transaction and the line is written
-      // as app_service (its policies admit any row; not RLS-bypassing, so the tenant test applies) with B's claims.
+      // would refuse first. So, inside this rolled-back transaction, the rule is switched off and the line is written
+      // by fz_s2: a throwaway role that is not RLS-bypassing, not app_service, and has a permissive policy of its own.
       await c.query('ALTER TABLE gl_journal_lines DISABLE TRIGGER trg_gl_jl_posted_set_frozen');
-      await c.query('SET LOCAL ROLE app_service');
+      await c.query('CREATE ROLE fz_s2 NOLOGIN');
+      await c.query('GRANT SELECT, INSERT ON gl_journal_lines, gl_journal_entries, gl_accounts TO fz_s2');
+      await c.query('CREATE POLICY fz_s2_all ON gl_journal_lines TO fz_s2 USING (true) WITH CHECK (true)');
+      await c.query('SET LOCAL ROLE fz_s2');
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 7, 0, $3)', [je, acct, B]);
       await c.query('SET CONSTRAINTS ALL IMMEDIATE').catch((e: Error) => { message = e.message; });
@@ -181,6 +184,52 @@ describe('999n breaker round 2: refused', () => {
     expect(message).toBe('gl_journal_entries: a posted journal does not balance');
     expect(message).not.toContain(je);
     expect(message).not.toMatch(/debit|credit|1007|1000/);
+  });
+  for (const who of ['app_user_tenant_b', 'postgres'] as const) {
+    it(`M1 [${who}]: a line cannot be moved into another journal unless both are visible drafts of its own company`, async () => {
+      const ja = await mkJournal('2026-03-15', 'manual');
+      const c = await su.connect();
+      try {
+        await c.query('BEGIN');
+        const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+          VALUES ($1, 'FZ-M1', 'FZ B', 'expense', 'debit') RETURNING id`, [B])).rows[0].id;
+        const draftB = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+          VALUES ('2026-03-15', 'b draft', 'manual', 'draft', $1, $2) RETURNING id`, [USER_B, B])).rows[0].id;
+        const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+          VALUES ($1, $2, 5000, 0, $3) RETURNING id`, [draftB, acct, B])).rows[0].id;
+        await c.query(`SET LOCAL ROLE ${who === 'postgres' ? 'fz_pg_ns' : 'app_user'}`);
+        if (who !== 'postgres') await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
+        await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, ja])).rejects.toThrow(who === 'postgres' ? /amounts are frozen|moves only between draft journals/ : /moves only between draft journals/);
+      } finally { await c.query('ROLLBACK'); c.release(); }
+      expect(await journal(ja)).toEqual(INTACT);
+    });
+  }
+  it('M1b: a line move re-checks both journals at COMMIT (second line of defence, the move rule switched off)', async () => {
+    const ja = await mkJournal('2026-03-16', 'manual');
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE gl_journal_lines DISABLE TRIGGER trg_gl_jl_posted_frozen');
+      const draftA = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-16', 'a draft', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+        VALUES ($1, $2, 5000, 0, $3) RETURNING id`, [draftA, ACC.sal, A])).rows[0].id;
+      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, ja]);
+      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance/);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+    expect(await journal(ja)).toEqual(INTACT);
+  });
+  it('L: an app_service member (the isaflow_service login) is judged on the header itself, as its policies admit every row', async () => {
+    const { run: openA } = await finalRun('calculated');
+    const { run: finalA } = await finalRun();
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_service');
+      expect((await c.query('SELECT public.payroll_run_final_state($1) AS f', [openA])).rows[0].f).toBe(false);
+      expect((await c.query('SELECT public.payroll_run_final_state($1) AS f', [finalA])).rows[0].f).toBe(true);
+    } finally { await c.query('ROLLBACK'); c.release(); }
   });
   it('D1 [app_user, tenant B]: tenant B learns nothing of A\'s run finality, takes no lock on A\'s header, and its line write is refused', async () => {
     const { run: finalA } = await finalRun();

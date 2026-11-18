@@ -30,7 +30,9 @@
 --        X -> NULL when X is no longer in force (reversed, not posted, or gone: approval's `replaces` unlink).
 --      It leaves approved/paid only with both stamps cleared, as reopen does (breaker M1: cancel -> edit ->
 --      re-approve kept the old approved_at), and never to 'cancelled' while its payroll journal is in force.
---   3. gl_journal_lines of a posted or reversed journal keep debit, credit, journal_entry_id and company_id.
+--   3. gl_journal_lines of a posted or reversed journal keep debit, credit, journal_entry_id and company_id. Any line
+--      moves between journals only when both are drafts of its own company that the caller can see (round 3, M1:
+--      tenant B moved its draft line into A's posted journal); both journals are queued for rule 4 on a move.
 --      gl_account_id and the dimensions stay writable: account merge and the VAT late-claim split move gl_account_id
 --      on posted lines, and tagging moves cc1/cc2/bu (writer census, PR body). A posted or reversed journal takes no
 --      added or removed line (breaker H2) unless it was created in this transaction (created_at = now(); year-end and
@@ -113,11 +115,13 @@ SET LOCAL lock_timeout = '5s';
 
 -- Finality is read past RLS (breaker H4): payroll_run_headers forces RLS, so an invoker-rights read made a header the
 -- caller cannot see (no claims, another tenant) look "not final". SECURITY DEFINER owned by migration_admin
--- (BYPASSRLS), pinned search_path, writes nothing. Before any lock it applies the header's own RLS test to the
+-- (BYPASSRLS), pinned search_path, writes nothing. Before any lock it emulates the header's RLS policies for the
 -- CALLER (breaker D1): the caller's role is the session's SET ROLE target (current_setting('role'), which a definer
--- does not change) or the login role; one that bypasses RLS sees every header, app_user only its users' companies
--- (tenant_isolation: company_users of auth.uid()). A header the caller could not see answers "final" and is not
--- locked, so another tenant learns nothing and blocks nothing. NULL when the header does not exist.
+-- does not change) or the login role. A role that bypasses RLS, and a member of app_service (its policies admit every
+-- row: the isaflow_service login), sees every header; anyone else only its users' companies (tenant_isolation:
+-- company_users of auth.uid()). This is an emulation of today's policies, not a call into them: a new policy on
+-- payroll_run_headers must be mirrored here. A header the caller could not see answers "final" and is not locked,
+-- so another tenant learns nothing and blocks nothing. NULL when the header does not exist.
 CREATE OR REPLACE FUNCTION public.payroll_run_final_state(p_run uuid)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -134,6 +138,7 @@ BEGIN
     RETURN NULL;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
+     AND NOT pg_catalog.pg_has_role(v_caller, 'app_service', 'MEMBER')
      AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid()) THEN
     RETURN true;
   END IF;
@@ -304,6 +309,17 @@ BEGIN
   IF public.gl_journal_is_posted(OLD.journal_entry_id)
      OR (NEW.journal_entry_id IS DISTINCT FROM OLD.journal_entry_id AND public.gl_journal_is_posted(NEW.journal_entry_id)) THEN
     RAISE EXCEPTION 'gl_journal_lines: a posted journal''s amounts are frozen (reverse it instead)' USING ERRCODE = '23514';
+  END IF;
+  -- A line moves only between DRAFTS of its own company that the caller can see (breaker round 3, M1: tenant B moved
+  -- its own draft line into A's posted journal, which B's RLS-filtered read above could not see). Read as the caller,
+  -- failing closed: a journal the caller cannot see refuses the move.
+  IF NEW.journal_entry_id IS DISTINCT FROM OLD.journal_entry_id THEN
+    IF (SELECT count(*) FROM public.gl_journal_entries e
+         WHERE e.id IN (OLD.journal_entry_id, NEW.journal_entry_id)
+           AND e.status = 'draft' AND e.company_id = OLD.company_id AND e.company_id = NEW.company_id) <> 2 THEN
+      RAISE EXCEPTION 'gl_journal_lines: a line moves only between draft journals of its own company that the caller can see'
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
   RETURN NEW;
 END
@@ -489,28 +505,28 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
   END IF;
-  v_entry := CASE TG_OP WHEN 'DELETE' THEN OLD.journal_entry_id ELSE NEW.journal_entry_id END;
-  DELETE FROM public.gl_journal_balance_queue q WHERE q.txid = txid_current() AND q.journal_entry_id = v_entry;
-  IF NOT FOUND THEN
-    RETURN NULL;
-  END IF;
-  SELECT e.company_id INTO v_company FROM public.gl_journal_entries e
-   WHERE e.id = v_entry AND e.status IN ('posted', 'reversed');
-  IF NOT FOUND THEN
-    RETURN NULL;
-  END IF;
-  SELECT COALESCE(SUM(l.debit), 0), COALESCE(SUM(l.credit), 0) INTO v_debit, v_credit
-    FROM public.gl_journal_lines l WHERE l.journal_entry_id = v_entry;
-  IF v_debit <> v_credit THEN
-    -- Figures only for a caller who could see the journal under RLS (the payroll_run_final_state test): a definer's
-    -- error must not hand another tenant a journal id and its totals (security review S2).
-    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
-       AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid()) THEN
-      RAISE EXCEPTION 'gl_journal_entries: a posted journal does not balance' USING ERRCODE = '23514';
+  -- A line moved between journals (UPDATE OF journal_entry_id) re-checks both its old and its new journal.
+  FOREACH v_entry IN ARRAY CASE TG_OP WHEN 'DELETE' THEN ARRAY[OLD.journal_entry_id] WHEN 'INSERT' THEN ARRAY[NEW.journal_entry_id]
+                                      ELSE ARRAY[OLD.journal_entry_id, NEW.journal_entry_id] END LOOP
+    DELETE FROM public.gl_journal_balance_queue q WHERE q.txid = txid_current() AND q.journal_entry_id = v_entry;
+    CONTINUE WHEN NOT FOUND;
+    SELECT e.company_id INTO v_company FROM public.gl_journal_entries e
+     WHERE e.id = v_entry AND e.status IN ('posted', 'reversed');
+    CONTINUE WHEN NOT FOUND;
+    SELECT COALESCE(SUM(l.debit), 0), COALESCE(SUM(l.credit), 0) INTO v_debit, v_credit
+      FROM public.gl_journal_lines l WHERE l.journal_entry_id = v_entry;
+    IF v_debit <> v_credit THEN
+      -- Figures only for a caller who could see the journal under RLS (the payroll_run_final_state test): a definer's
+      -- error must not hand another tenant a journal id and its totals (security review S2).
+      IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
+         AND NOT pg_catalog.pg_has_role(v_caller, 'app_service', 'MEMBER')
+         AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid()) THEN
+        RAISE EXCEPTION 'gl_journal_entries: a posted journal does not balance' USING ERRCODE = '23514';
+      END IF;
+      RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', v_entry, v_debit, v_credit
+        USING ERRCODE = '23514';
     END IF;
-    RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', v_entry, v_debit, v_credit
-      USING ERRCODE = '23514';
-  END IF;
+  END LOOP;
   RETURN NULL;
 END
 $$;
@@ -528,7 +544,9 @@ BEGIN
     RETURN NULL;
   END IF;
   INSERT INTO public.gl_journal_balance_queue (txid, journal_entry_id)
-  VALUES (txid_current(), CASE TG_OP WHEN 'DELETE' THEN OLD.journal_entry_id ELSE NEW.journal_entry_id END)
+  SELECT txid_current(), j
+    FROM unnest(CASE TG_OP WHEN 'DELETE' THEN ARRAY[OLD.journal_entry_id] WHEN 'INSERT' THEN ARRAY[NEW.journal_entry_id]
+                           ELSE ARRAY[OLD.journal_entry_id, NEW.journal_entry_id] END) AS j
   ON CONFLICT DO NOTHING;
   RETURN NULL;
 END
@@ -548,7 +566,7 @@ SELECT 'gl_jl_mark_unchecked()',
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 CREATE OR REPLACE TRIGGER trg_gl_jl_mark_unchecked
-  AFTER INSERT OR DELETE ON public.gl_journal_lines
+  AFTER INSERT OR DELETE OR UPDATE OF journal_entry_id ON public.gl_journal_lines
   FOR EACH ROW
   EXECUTE FUNCTION public.gl_jl_mark_unchecked();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_mark_unchecked;
@@ -561,7 +579,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
                   WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_posted_balanced') THEN
     CREATE CONSTRAINT TRIGGER trg_gl_jl_posted_balanced
-      AFTER INSERT OR DELETE ON public.gl_journal_lines
+      AFTER INSERT OR DELETE OR UPDATE OF journal_entry_id ON public.gl_journal_lines
       DEFERRABLE INITIALLY DEFERRED
       FOR EACH ROW
       EXECUTE FUNCTION public.gl_posted_journal_balanced();
