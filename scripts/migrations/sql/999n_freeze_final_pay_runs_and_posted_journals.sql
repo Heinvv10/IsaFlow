@@ -44,7 +44,8 @@
 --      for an exempt superuser. 8 000 lines (breaker L1: 11.2 s before): check 22 / 26 ms, INSERT 363 / 449 ms
 --      against 246 / 243 ms exempt (the added per-row line-set and list triggers).
 --
--- DEMO. The Demo company (00000000-0000-0000-0000-000000000001) is exempt from the GL DELETE rules only (a posted
+-- DEMO. Demo holds no real money and is wiped by the reseed (wipePlan.ts:193/204). The Demo company
+-- (00000000-0000-0000-0000-000000000001, a literal: no GUC, no role check) is exempt from the GL DELETE rules only (a posted
 -- entry's delete, a posted line's delete): the Demo reseed wipes and rebuilds its ledger, and the app pool can become
 -- any role and set any GUC, so a role or GUC exemption could be forged where a fixed company id cannot. The payroll
 -- freeze has no Demo exemption: the reseed reopens its final runs before the wipe and finalises the new ones after

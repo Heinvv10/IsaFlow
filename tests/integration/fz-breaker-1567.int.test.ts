@@ -200,7 +200,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     await as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run]));
     expect((await one('SELECT sum(net_pay)::text AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe('802.00');
   });
-  it('Demo: the exemption covers the GL DELETE rules only; a posted Demo journal still takes no new line', async () => {
+  it('Demo (no real money, wiped by the reseed): its posted lines and entries may be deleted, but a posted Demo journal still takes no new line', async () => {
     const DEMO = '00000000-0000-0000-0000-000000000001';
     const c = await su.connect();
     try {
@@ -217,7 +217,9 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
       await expect(c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, DEMO]))
         .rejects.toThrow(/cannot be added or removed/);
       await c.query('ROLLBACK TO SAVEPOINT ins');
-      await c.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]); // the reseed's wipe: entry and lines go
+      // The reseed's wipe (wipePlan.ts:193/204): the Demo's posted lines, then its posted entries, go.
+      await c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit > 0', [je]);
+      await c.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
   it('B10 [postgres, NOSUPERUSER] (the stated limit): the table owner can still DISABLE the freeze', async () => {
