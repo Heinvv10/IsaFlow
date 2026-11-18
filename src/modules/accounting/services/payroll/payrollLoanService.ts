@@ -18,6 +18,7 @@
  * interest as deduction, fringe as SARS 3801 income).
  */
 
+import { assertFrequencyTermsAssignable } from './payrollFrequencyGuard';
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -88,6 +89,7 @@ export interface CreateLoanInput {
 
 export async function createLoan(input: CreateLoanInput): Promise<PayrollLoan> {
   await assertEmployeeInCompany(input.companyId, input.employeeId);
+  await assertFrequencyTermsAssignable(input.companyId, input.employeeId, 'a loan'); // wave 6 FQc, §0a.11
   if (input.principal <= 0) throw new Error('principal must be > 0');
   if (input.termMonths < 1) throw new Error('termMonths must be >= 1');
 

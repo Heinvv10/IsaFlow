@@ -25,7 +25,7 @@ async function lineWithoutHoursRules(companyId: string, runId: string): Promise<
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
       AND e.pay_basis <> 'monthly'
-      AND (e.end_date IS NULL OR e.end_date >= pg_catalog.make_date(h.period_year, h.period_month, 1))
+      AND (e.end_date IS NULL OR e.end_date >= h.period_start) -- employed in the run's period (wave 6 FQc)
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.component_breakdown) i WHERE i ? 'quantity')
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.validation_results) v WHERE v->>'code' = ANY(${CODES}::text[]))
     ORDER BY e.employee_number

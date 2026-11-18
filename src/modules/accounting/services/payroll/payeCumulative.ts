@@ -137,7 +137,9 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const P = input.periodsInYear;
   const ratio = (n: number) => Math.min(n, P) / P;
   const hasPeriodic = input.periodicRemuneration > 0;
-  const periods = ytd.periods + (hasPeriodic ? 1 : 0);
+  // A part period counts its share (FQc: a weekly or fortnightly starter; monthly is always 1).
+  const share = input.periodShare ?? 1;
+  const periods = ytd.periods + (hasPeriodic ? share : 0);
   const feesToDate = Math.max(0, ytd.medicalSchemeFees + input.medicalSchemeFees);
   // The credits are statutory amounts a month (s6A "in respect of each month"; s6B's three times the MTC): they stay on
   // twelve months, fees × 12 ÷ n, and come off the liability weighted n ÷ 12, never ÷ F (coordinator ruling 2026-11-17).
@@ -177,7 +179,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const offPeriodicCeiling = annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0);
   const offPeriodic = Math.min(deduction, offPeriodicCeiling);
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
-    + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
+    + (hasPeriodic ? share : input.annualPaymentRemuneration > 0 ? 1 : 0); // FQc: a part period counts its share
   // A STATUTORY PERIOD RATIO, NOT AN ANNUALISATION (coordinator ruling 2026-11-17: statute over unproven parity): the cap
   // to date is cap × n ÷ 12 (G21 (2027) Rev 1 p. 10, "the same ratio as the period ... bears to a whole year"), never ÷ F,
   // so twelve months reach exactly R430 000. Pinned by payeAnnualisation.test.ts ("twelve equal months at the cap").

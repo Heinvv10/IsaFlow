@@ -8,6 +8,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -78,6 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { ended: true });
     } catch (err) {
       if (err instanceof FringeBenefitRefused) return apiResponse.badRequest(res, err.message);
+      if (respondIfRunKindUnsupported(res, err)) return; // wave 6 FQc: refused for a weekly or fortnightly employee (400)
       throw err;
     }
   }
