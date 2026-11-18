@@ -4,7 +4,12 @@
  * vat_type, every line on a VAT control or net-VAT account. `q` is a stub; on real PG:
  * tests/integration/vat-returns-settlement-next-lock.int.test.ts and vat-returns-settlement-round2.int.test.ts.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccountId: vi.fn() }));
+
+import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { settlementClearingExempt } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 const CO = '00000000-0000-0000-0000-000000000001';
@@ -15,15 +20,18 @@ const NET = { id: 'a-net', account_code: '2130', account_subtype: null };
 const PAY = { id: 'a-pay', account_code: '2110', account_subtype: 'payable' };
 const REV = { id: 'a-rev', account_code: '6000', account_subtype: 'revenue' };
 const CLEARING = [{ glAccountId: 'a-out' }, { glAccountId: 'a-in' }, { glAccountId: 'a-net' }];
-/** First read: the finalised period before; second: the lines' accounts. */
-const stub = (finalised: boolean, accounts: unknown[] = [OUT, INP, NET]) =>
-  vi.fn().mockResolvedValueOnce(finalised ? [{ x: 1 }] : []).mockResolvedValueOnce(accounts);
+/** Reads in order: the finalised period before; the lines' accounts; the active 2130 (none = the payable fallback). */
+const stub = (finalised: boolean, accounts: unknown[] = [OUT, INP, NET], active2130: unknown[] = [{ id: 'a-net' }]) =>
+  vi.fn().mockResolvedValueOnce(finalised ? [{ x: 1 }] : []).mockResolvedValueOnce(accounts)
+    .mockResolvedValueOnce(active2130);
 const text = (q: ReturnType<typeof stub>, i = 0) => ((q.mock.calls[i] as unknown[])[0] as string[]).join('?');
 const run = (q: ReturnType<typeof stub>, over: { date?: string; source?: string | null; lines?: unknown[] } = {}) =>
   settlementClearingExempt(CO, over.date ?? '2026-09-01', LOCK, over.source === undefined ? 'auto_vat_submission' : over.source,
     (over.lines ?? CLEARING) as never, q);
 
 describe('settlementClearingExempt', () => {
+  beforeEach(() => { vi.mocked(getSystemAccountId).mockReset(); vi.mocked(getSystemAccountId).mockResolvedValue('a-pay'); });
+
   it('the clearing journal on the lock\'s first day, the period before finalised, clearing lines: exempt', async () => {
     const q = stub(true);
     expect(await run(q)).toBe(true);
@@ -32,8 +40,32 @@ describe('settlementClearingExempt', () => {
     expect((q.mock.calls[0] as unknown[]).slice(1)).toEqual([CO, '2026-09-01']);
   });
 
-  it('the payables fallback as the net-VAT account: exempt', async () => {
-    expect(await run(stub(true, [OUT, INP, PAY]), { lines: [{ glAccountId: 'a-out' }, { glAccountId: 'a-in' }, { glAccountId: 'a-pay' }] })).toBe(true);
+  it('no active 2130: the system payable account (the settlement\'s fallback) is the net-VAT account: exempt', async () => {
+    const q = stub(true, [OUT, INP, PAY], []);
+    expect(await run(q, { lines: [{ glAccountId: 'a-out' }, { glAccountId: 'a-in' }, { glAccountId: 'a-pay' }] })).toBe(true);
+    expect(text(q, 2)).toMatch(/account_code = '2130' AND is_active = true/);
+    expect(vi.mocked(getSystemAccountId)).toHaveBeenCalledWith('payable', CO);
+  });
+
+  it('an active 2130 exists: a payables line is NOT the net-VAT account (round 3, T9): not exempt', async () => {
+    expect(await run(stub(true, [PAY, INP]), { lines: [{ glAccountId: 'a-pay' }, { glAccountId: 'a-in' }] })).toBe(false);
+    expect(vi.mocked(getSystemAccountId)).not.toHaveBeenCalled();
+  });
+
+  it('no 2130 and a payables account that is not THE system payable account: not exempt', async () => {
+    const other = { id: 'a-pay2', account_code: '2105', account_subtype: 'payable' };
+    expect(await run(stub(true, [other, INP], []), { lines: [{ glAccountId: 'a-pay2' }, { glAccountId: 'a-in' }] })).toBe(false);
+  });
+
+  it('no 2130 and no system payable account: not exempt (the settlement would refuse anyway)', async () => {
+    vi.mocked(getSystemAccountId).mockRejectedValue(new MissingSystemAccountError('payable' as never, CO, 'no_claimant' as never, []));
+    expect(await run(stub(true, [OUT, PAY], []), { lines: [{ glAccountId: 'a-out' }, { glAccountId: 'a-pay' }] })).toBe(false);
+  });
+
+  it('only VAT control lines: exempt without resolving the net-VAT account', async () => {
+    const q = stub(true, [OUT, INP]);
+    expect(await run(q, { lines: [{ glAccountId: 'a-out' }, { glAccountId: 'a-in' }] })).toBe(true);
+    expect(q).toHaveBeenCalledTimes(2);
   });
 
   it('no finalised or filed VAT201 ending the day before: not exempt', async () => {
