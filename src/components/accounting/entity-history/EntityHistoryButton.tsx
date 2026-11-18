@@ -21,7 +21,7 @@ export function EntityHistoryButton({ entityType, entityId, label }: Props) {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} title="History" aria-label={`History of ${label}`}
-        className="p-1.5 rounded text-[var(--ff-text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
+        className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded text-[var(--ff-text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
         <History className="h-4 w-4" />
       </button>
       <Drawer open={open} onClose={() => setOpen(false)} title={`History — ${label}`} width="lg">
