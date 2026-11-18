@@ -26,6 +26,7 @@ import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
 import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
 import { periodLabel } from '@/components/payroll/RunCards';
 import { DeleteDraftRunButton } from '@/components/payroll/DeleteDraftRunButton';
+import { FrequencyChangeCard } from '@/components/payroll/FrequencyChangeCard';
 
 
 export default function PayrollRunDetailPage() {
@@ -105,6 +106,9 @@ export default function PayrollRunDetailPage() {
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />
           <SelfApprovedNote decision={run.approvalDecision} />
+          {(run.status === 'draft' || run.status === 'calculated') && canWrite(companyRole) && (
+            <FrequencyChangeCard runId={runId} canAcknowledge={companyRole === 'owner' || companyRole === 'admin'} />
+          )}
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
