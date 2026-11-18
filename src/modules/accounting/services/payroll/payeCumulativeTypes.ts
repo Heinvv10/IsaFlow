@@ -81,7 +81,13 @@ export interface CumulativePayeTrace {
   hasPeriodic: boolean; capPeriods: number; capToDate: number; deductionOffPeriodicToDate: number;
   /** offAnnual is the least of these (never below nil): the deduction left, the annual payments, contributions and the cap to date, each less the part off periodic pay to date. */
   offAnnualLimits: { deductionLeft: number; annualPayments: number; contributionsLeft: number; capLeft: number };
-  taxedAnnualEquivalent: number; annualBefore: number; annualNow: number; annualAll: number; annualEarlier: number;
+  taxedAnnualEquivalent: number;
+  /** What came off the AE in the tax: offPeriodic, or less where the cap to date bounds the deduction to date (min(off × n ÷ F,
+   *  cap to date) × F ÷ n; review #1578 round 2). */
+  offPeriodicTaxed: number;
+  /** The cap to date bounded the deduction off periodic pay to date (by more than floating-point noise). */
+  deductionBounded: boolean;
+  annualBefore: number; annualNow: number; annualAll: number; annualEarlier: number;
   /** Tax on the annual equivalent, with all annual payments to date, and with the earlier ones only. */
   atAE: AnnualTaxAfterCredits; atAll: AnnualTaxAfterCredits; atEarlier: AnnualTaxAfterCredits;
   /** The tax after rebates on the annual equivalent × n ÷ F; the medical credits it used × n ÷ 12, never past it (wave-6 AN,

@@ -97,7 +97,16 @@ function recomputePaye(fig: FigureExplanation): number {
       off = r.amt('paye.retirement');
       expect(off).toBeCloseTo(Math.min(allowed, r.amt('paye.retirement.ceiling')), 6);
     }
-    const taxedAE = Math.max(0, ae - off);
+    // Review #1578 round 2: past P periods the deduction to date is bounded by the cap to date, and the AE is taxed less it.
+    let offTaxed = off;
+    if (r.has('paye.retirement.toDate')) {
+      const unbounded = (off * n) / f;
+      const toDate = r.amt('paye.retirement.toDate');
+      expect(toDate).toBeLessThanOrEqual(unbounded + 1e-6);
+      offTaxed = (toDate * f) / n;
+      expect(r.amt('paye.retirement.taxed')).toBeCloseTo(offTaxed, 6);
+    }
+    const taxedAE = Math.max(0, ae - offTaxed);
     expect(r.amt('paye.taxedAnnualEquivalent')).toBeCloseTo(taxedAE, 6);
     expect(r.amt('paye.atAE.income')).toBeCloseTo(taxedAE, 6);
     const taxAE = taxFromBlock(r, 'paye.atAE');

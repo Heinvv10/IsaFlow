@@ -145,12 +145,12 @@ describe('annualisationFactor (AN)', () => {
   // Review #1578 M: the period ratios never pass a whole year. A 53rd week, or a 13th line in a tax year (ytd.periods
   // counts lines), counts as the year: × min(n, P) ÷ P, so the credit to date stays ≤ 12 × MTC and the deduction ≤ the cap.
   describe('the period ratios are bounded at a year (min(n, P) ÷ P)', () => {
-    const run = (frequency: PayFrequency, periods: number, salary: number, ra: number) => {
+    const run = (frequency: PayFrequency, periods: number, salary: number, ra: number, beneficiaries = 1) => {
       let ytd: PayeYearToDate = { ...NONE, retirementContributions: 0, retirementDeduction: 0, retirementCapPeriods: 0 };
       const out = [];
       for (let i = 0; i < periods; i++) {
         const r = calculateCumulativePaye({
-          ...base, monthlyMedicalBeneficiaries: 1, factor: annualisationFactor(frequency), periodsInYear: periodsInYear(frequency),
+          ...base, monthlyMedicalBeneficiaries: beneficiaries, factor: annualisationFactor(frequency), periodsInYear: periodsInYear(frequency),
           regularTaxable: salary, annualPayments: 0, periodicRemuneration: salary, annualPaymentRemuneration: 0, retirementContributions: ra, ytd,
         });
         out.push(r);
@@ -160,17 +160,61 @@ describe('annualisationFactor (AN)', () => {
           retirementDeduction: (ytd.retirementDeduction ?? 0) + r.retirementDeduction, retirementCapPeriods: (ytd.retirementCapPeriods ?? 0) + 1,
         };
       }
-      return { mtc: sumCents(out.map(o => o.medicalCredit)), deduction: sumCents(out.map(o => o.retirementDeduction)) };
+      return {
+        mtc: sumCents(out.map(o => o.medicalCredit)), deduction: sumCents(out.map(o => o.retirementDeduction)),
+        paye: sumCents(out.map(o => o.regular.monthlyPaye)), last: out[out.length - 1]!,
+      };
     };
     const cap = 43_000_000; // R430 000, 2027
 
     it('weekly: 52 weeks credit 12 × R376 and deduct the cap; a 53rd week adds neither', () => {
-      expect(run('weekly', 52, 50_000, 10_000)).toEqual({ mtc: 12 * 37_600, deduction: cap });
-      expect(run('weekly', 53, 50_000, 10_000)).toEqual({ mtc: 12 * 37_600, deduction: cap }); // unbounded: 4 598.77 and 438 269.23
+      expect(run('weekly', 52, 50_000, 10_000)).toMatchObject({ mtc: 12 * 37_600, deduction: cap });
+      expect(run('weekly', 53, 50_000, 10_000)).toMatchObject({ mtc: 12 * 37_600, deduction: cap }); // unbounded: 4 598.77 and 438 269.23
+    });
+
+    // Review #1578 round 2 (coordinator ruling): the deduction to date is bounded first, min(off × n ÷ F, cap to date), and
+    // the AE is taxed less that, so what is recorded is what PAYE allowed, past P periods too.
+    it('week 53 at the cap: R430 000 recorded and taxed; PAYE = tax((pay to date − 430 000) × 52 ÷ 53) × 53 ÷ 52', () => {
+      const w53 = run('weekly', 53, 50_000, 10_000, 0);
+      expect(w53.deduction).toBe(cap);
+      expect(w53.last.trace.deductionOffPeriodicToDate).toBeCloseTo(430_000, 6);
+      const taxed = ((53 * 50_000 - 430_000) * 52) / 53;
+      expect(w53.last.trace.taxedAnnualEquivalent).toBeCloseTo(taxed, 6);
+      expect(w53.paye).toBe(cents((tax(taxed) * 53) / 52));
+    });
+
+    it('round 3 L2: past the year, what the AE cannot bear spills to the annual payments from the bounded deduction', () => {
+      // A 13th line: R30 000 a month and R10 000 donated (12 earlier lines), a R2 000 000 bonus, R50 000 a month to an RA.
+      // D = the cap on the AE's scale (430 000 × F ÷ 12) > AE, so the deduction spills past the AE; bounded at the cap to
+      // date, the AE is taxed less 430 000 × F ÷ 13, and only that less the AE spills, × 13 ÷ F.
+      const F = annualisationFactor('monthly');
+      const ytd: PayeYearToDate = {
+        ...NONE, periods: 12, periodicTaxable: 12 * 30_000, donations: 12 * 10_000, donationDeduction: 12 * 10_000,
+        retirementContributions: 12 * 50_000, retirementDeduction: 0, retirementCapPeriods: 12,
+      };
+      const r = calculateCumulativePaye({
+        ...base, factor: F, periodsInYear: 12, regularTaxable: 30_000, annualPayments: 2_000_000, periodicRemuneration: 30_000,
+        annualPaymentRemuneration: 2_000_000, retirementContributions: 50_000, donations: 10_000, ytd,
+      });
+      const t = r.trace;
+      expect(t.deductionBounded).toBe(true);
+      expect(t.offPeriodicTaxed).toBeCloseTo((430_000 * F) / 13, 6);
+      expect(t.donationSpill).toBeCloseTo(((t.offPeriodicTaxed - t.annualEquivalent) * 13) / F, 6);
+      expect(t.donationSpill).toBeLessThan(((t.offPeriodic - t.annualEquivalent) * 13) / F);
+    });
+
+    it('a 27th fortnight under the cap: R135 000 recorded (27 × R5 000) and taxed in full', () => {
+      const f27 = run('fortnightly', 27, 20_000, 5_000, 0);
+      expect(f27.deduction).toBe(13_500_000);
+      expect(f27.last.trace.taxedAnnualEquivalent).toBeCloseTo(((27 * 20_000 - 135_000) * 26) / 27, 6);
+    });
+
+    it('a 13th monthly line under the cap: R13 000 recorded (13 × R1 000)', () => {
+      expect(run('monthly', 13, 20_000, 1_000, 0).deduction).toBe(1_300_000);
     });
 
     it('monthly: a 13th line in the tax year adds neither credit nor deduction past the year', () => {
-      expect(run('monthly', 12, 220_000, 45_000)).toEqual({ mtc: 12 * 37_600, deduction: cap });
+      expect(run('monthly', 12, 220_000, 45_000)).toMatchObject({ mtc: 12 * 37_600, deduction: cap });
       const thirteen = run('monthly', 13, 220_000, 45_000);
       expect(thirteen.mtc).toBeLessThanOrEqual(12 * 37_600);
       expect(thirteen.deduction).toBeLessThanOrEqual(cap);

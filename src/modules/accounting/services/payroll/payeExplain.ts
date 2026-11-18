@@ -145,7 +145,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   if (input.medicalFees.total !== 0) {
     steps.push(footed({
       key: 'paye.medicalFees', label: 'Medical scheme fees this period (for the medical credits)', amount: input.medicalFees.total,
-      note: `With the earlier periods' fees, taken a year (× ${t.periodsInYear} ÷ periods: the credits are monthly amounts) inside the tax for the year below.`, source: sourceFor(SOURCES.additionalMedical, taxYear),
+      note: `With the earlier periods' fees, taken a year (× ${t.periodsInYear} ÷ ${t.periods}: the credits are monthly amounts) inside the tax for the year below.`, source: sourceFor(SOURCES.additionalMedical, taxYear),
     }, [
       { key: 'paye.medicalFees.employee', label: 'Deducted from the employee (4005)', amount: input.medicalFees.employee },
       ...(input.medicalFees.employer !== 0 ? [{
@@ -155,6 +155,13 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
     ]));
   }
   if (t.annualDeduction > 0 || t.contributionsToDate > 0) steps.push(retirementStep(input));
+  if (t.deductionBounded) {
+    steps.push({
+      key: 'paye.retirement.toDate', label: 'The deduction off periodic pay to date, bounded by the cap to date', amount: t.deductionOffPeriodicToDate,
+      formula: `the lesser of ${r(t.offPeriodic)} × ${t.periods} ÷ (${annualisationFactorWords(t.factor)}) and the cap to date ${r(t.capToDate)}`,
+      children: [{ key: 'paye.retirement.taxed', label: 'So the deduction off the annual equivalent', amount: t.offPeriodicTaxed, formula: `${r(t.deductionOffPeriodicToDate)} × (${annualisationFactorWords(t.factor)}) ÷ ${t.periods}` }],
+    });
+  }
   steps.push({ key: 'paye.taxedAnnualEquivalent', label: 'Annual equivalent taxed', amount: t.taxedAnnualEquivalent, formula: 'annual equivalent − the deduction off it (never below nil)' });
   steps.push(taxBlock('paye.atAE', 'Tax for the year on the annual equivalent', t.atAE, taxYear));
   if (t.annualAll > 0) {
@@ -168,7 +175,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   steps.push({
     key: 'paye.liability', label: 'Tax due for the year to date', amount: t.liability,
     formula: `${liabilityAE(t)}${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
-    ...(creditsUsed(t.atAE) > 0 ? { note: `The medical credits are monthly amounts (s6A): the tax for the year before them comes off × periods ÷ the factor, and the ${r(creditsUsed(t.atAE))} of credits it used × periods ÷ ${t.periodsInYear} (${r(t.creditsOnAEToDate)}), never more than that tax.` } : {}),
+    ...(creditsUsed(t.atAE) > 0 ? { note: `The medical credits are monthly amounts (s6A): the tax for the year before them comes off × periods ÷ the factor, and the ${r(creditsUsed(t.atAE))} of credits it used × ${Math.min(t.periods, t.periodsInYear)} ÷ ${t.periodsInYear} (${r(t.creditsOnAEToDate)}), never more than that tax${t.periods > t.periodsInYear ? ' (a year\'s worth at most)' : ''}.` } : {}),
   });
   steps.push({ key: 'paye.ytdTablePaye', label: 'Less PAYE already deducted this tax year (tables)', amount: t.ytdTablePaye });
   steps.push({ key: 'paye.due', label: 'PAYE this period from the tables', amount: t.due, formula: 'due to date − already deducted, rounded to the cent, never below nil' });
