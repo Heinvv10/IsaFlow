@@ -53,9 +53,10 @@
 --      46 / 586 / 3 857 ms (O(n^2)); deduped 5 / 7 / 17 ms, with the 5 000-line INSERT itself 167 ms against 146 ms
 --      for an exempt superuser (GUC list). With the queue, 8 000 lines (breaker L1: 11.2 s before, load ~110):
 --      check 40 / 49 ms, INSERT 294 / 347 ms against 243 / 241 ms for an exempt superuser.
---   5. A journal moved into posted balances at COMMIT with every line summed past RLS (round 5, L1: the invoker sum of
---      trg_gl_je_balanced left out a legacy line the poster could not see). A deferred constraint trigger on
---      gl_journal_entries, AFTER UPDATE OF status, only for a move into posted.
+--   5. A journal moved into posted or reversed balances at COMMIT with every line summed past RLS (round 5, L1: the
+--      invoker sum of trg_gl_je_balanced left out a legacy line the poster could not see; S3: reversed too). A deferred
+--      constraint trigger on gl_journal_entries, AFTER UPDATE OF status, only for a move into that set. A balance
+--      error names figures only to a caller whose companies own the journal and every line in it (S4).
 --
 -- DEMO. Demo holds no real money and is wiped by the reseed (wipePlan.ts:193/204). The Demo company
 -- (00000000-0000-0000-0000-000000000001, a literal: no GUC, no role check) is exempt from the GL DELETE rules only (a posted
@@ -405,6 +406,11 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
+  -- Reversed is reached only from posted (security review S3: no app path moves draft -> reversed; census in the PR
+  -- body). A legacy row already reversed keeps its status.
+  IF NEW.status = 'reversed' AND OLD.status IS DISTINCT FROM 'posted' AND OLD.status IS DISTINCT FROM 'reversed' THEN
+    RAISE EXCEPTION 'gl_journal_entries: a journal reaches reversed only from posted' USING ERRCODE = '23514';
+  END IF;
   IF OLD.status IN ('posted', 'reversed') THEN
     IF NEW.status IS DISTINCT FROM OLD.status AND NOT (OLD.status = 'posted' AND NEW.status = 'reversed') THEN
       RAISE EXCEPTION 'gl_journal_entries: a posted journal leaves posted only to reversed (reverse it instead)'
@@ -428,7 +434,7 @@ $$;
 CREATE OR REPLACE TRIGGER trg_gl_je_posted_frozen
   BEFORE UPDATE ON public.gl_journal_entries
   FOR EACH ROW
-  WHEN (OLD.status IN ('posted', 'reversed'))
+  WHEN (OLD.status IN ('posted', 'reversed') OR NEW.status = 'reversed')
   EXECUTE FUNCTION public.gl_je_posted_frozen();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_posted_frozen;
 
@@ -531,7 +537,9 @@ BEGIN
       -- error must not hand another tenant a journal id and its totals (security review S2).
       IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
          AND NOT pg_catalog.pg_has_role(v_caller, 'app_service', 'MEMBER')
-         AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid()) THEN
+         AND (NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid())
+              OR EXISTS (SELECT 1 FROM public.gl_journal_lines l WHERE l.journal_entry_id = v_entry
+                          AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = l.company_id AND cu.user_id = auth.uid()))) THEN
         RAISE EXCEPTION 'gl_journal_entries: a posted journal does not balance' USING ERRCODE = '23514';
       END IF;
       RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', v_entry, v_debit, v_credit
@@ -627,15 +635,19 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = NEW.id AND e.status = 'posted') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = NEW.id AND e.status IN ('posted', 'reversed')) THEN
     RETURN NULL;
   END IF;
   SELECT COALESCE(SUM(l.debit), 0), COALESCE(SUM(l.credit), 0) INTO v_debit, v_credit
     FROM public.gl_journal_lines l WHERE l.journal_entry_id = NEW.id;
   IF v_debit <> v_credit THEN
+    -- Figures only for a caller who sees every row (RLS-bypassing, app_service) or whose companies own the journal
+    -- AND every summed line (security review S4: a visible journal may hold another company's hidden line).
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
        AND NOT pg_catalog.pg_has_role(v_caller, 'app_service', 'MEMBER')
-       AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = NEW.company_id AND cu.user_id = auth.uid()) THEN
+       AND (NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = NEW.company_id AND cu.user_id = auth.uid())
+            OR EXISTS (SELECT 1 FROM public.gl_journal_lines l WHERE l.journal_entry_id = NEW.id
+                        AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = l.company_id AND cu.user_id = auth.uid()))) THEN
       RAISE EXCEPTION 'gl_journal_entries: a posted journal does not balance' USING ERRCODE = '23514';
     END IF;
     RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', NEW.id, v_debit, v_credit
@@ -653,17 +665,23 @@ SELECT 'gl_je_posted_balanced()',
        public.app_definer_hash('public.gl_je_posted_balanced()'::regprocedure)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
--- Created only when absent (no CREATE OR REPLACE for a constraint trigger; DROP would take ACCESS EXCLUSIVE), so a
--- re-run takes SHARE ROW EXCLUSIVE only.
+-- No CREATE OR REPLACE for a constraint trigger. An existing one is replaced (DROP + CREATE, ACCESS EXCLUSIVE on
+-- gl_journal_entries) only when its WHEN predates the move into reversed (security review S3); an unchanged re-run
+-- skips both and takes SHARE ROW EXCLUSIVE only.
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+              WHERE t.tgrelid = 'public.gl_journal_entries'::regclass AND t.tgname = 'trg_gl_je_posted_balanced'
+                AND pg_catalog.pg_get_triggerdef(t.oid) NOT LIKE '%''reversed''%') THEN
+    DROP TRIGGER trg_gl_je_posted_balanced ON public.gl_journal_entries;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
                   WHERE tgrelid = 'public.gl_journal_entries'::regclass AND tgname = 'trg_gl_je_posted_balanced') THEN
     CREATE CONSTRAINT TRIGGER trg_gl_je_posted_balanced
       AFTER UPDATE OF status ON public.gl_journal_entries
       DEFERRABLE INITIALLY DEFERRED
       FOR EACH ROW
-      WHEN (NEW.status = 'posted' AND OLD.status IS DISTINCT FROM 'posted')
+      WHEN (NEW.status IN ('posted', 'reversed') AND (OLD.status IS NULL OR OLD.status NOT IN ('posted', 'reversed')))
       EXECUTE FUNCTION public.gl_je_posted_balanced();
   END IF;
 END

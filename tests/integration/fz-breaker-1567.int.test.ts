@@ -254,7 +254,37 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_A, role: 'authenticated' })]);
       await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
       await c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [je]);
-      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance: debit=877.00 credit=100.00/);
+      // S4: A can see the journal, but not the other company's line, so the error names no figures.
+      const err = await c.query('SET CONSTRAINTS ALL IMMEDIATE').then(() => null, (e: Error) => e.message);
+      expect(err).toBe('gl_journal_entries: a posted journal does not balance');
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+  it('S4: a caller whose company owns the journal and every line in it does get the figures', async () => {
+    await expect(as('app_user', async (c) => {
+      const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-31', 'fz s4', 'manual', 'posted', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 33, 0, $3)', [je, ACC.sal, A]);
+    })).rejects.toThrow(/does not balance: debit=33.00 credit=0/);
+  });
+  for (const who of ['app_user', 'postgres'] as const) {
+    it(`S3 [${who}]: a draft cannot move straight to reversed`, async () => {
+      const je = (await one(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-31', 'fz s3', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).id as string;
+      await expect(as(who, (c) => c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je])))
+        .rejects.toThrow(/reaches reversed only from posted/);
+    });
+  }
+  it('S3b: with that refusal switched off, a draft moved into reversed is still balanced at COMMIT (rule 5 covers reversed)', async () => {
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_posted_frozen');
+      const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-31', 'fz s3b', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 44, 0, $3)', [je, ACC.sal, A]);
+      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await c.query("UPDATE gl_journal_entries SET status = 'reversed' WHERE id = $1", [je]);
+      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance/);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
   it('B10 [postgres, NOSUPERUSER] (the stated limit): the table owner can still DISABLE the freeze', async () => {

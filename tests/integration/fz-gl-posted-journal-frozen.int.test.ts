@@ -189,8 +189,30 @@ describe('FZ: a posted journal refuses amount changes', () => {
       await c.query('SET LOCAL ROLE migration_admin');
       await c.query("SET LOCAL session_replication_role = 'replica'");
       await c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [d]);
-      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(UNBALANCED);
+      // migration_admin sees every row, so it gets the figures.
+      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance: debit=9.00 credit=0/);
     } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); await pool.end(); }
+  }, 60_000);
+
+  it('S4 (rule 4): a balance error names no figures when the journal holds a line the caller cannot see', async () => {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    const c = await pool.connect();
+    let err: string | null = null;
+    try {
+      await c.query('BEGIN');
+      const other = (await c.query("INSERT INTO companies (name) VALUES ('FZ S4 other') RETURNING id")).rows[0]!.id;
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+        VALUES ($1, '6000', 'Other', 'expense', 'debit') RETURNING id`, [other])).rows[0]!.id;
+      const je = (await c.query(`INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+        VALUES ($1, '2026-01-25', 'FZ born posted', 'manual', 'posted', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 777, 0)', [je, other, acct]);
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 0, 100)', [je, a.company, bankAcct]);
+      err = await c.query('SET CONSTRAINTS ALL IMMEDIATE').then(() => null, (e: Error) => e.message);
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); await pool.end(); }
+    expect(err).toBe('gl_journal_entries: a posted journal does not balance');
   }, 60_000);
 
   it('a posted journal takes no added or removed line, balanced or not; a journal born posted in this transaction must balance', async () => {
