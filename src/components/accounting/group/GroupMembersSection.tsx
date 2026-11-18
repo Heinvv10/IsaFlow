@@ -167,6 +167,8 @@ export function GroupMembersSection({ group, members, availableCompanies, active
                 const here = isActiveCompany(m.companyId, activeCompanyId);
                 const name = m.companyName ?? 'that company';
                 const hint = here ? undefined : rowHint(name, !!activeCompanyId);
+                const editName = here ? 'Edit' : disabledAction('Edit', name, !!activeCompanyId);
+                const removeName = here ? 'Remove' : disabledAction('Remove', name, !!activeCompanyId);
                 return (
                 <tr key={m.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                   <td className="py-3 text-[var(--ff-text-primary)]">
@@ -214,13 +216,13 @@ export function GroupMembersSection({ group, members, availableCompanies, active
                           }}
                           disabled={!here}
                           className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                          title={here ? 'Edit' : disabledAction('Edit', name, !!activeCompanyId)} aria-label={here ? 'Edit' : disabledAction('Edit', name, !!activeCompanyId)}
+                          title={editName} aria-label={editName}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button onClick={() => void handleRemoveMember(m.id)} disabled={!here}
                           className="p-1.5 rounded hover:bg-red-500/10 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                          title={here ? 'Remove' : disabledAction('Remove', name, !!activeCompanyId)} aria-label={here ? 'Remove' : disabledAction('Remove', name, !!activeCompanyId)}>
+                          title={removeName} aria-label={removeName}>
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>

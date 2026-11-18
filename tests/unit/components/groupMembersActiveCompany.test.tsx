@@ -19,6 +19,7 @@ import type { CompanyGroup, GroupMember } from '../../../src/components/accounti
 
 const HERE = '10000000-0000-4000-8000-0000000000a1';
 const ELSEWHERE = '10000000-0000-4000-8000-0000000000a2';
+const THIRD = '10000000-0000-4000-8000-0000000000a3';
 const SWITCH = 'Group membership is changed with that company as your active company: switch to it, then repeat the change.';
 const refusal = () => new Response(JSON.stringify({ success: false, error: { message: SWITCH } }), { status: 403, headers: { 'Content-Type': 'application/json' } });
 
@@ -164,6 +165,37 @@ describe('another tab switches company: this tab\'s gating follows (round 5)', (
     const { result } = renderHook(() => useLiveActiveCompanyId(HERE));
     act(() => { store(ELSEWHERE); window.dispatchEvent(new StorageEvent('storage', { key: 'something_else' })); });
     expect(result.current).toBe(HERE);
+  });
+  it('no company in the context stays no company on every event, whatever storage holds (the alert does not clear on focus)', () => {
+    store(HERE);
+    const { result } = renderHook(() => useLiveActiveCompanyId(null));
+    expect(result.current).toBeNull();
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    expect(result.current).toBeNull();
+    act(() => { store(ELSEWHERE); window.dispatchEvent(new StorageEvent('storage', { key: COMPANY_STORAGE_KEY })); document.dispatchEvent(new Event('visibilitychange')); });
+    expect(result.current).toBeNull();
+  });
+  it('the alert stays on screen after a focus when the context has no company', () => {
+    store(HERE);
+    function Screen() {
+      const active = useLiveActiveCompanyId(null);
+      return <GroupMembersSection group={group} members={members} availableCompanies={[]} activeCompanyId={active} onRefresh={vi.fn(async () => undefined)} onFlash={vi.fn()} />;
+    }
+    render(<Screen />);
+    expect(screen.getByRole('alert')).toBeTruthy();
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
+  it('a same-tab switch (the context moves) is used at once: no stale override, no extra render', () => {
+    store(HERE);
+    let renders = 0;
+    const { result, rerender } = renderHook(({ id }: { id: string }) => { renders += 1; return useLiveActiveCompanyId(id); }, { initialProps: { id: HERE } });
+    act(() => { store(ELSEWHERE); window.dispatchEvent(new Event('focus')); });
+    expect(result.current).toBe(ELSEWHERE);
+    renders = 0;
+    rerender({ id: THIRD });                    // a same-tab switch: the context moves, and the old override (read against HERE) no longer applies
+    expect(result.current).toBe(THIRD);
+    expect(renders).toBe(1);                    // one render for the new props, none for syncing state
   });
   it('member rows are re-gated against the new active company without a reload', () => {
     store(HERE);

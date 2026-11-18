@@ -7,10 +7,11 @@ import { useEffect, useState } from 'react';
 import { COMPANY_STORAGE_KEY, readStoredCompanyId } from '@/contexts/companyModel';
 
 export function useLiveActiveCompanyId(contextId: string | null): string | null {
-  const [live, setLive] = useState<string | null>(contextId);
-  useEffect(() => { setLive(contextId); }, [contextId]);
+  // The re-read id, remembered with the context id it was read against: when the context moves (a same-tab switch) the
+  // override no longer applies and the context's id is used at once, with no effect and no second render.
+  const [override, setOverride] = useState<{ against: string | null; id: string | null } | null>(null);
   useEffect(() => {
-    const sync = () => setLive(readStoredCompanyId() ?? contextId);
+    const sync = () => setOverride({ against: contextId, id: readStoredCompanyId() ?? contextId });
     const onStorage = (e: StorageEvent) => { if (e.key === null || e.key === COMPANY_STORAGE_KEY) sync(); };
     const onVisible = () => { if (document.visibilityState === 'visible') sync(); };
     window.addEventListener('storage', onStorage);
@@ -22,5 +23,8 @@ export function useLiveActiveCompanyId(contextId: string | null): string | null 
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [contextId]);
-  return live;
+  // No company in the context (its details failed to load) stays no company on every event: the screen says so and offers
+  // a retry, instead of gating against a stored id on the first focus and not before it.
+  if (contextId === null) return null;
+  return override && override.against === contextId ? override.id : contextId;
 }
