@@ -16,6 +16,7 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'create_supplier_invoice',
   'bulk_create_supplier_invoices',
   'bulk_create_customer_invoices',
+  'bulk_create_purchase_orders',
   'attach_document',
   'attach_entity_document',
   'create_upload_urls',

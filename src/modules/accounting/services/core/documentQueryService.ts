@@ -19,8 +19,8 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { entityTableName, hasEntityDocumentSql } from './documentPresenceSql';
-import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
+import { entityTableName, hasEntityDocumentSql, type DocumentedEntityType } from './documentPresenceSql';
+import type { LinkedDocument } from '@/types/procurement/document.types';
 import {
   VALID_ENTITY_TYPES,
   mapRow,
@@ -92,7 +92,7 @@ export async function listEntityDocuments(
  */
 export async function entityIdsWithDocuments(
   companyId: string,
-  entityType: AccountingEntityType,
+  entityType: DocumentedEntityType,
   ids: readonly string[],
 ): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
