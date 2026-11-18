@@ -7,6 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { graphemes } from '@/modules/accounting/services/packs/pages/packGraphemes';
+import { expectWithin } from '../../../helpers/loadAwareTiming';
 
 const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
 const reference = (t: string) => Array.from(SEGMENTER.segment(t), ({ segment, index }) => ({ segment, index }));
@@ -108,7 +109,7 @@ describe('packGraphemes', () => {
       const t = unit.repeat(n);
       const start = performance.now();
       const got = graphemes(t);
-      expect(performance.now() - start, `${JSON.stringify(unit)} x ${n}`).toBeLessThan(800);
+      expectWithin(performance.now() - start, 800, `${JSON.stringify(unit)} x ${n}`);
       expect(got.map((g) => g.segment).join('') === t).toBe(true);
     }
   }, 60_000);

@@ -4,7 +4,7 @@
  */
 
 import { toIsoTimestamp } from '@/lib/dateUtils';
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -114,6 +114,18 @@ export class IntercompanyNotFoundError extends Error {
   }
 }
 
+/**
+ * Match could not change every row it named: row security (999r) lets a user change an intercompany row only with a
+ * write role in its source or target company, so a group writer who writes neither party of one of the pair changes
+ * fewer rows than asked. Nothing is kept (the UPDATE is rolled back): a half-matched pair feeds the eliminations.
+ */
+export class IntercompanyMatchRefusedError extends Error {
+  constructor(readonly expected: number, readonly changed: number) {
+    super(`Intercompany match refused: ${changed} of ${expected} transactions could be changed`);
+    this.name = 'IntercompanyMatchRefusedError';
+  }
+}
+
 export async function createIntercompanyTransaction(input: {
   groupId: string;
   sourceCompanyId: string;
@@ -155,11 +167,26 @@ export async function createIntercompanyTransaction(input: {
   return mapIntercompanyTx(rows[0]!);
 }
 
+/** The two parties of each listed transaction of THIS group the caller can see (the route checks a write role in one of them). */
+export async function getTransactionParties(
+  ids: string[], groupId: string,
+): Promise<Array<{ id: string; sourceCompanyId: string; targetCompanyId: string }>> {
+  const rows = (await sql`
+    SELECT id, source_company_id, target_company_id FROM intercompany_transactions
+    WHERE id = ANY(${ids}::UUID[]) AND group_id = ${groupId}::UUID
+  `) as Row[];
+  return rows.map((r) => ({ id: String(r.id), sourceCompanyId: String(r.source_company_id), targetCompanyId: String(r.target_company_id) }));
+}
+
 export async function matchIntercompanyTransactions(
   sourceId: string,
   targetId: string,
   groupId: string,
+  /** Who matched them: stamped on both rows with matched_at (an audit trail; the database pins it to the caller). */
+  matchedBy: string,
 ): Promise<void> {
+  if (!matchedBy) throw new Error('matchedBy is required: a match is signed by the user who made it');
+  if (sourceId.toLowerCase() === targetId.toLowerCase()) throw new Error('An intercompany transaction cannot be matched with itself');
   const sources = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${sourceId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
   const targets = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${targetId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
 
@@ -172,14 +199,21 @@ export async function matchIntercompanyTransactions(
   const variance = Math.abs(Number(source.amount) - Number(target.amount));
   const status = variance === 0 ? 'matched' : 'variance';
 
-  await sql`
-    UPDATE intercompany_transactions SET
-      match_status = ${status},
-      variance_amount = ${variance},
-      matched_at = NOW()
-    WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
-      AND group_id = ${groupId}::UUID
-  `;
+  // Both rows or neither: the savepoint rolls the UPDATE back when row security let fewer than all through.
+  const expected = new Set([sourceId, targetId]).size;
+  await withTransaction(async (tx) => {
+    const changed = await tx`
+      UPDATE intercompany_transactions SET
+        match_status = ${status},
+        variance_amount = ${variance},
+        matched_at = NOW(),
+        matched_by = ${matchedBy}::UUID
+      WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
+        AND group_id = ${groupId}::UUID
+      RETURNING id
+    `;
+    if (changed.length !== expected) throw new IntercompanyMatchRefusedError(expected, changed.length);
+  });
 
   log.info('Intercompany transactions matched', { sourceId, targetId, groupId, status, variance }, 'accounting');
 }

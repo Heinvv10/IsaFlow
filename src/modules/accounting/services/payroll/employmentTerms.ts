@@ -24,8 +24,8 @@
  *   not pay for a day's work; LOW-MEDIUM confidence, G21 p. 28 says only "earns ... for that day") over the scheduled days
  *   (hours a week / hours a day, x 52 / 12 a month) scaled by the share of the month the employee was employed. With no
  *   recorded rate the earned figure stands in. DAY_PAY_TOLERANCE only governs the warning, never the class. The share of the
- *   month is in WORKING days (Monday to Friday); public holidays are NOT excluded (no holiday calendar exists in the repo and none is
- *   hardcoded here: a named limit, which can only make a short month's earned day pay lower, and earnings only raise the day pay).
+ *   month is in WORKING days (Monday to Friday); public holidays are NOT excluded (`@/lib/saPublicHolidays` exists but is not applied
+ *   here: a named limit, which can only make a short month's earned day pay lower, and earnings only raise the day pay).
  * "Less than R394" is strict: exactly R394 a day is not under it (p. 28; the table's "more than" rows leave exactly R394 to
  *   the residual definition, 25%).
  */

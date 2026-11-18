@@ -208,7 +208,7 @@ describe('P1: budget months follow a change of year end', () => {
       // T1: the Settings change to a March start (companyService.updateCompany's order), held open.
       await t1.query('BEGIN');
       await als.run({ client: t1, companyId: id, userId: user, claims: {} } as never, async () => {
-        expect(await assertFinancialYearStartChange(id, 3)).toBe(true);
+        expect(await assertFinancialYearStartChange(id, 3, 1)).toBe(true);
         await t1.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [id]);
         await rebuildUnusedFiscalPeriods(id, new Date(`${TODAY}T12:00:00`));
       });
@@ -247,7 +247,7 @@ describe('P1: budget months follow a change of year end', () => {
       // T1: the Settings page sends the whole company, entity type included, with a new start month.
       await t1.query('BEGIN');
       const pid = await backendPid(t1);
-      const settings = als.run(ctx(t1), () => updateCompany(id, { entityType: 'pty_ltd', financialYearStart: 3 }))
+      const settings = als.run(ctx(t1), () => updateCompany(id, { entityType: 'pty_ltd', financialYearStart: 3, loadedFinancialYearStart: 1 }))
         .then(() => 'ok', (e: { code?: string; name?: string }) => e.code ?? e.name ?? 'error');
       await waitUntilBlocked(pool, pid);
       // T2 goes on to write (a new version, as the wizard does): its FK check needs the companies row, which T1 must not be holding yet.

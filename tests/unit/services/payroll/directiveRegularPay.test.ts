@@ -32,8 +32,9 @@ const YTD: PayeYearToDate = { periods: 5, periodicTaxable: 150_000, annualPaymen
   sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 };
 
 describe('IRP3(b) fixed percentage on regular pay (G21 p. 15-16)', () => {
-  it('20% of R30 000 is R6 000.00 (the tables give R4 681.00); UIF 177.12, SDL 300, net 23 822.88', () => {
-    expect(cost(employee(), [earn(30_000)]).paye.monthlyPaye).toBe(4_681);
+  it('20% of R30 000 is R6 000.00 (the tables give R4 681.01); UIF 177.12, SDL 300, net 23 822.88', () => {
+    // tax(30 000 × F) ÷ F = 56 172.21 ÷ F = 4 681.01 (AN (wave-6 ruling 5): × 365 ÷ 30.4166, not × 12; × 12: 4 681.00).
+    expect(cost(employee(), [earn(30_000)]).paye.monthlyPaye).toBe(4_681.01);
     const r = cost(employee(), [earn(30_000)], state(pct20));
     expect([r.paye.monthlyPaye, r.payeSplit.regular, r.uif.employeeContribution, r.sdl, r.netPay]).toEqual([6_000, 6_000, 177.12, 300, 23_822.88]);
     expect(outside(r)).toEqual([expect.objectContaining({ severity: 'info', treatment: 'directive', directive: expect.objectContaining({ id: 'd-20', rate: 0.2 }) })]);
@@ -94,7 +95,7 @@ describe('the line names the directive by its number, never by its row id', () =
 describe('after the directive ends (G21 p. 15: valid only for the period stated)', () => {
   it('the tables apply again, with an UNVERIFIED warning on the first month', () => {
     const r = cost(employee(), [earn(30_000)], state(null, pct20));
-    expect(r.paye.monthlyPaye).toBe(4_681);
+    expect(r.paye.monthlyPaye).toBe(4_681.01);
     expect(outside(r)).toEqual([]);
     expect(codes(r)).toContain('DIRECTIVE_ENDED');
   });

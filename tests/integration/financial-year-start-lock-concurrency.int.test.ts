@@ -41,7 +41,7 @@ describe('financial year start: company-row lock', () => {
     const { u, companyId } = await fx.onboarded();
     const holder = await holdKeyShare(companyId);
     try {
-      const save = fx.put(u, { id: companyId, financialYearStart: 3, tradingName: 'No row lock' });
+      const save = fx.put(u, { id: companyId, financialYearStart: 3, loadedFinancialYearStart: 3, tradingName: 'No row lock' });
       const first = await within(save, 3000);
       expect(first, 'the save waited on the company row: it took FOR UPDATE for an unchanged month').not.toBe(PENDING);
       expect((first as Awaited<typeof save>).status).toBe(200);
@@ -56,7 +56,7 @@ describe('financial year start: company-row lock', () => {
     const holder = await holdKeyShare(companyId);
     let change: ReturnType<typeof fx.put> | undefined;
     try {
-      change = fx.put(u, { id: companyId, financialYearStart: 6 });
+      change = fx.put(u, { id: companyId, financialYearStart: 6, loadedFinancialYearStart: 3 });
       expect(await within(change, 1500), 'the change did not lock the company row').toBe(PENDING);
       // The in-flight transaction finishes its insert (a close run on a period) and commits.
       await holder.query(

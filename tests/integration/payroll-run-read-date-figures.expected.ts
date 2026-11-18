@@ -19,7 +19,9 @@
  * workers (ETI Act s6(c), s6(d)), so the young employee's validation_results carry ETI_CONNECTED_OR_DOMESTIC_UNCHECKED,
  * and, as the fixture records no hours a week, ETI_HOURS_UNKNOWN (ETI claimed as for a full month, s7(5), s4(1)(a));
  * their ETI is unchanged (750.00) because the fixture now records a valid SA ID number matching the date of birth (s6(b)).
- * Nothing else was edited.
+ * One more for wave 6 AN (days-based annualisation, 365 / 30.4166, ruling 5): the endsMid and steady employees' paye is
+ * 1c higher in both months (2079.09 / 3450.29 feb, 1965.01 / 3316.21 mar), net_pay 1c lower, and total_paye / total_net
+ * follow (2c). Nothing else was edited.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {
@@ -32,8 +34,8 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "gross_pay": "21000.00",
       "medical_credit": "364.00",
       "medical_scheme_fees": "0.00",
-      "net_pay": "18563.80",
-      "paye": "2079.08",
+      "net_pay": "18563.79",
+      "paye": "2079.09",
       "periodic_taxable": "21000.00",
       "sdl": "210.00",
       "taxable_income": "21000.00",
@@ -66,8 +68,8 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "gross_pay": "31500.00",
       "medical_credit": "974.00",
       "medical_scheme_fees": "1950.00",
-      "net_pay": "23642.60",
-      "paye": "3450.28",
+      "net_pay": "23642.59",
+      "paye": "3450.29",
       "periodic_taxable": "30900.00",
       "sdl": "286.20",
       "taxable_income": "30900.00",
@@ -102,8 +104,8 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "gross_pay": "21000.00",
       "medical_credit": "376.00",
       "medical_scheme_fees": "0.00",
-      "net_pay": "18857.88",
-      "paye": "1965.00",
+      "net_pay": "18857.87",
+      "paye": "1965.01",
       "periodic_taxable": "21000.00",
       "sdl": "210.00",
       "taxable_income": "21000.00",
@@ -153,8 +155,8 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "gross_pay": "31500.00",
       "medical_credit": "1006.00",
       "medical_scheme_fees": "1950.00",
-      "net_pay": "23776.68",
-      "paye": "3316.20",
+      "net_pay": "23776.67",
+      "paye": "3316.21",
       "periodic_taxable": "30900.00",
       "sdl": "286.20",
       "taxable_income": "30900.00",
@@ -187,8 +189,8 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "employee_count": 4,
     "total_eti": "750.00",
     "total_gross": "84000.00",
-    "total_net": "70764.53",
-    "total_paye": "8229.11",
+    "total_net": "70764.51",
+    "total_paye": "8229.13",
     "total_sdl": "811.20",
     "total_taxable": "84000.00",
     "total_uif": "1192.72"
@@ -197,8 +199,8 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "employee_count": 5,
     "total_eti": "750.00",
     "total_gross": "94700.00",
-    "total_net": "81711.44",
-    "total_paye": "7985.20",
+    "total_net": "81711.42",
+    "total_paye": "7985.22",
     "total_sdl": "918.20",
     "total_taxable": "94700.00",
     "total_uif": "1546.72"

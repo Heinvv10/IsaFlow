@@ -60,8 +60,9 @@ describe('no report may synthesize its own universe', () => {
   // The independently-derived ones must survive: this fix is about removing
   // claims that cannot fail, NOT about removing completeness reporting.
   it('leaves genuinely independent universe counts in place', () => {
-    expect(src('src/modules/accounting/services/core/documentQueryService.ts'))
-      .toMatch(/universeTotal:\s*Number\(universe\?\.cnt/);
+    // list_unsupported_transactions: COUNT(*) over the whole scope (CTE `t`), apart from the LIMITed page.
+    expect(src('src/modules/accounting/services/core/unsupportedTransactionsQuery.ts'))
+      .toMatch(/universeTotal:\s*Number\(totals\?\.universe/);
     // Moved with the report's definition into the shared basis: one COUNT(*)
     // over the population, a second statement from the row query, so a row
     // query that drops rows breaks the identity instead of moving it.

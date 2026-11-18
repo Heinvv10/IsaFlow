@@ -27,7 +27,7 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
   getGroup: vi.fn(), createGroup: vi.fn(), updateGroup: vi.fn(), deleteGroup: vi.fn(),
-  addMember: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), getGroupMembers: vi.fn(),
+  addMember: vi.fn(async () => ({ id: 'm1' })), findMember: vi.fn(async () => ({ companyId: 'c1' })), updateMember: vi.fn(), removeMember: vi.fn(), getGroupMembers: vi.fn(),
   getGroupAccounts: vi.fn(), createGroupAccount: vi.fn(), updateGroupAccount: vi.fn(),
   deleteGroupAccount: vi.fn(), autoGenerateGroupCOA: vi.fn(), getCoaMappings: vi.fn(),
   setCoaMapping: vi.fn(), removeCoaMapping: vi.fn(), autoMapAccounts: vi.fn(),
@@ -68,7 +68,7 @@ function wireSql(opts: { hasGroupAccess: boolean; isCompanyMember: boolean }): v
 }
 
 function makeReq(body: Record<string, unknown>): NextApiRequest {
-  return { method: 'POST', query: {}, body, user: { id: USER_ID } } as unknown as NextApiRequest;
+  return { method: 'POST', query: {}, body, user: { id: USER_ID }, companyId: (body.companyId ?? body.holdingCompanyId) } as unknown as NextApiRequest;
 }
 function makeRes(): NextApiResponse {
   const res = { status: vi.fn(), json: vi.fn() } as unknown as NextApiResponse;

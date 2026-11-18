@@ -65,6 +65,7 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
 
   async function cleanup(): Promise<void> {
     for (const id of made) {
+      await dropJournals(id);
       // Locked versions refuse DELETE (migration 947): unlock first, as QA purges do.
       await pool.query(
         `UPDATE budget_versions SET status = 'approved', unlocked_by = locked_by, unlocked_at = clock_timestamp(), unlock_reason = 'test cleanup'
@@ -75,6 +76,32 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
       await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [id]);
     }
     for (const u of users) await pool.query('DELETE FROM company_users WHERE user_id = $1', [u]);
+  }
+
+  /**
+   * The company's journals, which a suite's own afterAll may leave behind (budgets-bva-parity deleted only their
+   * lines). They never had a period: `owner()` creates the year with fiscal_year_ensure, which writes no periods
+   * (migration 942), so trg_gl_je_fiscal_period_from_date leaves fiscal_period_id NULL at insert. A posted journal
+   * with a NULL period left in the shared fixture fails the deploy integrity check "Posted JE fiscal period matches
+   * entry date" (demo-reseed) for every suite that runs after it (merge queue, PR #1551). Before the periods, since
+   * gl_journal_entries_fiscal_period_id_fkey is NO ACTION. Replica role: posted journals and their lines refuse
+   * DELETE otherwise, as in budgetBillFixture.dropBillFixture.
+   */
+  async function dropJournals(companyId: string): Promise<void> {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL session_replication_role = replica');
+      await c.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = $1)', [companyId]);
+      await c.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [companyId]);
+      await c.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [companyId]);
+      await c.query('COMMIT');
+    } catch (err) {
+      await c.query('ROLLBACK');
+      throw err;
+    } finally {
+      c.release();
+    }
   }
 
   return { call, owner, cleanup, seedPrimary };

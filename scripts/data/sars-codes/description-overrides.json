@@ -1,0 +1,1871 @@
+{
+ "2024": {
+  "3601": {
+   "brs": "v22.1.2",
+   "description": "Income (PAYE)",
+   "page": 71
+  },
+  "3602": {
+   "brs": "v22.1.2",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 72
+  },
+  "3603": {
+   "brs": "v22.1.2",
+   "description": "Pension (PAYE)",
+   "page": 72
+  },
+  "3604": {
+   "brs": "v22.1.2",
+   "description": "Pension (Excl)",
+   "page": 73
+  },
+  "3605": {
+   "brs": "v22.1.2",
+   "description": "Annual payment (PAYE)",
+   "page": 73
+  },
+  "3606": {
+   "brs": "v22.1.2",
+   "description": "Commission (PAYE)",
+   "page": 73
+  },
+  "3607": {
+   "brs": "v22.1.2",
+   "description": "Overtime (PAYE)",
+   "page": 73
+  },
+  "3608": {
+   "brs": "v22.1.2",
+   "description": "Arbitration award (PAYE)",
+   "page": 73
+  },
+  "3609": {
+   "brs": "v22.1.2",
+   "description": "Arbitration award (Excl)",
+   "page": 73
+  },
+  "3610": {
+   "brs": "v22.1.2",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 74
+  },
+  "3611": {
+   "brs": "v22.1.2",
+   "description": "Purchased annuity (PAYE)",
+   "page": 74
+  },
+  "3612": {
+   "brs": "v22.1.2",
+   "description": "Purchased annuity (Excl)",
+   "page": 74
+  },
+  "3613": {
+   "brs": "v22.1.2",
+   "description": "Restraint of trade (PAYE)",
+   "page": 74
+  },
+  "3614": {
+   "brs": "v22.1.2",
+   "description": "Other retirement lump sums (PAYE)",
+   "page": 74
+  },
+  "3615": {
+   "brs": "v22.1.2",
+   "description": "Director’s remuneration (PAYE)",
+   "page": 74
+  },
+  "3616": {
+   "brs": "v22.1.2",
+   "description": "Independent contractors (PAYE)",
+   "page": 75
+  },
+  "3617": {
+   "brs": "v22.1.2",
+   "description": "Labour Brokers (PAYE)",
+   "page": 75
+  },
+  "3618": {
+   "brs": "v22.1.2",
+   "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 75
+  },
+  "3619": {
+   "brs": "v22.1.2",
+   "description": "Labour Brokers (IT)",
+   "page": 75
+  },
+  "3620": {
+   "brs": "v22.1.2",
+   "description": "Directors Fees – RSA Resident NED (IT)",
+   "page": 75
+  },
+  "3621": {
+   "brs": "v22.1.2",
+   "description": "Directors Remuneration – Non-Resident NED (PAYE)",
+   "page": 75
+  },
+  "3622": {
+   "brs": "v22.1.2",
+   "description": "Long Service Cash Award (Excl if 3622+3835 <= R 5000; PAYE if 3622+3835 > R 5000)",
+   "page": 76
+  },
+  "3701": {
+   "brs": "v22.1.2",
+   "description": "Travel allowance (PAYE)",
+   "page": 76
+  },
+  "3702": {
+   "brs": "v22.1.2",
+   "description": "Reimbursive travel allowance (IT)",
+   "page": 77
+  },
+  "3703": {
+   "brs": "v22.1.2",
+   "description": "Reimbursive travel allowance (Excl)",
+   "page": 77
+  },
+  "3704": {
+   "brs": "v22.1.2",
+   "description": "Subsistence allowance – local travel (IT)",
+   "page": 78
+  },
+  "3705": {
+   "brs": "v22.1.2",
+   "description": "Subsistence allowance (Excl)",
+   "page": 78
+  },
+  "3706": {
+   "brs": "v22.1.2",
+   "description": "Entertainment allowance (PAYE)",
+   "page": 78
+  },
+  "3707": {
+   "brs": "v22.1.2",
+   "description": "Share options exercised (PAYE)",
+   "page": 78
+  },
+  "3708": {
+   "brs": "v22.1.2",
+   "description": "Public office allowance (PAYE)",
+   "page": 78
+  },
+  "3709": {
+   "brs": "v22.1.2",
+   "description": "Uniform allowance (Excl)",
+   "page": 78
+  },
+  "3710": {
+   "brs": "v22.1.2",
+   "description": "Tool allowance (PAYE)",
+   "page": 78
+  },
+  "3711": {
+   "brs": "v22.1.2",
+   "description": "Computer allowance (PAYE)",
+   "page": 78
+  },
+  "3712": {
+   "brs": "v22.1.2",
+   "description": "Telephone/cell phone allowance (PAYE)",
+   "page": 78
+  },
+  "3713": {
+   "brs": "v22.1.2",
+   "description": "Other allowances (PAYE)",
+   "page": 79
+  },
+  "3714": {
+   "brs": "v22.1.2",
+   "description": "Other allowances (Excl)",
+   "page": 79
+  },
+  "3715": {
+   "brs": "v22.1.2",
+   "description": "Subsistence allowance – foreign travel (IT)",
+   "page": 80
+  },
+  "3716": {
+   "brs": "v22.1.2",
+   "description": "Subsistence allowance – foreign travel (Excl)",
+   "page": 80
+  },
+  "3717": {
+   "brs": "v22.1.2",
+   "description": "Broad-based employee share plan (PAYE)",
+   "page": 80
+  },
+  "3718": {
+   "brs": "v22.1.2",
+   "description": "Vesting of equity instruments or return of capital i.r.o. restricted equity instruments (PAYE)",
+   "page": 80
+  },
+  "3719": {
+   "brs": "v22.1.2",
+   "description": "Dividends not exempt i.r.o. par (dd) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 80
+  },
+  "3720": {
+   "brs": "v22.1.2",
+   "description": "Dividends not exempt i.r.o. par (ii) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 81
+  },
+  "3721": {
+   "brs": "v22.1.2",
+   "description": "Dividends not exempt i.r.o. par (jj) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 81
+  },
+  "3722": {
+   "brs": "v22.1.2",
+   "description": "Reimbursive travel allowance (PAYE)",
+   "page": 81
+  },
+  "3723": {
+   "brs": "v22.1.2",
+   "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 82
+  },
+  "3724": {
+   "brs": "v22.1.2",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
+   "page": 82
+  },
+  "3801": {
+   "brs": "v22.1.2",
+   "description": "General fringe benefits (PAYE)",
+   "page": 83
+  },
+  "3802": {
+   "brs": "v22.1.2",
+   "description": "Use of motor vehicle acquired by employer NOT via Operating Lease (PAYE)",
+   "page": 83
+  },
+  "3803": {
+   "brs": "v22.1.2",
+   "description": "Use of asset (PAYE)",
+   "page": 83
+  },
+  "3804": {
+   "brs": "v22.1.2",
+   "description": "Meals, etc. (PAYE)",
+   "page": 83
+  },
+  "3805": {
+   "brs": "v22.1.2",
+   "description": "Accommodation (PAYE)",
+   "page": 84
+  },
+  "3806": {
+   "brs": "v22.1.2",
+   "description": "Services (PAYE)",
+   "page": 84
+  },
+  "3807": {
+   "brs": "v22.1.2",
+   "description": "Loans or subsidy (PAYE)",
+   "page": 84
+  },
+  "3808": {
+   "brs": "v22.1.2",
+   "description": "Employee’s debt - excluding code 3828 Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "page": 84
+  },
+  "3809": {
+   "brs": "v22.1.2",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Basic Education (PAYE)",
+   "page": 84
+  },
+  "3810": {
+   "brs": "v22.1.2",
+   "description": "Medical aid contributions (PAYE)",
+   "page": 85
+  },
+  "3813": {
+   "brs": "v22.1.2",
+   "description": "Medical services costs (PAYE)",
+   "page": 85
+  },
+  "3815": {
+   "brs": "v22.1.2",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person - Basic Education (Excl)",
+   "page": 85
+  },
+  "3816": {
+   "brs": "v22.1.2",
+   "description": "Use of motor vehicle acquired by employer via Operating Lease (PAYE)",
+   "page": 85
+  },
+  "3817": {
+   "brs": "v22.1.2",
+   "description": "Benefit: Employers Pension Fund contributions (PAYE)",
+   "page": 85
+  },
+  "3820": {
+   "brs": "v22.1.2",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Further Education (PAYE)",
+   "page": 85
+  },
+  "3821": {
+   "brs": "v22.1.2",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person – Further Education (Excl)",
+   "page": 85
+  },
+  "3822": {
+   "brs": "v22.1.2",
+   "description": "Non-taxable Benefit – Acquisition of Immovable Property (Excl)",
+   "page": 85
+  },
+  "3825": {
+   "brs": "v22.1.2",
+   "description": "Benefit: Employer Provident Fund contributions (PAYE)",
+   "page": 86
+  },
+  "3828": {
+   "brs": "v22.1.2",
+   "description": "Employee’s debt: Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "page": 86
+  },
+  "3829": {
+   "brs": "v22.1.2",
+   "description": "Taxable Bursaries or Scholarships to a disabled person – Basic Education (PAYE)",
+   "page": 86
+  },
+  "3830": {
+   "brs": "v22.1.2",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Basic Education (Excl)",
+   "page": 86
+  },
+  "3831": {
+   "brs": "v22.1.2",
+   "description": "Taxable Bursaries or Scholarship to a disabled person – Further Education (PAYE)",
+   "page": 86
+  },
+  "3832": {
+   "brs": "v22.1.2",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Further Education (Excl)",
+   "page": 86
+  },
+  "3833": {
+   "brs": "v22.1.2",
+   "description": "Benefit: Bargaining Council Employer Contributions (PAYE)",
+   "page": 86
+  },
+  "3834": {
+   "brs": "v22.1.2",
+   "description": "Non-taxable Benefit – Loan to purchase Immovable Residential Property (Excl)",
+   "page": 87
+  },
+  "3835": {
+   "brs": "v22.1.2",
+   "description": "Long Service Award",
+   "page": 87
+  },
+  "3901": {
+   "brs": "v22.1.2",
+   "description": "Gratuities / Severance Benefits (PAYE)",
+   "page": 88
+  },
+  "3902": {
+   "brs": "v22.1.2",
+   "description": "Pension / RAF (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "page": 88
+  },
+  "3903": {
+   "brs": "v22.1.2",
+   "description": "Pension / RAF (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "page": 88
+  },
+  "3904": {
+   "brs": "v22.1.2",
+   "description": "Provident (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "page": 88
+  },
+  "3905": {
+   "brs": "v22.1.2",
+   "description": "Provident (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "page": 88
+  },
+  "3906": {
+   "brs": "v22.1.2",
+   "description": "Special Remuneration (PAYE)",
+   "page": 88
+  },
+  "3907": {
+   "brs": "v22.1.2",
+   "description": "Other lump sums (PAYE)",
+   "page": 89
+  },
+  "3908": {
+   "brs": "v22.1.2",
+   "description": "Exempt Policy Proceeds (Excl)",
+   "page": 89
+  },
+  "3909": {
+   "brs": "v22.1.2",
+   "description": "Unclaimed benefits (PAYE)",
+   "page": 89
+  },
+  "3915": {
+   "brs": "v22.1.2",
+   "description": "Retirement / termination of employment lump sum benefits / Commutation of annuities (PAYE)",
+   "page": 90
+  },
+  "3920": {
+   "brs": "v22.1.2",
+   "description": "Lump sum withdrawal benefits (PAYE)",
+   "page": 90
+  },
+  "3921": {
+   "brs": "v22.1.2",
+   "description": "Living annuity and surplus apportionments (section 15C of the Pension Fund Act) (PAYE)",
+   "page": 90
+  },
+  "3922": {
+   "brs": "v22.1.2",
+   "description": "Compensation i.r.o. death during employment (Excl if 3922 <= R 300 000; PAYE if 3922 > R 300 000)",
+   "page": 90
+  },
+  "3923": {
+   "brs": "v22.1.2",
+   "description": "Transfer of Unclaimed Benefits (PAYE)",
+   "page": 91
+  },
+  "3924": {
+   "brs": "v22.1.2",
+   "description": "Transfer on Retirement (PAYE)",
+   "page": 91
+  }
+ },
+ "2025": {
+  "3601": {
+   "brs": "v23.0.0",
+   "description": "Income (PAYE)",
+   "page": 73
+  },
+  "3602": {
+   "brs": "v23.0.0",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 74
+  },
+  "3603": {
+   "brs": "v23.0.0",
+   "description": "Pension (PAYE)",
+   "page": 74
+  },
+  "3604": {
+   "brs": "v23.0.0",
+   "description": "Pension (Excl)",
+   "page": 75
+  },
+  "3605": {
+   "brs": "v23.0.0",
+   "description": "Annual payment (PAYE)",
+   "page": 75
+  },
+  "3606": {
+   "brs": "v23.0.0",
+   "description": "Commission (PAYE)",
+   "page": 75
+  },
+  "3607": {
+   "brs": "v23.0.0",
+   "description": "Overtime (PAYE)",
+   "page": 75
+  },
+  "3608": {
+   "brs": "v23.0.0",
+   "description": "Arbitration award (PAYE)",
+   "page": 75
+  },
+  "3609": {
+   "brs": "v23.0.0",
+   "description": "Arbitration award (Excl)",
+   "page": 75
+  },
+  "3610": {
+   "brs": "v23.0.0",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 76
+  },
+  "3611": {
+   "brs": "v23.0.0",
+   "description": "Purchased annuity (PAYE)",
+   "page": 76
+  },
+  "3612": {
+   "brs": "v23.0.0",
+   "description": "Purchased annuity (Excl)",
+   "page": 76
+  },
+  "3613": {
+   "brs": "v23.0.0",
+   "description": "Restraint of trade (PAYE)",
+   "page": 76
+  },
+  "3614": {
+   "brs": "v23.0.0",
+   "description": "Other retirement lump sums (PAYE)",
+   "page": 76
+  },
+  "3615": {
+   "brs": "v23.0.0",
+   "description": "Director’s remuneration (PAYE)",
+   "page": 76
+  },
+  "3616": {
+   "brs": "v23.0.0",
+   "description": "Independent contractors (PAYE)",
+   "page": 77
+  },
+  "3617": {
+   "brs": "v23.0.0",
+   "description": "Labour Brokers (PAYE)",
+   "page": 77
+  },
+  "3618": {
+   "brs": "v23.0.0",
+   "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 77
+  },
+  "3619": {
+   "brs": "v23.0.0",
+   "description": "Labour Brokers (IT)",
+   "page": 77
+  },
+  "3620": {
+   "brs": "v23.0.0",
+   "description": "NED Directors / Audit Committee Member Fees (IT)",
+   "page": 77
+  },
+  "3621": {
+   "brs": "v23.0.0",
+   "description": "Directors Remuneration – Non-Resident NED (PAYE)",
+   "page": 77
+  },
+  "3622": {
+   "brs": "v23.0.0",
+   "description": "Long Service Cash Award (Excl if 3622+3835 <= R 5000; PAYE if 3622+3835 > R 5000)",
+   "page": 78
+  },
+  "3623": {
+   "brs": "v25.3.0",
+   "description": "Antedated salary/pension extending over previous years of assessment (PAYE)",
+   "note": "Code 3623 is not in BRS V23.0.0 (applicable from the 2025 YoA); cross-version citation of V25.3.0",
+   "officialExcerpt": "• Employees’ tax (taxable) accrued in previous year/s due to a settlement agreement or arbitration award or court-order that relates to previous years. • This also includes awards granted via settlements out of court and Labour Court disputes. • The employer must apply for a tax directive to determine the amount of employees’ tax to be deducted. Note: ▫ Code 3673 MUST only be used for foreign service income.",
+   "page": 85
+  },
+  "3701": {
+   "brs": "v23.0.0",
+   "description": "Travel allowance (PAYE)",
+   "page": 78
+  },
+  "3702": {
+   "brs": "v23.0.0",
+   "description": "Reimbursive travel allowance (IT)",
+   "page": 79
+  },
+  "3703": {
+   "brs": "v23.0.0",
+   "description": "Reimbursive travel allowance (Excl)",
+   "page": 79
+  },
+  "3704": {
+   "brs": "v23.0.0",
+   "description": "Subsistence allowance – local travel (IT)",
+   "page": 80
+  },
+  "3705": {
+   "brs": "v23.0.0",
+   "description": "Subsistence allowance (Excl)",
+   "page": 80
+  },
+  "3706": {
+   "brs": "v23.0.0",
+   "description": "Entertainment allowance (PAYE)",
+   "page": 80
+  },
+  "3707": {
+   "brs": "v23.0.0",
+   "description": "Share options exercised (PAYE)",
+   "page": 80
+  },
+  "3708": {
+   "brs": "v23.0.0",
+   "description": "Public office allowance (PAYE)",
+   "page": 80
+  },
+  "3709": {
+   "brs": "v23.0.0",
+   "description": "Uniform allowance (Excl)",
+   "page": 80
+  },
+  "3710": {
+   "brs": "v23.0.0",
+   "description": "Tool allowance (PAYE)",
+   "page": 80
+  },
+  "3711": {
+   "brs": "v23.0.0",
+   "description": "Computer allowance (PAYE)",
+   "page": 80
+  },
+  "3712": {
+   "brs": "v23.0.0",
+   "description": "Telephone/cell phone allowance (PAYE)",
+   "page": 80
+  },
+  "3713": {
+   "brs": "v23.0.0",
+   "description": "Other allowances (PAYE)",
+   "page": 81
+  },
+  "3714": {
+   "brs": "v23.0.0",
+   "description": "Other allowances (Excl)",
+   "page": 81
+  },
+  "3715": {
+   "brs": "v23.0.0",
+   "description": "Subsistence allowance – foreign travel (IT)",
+   "page": 82
+  },
+  "3716": {
+   "brs": "v23.0.0",
+   "description": "Subsistence allowance – foreign travel (Excl)",
+   "page": 82
+  },
+  "3717": {
+   "brs": "v23.0.0",
+   "description": "Broad-based employee share plan (PAYE)",
+   "page": 82
+  },
+  "3718": {
+   "brs": "v23.0.0",
+   "description": "Vesting of equity instruments or return of capital i.r.o. restricted equity instruments (PAYE)",
+   "page": 82
+  },
+  "3719": {
+   "brs": "v23.0.0",
+   "description": "Dividends not exempt i.r.o. par (dd) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 82
+  },
+  "3720": {
+   "brs": "v23.0.0",
+   "description": "Dividends not exempt i.r.o. par (ii) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 83
+  },
+  "3721": {
+   "brs": "v23.0.0",
+   "description": "Dividends not exempt i.r.o. par (jj) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 83
+  },
+  "3722": {
+   "brs": "v23.0.0",
+   "description": "Reimbursive travel allowance (PAYE)",
+   "page": 83
+  },
+  "3723": {
+   "brs": "v23.0.0",
+   "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 84
+  },
+  "3724": {
+   "brs": "v23.0.0",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
+   "page": 84
+  },
+  "3801": {
+   "brs": "v23.0.0",
+   "description": "General fringe benefits (PAYE)",
+   "page": 85
+  },
+  "3802": {
+   "brs": "v23.0.0",
+   "description": "Use of motor vehicle acquired by employer NOT via Operating Lease (PAYE)",
+   "page": 85
+  },
+  "3803": {
+   "brs": "v23.0.0",
+   "description": "Use of asset (PAYE)",
+   "page": 85
+  },
+  "3804": {
+   "brs": "v23.0.0",
+   "description": "Meals, etc. (PAYE)",
+   "page": 85
+  },
+  "3805": {
+   "brs": "v23.0.0",
+   "description": "Accommodation (PAYE)",
+   "page": 86
+  },
+  "3806": {
+   "brs": "v23.0.0",
+   "description": "Services (PAYE)",
+   "page": 86
+  },
+  "3807": {
+   "brs": "v23.0.0",
+   "description": "Loans or subsidy (PAYE)",
+   "page": 86
+  },
+  "3808": {
+   "brs": "v23.0.0",
+   "description": "Employee’s debt - excluding code 3828 Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "page": 86
+  },
+  "3809": {
+   "brs": "v23.0.0",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Basic Education (PAYE)",
+   "page": 86
+  },
+  "3810": {
+   "brs": "v23.0.0",
+   "description": "Medical aid contributions (PAYE)",
+   "page": 87
+  },
+  "3813": {
+   "brs": "v23.0.0",
+   "description": "Medical services costs (PAYE)",
+   "page": 87
+  },
+  "3815": {
+   "brs": "v23.0.0",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person - Basic Education (Excl)",
+   "page": 87
+  },
+  "3816": {
+   "brs": "v23.0.0",
+   "description": "Use of motor vehicle acquired by employer via Operating Lease (PAYE)",
+   "page": 87
+  },
+  "3817": {
+   "brs": "v23.0.0",
+   "description": "Benefit: Employers Pension Fund contributions (PAYE)",
+   "page": 87
+  },
+  "3820": {
+   "brs": "v23.0.0",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Further Education (PAYE)",
+   "page": 87
+  },
+  "3821": {
+   "brs": "v23.0.0",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person – Further Education (Excl)",
+   "page": 87
+  },
+  "3822": {
+   "brs": "v23.0.0",
+   "description": "Non-taxable Benefit – Acquisition of Immovable Property (Excl)",
+   "page": 87
+  },
+  "3825": {
+   "brs": "v23.0.0",
+   "description": "Benefit: Employer Provident Fund contributions (PAYE)",
+   "page": 88
+  },
+  "3828": {
+   "brs": "v23.0.0",
+   "description": "Employee’s debt: Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "page": 88
+  },
+  "3829": {
+   "brs": "v23.0.0",
+   "description": "Taxable Bursaries or Scholarships to a disabled person – Basic Education (PAYE)",
+   "page": 88
+  },
+  "3830": {
+   "brs": "v23.0.0",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Basic Education (Excl)",
+   "page": 88
+  },
+  "3831": {
+   "brs": "v23.0.0",
+   "description": "Taxable Bursaries or Scholarship to a disabled person – Further Education (PAYE)",
+   "page": 88
+  },
+  "3832": {
+   "brs": "v23.0.0",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Further Education (Excl)",
+   "page": 88
+  },
+  "3833": {
+   "brs": "v23.0.0",
+   "description": "Benefit: Bargaining Council Employer Contributions (PAYE)",
+   "page": 88
+  },
+  "3834": {
+   "brs": "v23.0.0",
+   "description": "Non-taxable Benefit – Loan to purchase Immovable Residential Property (Excl)",
+   "page": 89
+  },
+  "3835": {
+   "brs": "v23.0.0",
+   "description": "Long Service Award",
+   "page": 89
+  },
+  "3901": {
+   "brs": "v23.0.0",
+   "description": "Gratuities / Severance Benefits (PAYE)",
+   "page": 90
+  },
+  "3902": {
+   "brs": "v23.0.0",
+   "description": "Pension / RAF (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "page": 90
+  },
+  "3903": {
+   "brs": "v23.0.0",
+   "description": "Pension / RAF (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "page": 90
+  },
+  "3904": {
+   "brs": "v23.0.0",
+   "description": "Provident (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "page": 90
+  },
+  "3905": {
+   "brs": "v23.0.0",
+   "description": "Provident (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "page": 90
+  },
+  "3906": {
+   "brs": "v23.0.0",
+   "description": "Special Remuneration (PAYE)",
+   "page": 90
+  },
+  "3907": {
+   "brs": "v23.0.0",
+   "description": "Other lump sums (PAYE)",
+   "page": 91
+  },
+  "3908": {
+   "brs": "v23.0.0",
+   "description": "Exempt Policy Proceeds (Excl)",
+   "page": 91
+  },
+  "3909": {
+   "brs": "v23.0.0",
+   "description": "Unclaimed benefits (PAYE)",
+   "page": 91
+  },
+  "3915": {
+   "brs": "v23.0.0",
+   "description": "Retirement / termination of employment lump sum benefits / Commutation of annuities (PAYE)",
+   "page": 92
+  },
+  "3920": {
+   "brs": "v23.0.0",
+   "description": "Lump sum withdrawal benefits (PAYE)",
+   "page": 92
+  },
+  "3921": {
+   "brs": "v23.0.0",
+   "description": "Living annuity and surplus apportionments (section 15C of the Pension Fund Act) (PAYE)",
+   "page": 92
+  },
+  "3922": {
+   "brs": "v23.0.0",
+   "description": "Compensation i.r.o. death during employment (Excl if 3922 <= R 300 000; PAYE if 3922 > R 300 000)",
+   "page": 92
+  },
+  "3923": {
+   "brs": "v23.0.0",
+   "description": "Transfer of Unclaimed Benefits (PAYE)",
+   "page": 93
+  },
+  "3924": {
+   "brs": "v23.0.0",
+   "description": "Transfer on Retirement (PAYE)",
+   "page": 93
+  },
+  "3926": {
+   "brs": "v23.0.0",
+   "description": "Savings withdrawal benefit (PAYE)",
+   "page": 93
+  }
+ },
+ "2026": {
+  "3601": {
+   "brs": "v25.3.0",
+   "description": "Income (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 80
+  },
+  "3602": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Income (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 81
+  },
+  "3603": {
+   "brs": "v25.3.0",
+   "description": "Pension (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 81
+  },
+  "3604": {
+   "brs": "v25.3.0",
+   "description": "Pension (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3605": {
+   "brs": "v25.3.0",
+   "description": "Annual payment (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3606": {
+   "brs": "v25.3.0",
+   "description": "Commission (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3607": {
+   "brs": "v25.3.0",
+   "description": "Overtime (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3608": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3609": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 82
+  },
+  "3610": {
+   "brs": "v25.3.0",
+   "description": "Annuity from a RAF (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3611": {
+   "brs": "v25.3.0",
+   "description": "Purchased annuity (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3612": {
+   "brs": "v25.3.0",
+   "description": "Purchased annuity (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3613": {
+   "brs": "v25.3.0",
+   "description": "Restraint of trade (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3614": {
+   "brs": "v25.3.0",
+   "description": "Other retirement lump sums (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3615": {
+   "brs": "v25.3.0",
+   "description": "Director’s remuneration (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 83
+  },
+  "3616": {
+   "brs": "v25.3.0",
+   "description": "Independent contractors (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 84
+  },
+  "3617": {
+   "brs": "v25.3.0",
+   "description": "Labour Brokers (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 84
+  },
+  "3618": {
+   "brs": "v25.3.0",
+   "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 84
+  },
+  "3619": {
+   "brs": "v25.3.0",
+   "description": "Labour Brokers (IT)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 84
+  },
+  "3620": {
+   "brs": "v25.3.0",
+   "description": "NED Directors / Audit Committee Member Fees (IT)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 84
+  },
+  "3621": {
+   "brs": "v25.3.0",
+   "description": "Directors Remuneration – Non-Resident NED (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 84
+  },
+  "3622": {
+   "brs": "v25.3.0",
+   "description": "Long Service Cash Award (Excl if 3622+3835 <= R 5000; PAYE if 3622+3835 > R 5000)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 85
+  },
+  "3623": {
+   "brs": "v25.3.0",
+   "description": "Antedated salary/pension extending over previous years of assessment (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 85
+  },
+  "3701": {
+   "brs": "v25.3.0",
+   "description": "Travel allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 85
+  },
+  "3702": {
+   "brs": "v25.3.0",
+   "description": "Reimbursive travel allowance (IT)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 86
+  },
+  "3703": {
+   "brs": "v25.3.0",
+   "description": "Reimbursive travel allowance (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 86
+  },
+  "3704": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance – local travel (IT)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3705": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3706": {
+   "brs": "v25.3.0",
+   "description": "Entertainment allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3707": {
+   "brs": "v25.3.0",
+   "description": "Share options exercised (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3708": {
+   "brs": "v25.3.0",
+   "description": "Public office allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3709": {
+   "brs": "v25.3.0",
+   "description": "Uniform allowance (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3710": {
+   "brs": "v25.3.0",
+   "description": "Tool allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3711": {
+   "brs": "v25.3.0",
+   "description": "Computer allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3712": {
+   "brs": "v25.3.0",
+   "description": "Telephone/cell phone allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 87
+  },
+  "3713": {
+   "brs": "v25.3.0",
+   "description": "Other allowances (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 88
+  },
+  "3714": {
+   "brs": "v25.3.0",
+   "description": "Other allowances (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 88
+  },
+  "3715": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance – foreign travel (IT)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 89
+  },
+  "3716": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance – foreign travel (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 89
+  },
+  "3717": {
+   "brs": "v25.3.0",
+   "description": "Broad-based employee share plan (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 89
+  },
+  "3718": {
+   "brs": "v25.3.0",
+   "description": "Vesting of equity instruments or return of capital i.r.o. restricted equity instruments (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 89
+  },
+  "3719": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (dd) of the proviso to s10(1)(k)(i) (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 89
+  },
+  "3720": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (ii) of the proviso to s10(1)(k)(i) (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 90
+  },
+  "3721": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (jj) of the proviso to s10(1)(k)(i) (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 90
+  },
+  "3722": {
+   "brs": "v25.3.0",
+   "description": "Reimbursive travel allowance (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 90
+  },
+  "3723": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 91
+  },
+  "3724": {
+   "brs": "v25.3.0",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 91
+  },
+  "3801": {
+   "brs": "v25.3.0",
+   "description": "General fringe benefits (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 92
+  },
+  "3802": {
+   "brs": "v25.3.0",
+   "description": "Use of motor vehicle acquired by employer NOT via Operating Lease (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 92
+  },
+  "3803": {
+   "brs": "v25.3.0",
+   "description": "Use of asset (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 92
+  },
+  "3804": {
+   "brs": "v25.3.0",
+   "description": "Meals, etc. (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 92
+  },
+  "3805": {
+   "brs": "v25.3.0",
+   "description": "Accommodation (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 93
+  },
+  "3806": {
+   "brs": "v25.3.0",
+   "description": "Services (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 93
+  },
+  "3807": {
+   "brs": "v25.3.0",
+   "description": "Loans or subsidy (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 93
+  },
+  "3808": {
+   "brs": "v25.3.0",
+   "description": "Employee’s debt - excluding code 3828 Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 93
+  },
+  "3809": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Basic Education (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 93
+  },
+  "3810": {
+   "brs": "v25.3.0",
+   "description": "Medical aid contributions (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3813": {
+   "brs": "v25.3.0",
+   "description": "Medical services costs (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3815": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person - Basic Education (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3816": {
+   "brs": "v25.3.0",
+   "description": "Use of motor vehicle acquired by employer via Operating Lease (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3817": {
+   "brs": "v25.3.0",
+   "description": "Benefit: Employers Pension Fund contributions (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3820": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Further Education (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3821": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person – Further Education (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3822": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Benefit – Acquisition of Immovable Property (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 94
+  },
+  "3825": {
+   "brs": "v25.3.0",
+   "description": "Benefit: Employer Provident Fund contributions (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3828": {
+   "brs": "v25.3.0",
+   "description": "Employee’s debt: Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3829": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or Scholarships to a disabled person – Basic Education (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3830": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Basic Education (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3831": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or Scholarship to a disabled person – Further Education (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3832": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Further Education (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3833": {
+   "brs": "v25.3.0",
+   "description": "Benefit: Bargaining Council Employer Contributions (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 95
+  },
+  "3834": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Benefit – Loan to purchase Immovable Residential Property (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 96
+  },
+  "3835": {
+   "brs": "v25.3.0",
+   "description": "Long Service Award",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 96
+  },
+  "3901": {
+   "brs": "v25.3.0",
+   "description": "Gratuities / Severance Benefits (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 97
+  },
+  "3902": {
+   "brs": "v25.3.0",
+   "description": "Pension / RAF (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 97
+  },
+  "3903": {
+   "brs": "v25.3.0",
+   "description": "Pension / RAF (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 97
+  },
+  "3904": {
+   "brs": "v25.3.0",
+   "description": "Provident (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 97
+  },
+  "3905": {
+   "brs": "v25.3.0",
+   "description": "Provident (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 97
+  },
+  "3906": {
+   "brs": "v25.3.0",
+   "description": "Special Remuneration (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 98
+  },
+  "3907": {
+   "brs": "v25.3.0",
+   "description": "Other lump sums (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 98
+  },
+  "3908": {
+   "brs": "v25.3.0",
+   "description": "Exempt Policy Proceeds (Excl)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 98
+  },
+  "3909": {
+   "brs": "v25.3.0",
+   "description": "Unclaimed benefits (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 98
+  },
+  "3915": {
+   "brs": "v25.3.0",
+   "description": "Retirement / termination of employment lump sum benefits / Commutation of annuities (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 99
+  },
+  "3920": {
+   "brs": "v25.3.0",
+   "description": "Lump sum withdrawal benefits (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 99
+  },
+  "3921": {
+   "brs": "v25.3.0",
+   "description": "Living annuity and surplus apportionments (section 15C of the Pension Fund Act) (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 99
+  },
+  "3922": {
+   "brs": "v25.3.0",
+   "description": "Compensation i.r.o. death during employment (Excl if 3922 <= R 300 000; PAYE if 3922 > R 300 000)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 100
+  },
+  "3923": {
+   "brs": "v25.3.0",
+   "description": "Transfer of Unclaimed Benefits (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 100
+  },
+  "3924": {
+   "brs": "v25.3.0",
+   "description": "Transfer on Retirement (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 100
+  },
+  "3926": {
+   "brs": "v25.3.0",
+   "description": "Savings withdrawal benefit (PAYE)",
+   "note": "BRS V25.2.0 PDF is no longer published (404); checked against V25.3.0, whose page and heading are cited",
+   "page": 100
+  }
+ },
+ "2027": {
+  "3601": {
+   "brs": "v25.3.0",
+   "description": "Income (PAYE)",
+   "page": 80
+  },
+  "3602": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Income (Excl)",
+   "page": 81
+  },
+  "3603": {
+   "brs": "v25.3.0",
+   "description": "Pension (PAYE)",
+   "page": 81
+  },
+  "3604": {
+   "brs": "v25.3.0",
+   "description": "Pension (Excl)",
+   "page": 82
+  },
+  "3605": {
+   "brs": "v25.3.0",
+   "description": "Annual payment (PAYE)",
+   "page": 82
+  },
+  "3606": {
+   "brs": "v25.3.0",
+   "description": "Commission (PAYE)",
+   "page": 82
+  },
+  "3607": {
+   "brs": "v25.3.0",
+   "description": "Overtime (PAYE)",
+   "page": 82
+  },
+  "3608": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (PAYE)",
+   "page": 82
+  },
+  "3609": {
+   "brs": "v25.3.0",
+   "description": "Arbitration award (Excl)",
+   "page": 82
+  },
+  "3610": {
+   "brs": "v25.3.0",
+   "description": "Annuity from a RAF (PAYE)",
+   "page": 83
+  },
+  "3611": {
+   "brs": "v25.3.0",
+   "description": "Purchased annuity (PAYE)",
+   "page": 83
+  },
+  "3612": {
+   "brs": "v25.3.0",
+   "description": "Purchased annuity (Excl)",
+   "page": 83
+  },
+  "3613": {
+   "brs": "v25.3.0",
+   "description": "Restraint of trade (PAYE)",
+   "page": 83
+  },
+  "3614": {
+   "brs": "v25.3.0",
+   "description": "Other retirement lump sums (PAYE)",
+   "page": 83
+  },
+  "3615": {
+   "brs": "v25.3.0",
+   "description": "Director’s remuneration (PAYE)",
+   "page": 83
+  },
+  "3616": {
+   "brs": "v25.3.0",
+   "description": "Independent contractors (PAYE)",
+   "page": 84
+  },
+  "3617": {
+   "brs": "v25.3.0",
+   "description": "Labour Brokers (PAYE)",
+   "page": 84
+  },
+  "3618": {
+   "brs": "v25.3.0",
+   "description": "Annuity from Provident/Provident Preservation Fund (PAYE)",
+   "page": 84
+  },
+  "3619": {
+   "brs": "v25.3.0",
+   "description": "Labour Brokers (IT)",
+   "page": 84
+  },
+  "3620": {
+   "brs": "v25.3.0",
+   "description": "NED Directors / Audit Committee Member Fees (IT)",
+   "page": 84
+  },
+  "3621": {
+   "brs": "v25.3.0",
+   "description": "Directors Remuneration – Non-Resident NED (PAYE)",
+   "page": 84
+  },
+  "3622": {
+   "brs": "v25.3.0",
+   "description": "Long Service Cash Award (Excl if 3622+3835 <= R 16000; PAYE if 3622+3835 > R 16000)",
+   "page": 85
+  },
+  "3623": {
+   "brs": "v25.3.0",
+   "description": "Antedated salary/pension extending over previous years of assessment (PAYE)",
+   "page": 85
+  },
+  "3701": {
+   "brs": "v25.3.0",
+   "description": "Travel allowance (PAYE)",
+   "page": 85
+  },
+  "3702": {
+   "brs": "v25.3.0",
+   "description": "Reimbursive travel allowance (IT)",
+   "page": 86
+  },
+  "3703": {
+   "brs": "v25.3.0",
+   "description": "Reimbursive travel allowance (Excl)",
+   "page": 86
+  },
+  "3704": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance – local travel (IT)",
+   "page": 87
+  },
+  "3705": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance (Excl)",
+   "page": 87
+  },
+  "3706": {
+   "brs": "v25.3.0",
+   "description": "Entertainment allowance (PAYE)",
+   "page": 87
+  },
+  "3707": {
+   "brs": "v25.3.0",
+   "description": "Share options exercised (PAYE)",
+   "page": 87
+  },
+  "3708": {
+   "brs": "v25.3.0",
+   "description": "Public office allowance (PAYE)",
+   "page": 87
+  },
+  "3709": {
+   "brs": "v25.3.0",
+   "description": "Uniform allowance (Excl)",
+   "page": 87
+  },
+  "3710": {
+   "brs": "v25.3.0",
+   "description": "Tool allowance (PAYE)",
+   "page": 87
+  },
+  "3711": {
+   "brs": "v25.3.0",
+   "description": "Computer allowance (PAYE)",
+   "page": 87
+  },
+  "3712": {
+   "brs": "v25.3.0",
+   "description": "Telephone/cell phone allowance (PAYE)",
+   "page": 87
+  },
+  "3713": {
+   "brs": "v25.3.0",
+   "description": "Other allowances (PAYE)",
+   "page": 88
+  },
+  "3714": {
+   "brs": "v25.3.0",
+   "description": "Other allowances (Excl)",
+   "page": 88
+  },
+  "3715": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance – foreign travel (IT)",
+   "page": 89
+  },
+  "3716": {
+   "brs": "v25.3.0",
+   "description": "Subsistence allowance – foreign travel (Excl)",
+   "page": 89
+  },
+  "3717": {
+   "brs": "v25.3.0",
+   "description": "Broad-based employee share plan (PAYE)",
+   "page": 89
+  },
+  "3718": {
+   "brs": "v25.3.0",
+   "description": "Vesting of equity instruments or return of capital i.r.o. restricted equity instruments (PAYE)",
+   "page": 89
+  },
+  "3719": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (dd) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 89
+  },
+  "3720": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (ii) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 90
+  },
+  "3721": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (jj) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 90
+  },
+  "3722": {
+   "brs": "v25.3.0",
+   "description": "Reimbursive travel allowance (PAYE)",
+   "page": 90
+  },
+  "3723": {
+   "brs": "v25.3.0",
+   "description": "Dividends not exempt i.r.o. par (kk) of the proviso to s10(1)(k)(i) (PAYE)",
+   "page": 91
+  },
+  "3724": {
+   "brs": "v25.3.0",
+   "description": "Amounts paid by any COVID-19 Disaster Relief Organisation (IT)",
+   "page": 91
+  },
+  "3801": {
+   "brs": "v25.3.0",
+   "description": "General fringe benefits (PAYE)",
+   "page": 92
+  },
+  "3802": {
+   "brs": "v25.3.0",
+   "description": "Use of motor vehicle acquired by employer NOT via Operating Lease (PAYE)",
+   "page": 92
+  },
+  "3803": {
+   "brs": "v25.3.0",
+   "description": "Use of asset (PAYE)",
+   "page": 92
+  },
+  "3804": {
+   "brs": "v25.3.0",
+   "description": "Meals, etc. (PAYE)",
+   "page": 92
+  },
+  "3805": {
+   "brs": "v25.3.0",
+   "description": "Accommodation (PAYE)",
+   "page": 93
+  },
+  "3806": {
+   "brs": "v25.3.0",
+   "description": "Services (PAYE)",
+   "page": 93
+  },
+  "3807": {
+   "brs": "v25.3.0",
+   "description": "Loans or subsidy (PAYE)",
+   "page": 93
+  },
+  "3808": {
+   "brs": "v25.3.0",
+   "description": "Employee’s debt - excluding code 3828 Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "page": 93
+  },
+  "3809": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Basic Education (PAYE)",
+   "page": 93
+  },
+  "3810": {
+   "brs": "v25.3.0",
+   "description": "Medical aid contributions (PAYE)",
+   "page": 94
+  },
+  "3813": {
+   "brs": "v25.3.0",
+   "description": "Medical services costs (PAYE)",
+   "page": 94
+  },
+  "3815": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person - Basic Education (Excl)",
+   "page": 94
+  },
+  "3816": {
+   "brs": "v25.3.0",
+   "description": "Use of motor vehicle acquired by employer via Operating Lease (PAYE)",
+   "page": 94
+  },
+  "3817": {
+   "brs": "v25.3.0",
+   "description": "Benefit: Employers Pension Fund contributions (PAYE)",
+   "page": 94
+  },
+  "3820": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or scholarships to a non-disabled person – Further Education (PAYE)",
+   "page": 94
+  },
+  "3821": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Bursaries or scholarships to a non-disabled person – Further Education (Excl)",
+   "page": 94
+  },
+  "3822": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Benefit – Acquisition of Immovable Property (Excl)",
+   "page": 94
+  },
+  "3825": {
+   "brs": "v25.3.0",
+   "description": "Benefit: Employer Provident Fund contributions (PAYE)",
+   "page": 95
+  },
+  "3828": {
+   "brs": "v25.3.0",
+   "description": "Employee’s debt: Employer paid Retirement Annuity Fund contributions (PAYE)",
+   "page": 95
+  },
+  "3829": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or Scholarships to a disabled person – Basic Education (PAYE)",
+   "page": 95
+  },
+  "3830": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Basic Education (Excl)",
+   "page": 95
+  },
+  "3831": {
+   "brs": "v25.3.0",
+   "description": "Taxable Bursaries or Scholarship to a disabled person – Further Education (PAYE)",
+   "page": 95
+  },
+  "3832": {
+   "brs": "v25.3.0",
+   "description": "Non-Taxable Bursaries or Scholarships to a disabled person – Further Education (Excl)",
+   "page": 95
+  },
+  "3833": {
+   "brs": "v25.3.0",
+   "description": "Benefit: Bargaining Council Employer Contributions (PAYE)",
+   "page": 95
+  },
+  "3834": {
+   "brs": "v25.3.0",
+   "description": "Non-taxable Benefit – Loan to purchase Immovable Residential Property (Excl)",
+   "page": 96
+  },
+  "3835": {
+   "brs": "v25.3.0",
+   "description": "Long Service Award",
+   "page": 96
+  },
+  "3901": {
+   "brs": "v25.3.0",
+   "description": "Gratuities / Severance Benefits (PAYE)",
+   "page": 97
+  },
+  "3902": {
+   "brs": "v25.3.0",
+   "description": "Pension / RAF (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "page": 97
+  },
+  "3903": {
+   "brs": "v25.3.0",
+   "description": "Pension / RAF (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "page": 97
+  },
+  "3904": {
+   "brs": "v25.3.0",
+   "description": "Provident (PAYE) – withdrawal, accruing prior to 1 March 2009",
+   "page": 97
+  },
+  "3905": {
+   "brs": "v25.3.0",
+   "description": "Provident (PAYE) – retirement or death, accruing prior to 1 October 2007",
+   "page": 97
+  },
+  "3906": {
+   "brs": "v25.3.0",
+   "description": "Special Remuneration (PAYE)",
+   "page": 98
+  },
+  "3907": {
+   "brs": "v25.3.0",
+   "description": "Other lump sums (PAYE)",
+   "page": 98
+  },
+  "3908": {
+   "brs": "v25.3.0",
+   "description": "Exempt Policy Proceeds (Excl)",
+   "page": 98
+  },
+  "3909": {
+   "brs": "v25.3.0",
+   "description": "Unclaimed benefits (PAYE)",
+   "page": 98
+  },
+  "3915": {
+   "brs": "v25.3.0",
+   "description": "Retirement / termination of employment lump sum benefits / Commutation of annuities (PAYE)",
+   "page": 99
+  },
+  "3920": {
+   "brs": "v25.3.0",
+   "description": "Lump sum withdrawal benefits (PAYE)",
+   "page": 99
+  },
+  "3921": {
+   "brs": "v25.3.0",
+   "description": "Living annuity and surplus apportionments (section 15C of the Pension Fund Act) (PAYE)",
+   "page": 99
+  },
+  "3922": {
+   "brs": "v25.3.0",
+   "description": "Compensation i.r.o. death during employment (Excl if 3922 <= R 800 000; PAYE if 3922 > R 800 000)",
+   "page": 100
+  },
+  "3923": {
+   "brs": "v25.3.0",
+   "description": "Transfer of Unclaimed Benefits (PAYE)",
+   "page": 100
+  },
+  "3924": {
+   "brs": "v25.3.0",
+   "description": "Transfer on Retirement (PAYE)",
+   "page": 100
+  },
+  "3926": {
+   "brs": "v25.3.0",
+   "description": "Savings withdrawal benefit (PAYE)",
+   "page": 100
+  }
+ }
+}

@@ -77,15 +77,19 @@ describe('getLandingStats', () => {
     expect(sqlMock).toHaveBeenCalledTimes(3);
   });
 
-  it('keeps the query definitions: posted lines only, gross ABS amount, test companies excluded', async () => {
+  it('keeps the query definitions: posted lines only, gross ABS amount, test companies excluded by name, Demo by is_demo', async () => {
     answerQueries();
     await getLandingStats();
     const texts = sqlMock.mock.calls.map((c) => String(c[0]));
     expect(texts).toContainEqual(expect.stringContaining("SUM(ABS(amount)), 0) AS total FROM bank_transactions WHERE feed_state = 'posted'"));
     const companies = texts.find((t) => t.includes('FROM companies')) ?? '';
-    for (const pattern of ["'Test%'", "'%E2E%'", "'STRESS%'", "'LARGE%'", "'My Test%'", "'QA%'", "'ISAFlow Demo%'"]) {
+    for (const pattern of ["'Test%'", "'%E2E%'", "'STRESS%'", "'LARGE%'", "'My Test%'", "'QA%'"]) {
       expect(companies).toContain(`name NOT LIKE ${pattern}`);
     }
+    // Demo is excluded by its flag: a name match broke when the company was renamed to "IsaFlow Demo".
+    expect(companies).toContain('COALESCE(is_demo, false) = false');
+    expect(companies).not.toContain('ISAFlow Demo');
+    expect(companies).not.toMatch(/name NOT LIKE '[^']*Demo/i);
     const invoices = texts.find((t) => t.includes('customer_invoices')) ?? '';
     expect(invoices).toContain('(SELECT COUNT(*) FROM customer_invoices) +');
     expect(invoices).toContain('(SELECT COUNT(*) FROM supplier_invoices) AS cnt');

@@ -12,8 +12,8 @@
  *   Only periods ending AFTER today are emitted — the just-ended period is
  *   owned by vatDueSignal, which knows the filing status.
  * - EMP201 due the 7th of every month, for the prior month; pulled BACK to
- *   the Friday when the 7th is a weekend (SARS moves it earlier, not later).
- *   Public holidays are out of scope.
+ *   the previous business day when the 7th is a weekend or public holiday
+ *   (SARS moves it earlier, not later).
  * - EMP501 interim due 31 Oct, annual due 31 May.
  * - IRP6: 1st payment last day of the 6th month before financial year end;
  *   2nd payment last day of the year-end month (leap-aware).

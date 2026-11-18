@@ -84,7 +84,35 @@ beforeAll(async () => {
   await revenueLine(B, revB, 'W5-B-ZR', 'posted', 5555, 'zero_rated');
 });
 
-afterAll(async () => { await pool.end(); });
+/**
+ * Its journals, before the pool goes: they are posted with no fiscal period and one-sided, and left in the shared
+ * fixture they fail the deploy integrity checks demo-reseed runs for every suite after it in the shard (period, JE
+ * and TB balance). Replica role: posted journals and their lines refuse DELETE otherwise (budgetsRouteFixture).
+ */
+async function dropJournals(): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL session_replication_role = replica');
+    await c.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = ANY($1::uuid[]))', [[A, B]]);
+    await c.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1::uuid[])', [[A, B]]);
+    await c.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[])', [[A, B]]);
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK');
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
+afterAll(async () => {
+  try {
+    await dropJournals();
+  } finally {
+    await pool.end();
+  }
+});
 
 describe('EMP201 drill: which runs, whose rows', () => {
   it('drills only the approved and paid runs of the company', async () => {

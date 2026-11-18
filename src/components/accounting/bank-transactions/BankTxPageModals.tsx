@@ -4,6 +4,7 @@
  * Find-match and Create-rule used to reload the list only (WP1 PR-C, spec §4.2).
  */
 
+import { useTrackLastClick } from './BankTxModalShell';
 import { BankTxModals } from './BankTxModals';
 import type { buildBankTxActions } from './useBankTxActions';
 import type { BankTxModalState } from './useBankTxModalState';
@@ -32,6 +33,7 @@ interface Props {
 
 export function BankTxPageModals(p: Props) {
   const { m, actions, afterMutation } = p;
+  useTrackLastClick(); // for the shell's focus return where the browser never focused the clicked button
   return (
     <BankTxModals
       transactions={p.transactions} glAccounts={p.glAccounts} suppliers={p.suppliers} customers={p.customers}

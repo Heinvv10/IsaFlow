@@ -6,6 +6,7 @@
  * allocation predicate is a fixed literal keyed on a validated enum — that is
  * what makes them safe for `sql.unsafe`.
  */
+import { settledDocumentCountSql } from './settledDocumentSql';
 import { attachmentCountSql } from './bankLineDocumentSql';
 import { LINE_BUCKET_SQL } from './bankLineBucket';
 import type { BankTxFilters } from './bankTxFilters';
@@ -174,6 +175,9 @@ export const TX_SELECT = `
     -- The grid highlights the paperclip of a line with supporting documents (./bankLineDocumentSql, the one definition).
     -- Index probes per row: idx_bta_tx, idx_captured_documents_matched_bt.
     ${attachmentCountSql('bt')} AS attachment_count,
+    -- Plus the documents of the bills / invoices the line settles (./settledDocumentSql, read-only evidence): the
+    -- paperclip counts both kinds. Probes: the bank leg by id, payments by gl_journal_entry_id (mig 999p), allocations.
+    ${settledDocumentCountSql('bt')} AS settled_document_count,
     -- A client query about this line is open (sent, awaiting or holding a reply): the row's Ask-client button is marked.
     EXISTS (SELECT 1 FROM bank_tx_queries q WHERE q.bank_transaction_id = bt.id AND q.company_id = bt.company_id
               AND q.status IN ('sent', 'replied')) AS has_open_query,
@@ -193,6 +197,15 @@ export const TX_SELECT = `
   ${DIMENSION_JOINS}
   ${LINK_JOINS}
 `;
+
+/**
+ * TX_SELECT for the all-accounts CSV export (up to 50 000 rows): the same columns, but the settled-document count is
+ * not computed — the export prints no paperclip, and that count is a correlated chain per row. Built by replacing the
+ * one fragment, so the two selects cannot otherwise drift.
+ */
+export const TX_SELECT_EXPORT = TX_SELECT.replace(`${settledDocumentCountSql('bt')} AS settled_document_count`,
+  'NULL::INT AS settled_document_count');
+
 
 // allocationFilter (WP1, 2026-11-15): each filter is ONE bucket of LINE_BUCKET_SQL (./bankLineBucket), the
 // definition the bank card counts with, so a tile and the list it opens cannot disagree. Excluded comes before

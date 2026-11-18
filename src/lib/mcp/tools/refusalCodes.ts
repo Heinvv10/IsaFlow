@@ -114,6 +114,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
   // R-161 client group fence: names only the id the caller passed; raised before any write.
   'CLIENT_GROUP_NOT_FOUND',
+  // gl/financialYearStartGuard (PR #1551): a sent financial_year_start over a month the row no longer holds. A fixed
+  // sentence naming nothing; raised before any write. MCP company_profile sends no month, so it does not reach it today.
+  'COMPANY_SETTINGS_STALE',
   // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
   // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
   'CREDIT_NOTE_DIMENSIONS_REFUSED',
@@ -210,6 +213,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',
+  'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',
@@ -291,6 +295,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_PAID',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
+  'UPLOAD_STAGE_LOCK_TIMEOUT', // mcpUploadIntentStore.stageUploadBytes: a held row / busy upload pool; nothing staged, PUT again
   'UIF_DECLARATION_NOT_SUBMITTED', // uifPaymentService: names only the declaration's status; raised before any write (route answers 409)
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // latter: outside 1900..2199; the registry savepoint rolls back

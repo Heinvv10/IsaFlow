@@ -30,6 +30,37 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-17 — Payroll Wave 6 (PE/BF/EF), Bank WP4a/WP5/WP7, MCP Budget Excel
+
+**Payroll — Wave 6**
+
+- Payslip email (PE): send payslips from the run card; owner/admin address gate; durable per-send records; batched delivery with per-row status and Try-again / Retry-all-failed; migration 999o (#1542)
+- Salary bank file (BF): per-employee items and settlement (never netted); foot check; void-attestation flow; items guard (tenant employee, run line, exact net); journal bound to its run anchor (#1524)
+- EMP201 finality (EF): e@syFile, IRP5 summary, EMP501 and year-end surfaces read final runs only; cumulative PAYE YTD scoped to final runs; run-kind refusal surfaced before the error log
+- Run-keyed reader census (FQb1/FQb2): payslipSnapshot and final-run readers refactored outside payroll services; wave-6 census classified (#1549)
+
+**Bank**
+
+- WP4a: chosen-account kept in state (not a ref read during render); URL sync edges; stable refetch; relink once per account; light-theme parity (#1533)
+- WP5: account switcher with pinned cards + All accounts combobox; roving tabindex; middle truncation; closes on focus leave and Safari press order fixed
+- WP7: bank service files split under the 300-line cap — behaviour-neutral refactor (#1547)
+- #1494 follow-ups: batch and range reversals pre-lock transfer counterparts; range re-screens its locked lines; one shared pre-lock deadline; MCP `reverse_allocations` reports how many allocations entered the range (#1545)
+
+**Budgets / MCP**
+
+- Budget tools — Excel import: free-form sheets read by XML parser; South African rand format allowlist (exact-string, documented); rounds 7–9 fixes (LibreOffice conditional formats, fill chars, merge ranges, escaped space) (#1523)
+- Budget tools — PR 3: drivers, three-way view, remaining, alerts, slice submit; plan_hash binds status and slices; rate limits (#1526)
+- MCP budget plan_hash refusal wording corrected per tool (#1543)
+
+**UI**
+
+- Company switcher shows each company's logo (#1550)
+- Landing hero overlay lightened so river numbers stay visible (#1541)
+
+Migrations: **999o** (`payslip_email`)
+
+---
+
 ## 2026-11-06 — Auth Session Hardening, Cash Flow Alignment, Payroll s18A, Board Pack Fixes
 
 **Auth — Session Hardening**

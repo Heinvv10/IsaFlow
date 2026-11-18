@@ -53,6 +53,7 @@ import type { getMonthlyMovements } from '@/modules/accounting/services/reports/
 import type { BudgetComparatorResponse } from './apiRoutesBudgetComparator';
 import type { BudgetDynamicRoutes, BudgetStaticRoutes } from './apiRoutesBudgets';
 import type { PayrollDynamicRoutes } from './apiRoutesPayroll';
+import type { IntercompanyDynamicRoutes, IntercompanyStaticRoutes } from './apiRoutesIntercompany';
 import type { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
@@ -66,6 +67,8 @@ import type { FringeBenefit } from '@/modules/accounting/services/payroll/fringe
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { listImportBatches } from '@/modules/accounting/services/bank/bankImportBatchQueryService';
+import type { previewBulkAccept } from '@/modules/accounting/services/bank/bankBulkAcceptPreview';
+import type { confirmBulkAccept, undoBulkAcceptBatch } from '@/modules/accounting/services/bank/bankBulkAcceptService';
 import type { getBankAccountSummaries } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -78,7 +81,6 @@ import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/finan
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 import type { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
-
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
  * Matching is by pathname only — `apiJson` does not know the HTTP verb. A
@@ -109,7 +111,7 @@ import type { preValidateTaxYear } from '@/modules/accounting/services/payroll/p
  * changed by people who never read this file, so it is pinned by typeproof
  * cases 15-17 rather than by this comment.
  */
-interface StaticRoutes extends BudgetStaticRoutes {
+interface StaticRoutes extends BudgetStaticRoutes, IntercompanyStaticRoutes {
   // GET; `preview` only when `?newYearEndMonth=` is sent. `undo.changeId` is the latest live change, null when none.
   '/api/accounting/financial-year-end-change': {
     currentYear: FiscalYearRecord;
@@ -134,6 +136,9 @@ interface StaticRoutes extends BudgetStaticRoutes {
   '/api/accounting/bank-import-batches': { batches: Awaited<ReturnType<typeof listImportBatches>> };
   // GET only, no parameters: `{ asAt, accounts }`, integer cents (WP1 PR-B).
   '/api/accounting/bank-account-summaries': Awaited<ReturnType<typeof getBankAccountSummaries>>;
+  // WP6: GET the preview, POST confirm the posted/refused result, POST undo the undo result - one resource, so a union
+  // (narrowed in bulkAcceptApi by the field each one alone carries).
+  '/api/accounting/bank-bulk-accept': Awaited<ReturnType<typeof previewBulkAccept>> | Awaited<ReturnType<typeof confirmBulkAccept>> | Awaited<ReturnType<typeof undoBulkAcceptBatch>>;
   // GET and POST (regenerate) both return `{ inbox }`.
   '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
   // W1-02. GET list = array, POST upload = `{ document }`: the row is saved as readState 'reading' and read after
@@ -186,7 +191,7 @@ interface StaticRoutes extends BudgetStaticRoutes {
  * would silently inherit this type. That is precisely the defect class this
  * file exists to close, so the matcher rejects any binding containing `/`.
  */
-interface DynamicRoutes extends BudgetDynamicRoutes, PayrollDynamicRoutes {
+interface DynamicRoutes extends BudgetDynamicRoutes, PayrollDynamicRoutes, IntercompanyDynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
   '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
   // The board pack document, composed server-side. Projected off the

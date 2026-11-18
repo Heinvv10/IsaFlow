@@ -13,6 +13,8 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/integration/**/*.test.ts'],
     testTimeout: 30000,
+    // In the gate only: fails the suite that leaves a deploy integrity check failing (deployChecksGuard.ts).
+    setupFiles: ['tests/integration/helpers/deployChecksGuard.ts'],
     env: {
       // Fallback DATABASE_URL so tests that don't use the DB can import
       // neon-dependent modules without a real connection string.
