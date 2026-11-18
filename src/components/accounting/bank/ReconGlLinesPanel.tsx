@@ -36,8 +36,15 @@ export function ReconGlLinesPanel({ reconciliationId, reloadKey, completed, sele
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  // A selection the settled list no longer offers (a search, a reload or a failed load dropped it) is cleared: Match
+  // must never send a line the screen is not showing. Judged only once a load has settled, not on the empty first render.
   useEffect(() => {
-    if (!reconciliationId) return;
+    if (!loading && selectedId && !lines.some(l => l.id === selectedId)) onSelect(null);
+  }, [loading, lines, selectedId, onSelect]);
+
+  useEffect(() => {
+    // A completed session has nothing to match: the server answers an empty list for it (fail closed), so it is not read.
+    if (!reconciliationId || completed) return;
     const mine = ++seq.current;
     const load = async () => {
       setLoading(true);
@@ -62,7 +69,18 @@ export function ReconGlLinesPanel({ reconciliationId, reloadKey, completed, sele
       }
     };
     void load();
-  }, [reconciliationId, reloadKey, search]);
+  }, [reconciliationId, reloadKey, search, completed]);
+
+  if (completed) {
+    return (
+      <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
+        <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
+          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">GL Lines</h3>
+        </div>
+        <p className="p-4 text-sm text-[var(--ff-text-tertiary)]">Reconciliation completed — no lines to match</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
@@ -77,7 +95,7 @@ export function ReconGlLinesPanel({ reconciliationId, reloadKey, completed, sele
           <Search className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
           <input
             className="ff-input w-full text-sm"
-            placeholder="Search description, entry number or amount"
+            placeholder="Search description, entry number or amount (1234.50)"
             aria-label="Search GL lines"
             value={searchInput}
             maxLength={100}

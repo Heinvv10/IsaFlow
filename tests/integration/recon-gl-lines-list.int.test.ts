@@ -12,13 +12,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import journalEntries from '../../pages/api/accounting/journal-entries';
 import reconGlLines from '../../pages/api/accounting/bank-reconciliation-gl-lines';
+import { listReconcilableGlLines } from '@/modules/accounting/services/bank/bankReconcilableGlLines';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { request, response } from './mfa-impersonation-postgres.helpers';
-import { teardown, type Ctx } from './d8-r4-helpers';
+import { setup, teardown, type Ctx } from './d8-r4-helpers';
 import { clearExtras, setupWithUser } from './d10-helpers';
 import { call, cleanup, newBank, routes, seedJournal, seedPair, startSession, newId } from './d12-helpers';
 
 let c: Ctx;
+/** A second company with a reconciliation of its own: the list must answer 404 for it, never its lines. */
+let c2: Ctx | undefined;
+let otherRec = '';
 let token = '';
 let bank = '';
 let rec = '';
@@ -68,9 +72,16 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('recon man
     matchedLine = p.jl;
     lateLine = await seedJournal(c, bank, 88.88, '2026-07-15');
     rec = await startSession(c, token, bank);
+    c2 = await setup('RGL2');
+    await seedJournal(c2, c2.fx.bankAccountId, 55.55, '2026-02-02');
+    otherRec = String(((await sql`
+      INSERT INTO bank_reconciliations (company_id, bank_account_id, statement_date, statement_balance, started_by)
+      VALUES (${c2.fx.companyId}::UUID, ${c2.fx.bankAccountId}::UUID, '2026-06-30', 0, ${c2.fx.userId}::UUID)
+      RETURNING id`) as Row[])[0]!.id);
   }, 180000);
   afterAll(async () => {
     await cleanup(c); await clearExtras(c); await teardown(c);
+    await cleanup(c2); await teardown(c2);
   }, 120000);
 
   it('control: the old source (journal-entries, limit 200) does not offer the older line', async () => {
@@ -123,5 +134,15 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('recon man
     expect((await get(reconGlLines as never, { reconciliationId: rec, limit: '0' })).status).toBe(400);
     expect((await get(reconGlLines as never, { reconciliationId: rec, limit: '501' })).status).toBe(400);
     expect((await get(reconGlLines as never, { reconciliationId: newId() })).status).toBe(404);
+  }, 60000);
+
+  it("another company's real reconciliation is a 404, not its list (nor an empty one)", async () => {
+    const out = await get(reconGlLines as never, { reconciliationId: otherRec });
+    expect(out.status, JSON.stringify(out).slice(0, 300)).toBe(404);
+    expect(out.data).toBeUndefined();
+    // Through the route, row-level security already hides the other company's session. The service's own company_id
+    // is the guard for every caller without those GUCs (this connection bypasses RLS), so it is asserted there too.
+    expect(await listReconcilableGlLines(c.fx.companyId, otherRec)).toBeNull();
+    expect(await listReconcilableGlLines(c2!.fx.companyId, otherRec)).toMatchObject({ total: 1 });
   }, 60000);
 });
