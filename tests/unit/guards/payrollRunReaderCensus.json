@@ -546,9 +546,9 @@
    {"line":52,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a sum over the month's final runs of the same frequency BEFORE this run in pay order (runOrderKeySql): every earlier run counts, whatever their number"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleRun.ts": [
-   {"line":87,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS of a final regular MONTHLY run in the month (run_kind and pay_frequency filtered; the 999a regular-period key allows one), locked FOR SHARE"},
+   {"line":87,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS of a final regular MONTHLY run in the month (run_kind and pay_frequency filtered; the 999a regular-period key allows one), locked FOR UPDATE"},
    {"line":98,"text":"EXISTS (SELECT 1 FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id","class":"S","owner":"OC","why":"EXISTS: the employee is on any open off-cycle run of the month"},
-   {"line":141,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"OC","why":"inserts one off-cycle run; until FQx the per-month unique answers 23505, mapped to a 409 with nothing written"}
+   {"line":141,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"OC","why":"inserts one off-cycle run (FQx dropped the per-month unique); the month's creations are serialised on the regular run's row lock"}
   ]
  }
 }

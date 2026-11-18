@@ -44,7 +44,6 @@ export class OffCycleRunRefusedError extends Error {
   }
 }
 
-const MONTH_UNIQUE = 'payroll_run_headers_company_id_period_year_period_month_key';
 const NO_RUN = '00000000-0000-0000-0000-000000000000';
 const MAX_EMPLOYEES = 1000;
 const MAX_BONUS = 100_000_000;
@@ -89,7 +88,7 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
     SELECT h.id FROM payroll_run_headers h
      WHERE h.company_id = ${companyId}::uuid AND h.period_year = ${period.year} AND h.period_month = ${period.month}
        AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly' AND ${sql.unsafe(payRunFinalSql('h'))}
-     FOR SHARE OF h
+     FOR UPDATE OF h -- serialises the month's off-cycle creations: the open-run check below then sees a peer's run
   `) as DbRow[];
   if (!regular[0]) throw state(`${monthName(period)} has no approved regular run: approve it before an off-cycle run`);
   const regularId = String(regular[0].id);
@@ -139,37 +138,28 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
 export async function createOffCycleRun(companyId: string, input: OffCycleRunInput, createdBy: string | null): Promise<PayrollRunSummary> {
   judgeOffCycleShape(input, todayInSast());
   const { period, reason, runDate, employees } = input;
-  try {
-    return await withTransaction(async (tx) => {
-      await judgeOffCycleState(tx, companyId, input);
-      const rows = (await tx`
-        INSERT INTO payroll_run_headers (
-          company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date
-        ) VALUES (
-          ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy}, 'monthly', 'off_cycle', ${reason},
-          public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
-          public.payroll_month_period_end(${period.year}::int, ${period.month}::int), ${runDate}::date
-        ) RETURNING *
-      `) as DbRow[];
-      const run = rows[0];
-      if (!run) throw new Error('INSERT returned no row');
-      for (const e of employees) {
-        await tx`
-          INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)
-          VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount ?? null}, ${createdBy})
-        `;
-      }
-      log.info('Off-cycle payroll run created', { companyId, runId: String(run.id), reason, employees: employees.length }, 'payrollOffCycleRun');
-      return mapRunRow(run);
-    });
-  } catch (err) {
-    // Until FQx drops the per-month unique, a month holding its regular run cannot hold another run (a 409, nothing written).
-    const e = err as { code?: string; constraint?: string };
-    if (e.code === '23505' && e.constraint === MONTH_UNIQUE) {
-      throw state(`${monthName(period)} already has a run, and this database allows one run a month until the per-month limit is lifted`);
+  return await withTransaction(async (tx) => {
+    await judgeOffCycleState(tx, companyId, input);
+    const rows = (await tx`
+      INSERT INTO payroll_run_headers (
+        company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date
+      ) VALUES (
+        ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy}, 'monthly', 'off_cycle', ${reason},
+        public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
+        public.payroll_month_period_end(${period.year}::int, ${period.month}::int), ${runDate}::date
+      ) RETURNING *
+    `) as DbRow[];
+    const run = rows[0];
+    if (!run) throw new Error('INSERT returned no row');
+    for (const e of employees) {
+      await tx`
+        INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)
+        VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount ?? null}, ${createdBy})
+      `;
     }
-    throw err;
-  }
+    log.info('Off-cycle payroll run created', { companyId, runId: String(run.id), reason, employees: employees.length }, 'payrollOffCycleRun');
+    return mapRunRow(run);
+  });
 }
 
 /** Calculate's (and the MCP dry run's) re-check of the month's close: refused with 409 before any write. */

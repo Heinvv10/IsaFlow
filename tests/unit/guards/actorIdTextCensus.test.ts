@@ -76,8 +76,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollRunHeaders.ts`]: { 117: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
   // Wave 6 OC: an off-cycle run's header and its employees (payroll_off_cycle_employees.created_by is TEXT, 999x).
   [`${S}payroll/payrollOffCycleRun.ts`]: {
-    147: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',
-    158: 'INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)',
+    145: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',
+    156: 'INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)',
   },
   [`${S}payroll/payrollRunLock.ts`]: { 229: 'prepared_by     = ${preparedBy},' },
   [`${S}payroll/payrollRunReopen.ts`]: { 81: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
@@ -142,8 +142,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
   [`${S}payroll/payrollOffCycleRun.ts`]: {
-    149: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy}, 'monthly', 'off_cycle', ${reason},",
-    159: 'VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount ?? null}, ${createdBy})',
+    147: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy}, 'monthly', 'off_cycle', ${reason},",
+    157: 'VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount ?? null}, ${createdBy})',
   },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 120: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
