@@ -65,6 +65,17 @@ export function shortDay(iso: string): string {
   return `${d} ${MONTHS[m - 1] ?? ''}`;
 }
 
+/** '2026-01-07' → '7 Jan 2026', read from the string (no clock, no zone). */
+export function longDay(iso: string): string {
+  return `${shortDay(iso)} ${iso.slice(0, 4)}`;
+}
+
+/** A group's total row: "Total payroll", but an acronym keeps its capitals ("Total SARS"). */
+export function totalRowLabel(title: string): string {
+  const words = title.split(' ').map((w) => (w.length > 1 && w === w.toUpperCase() ? w : w.toLowerCase()));
+  return `Total ${words.join(' ')}`;
+}
+
 export function weekLabel(week: Pick<ForecastWeek, 'index' | 'start'>): string {
   return `Week ${week.index + 1} · ${shortDay(week.start)}`;
 }

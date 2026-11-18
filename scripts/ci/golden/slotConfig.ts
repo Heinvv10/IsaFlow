@@ -47,7 +47,30 @@ export function assertSlotCompanyId(n: number, id: string): void {
 
 /** 0 for a slot's first company, the generation a `--reset-slot` replacement carries; 0 for an id that is not a slot's. */
 export const generationOf = (companyId: string): number => Number(/^601d000(\d)-0000-4000-8000-00000000000\d$/.exec(companyId)?.[1] ?? 0);
-export const slotEmail = (n: number): string => `golden-slot-${n}@isaflow.dev`;
+/**
+ * The domain of every test and QA login on the GoTrue shared with production. It is isaflow.co.za, whose mail reaches us:
+ * a password reset for one of these logins must never go to a domain anyone else could register. (isaflow.dev has no DNS
+ * records and was used until 2026-11; migrate-slot-emails.ts moves the accounts that still carry it.)
+ */
+export const QA_EMAIL_DOMAIN = 'isaflow.co.za';
+/** The retired domain; only the migration (slotEmailPlan.ts) and the tests name it. */
+export const LEGACY_EMAIL_DOMAIN = 'isaflow.dev';
+export const slotEmail = (n: number): string => `golden-slot-${n}@${QA_EMAIL_DOMAIN}`;
+/** The same local part on the retired domain. */
+export const legacyEmail = (email: string): string => email.replace(new RegExp(`@${QA_EMAIL_DOMAIN.replace(/\./g, '\\.')}$`, 'i'), `@${LEGACY_EMAIL_DOMAIN}`);
+/**
+ * CUTOVER GRACE. The addresses a login may carry while accounts and env files are still being moved by migrate-slot-emails.ts:
+ * the current one and its legacy twin. The strict pins (tests/e2e/golden-paths/helpers/goldenSlot.ts, tests/e2e/rubric/
+ * _rubricGuard.ts and its DB lookups) go through this, so a run on a not-yet-migrated env file still works. Follow-up
+ * "drop-legacy-email-grace": once the migration has run on dev and no env file holds a legacy address, make this return
+ * `[email]` (or inline it away) and delete the legacy cases in goldenSlot.test.ts and rubricGuard.test.ts.
+ */
+export const loginAliases = (email: string): string[] => [...new Set([email, legacyEmail(email)])];
+/** provision-w6-qa.ts's user. */
+export const W6_EMAIL = `golden-qa-w6@${QA_EMAIL_DOMAIN}`;
+/** The rubric harness's two logins (tests/e2e/rubric/_rubricGuard.ts keeps literals; a unit test pins them equal). */
+export const REPORTING_QA_EMAIL = `reporting-qa@${QA_EMAIL_DOMAIN}`;
+export const REPORTING_QA_APPROVER_EMAIL = `reporting-qa-approver@${QA_EMAIL_DOMAIN}`;
 
 export interface SlotEnvKeys { companyId: string; email: string; password: string }
 export const slotEnvKeys = (n: number): SlotEnvKeys => ({
