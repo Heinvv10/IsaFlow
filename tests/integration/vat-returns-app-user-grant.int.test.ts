@@ -19,7 +19,6 @@ describe('1003: vat_returns grant', () => {
   it('restores SELECT/INSERT/UPDATE/DELETE to app_user from a bare table, twice, with RLS and a policy', async () => {
     await rolledBack(async (q) => {
       await q('REVOKE ALL ON public.vat_returns FROM app_user');
-      await q('DROP POLICY IF EXISTS tenant_isolation ON public.vat_returns');
       await q(`DO $$ DECLARE p text; BEGIN FOR p IN SELECT policyname FROM pg_policies
         WHERE tablename = 'vat_returns' AND 'app_user' = ANY (roles) LOOP
         EXECUTE format('DROP POLICY %I ON public.vat_returns', p); END LOOP; END $$`);
@@ -33,6 +32,22 @@ describe('1003: vat_returns grant', () => {
       const pol = await rows(q, `SELECT policyname FROM pg_policies
         WHERE tablename = 'vat_returns' AND 'app_user' = ANY (roles)`);
       expect(pol.length).toBe(1);
+    });
+  }, 60000);
+
+  it('does not clash with an existing tenant_isolation policy on another role', async () => {
+    await rolledBack(async (q) => {
+      await q('REVOKE ALL ON public.vat_returns FROM app_user');
+      await q(`DO $$ DECLARE p text; BEGIN FOR p IN SELECT policyname FROM pg_policies
+        WHERE tablename = 'vat_returns' AND 'app_user' = ANY (roles) LOOP
+        EXECUTE format('DROP POLICY %I ON public.vat_returns', p); END LOOP; END $$`);
+      await q('DROP POLICY IF EXISTS tenant_isolation ON public.vat_returns');
+      await q('CREATE POLICY tenant_isolation ON public.vat_returns FOR SELECT TO migration_admin USING (true)');
+      await q(M1003);
+      expect(await priv(q, 'SELECT')).toBe(true);
+      const pol = await rows(q, `SELECT policyname FROM pg_policies
+        WHERE tablename = 'vat_returns' AND 'app_user' = ANY (roles)`);
+      expect(pol).toEqual([{ policyname: 'vat_returns_tenant_isolation' }]);
     });
   }, 60000);
 });
