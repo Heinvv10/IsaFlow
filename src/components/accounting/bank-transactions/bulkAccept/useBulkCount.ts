@@ -29,7 +29,7 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   const latest = useRef(new Map<string, number>()); // the newest read's seq, per account
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const forced = useRef(0);
-  const bypass = useRef(false); // a batch was just posted or undone: the next read ignores the gap
+  const bypass = useRef<string | null>(null); // a batch was just posted or undone on THIS account: its next read ignores the gap
 
   const read = useCallback((account: string) => {
     const mine = ++seq.current; // only read() bumps seq
@@ -54,8 +54,8 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   const schedule = useCallback((account: string) => {
     if (timer.current) clearTimeout(timer.current);
     const at = last.current.get(account);
-    const wait = !bypass.current && at !== undefined ? Math.max(0, at + MIN_GAP_MS - now()) : 0;
-    timer.current = setTimeout(() => { timer.current = null; bypass.current = false; if (wantedRef.current === account) read(account); }, wait);
+    const wait = bypass.current !== account && at !== undefined ? Math.max(0, at + MIN_GAP_MS - now()) : 0;
+    timer.current = setTimeout(() => { timer.current = null; if (bypass.current === account) bypass.current = null; if (wantedRef.current === account) read(account); }, wait);
   }, [now, read]);
 
   useEffect(() => {
@@ -65,14 +65,26 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
       // within the gap still shows N.
       return;
     }
-    if (force !== forced.current) { forced.current = force; bypass.current = true; }
+    if (force !== forced.current) { forced.current = force; bypass.current = wanted; }
     if (flight.current?.account === wanted) { dirty.current = true; return; } // lands on its own; a trailing read follows
     schedule(wanted);
   }, [wanted, refreshKey, force, schedule]);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
-  /** A batch was just posted or undone: read again now, whatever the gap. */
+  /**
+   * A batch was just posted or undone on `account` (the DIALOG's account, which may no longer be the page's): its stored
+   * count and last read are stale. It is read again now, whatever the gap, if it is the wanted account; otherwise as soon
+   * as it is wanted again. A read of it still in flight predates the change and does not land.
+   */
+  const invalidate = useCallback((account: string | null) => {
+    if (!account) return;
+    last.current.delete(account);
+    latest.current.delete(account);
+    setCounts((c) => { const next = { ...c }; delete next[account]; return next; });
+    if (account === wantedRef.current) setForce((f) => f + 1);
+  }, []);
+
   const count = wanted ? counts[wanted] ?? null : null;
-  return { count, readNow: () => setForce((f) => f + 1) };
+  return { count, invalidate };
 }

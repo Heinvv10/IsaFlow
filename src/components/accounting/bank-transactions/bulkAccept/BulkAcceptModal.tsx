@@ -36,14 +36,16 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
     onClose();
   };
 
-  // A confirm or undo that ends unmounts or disables the control that had focus: focus goes to the screen's always-enabled
-  // button (Done on the result, Cancel back on the preview), never to the body.
+  // A phase change (a confirm or undo ending, Refresh preview, Preview the next batch) can unmount or disable the control that
+  // had focus: focus then goes to the screen's always-enabled button (Done on the result, Cancel otherwise), never the body.
+  // Focus the user moved somewhere still usable (the close button, say) stays where it is.
   const primary = useRef<HTMLButtonElement>(null);
-  const prevPhase = useRef(phase);
+  const firstPhase = useRef(true);
   useEffect(() => {
-    const was = prevPhase.current;
-    prevPhase.current = phase;
-    if ((was === 'confirming' || was === 'undoing') && (phase === 'result' || phase === 'preview')) primary.current?.focus();
+    if (firstPhase.current) { firstPhase.current = false; return; }
+    const at = document.activeElement;
+    const lost = !at || at === document.body || !at.isConnected || (at as HTMLButtonElement).disabled === true;
+    if (lost) primary.current?.focus();
   }, [phase]);
 
   if (!open) return null;
@@ -55,16 +57,16 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
 
   const title = phase === 'result' || phase === 'undoing' ? 'High-confidence suggestions: result' : `Accept ${lines.length} high-confidence suggestion${lines.length === 1 ? '' : 's'}`;
   const undoneText = undone ? (undone.undone ? `Batch undone: ${lineCount(undone.reversed)} reversed.` : partialUndoMessage(undone)) : '';
-  // The outcome, said in the dialog's one live region, which is there from the start (a region inserted with its text is not
-  // reliably announced). Worded apart from the visible lines so nothing on screen reads twice.
-  const outcome = phase !== 'result' || !confirmed ? ''
-    : undone ? `Undo finished: ${lineCount(undone.reversed)} reversed${undone.undone ? '' : ', the rest not undone'}.`
-      : `Batch posted: ${lineCount(confirmed.posted.length)}${refused.length > 0 ? `, ${refused.length} not posted` : ''}.`;
+  const showResult = (phase === 'result' || phase === 'undoing') && !!confirmed;
+  // The outcome region is there from the start (a region inserted with its text is not reliably announced). It SHOWS the undo's
+  // text, reason included; before an undo it says what posted to a screen reader only, and says nothing over an error alert.
+  const postedText = confirmed ? `Batch posted: ${lineCount(confirmed.posted.length)}${refused.length > 0 ? `, ${refused.length} not posted` : ''}.` : '';
+  const outcome = !showResult ? '' : undone ? undoneText : error ? '' : postedText;
 
   // The page's one modal shell (WP7). `busy` is the raw in-flight flag, not useModalBusy's 30 s release: the confirm and undo
   // bound their own wait (CONFIRM_RETRY, then "may have posted"), and closing over one in flight would lose its answer.
   // Focus lands on a control that is always enabled, never on a disabled Confirm: `data-autofocus` (Cancel) on open, and the
-  // effect above after a confirm or undo ends.
+  // effect above when a phase change took focus away.
   return (
     <BankTxModalShell label={title} onClose={close} busy={working} closeOnBackdrop returnFocus={returnFocus}>
       <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] shadow-2xl">
@@ -77,7 +79,7 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div role="status" aria-live="polite" className={retrying ? 'mb-3 text-sm text-amber-300' : 'sr-only'}>
-            {retrying ? 'Still trying - the connection is slow or dropped. Sending the same request again; it cannot post twice.' : busy ? 'Working' : outcome}
+            {retrying ? 'Still trying - the connection is slow or dropped. Sending the same request again; it cannot post twice.' : busy ? 'Working' : ''}
           </div>
           {error && (
             <div role="alert" className="mb-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
@@ -91,7 +93,7 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
           {(phase === 'preview' || phase === 'confirming') && preview && (
             <BulkPreviewBody preview={preview} busy={busy} onNextPage={() => void load(preview.nextScanAfter, true)} />
           )}
-          {(phase === 'result' || phase === 'undoing') && confirmed && (
+          {showResult && confirmed && (
             <div>
               <p className="text-sm text-[var(--ff-text-primary)]" data-testid="bulk-result">
                 Posted {lineCount(confirmed.posted.length)} ({formatMoney(confirmed.totalPosted)}).
@@ -106,18 +108,16 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
                   ))}
                 </ul>
               )}
-              {undone && (
-                <p className="mt-3 text-sm text-emerald-300">{undoneText}</p>
-              )}
-              {undone && undone.handOffsets.length > 0 && confirmed.runId && (
-                <ul aria-label="Lines a later journal may already correct" className="mt-2 space-y-2">
-                  {(undone.handOffsets as unknown as HandOffset[]).map((o) => (
-                    <HandOffsetNotice key={o.transactionId} runId={confirmed.runId!} offset={o} onDecided={handOffDecided} />
-                  ))}
-                </ul>
-              )}
               {canUndo && !undone && <p className="mt-3 text-xs text-[var(--ff-text-tertiary)]">Undo reverses exactly this batch. It stays available later under Auto-post runs.</p>}
             </div>
+          )}
+          <p role="status" aria-live="polite" data-testid="bulk-outcome" className={undone && outcome ? 'mt-3 text-sm text-emerald-300' : 'sr-only'}>{outcome}</p>
+          {showResult && confirmed?.runId && undone && undone.handOffsets.length > 0 && (
+            <ul aria-label="Lines a later journal may already correct" className="mt-2 space-y-2">
+              {(undone.handOffsets as unknown as HandOffset[]).map((o) => (
+                <HandOffsetNotice key={o.transactionId} runId={confirmed.runId!} offset={o} onDecided={handOffDecided} />
+              ))}
+            </ul>
           )}
         </div>
         <div className="flex items-center justify-end gap-3 border-t border-[var(--ff-border-light)] px-6 py-4">

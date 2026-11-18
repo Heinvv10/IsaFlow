@@ -588,7 +588,7 @@ describe('Confirm with the real preview answer (z30 regression)', () => {
 
 describe('focus and the outcome after a confirm or undo ends (review round)', () => {
   const RUN = { runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
-  const live = () => document.querySelector('[aria-live="polite"]')?.textContent ?? '';
+  const live = () => screen.getByTestId('bulk-outcome').textContent ?? '';
 
   it('after Confirm, focus is on Done (not the body) and the live region says what posted', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN));
@@ -610,7 +610,7 @@ describe('focus and the outcome after a confirm or undo ends (review round)', ()
     await screen.findByText(/Batch undone: 1 line reversed/);
     expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Done' })));
-    expect(live()).toBe('Undo finished: 1 line reversed.');
+    expect(live()).toBe('Batch undone: 1 line reversed.');
   });
 
   it('a refused Confirm puts focus back on Cancel', async () => {
@@ -680,5 +680,81 @@ describe('a dialog unmounted after a write was sent still reloads the page (revi
     await screen.findByText('LINE 1');
     view.unmount();
     expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('review round 2: busy, the outcome region, focus on every phase change', () => {
+  const RUN = { runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+  const OFFSET = { transactionId: 'a', lineDate: '2026-09-01', lineAmount: -100, lineDescription: 'LINE 1', journalEntryId: 'je', entryNumber: 'JE-2026-00042', entryDate: '2026-09-02', amount: 100, description: 'Hand fix', netsPostingOut: true, reclass: false, projection: [] };
+  const PARTIAL = { reversed: 0, skipped: 1, skippedBy: { reconciled: 1, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 }, undone: false, handOffsets: [] };
+  const outcome = () => screen.getByTestId('bulk-outcome').textContent ?? '';
+
+  it('while a confirm is in flight the dialog is aria-busy and a click on its backdrop does not close it', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockReturnValueOnce(new Promise(() => undefined));
+    const { onClose } = open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await screen.findByRole('button', { name: 'Posting…' });
+    const d = screen.getByRole('dialog');
+    expect(d.getAttribute('aria-busy')).toBe('true');
+    fireEvent.click(d); // the shell's root is the backdrop
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("a partial undo's reason is in the live region", async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN)).mockResolvedValueOnce(ok(PARTIAL));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    await waitFor(() => expect(outcome()).toMatch(/Not undone: 1 on a reconciliation/));
+    expect(screen.getByTestId('bulk-outcome').getAttribute('role')).toBe('status');
+  });
+
+  it('a failed undo: the live region does not say "Batch posted" again over the alert', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN)).mockResolvedValueOnce(bad('That batch is already undone.'));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    await waitFor(() => expect(outcome()).toBe('Batch posted: 1 line.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo batch' }));
+    await screen.findByRole('alert');
+    expect(outcome()).toBe('');
+  });
+
+  it('"Preview the next batch" takes the focused button away: focus goes to Cancel, not the body', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok({ ...PREVIEW, truncated: true })).mockResolvedValueOnce(ok(RUN)).mockReturnValueOnce(new Promise(() => undefined));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    const next = await screen.findByRole('button', { name: 'Preview the next batch' });
+    next.focus();
+    fireEvent.click(next);
+    await screen.findByText('Loading suggestions…');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' })));
+  });
+
+  it('"Refresh preview" after a refused confirm takes its button away: focus goes to Cancel, not the body', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(bad('The lines changed - refresh the preview', 409))
+      .mockReturnValueOnce(new Promise(() => undefined));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    const refresh = await screen.findByRole('button', { name: 'Refresh preview' });
+    refresh.focus();
+    fireEvent.click(refresh);
+    await screen.findByText('Loading suggestions…');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' })));
+  });
+
+  it('focus the user moved to a control that is still there is left alone when an undo ends', async () => {
+    const second = deferred<Response>();
+    const partialOffset = { reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 1, creditCeiling: 0 }, undone: false, handOffsets: [OFFSET] };
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN)).mockResolvedValueOnce(ok(partialOffset)).mockReturnValueOnce(second.promise);
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo the rest of the batch' }));
+    await screen.findByRole('button', { name: 'Undoing…' });
+    const mine = within(screen.getByRole('list', { name: /later journal may already correct/ })).getAllByRole('button')[0]!;
+    mine.focus();
+    second.resolve(ok(partialOffset));
+    await screen.findByRole('button', { name: 'Undo the rest of the batch' });
+    expect(document.activeElement).toBe(mine);
   });
 });

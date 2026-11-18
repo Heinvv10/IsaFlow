@@ -67,4 +67,21 @@ describe('the real bank-transactions page with a bulk accept in progress', () =>
     expect(count(/bank-relink-transfers|bank-transfer-links|coding-metrics/)).toBe(mountsAtResult); // no second mount of the page's panels
     await waitFor(() => expect(screen.getByRole('button', { name: 'Undo batch' })).toBeTruthy());
   });
+
+  it('the page going away mid-confirm (a navigation) does not reload the page it left', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (u, init) => {
+      const url = String(u);
+      if (url.includes('/api/accounting/bank-bulk-accept')) return init?.method === 'POST' ? new Promise<Response>(() => undefined) : ok(PREVIEW);
+      if (url.includes('/api/accounting/bank-transactions?')) return ok({ transactions: [], total: 0 });
+      return ok({});
+    });
+    const view = render(<BankTransactionsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
+    await screen.findByRole('button', { name: 'Posting…' });
+    const listReads = count(/GET \/api\/accounting\/bank-transactions\?/);
+    view.unmount();
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(count(/GET \/api\/accounting\/bank-transactions\?/)).toBe(listReads);
+  });
 });

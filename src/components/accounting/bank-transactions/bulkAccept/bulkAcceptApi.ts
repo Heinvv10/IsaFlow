@@ -39,23 +39,33 @@ const STILL_RUNNING = /still being processed/i; // the idempotency wrapper's 409
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** One send's answer, its body already read inside the deadline. */
-interface Sent { status: number; text: string; res: Response }
-
-async function send(body: unknown, key: string): Promise<Sent | 'ambiguous'> {
+/**
+ * One send, ALL of it inside the deadline: the headers, the status check and the body. Clearing the timer once headers
+ * arrived would leave a body that stalls after them holding the dialog busy for good.
+ * @returns the answer's `data`, or 'ambiguous' when the send may or may not have committed.
+ * @throws ApiRequestError (from assertOk) for a definitive refusal: a 4xx other than "still being processed".
+ */
+async function send(body: unknown, key: string, fallback: string): Promise<{ data: unknown } | 'ambiguous'> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CONFIRM_RETRY.timeoutMs);
   try {
-    const res = await apiFetch(URL, {
-      method: 'POST', credentials: 'include', signal: controller.signal,
-      headers: { ...JSON_HEADERS, 'Idempotency-Key': key }, body: JSON.stringify(body),
-    });
-    // The deadline covers the body too: headers that arrive and a body that then stalls are as ambiguous as no answer, and
-    // clearing the timer at the headers would leave the dialog busy for good.
-    const text = await res.text();
-    return { status: res.status, text, res: new Response(text === '' ? null : text, { status: res.status, headers: res.headers }) };
-  } catch {
-    return 'ambiguous'; // a dropped connection, a body cut off, or our own timeout: the first send may have committed
+    let res: Response;
+    try {
+      res = await apiFetch(URL, {
+        method: 'POST', credentials: 'include', signal: controller.signal,
+        headers: { ...JSON_HEADERS, 'Idempotency-Key': key }, body: JSON.stringify(body),
+      });
+    } catch {
+      return 'ambiguous'; // a dropped connection, or our own timeout: the first send may have committed
+    }
+    if (AMBIGUOUS_STATUS.has(res.status)) return 'ambiguous';
+    if (res.status === 409 && STILL_RUNNING.test(await res.clone().text().catch(() => ''))) return 'ambiguous';
+    await assertOk(res, fallback); // a definitive refusal throws, with the server's sentence
+    let text: string;
+    try { text = await res.text(); } catch { return 'ambiguous'; } // a body cut off, or stalled past the deadline
+    let data: unknown;
+    try { data = (JSON.parse(text) as { data?: unknown }).data; } catch { return 'ambiguous'; } // a body cut short
+    return data === undefined ? 'ambiguous' : { data };
   } finally { clearTimeout(timer); }
 }
 
@@ -71,14 +81,8 @@ async function postUnderKey(body: unknown, key: string, fallback: string, unreso
   const tries = CONFIRM_RETRY.backoffMs.length + 1;
   for (let attempt = 0; attempt < tries; attempt += 1) {
     if (attempt > 0) { onRetry?.(); await pause(CONFIRM_RETRY.backoffMs[attempt - 1]!); }
-    const sent = await send(body, key);
-    if (sent === 'ambiguous' || AMBIGUOUS_STATUS.has(sent.status)) continue;
-    if (sent.status === 409 && STILL_RUNNING.test(sent.text)) continue;
-    await assertOk(sent.res, fallback);
-    let data: unknown;
-    try { data = (JSON.parse(sent.text) as { data?: unknown }).data; } catch { continue; } // a body cut short: ambiguous
-    if (data === undefined) continue;
-    return data;
+    const sent = await send(body, key, fallback);
+    if (sent !== 'ambiguous') return sent.data;
   }
   throw new WriteUnresolvedError(unresolved);
 }

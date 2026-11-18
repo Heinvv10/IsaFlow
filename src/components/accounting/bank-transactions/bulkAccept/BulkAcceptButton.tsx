@@ -17,9 +17,9 @@ export function BulkAcceptButton({ bankAccountId, active, onChanged, refreshKey 
   // The account the open dialog works on: fixed when it opened, so the page changing its account, tab or count under a confirm
   // in flight can neither retarget nor unmount the dialog (its answer - what posted, the batch to undo - would be lost).
   const [dialogAccount, setDialogAccount] = useState<string | null>(null);
-  const { count, readNow } = useBulkCount(bankAccountId, active, refreshKey);
+  const { count, invalidate } = useBulkCount(bankAccountId, active, refreshKey);
   const trigger = useRef<HTMLButtonElement>(null);
-  const hidden = !bankAccountId || !active || (count !== null && count.n === 0 && !open);
+  const hidden = !bankAccountId || !active || (count !== null && count.n === 0);
 
   // The button went away (the count reached 0) while focus was on it, or on nothing after the dialog closed: the grid takes it.
   const wasHidden = useRef(hidden);
@@ -42,7 +42,7 @@ export function BulkAcceptButton({ bankAccountId, active, onChanged, refreshKey 
           </button>
         </div>
       )}
-      <BulkAcceptModal open={open} bankAccountId={dialogAccount} onClose={() => setOpen(false)} onChanged={() => { readNow(); onChanged(); }}
+      <BulkAcceptModal open={open} bankAccountId={dialogAccount} onClose={() => setOpen(false)} onChanged={() => { invalidate(dialogAccount); onChanged(); }}
         returnFocus={() => trigger.current ?? grid()} />
     </>
   );

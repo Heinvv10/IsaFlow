@@ -4,7 +4,7 @@
  * Action handlers: useBankTxActions | Ref data: useBankTxRefData | Bank accounts + figures: useBankTxSummary
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
@@ -109,6 +109,10 @@ export default function BankTransactionsPage() {
   const refreshSummary = summary.refresh;
   const reload = list.reload;
   const afterMutation = useCallback(() => { void reload(); void refreshSummary(); }, [reload, refreshSummary]);
+  // The bulk-accept dialog reports a write it sent when it unmounts; when that is the PAGE going away, nothing is reloaded.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const afterBulkAccept = useCallback(() => { if (mounted.current) afterMutation(); }, [afterMutation]);
   // EVERY post-mutation list reload goes through this (the view on screen NOW, not the one the action was clicked in).
   const reloadList = useCallback(() => { void reload(); }, [reload]);
   const reloadWithSummary = useCallback(async () => { await reload({ silent: true }); void refreshSummary(); }, [reload, refreshSummary]);
@@ -214,7 +218,7 @@ export default function BankTransactionsPage() {
         />
 
         <ActiveFiltersChip labels={f.activeLabels} onClear={f.clear} />
-        <BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterMutation} refreshKey={total} />
+        <BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterBulkAccept} refreshKey={total} />
         <BankTxSelectionBar count={onScreenSelected.size} onClear={() => setSelectedIds(new Set())} />
         <BankTxSuppliersNotice status={suppliersStatus} />
 
