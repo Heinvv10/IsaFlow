@@ -33,6 +33,14 @@ it('before the file is generated: no Mark filed, the next step is named, CSV and
   expect(button(/^Filing file \(JSON\)$/)).not.toBeNull();
 });
 
+it('a version finalised before the cut-off (no file required): Mark filed is offered without a filing file', async () => {
+  h.versions = [{ ...UNSTAMPED, filingFileRequired: false }];
+  bar();
+  await ready();
+  expect(button(/^Mark filed$/)).not.toBeNull();
+  expect(screen.getByTestId('filing-file-status').textContent).toMatch(/finalised before IsaFlow generated filing files/);
+});
+
 it('a download posts the version and format to the filing-file route, then reloads the return', async () => {
   h.versions = [UNSTAMPED];
   bar();

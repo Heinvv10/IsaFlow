@@ -9,14 +9,21 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
 import { draftRow, fileV, fin, genFile, legacy, PRN, row, useFixture, versionOf } from './helpers/returnFileCalls';
+import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 type Row = Record<string, unknown>;
 let a: ReturnFixture;
 const one = async (q: Promise<unknown>) => ((await q) as Row[])[0]!;
+/** What the lifecycle bar is told about a version: whether its filing file is required before Mark filed. */
+async function fileRequired(id: string, periodStart: string, periodEnd: string): Promise<unknown> {
+  const r = await callRoute(versions, a.fx.companyId, a.admin.token, 'GET', { form: 'vat201', periodStart, periodEnd });
+  expect(r.status).toBe(200);
+  return (r.body as { data: { versions: Array<{ id: string; filingFileRequired: boolean }> } }).data.versions.find((v) => v.id === id)?.filingFileRequired;
+}
 
 /** A VAT201 version finalised BEFORE the cut-off, as the previous release wrote it (boxes, no form), on its own lock. */
 async function preCutoffVat(start: string, end: string): Promise<string> {
@@ -41,6 +48,7 @@ describeIfDb('EFa delta: pre-cut-off filing, one PRN per period under concurrenc
 
   it('N1: a VAT201 finalised before the cut-off files with a PRN and no filing file (200, no stamp); its download stays 409', async () => {
     const id = await preCutoffVat('2025-12-01', '2026-01-31');
+    expect(await fileRequired(id, '2025-12-01', '2026-01-31')).toBe(false); // so the bar offers Mark filed without a file
     const filed = await fileV(id, { reference: PRN('vat201', 31), withoutFile: true });
     expect(filed.status).toBe(200);
     expect(await row(id)).toMatchObject({ status: 'filed', filed_reference: PRN('vat201', 31), filing_file_sha256: null, filing_file_content: null });
@@ -61,6 +69,7 @@ describeIfDb('EFa delta: pre-cut-off filing, one PRN per period under concurrenc
       '2025-01-31', 1, ${JSON.stringify({ outputTax: 0, inputTax: 0, netVat: 0, sarsFields: [] })}::JSONB, now(), ${a.admin.userId},
       public.tax_return_versions_filing_file_cutoff(), ${lock}::UUID) RETURNING id`)).id);
     expect(at.sub_ms).toBe(true); // the cut-off has microseconds a JS Date would lose, so the window is really exercised
+    expect(await fileRequired(id, '2024-12-01', '2025-01-31')).toBe(true); // the bar and the server agree on the same row
     const r = await fileV(id, { reference: PRN('vat201', 77), withoutFile: true });
     expect(r.status).toBe(409);
     expect(JSON.stringify(r.body)).toMatch(/FILING_FILE_REQUIRED/);
