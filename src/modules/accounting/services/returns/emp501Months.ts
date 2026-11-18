@@ -46,6 +46,8 @@ export interface LegacyEmp201 {
   whole: boolean;
   /** Some of its months are in this return but were filed again through the lifecycle. */
   filedAgain: boolean;
+  /** Its span reaches outside this return (a Feb-Mar row across the tax-year boundary). */
+  outside: boolean;
 }
 
 export type Emp201Filing =
@@ -64,6 +66,11 @@ export interface Emp501Filings {
   legacyRows: LegacyEmp201[];
   /** Certificate totals per YYYY-MM. */
   certificates: Map<string, MonthTotals>;
+  /**
+   * Months of the return (no current version) filed by more than one legacy row: 'March 2025 to April 2025 (reference
+   * X) and April 2025 (reference Y) both file April 2025'. Which one SARS holds cannot be told, so this refuses.
+   */
+  conflicts: string[];
 }
 
 const ZERO: MonthTotals = { paye: 0, uif: 0, sdl: 0 };
@@ -72,6 +79,12 @@ const add = (a: MonthTotals, b: MonthTotals): MonthTotals => ({ paye: cents(a.pa
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 /** 'June 2025' for '2025-06'. */
 export const monthName = (ym: string): string => `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
+/** 'March 2025 to April 2025 (reference X)': a legacy row by its own span and reference. */
+export function rowName(r: Pick<LegacyEmp201, 'start' | 'end' | 'reference'>): string {
+  const span = [r.start.slice(0, 7), r.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i);
+  return `${monthsName(span)} (reference ${r.reference ?? 'none'})`;
+}
+
 /** 'March 2025' or 'March 2025 to April 2025'. */
 export const monthsName = (ms: string[]): string => (ms.length <= 1 ? monthName(ms[0] ?? '') : `${monthName(ms[0]!)} to ${monthName(ms[ms.length - 1]!)}`);
 
@@ -120,9 +133,9 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
     ORDER BY period_start, version_no DESC
   `) as DbRow[];
   const versions = new Map(current.map((r) => { const v = mapVersion(r); return [v.periodStart.slice(0, 7), v]; }));
-  // Per period month with no current version: the latest legacy row covering it (rows a version names are not legacy).
+  // Every legacy row covering a period month (rows a version names are not legacy), newest first per month.
   const legacy = (await sql`
-    SELECT DISTINCT ON (m.month) to_char(m.month, 'YYYY-MM') AS month, s.id, s.period_start::TEXT AS ps, s.period_end::TEXT AS pe,
+    SELECT to_char(m.month, 'YYYY-MM') AS month, s.id, s.period_start::TEXT AS ps, s.period_end::TEXT AS pe,
            s.submission_reference AS ref,
            s.form_data->'totalPAYE' AS paye, s.form_data->'totalUIF' AS uif, s.form_data->'totalSDL' AS sdl
     FROM generate_series(${p.start}::DATE, ${p.end}::DATE, INTERVAL '1 month') AS m(month)
@@ -133,7 +146,7 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
     ORDER BY m.month, s.submitted_at DESC NULLS LAST, s.id
   `) as DbRow[];
   const rows = new Map<string, LegacyEmp201>();
-  const legacyByMonth = new Map<string, LegacyEmp201>();
+  const byMonth = new Map<string, LegacyEmp201[]>();
   for (const r of legacy) {
     const month = String(r.month);
     if (versions.has(month)) continue; // the lifecycle version is the month's filing
@@ -144,12 +157,19 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
       const [ps, pe] = [String(r.ps), String(r.pe)];
       const span = (Number(pe.slice(0, 4)) - Number(ps.slice(0, 4))) * 12 + Number(pe.slice(5, 7)) - Number(ps.slice(5, 7)) + 1;
       const stored = paye !== null && uif !== null && sdl !== null ? { paye: cents(paye), uif: cents(uif), sdl: cents(sdl) } : null;
-      row = { id, reference: r.ref == null ? null : String(r.ref), start: ps, end: pe, months: [], span, stored, spanCertificates: null, whole: false, filedAgain: false };
+      row = {
+        id, reference: r.ref == null ? null : String(r.ref), start: ps, end: pe, months: [], span, stored, spanCertificates: null,
+        whole: false, filedAgain: false, outside: ps < p.start || pe > p.end,
+      };
       rows.set(id, row);
     }
     row.months.push(month);
-    legacyByMonth.set(month, row);
+    byMonth.set(month, [...(byMonth.get(month) ?? []), row]);
   }
+  // A month two legacy rows file is a conflict (review #1568 round 5): refused, never resolved by picking one.
+  const conflicts = [...byMonth.entries()].filter(([, rs]) => rs.length > 1).map(([month, rs]) =>
+    `${[...rs].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)).map(rowName).join(' and ')} both file ${monthName(month)}`);
+  const legacyByMonth = new Map([...byMonth.entries()].map(([m, rs]) => [m, rs[0]!]));
   for (const row of rows.values()) {
     row.filedAgain = [...versions.keys()].some((m) => m >= row.start.slice(0, 7) && m <= row.end.slice(0, 7));
     row.whole = row.months.length === row.span;
@@ -170,6 +190,7 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
     filedVersions: [...versions.values()].filter((v) => v.status === 'filed'),
     legacyRows: [...rows.values()],
     certificates,
+    conflicts,
   };
 }
 
@@ -219,7 +240,9 @@ export function legacyWarnings(f: Emp501Filings): string[] {
     const what = `EMP201 for ${monthsName([r.start.slice(0, 7), r.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i))}`;
     if (!r.stored) return [`${what} was filed before figures were stored (no stored totals${span ? `; ${span}` : ''}); not cross-checked`];
     if (r.filedAgain) return [`${what} ${span ?? 'spans 1 month'}, some of them filed again since; checked as one against all its months' certificates`];
-    if (!r.whole) return [`${what} ${span ?? 'spans 1 month'}, some of them outside this return; checked as one against all its months' certificates`];
+    // Only a span that truly reaches outside the return (never an in-return month another row shadows: a conflict).
+    if (r.outside) return [`${what} ${span ?? 'spans 1 month'}, some of them outside this return; checked as one against all its months' certificates`];
+    if (!r.whole) return [];
     return span ? [`${what} ${span}; checked as one against those months' certificates`] : [];
   });
 }

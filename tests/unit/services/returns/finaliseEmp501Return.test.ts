@@ -24,6 +24,7 @@ vi.mock('@/modules/accounting/services/returns/emp501Months', async (orig) => ({
       filedVersions: months.flatMap((x) => (x.emp201.kind === 'version' ? [x.emp201.version] : [])),
       legacyRows: [],
       certificates: new Map(months.map((x) => [x.month, x.totals])),
+      conflicts: [],
     };
   },
   notFinalRunMonths: m.notFinal,
@@ -104,7 +105,7 @@ describe('finaliseEmp501Return', () => {
     const r = await refusal('2025-03-01', '2025-08-31');
     expect(r.refusalCode).toBe('EMP501_NOT_READY');
     expect(r.message).toContain('the EMP201 for 2025-06 is not filed');
-    expect(r.refusalDetails).toEqual({ validationErrors: 0, unfiledEmp201Months: ['2025-06'], emp201Mismatches: [], driftedEmp201Months: [] });
+    expect(r.refusalDetails).toEqual({ validationErrors: 0, unfiledEmp201Months: ['2025-06'], emp201Mismatches: [], emp201Conflicts: [], driftedEmp201Months: [] });
     expect(m.insertVersion).not.toHaveBeenCalled();
   });
 

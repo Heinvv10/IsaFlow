@@ -27,6 +27,8 @@ export interface Emp501Readiness {
   unfiledEmp201Months: string[];
   /** A filed EMP201 whose totals are not the month's certificates: 'March 2025: PAYE 4000.00 filed, 9000.00 on the certificates'. */
   emp201Mismatches: string[];
+  /** Months two legacy EMP201s file: 'March 2025 to April 2025 (reference X) and April 2025 (reference Y) both file April 2025'. */
+  emp201Conflicts: string[];
   /** YYYY-MM of every month whose filed EMP201 has drifted from the payroll. */
   driftedEmp201Months: string[];
   /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501); an EMP201 filed without figures. */
@@ -72,9 +74,11 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     codeReleaseLoaded: pv?.codeReleaseLoaded ?? false,
     unfiledEmp201Months: unfiled,
     emp201Mismatches,
+    emp201Conflicts: filings.conflicts,
     driftedEmp201Months,
     warnings,
-    ready: validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && driftedEmp201Months.length === 0,
+    ready: validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && filings.conflicts.length === 0
+      && driftedEmp201Months.length === 0,
   };
 }
 
@@ -90,12 +94,15 @@ export async function assertEmp501Ready(companyId: string, p: Emp501Period): Pro
   }
   if (r.unfiledEmp201Months.length > 0) parts.push(`the EMP201 for ${r.unfiledEmp201Months.join(', ')} is not filed`);
   if (r.emp201Mismatches.length > 0) parts.push(`the filed EMP201 does not match the certificates (${r.emp201Mismatches.join('; ')}): amend and file it again`);
+  if (r.emp201Conflicts.length > 0) {
+    parts.push(`${r.emp201Conflicts.join('; ')}: file those months through the return lifecycle (its filing supersedes the legacy EMP201s)`);
+  }
   if (r.driftedEmp201Months.length > 0) {
     parts.push(`the payroll changed after the EMP201 for ${r.driftedEmp201Months.join(', ')} was filed: amend and file it again`);
   }
   throw new ReturnRefusal(409, `This EMP501 cannot be finalised: ${parts.join('; and ')}. Fix these first.`, EMP501_NOT_READY,
     { validationErrors: r.validationErrors, unfiledEmp201Months: r.unfiledEmp201Months, emp201Mismatches: r.emp201Mismatches,
-      driftedEmp201Months: r.driftedEmp201Months });
+      emp201Conflicts: r.emp201Conflicts, driftedEmp201Months: r.driftedEmp201Months });
 }
 
 /**
