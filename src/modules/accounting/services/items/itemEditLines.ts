@@ -47,7 +47,7 @@ export async function resolveEditLineItems<T extends EditLine>(
     return hit?.itemId ?? null;
   });
   // Only a line naming an item its identical stored line did not carry is read and defaulted.
-  const check = sent.map((l, i) => typeof l.itemId === 'string' && l.itemId.toLowerCase() !== inherited[i]);
+  const check = sent.map((l, i) => typeof l.itemId === 'string' && l.itemId !== '' && l.itemId.toLowerCase() !== inherited[i]);
   const checked = await applyItemLineDefaults(
     companyId, sent.map((l, i) => ({
       itemId: check[i] ? l.itemId : undefined, glAccountId: l.glAccountId, taxRate: l.taxRate, vatClassification: l.vatClassification,
