@@ -148,6 +148,16 @@ describe('OC: refusals change no row', () => {
     expect(await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [b.company])).toBe(before);
   });
 
+  it('a weekly employee: 409 (off-cycle runs are monthly only; review #1575 carry 1), nothing written', async () => {
+    const weekly = (await a.employee(4_000)).employee;
+    await a.pool.query(`UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1`, [weekly]);
+    const before = await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company]);
+    const made = await create(a, { reason: 'bonus', employees: [{ employeeId: weekly, componentId: bonusComponent, amount: 100 }] });
+    expect(made.statusCode).toBe(409);
+    expect(a.msg(made)).toMatch(/not paid monthly/);
+    expect(await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).toBe(before);
+  });
+
   it('another company\'s employee: 400, nothing written', async () => {
     const before = await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company]);
     const made = await create(a, { reason: 'bonus', employees: [{ employeeId: (await b.employee(9_000)).employee, componentId: bonusComponent, amount: 10 }] });

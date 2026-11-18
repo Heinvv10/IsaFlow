@@ -297,10 +297,14 @@ describe('round 2 (G1-G5): the month-order gate', () => {
       const bonus = await monthlyRun(A, 5, { offCycle: 'bonus', runDate: '2026-05-30' });
       const err = await calculatePayrollRun(bonus, A.company).then(() => null, (e: Error) => e.message);
       await approve(c, bonus);
+      // Wave 6 OC: the bonus was costed on the regular run's line, so the regular run reopens only after the bonus does.
+      const pinned = await realReopen(A, reg).then(() => null, (e: Error) => e.message);
+      await realReopen(A, bonus);
       await realReopen(A, reg);
       await calculatePayrollRun(reg, A.company);
-      return { err, inMonth: (await monthOrderRefusal(A.company, reg))?.code ?? null, whole: await gate(reg) };
+      return { err, pinned, inMonth: (await monthOrderRefusal(A.company, reg))?.code ?? null, whole: await gate(reg) };
     });
+    expect(got.pinned).toMatch(/off-cycle runs were costed on this run's lines/);
     expect(got.inMonth).toBeNull();
     // Master's gate: the bonus is not a later month, and here the warning naming the bonus clears it: null either way.
     expect(got.whole).toBeNull();
