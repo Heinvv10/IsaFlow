@@ -1,9 +1,9 @@
 /**
  * Payroll Run Detail API
  * GET    /api/payroll/runs/[id]  - Get a single payroll run + its lines
- * DELETE /api/payroll/runs/[id]  - Delete a draft never calculated or approved (write roles, own session, never
- *                                  Login-as; wave 6 FQd, payrollRunDelete): 409 RUN_NOT_DELETABLE otherwise, 404 when
- *                                  not this company's.
+ * DELETE /api/payroll/runs/[id]  - Delete a draft never calculated or approved (write roles, through the
+ *                                  payroll-detail gate; own session, never Login-as; wave 6 FQd, payrollRunDelete):
+ *                                  409 RUN_NOT_DELETABLE otherwise, 404 when not this company's.
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -19,7 +19,6 @@ import {
   getPayrollRunLines,
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
-import { withWriteAccess } from '@/lib/auth';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { payslipEmailActor, UUID } from '@/lib/payslipEmailApi';
 import { deleteDraftPayrollRun, RunNotDeletableError } from '@/modules/accounting/services/payroll/payrollRunDelete';
@@ -62,4 +61,4 @@ async function deleteRun(req: AuthenticatedNextApiRequest, res: NextApiResponse,
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

@@ -10,12 +10,13 @@ import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import {
   formatPayDate, formatPeriodRange, periodsAround, type PeriodFrequency,
 } from '@/modules/accounting/services/payroll/payrollPayWeek';
+import { todayInSast } from '@/lib/saDateParser';
 import { PayWeekSettingsCard, payWeekOf, type PayWeekState } from './PayWeekSettingsCard';
 
 const LOAD_FAILED = 'Could not load the pay week';
 
-/** Today, as the browser sees it: only which periods are offered depends on it. */
-const today = (): string => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
+/** Today in South Africa: only which periods are offered depends on it. */
+const today = (): string => todayInSast();
 
 export function RunPeriodPicker({ frequency, value, onChange }: {
   frequency: PeriodFrequency; value: string | null; onChange: (periodStart: string | null) => void;

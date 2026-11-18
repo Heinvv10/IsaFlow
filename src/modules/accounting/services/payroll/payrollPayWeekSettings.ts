@@ -14,6 +14,7 @@
  */
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
+import { todayInSast } from '@/lib/saDateParser';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { payRunFinalSql } from './payRunFinalSql';
@@ -35,7 +36,7 @@ export class PayWeekLockedError extends Error {
 }
 
 /** Today in Johannesburg, 'YYYY-MM-DD'. */
-export const todaySast = (): string => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
+export const todaySast = (): string => todayInSast();
 
 /** 1 March of the SA tax year that holds `day` ('YYYY-MM-DD'). */
 export function taxYearStartOf(day: string): string {
