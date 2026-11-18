@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (999p): document links, the authoritative pair record. A MIRROR link is made by the receiver of an
+ * Intercompany P1 (1000): document links, the authoritative pair record. A MIRROR link is made by the receiver of an
  * accepted message and joins exactly that message's two documents; a MANUAL pairing starts pending, names a document
  * that exists in the inserter's own company, and goes active only when the other party confirms (a user with a write
  * role in both companies of a group may confirm both). Either party may unlink. Trigger-level rules are tested as the

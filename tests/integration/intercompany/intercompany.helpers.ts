@@ -1,5 +1,5 @@
 /**
- * Fixture for the intercompany (999p) suites: real PostgreSQL, synthetic rows only, sessions opened exactly as
+ * Fixture for the intercompany (1000) suites: real PostgreSQL, synthetic rows only, sessions opened exactly as
  * withAuth opens one (app_user, the member's claims, the active company) and the real routes called with real
  * signed tokens.
  *
@@ -279,7 +279,7 @@ export async function plantMessage(pool: Pool, connection: string, from: string,
     [connection, from, to, over.kind ?? 'invoice', over.doc ?? crypto.randomUUID()])).rows[0].id as string, true);
 }
 
-/** The exact refusals of migration 999p, as `outcome` reports them: `<SQLSTATE>: <message>`. */
+/** The exact refusals of migration 1000, as `outcome` reports them: `<SQLSTATE>: <message>`. */
 export const R = {
   externalNotYet: '0A000: external connections are not available yet',
   groupCreatedActive: '23514: a group connection is created active',

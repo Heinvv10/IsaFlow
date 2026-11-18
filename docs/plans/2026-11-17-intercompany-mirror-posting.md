@@ -79,7 +79,7 @@ the sender's own data only; the sender never reads the receiver's ledger.
 
 ## Revised after P1 review (2026-11-17)
 
-These supersede the Data model above wherever they differ (migration 999p carries them).
+These supersede the Data model above wherever they differ (migration 1000 carries them).
 
 - **Pair-level agreement.** `settlement_mode`, `cutover_date` and `interest_rate_pct` live on `intercompany_connections`, not on a
   side: they are one agreement between the two companies. A group connection's change needs a write role in BOTH companies (service and
