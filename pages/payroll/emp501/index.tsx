@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { emp501AllReconciled, emp501TotalStatus } from '@/components/payroll/emp501TotalStatus';
 
 interface ReconciliationRow {
   month: number;
@@ -16,6 +17,8 @@ interface ReconciliationRow {
   emp201Paye: number;
   irp5Paye: number;
   variance: number;
+  pspPaye?: number;
+  unexplainedVariance?: number;
   status: 'balanced' | 'explained_psp' | 'variance' | 'no_data';
 }
 
@@ -93,7 +96,8 @@ export default function Emp501Page() {
   };
 
   const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
-  const allBalanced = summary?.rows.every(r => r.status !== 'variance') ?? false;
+  const allBalanced = summary ? emp501AllReconciled(summary.rows) : false;
+  const totalStatus = summary ? emp501TotalStatus(summary.rows, summary.totalVariance) : 'balanced';
 
   return (
     <AppLayout>
@@ -141,7 +145,7 @@ export default function Emp501Page() {
             </div>
           ) : summary && (
             <>
-              {allBalanced && summary.rows.some(r => r.status === 'balanced') && (
+              {allBalanced && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm font-medium">
                   <CheckCircle className="h-4 w-4" /> All periods reconcile. Ready for filing through e@syFile
                 </div>
@@ -190,8 +194,8 @@ export default function Emp501Page() {
                         {formatCurrency(Math.abs(summary.totalVariance))}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${Math.abs(summary.totalVariance) < 0.01 ? STATUS_STYLES.balanced : STATUS_STYLES.variance}`}>
-                          {Math.abs(summary.totalVariance) < 0.01 ? 'Balanced' : 'Variance'}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[totalStatus]}`}>
+                          {STATUS_LABELS[totalStatus]}
                         </span>
                       </td>
                     </tr>
