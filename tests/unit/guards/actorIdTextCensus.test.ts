@@ -32,7 +32,7 @@ const ACTOR_UUID_CAST = [
  */
 const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   // company
-  'companyId', 'ctx.companyId', 'evt.companyId', 'opts.companyId',
+  'companyId', 'ctx.companyId', 'evt.companyId', 'opts.companyId', 'companyIds',
   // payroll runs, employees, leave
   'runId', 'opts.runId', 'scope.runId', 'excludeRunId', 'runIds', 'employeeId', 'employeeIds', 'input.employeeId', 'ins.employeeId',
   'scope.employeeId', 'filters.employeeId ?? null', 'movedEnd', 'input.leaveTypeId', 'importId',
@@ -46,6 +46,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'fileId', 'holder.account.id', 'pay.employeeIds',
   // wave 6 GA: garnishee orders, their payable account, a run's deductions
   'orderId', 'payable.id', 'rows.map((r) => r.orderId)', 'rows.map((r) => r.employeeId)',
+  // wave 6 VR: the VAT201 version a settlement is posted against
+  'basis.version.id', 'version.id',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
@@ -68,7 +70,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollApprovalService.ts`]: { 153: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
   // Wave 6 GA: payroll_garnishee_orders.created_by is TEXT, restamped by its trigger from the session user (999z).
-  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 133: 'payable_account_id, created_by' },
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 137: 'payable_account_id, created_by' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 120: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
@@ -112,16 +114,18 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     33: 'requested_by: string | null;',
     34: 'approved_by: string | null;',
   },
+  [`${S}reports/vatReturnsList.ts`]: {
+    58: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
+  },
   [`${S}reports/vatSubmissionService.ts`]: {
-    150: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
-    331: 'sars_reference, submitted_by, journal_entry_id',
+    213: 'sars_reference, submitted_by, journal_entry_id,',
   },
 };
 
 /** The VALUES line that binds the actor of a multi-line INSERT pinned above (the column is named on another line). */
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
-  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 136: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 123: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
@@ -134,14 +138,11 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 341: '${safeUserId}::UUID,' },
+  [`${S}reports/vatSubmissionService.ts`]: { 224: '${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)' },
 };
 
 /** file:line -> why an actor value is still cast to uuid there. */
 const UUID_CAST_EXEMPT: Readonly<Record<string, string>> = {
-  [`${S}reports/vatSubmissionService.ts:341`]:
-    'vat_returns.submitted_by takes resolveUserUuid(userId), always UUID-shaped, so the cast cannot fail; after HYb a uuid '
-    + 'value assigns to the TEXT column. The file is VR\'s (wave-6 spec section 3); VR binds the user id as text.',
 };
 
 function code(src: string): string {

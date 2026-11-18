@@ -5,8 +5,9 @@
  *
  *   revenue arm    -> invoice leg (customer_invoices, deleted ones kept in the
  *                     month they were raised): the chain must be left out.
- *   VAT arms       -> vat_returns, which submitVATReturn fills from the LEDGER
- *                     by entry date with no exclusion: the chain must stay in.
+ *   VAT arms       -> the filed VAT201 (wave 6 VR: the finalised version, whose
+ *                     figures the lock reads from the LEDGER by entry date with
+ *                     no exclusion): the chain must stay in.
  *
  * Round 2 dropped the chain from the VAT arms as well, so a return that matched
  * the ledger exactly read as a variance against it.
@@ -22,13 +23,33 @@ import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmis
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { sql } from '@/lib/neon';
+import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
+import { insertVersion } from '@/modules/accounting/services/returns/returnVersionStore';
 import { type Co, makeCompany, cleanupAll, assertChainFixtureDb, inTx, arInvoice, apBill, journalOf, reverseTip } from './k053-chain.helpers';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const MONTH_END: Record<string, string> = { '06': '2026-06-30', '07': '2026-07-31', '08': '2026-08-31' };
 
+/**
+ * Finalise (wave 6 VR: a settlement needs a finalised VAT201) then settle. The lock and version are written the way
+ * finaliseVatReturn writes them, from computeVatLockFigures, without the period-cycle and exceptions gates this
+ * fixture company (monthly test periods, no VAT setup) is not about.
+ */
 async function file(co: Co, mm: string): Promise<void> {
-  await inTx(co, () => submitVATReturn(co.id, { periodStart: `2026-${mm}-01`, periodEnd: MONTH_END[mm]! }, co.user));
+  const [start, end] = [`2026-${mm}-01`, MONTH_END[mm]!];
+  await inTx(co, async () => {
+    const { figures: f, report } = await computeVatLockFigures(co.id, start, end);
+    const lock = ((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax,
+        net_vat, posted_through, locked_by, actor_type)
+      VALUES (${co.id}::UUID, ${start}::DATE, ${end}::DATE, ${f.outputTax}, ${f.inputTax}, ${f.netVat},
+        ${f.postedThrough}::TIMESTAMPTZ, ${co.user}, 'human') RETURNING id`) as { id: string }[])[0]!;
+    await insertVersion({
+      companyId: co.id, form: 'VAT201', periodStart: start, periodEnd: end, versionNo: 1, amendsVersionId: null,
+      figures: { outputTax: f.outputTax, inputTax: f.inputTax, netVat: f.netVat, sarsFields: report.boxes },
+      postedThrough: f.postedThrough, vatPeriodLockId: lock.id, finalisedBy: co.user,
+    });
+  });
+  await inTx(co, () => submitVATReturn(co.id, { periodStart: start, periodEnd: end }, co.user));
 }
 
 function row(m: VatReconMonth): string {
@@ -114,10 +135,7 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     const co = await makeCompany('D7V4'); cos.push(co);
     const mixed = await arInvoice(co, '-MIX', '2026-06-15', 1000, 75);
     await arInvoice(co, '-LIVE', '2026-07-20', 2000, 300);
-    await file(co, '06');
-    await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat,
-        posted_through, locked_by, actor_type)
-      VALUES (${co.id}::UUID, '2026-06-01'::date, '2026-06-30'::date, 0, 0, 0, NOW(), ${co.user}, 'human')`;
+    await file(co, '06'); // finalising June locks it
     await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
     await file(co, '07');
 
