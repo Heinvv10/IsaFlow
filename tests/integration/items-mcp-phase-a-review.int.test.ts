@@ -19,6 +19,7 @@ import itemsRoute from '../../pages/api/accounting/items';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { as, cleanupWorld, itemsWorld, type ItemsWorld } from './helpers/itemsWorld';
 import { callRoute } from './helpers/onboardingSetupFixture';
+import { inAppUserTx } from './helpers/appUserTx';
 import { text } from './helpers/mcpBudgetFixture';
 import { mergeEntities } from '../../src/modules/accounting/services/core/duplicateMergeService';
 import { purgeExpiredDeletes } from '../../src/modules/accounting/services/core/softDeleteService';
@@ -36,6 +37,10 @@ let itemId: string;
 const MIGRATION = readFileSync('scripts/migrations/sql/1005_items_canonical_model.sql', 'utf8');
 const idOf = async (code: string, side = A) => String(((await side.ok('get_item', { code })).item as { id: string }).id);
 const upsert = async (rows: Array<Record<string, unknown>>) => A.ok('bulk_upsert_items', { items: rows });
+let orphanSeq = 0;
+/** A product with no company, made by the test that needs it (cleaned in afterAll by its IR- code). */
+const makeOrphan = async (): Promise<string> =>
+  String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES (NULL, $1, 'orphan') RETURNING id`, [`IR-ORPHAN-${++orphanSeq}`])).rows[0].id);
 
 beforeAll(async () => {
   w = await itemsWorld(pool);
@@ -84,7 +89,7 @@ describe('stock rows: the company_id trigger (urgent fix)', () => {
   });
 
   it('a product with no company gives a NULL-company row to a superuser (master\'s orphan tests), and the tenant policy refuses it', async () => {
-    const orphan = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES (NULL, 'IR-ORPHAN', 'IR-ORPHAN') RETURNING id`)).rows[0].id);
+    const orphan = await makeOrphan();
     const row = await pool.query(`INSERT INTO stock_movements (product_id, movement_type, quantity) VALUES ($1, 'purchase', 1) RETURNING company_id`, [orphan]);
     expect(row.rows[0].company_id).toBeNull();
     await expect(asAppUser(w.a.u.homeCompanyId, w.a.u.userId, (q) => q(`INSERT INTO stock_movements (product_id, movement_type, quantity) VALUES ($1, 'purchase', 1)`, [orphan]))).rejects.toThrow(/row-level security/);
@@ -216,7 +221,7 @@ describe('merge and purge', () => {
   it('mergeItems also repoints a legacy NULL-company stock movement that names the duplicate, so the duplicate can then be purged', async () => {
     await upsert([{ code: 'M-P2', description: 'primary' }, { code: 'M-D2', description: 'duplicate' }]);
     const [p, d] = [await idOf('M-P2'), await idOf('M-D2')];
-    const orphan = String((await pool.query(`SELECT id FROM products WHERE code = 'IR-ORPHAN'`)).rows[0].id);
+    const orphan = await makeOrphan();
     const row = String((await pool.query(
       `INSERT INTO stock_movements (product_id, item_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1) RETURNING id`, [orphan, d])).rows[0].id);
     expect((await pool.query('SELECT company_id FROM stock_movements WHERE id = $1', [row])).rows[0].company_id).toBeNull();
@@ -241,10 +246,25 @@ describe('merge and purge', () => {
   });
 });
 
+describe('purge as app_user: a hidden reference does not fail the purge (L2)', () => {
+  it('RLS hides a NULL-company movement naming a deleted item from the purge probe; the DELETE hits the FK, that item is skipped and logged, the others are purged', async () => {
+    await upsert([{ code: 'P-HID', description: 'hidden ref' }, { code: 'P-OK', description: 'free' }]);
+    const [hidden, free] = [await idOf('P-HID'), await idOf('P-OK')];
+    const orphan = await makeOrphan();
+    await pool.query(`INSERT INTO stock_movements (product_id, item_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [orphan, hidden]);
+    await pool.query(`UPDATE items SET deleted_at = NOW() - INTERVAL '1 hour' WHERE id = ANY($1)`, [[hidden, free]]);
+    const fx = { pool, userId: w.a.u.userId, companyId: w.a.u.homeCompanyId } as never;
+    const purged = await inAppUserTx(fx, () => purgeExpiredDeletes(w.a.u.homeCompanyId));
+    expect(purged).toBeGreaterThanOrEqual(1);
+    const left = (await pool.query('SELECT id FROM items WHERE id = ANY($1)', [[hidden, free]])).rows.map((r) => r.id);
+    expect(left).toEqual([hidden]);
+  });
+});
+
 describe('demo wipe: stock steps', () => {
   it('a NULL-company movement and level tied to the company\'s warehouse are removed by the stock steps, so the warehouses delete is not blocked', async () => {
     const wh = String((await pool.query(`INSERT INTO warehouses (company_id, name, code) VALUES ($1, 'IR wipe', 'IR-W2') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
-    const orphan = String((await pool.query(`SELECT id FROM products WHERE code = 'IR-ORPHAN'`)).rows[0].id);
+    const orphan = await makeOrphan();
     await pool.query(`INSERT INTO stock_movements (product_id, warehouse_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [orphan, wh]);
     await pool.query('INSERT INTO stock_levels (product_id, warehouse_id, quantity) VALUES ($1, $2, 1)', [orphan, wh]);
     await expect(pool.query('DELETE FROM warehouses WHERE id = $1', [wh])).rejects.toThrow(/foreign key/);
@@ -487,6 +507,15 @@ describe('round 2 breaker: VAT on resent lines, merged refs, header-FK trigger, 
     expect(await rows(own)).toEqual([{ description: 'a', tax_rate: '0.00', tax_amount: '0.00' }, { description: 'b', tax_rate: '15.00', tax_amount: '7.50' }]);
   });
 
+  it('a resent line with no tax_rate takes the ITEM\'s VAT, not the rate the stored line carried', async () => {
+    const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'k', quantity: 1, unitPrice: 100, taxRate: 15, itemId: exemptItem }] }, '/api/accounting/purchase-orders');
+    const poId = String((po.body.data as { id: string }).id);
+    expect((await pool.query('SELECT tax_rate FROM po_items WHERE purchase_order_id = $1', [poId])).rows).toEqual([{ tax_rate: '15.00' }]); // explicit rate wins at create
+    const put = await callRoute(purchaseOrderDetail, w.a.u, { items: [{ description: 'k', quantity: 1, unit_price: 100 }] }, `/api/accounting/purchase-orders/${poId}`, 'PUT', { id: poId });
+    expect(put.status, JSON.stringify(put.body)).toBe(200);
+    expect((await pool.query('SELECT item_id, tax_rate FROM po_items WHERE purchase_order_id = $1', [poId])).rows).toEqual([{ item_id: exemptItem, tax_rate: '0.00' }]);
+  });
+
   it('PO PUT answers 400 (not a 500 on the UUID cast) for a non-string item_id', async () => {
     const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'n', quantity: 1, unitPrice: 1, taxRate: 15 }] }, '/api/accounting/purchase-orders');
     const poId = String((po.body.data as { id: string }).id);
@@ -561,16 +590,20 @@ describe('round 2 breaker: VAT on resent lines, merged refs, header-FK trigger, 
 
   it('the valuation counts only movements of the product\'s own company (a row written around the constraint by a superuser is left out)', async () => {
     const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-VAL', 'IR-VAL') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
-    await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 3, 30)`, [w.a.u.homeCompanyId, product]);
-    await pool.query('ALTER TABLE stock_movements DISABLE TRIGGER ALL');
     try {
-      await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 5, 50)`, [w.b.u.homeCompanyId, product]);
+      await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 3, 30)`, [w.a.u.homeCompanyId, product]);
+      await pool.query('ALTER TABLE stock_movements DISABLE TRIGGER ALL');
+      try {
+        await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 5, 50)`, [w.b.u.homeCompanyId, product]);
+      } finally {
+        await pool.query('ALTER TABLE stock_movements ENABLE TRIGGER ALL');
+      }
+      const valuation = await getStockValuation(w.a.u.homeCompanyId, '2099-01-01');
+      expect(valuation.rows.find((r) => r.code === 'IR-VAL')).toMatchObject({ quantityOnHand: 3, value: 30 });
     } finally {
-      await pool.query('ALTER TABLE stock_movements ENABLE TRIGGER ALL');
+      // a failed assertion must not leave the mismatched row or the product behind for the next test
+      await pool.query('DELETE FROM stock_movements WHERE product_id = $1', [product]);
+      await pool.query('DELETE FROM products WHERE id = $1', [product]);
     }
-    const valuation = await getStockValuation(w.a.u.homeCompanyId, '2099-01-01');
-    expect(valuation.rows.find((r) => r.code === 'IR-VAL')).toMatchObject({ quantityOnHand: 3, value: 30 });
-    await pool.query('DELETE FROM stock_movements WHERE product_id = $1', [product]);
-    await pool.query('DELETE FROM products WHERE id = $1', [product]);
   });
 });
