@@ -56,13 +56,14 @@ describe('R3: payroll_run_lines.medical_credit', () => {
   });
 
   it('each month records the credit its PAYE used; PAYE is the same as without the record', async () => {
+    // AN (F = 365 / 30.4166): (43 200.09 − 17 820 − 9 024) × n ÷ F, trued up a cent in April (× 12: 1 363 both months).
     expect(await line(runs[3]!)).toEqual({ paye: 1_363, medical_credit: 752 });
-    expect(await line(runs[4]!)).toEqual({ paye: 1_363, medical_credit: 752 });
+    expect(await line(runs[4]!)).toEqual({ paye: 1_363.01, medical_credit: 752 });
   });
 
   it('the year-to-date carries the credits recorded on the approved earlier months', async () => {
     const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 5 }, [f.employee]);
-    expect(ytd.get(f.employee)).toMatchObject({ periods: 2, tablePaye: 2_726, medicalCredit: 1_504 });
+    expect(ytd.get(f.employee)).toMatchObject({ periods: 2, tablePaye: 2_726.01, medicalCredit: 1_504 });
   });
 
   it('a line from before the migration (NULL) counts as nothing recorded, and the next line carries its credit', async () => {
