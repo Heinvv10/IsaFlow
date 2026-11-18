@@ -1,0 +1,22 @@
+// @vitest-environment happy-dom
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
+
+vi.mock('next/link', () => ({ default: ({ children, href, className }: { children: ReactNode; href: string; className?: string }) => <a href={href} className={className}>{children}</a> }));
+
+import { BankAccountCard } from '@/components/accounting/bank/BankAccountCard';
+
+const acct = { id: 'a1', accountCode: '1110', accountName: 'Bank - Primary', isActive: true, txnCount: 2, totalDebits: 10, totalCredits: 5, balance: 5 };
+
+describe('BankAccountCard on touch', () => {
+  it('shows the edit pencil without hover and gives every action a 44px target', () => {
+    render(<BankAccountCard acct={acct} onEdit={vi.fn()} />);
+    const edit = screen.getByTitle('Edit account');
+    // Hover-only on desktop; a phone has no hover, so below lg it is always visible.
+    expect(edit.className).toContain('max-lg:opacity-100');
+    expect(edit.className).toContain('max-lg:h-11');
+    expect(screen.getByRole('link', { name: /View Transactions/ }).className).toContain('max-lg:min-h-11');
+    expect(screen.getByRole('button', { name: /History of/ }).className).toContain('max-lg:h-11');
+  });
+});

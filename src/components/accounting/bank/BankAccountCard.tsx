@@ -35,7 +35,7 @@ export function BankAccountCard({ acct, onEdit }: { acct: BankAccountCardData; o
     <div className="p-5 rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] hover:border-cyan-500/30 transition-colors relative group">
       <button
         onClick={() => onEdit(acct)}
-        className="absolute top-3 right-12 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-cyan-400 transition-all"
+        className="absolute top-3 right-12 p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg opacity-0 max-lg:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-cyan-400 transition-all"
         title="Edit account"
       >
         <Pencil className="h-3.5 w-3.5" />
@@ -92,7 +92,7 @@ export function BankAccountCard({ acct, onEdit }: { acct: BankAccountCardData; o
       <div className="mt-3 pt-3 border-t border-[var(--ff-border-light)]">
         <Link
           href={`/accounting/bank-transactions?account_id=${acct.id}`}
-          className="flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
+          className="flex items-center gap-1.5 max-lg:min-h-11 text-xs font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
         >
           <ExternalLink className="h-3.5 w-3.5" />
           View Transactions
