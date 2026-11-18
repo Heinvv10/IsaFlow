@@ -197,6 +197,11 @@ describe('FZ: a posted journal refuses amount changes', () => {
       .rejects.toThrow(/cannot be added or removed/);
     await expect(inReplica((c) => c.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]))).rejects.toThrow(/cannot be deleted/);
     await expect(inReplica(async (c) => {
+      const d = (await c.query(`INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+        VALUES ($1, '2026-01-25', 'FZ draft null', 'manual', 'draft', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+      await c.query('UPDATE gl_journal_entries SET status = NULL WHERE id = $1', [d]);
+    })).rejects.toThrow(/status cannot be NULL/);
+    await expect(inReplica(async (c) => {
       const born = (await c.query(
         `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
          VALUES ($1, '2026-01-25', 'FZ born posted', 'manual', 'posted', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;

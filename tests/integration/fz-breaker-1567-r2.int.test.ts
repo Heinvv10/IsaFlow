@@ -144,6 +144,23 @@ describe('999n breaker round 2: refused', () => {
     } finally { await c.query('ROLLBACK'); c.release(); }
     expect(await journal(je)).toEqual({ status: 'posted', n: 3, dr: '1000.00', cr: '1000.00' });
   });
+  it('X1e [app_user, tenant B]: a line in a journal tenant B cannot see is neither added nor removed (fails closed)', async () => {
+    const je = await mkJournal('2026-03-13', 'manual');
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+        VALUES ($1, 'FZ-B1', 'FZ B', 'expense', 'debit') RETURNING id`, [B])).rows[0].id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, B]);
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
+      await c.query('SAVEPOINT d');
+      await expect(c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND company_id = $2', [je, B])).rejects.toThrow(/cannot see/);
+      await c.query('ROLLBACK TO SAVEPOINT d');
+      await expect(c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1, 0, $3)', [je, acct, B]))
+        .rejects.toThrow(/cannot see/);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
   it('D1 [app_user, tenant B]: tenant B learns nothing of A\'s run finality, takes no lock on A\'s header, and its line write is refused', async () => {
     const { run: finalA } = await finalRun();
     const { run: openA } = await finalRun('calculated');
@@ -166,6 +183,15 @@ describe('999n breaker round 2: refused', () => {
       await c.query('SAVEPOINT w');
       await expect(c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [openA])).rejects.toThrow(/figures are frozen/);
     } finally { await c.query('ROLLBACK'); c.release(); }
+    // EXECUTE is only for the line writers: a role without the grant cannot ask at all.
+    await expect((async () => {
+      const e = await su.connect();
+      try {
+        await e.query('BEGIN');
+        await e.query('SET LOCAL ROLE supabase_read_only_user');
+        await e.query('SELECT public.payroll_run_final_state($1)', [openA]);
+      } finally { await e.query('ROLLBACK'); e.release(); }
+    })()).rejects.toThrow(/permission denied/);
     // A's own user reads the truth.
     await as('app_user', async (cc) => {
       expect((await cc.query('SELECT public.payroll_run_final_state($1) AS f', [openA])).rows[0].f).toBe(false);

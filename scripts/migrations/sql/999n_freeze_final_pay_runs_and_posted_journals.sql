@@ -320,7 +320,8 @@ ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_posted_froze
 -- A posted or reversed journal's line set (breaker H2): no line added or removed, unless the journal was created in
 -- this transaction (created_at = now(), the transaction's start; created_at is frozen once posted, below), which is
 -- how year-end and depreciation insert theirs. A line DELETE fired inside another trigger with its entry gone is the
--- ON DELETE CASCADE of an entry delete, judged by the entry rule; an entry the caller cannot see otherwise refuses.
+-- ON DELETE CASCADE of an entry delete, judged by the entry rule; otherwise a line whose entry the caller cannot see
+-- (another tenant's journal under RLS) is neither added nor removed: it fails closed.
 -- Demo holds no real money and is wiped by the reseed (wipePlan.ts:193/204): a DELETE of a line whose ENTRY belongs
 -- to the Demo company (00000000-0000-0000-0000-000000000001, a literal) passes (breaker X1: judged by the entry's company, which is frozen
 -- once posted, never by the line's own).
@@ -345,11 +346,8 @@ BEGIN
     IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
       RETURN OLD;
     END IF;
-    IF TG_OP = 'DELETE' THEN
-      RAISE EXCEPTION 'gl_journal_lines: a line whose journal the caller cannot see cannot be added or removed'
-        USING ERRCODE = '23514';
-    END IF;
-    RETURN NEW;
+    RAISE EXCEPTION 'gl_journal_lines: a line whose journal the caller cannot see cannot be added or removed'
+      USING ERRCODE = '23514';
   END IF;
   IF TG_OP = 'DELETE' AND v_company = '00000000-0000-0000-0000-000000000001'::uuid THEN
     RETURN OLD;
