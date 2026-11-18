@@ -51,6 +51,22 @@ export function missingRoutes(recorded: Record<string, unknown>): string[] {
   return EXPECTED_ROUTES.filter((r) => !have.includes(r));
 }
 
+/**
+ * Wraps the request method of seed-demo-app.ts's Client so every response it returns is recorded into `recorded`.
+ * @throws when `proto` has no `call` method: if it was renamed, recording nothing would silently leave a stale fixture.
+ */
+export function instrumentClient(proto: object, recorded: Record<string, unknown>): void {
+  const holder = proto as { call?: (...a: unknown[]) => Promise<unknown> };
+  const call = holder.call;
+  if (typeof call !== 'function') throw new Error('recordRoutes: seed-demo-app.ts Client no longer has a `call` method to wrap; update this recorder to the new request method before re-recording');
+  holder.call = async function (this: unknown, method: unknown, path: unknown, body?: unknown) {
+    const data = await call.call(this, method, path, body);
+    const key = recordKey(String(method), String(path));
+    if (!(key in recorded)) recorded[key] = trimBody(data);
+    return data;
+  };
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const out = argv[argv.indexOf('--out') + 1];
@@ -60,13 +76,7 @@ async function main(): Promise<void> {
   process.env.GOTRUE_URL = opts.goTrueUrl;
 
   const recorded: Record<string, unknown> = {};
-  const call = (Client.prototype as unknown as { call: (...a: unknown[]) => Promise<unknown> }).call;
-  (Client.prototype as unknown as { call: unknown }).call = async function (this: Client, method: string, path: string, body?: unknown) {
-    const data = await call.call(this, method, path, body);
-    const key = recordKey(method, path);
-    if (!(key in recorded)) recorded[key] = trimBody(data);
-    return data;
-  };
+  instrumentClient(Client.prototype, recorded);
 
   const db = new pg.Client({ connectionString: opts.databaseUrl });
   await db.connect();

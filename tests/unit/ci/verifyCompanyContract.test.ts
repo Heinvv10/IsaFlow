@@ -10,7 +10,7 @@ import type { ClientBase } from 'pg';
 import type { Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
 import { budgetProblems } from '../../../scripts/deploy/verifyCompany/budgetReadiness';
 import { seedVerifyCompany } from '../../../scripts/deploy/verifyCompany/seedVerifyCompany';
-import { EXPECTED_ROUTES, missingRoutes, recordKey, trimBody } from '../../../scripts/deploy/verifyCompany/recordRoutes';
+import { EXPECTED_ROUTES, instrumentClient, missingRoutes, recordKey, trimBody } from '../../../scripts/deploy/verifyCompany/recordRoutes';
 
 const R = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/verifyCompanyRoutes.json'), 'utf8')) as Record<string, any>;
 const NOW = new Date('2026-11-18T10:00:00Z');
@@ -22,6 +22,18 @@ describe('the fixture and its recorder', () => {
     expect(Number.isNaN(Date.parse(R._recorded.at))).toBe(false);
     expect(missingRoutes(Object.fromEntries(Object.entries(R).filter(([k]) => !k.startsWith('_'))))).toEqual([]);
     expect(EXPECTED_ROUTES.length).toBeGreaterThan(15);
+  });
+
+  it('instrumentClient records what Client.call returns, once per route, and fails loudly when Client has no call method any more', async () => {
+    class Fake { async call(m: string, p: string): Promise<unknown> { return { id: `${m}${p}`, rows: [1, 2, 3] }; } }
+    const rec: Record<string, unknown> = {};
+    instrumentClient(Fake.prototype, rec);
+    const f = new Fake();
+    await f.call('GET', '/api/x/3a84c42b-f780-4b9e-b965-6b20b8791b9b');
+    await f.call('GET', '/api/x/00000000-0000-4000-8000-000000000001');
+    expect(Object.keys(rec)).toEqual(['GET /api/x/:id']);
+    class Renamed { async request(): Promise<unknown> { return {}; } }
+    expect(() => instrumentClient(Renamed.prototype, {})).toThrow(/no longer has a `call` method/);
   });
 
   it('recordKey masks uuids and keeps the query; trimBody cuts long arrays at every depth; missingRoutes names what a re-run (no POSTs) lacks', () => {

@@ -44,13 +44,14 @@ async function verifyApprover(baseURL: string): Promise<void> {
 
 /** Prints the budget-year WARNING (helpers/verifyCompany.ts budgetYearWarning) for the company the suite is in, its year start taken from the app. */
 async function warnBudgetYear(ctx: APIRequestContext): Promise<void> {
-  const json = async (p: string) => (await ctx.get(p).then((r) => r.json()).catch(() => null)) as { data?: any } | null;
-  const startMonth = startMonthOf((await json('/api/accounting/budgets?years_only=1'))?.data);
+  const data = async <T>(p: string): Promise<T | null> =>
+    ((await ctx.get(p).then((r) => r.json()).catch(() => null)) as { data?: T } | null)?.data ?? null;
+  const startMonth = startMonthOf(await data<{ year?: { startDate?: unknown } }>('/api/accounting/budgets?years_only=1'));
   if (startMonth === null) return; // the app did not say: no guess
   const today = new Date();
   const { current, next } = budgetYears(today, startMonth);
   const has = new Map<number, boolean>();
-  for (const year of [current, next]) has.set(year, ((await json(`/api/accounting/budget-versions?fiscalYear=${year}`))?.data?.items?.length ?? 0) > 0);
+  for (const year of [current, next]) has.set(year, ((await data<{ items?: unknown[] }>(`/api/accounting/budget-versions?fiscalYear=${year}`))?.items?.length ?? 0) > 0);
   const warning = budgetYearWarning(today, (y) => has.get(y) === true, 60, startMonth);
   if (warning) process.stdout.write(`${warning}\n`);
 }

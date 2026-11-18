@@ -13,7 +13,7 @@
 import type { ClientBase } from 'pg';
 import type { Login } from './envFile';
 import { APPROVER_LOGIN, LOGIN_PURPOSE, VERIFY_LOGIN, type LoginIdentity } from './identity';
-import { choosePassword } from './password';
+import { choosePassword, type PasswordChoice } from './password';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import { actorRank } from '../../../src/modules/accounting/services/gl/approvalRank';
 import type { DbOutcome, UserIds } from './provisionDb';
@@ -25,6 +25,8 @@ export interface Deps {
   say(line: string): void;
   now(): Date;
   newId(): string;
+  /** Whether a GoTrue sign-out can be done here (JWT_SECRET and SUPABASE_ANON_KEY present): checked before any change that needs one. */
+  canSignOut(): boolean;
   db: ClientBase;
   lock: { acquire(db: ClientBase): Promise<boolean>; release(db: ClientBase): Promise<void> };
   /** The deploy locks (deployLock.ts), taken for a real run only: rejects when a deploy holds one. */
@@ -57,19 +59,41 @@ export interface RunResult { companyId: string; ran: string[]; wroteEnv: boolean
 
 interface Resolved { id: string; password: string }
 
-async function ensureLogin(o: RunOptions, d: Deps, who: LoginIdentity): Promise<Resolved> {
+/** What a login needs, decided from reads alone (no write): so every refusal comes before the first change to GoTrue or the env file. */
+interface Inspected {
+  who: LoginIdentity;
+  existing: { id: string; purpose: string | null; legacyPurpose: string | null } | null;
+  legacyOurs: boolean;
+  pick: PasswordChoice;
+  /** The login exists, was published before and gets a new password: its old sessions must end. A login made in this or a crashed run has none worth revoking. */
+  signOut: boolean;
+}
+
+async function inspect(o: RunOptions, d: Deps, who: LoginIdentity): Promise<Inspected> {
   const existing = await d.goTrue.find(who.email);
   // A login this provisioner did not create is somebody else's account: never adopted, never re-passworded, reset flag or not. Ours
   // carries the admin-only app_metadata marker; one an earlier version stamped in user_metadata (which its user could have written)
   // counts only when its GoTrue id is the one this deploy env file recorded.
-  const legacyOurs = existing !== null && existing.purpose === null && existing.legacyPurpose === LOGIN_PURPOSE && d.env.readId(who) === existing.id;
+  const legacyMarked = existing !== null && existing.purpose === null && existing.legacyPurpose === LOGIN_PURPOSE;
+  const legacyOurs = legacyMarked && d.env.readId(who) === existing.id;
   if (existing && existing.purpose !== LOGIN_PURPOSE && !legacyOurs) {
+    if (legacyMarked) {
+      throw new Error(`the GoTrue login ${who.email} was made by an earlier version of this tool (its marker is in user_metadata, which its user could have written) and its id is not recorded in the env file, so it is not trusted as ours: delete it by hand in GoTrue (admin API) and run again, or record its id under ${who.idKey} if you know it is ours`);
+    }
     throw new Error(`the GoTrue login ${who.email} already exists and was not created by this provisioner (its app_metadata.purpose is not ours): refusing to adopt it, even with --reset-password. Remove it by hand if it is yours, or choose another address`);
   }
-  const pick = choosePassword(who, existing !== null, d.env.readLogin(who), d.env.readPending(who), o.resetPassword);
+  const fileLogin = d.env.readLogin(who);
+  const pick = choosePassword(who, existing !== null, fileLogin, d.env.readPending(who), o.resetPassword);
+  // Published before = the env file holds its final login. A reset has one; so does a reset that died after setPassword (pending still there).
+  const signOut = existing !== null && (pick.generated || (pick.resumed && fileLogin !== null));
+  return { who, existing, legacyOurs, pick, signOut };
+}
+
+async function apply(o: RunOptions, d: Deps, x: Inspected): Promise<Resolved> {
+  const { who, existing, legacyOurs, pick } = x;
   const verb = o.dryRun ? 'would be' : 'was';
   if (existing) {
-    d.say(`GoTrue login ${who.email}: exists${legacyOurs ? ' (marker migrated to app_metadata)' : ''}${pick.generated ? `; its password ${verb} reset and its sessions ended (--reset-password)` : pick.resumed ? '; its password is set again and its sessions ended, from the password an earlier run saved' : ''}`);
+    d.say(`GoTrue login ${who.email}: exists${legacyOurs ? ' (marker migrated to app_metadata)' : ''}${pick.generated ? `; its password ${verb} reset and its sessions ended (--reset-password)` : pick.resumed ? `; its password is set again from the one an earlier run saved${x.signOut ? ' and its sessions ended' : ''}` : ''}`);
   } else {
     d.say(`GoTrue login ${who.email}: ${verb} created (email confirmed, no MFA)${pick.resumed ? ', with the password an earlier run saved' : ''}`);
   }
@@ -83,9 +107,7 @@ async function ensureLogin(o: RunOptions, d: Deps, who: LoginIdentity): Promise<
   }
   if (legacyOurs) await d.goTrue.stamp(existing.id);
   if (pick.generated || pick.resumed) await d.goTrue.setPassword(existing.id, pick.password); // a resumed one may never have reached GoTrue
-  // A reset hands the login a new password and every old session goes; a resumed run does the same again, because the run it
-  // resumes may have died between setting the password and signing out (the pending key is still there exactly then).
-  if (pick.generated || pick.resumed) await d.goTrue.signOut(existing.id, who.email);
+  if (x.signOut) await d.goTrue.signOut(existing.id, who.email);
   return { id: existing.id, password: pick.password };
 }
 
@@ -123,8 +145,15 @@ export async function runProvisioning(o: RunOptions, d: Deps): Promise<RunResult
 }
 
 async function provision(o: RunOptions, d: Deps): Promise<RunResult> {
-  const verify = await ensureLogin(o, d, VERIFY_LOGIN);
-  const approver = await ensureLogin(o, d, APPROVER_LOGIN);
+  // Everything that can refuse is decided before anything is changed: a half-done password change is the outage this prevents.
+  const inspected = [await inspect(o, d, VERIFY_LOGIN), await inspect(o, d, APPROVER_LOGIN)];
+  const signingOut = inspected.filter((x) => x.signOut);
+  if (signingOut.length && !d.canSignOut()) {
+    throw new Error(`${signingOut.map((x) => x.who.email).join(' and ')} must be signed out after its password changes, which needs JWT_SECRET and SUPABASE_ANON_KEY in the environment, and they are missing: nothing was changed. `
+      + 'The wrapper passes them for --reset-password and whenever the env file holds a pending password');
+  }
+  const verify = await apply(o, d, inspected[0]!);
+  const approver = await apply(o, d, inspected[1]!);
   const ids: UserIds = { verify: verify.id, approver: approver.id };
 
   const outcome = await transact(d.db, !o.dryRun, () => d.ensureDb(d.db, ids, d.now()));

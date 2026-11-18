@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-function run(prodEnv: string, ownerEnv: string | null, args: string[] = []) {
+function run(prodEnv: string, ownerEnv: string | null, args: string[] = [], deployEnv: string | null = null) {
   const dir = mkdtempSync(path.join(tmpdir(), 'prov-wrapper-'));
   const seen = path.join(dir, 'seen.txt');
   const bun = path.join(dir, 'bun');
@@ -16,10 +16,12 @@ function run(prodEnv: string, ownerEnv: string | null, args: string[] = []) {
   chmodSync(bun, 0o755);
   const prod = path.join(dir, 'prod.env.local');
   writeFileSync(prod, prodEnv);
+  const deploy = path.join(dir, 'deploy.env');
+  if (deployEnv !== null) writeFileSync(deploy, deployEnv);
   const owner = path.join(dir, 'owner.env');
   if (ownerEnv !== null) writeFileSync(owner, ownerEnv);
   const r = spawnSync('bash', ['scripts/deploy/provision-verify-company.sh', ...args], {
-    encoding: 'utf8', env: { ...process.env, BUN: bun, SUDO: '', PROVISION_PROD_ENV: prod, OWNER_ENV_FILE: owner, PROVISION_ENV_FILE: '/x/deploy.env' },
+    encoding: 'utf8', env: { ...process.env, BUN: bun, SUDO: '', PROVISION_PROD_ENV: prod, OWNER_ENV_FILE: owner, PROVISION_ENV_FILE: deployEnv === null ? '/x/deploy.env' : deploy },
   });
   let got: Record<string, string> = {};
   try { got = Object.fromEntries(readFileSync(seen, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)])); } catch { /* the provisioner never ran */ }
@@ -51,6 +53,16 @@ describe('provision-verify-company.sh', () => {
     expect(run(env, null, ['--dry-run']).got).toMatchObject({ JWT: '', ANON: '' });
     expect(run(env, null, ['--reset-password']).got.ARGS).not.toContain('jwt-value');
     expect(run(PROD, null, ['--reset-password']).got).toMatchObject({ JWT: '', ANON: '' }); // none in the app env: the CLI then refuses the reset
+  });
+
+  it('also passes them when the deploy env file holds a pending password (a plain re-run that resumes a reset must be able to sign the login out), and not for a finished file', () => {
+    const env = lines('JWT_SECRET=jwt-value', 'SUPABASE_ANON_KEY=anon-value', ...PROD.split('\n').filter(Boolean));
+    for (const key of ['E2E_VERIFY_PENDING_PASSWORD', 'E2E_VERIFY_APPROVER_PENDING_PASSWORD']) {
+      expect(run(env, null, [], lines('A=1', `${key}=wait`)).got).toMatchObject({ JWT: 'jwt-value', ANON: 'anon-value' });
+    }
+    expect(run(env, null, [], lines('A=1', 'E2E_VERIFY_EMAIL=x@y', 'E2E_VERIFY_PASSWORD=p')).got).toMatchObject({ JWT: '', ANON: '' });
+    expect(run(env, null, [], lines('A=1', '  E2E_VERIFY_PENDING_PASSWORD=indented')).got).toMatchObject({ JWT: '', ANON: '' }); // column 0 only, as the readers
+    expect(run(env, null, [], lines('E2E_VERIFY_PENDING_PASSWORD=wait')).got.ARGS).toContain('--env-file');
   });
 
   it('falls back to the app env for the database url, as owner_database_url_for does', () => {

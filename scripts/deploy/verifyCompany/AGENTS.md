@@ -85,8 +85,13 @@ Tests: `tests/unit/ci/verifyCompany*.test.ts`, `tests/unit/scripts/verifyDeployC
 - A login is ours by `app_metadata.purpose` (admin-only; a user can write their own `user_metadata`, so that proves nothing). The deploy env
   file records each login's GoTrue id (`E2E_VERIFY_GOTRUE_ID`, `E2E_VERIFY_APPROVER_GOTRUE_ID`) right after the create; a login an earlier
   version stamped in `user_metadata` is accepted only when its id is the recorded one, and is migrated to `app_metadata` on that run.
-- A resumed run (pending password still in the file) sets the password AND signs the sessions out again: the run it resumes may have died
-  between the two.
+- Sign-out (needs `JWT_SECRET` + `SUPABASE_ANON_KEY`) happens only when a login that was PUBLISHED before (the env file holds its final login) gets a
+  new password: a `--reset-password`, or the resume of a reset that died after `setPassword` (pending key AND final login in the file). A login
+  made in this or a crashed run (nothing published) has no session worth ending, so a plain run and the resume of a crashed first create need
+  no secret. The decision and the check for the secrets are made for BOTH logins before anything is changed (fail closed); the wrapper hands
+  the secrets over for `--reset-password` and whenever the env file holds a `*_PENDING_PASSWORD=` line.
+- A login an earlier version stamped in `user_metadata` whose GoTrue id is not recorded in the env file is refused with a message to delete it
+  by hand in GoTrue (or record its id under `E2E_VERIFY_GOTRUE_ID` / `E2E_VERIFY_APPROVER_GOTRUE_ID` if you know it is ours).
 - Limits: the whole run is ended after 20 minutes (watchdog; the child `flock` processes end with the parent, so the deploy locks drop),
   every request to the app is bounded at 60 s (`Client(base, timeoutMs)`; GoTrue's admin calls are bounded at 5 s by `callAuthUpstream`). A
   refused lock names the file and says how to find the holder (`lsof <file>` / `fuser -v <file>`).

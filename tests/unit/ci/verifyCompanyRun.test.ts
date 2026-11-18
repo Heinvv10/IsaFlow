@@ -12,7 +12,7 @@ const NOW = new Date('2026-11-18T10:00:00Z');
 interface Rig { deps: Deps; log: string[]; ids?: Map<string, string>; saved: Map<string, string>; finals: Map<string, Login>; goTrue: Map<string, string> }
 
 /** `existing`: emails already in GoTrue; `file`/`pending`: what the env file holds. */
-function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[]; legacyIds?: Record<string, string>; signOutFailsOnce?: boolean; approverActual?: string; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
+function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[]; legacyIds?: Record<string, string>; signOutFailsOnce?: boolean; cannotSignOut?: boolean; approverActual?: string; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
   const log: string[] = [];
   const saved = new Map<string, string>(Object.entries(init.pending ?? {}));
   const finals = new Map<string, Login>((init.file ?? []).map((l) => [l.email, l]));
@@ -27,6 +27,7 @@ function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[];
     say: (l) => { log.push(`say:${l}`); },
     now: () => NOW,
     newId: () => 'random-uuid',
+    canSignOut: () => !init.cannotSignOut,
     db,
     lock: { acquire: async () => { log.push('lock'); return !init.busy; }, release: async () => { log.push('unlock'); if (init.unlockFails) throw new Error('connection gone'); } },
     deployLocks: {
@@ -89,7 +90,7 @@ describe('runProvisioning, review round 2', () => {
     await expect(runProvisioning(OPTS, rig({ createdForeign: true }).deps)).rejects.toThrow(/made in the meantime/);
   });
 
-  it('--reset-password ends the login\'s sessions after setting the new password; so does a resume (the run it resumes may have died before the sign-out); a plain run with nothing pending does not', async () => {
+  it('--reset-password ends the login\'s sessions after setting the new password; so does a resumed RESET (it may have died before the sign-out); a resumed first create and a plain run do not', async () => {
     const reset = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email] });
     await runProvisioning({ ...OPTS, resetPassword: true }, reset.deps);
     const e = effects(reset.log);
@@ -97,10 +98,16 @@ describe('runProvisioning, review round 2', () => {
       expect(e.indexOf(`gotrue:setPassword:id-${w.email}`)).toBeGreaterThan(-1);
       expect(e.indexOf(`gotrue:signOut:id-${w.email}`)).toBeGreaterThan(e.indexOf(`gotrue:setPassword:id-${w.email}`));
     }
-    const resumed = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: { [VERIFY_LOGIN.pendingKey]: 'p1', [APPROVER_LOGIN.pendingKey]: 'p2' } });
+    // A reset that died after setPassword: the final login is in the file AND the new password is pending: end the sessions now.
+    const resumed = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: { [VERIFY_LOGIN.pendingKey]: 'p1', [APPROVER_LOGIN.pendingKey]: 'p2' }, file: [{ email: VERIFY_LOGIN.email, password: 'old1' }, { email: APPROVER_LOGIN.email, password: 'old2' }] });
     await runProvisioning(OPTS, resumed.deps);
     const re = effects(resumed.log);
     for (const w of [VERIFY_LOGIN, APPROVER_LOGIN]) expect(re.indexOf(`gotrue:signOut:id-${w.email}`)).toBeGreaterThan(re.indexOf(`gotrue:setPassword:id-${w.email}`));
+    // A run that died after CREATING the logins (nothing published yet): nobody has a session worth ending.
+    const crashedCreate = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: { [VERIFY_LOGIN.pendingKey]: 'p1', [APPROVER_LOGIN.pendingKey]: 'p2' } });
+    await runProvisioning(OPTS, crashedCreate.deps);
+    expect(effects(crashedCreate.log).filter((x) => x.startsWith('gotrue:setPassword')).length).toBe(2);
+    expect(effects(crashedCreate.log).some((x) => x.startsWith('gotrue:signOut'))).toBe(false);
     const plain = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], file: [{ email: VERIFY_LOGIN.email, password: 'a' }, { email: APPROVER_LOGIN.email, password: 'b' }] });
     await runProvisioning(OPTS, plain.deps);
     expect(effects(plain.log).some((x) => x.startsWith('gotrue:signOut') || x.startsWith('gotrue:setPassword'))).toBe(false);
@@ -110,7 +117,7 @@ describe('runProvisioning, review round 2', () => {
     const first = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], signOutFailsOnce: true });
     await expect(runProvisioning({ ...OPTS, resetPassword: true }, first.deps)).rejects.toThrow(/gotrue unreachable/);
     expect(first.saved.size).toBe(1); // the verify login's new password is still pending (the approver was never reached)
-    const again = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: Object.fromEntries(first.saved), file: [{ email: APPROVER_LOGIN.email, password: 'b' }] });
+    const again = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], pending: Object.fromEntries(first.saved), file: [{ email: VERIFY_LOGIN.email, password: 'old' }, { email: APPROVER_LOGIN.email, password: 'b' }] });
     await runProvisioning(OPTS, again.deps); // no --reset-password
     const e = effects(again.log);
     expect(e).toContain(`gotrue:setPassword:id-${VERIFY_LOGIN.email}`);
@@ -123,9 +130,9 @@ describe('runProvisioning, review round 2', () => {
     await runProvisioning(OPTS, recorded.deps);
     expect(effects(recorded.log)).toContain(`gotrue:stamp:id-${VERIFY_LOGIN.email}`); // migrated to app_metadata
     const stranger = rig({ legacy: [VERIFY_LOGIN.email], existing: [APPROVER_LOGIN.email], legacyIds: { [VERIFY_LOGIN.idKey]: 'some-other-id' } });
-    await expect(runProvisioning(OPTS, stranger.deps)).rejects.toThrow(/not created by this provisioner/);
+    await expect(runProvisioning(OPTS, stranger.deps)).rejects.toThrow(/earlier version of this tool/);
     const unrecorded = rig({ legacy: [VERIFY_LOGIN.email], existing: [APPROVER_LOGIN.email] });
-    await expect(runProvisioning({ ...OPTS, resetPassword: true }, unrecorded.deps)).rejects.toThrow(/refusing to adopt/);
+    await expect(runProvisioning({ ...OPTS, resetPassword: true }, unrecorded.deps)).rejects.toThrow(/earlier version of this tool/);
     expect(effects(unrecorded.log).filter((x) => x.startsWith('gotrue:'))).toEqual([]);
   });
 
@@ -149,6 +156,28 @@ describe('runProvisioning, review round 2', () => {
     await runProvisioning(OPTS, above.deps);
     expect(said(above)).toContain('added as admin');
     expect(said(above)).toMatch(/warning: the approver's existing membership is admin, above the least role .*\(manager\).*lower it by hand/);
+  });
+
+  it('a run that needs a sign-out and cannot do one is refused BEFORE any change (fail closed: no password changed that the env file does not hold)', async () => {
+    const reset = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], cannotSignOut: true });
+    await expect(runProvisioning({ ...OPTS, resetPassword: true }, reset.deps)).rejects.toThrow(/must be signed out after its password changes.*JWT_SECRET and SUPABASE_ANON_KEY.*nothing was changed/s);
+    expect(effects(reset.log).filter((x) => x.startsWith('gotrue:') || x.startsWith('env:') || x.startsWith('db:') || x === 'seed')).toEqual([]);
+    const resumedReset = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], cannotSignOut: true, pending: { [VERIFY_LOGIN.pendingKey]: 'p1' }, file: [{ email: VERIFY_LOGIN.email, password: 'old' }, { email: APPROVER_LOGIN.email, password: 'b' }] });
+    await expect(runProvisioning(OPTS, resumedReset.deps)).rejects.toThrow(/nothing was changed/);
+    expect(effects(resumedReset.log).some((x) => x.startsWith('gotrue:'))).toBe(false);
+  });
+
+  it('a run that needs no sign-out never needs the secrets: a resumed first create, a plain run, a fresh create', async () => {
+    const crashedCreate = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], cannotSignOut: true, pending: { [VERIFY_LOGIN.pendingKey]: 'p1', [APPROVER_LOGIN.pendingKey]: 'p2' } });
+    await expect(runProvisioning(OPTS, crashedCreate.deps)).resolves.toMatchObject({ wroteEnv: true });
+    await expect(runProvisioning(OPTS, rig({ cannotSignOut: true }).deps)).resolves.toMatchObject({ wroteEnv: true });
+    const plain = rig({ existing: [VERIFY_LOGIN.email, APPROVER_LOGIN.email], cannotSignOut: true, file: [{ email: VERIFY_LOGIN.email, password: 'a' }, { email: APPROVER_LOGIN.email, password: 'b' }] });
+    await expect(runProvisioning(OPTS, plain.deps)).resolves.toMatchObject({ wroteEnv: true });
+  });
+
+  it('the earlier version\'s login whose id is not recorded gets a message that says to delete it by hand or record the id', async () => {
+    const r = rig({ legacy: [VERIFY_LOGIN.email], existing: [APPROVER_LOGIN.email] });
+    await expect(runProvisioning(OPTS, r.deps)).rejects.toThrow(/earlier version of this tool.*delete it by hand in GoTrue.*E2E_VERIFY_GOTRUE_ID/s);
   });
 
   it('a failed ROLLBACK does not hide the error that caused it', async () => {
