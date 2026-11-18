@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertTempUnderTest, rewriteEnvFiles } from '../../../scripts/ci/golden/slotEmailEnv';
-import { knownAccounts } from '../../../scripts/ci/golden/slotEmailPlan';
-import { main, type Io } from '../../../scripts/ci/golden/migrate-slot-emails';
+import { knownAccounts, parseMigrationArgs } from '../../../scripts/ci/golden/slotEmailPlan';
+import { homedir } from 'node:os';
+import { main, resolveDefaults, type Io, type ResolvedArgs } from '../../../scripts/ci/golden/migrate-slot-emails';
 import { EXPECTED_GOTRUE_URL } from '../../../scripts/ci/golden/slotConfig';
 import { fakes, newWorld, type World } from '../../helpers/slotEmailWorld';
 
@@ -25,8 +26,10 @@ describe('migrate-slot-emails main', () => {
     const x = fakes(world);
     return { processEnv: {}, say: (l) => said.push(l), connect: async (u) => { connected.push(u); return x.db; }, useGoTrue: () => (wrap ? wrap(x.gt) : x.gt) };
   };
-  const run = (extra: string[] = [], world = w, io = mkIo(world)) =>
-    main(['--env-file', ciEnv, '--deploy-env-file', deployEnv, '--secrets-dir', secrets, '--workspace-root', ws, '--allowed-root', dir, ...extra], io);
+  /** Every path is passed explicitly and is a temp path; main() takes no default of its own. */
+  const baseArgs = (): ResolvedArgs => ({ apply: false, allowUnrecognised: [], envFile: ciEnv, deployEnvFile: deployEnv, secretsDir: secrets, workspaceRoot: ws, allowedRoot: dir });
+  const baseFlags = (): string[] => ['--env-file', ciEnv, '--deploy-env-file', deployEnv, '--secrets-dir', secrets, '--workspace-root', ws, '--allowed-root', dir];
+  const run = (extra: string[] = [], world = w, io = mkIo(world)) => main({ ...baseArgs(), ...parseMigrationArgs([...baseFlags(), ...extra]) } as ResolvedArgs, io);
   const read = (p: string): string => readFileSync(p, 'utf8');
 
   beforeEach(() => {
@@ -61,28 +64,39 @@ describe('migrate-slot-emails main', () => {
       ['a flag given twice', ['--apply', '--apply']],
       ['--allow-unrecognised without --apply', ['--allow-unrecognised', '/x']],
     ])('refuses %s, before connecting or writing anything', async (_l, extra) => {
-      await expect(run(extra)).rejects.toThrow(/argument|--/);
+      await expect(async () => run(extra)).rejects.toThrow(/argument|--/);
       expect(connected).toEqual([]);
       expect(w.log).toEqual([]);
       expect(read(ciEnv)).toContain(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
     });
 
-    // Every main() call below passes temp paths for all four env options (the flag under test goes last, without its value):
-    // a test must never fall back to the real default paths.
-    const tempFlags = (except: string): string[] => Object.entries({ '--env-file': ciEnv, '--deploy-env-file': deployEnv, '--secrets-dir': secrets, '--workspace-root': ws })
-      .filter(([k]) => k !== except).flat();
-    it.each<[string, () => string[]]>([
-      ['--secrets-dir with no value', () => [...tempFlags('--secrets-dir'), '--secrets-dir']],
-      ['--env-file with no value', () => [...tempFlags('--env-file'), '--env-file']],
-      ['--deploy-env-file with no value', () => [...tempFlags('--deploy-env-file'), '--deploy-env-file']],
-      ['--workspace-root with no value', () => [...tempFlags('--workspace-root'), '--workspace-root']],
-      ['--allowed-root with no value', () => [...tempFlags(''), '--allowed-root']],
-      ['--allow-unrecognised with no value', () => ['--apply', ...tempFlags(''), '--allow-unrecognised']],
-      ['a value flag followed by another flag', () => [...tempFlags('--workspace-root'), '--workspace-root', '--apply']],
-    ])('refuses %s', async (_l, build) => {
-      await expect(main(build(), mkIo(w))).rejects.toThrow(/needs a value/);
+    it.each<[string, string[]]>([
+      ['--secrets-dir with no value', ['--secrets-dir']],
+      ['--env-file with no value', ['--env-file']],
+      ['--deploy-env-file with no value', ['--deploy-env-file']],
+      ['--workspace-root with no value', ['--workspace-root']],
+      ['--allowed-root with no value', ['--allowed-root']],
+      ['--allow-unrecognised with no value', ['--apply', '--allow-unrecognised']],
+      ['a value flag followed by another flag', ['--workspace-root', '--apply']],
+    ])('the parser refuses %s', (_l, argv) => {
+      expect(() => parseMigrationArgs(argv)).toThrow(/needs a value/);
+    });
+
+    it('main() has no defaults: a call missing any path option is refused before it reads or connects', async () => {
+      for (const key of ['envFile', 'deployEnvFile', 'secretsDir', 'workspaceRoot', 'allowedRoot'] as const) {
+        await expect(main({ ...baseArgs(), [key]: undefined } as unknown as ResolvedArgs, mkIo(w))).rejects.toThrow(new RegExp(`missing: ${key}$`));
+      }
+      await expect(main({ apply: false, allowUnrecognised: [] } as unknown as ResolvedArgs, mkIo(w))).rejects.toThrow(/requires/);
       expect(connected).toEqual([]);
       expect(w.log).toEqual([]);
+    });
+
+    it('the real default paths live in resolveDefaults (the CLI block), and an explicit option wins', () => {
+      expect(resolveDefaults(parseMigrationArgs([]))).toEqual({
+        apply: false, allowUnrecognised: [], envFile: '/home/hein/isaflow-ci.env', deployEnvFile: '/home/hein/isaflow-deploy.env',
+        secretsDir: join(homedir(), '.secrets'), workspaceRoot: '/home/hein/Workspace', allowedRoot: '/home/hein',
+      });
+      expect(resolveDefaults(parseMigrationArgs(['--env-file', '/x/a.env', '--allowed-root', '/x']))).toMatchObject({ envFile: '/x/a.env', allowedRoot: '/x', deployEnvFile: '/home/hein/isaflow-deploy.env' });
     });
 
     it('with no arguments is a dry run: prints the plan and the env files, writes nothing', async () => {
@@ -107,6 +121,7 @@ describe('migrate-slot-emails main', () => {
     });
 
     it('--dry-run is the same as no argument', async () => {
+      expect(parseMigrationArgs(['--dry-run']).apply).toBe(false);
       expect(await run(['--dry-run'])).toBe(0);
       untouched();
     });
@@ -266,12 +281,23 @@ describe('migrate-slot-emails main', () => {
       } finally { rmSync(evil, { recursive: true, force: true }); }
     });
 
-    it('without --allowed-root the root is /home/hein: files elsewhere are not writable', async () => {
-      const argv = ['--env-file', ciEnv, '--deploy-env-file', deployEnv, '--secrets-dir', secrets, '--workspace-root', ws];
-      expect(await main(argv, mkIo(w))).toBe(0);
-      expect(said.join('\n')).toContain(`${ciEnv}: resolves outside /home/hein, will not be written`);
+    it('a file outside the root that mentions no old address is skipped silently (noted), and does not block --apply', async () => {
+      put(target(), 'UNRELATED=1\n');
+      expect(await run()).toBe(0);
+      const out = said.join('\n');
+      expect(out).not.toContain(f('ws', 'IsaFlow-out', '.env.local'));
+      expect(out).toMatch(/env files checked: 7 \(1 outside .*, skipped: no old address\)/);
       said = []; w.log.length = 0;
-      expect(await main([...argv, '--apply'], mkIo(w))).toBe(1);
+      expect(await run(['--apply'])).toBe(0);
+      expect(w.gotrue.get('g1')).toBe(NEW1);
+      expect(read(target())).toBe('UNRELATED=1\n');
+    });
+
+    it('a file outside the root that holds a lookalike or unknown old-domain line still blocks', async () => {
+      put(target(), 'SMTP_FROM=x <a@isaflow.dev>\n');
+      said = []; w.log.length = 0;
+      expect(await run(['--apply'])).toBe(1);
+      expect(said.join('\n')).toContain(`${f('ws', 'IsaFlow-out', '.env.local')}: resolves outside ${dir}, will not be written`);
       untouched();
     });
 
@@ -292,20 +318,13 @@ describe('migrate-slot-emails main', () => {
   });
 
   describe('the test-run guard (no test may touch a real env file)', () => {
-    it.each([
-      ['an env file', ['--env-file', '/home/hein/isaflow-ci.env']],
-      ['a secrets dir', ['--secrets-dir', '/home/hein/.secrets']],
-      ['a workspace root', ['--workspace-root', '/home/hein/Workspace']],
-      ['a deploy env file', ['--deploy-env-file', '/home/hein/isaflow-deploy.env']],
-    ])('main refuses %s outside the temp dir before reading or connecting (dry run: a removed guard would only read)', async (_l, extra) => {
-      const base: Record<string, string> = { '--env-file': ciEnv, '--deploy-env-file': deployEnv, '--secrets-dir': secrets, '--workspace-root': ws };
-      const argv = Object.entries({ ...base, [extra[0]!]: extra[1]! }).flat();
-      await expect(main(argv, mkIo(w))).rejects.toThrow(/refusing under vitest/);
-      expect(connected).toEqual([]);
-    });
-
-    it('main with no path options at all (all real defaults) refuses, dry run', async () => {
-      await expect(main([], mkIo(w))).rejects.toThrow(/refusing under vitest/);
+    it.each<[string, Partial<ResolvedArgs>]>([
+      ['an env file', { envFile: '/home/hein/isaflow-ci.env' }],
+      ['a secrets dir', { secretsDir: '/home/hein/.secrets' }],
+      ['a workspace root', { workspaceRoot: '/home/hein/Workspace' }],
+      ['a deploy env file', { deployEnvFile: '/home/hein/isaflow-deploy.env' }],
+    ])('main refuses %s outside the temp dir before reading or connecting (dry run: a removed guard would only read)', async (_l, over) => {
+      await expect(main({ ...baseArgs(), ...over }, mkIo(w))).rejects.toThrow(/refusing under vitest/);
       expect(connected).toEqual([]);
     });
 

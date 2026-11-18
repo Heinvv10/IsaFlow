@@ -10,7 +10,9 @@
  *            /home/hein/Workspace), --allowed-root <dir> (default /home/hein: no file resolving elsewhere is written),
  *            --allow-unrecognised <file> (with --apply only; repeatable; accepts that one scanned file's problem)
  *
- * Any other argument, a flag missing its value, or a repeated one is refused before anything runs.
+ * Any other argument, a flag missing its value, or a repeated one is refused before anything runs. main() takes every path as a
+ * required option (no default of its own); the real defaults are applied only by the CLI block (resolveDefaults), so a test that
+ * forgets a path cannot fall back to the real env files. A file outside the allowed root with no old address is skipped and counted.
  *
  * For each known account (slotEmailPlan.ts knownAccounts) it changes the GoTrue email (admin API), the `users` row (exactly
  * one row, else rolled back) and, for slots, the slot company's contact email, all on isaflow_dev. After EACH account's commit
@@ -22,7 +24,7 @@
  * Refusals, all before any write: a conflict (the new address held by another GoTrue user, a users row that disagrees with
  * GoTrue) stops the database and GoTrue steps (keys of accounts already migrated are still rewritten); a line in a scanned file
  * that still mentions @isaflow.dev but cannot be rewritten (unknown address, half-quoted, in a comment, an unreadable file, a
- * file that resolves outside the allowed root) refuses --apply unless --allow-unrecognised names that file. Old-domain addresses no code knows are listed and never touched.
+ * file outside the allowed root that mentions the old domain) refuses --apply unless --allow-unrecognised names that file. Old-domain addresses no code knows are listed and never touched.
  * Production `users` rows for these GoTrue ids, if any, are not touched (this script has no production access).
  *
  * Run it BEFORE provision-slots.ts / provision-w6-qa.ts: those now create the @isaflow.co.za addresses, which would otherwise
@@ -37,7 +39,7 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { applyPlan, findUnknownLegacy, readAccountState, realGoTrueOps, type Db, type GoTrueOps } from './slotEmailApply';
 import { assertTempUnderTest, discoverEnvFiles, rewriteEnvFiles, scanEnvFiles } from './slotEmailEnv';
-import { formatPlan, knownAccounts, parseMigrationArgs, planAccount, type AccountPlan } from './slotEmailPlan';
+import { formatPlan, knownAccounts, parseMigrationArgs, planAccount, type AccountPlan, type MigrationArgs } from './slotEmailPlan';
 import { assertConnectedToDev, assertDevDatabaseUrl, assertGoTrueUrl, parseEnvFile } from './slotConfig';
 
 const DEFAULT_ENV_FILE = '/home/hein/isaflow-ci.env';
@@ -54,13 +56,34 @@ export interface Io {
   say(line: string): void;
 }
 
+/** Every path is required: main() has no default of its own, so a caller (a test) cannot fall back to the real files by omission. */
+export interface ResolvedArgs extends MigrationArgs {
+  envFile: string;
+  deployEnvFile: string;
+  secretsDir: string;
+  workspaceRoot: string;
+  allowedRoot: string;
+}
+
+const PATH_OPTIONS = ['envFile', 'deployEnvFile', 'secretsDir', 'workspaceRoot', 'allowedRoot'] as const;
+
+/** The real default paths. Called only by the CLI block below, never by main(). */
+export function resolveDefaults(parsed: MigrationArgs): ResolvedArgs {
+  return {
+    ...parsed,
+    envFile: parsed.envFile ?? DEFAULT_ENV_FILE,
+    deployEnvFile: parsed.deployEnvFile ?? DEFAULT_DEPLOY_ENV_FILE,
+    secretsDir: parsed.secretsDir ?? join(homedir(), '.secrets'),
+    workspaceRoot: parsed.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT,
+    allowedRoot: parsed.allowedRoot ?? DEFAULT_ALLOWED_ROOT,
+  };
+}
+
 /** @returns the process exit code: 1 when a conflict or an unrecognised line refused (part of) the run. */
-export async function main(argv: string[], io: Io): Promise<number> {
-  const args = parseMigrationArgs(argv);
-  const envFile = args.envFile ?? DEFAULT_ENV_FILE;
-  const deployEnvFile = args.deployEnvFile ?? DEFAULT_DEPLOY_ENV_FILE;
-  const secretsDir = args.secretsDir ?? join(homedir(), '.secrets');
-  const workspaceRoot = args.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
+export async function main(args: ResolvedArgs, io: Io): Promise<number> {
+  const missing = PATH_OPTIONS.filter((k) => !args[k]);
+  if (missing.length) throw new Error(`main() requires every path option; missing: ${missing.join(', ')}`);
+  const { envFile, deployEnvFile, secretsDir, workspaceRoot, allowedRoot } = args;
   assertTempUnderTest([envFile, deployEnvFile, secretsDir, workspaceRoot]);
   if (!existsSync(envFile)) throw new Error(`env file ${envFile} not found`);
   const fileEnv = parseEnvFile(readFileSync(envFile, 'utf8'));
@@ -87,16 +110,21 @@ export async function main(argv: string[], io: Io): Promise<number> {
     for (const e of unknown.gotrue) io.say(`UNKNOWN GoTrue account on the old domain, untouched: ${e}`);
     for (const e of unknown.users) io.say(`UNKNOWN users row on the old domain, untouched: ${e}`);
 
-    const allowedRoot = args.allowedRoot ?? DEFAULT_ALLOWED_ROOT;
     const paths = discoverEnvFiles({ envFile, deployEnvFile, secretsDir, workspaceRoot });
     const scans = scanEnvFiles(paths, accounts, allowedRoot);
     const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
     const allowedReal = new Set(args.allowUnrecognised.map(real));
     const scannedReal = new Set(scans.map((x) => real(x.path)));
     for (const a of args.allowUnrecognised) if (!scannedReal.has(real(a))) throw new Error(`--allow-unrecognised ${a}: not a scanned env file (see the "env files checked" list of a dry run)`);
-    io.say(`env files checked: ${scans.length}`);
+    // A file outside the allowed root is never written; it blocks only when it mentions the old domain (a known address or any
+    // other line), otherwise it is skipped and merely counted.
+    const mentionsOld = (x: (typeof scans)[number]): boolean => Boolean(x.rewrite && (x.rewrite.changedKeys.length || x.rewrite.unrecognised.length));
+    const skipped = scans.filter((x) => x.outside && !x.unreadable && !mentionsOld(x)).length;
+    io.say(`env files checked: ${scans.length}${skipped ? ` (${skipped} outside ${allowedRoot}, skipped: no old address)` : ''}`);
     const blocked: string[] = [];
-    for (const { path, unreadable, outside, rewrite } of scans) {
+    for (const x of scans) {
+      const { path, unreadable, outside, rewrite } = x;
+      if (outside && !unreadable && !mentionsOld(x)) continue;
       let problem = false;
       if (unreadable) { io.say(`${path}: cannot be read; it may hold an old address`); problem = true; }
       if (outside) { io.say(`${path}: resolves outside ${allowedRoot}, will not be written`); problem = true; }
@@ -144,7 +172,7 @@ if (process.argv[1]?.endsWith('migrate-slot-emails.ts')) {
     useGoTrue: (url, key) => { process.env.GOTRUE_URL = url; process.env.SUPABASE_SERVICE_ROLE_KEY = key; return realGoTrueOps(); },
     say: (line) => { process.stdout.write(`${line}\n`); },
   };
-  main(process.argv.slice(2), io).then((code) => process.exit(code), (err: unknown) => {
+  main(resolveDefaults(parseMigrationArgs(process.argv.slice(2))), io).then((code) => process.exit(code), (err: unknown) => {
     process.stderr.write(`migrate-slot-emails failed: ${(err as Error).message}\n`);
     process.exit(1);
   });
