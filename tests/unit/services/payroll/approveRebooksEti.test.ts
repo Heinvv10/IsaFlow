@@ -29,6 +29,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollApprovalGate', () => ({
 }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn(async () => ({})) }));
 vi.mock('@/modules/accounting/services/payroll/payRunDecision', () => ({ readPayRunDecision: vi.fn(async () => null) }));
+// GA: the garnishee reads at approval are not this test's subject (its sql mock answers every query with a header row).
+vi.mock('@/modules/accounting/services/payroll/payrollGarnisheeRun', () => ({ judgeGarnisheeBalances: vi.fn(), applyRunGarnishees: vi.fn(async () => 0) }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => ({ claimRunSeveranceDirectives: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', () => ({ recordPayRunApprovalAudit: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({ postPayrollRunJournal: vi.fn(async () => { order.push('post'); return 'je1'; }) }));

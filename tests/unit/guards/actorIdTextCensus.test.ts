@@ -44,6 +44,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'entry.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
+  // wave 6 GA: garnishee orders, their payable account, a run's deductions
+  'orderId', 'payable.id', 'rows.map((r) => r.orderId)', 'rows.map((r) => r.employeeId)',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
@@ -65,6 +67,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}payroll/payrollApprovalService.ts`]: { 153: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
+  // Wave 6 GA: payroll_garnishee_orders.created_by is TEXT, restamped by its trigger from the session user (999z).
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 126: 'payable_account_id, created_by' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 120: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
@@ -117,6 +121,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
 /** The VALUES line that binds the actor of a multi-line INSERT pinned above (the column is named on another line). */
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 129: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 123: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },

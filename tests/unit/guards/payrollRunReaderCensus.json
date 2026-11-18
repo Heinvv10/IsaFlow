@@ -493,6 +493,13 @@
   "src/modules/bureau/services/ownerCashPositionService.ts": [
    {"line":155,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
    {"line":159,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeOrders.ts": [
+   {"line":99,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the approved/paid runs (rev #1574 L3)"},
+   {"line":102,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the runs not yet approved"}
+  ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeRun.ts": [
+   {"line":93,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"GA: by run id; the run's own period_start/period_end and calculated_at (stale-order refusal, rev #1574 M2), right for any frequency"}
   ]
  }
 }
