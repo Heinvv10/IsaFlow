@@ -142,7 +142,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
       }
       try {
-        await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
+        await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string, userId);
       } catch (err) {
         if (err instanceof IntercompanyNotFoundError) return apiResponse.notFound(res, 'Intercompany transaction', err.missing.join(', '));
         if (err instanceof IntercompanyMatchRefusedError) {

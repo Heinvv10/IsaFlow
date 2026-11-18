@@ -107,6 +107,6 @@ describe('intercompany ids are UUID-checked before any query', () => {
   it('valid ids pass through to the match', async () => {
     const res = await call(intercoHandler, 'POST', MATCH);
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(svc.matchIntercompanyTransactions).toHaveBeenCalledWith(CO, CO2, G);
+    expect(svc.matchIntercompanyTransactions).toHaveBeenCalledWith(CO, CO2, G, 'u1');
   });
 });

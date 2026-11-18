@@ -184,8 +184,15 @@ describe('the services under the narrower policies: nothing is reported done tha
       await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA)).rejects.toThrow(/1 of 2/);
       await client.query('ROLLBACK TO SAVEPOINT m');
     });
-    await asService(u.UA, co.A1, async () => {
-      await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA);              // both parties written: both rows
+    await asService(u.UA, co.A1, async (client) => {
+      await matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UA);        // both parties written: both rows, signed by the caller
+      const r = await client.query('SELECT matched_by, matched_at FROM intercompany_transactions WHERE id = ANY($1::uuid[])', [[row.txA1A4, row.txA4]]);
+      expect(r.rows.map((x: { matched_by: string }) => x.matched_by)).toEqual([u.UA, u.UA]);
+      expect(r.rows.every((x: { matched_at: unknown }) => x.matched_at !== null)).toBe(true);
+      await client.query('SAVEPOINT forged');
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA, u.UB)).rejects.toMatchObject({ code: FROZEN });   // not another user's name
+      await client.query('ROLLBACK TO SAVEPOINT forged');
+      await expect(matchIntercompanyTransactions(row.txA1A4.toUpperCase(), row.txA1A4, g.GA)).rejects.toThrow(/itself/i);   // mixed case is the same row
       await expect(matchIntercompanyTransactions(row.txA1A4, row.txA1A4, g.GA)).rejects.toThrow(/itself/i);   // a row is never matched with itself
     });
   });

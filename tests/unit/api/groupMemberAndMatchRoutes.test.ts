@@ -142,7 +142,7 @@ describe('interco match', () => {
     svc.getTransactionParties.mockResolvedValue(parties);
     access.userCanWriteCompany.mockImplementation(async (_u: string, c: string) => c === CO || c === CO2);
     expect(status(await match())).toBe(200);
-    expect(svc.matchIntercompanyTransactions).toHaveBeenCalledWith(T1, T2, G);
+    expect(svc.matchIntercompanyTransactions).toHaveBeenCalledWith(T1, T2, G, 'u1');
   });
   it('a row that is not visible is left to the service\'s typed 404', async () => {
     svc.getTransactionParties.mockResolvedValue([]);
