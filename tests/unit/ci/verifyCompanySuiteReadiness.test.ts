@@ -2,6 +2,7 @@
 // start-up checks (helpers/suitePreconditions.ts). Its client must keep cookies the way the suite's client does, or the gate passes a
 // run the suite then fails: the 2026-11-18 incident (Secure cookies, http://127.0.0.1:3101). A local server plays the app; its
 // cookie flags are the app's own (src/lib/auth/cookies.ts, production: HttpOnly; SameSite=Lax; Secure).
+import { promises as dns } from 'node:dns';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -115,6 +116,7 @@ async function parity(host: string, routes: Record<string, Reply | (() => Reply)
   return { pw: pwSeen, mine: seen, outcomes: pwOut };
 }
 
+const subLocalhostResolves = await dns.lookup('sub.localhost').then(() => true, () => false);
 const LOGIN = 'POST /api/auth/login';
 const cookiesSeen = (log: Seen[], url: string): string[] => log.filter((r) => r.url === url).map((r) => r.cookie);
 
@@ -155,9 +157,17 @@ describe('SuiteSession cookie and redirect parity with Playwright, request for r
 
   it.each([
     ['localhost', 'Domain=localhost', true], ['localhost', 'Domain=.localhost', true], ['127.0.0.1', 'Domain=localhost', false], ['127.0.0.1', 'Domain=127.0.0.1', true],
-    ['localhost', 'Domain=LOCALHOST', true], ['localhost', 'Domain=example.com', false],
+    ['localhost', 'Domain=LOCALHOST', true],  ['localhost', 'Domain=example.com', false],
   ] as const)('host %s with %s: the cookie is sent: %s', async (host, domain, sent) => {
     const { pw, mine } = await parity(host, { [LOGIN]: { set: [`a=1; Path=/; ${domain}`] } }, ['/probe']);
+    expect(cookiesSeen(pw, '/probe')).toEqual([sent ? 'a=1' : '']);
+    expect(mine).toEqual(pw);
+  });
+
+  // A dotted host that is local without any DNS setup: where a dotless Domain (it stays as written) and a dotted one differ. Skipped where
+  // the machine cannot resolve *.localhost (the case is then not run, and says so).
+  it.skipIf(!subLocalhostResolves).each([['Domain=localhost', false], ['Domain=.localhost', true]] as const)('host sub.localhost with %s: the cookie is sent: %s', async (domain, sent) => {
+    const { pw, mine } = await parity('sub.localhost', { [LOGIN]: { set: [`a=1; Path=/; ${domain}`] } }, ['/probe']);
     expect(cookiesSeen(pw, '/probe')).toEqual([sent ? 'a=1' : '']);
     expect(mine).toEqual(pw);
   });
