@@ -13,7 +13,7 @@
  *                       slips past, whether or not changes are written as new rows), missing or invalid details, negative net. Nil
  *                       net pay is left out of the file and named in the warnings (coordinator ruling, review #1524).
  *   judgeApprovedTotals fail closed (BRK-3, D-1): the run must link a posted, unreversed journal of ITS OWN (source
- *                       'auto_payroll' and payrollRunJournalDescription of the run's period, the one definition the
+ *                       'auto_payroll' and runJournalDescriptionOf the run (wave 6 FQc: its period, kind and pay date), the one definition the
  *                       journal plan uses; a header repointed at another run's journal is refused) with net-pay lines
  *                       (JOURNAL_NOT_POSTED otherwise: post it first), and the lines must sum to both the header's
  *                       total_net and that journal's net-pay credit. The header alone is no anchor: app_user can move it
@@ -34,7 +34,7 @@ import { validateBankAccount } from '@/modules/accounting/services/ap/eftService
 import { resolveBankRoleHolder } from '@/modules/accounting/services/gl/bankRoleHolder';
 import { salaryReference, type AcbAccount, type AcbAccountType, type AcbPayment } from './payrollAcbFile';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
-import { payrollRunJournalDescription } from './payrollJournalDescription';
+import { runJournalDescriptionOf } from './payrollJournalDescription';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
 
@@ -141,7 +141,7 @@ export async function readPayments(companyId: string, runId: string): Promise<Ru
 }
 
 export async function judgeApprovedTotals(
-  companyId: string, runId: string, period: { year: number; month: number }, linesCents: bigint,
+  companyId: string, runId: string, run: DbRow, linesCents: bigint,
 ): Promise<void> {
   const h = ((await sql`
     SELECT round(h.total_net * 100)::bigint::text AS approved_cents,
@@ -151,7 +151,7 @@ export async function judgeApprovedTotals(
              WHERE je.id = h.journal_entry_id AND je.company_id = h.company_id
                AND je.status = 'posted' AND je.reversed_at IS NULL AND je.source = 'auto_payroll'
                AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-               AND je.description = ${payrollRunJournalDescription(period.year, period.month)}
+               AND je.description = ${runJournalDescriptionOf(run)}
                AND jl.description IN (${NET_PAY_DESCRIPTION}, ${NET_PAY_CLEARING_DESCRIPTION})) AS journal_cents
       FROM payroll_run_headers h
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid

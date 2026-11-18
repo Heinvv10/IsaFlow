@@ -74,7 +74,7 @@ afterEach(() => { cleanup(); });
 async function open(query: Record<string, string> = {}) {
   cap.router = makeFakeRouter(query);
   render(<BankTransactionsPage />);
-  await screen.findByTestId('bank-tx-selection-bar');
+  await screen.findByTestId('bank-tx-selection-live');
   await waitFor(() => expect(ids().length).toBeGreaterThan(0));
   await settle();
 }

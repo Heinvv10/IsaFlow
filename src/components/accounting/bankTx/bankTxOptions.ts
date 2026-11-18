@@ -61,3 +61,18 @@ export function getSuggestedOption(tx: BankTx, type: AllocType): SelectOption | 
   }
   return null;
 }
+
+/**
+ * The entries of an open Selection popover in the order they are drawn and keyed through: the pinned suggestion first
+ * (only while nothing is typed), then the filtered options. Enter picks the first of them; the arrows move along them.
+ */
+export function popoverChoices(tx: BankTx, type: AllocType, search: string, options: SelectOption[]): SelectOption[] {
+  const suggested = search ? null : getSuggestedOption(tx, type);
+  return suggested ? [suggested, ...options] : options;
+}
+
+/** The index the arrows reach from `active` on `key`, clamped to the list; null when the key is not an arrow. */
+export function nextPopoverIndex(key: string, active: number, count: number): number | null {
+  if (count === 0 || (key !== 'ArrowDown' && key !== 'ArrowUp')) return null;
+  return key === 'ArrowDown' ? Math.min(active + 1, count - 1) : Math.max(active - 1, 0);
+}

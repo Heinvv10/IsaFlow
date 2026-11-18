@@ -242,7 +242,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                   <input
                     type="number"
                     aria-label={`Line ${index + 1} unit price`}
-                    step="0.01"
+                    step="any"
                     min="0"
                     required
                     value={line.unitPrice}

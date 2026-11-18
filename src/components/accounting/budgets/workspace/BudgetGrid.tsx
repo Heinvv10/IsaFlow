@@ -96,9 +96,9 @@ export function BudgetGrid(props: BudgetGridProps) {
   const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction, drivers: driver !== null });
 
   // Shift+F10 / the context-menu key on a cell opens that row's ⋯ menu, so a keyboard user reaches
-  // row actions from the cell they are on without tabbing through every row's button. Focus moves to
-  // the trigger first: ActionMenu reads its keys on `document`, and a cell keeping focus would also
-  // take them (ArrowDown moving the grid, Enter committing, a digit opening the editor).
+  // row actions from the cell they are on without tabbing through every row's button. The trigger is
+  // focused and clicked: ActionMenu then moves focus onto the menu's first item, and the menu keeps the
+  // keys it handles (they do not reach the grid: no ArrowDown moving it, no Enter committing).
   const onKeyDown = useCallback((e: KeyboardEvent<HTMLTableElement>) => {
     if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
       const row = e.target instanceof Element ? e.target.closest('[data-pos]')?.closest('tr') : null;

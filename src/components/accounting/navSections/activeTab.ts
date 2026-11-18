@@ -45,6 +45,7 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/consolidation') ||
     pathname.startsWith('/accounting/settings/connected-apps') ||
     pathname.startsWith('/accounting/settings/integrations-mcp') ||
+    pathname.startsWith('/accounting/settings/intercompany') ||
     pathname.startsWith('/accounting/settings/billing') ||
     pathname === '/developer' || pathname.startsWith('/developer/')
   ) {

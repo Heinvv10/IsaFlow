@@ -21,6 +21,9 @@ import type { StampedPackPagesDocument } from '@/modules/accounting/services/pac
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input, type Shape } from '../../services/packs/fixtures/packGridInputs';
 import { SCALE } from '../../services/packs/fixtures/widenedFigures';
+import { useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 const SHAPES: Shape[] = [
   { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.05, sg: [1, 1, 1, 1] },

@@ -1,9 +1,10 @@
 /**
  * Bank Transaction Attachments API
  *
- * GET  /api/accounting/bank-tx-attachments?bankTransactionId=<uuid>
+ * GET  /api/accounting/bank-tx-attachments?bankTransactionId=<uuid>[&include_settled=1]
  *   → List the line's supporting documents, newest first: uploads, and each linked captured document once
- *     (capture/capturedAttachmentLinks; document_id marks a linked one).
+ *     (capture/capturedAttachmentLinks; document_id marks a linked one). include_settled=1 appends, read-only, the
+ *     documents of the bills / invoices the line settles (source 'settled_document', bank/settledDocumentService).
  *
  * POST /api/accounting/bank-tx-attachments
  *   Body: { bankTransactionId, fileName, fileData (base64 data URL), fileSize? }
@@ -34,6 +35,7 @@ import { documentRemovalRefused, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/a
 import { isValidUUID } from '@/lib/validation';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import { listSettledDocuments, settledAttachmentRow } from '@/modules/accounting/services/bank/settledDocumentService';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -104,8 +106,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const total = truncated ? await countBankLineAttachments(companyId, bankTransactionId) : rows.length;
     res.setHeader('X-Attachments-Total', String(total));
     if (truncated) res.setHeader('X-Attachments-Truncated', 'true');
-    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length, total, truncated }, 'bank-tx-attachments');
-    return apiResponse.success(res, rows);
+    // include_settled=1: after the line's own rows, the documents of the bills / invoices it settles
+    // (bank/settledDocumentService), read-only and marked source 'settled_document'. X-Settled-Documents-Total counts them.
+    const includeSettled = req.query.include_settled === '1';
+    const settled = includeSettled
+      ? (await listSettledDocuments(companyId, bankTransactionId)).map((d) => settledAttachmentRow(d, bankTransactionId)) : [];
+    if (includeSettled) res.setHeader('X-Settled-Documents-Total', String(settled.length));
+    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length, total, truncated, settled: settled.length }, 'bank-tx-attachments');
+    return apiResponse.success(res, [...rows, ...settled]);
   }
 
   // ── POST ───────────────────────────────────────────────────────────────────

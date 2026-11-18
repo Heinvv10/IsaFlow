@@ -22,6 +22,10 @@ vi.mock('@/modules/accounting/services/core/documentStorageService', async (impo
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/documentStorageService')>();
   return { ...real, verifyEntityOwnershipTyped: vi.fn(), findActiveDuplicate: vi.fn(), storeDocumentBytes: vi.fn() };
 });
+vi.mock('@/modules/accounting/services/bank/settledDocumentService', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/accounting/services/bank/settledDocumentService')>();
+  return { ...real, listSettledDocuments: vi.fn(async () => []) };
+});
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 

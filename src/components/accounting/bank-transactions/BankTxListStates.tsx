@@ -14,12 +14,13 @@ const HEADER_PX = 34;
 const FOOTER_PX = 33;
 export const BANK_TX_FRAME_MIN_PX = HEADER_PX + BANK_TX_PAGE_SIZE * BANK_TX_ROW_PX + FOOTER_PX;
 
-export function BankTxLoading() {
+/** A page of skeleton rows: as many as the page will hold (`rows`, the page size), so the swap to the list shifts nothing. */
+export function BankTxLoading({ rows = BANK_TX_PAGE_SIZE }: { rows?: number }) {
   return (
     <div role="status" aria-busy="true" aria-label="Loading transactions" data-testid="list-skeleton"
       className="px-2" style={{ paddingTop: HEADER_PX }}>
       {/* h-[41px] is BANK_TX_ROW_PX: Tailwind needs the literal class. */}
-      <Skeleton variant="table-row" count={BANK_TX_PAGE_SIZE} className="h-[41px] items-center" />
+      <Skeleton variant="table-row" count={rows} className="h-[41px] items-center" />
     </div>
   );
 }

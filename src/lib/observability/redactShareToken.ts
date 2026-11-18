@@ -1,6 +1,7 @@
 /** Share path credentials and token-named query values must never reach logs.
- * Query names may be percent-encoded; redact their entire value regardless of shape. */
-const TOKEN_IN_PATH = /(\/share\/+)[A-Za-z0-9_-]{43}/gi;
+ * Query names may be percent-encoded; redact their entire value regardless of shape.
+ * Path credentials: /share/<token> and the MCP upload url /api/mcp/uploads/<token>. */
+const TOKEN_IN_PATH = /(\/share\/+|\/api\/mcp\/uploads\/+)[A-Za-z0-9_-]{43}/gi;
 const QUERY_VALUE = /([?&])([^=&#]+)=([^&#]*)/g;
 
 /** THE rule for "is this parameter name a token?", so the URL redactor above

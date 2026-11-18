@@ -45,7 +45,7 @@ function mockRes() {
 function req(query: Record<string, unknown>, method = 'GET') {
   return {
     method, query, url: '/api/accounting/packs/board/pages',
-    headers: {}, companyId: COMPANY, user: { id: 'u1', email: 'qa@isaflow.dev' },
+    headers: {}, companyId: COMPANY, user: { id: 'u1', email: 'qa@isaflow.co.za' },
   } as unknown as NextApiRequest;
 }
 
