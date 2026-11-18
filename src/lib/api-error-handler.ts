@@ -120,6 +120,7 @@ export function withErrorHandler(
           error: error instanceof Error ? error.message : 'Unknown error',
           stack: error instanceof Error ? error.stack : undefined,
           duration: `${duration}ms`,
+          sentryCaptured: error instanceof Error, // captured just below; the log bridge must not send it twice
         });
 
         if (process.env.SENTRY_ENABLED === 'true' && error instanceof Error) {
