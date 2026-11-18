@@ -67,10 +67,21 @@ export interface BudgetMonth {
   supplierPayments: number;
 }
 
+/** One SARS return assumed paid (`sars_past_due_assumed_paid`). `cents` is signed: a payment is negative, a refund positive. */
+export interface AssumedPaidItem {
+  kind: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  cents: number;
+}
+
 export interface ForecastWarning {
   code: string;
   source: string;
   message: string;
+  /** Only `sars_past_due_assumed_paid`: the same items as `message`, structured so the page can word them. */
+  assumedPaid?: AssumedPaidItem[];
 }
 
 export interface OverdueArSummary {

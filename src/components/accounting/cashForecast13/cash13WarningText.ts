@@ -3,9 +3,12 @@
  * its own sentence; the code itself is never shown. `detail` carries the server's list (which items, how much)
  * where that list is what the reader needs; an unknown code falls back on the server's message, a sentence too.
  */
-import type { ForecastWarning } from '@/modules/accounting/services/cashForecast13/types';
+import { formatCents } from '@/lib/money/formatMoney';
+import type { AssumedPaidItem, ForecastWarning } from '@/modules/accounting/services/cashForecast13/types';
+import { longDay } from './forecastRows';
 
-export interface WarningWords { title: string; detail?: string }
+/** `items`: a long list the reader may want, shown collapsed under the detail (never inline). */
+export interface WarningWords { title: string; detail?: string; items?: string[] }
 
 const TITLES: Record<string, string> = {
   beyond_horizon: 'Some invoices and payments fall after week 13 and are not in this forecast.',
@@ -36,6 +39,34 @@ export const KNOWN_WARNING_CODES: ReadonlySet<string> = new Set([...Object.keys(
 
 const sentence = (s: string): string => (/[.!?]$/.test(s) ? s : `${s}.`);
 
+const sumCents = (xs: readonly AssumedPaidItem[]): number => xs.reduce((s, x) => s + Math.abs(x.cents), 0);
+
+/**
+ * The SARS returns assumed paid, in one line: "16 returns due 7 Jan 2026 to 6 Nov 2026, R 1 000.00 in total, are
+ * not marked filed." (the title already says they are assumed paid). Payments and refunds are never netted.
+ * Whole cents (integers), formatted by formatCents.
+ */
+function assumedPaidWords(title: string, list: readonly AssumedPaidItem[]): WarningWords {
+  const dues = list.map((a) => a.dueDate).sort();
+  const first = dues[0] as string;
+  const last = dues[dues.length - 1] as string;
+  const payments = list.filter((a) => a.cents <= 0);
+  const refunds = list.filter((a) => a.cents > 0);
+  const money = [
+    payments.length > 0 ? `${formatCents(sumCents(payments))} ${refunds.length > 0 ? 'in payments' : 'in total'}` : '',
+    refunds.length > 0 ? `${formatCents(sumCents(refunds))} in refunds` : '',
+  ].filter(Boolean).join(' and ');
+  const many = list.length > 1;
+  const range = many && first !== last ? `${longDay(first)} to ${longDay(last)}` : longDay(first);
+  const detail = many
+    ? `${list.length} returns due ${range}, ${money}, are not marked filed.`
+    : `1 return due ${range}, ${formatCents(Math.abs((list[0] as AssumedPaidItem).cents))}${refunds.length > 0 ? ' refund' : ''}, is not marked filed.`;
+  const lines = list.length > 1
+    ? list.map((a) => `${a.kind} ${longDay(a.periodStart)} to ${longDay(a.periodEnd)}, due ${longDay(a.dueDate)}: ${formatCents(Math.abs(a.cents))}${a.cents > 0 ? ' refund' : ''}`)
+    : undefined;
+  return lines ? { title, detail, items: lines } : { title, detail };
+}
+
 export function cash13WarningText(w: ForecastWarning): WarningWords {
   if (w.code === 'source_unavailable') {
     const why = /could not be read: (.*?); the forecast leaves it out$/.exec(w.message)?.[1];
@@ -48,5 +79,6 @@ export function cash13WarningText(w: ForecastWarning): WarningWords {
   }
   const title = TITLES[w.code];
   if (!title) return { title: sentence(w.message) };
+  if (w.code === 'sars_past_due_assumed_paid' && w.assumedPaid && w.assumedPaid.length > 0) return assumedPaidWords(title, w.assumedPaid);
   return WITH_DETAIL.has(w.code) && w.message ? { title, detail: sentence(w.message) } : { title };
 }

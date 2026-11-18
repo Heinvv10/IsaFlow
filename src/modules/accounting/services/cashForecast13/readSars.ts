@@ -1,7 +1,7 @@
 /**
  * SARS payments for the forecast (rulings 2026-11-16, review H1), from the compliance calendar
- * (`getComplianceCalendarWithMarks`, due dates already weekend-shifted). An item already completed (e-filed,
- * marked filed or recorded) is left out.
+ * (`getComplianceCalendarWithMarks`, due dates already moved back off weekends and public holidays). An item
+ * already completed (e-filed, marked filed or recorded) is left out.
  *
  * PAST DUE = ASSUMED PAID (H1). A payment whose due date is before today is not forecast: its cash has left
  * the bank and is in opening cash, and an unmarked January–October EMP201 is far more often "paid, never
@@ -25,7 +25,7 @@ import { toCents } from './lines';
 import { vatItem } from './readVat';
 import type { BudgetRead } from './readBudget';
 import type { PayrollRead } from './readPayroll';
-import type { ForecastWarning, KnownItem } from './types';
+import type { AssumedPaidItem, ForecastWarning, KnownItem } from './types';
 
 const PAYABLE = new Set(['EMP201_DUE', 'VAT201_DUE', 'PROVISIONAL_TAX']);
 
@@ -84,12 +84,13 @@ export function irp6Item(e: ComplianceEvent, budget: BudgetRead | null, warnings
 
 const KIND: Record<string, string> = { EMP201_DUE: 'EMP201', VAT201_DUE: 'VAT201', PROVISIONAL_TAX: 'IRP6' };
 const rand = (cents: number) => `${formatCents(Math.abs(cents))}${cents > 0 ? ' refund' : ''}`;
+const itemText = (a: AssumedPaidItem) => `${a.kind} ${a.periodStart}..${a.periodEnd} due ${a.dueDate} ${rand(a.cents)}`;
 
 export async function sarsItems(
   companyId: string, today: string, horizonEnd: string, payroll: PayrollRead | null, budget: BudgetRead | null, warnings: ForecastWarning[],
 ): Promise<KnownItem[]> {
   const items: KnownItem[] = [];
-  const assumedPaid: string[] = [];
+  const assumedPaid: AssumedPaidItem[] = [];
   for (const e of await readSarsEvents(companyId, today, horizonEnd, warnings)) {
     const own: ForecastWarning[] = [];
     let item: KnownItem | null = null;
@@ -113,13 +114,14 @@ export async function sarsItems(
       warnings.push(...own);
       if (item) items.push(item);
     } else if (item) {
-      assumedPaid.push(`${KIND[e.eventType]} ${e.periodStart}..${e.periodEnd} due ${e.dueDate} ${rand(item.amountCents)}`);
+      assumedPaid.push({ kind: KIND[e.eventType] as string, periodStart: e.periodStart, periodEnd: e.periodEnd, dueDate: e.dueDate, cents: item.amountCents });
     }
   }
   if (assumedPaid.length > 0) {
     warnings.push({
       code: 'sars_past_due_assumed_paid', source: 'sars',
-      message: `${assumedPaid.length} SARS item(s) due before today and not marked filed are assumed paid (in opening cash): ${assumedPaid.join('; ')}`,
+      message: `${assumedPaid.length} SARS item(s) due before today and not marked filed are assumed paid (in opening cash): ${assumedPaid.map(itemText).join('; ')}`,
+      assumedPaid,
     });
   }
   return items;
