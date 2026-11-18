@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
+import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { withAlsTransaction } from '@/lib/alsTransaction';
 import { createVATAdjustment } from '@/modules/accounting/services/reports/vatAdjustmentService';
@@ -31,6 +32,25 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => {
   await r.pool.query('DELETE FROM audit_log WHERE company_id = $1', [r.company]).catch(() => undefined);
+  // The VAT201 the VAT-return case finalised: its versions are immutable and its lock is referenced, so they go with the
+  // triggers off, in one transaction on this disposable fixture.
+  const c = await r.pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL session_replication_role = replica');
+    // An ENABLE ALWAYS trigger fires under replica too: switched off for this transaction, as VR's own fixture does.
+    await c.query('ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable');
+    for (const t of ['vat_returns', 'tax_return_versions', 'sars_submissions', 'vat_gate_overrides', 'vat_period_locks']) {
+      await c.query(`DELETE FROM ${t} WHERE company_id = $1`, [r.company]);
+    }
+    await c.query('ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable');
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    c.release();
+  }
   await r.teardown();
 }, 60000);
 
@@ -126,8 +146,17 @@ describe('HYb: a non-UUID preparer and a pay run under R-035 approval', () => {
               ($1,'2130','HYb accrued','liability','credit',1,null,false)
        ON CONFLICT DO NOTHING`, [r.company]);
     clearSystemAccountCache(r.company); // the payroll cases above cached this company's roles
+    // Since VR (999g) a settlement needs a finalised VAT201 for exactly the period; the admin finalises it.
+    const finaliseVat201: Route = (req, res) => {
+      (req as unknown as { query: Record<string, unknown> }).query = { form: 'vat201' };
+      return (finalise as unknown as Route)(req, res);
+    };
+    const fin = await r.call(finaliseVat201, 'POST', '/api/accounting/sars/returns/vat201/finalise', undefined, {
+      body: { periodStart: '2024-02-01', periodEnd: '2024-03-31', force: true, overrideReason: 'HYb integration fixture' },
+    });
+    expect(fin.statusCode, JSON.stringify(fin.body)).toBe(200);
     const vr = await withAlsTransaction({ userId: N, companyId: r.company }, () =>
-      submitVATReturn(r.company, { periodStart: '2024-01-01', periodEnd: '2024-02-29' } as never, N));
+      submitVATReturn(r.company, { periodStart: '2024-02-01', periodEnd: '2024-03-31' } as never, N));
     const row = (await r.pool.query('SELECT submitted_by FROM vat_returns WHERE id = $1 AND company_id = $2', [vr.id, r.company])).rows[0];
     await r.pool.query('DELETE FROM vat_returns WHERE company_id = $1', [r.company]);
     expect(row.submitted_by).toBe(N);
