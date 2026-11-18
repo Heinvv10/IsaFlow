@@ -22,7 +22,10 @@ import {
   EmployeeTermsForbidden,
   employeeChangesOf,
 } from '@/modules/accounting/services/payroll/payrollEmployeeOnboarding';
-import { EMPLOYEE_TERM_LOG_KEYS, EmployeeTermsRefused } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
+import {
+  EMPLOYEE_TERM_LOG_KEYS, EmployeeTermsRefused, movesPricedTerm,
+} from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
+import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { EmployeeEndDateDirectiveError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import {
   getPayrollEmployee,
@@ -53,10 +56,14 @@ async function handler(
     if (!current) return apiResponse.notFound(res, 'PayrollEmployee', id);
     try {
       const changes = employeeChangesOf(req.body as Record<string, unknown>, current, canSetPayrollNetPay(companyRole));
+      // A Login-as session may not move what an employee costs or how they are taxed (tax status, PSP entity, hours, rates):
+      // 403 before the write (review of #1566 L-a). Other fields stay editable.
+      if (movesPricedTerm(changes, current)) await assertNotImpersonating();
       const updated = await updatePayrollEmployee(id, companyId, changes, user.id);
       if (!updated) return apiResponse.notFound(res, 'PayrollEmployee', id);
       return apiResponse.success(res, updated);
     } catch (err) {
+      if (respondIfImpersonationForbidden(res, err)) return;
       if (err instanceof EmployeeTermsForbidden) return apiResponse.forbidden(res, err.message);
       if (err instanceof EmployeeOnboardingRefused || err instanceof EmployeeTermsRefused) return apiResponse.badRequest(res, err.message);
       // An end date that would un-explain a directive ended at the leave date before a run it taxed (DR): before the write.

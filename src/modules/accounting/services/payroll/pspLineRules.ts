@@ -14,6 +14,7 @@
  */
 import type { EmployeeComponent, ValidationResult } from './payrollTypes';
 import { normaliseSarsCode } from './payeAnnualPayment';
+import { pct } from './payrollExplainTypes';
 import { EMPLOYER_FUND_BENEFIT_CODES, RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
 
 export type PspRefusedKind = 'retirement fund contribution' | 's18A donation' | 'fringe benefit' | 'loan';
@@ -79,6 +80,6 @@ export function pspTaxBasis(results: unknown): string | null {
   if (!flag) return null;
   const directed = results.some((r) => (r as { treatment?: unknown })?.treatment === 'directive');
   const entity = flag.psp?.entity ?? 'company or trust';
-  const rate = flag.psp ? `${Math.round(flag.psp.rate * 10_000) / 100}%` : 'a flat rate';
+  const rate = flag.psp ? pct(flag.psp.rate) : 'a flat rate';
   return `Personal service provider (${entity}): PAYE ${directed ? 'as the IRP3(b) directive directs' : `at ${rate}`}, no UIF`;
 }

@@ -60,9 +60,9 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  * A PSP's flat PAYE in integer cents, half-up: the base in cents times the rate in basis points, so 45% of R10 001.90 is
  * R4 500.855 -> R4 500.86 (a float product can land a hair under the half and round down).
  */
-export function pspFlatPaye(rate: number, base: number): number {
+export function pspFlatPaye(share: number, base: number): number {
   const cents = Math.round(Math.max(0, base) * 100);
-  const bp = Math.round(rate * 10_000);
+  const bp = Math.round(share * 10_000);
   return Math.floor((cents * bp + 5_000) / 10_000) / 100;
 }
 

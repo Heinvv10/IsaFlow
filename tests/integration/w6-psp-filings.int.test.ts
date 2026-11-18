@@ -9,7 +9,10 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanSeveranceFixtures, type SeveranceFixture } from './p3-severance.helpers';
 import { seedEmployee } from './p4fu-cumulative.helpers';
 import { addEmployee, newRun } from './ts-b.helpers';
-import type { Route } from './w3-01-payroll.helpers';
+import { routeCaller, type Route } from './w3-01-payroll.helpers';
+import { impersonationToken } from './r035-pr2.helpers';
+import { SignJWT } from 'jose';
+import employeeRoute from '../../pages/api/payroll/employees/[id]';
 import componentsRoute from '../../pages/api/payroll/employees/[id]/components';
 import reconciliationRoute from '../../pages/api/payroll/emp501/reconciliation';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
@@ -26,6 +29,18 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const fixtures: SeveranceFixture[] = [];
 const PAY = 40_000;
+const extraUsers: string[] = [];
+
+/** A viewer of f's company, and a caller as that viewer. */
+async function viewerOf(f: SeveranceFixture) {
+  const viewer = crypto.randomUUID();
+  extraUsers.push(viewer);
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [viewer, `${viewer}@test.local`]);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'viewer')", [f.company, viewer]);
+  const token = await new SignJWT({ sub: viewer, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  return routeCaller({ [viewer]: token }, { user: viewer, company: f.company });
+}
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -35,8 +50,13 @@ afterAll(async () => {
   vi.useRealTimers();
   try {
     await pool.query('DELETE FROM payroll_loans WHERE company_id = ANY($1)', [fixtures.map((f) => f.company)]);
+    await pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = ANY($1)', [fixtures.map((f) => f.approver)]);
+    await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [extraUsers]);
     await cleanSeveranceFixtures(pool, fixtures);
-  } finally { await pool.end(); }
+  } finally {
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [extraUsers]).catch(() => undefined);
+    await pool.end();
+  }
 });
 
 const approve = (run: string) => pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [run]);
@@ -157,5 +177,39 @@ describe('a PSP trust in March, an employee from April', () => {
     expect(mar.pspPaye).toBe(24_300);
     expect(mar.emp201Paye - mar.irp5Paye).toBeCloseTo(mar.pspPaye, 2);
     expect(body.data.runWarnings.some((w) => w.includes('TSB-psp-switch') && w.includes('personal service provider'))).toBe(true);
+  });
+
+  it('security: a viewer (aggregate-only route) gets one PSP total, no name, employee number or per-month PSP PAYE', async () => {
+    const asViewer = await viewerOf(f);
+    const out = await asViewer(reconciliationRoute as Route, 'GET', '/api/payroll/emp501/reconciliation?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    expect(out.statusCode).toBe(200);
+    const body = out.body as unknown as { data: { rows: Array<Record<string, unknown>>; runWarnings: string[] } };
+    expect(body.data.rows.every((r) => !('pspPaye' in r))).toBe(true);
+    const text = JSON.stringify(body.data.runWarnings);
+    expect(text).not.toMatch(/TSB-psp-switch|Extra/);
+    expect(body.data.runWarnings.filter((w) => w.includes('personal service provider pay (1 payee)'))).toHaveLength(1);
+  });
+});
+
+describe('L-a: a Login-as session may not move the PSP status, entity or other priced terms', () => {
+  it('403 and no change for the priced keys; another field is saved; the real admin may set PSP', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp login-as', 30_000);
+    const token = await impersonationToken(pool, f.admin, f.approver);
+    const asLoginAs = routeCaller({ as: token }, { user: 'as', company: f.company });
+    const url = `/api/payroll/employees/${f.employee}`;
+    const row = async () => (await pool.query('SELECT tax_status, psp_entity_type, hours_per_week, occupation FROM payroll_employees WHERE id = $1', [f.employee])).rows[0];
+    const before = await row();
+    for (const body of [{ taxStatus: 'personal_service_provider', pspEntityType: 'company' }, { hoursPerWeek: 20 }]) {
+      const out = await asLoginAs(employeeRoute as Route, 'PATCH', url, f.employee, { body });
+      expect(out.statusCode, JSON.stringify(body)).toBe(403);
+      expect(JSON.stringify(out.body)).toContain('IMPERSONATION_FORBIDDEN');
+    }
+    expect(await row()).toEqual(before);
+    const other = await asLoginAs(employeeRoute as Route, 'PATCH', url, f.employee, { body: { occupation: 'Engineer' } });
+    expect(other.statusCode).toBe(200);
+    expect((await row()).occupation).toBe('Engineer');
+    const real = await f.call(employeeRoute as Route, 'PATCH', url, f.employee, { body: { taxStatus: 'personal_service_provider', pspEntityType: 'company' } });
+    expect(real.statusCode).toBe(200);
+    expect((await row()).tax_status).toBe('personal_service_provider');
   });
 });

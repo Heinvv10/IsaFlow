@@ -17,7 +17,8 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
-import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { listPspFilingTotals, pspAggregateWarning, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 type Row = DbRow;
 
@@ -30,8 +31,11 @@ export interface ReconciliationRow {
   emp201Paye: number;
   irp5Paye: number;
   variance: number;
-  /** PAYE on personal service provider lines (wave 6 PSP): declared on the EMP201, on no natural-person certificate; part of the variance. */
-  pspPaye: number;
+  /**
+   * PAYE on personal service provider lines (wave 6 PSP): declared on the EMP201, on no natural-person certificate; part of
+   * the variance. Payroll-detail roles only (withPayrollDetailAccess's set): absent for a viewer.
+   */
+  pspPaye?: number;
   status: 'balanced' | 'variance' | 'no_data';
 }
 
@@ -57,7 +61,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const detail = canWrite(companyRole); // payroll-detail access (withPayrollDetailAccess's set): names PSPs and their PAYE
   // Pentest M17: bound numeric query params — reject year 9999 / -1 / NaN.
   const taxYearRaw = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
   if (!Number.isInteger(taxYearRaw) || taxYearRaw < 2000 || taxYearRaw > 2100) {
@@ -95,6 +100,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0)));
   const pspMap = new Map(lineRows.map(r => [`${r.period_year}-${r.period_month}`, Number(r.psp_paye)]));
 
+  const psp = await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear));
   const months = taxYearMonths(taxYear);
   const rows: ReconciliationRow[] = months.map(({ month, year }) => {
     const key = `${year}-${month}`;
@@ -109,7 +115,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       emp201Paye: emp201,
       irp5Paye: irp5,
       variance,
-      pspPaye: pspMap.get(key) ?? 0,
+      ...(detail ? { pspPaye: pspMap.get(key) ?? 0 } : {}),
       status: hasData ? (Math.abs(variance) < 0.01 ? 'balanced' : 'variance') : 'no_data',
     };
   });
@@ -123,7 +129,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     runWarnings: [
       ...await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
       // The PAYE difference a PSP's months leave, explained by name (pspFiling; UNVERIFIED until the PSP certificate is produced).
-      ...(await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear))).map((t) => pspFilingWarning(t, 'IRP5 side of this reconciliation')),
+      // Named per person only for payroll-detail roles; a viewer (this route is aggregate-only for them) gets one total line.
+      ...(detail ? psp.map((t) => pspFilingWarning(t, 'IRP5 side of this reconciliation'))
+        : [pspAggregateWarning(psp, 'IRP5 side of this reconciliation')].filter((w): w is string => w !== null)),
     ],
   };
 

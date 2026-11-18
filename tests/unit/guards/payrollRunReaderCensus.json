@@ -436,6 +436,13 @@
   "src/modules/accounting/services/payroll/preValidationService.ts": [
    {"line":74,"text":"SELECT period_month, period_year FROM payroll_run_headers","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"}
   ],
+  "src/modules/accounting/services/payroll/pspComponentGuard.ts": [
+   {"line":39,"text":"JOIN payroll_employee_components ec ON ec.employee_id = e.id","class":"R","owner":"FQc","why":"PSP refused components live in the run's period, whose dates the caller takes from its month (F2)"}
+  ],
+  "src/modules/accounting/services/payroll/pspFiling.ts": [
+   {"line":42,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"tax-year sum of PSP lines on final runs"},
+   {"line":84,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"count of final runs in the tax year (switch warning)"}
+  ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
    {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
   ],
