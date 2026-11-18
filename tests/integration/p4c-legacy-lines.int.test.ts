@@ -102,9 +102,10 @@ describe('pre-948 lines in the year to date', () => {
       const id = await pay(f, 5);
       return (await pool.query<{ paye: number }>('SELECT paye::float8 AS paye FROM payroll_run_lines WHERE run_id = $1', [id])).rows[0]!.paye;
     };
-    // 26 000 a month taxed: 312 000 → 44 118 + 26% × 66 900 = 61 512 − 17 820 = 43 692 ÷ 12 = 3 641.
-    expect(await paye(recorded.f)).toBe(3_641);
-    expect(await paye(legacy.f)).toBe(3_641);
+    // 26 000 a month taxed: 312 000 → 44 118 + 26% × 66 900 = 61 512 − 17 820 = 43 692 ÷ 12 = 3 641 under × 12. AN
+    // (F = 365 / 30.4166): 26 000 × F = 312 000.68, tax 43 692.18; May is 43 692.18 × 3 ÷ F − 7 282.01 = 3 641.01.
+    expect(await paye(recorded.f)).toBe(3_641.01);
+    expect(await paye(legacy.f)).toBe(3_641.01);
     expect(await retirementCodes(legacy.f)).toEqual(['4001,9000', '4006,3000']);
     expect(await retirementCodes(recorded.f)).toEqual(['4001,9000', '4006,3000']);
   });
