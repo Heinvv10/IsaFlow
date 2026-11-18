@@ -14,8 +14,9 @@ and retire steps), `cloneCompany.ts` (copies setup data from Demo from the
 catalog's foreign keys, then checks nothing still points at Demo),
 `slotVerify.ts` (what a slot must hold), `slotConfig.ts` (ids, the dev-database
 and GoTrue guards, env-file text helpers), `slotEnvFile.ts` (atomic write), `killSlotOrphans.ts` (ci.yml pre-step),
-`migrate-slot-emails.ts` + `slotEmailPlan.ts` (pure plan) + `slotEmailApply.ts` (one-off address move, below).
-Tests: `tests/unit/ci/goldenSlot*.test.ts` (`goldenSlotEmailPlan`, `goldenSlotEmailApply` for the move), `goldenCloneCompany.test.ts`.
+`migrate-slot-emails.ts` + `slotEmailPlan.ts` (pure plan, args, env rewrite) + `slotEmailApply.ts` (database and GoTrue steps)
++ `slotEmailEnv.ts` (env-file discovery and rewrite): the one-off address move, below.
+Tests: `tests/unit/ci/goldenSlot*.test.ts` (`goldenSlotEmailPlan`, `goldenSlotEmailApply`, `goldenMigrateSlotEmails` for the move), `goldenCloneCompany.test.ts`.
 
 **Seeding:** `provision-slots.ts --seed-url http://localhost:<port>` seeds each slot with transactions
 THROUGH THE APP (`seedSlotData.ts`, `seedSlotClient.ts`, `fetchContext.ts`): 8 suppliers, 80 supplier
@@ -130,10 +131,20 @@ self-approves, set or not (its sandbox company is not the approver's); a refusal
 - Test/QA logins live on `@isaflow.co.za` (`QA_EMAIL_DOMAIN`, `slotEmail`, `W6_EMAIL`, `REPORTING_QA_*` in `slotConfig.ts`),
   never `@isaflow.dev`: that domain has no DNS records, and these accounts live on the GoTrue shared with production, so
   whoever registered it could receive their password-reset mail. Accounts created before 2026-11-18 carry the old address;
-  `bun scripts/ci/golden/migrate-slot-emails.ts [--dry-run]` moves them IN PLACE (same GoTrue id; GoTrue email, `users` row,
-  slot companies' contact email, and every env-file value that is exactly an old address, keys only). Idempotent; a conflict
-  refuses the whole run; old-domain addresses no code knows are listed, never touched. Run it BEFORE `provision-slots.ts`
-  (which would otherwise create the new addresses as fresh accounts). Same guards as the provisioner (isaflow_dev, pinned GoTrue).
+  `bun scripts/ci/golden/migrate-slot-emails.ts` moves them IN PLACE (same GoTrue id; GoTrue email, `users` row (exactly one),
+  slot companies' contact email) and is a DRY RUN unless `--apply` is given; any unknown or misspelt argument is refused.
+  After each account's commit it rewrites every line whose whole value is that account's old address in the CI env file,
+  `~/.secrets/*.env` and each `.env.local` directly under `/home/hein/Workspace/IsaFlow*/` and `IsaFlow_wt/*/` (`export `, quotes,
+  CRLF, mode and symlinks kept; paths and key names printed, never values). A line that still mentions `@isaflow.dev` and
+  cannot be rewritten refuses `--apply` unless `--allow-unrecognised`. A conflict refuses the database and GoTrue writes;
+  old-domain addresses no code knows are listed, never touched; production `users` rows for these ids are not touched.
+  Run it BEFORE `provision-slots.ts` (which would otherwise create the new addresses as fresh accounts). Same guards as the
+  provisioner (isaflow_dev, pinned GoTrue).
+- **Cutover grace (temporary):** until the migration has run and no env file holds a legacy address, `readGoldenSlot`
+  (`tests/e2e/golden-paths/helpers/goldenSlot.ts`) and the rubric harness (`tests/e2e/rubric/_rubricGuard.ts` logins and session
+  check, `_rubricDb.ts` lookups) accept each login under both addresses via `loginAliases` in `slotConfig.ts`. Follow-up
+  `drop-legacy-email-grace`: make `loginAliases` return `[email]` and delete the legacy cases in `goldenSlot.test.ts`,
+  `rubricGuard.test.ts` and `rubricDbAliases.test.ts`.
 - Ad hoc work in a slot: log in as `golden-slot-n@isaflow.co.za` with the password from the file
   and use the app; never use a slot company for anything else.
 

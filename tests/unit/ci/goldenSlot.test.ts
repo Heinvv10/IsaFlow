@@ -42,6 +42,15 @@ describe('readGoldenSlot', () => {
     expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_USER_EMAIL: 'golden-slot-1@isaflow.co.za' })).toThrow(/must be golden-slot-2@isaflow.co.za/);
   });
 
+  // Cutover grace (slotConfig.loginAliases; follow-up drop-legacy-email-grace): an env file not yet migrated still passes.
+  it('accepts the slot\'s own legacy address while env files are being migrated, and returns it as given', () => {
+    expect(readGoldenSlot({ ...SLOT_ENV, GOLDEN_USER_EMAIL: 'golden-slot-2@isaflow.dev' })).toEqual({ ...SLOT, email: 'golden-slot-2@isaflow.dev' });
+  });
+
+  it.each(['golden-slot-1@isaflow.dev', 'golden-slot-2@isaflow.dev.example.com', 'golden-slot-2@isaflow.dev ', 'hein@isaflow.dev'])('still refuses %s for slot 2', (email) => {
+    expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_USER_EMAIL: email })).toThrow(/must be golden-slot-2@isaflow.co.za/);
+  });
+
   it('refuses slot credentials without the runner slot number', () => {
     const { GOLDEN_SLOT_NUMBER: _slot, ...env } = SLOT_ENV;
     expect(() => readGoldenSlot(env)).toThrow(/GOLDEN_SLOT_NUMBER/);

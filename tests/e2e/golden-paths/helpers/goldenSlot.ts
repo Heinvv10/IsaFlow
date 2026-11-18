@@ -8,7 +8,7 @@
  * E2E_APPROVER_*, see payRunApproval.ts).
  */
 
-import { assertSlotCompanyId, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
+import { assertSlotCompanyId, loginAliases, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
 
 export interface GoldenSlot {
   companyId: string;
@@ -33,7 +33,8 @@ export function readGoldenSlot(env: Record<string, string | undefined>): GoldenS
   if (!UUID.test(companyId)) throw new Error(`GOLDEN_COMPANY_ID must be a uuid, got "${companyId}"`);
   const slot = Number(slotText);
   assertSlotCompanyId(slot, companyId);
-  if (email !== slotEmail(slot)) throw new Error(`slot ${slot}: GOLDEN_USER_EMAIL must be ${slotEmail(slot)}, got "${email}"`);
+  // Cutover grace: the legacy @isaflow.dev twin passes until migrate-slot-emails.ts has run (follow-up drop-legacy-email-grace, slotConfig.ts).
+  if (!loginAliases(slotEmail(slot)).includes(email)) throw new Error(`slot ${slot}: GOLDEN_USER_EMAIL must be ${slotEmail(slot)}, got "${email}"`);
   return { companyId, email, password };
 }
 

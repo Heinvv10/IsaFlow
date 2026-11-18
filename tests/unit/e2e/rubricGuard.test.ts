@@ -89,10 +89,22 @@ describe('logins', () => {
     expect(() => assertLogins(REQUESTER_EMAIL, APPROVER_EMAIL)).not.toThrow();
   });
 
+  // Cutover grace (slotConfig.loginAliases; follow-up drop-legacy-email-grace): the legacy twins pass until the accounts are migrated.
+  it('accepts the legacy twins of the two QA users, together or one at a time', () => {
+    expect(() => assertLogins('reporting-qa@isaflow.dev', 'reporting-qa-approver@isaflow.dev')).not.toThrow();
+    expect(() => assertLogins(REQUESTER_EMAIL, 'reporting-qa-approver@isaflow.dev')).not.toThrow();
+    expect(() => assertLogins('reporting-qa@isaflow.dev', APPROVER_EMAIL)).not.toThrow();
+  });
+
+  it('still refuses a legacy address that is not a QA user, and the two users swapped', () => {
+    refused(() => assertLogins('hein@isaflow.dev', APPROVER_EMAIL), /requester must be/);
+    refused(() => assertLogins('reporting-qa-approver@isaflow.dev', REQUESTER_EMAIL), /requester must be/);
+    refused(() => assertLogins(REQUESTER_EMAIL, 'reporting-qa@isaflow.dev'), /approver must be/);
+  });
+
   it.each([
     ['hein@h10.co.za', APPROVER_EMAIL, /requester must be/],
     ['Reporting-QA@isaflow.co.za', APPROVER_EMAIL, /requester must be/],
-    ['reporting-qa@isaflow.dev', APPROVER_EMAIL, /requester must be/],
     [` ${REQUESTER_EMAIL}`, APPROVER_EMAIL, /requester must be/],
     [undefined, APPROVER_EMAIL, /requester must be/],
     [REQUESTER_EMAIL, REQUESTER_EMAIL, /approver must be/],
@@ -142,6 +154,11 @@ describe('session', () => {
 
   it('accepts the requester in the sandbox', () => {
     expect(() => assertSession(me(), REQUESTER_EMAIL, sandbox)).not.toThrow();
+  });
+
+  it('accepts the requester under its legacy address too (cutover grace)', () => {
+    expect(() => assertSession(me({ user: { email: 'reporting-qa@isaflow.dev' } }), REQUESTER_EMAIL, sandbox)).not.toThrow();
+    refused(() => assertSession(me({ user: { email: 'reporting-qa-approver@isaflow.dev' } }), REQUESTER_EMAIL, sandbox), /session belongs to/);
   });
 
   it('refuses another user', () => {

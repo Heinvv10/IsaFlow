@@ -56,6 +56,16 @@ export const QA_EMAIL_DOMAIN = 'isaflow.co.za';
 /** The retired domain; only the migration (slotEmailPlan.ts) and the tests name it. */
 export const LEGACY_EMAIL_DOMAIN = 'isaflow.dev';
 export const slotEmail = (n: number): string => `golden-slot-${n}@${QA_EMAIL_DOMAIN}`;
+/** The same local part on the retired domain. */
+export const legacyEmail = (email: string): string => email.replace(new RegExp(`@${QA_EMAIL_DOMAIN.replace(/\./g, '\\.')}$`, 'i'), `@${LEGACY_EMAIL_DOMAIN}`);
+/**
+ * CUTOVER GRACE. The addresses a login may carry while accounts and env files are still being moved by migrate-slot-emails.ts:
+ * the current one and its legacy twin. The strict pins (tests/e2e/golden-paths/helpers/goldenSlot.ts, tests/e2e/rubric/
+ * _rubricGuard.ts and its DB lookups) go through this, so a run on a not-yet-migrated env file still works. Follow-up
+ * "drop-legacy-email-grace": once the migration has run on dev and no env file holds a legacy address, make this return
+ * `[email]` (or inline it away) and delete the legacy cases in goldenSlot.test.ts and rubricGuard.test.ts.
+ */
+export const loginAliases = (email: string): string[] => [...new Set([email, legacyEmail(email)])];
 /** provision-w6-qa.ts's user. */
 export const W6_EMAIL = `golden-qa-w6@${QA_EMAIL_DOMAIN}`;
 /** The rubric harness's two logins (tests/e2e/rubric/_rubricGuard.ts keeps literals; a unit test pins them equal). */

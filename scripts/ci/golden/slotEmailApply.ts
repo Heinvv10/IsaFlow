@@ -18,21 +18,33 @@ export interface GoTrueOps {
   setEmail(id: string, email: string): Promise<void>;
 }
 
+const MAX_LIST_PAGES = 500;
+
+/**
+ * Every item of a paged list: pages are read until one comes back EMPTY (a server that caps per_page below the ask returns short
+ * pages, so a short page is not the end). Throws at `maxPages` rather than return a truncated list: an account missed here is an
+ * unknown old-domain address nobody sees.
+ */
+export async function paginate<T>(fetchPage: (page: number) => Promise<T[]>, maxPages: number): Promise<T[]> {
+  const out: T[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const items = await fetchPage(page);
+    if (items.length === 0) return out;
+    out.push(...items);
+  }
+  throw new Error(`the list has more than ${maxPages} pages; refusing to go on with a truncated one`);
+}
+
 export function realGoTrueOps(): GoTrueOps {
   return {
     find: async (email) => { const u = await findUserByEmail(email); return u ? { id: u.id, email: u.email } : null; },
-    list: async (filter) => {
-      const out: GoTrueUser[] = [];
-      for (let page = 1; page <= 50; page++) {
-        const res = await callAuthUpstream('gotrue admin list users', (signal) => gotrueFetch(
-          `/admin/users?filter=${encodeURIComponent(filter)}&page=${page}&per_page=200`, { method: 'GET', signal }, adminHeaders()));
-        if (!res.ok) throw new Error(`gotrue admin list users failed: ${res.status}`);
-        const users = ((await readAuthUpstreamJson('gotrue admin list users', res)) as { users?: GoTrueUser[] }).users ?? [];
-        out.push(...users);
-        if (users.length < 200) break;
-      }
-      return out.map((u) => ({ id: u.id, email: u.email ?? '' }));
-    },
+    list: (filter) => paginate(async (page) => {
+      const res = await callAuthUpstream('gotrue admin list users', (signal) => gotrueFetch(
+        `/admin/users?filter=${encodeURIComponent(filter)}&page=${page}&per_page=200`, { method: 'GET', signal }, adminHeaders()));
+      if (!res.ok) throw new Error(`gotrue admin list users failed: ${res.status}`);
+      const users = ((await readAuthUpstreamJson('gotrue admin list users', res)) as { users?: GoTrueUser[] }).users ?? [];
+      return users.map((u) => ({ id: u.id, email: u.email ?? '' }));
+    }, MAX_LIST_PAGES),
     setEmail: async (id, email) => {
       // email_confirm: an admin change then takes effect at once, with no confirmation mail to either address.
       const updated = await adminUpdateUser(id, { email, email_confirm: true });
@@ -81,7 +93,8 @@ export async function applyPlan(db: Db, gt: GoTrueOps, plan: AccountPlan): Promi
   let committed = false;
   try {
     if (plan.steps.includes('users-email')) {
-      await db.query('UPDATE users SET email = lower(btrim($2)) WHERE id::text = $1 AND lower(email) = lower($3)', [plan.userId, newEmail, oldEmail]);
+      const updated = await db.query('UPDATE users SET email = lower(btrim($2)) WHERE id::text = $1 AND lower(email) = lower($3)', [plan.userId, newEmail, oldEmail]);
+      if (updated.rowCount !== 1) throw new Error(`${plan.account.label}: UPDATE users changed ${updated.rowCount ?? 'an unknown number of'} rows, exactly one was expected; rolled back, nothing was changed`);
     }
     if (plan.steps.includes('companies-email')) {
       await db.query(`UPDATE companies SET email = lower(btrim($1)) WHERE lower(email) = lower($2) AND id::text ~ '${SLOT_COMPANY_ID}'`, [newEmail, oldEmail]);

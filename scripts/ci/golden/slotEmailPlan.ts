@@ -4,11 +4,8 @@
  * which env-file lines carry the old address. No network, no database, no filesystem: tests/unit/ci/goldenSlotEmailPlan.test.ts.
  */
 import {
-  GOLDEN_SLOTS, LEGACY_EMAIL_DOMAIN, QA_EMAIL_DOMAIN, REPORTING_QA_APPROVER_EMAIL, REPORTING_QA_EMAIL, W6_EMAIL, slotEmail,
+  GOLDEN_SLOTS, LEGACY_EMAIL_DOMAIN, REPORTING_QA_APPROVER_EMAIL, REPORTING_QA_EMAIL, W6_EMAIL, legacyEmail, slotEmail,
 } from './slotConfig';
-
-/** The same local part on the retired domain. */
-export const legacyEmail = (email: string): string => email.replace(new RegExp(`@${QA_EMAIL_DOMAIN.replace(/\./g, '\\.')}$`, 'i'), `@${LEGACY_EMAIL_DOMAIN}`);
 
 export interface KnownAccount {
   label: string;
@@ -81,28 +78,37 @@ export interface EnvRewrite {
   text: string;
   /** Keys whose value was exactly a known old address (names only: values are never reported). */
   changedKeys: string[];
-  /** Keys whose value mentions the retired domain but is not a known account's address: left untouched. */
-  unrecognisedKeys: string[];
+  /**
+   * Lines that still mention the retired domain after the rewrite and were not changed: a key (or `line N` for a line that
+   * is not KEY=value, a comment included). Names only. An unknown address, a half-quoted value and `KEY=text with the
+   * address inside` all land here.
+   */
+  unrecognised: string[];
 }
 
 /**
- * Rewrites every KEY=value line whose whole value is a known old address (case-insensitive) to the new one, keeping every
- * other byte of the file.
+ * Rewrites every `[export ]KEY=value` line whose whole value (unquoted, or inside one matching pair of quotes) is a known old
+ * address (case-insensitive) to the new one. The `export `, the quotes and a trailing CR are kept, and so is every other byte of
+ * the file. Any other line that mentions the retired domain is reported in `unrecognised` and left as written.
  */
 export function planEnvRewrite(text: string, accounts: KnownAccount[]): EnvRewrite {
   const byOld = new Map(accounts.map((a) => [a.oldEmail.toLowerCase(), a.newEmail]));
   const changedKeys: string[] = [];
-  const unrecognisedKeys: string[] = [];
+  const unrecognised: string[] = [];
   const legacy = new RegExp(`@${LEGACY_EMAIL_DOMAIN.replace(/\./g, '\\.')}`, 'i');
-  const lines = text.split('\n').map((line) => {
-    const m = /^(\s*([A-Za-z_][A-Za-z0-9_]*)=)(.*)$/.exec(line);
-    if (!m) return line;
-    const next = byOld.get(m[3]!.trim().toLowerCase());
-    if (next) { changedKeys.push(m[2]!); return `${m[1]}${next}`; }
-    if (legacy.test(m[3]!)) unrecognisedKeys.push(m[2]!);
+  const lines = text.split('\n').map((line, i) => {
+    const m = /^(\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=)(.*?)(\r?)$/.exec(line);
+    if (m) {
+      const value = m[3]!.trim();
+      const quoted = /^(['"])(.*)\1$/.exec(value);
+      const quote = quoted ? quoted[1]! : '';
+      const next = byOld.get((quoted ? quoted[2]! : value).trim().toLowerCase());
+      if (next) { changedKeys.push(m[2]!); return `${m[1]}${quote}${next}${quote}${m[4]}`; }
+    }
+    if (legacy.test(line)) unrecognised.push(m ? m[2]! : `line ${i + 1}`);
     return line;
   });
-  return { text: lines.join('\n'), changedKeys, unrecognisedKeys };
+  return { text: lines.join('\n'), changedKeys, unrecognised };
 }
 
 /** The dry-run / run report for one plan: addresses and step names only. */
@@ -111,4 +117,40 @@ export function formatPlan(p: AccountPlan): string {
   if (p.action === 'conflict') return `${head}: REFUSED (${p.problems.join('; ')})`;
   if (p.action === 'noop') return `${head}: nothing to do${p.notes.length ? ` (${p.notes.join('; ')})` : ''}${p.userId ? ` [user ${p.userId}]` : ''}`;
   return `${head}: ${p.steps.join(', ')} [user ${p.userId}]`;
+}
+
+export interface MigrationArgs {
+  apply: boolean;
+  allowUnrecognised: boolean;
+  envFile?: string;
+  secretsDir?: string;
+  workspaceRoot?: string;
+}
+
+/**
+ * The command line, strictly: an unknown argument, a repeated one, a value flag with no value and `--apply` together with
+ * `--dry-run` are all refused (a misspelt `--dryrun` must never fall through to a run that writes). No argument at all, or
+ * `--dry-run`, is a dry run; writing needs `--apply`.
+ */
+export function parseMigrationArgs(argv: readonly string[]): MigrationArgs {
+  const out: MigrationArgs = { apply: false, allowUnrecognised: false };
+  const seen = new Set<string>();
+  const valueFlags: Record<string, 'envFile' | 'secretsDir' | 'workspaceRoot'> = { '--env-file': 'envFile', '--secrets-dir': 'secretsDir', '--workspace-root': 'workspaceRoot' };
+  let dryRun = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (seen.has(a)) throw new Error(`argument ${a} given twice`);
+    seen.add(a);
+    if (a === '--apply') out.apply = true;
+    else if (a === '--dry-run') dryRun = true;
+    else if (a === '--allow-unrecognised') out.allowUnrecognised = true;
+    else if (valueFlags[a]) {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith('--')) throw new Error(`argument ${a} needs a value`);
+      out[valueFlags[a]!] = v;
+    } else throw new Error(`unknown argument "${a}" (expected --apply, --dry-run, --allow-unrecognised, --env-file, --secrets-dir, --workspace-root)`);
+  }
+  if (out.apply && dryRun) throw new Error('arguments --apply and --dry-run contradict each other');
+  if (out.allowUnrecognised && !out.apply) throw new Error('argument --allow-unrecognised only makes sense with --apply');
+  return out;
 }

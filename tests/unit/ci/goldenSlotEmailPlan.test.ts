@@ -1,10 +1,10 @@
 // The pure half of the @isaflow.dev -> @isaflow.co.za move: the address builders, each account's plan, the env-file rewrite.
 import { describe, expect, it } from 'vitest';
 import {
-  GOLDEN_SLOTS, LEGACY_EMAIL_DOMAIN, QA_EMAIL_DOMAIN, REPORTING_QA_APPROVER_EMAIL, REPORTING_QA_EMAIL, W6_EMAIL, slotEmail,
+  GOLDEN_SLOTS, LEGACY_EMAIL_DOMAIN, QA_EMAIL_DOMAIN, REPORTING_QA_APPROVER_EMAIL, REPORTING_QA_EMAIL, W6_EMAIL, legacyEmail, loginAliases, slotEmail,
 } from '../../../scripts/ci/golden/slotConfig';
 import {
-  formatPlan, knownAccounts, legacyEmail, planAccount, planEnvRewrite, type AccountState, type KnownAccount,
+  formatPlan, knownAccounts, planAccount, planEnvRewrite, type AccountState, type KnownAccount,
 } from '../../../scripts/ci/golden/slotEmailPlan';
 import { APPROVER_EMAIL, REQUESTER_EMAIL } from '../../e2e/rubric/_rubricGuard';
 
@@ -29,6 +29,11 @@ describe('the address builders', () => {
     expect(legacyEmail('golden-slot-1@isaflow.co.za')).toBe('golden-slot-1@isaflow.dev');
     expect(legacyEmail('Golden-Slot-1@ISAFLOW.CO.ZA')).toBe('Golden-Slot-1@isaflow.dev');
     expect(legacyEmail('x@isaflow.co.za.evil.com')).toBe('x@isaflow.co.za.evil.com');
+  });
+
+  it('loginAliases (the cutover grace) is the address and its legacy twin, nothing else', () => {
+    expect(loginAliases('golden-slot-1@isaflow.co.za')).toEqual(['golden-slot-1@isaflow.co.za', 'golden-slot-1@isaflow.dev']);
+    expect(loginAliases('hein@h10.co.za')).toEqual(['hein@h10.co.za']);
   });
 
   it('knows exactly the slots, the w6 user and the two reporting-qa users', () => {
@@ -102,10 +107,10 @@ describe('planEnvRewrite', () => {
     '',
   ].join('\n');
 
-  it('rewrites a line only when its whole value is a known old address, and reports key names only', () => {
+  it('rewrites a line only when its whole value is a known old address, and reports keys only', () => {
     const r = planEnvRewrite(text, knownAccounts());
     expect(r.changedKeys).toEqual(['GOLDEN_SLOT_1_EMAIL', 'GOLDEN_SLOT_2_EMAIL']);
-    expect(r.unrecognisedKeys).toEqual(['GOLDEN_SLOT_1_NOTE', 'SMTP_FROM', 'OTHER_EMAIL', 'LOGIN_HINT']);
+    expect(r.unrecognised).toEqual(['GOLDEN_SLOT_1_NOTE', 'SMTP_FROM', 'OTHER_EMAIL', 'LOGIN_HINT']);
     expect(r.text.split('\n')).toEqual([
       'DATABASE_URL=postgres://u@h:1/isaflow_dev',
       'GOLDEN_SLOT_1_EMAIL=golden-slot-1@isaflow.co.za',
@@ -124,5 +129,30 @@ describe('planEnvRewrite', () => {
     const twice = planEnvRewrite(once.text, knownAccounts());
     expect(twice.changedKeys).toEqual([]);
     expect(twice.text).toBe(once.text);
+  });
+
+  it('rewrites an `export ` prefix, single and double quotes and CRLF endings, keeping each', () => {
+    const src = ['export A_EMAIL=golden-slot-1@isaflow.dev', "B_EMAIL='golden-slot-2@isaflow.dev'", 'C_EMAIL="golden-slot-3@isaflow.dev"\r',
+      'D_EMAIL=golden-qa-w6@isaflow.dev\r', '  export E_EMAIL = x', ''].join('\n');
+    const r = planEnvRewrite(src, knownAccounts());
+    expect(r.changedKeys).toEqual(['A_EMAIL', 'B_EMAIL', 'C_EMAIL', 'D_EMAIL']);
+    expect(r.text).toBe(['export A_EMAIL=golden-slot-1@isaflow.co.za', "B_EMAIL='golden-slot-2@isaflow.co.za'", 'C_EMAIL="golden-slot-3@isaflow.co.za"\r',
+      'D_EMAIL=golden-qa-w6@isaflow.co.za\r', '  export E_EMAIL = x', ''].join('\n'));
+    expect(r.unrecognised).toEqual([]);
+  });
+
+  it('reports what it cannot rewrite: an unknown address, a mismatched quote, a comment, a line that is not KEY=value', () => {
+    const src = ['export X_EMAIL="stranger@isaflow.dev"', 'Y_EMAIL="golden-slot-1@isaflow.dev', '# golden-slot-1@isaflow.dev was the login', 'bare golden-slot-1@isaflow.dev', 'fine=1', ''].join('\n');
+    const r = planEnvRewrite(src, knownAccounts());
+    expect(r.changedKeys).toEqual([]);
+    expect(r.unrecognised).toEqual(['X_EMAIL', 'Y_EMAIL', 'line 3', 'line 4']);
+    expect(r.text).toBe(src);
+  });
+
+  it('does not touch the new domain or a lookalike', () => {
+    const src = 'A=golden-slot-1@isaflow.co.za\nB=golden-slot-1@isaflow.dev.example.com\n';
+    const r = planEnvRewrite(src, knownAccounts());
+    expect(r.changedKeys).toEqual([]);
+    expect(r.text).toBe(src);
   });
 });

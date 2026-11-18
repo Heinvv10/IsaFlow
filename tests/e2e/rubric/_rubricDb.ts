@@ -7,6 +7,7 @@
  */
 import { Client } from 'pg';
 import { assertConnectedDev, assertDevDatabase } from './_rubricDatabaseGuard';
+import { loginAliases } from '../../../scripts/ci/golden/slotConfig';
 import { APPROVER_EMAIL, DEMO_COMPANY_ID, REQUESTER_EMAIL, RubricGuardError } from './_rubricGuard';
 
 export type Queryable = Pick<Client, 'query'>;
@@ -25,6 +26,8 @@ export async function withDevDb<T>(databaseUrl: string, use: (db: Client) => Pro
   }
 }
 
+// Lookups go by loginAliases (cutover grace: the account may still be on its legacy @isaflow.dev address; follow-up
+// drop-legacy-email-grace, see slotConfig.ts).
 /**
  * The company the requester's one login opens in: the sandbox named `sandboxName` once it exists, else their default
  * company. Read here so each run logs in once per user (login allows 10 attempts per email per 15 minutes).
@@ -33,9 +36,9 @@ export async function startingCompany(db: Queryable, sandboxName: string): Promi
   const { rows } = await db.query<{ company_id: string }>(
     `SELECT cu.company_id FROM company_users cu
      JOIN users u ON u.id::text = cu.user_id JOIN companies c ON c.id = cu.company_id
-     WHERE lower(u.email) = $1 AND c.is_active IS NOT FALSE AND c.status = 'active'
+     WHERE lower(u.email) = ANY($1::text[]) AND c.is_active IS NOT FALSE AND c.status = 'active'
      ORDER BY (c.name = $2) DESC, cu.is_default DESC NULLS LAST, cu.created_at LIMIT 1`,
-    [REQUESTER_EMAIL, sandboxName]);
+    [loginAliases(REQUESTER_EMAIL), sandboxName]);
   const id = rows[0]?.company_id;
   if (!id) throw new RubricGuardError(`${REQUESTER_EMAIL} has no company to open`);
   return id;
@@ -51,13 +54,13 @@ export async function insertApprover(db: Queryable, sandbox: { id: string; name:
   const inserted = await db.query(
     `INSERT INTO company_users (company_id, user_id, role, is_default)
      SELECT c.id, u.id::text, 'admin', false
-     FROM companies c JOIN users u ON lower(u.email) = $3
+     FROM companies c JOIN users u ON lower(u.email) = ANY($3::text[])
      WHERE c.id = $1::uuid AND c.name = $2 AND c.id <> $4::uuid
      ON CONFLICT (company_id, user_id) DO NOTHING`,
-    [sandbox.id, sandbox.name, email, DEMO_COMPANY_ID]);
+    [sandbox.id, sandbox.name, loginAliases(email.toLowerCase()), DEMO_COMPANY_ID]);
   const { rows } = await db.query<{ role: string }>(
     `SELECT cu.role FROM company_users cu JOIN users u ON u.id::text = cu.user_id
-     WHERE cu.company_id = $1::uuid AND lower(u.email) = $2`, [sandbox.id, email]);
+     WHERE cu.company_id = $1::uuid AND lower(u.email) = ANY($2::text[])`, [sandbox.id, loginAliases(email.toLowerCase())]);
   const role = rows[0]?.role;
   if (role !== 'admin' && role !== 'owner') throw new RubricGuardError(`${email} is not an owner/admin of the sandbox`);
   return { role, added: (inserted.rowCount ?? 0) > 0 };

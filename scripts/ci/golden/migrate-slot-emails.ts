@@ -3,17 +3,28 @@
  * registered the domain could receive their password-reset mail) to @isaflow.co.za, IN PLACE: the GoTrue user keeps its id,
  * so memberships and data stay.
  *
- *   bun scripts/ci/golden/migrate-slot-emails.ts [--dry-run] [--env-file <path>] [--w6-env-file <path>]
+ *   bun scripts/ci/golden/migrate-slot-emails.ts                 # dry run (the default): prints the plan, writes nothing
+ *   bun scripts/ci/golden/migrate-slot-emails.ts --apply         # does it
+ *   options: --env-file <path> (config source, default /home/hein/isaflow-ci.env), --secrets-dir <dir> (default ~/.secrets),
+ *            --workspace-root <dir> (default /home/hein/Workspace), --allow-unrecognised (with --apply only)
  *
- * For each known account (slotEmailPlan.ts knownAccounts) it changes the GoTrue email (admin API), the `users` row and, for
- * slots, the slot company's contact email, all on isaflow_dev; then rewrites every line of the CI env file (default
- * /home/hein/isaflow-ci.env) and of the wave-6 QA env file whose WHOLE value is a known old address (keys only; values are
- * never printed; mode, owner and group kept, as provision-slots.ts does). Idempotent: an account already on the new address
- * has no steps. A conflict (the new address already held by another GoTrue user, a users row that disagrees with GoTrue)
- * refuses the whole run before anything is written. Addresses on the old domain that no code knows are listed and never touched.
+ * Any other argument, a flag missing its value, or a repeated one is refused before anything runs.
+ *
+ * For each known account (slotEmailPlan.ts knownAccounts) it changes the GoTrue email (admin API), the `users` row (exactly
+ * one row, else rolled back) and, for slots, the slot company's contact email, all on isaflow_dev. After EACH account's commit
+ * it rewrites, in every env file found (slotEmailEnv.ts: the CI env file, ~/.secrets/*.env, every IsaFlow* checkout's and
+ * IsaFlow_wt worktree's .env.local), each line whose WHOLE value is that account's old address (an `export ` prefix, quotes and
+ * CRLF are kept; mode, owner, group and symlinks too). Only paths and key names are printed, never a value. Idempotent: an
+ * account already on the new address has no steps, and a re-run still rewrites its env keys.
+ *
+ * Refusals, all before any write: a conflict (the new address held by another GoTrue user, a users row that disagrees with
+ * GoTrue) stops the database and GoTrue steps (keys of accounts already migrated are still rewritten); a line in a scanned file
+ * that still mentions @isaflow.dev but cannot be rewritten (unknown address, half-quoted, in a comment, an unreadable file)
+ * refuses --apply unless --allow-unrecognised is given. Old-domain addresses no code knows are listed and never touched.
+ * Production `users` rows for these GoTrue ids, if any, are not touched (this script has no production access).
  *
  * Run it BEFORE provision-slots.ts / provision-w6-qa.ts: those now create the @isaflow.co.za addresses, which would otherwise
- * be new accounts beside the old ones. --dry-run reads GoTrue and isaflow_dev and writes nothing.
+ * be new accounts beside the old ones.
  *
  * Same guards and sources as provision-slots.ts: only isaflow_dev (by url and by current_database()), only the GoTrue pinned
  * in slotConfig.ts (shared with production), GOTRUE_URL / SUPABASE_SERVICE_ROLE_KEY / the database url from the env or the env file.
@@ -23,12 +34,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
 import { applyPlan, findUnknownLegacy, readAccountState, realGoTrueOps, type Db, type GoTrueOps } from './slotEmailApply';
-import { formatPlan, knownAccounts, planAccount, planEnvRewrite } from './slotEmailPlan';
+import { discoverEnvFiles, rewriteEnvFiles, scanEnvFiles } from './slotEmailEnv';
+import { formatPlan, knownAccounts, parseMigrationArgs, planAccount, type AccountPlan } from './slotEmailPlan';
 import { assertConnectedToDev, assertDevDatabaseUrl, assertGoTrueUrl, parseEnvFile } from './slotConfig';
-import { writeEnvFileAtomic } from './slotEnvFile';
 
 const DEFAULT_ENV_FILE = '/home/hein/isaflow-ci.env';
-const DEFAULT_W6_ENV_FILE = join(homedir(), '.secrets', 'isaflow-dev-golden-qa.env');
+const DEFAULT_WORKSPACE_ROOT = '/home/hein/Workspace';
+const PRODUCTION_NOTE = 'note: production `users` rows for these GoTrue ids, if any, keep the old address (not touched: this script has no production access)';
 
 export interface Io {
   processEnv: Record<string, string | undefined>;
@@ -38,12 +50,10 @@ export interface Io {
   say(line: string): void;
 }
 
-/** @returns the process exit code: 1 when a conflict refused the run. */
+/** @returns the process exit code: 1 when a conflict or an unrecognised line refused (part of) the run. */
 export async function main(argv: string[], io: Io): Promise<number> {
-  const option = (name: string): string | undefined => { const at = argv.indexOf(name); return at >= 0 ? argv[at + 1] : undefined; };
-  const dryRun = argv.includes('--dry-run');
-  const envFile = option('--env-file') ?? DEFAULT_ENV_FILE;
-  const w6EnvFile = option('--w6-env-file') ?? DEFAULT_W6_ENV_FILE;
+  const args = parseMigrationArgs(argv);
+  const envFile = args.envFile ?? DEFAULT_ENV_FILE;
   if (!existsSync(envFile)) throw new Error(`env file ${envFile} not found`);
   const fileEnv = parseEnvFile(readFileSync(envFile, 'utf8'));
   const get = (k: string): string | undefined => io.processEnv[k] || fileEnv[k] || undefined;
@@ -60,35 +70,49 @@ export async function main(argv: string[], io: Io): Promise<number> {
   const db = await io.connect(dbUrl);
   try {
     const dbName = await assertConnectedToDev(db as { query(sql: string): Promise<{ rows: Array<{ db: string }> }> });
-    io.say(`database ${dbName}${dryRun ? ' (dry run: nothing is written)' : ''}`);
+    io.say(`database ${dbName}${args.apply ? '' : ' (dry run, the default: nothing is written; --apply does it)'}`);
     const accounts = knownAccounts();
-    const plans = [];
+    const plans: AccountPlan[] = [];
     for (const a of accounts) plans.push(planAccount(a, await readAccountState(db, gt, a)));
     for (const p of plans) io.say(formatPlan(p));
     const unknown = await findUnknownLegacy(db, gt, accounts);
     for (const e of unknown.gotrue) io.say(`UNKNOWN GoTrue account on the old domain, untouched: ${e}`);
     for (const e of unknown.users) io.say(`UNKNOWN users row on the old domain, untouched: ${e}`);
 
-    const envFiles = [envFile, w6EnvFile].filter((f) => existsSync(f)).map((f) => ({ file: f, rewrite: planEnvRewrite(readFileSync(f, 'utf8'), accounts) }));
-    for (const { file, rewrite } of envFiles) {
-      if (rewrite.changedKeys.length) io.say(`${file}: ${dryRun ? 'would rewrite' : 'rewriting'} ${rewrite.changedKeys.join(', ')}`);
-      if (rewrite.unrecognisedKeys.length) io.say(`${file}: keys mentioning the old domain that are not a known account address, untouched: ${rewrite.unrecognisedKeys.join(', ')}`);
+    const paths = discoverEnvFiles({ envFile, secretsDir: args.secretsDir ?? join(homedir(), '.secrets'), workspaceRoot: args.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT });
+    const scans = scanEnvFiles(paths, accounts);
+    io.say(`env files checked: ${scans.length}`);
+    let unrecognised = 0;
+    for (const { path, unreadable, rewrite } of scans) {
+      if (unreadable) { io.say(`${path}: cannot be read; it may hold an old address`); unrecognised++; continue; }
+      if (rewrite!.changedKeys.length) io.say(`${path}: ${args.apply ? 'will rewrite' : 'would rewrite'} ${rewrite!.changedKeys.join(', ')}`);
+      if (rewrite!.unrecognised.length) { io.say(`${path}: still mentions the old domain, would not be rewritten: ${rewrite!.unrecognised.join(', ')}`); unrecognised += rewrite!.unrecognised.length; }
     }
+    io.say(PRODUCTION_NOTE);
+    const conflict = plans.some((p) => p.action === 'conflict');
 
-    if (plans.some((p) => p.action === 'conflict')) {
-      io.say('REFUSED: a conflict above; nothing was written');
+    if (!args.apply) {
+      if (unrecognised) io.say('--apply will refuse until those lines are fixed by hand, or with --allow-unrecognised (they are then left as written)');
+      if (conflict) io.say('REFUSED: a conflict above; --apply would write nothing to the database or GoTrue');
+      io.say('dry run: nothing written');
+      return conflict ? 1 : 0;
+    }
+    if (unrecognised && !args.allowUnrecognised) {
+      io.say('REFUSED: lines above still mention the old domain and cannot be rewritten; nothing was written. Fix them by hand, or pass --allow-unrecognised');
       return 1;
     }
-    if (dryRun) { io.say('dry run: nothing written'); return 0; }
+    const rewriteKeys = (p: AccountPlan): void => {
+      for (const c of rewriteEnvFiles(paths, [p.account])) io.say(`${c.path}: rewrote ${c.keys.join(', ')}`);
+    };
+    if (conflict) io.say('REFUSED: a conflict above; nothing is written to the database or GoTrue');
     for (const p of plans) {
+      if (conflict) { if (p.action === 'noop' && p.userId) rewriteKeys(p); continue; }
       await applyPlan(db, gt, p);
       if (p.action === 'migrate') io.say(`${p.account.label}: migrated to ${p.account.newEmail}`);
+      if (p.action === 'migrate' || (p.action === 'noop' && p.userId)) rewriteKeys(p);
     }
-    for (const { file, rewrite } of envFiles) {
-      if (rewrite.changedKeys.length) writeEnvFileAtomic(file, rewrite.text);
-    }
-    io.say('done');
-    return 0;
+    io.say(conflict ? 'finished with a conflict' : 'done');
+    return conflict ? 1 : 0;
   } finally {
     await db.end();
   }

@@ -15,6 +15,8 @@
  *   7. a browser context never switches company (the app's own recovery would move it out of the sandbox).
  */
 
+import { loginAliases } from '../../../scripts/ci/golden/slotConfig';
+
 export const PORT_ALLOW_LIST: readonly number[] = [3271, 3272, 3273, 3274, 3275, 3276, 3277, 3278, 3279, 3280];
 /** Production: nginx (80, 3101) and the blue/green colours (3111, 3112). Checked before, and apart from, the allow-list. */
 export const PORT_DENY_LIST: readonly number[] = [80, 3101, 3111, 3112];
@@ -61,10 +63,13 @@ export function assertBaseUrl(raw: string | undefined, allow: readonly number[] 
   return port;
 }
 
-/** Exactly the two dev-only QA users, compared as written (no trimming, no case folding). */
+/**
+ * Exactly the two dev-only QA users, compared as written (no trimming, no case folding). Cutover grace: each may still carry its
+ * legacy @isaflow.dev address until migrate-slot-emails.ts has run (follow-up drop-legacy-email-grace, see slotConfig.loginAliases).
+ */
 export function assertLogins(requester: string | undefined, approver: string | undefined): void {
-  if (requester !== REQUESTER_EMAIL) throw new RubricGuardError(`the requester must be ${REQUESTER_EMAIL}, got "${requester ?? ''}"`);
-  if (approver !== APPROVER_EMAIL) throw new RubricGuardError(`the approver must be ${APPROVER_EMAIL}, got "${approver ?? ''}"`);
+  if (!requester || !loginAliases(REQUESTER_EMAIL).includes(requester)) throw new RubricGuardError(`the requester must be ${REQUESTER_EMAIL}, got "${requester ?? ''}"`);
+  if (!approver || !loginAliases(APPROVER_EMAIL).includes(approver)) throw new RubricGuardError(`the approver must be ${APPROVER_EMAIL}, got "${approver ?? ''}"`);
 }
 
 export function assertRunId(runId: string | undefined): string {
@@ -96,7 +101,7 @@ export interface MeView {
 
 /** The session is the expected user, and (with a sandbox) is scoped to it: checked before every write. */
 export function assertSession(me: MeView, email: string, sandbox?: { id: string; runId: string }): void {
-  if (me.user.email !== email) throw new RubricGuardError(`session belongs to "${me.user.email}", expected ${email}`);
+  if (!loginAliases(email).includes(me.user.email)) throw new RubricGuardError(`session belongs to "${me.user.email}", expected ${email}`);
   if (!sandbox) return;
   if (me.activeCompanyId !== sandbox.id) {
     throw new RubricGuardError(`active company is ${me.activeCompanyId ?? 'none'}, not the sandbox ${sandbox.id}`);
