@@ -24,6 +24,8 @@ export type FlyoutDir = 'right' | 'left';
 export interface FlyoutPlacement { top: number; left: number; maxHeight?: number; dir: FlyoutDir }
 
 type Box = { top: number; bottom: number; left: number; right: number };
+/** A scrolling panel never gets less than two rows, even where the window has no room for that. */
+const MIN_FLYOUT_HEIGHT = 80;
 
 /**
  * Where a nav fly-out goes (viewport coordinates, for `position: fixed`), kept GUTTER inside the screen. A panel
@@ -45,7 +47,7 @@ export function placeFlyout(
     const top = anchor.bottom;
     const left = Math.max(GUTTER, Math.min(anchor.left, maxRight - panel.width));
     const room = maxBottom - top;
-    return panel.height > room ? { top, left, maxHeight: Math.max(room, 0), dir: prefer } : { top, left, dir: prefer };
+    return panel.height > room ? { top, left, maxHeight: Math.max(room, MIN_FLYOUT_HEIGHT), dir: prefer } : { top, left, dir: prefer };
   }
   const at = { right: anchor.right, left: anchor.left - panel.width };
   const fitsWith = (extra: number) => ({ right: at.right + panel.width + extra <= maxRight, left: at.left - extra >= GUTTER });
@@ -58,6 +60,7 @@ export function placeFlyout(
   const dir = cascade[prefer] ? prefer : cascade[other] ? other : fits[prefer] ? prefer : fits[other] ? other : roomier;
   const left = Math.max(GUTTER, Math.min(at[dir], maxRight - panel.width));
   const room = maxBottom - GUTTER;
-  if (panel.height > room) return { top: GUTTER, left, maxHeight: Math.max(room, 0), dir };
-  return { top: Math.min(anchor.top, maxBottom - panel.height), left, dir };
+  if (panel.height > room) return { top: GUTTER, left, maxHeight: Math.max(room, MIN_FLYOUT_HEIGHT), dir };
+  // Also kept below the top edge: a row scrolled up inside its parent panel takes its sub-panel with it.
+  return { top: Math.max(GUTTER, Math.min(anchor.top, maxBottom - panel.height)), left, dir };
 }

@@ -32,6 +32,16 @@ describe('headsFor (hover intent)', () => {
     expect(headsFor({ x: 400, y: 200 }, { x: 420, y: 240 }, left)).toBe(false);
   });
 
+  it('a move away whose line, extended backwards, would cross the panel is not heading for it', () => {
+    // Up and to the left: backwards along this line you reach the panel's edge at y 420, inside it.
+    expect(headsFor({ x: 400, y: 200 }, { x: 380, y: 160 }, right)).toBe(false);
+  });
+
+  it('allows 20px of slack past the panel corners, and no more', () => {
+    expect(headsFor({ x: 490, y: 200 }, { x: 500, y: 410 }, right)).toBe(true); // reaches the edge at y 620 (bottom 600)
+    expect(headsFor({ x: 490, y: 200 }, { x: 500, y: 411 }, right)).toBe(false); // y 622
+  });
+
   it('a pointer already level with the panel horizontally is not heading for its edge', () => {
     expect(headsFor({ x: 600, y: 100 }, { x: 610, y: 140 }, right)).toBe(false);
   });

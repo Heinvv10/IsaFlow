@@ -22,7 +22,7 @@ import { stripFlagNav } from '../accounting/navSections/flagNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { useNavFlags } from '@/hooks/useNavFlags';
 import { useFlyoutPlacement, focusInPanel } from './useFlyoutPlacement';
-import { usePointerAim, INTENT_MS } from './useFlyoutSection';
+import { usePointerAim } from './useFlyoutSection';
 
 // ─── Main sidebar nav ───────────────────────────────────────────────────────
 
@@ -43,8 +43,10 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   // `wasOpen` is read at pointerdown, before the compatibility mouseenter that follows a tap opens the flyout itself.
   const tap = useRef({ type: '', wasOpen: false });
 
+  // The pointer's path while a flyout is open (hover intent, useFlyoutSection).
+  const { note, aimsAt, aimsAtOpenPanel, defer } = usePointerAim(!!flyout);
   const cl = useCallback(() => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } }, []);
-  const dl = useCallback(() => { cl(); timer.current = setTimeout(() => setFlyout(null), 180); }, [cl]);
+  const dl = useCallback(() => { cl(); defer(timer, aimsAtOpenPanel, () => setFlyout(null), 180); }, [cl, defer, aimsAtOpenPanel]);
 
   useEffect(() => { setFlyout(null); }, [router.pathname]);
   useEffect(() => () => cl(), [cl]);
@@ -59,8 +61,11 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
       setFlyout(null);
       if (panel.current?.contains(document.activeElement)) focusInPanel(trigger.current);
     };
+    // The portalled flyouts outlive the sidebar when the window shrinks below `lg` and hides it: close them then.
+    const onResize = () => { if (!trigger.current?.getClientRects().length) setFlyout(null); };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    return () => { document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
   }, [flyout]);
   useEffect(() => {
     if (!flyout || !focusOnOpen.current) return;
@@ -76,13 +81,12 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   }, [cl]);
 
   /** The mouse entered a tab row: its flyout opens now, unless the pointer is on its way to the open flyout. */
-  const aim = usePointerAim(!!flyout);
   const hoverTab = (tabId: string, e: ReactMouseEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    aim.note({ x: e.clientX, y: e.clientY });
-    if (flyout && flyout.tabId !== tabId && aim.aimsAt(panel.current)) {
+    note({ x: e.clientX, y: e.clientY });
+    if (flyout && flyout.tabId !== tabId && aimsAt(panel.current)) {
       cl();
-      timer.current = setTimeout(() => openFlyout(tabId, el), INTENT_MS);
+      defer(timer, () => aimsAt(panel.current), () => openFlyout(tabId, el));
       return;
     }
     openFlyout(tabId, el);

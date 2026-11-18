@@ -80,6 +80,27 @@ describe('placeFlyout', () => {
     expect(p).toMatchObject({ left: 450, dir: 'right' });
   });
 
+  it('with no room on either side, takes the roomier side even when it is the left', () => {
+    expect(placeFlyout(box(214, 100, 420, 40), { width: 210, height: 200 }, { width: 700, height: 768 }, 'beside')).toEqual({ top: 100, left: 8, dir: 'left' });
+  });
+
+  it('does not count a left side that would end inside the 8px gutter as room', () => {
+    // 4px to spare on the left is not enough; the right (208 of 210) is roomier, so the panel is pulled in there.
+    expect(placeFlyout(box(214, 100, 570, 40), { width: 210, height: 200 }, { width: 1000, height: 768 }, 'beside')).toEqual({ top: 100, left: 782, dir: 'right' });
+  });
+
+  it('keeps a sub-panel that follows a row scrolled above the window inside the top gutter', () => {
+    expect(placeFlyout(box(300, -50, 210, 40), { width: 220, height: 300 }, VP, 'beside')).toMatchObject({ top: 8 });
+  });
+
+  it('never gives a tab menu less than 80px, even when its tab sits at the bottom of the window', () => {
+    expect(placeFlyout(box(400, 722, 90, 40), { width: 220, height: 300 }, VP, 'below')).toMatchObject({ top: 762, maxHeight: 80 });
+  });
+
+  it('never gives a sub-panel less than 80px in a window too short for it', () => {
+    expect(placeFlyout(box(300, 10, 210, 40), { width: 220, height: 300 }, { width: 1366, height: 60 }, 'beside')).toMatchObject({ top: 8, maxHeight: 80 });
+  });
+
   it('caps a sub-panel taller than the screen to the screen and lets it scroll', () => {
     const p = placeFlyout(box(300, 400, 210, 40), { width: 220, height: 900 }, VP, 'beside');
     expect(p).toEqual({ top: 8, left: 510, maxHeight: 768 - 16, dir: 'right' });

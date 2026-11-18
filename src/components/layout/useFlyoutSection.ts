@@ -3,13 +3,16 @@
  * sidebar (SidebarFlyouts).
  *
  * Hover intent: a pointer that leaves an open row on its way to that row's sub-panel crosses the rows below it. A row
- * entered while the pointer is heading for the open sub-panel (`headsFor`) takes over only after INTENT_MS, and not
- * at all if the pointer reaches the sub-panel first. Any other entry (straight up or down the list) switches at once,
- * so scanning the rows is not slowed down. Keyboard and tap/click open at once, as before.
+ * entered while the pointer is heading for the open sub-panel (`headsFor`) takes over only once the pointer has
+ * stopped there for INTENT_MS or turned away, and not at all if it reaches the sub-panel first. Leaving the rows
+ * altogether (off the last row, out of the menu) closes nothing while the pointer still heads for an open panel. Any
+ * other entry (straight up or down the list) switches at once, so scanning the rows is not slowed down. Keyboard and
+ * tap/click open at once, as before.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 
 export type Point = { x: number; y: number };
+type Timer = { current: ReturnType<typeof setTimeout> | null };
 type Box = { top: number; bottom: number; left: number; right: number };
 
 /**
@@ -21,6 +24,7 @@ export const INTENT_MS = 150;
 const AIM_SLACK = 20;
 /** Pointer positions kept; the oldest and newest give the direction, smoothing out single-pixel jitter. */
 const TRAIL = 3;
+const PANELS = '[data-nav-panel], [data-sidebar-flyout]';
 
 /** Does the line from `from` through `to` reach the near vertical edge of `panel`, within its height? */
 export function headsFor(from: Point, to: Point, panel: Box): boolean {
@@ -49,7 +53,23 @@ export function usePointerAim(active: boolean) {
     const t = trail.current;
     return !!panel?.isConnected && t.length >= 2 && headsFor(t[0]!, t[t.length - 1]!, panel.getBoundingClientRect());
   }, []);
-  return { note, aimsAt };
+  /** Heading for any open fly-out panel: a close waits for that, however deep the panel is. */
+  const aimsAtOpenPanel = useCallback(() => [...document.querySelectorAll<HTMLElement>(PANELS)].some(aimsAt), [aimsAt]);
+  /**
+   * Runs `then` in `ms`, unless by then the pointer has moved and `aimed()` still holds: then it waits again. A slow
+   * but steady move toward a panel keeps it however long it spends on a crossed row or in the empty space before it.
+   */
+  const defer = useCallback((timer: Timer, aimed: () => boolean, then: () => void, ms = INTENT_MS) => {
+    const wait = () => {
+      const seen = trail.current[trail.current.length - 1];
+      timer.current = setTimeout(() => {
+        if (trail.current[trail.current.length - 1] !== seen && aimed()) wait();
+        else then();
+      }, ms);
+    };
+    wait();
+  }, []);
+  return { note, aimsAt, aimsAtOpenPanel, defer };
 }
 
 export function useOpenSection() {
@@ -71,7 +91,7 @@ export function useOpenSection() {
     takeKeyboardOpen: () => { const was = viaKeyboard.current; viaKeyboard.current = false; return was; },
     show,
     hide: () => { cancel(); setOpen(null); },
-    later: () => { cancel(); timer.current = setTimeout(() => setOpen(null), 150); },
+    later: () => { cancel(); aim.defer(timer, aim.aimsAtOpenPanel, () => setOpen(null), 150); },
     /** The open section's sub-panel registers itself, so `hover` can tell whether the pointer is heading for it. */
     register: (el: HTMLElement | null) => { openPanel.current = el; },
     /** The mouse entered a section row (or came back to the open one through its sub-panel) at `at`. */
@@ -79,7 +99,7 @@ export function useOpenSection() {
       aim.note(at);
       if (open !== null && open !== section && aim.aimsAt(openPanel.current)) {
         cancel();
-        timer.current = setTimeout(() => show(section), INTENT_MS);
+        aim.defer(timer, () => aim.aimsAt(openPanel.current), () => show(section));
         return;
       }
       show(section);

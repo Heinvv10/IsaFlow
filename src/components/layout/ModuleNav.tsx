@@ -23,6 +23,7 @@ import { isFlyout, type Tab, type DropdownItem } from '../accounting/accountingN
 import { ACCENT_CLASSES, type AccentColor } from './moduleNavAccent';
 import { FlyoutDropdown, FlatDropdown, panelItems } from './ModuleNavMenus';
 import { focusInPanel } from './useFlyoutPlacement';
+import { usePointerAim } from './useFlyoutSection';
 
 export { ACCENT_CLASSES };
 export type { AccentColor };
@@ -64,7 +65,9 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath, ariaLabe
 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearHover = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); };
-  const delayedClose = () => { clearHover(); hoverTimer.current = setTimeout(() => setOpenTab(null), 150); };
+  // A pointer leaving the menu on its way to an open sub-panel (off the last row) keeps it open (useFlyoutSection).
+  const aim = usePointerAim(openTab !== null);
+  const delayedClose = () => { clearHover(); aim.defer(hoverTimer, aim.aimsAtOpenPanel, () => setOpenTab(null), 150); };
   useEffect(() => clearHover, []);
 
   useEffect(() => {

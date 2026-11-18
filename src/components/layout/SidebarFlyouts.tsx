@@ -103,6 +103,7 @@ function SectionFlyout({ label, items, asPath, onNav, state, dir, parentAt }: Se
         aria-expanded={open}
         data-flyout-row=""
         onKeyDown={onRowKey}
+        onClick={() => state.show(label)}
         className={`flex items-center justify-between px-4 py-2 text-sm cursor-default transition-colors ${
           open
             ? 'bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100'
