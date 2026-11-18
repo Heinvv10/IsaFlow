@@ -32,7 +32,7 @@ const ACTOR_UUID_CAST = [
  */
 const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   // company
-  'companyId', 'ctx.companyId', 'evt.companyId', 'opts.companyId',
+  'companyId', 'ctx.companyId', 'evt.companyId', 'opts.companyId', 'companyIds',
   // payroll runs, employees, leave
   'runId', 'opts.runId', 'scope.runId', 'excludeRunId', 'runIds', 'employeeId', 'employeeIds', 'input.employeeId', 'ins.employeeId',
   'scope.employeeId', 'filters.employeeId ?? null', 'movedEnd', 'input.leaveTypeId', 'importId',
@@ -44,6 +44,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'entry.id', 'je.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
+  // wave 6 VR: the VAT201 version a settlement is posted against
+  'basis.version.id', 'version.id',
   // entity-change log cursors
   'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
 ]);
@@ -108,9 +110,11 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     33: 'requested_by: string | null;',
     34: 'approved_by: string | null;',
   },
+  [`${S}reports/vatReturnsList.ts`]: {
+    58: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
+  },
   [`${S}reports/vatSubmissionService.ts`]: {
-    150: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
-    331: 'sars_reference, submitted_by, journal_entry_id',
+    213: 'sars_reference, submitted_by, journal_entry_id,',
   },
   // Wave 6 HYb: vat_adjustments and sars_source_codes are on 999w's list too (the information_schema query finds them).
   [`${S}reports/vatAdjustmentService.ts`]: {
@@ -141,7 +145,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
   // Wave 6 HYb review L1: the real user id into the TEXT column, not resolveUserUuid's stand-in.
-  [`${S}reports/vatSubmissionService.ts`]: { 341: '${userId},' },
+  [`${S}reports/vatSubmissionService.ts`]: { 224: "${userId}, -- TEXT since 999w (HYb): the real user id, not resolveUserUuid's stand-in" },
   [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}' },
   ['src/modules/admin/services/sarsCodesAdminService.ts']: {
     139: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',

@@ -12,7 +12,8 @@
  *          this to 'receivable'; Accrued Expenses is used because no dedicated
  *          "VAT Payable / VAT Receivable" system account exists in the default
  *          IsaFlow chart of accounts.
- *   3. Writing a vat_returns row for idempotency and audit.
+ *   3. Writing a vat_returns row for idempotency and audit, linked to the VAT201 version it settles
+ *      (return_version_id). A period without a finalised or filed version is refused first (409).
  *
  * Clearing-journal DATE (V-05):
  *   The clearing entry is dated the FIRST DAY OF THE FOLLOWING PERIOD, never
@@ -36,174 +37,51 @@
  *   -- DR = CR: totalOutputTax + netVat = totalInputTax  ✓
  */
 
-import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getVATReturn } from './vatReturnService';
 import { createJournalEntry, postJournalEntry, resolveUserUuid } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
-import { getFiscalPeriodIdForDate } from '../gl/fiscalPeriodService';
-import { isAutoCreatableYear } from '../gl/fiscalPeriodAutoCreate';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertClearingDateHasFiscalPeriod, nextDayISO, resolveNetVatAccount } from './vatSubmissionSupport';
+import { mapRow, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
+import { settlementBasis } from '../returns/vatSettlementVersion';
+import { checkSettlementFigures } from '../returns/vatSettlementFigures';
+import { ReturnRefusal } from '../returns/returnVersionTypes';
+
+const cents = (n: number): number => Math.round(n * 100) / 100;
 
 /**
- * Resolve the "net VAT" clearing account.
- * Prefers account_code 2130 (Accrued Expenses) — which has no system subtype in the
- * default IsaFlow chart — and falls back to the 'payable' system account (2110)
- * if 2130 is absent. Keeping the net in Accrued Expenses rather than Accounts Payable
- * separates SARS obligations from trade creditors for reporting clarity.
+ * The settlement row's INSERT. Two settlements of one version racing past settlementBasis both post a journal; the
+ * second INSERT then hits uq_vat_returns_period_settlement. That is "already settled" (409), not a raw database error,
+ * and the route's savepoint rolls back the loser's journal with it (round 2 L1).
  */
-async function resolveNetVatAccount(companyId: string): Promise<{ id: string }> {
-  const rows = (await sql`
-    SELECT id FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID
-      AND account_code = '2130'
-      AND is_active = true
-    LIMIT 1
-  `) as Row[];
-
-  if (rows.length > 0) return { id: String(rows[0]!.id) };
-
-  // Fallback to system payable account (2110 Accounts Payable)
-  log.warn('Account 2130 not found; falling back to payable system account', { companyId }, 'accounting');
-  return getSystemAccount('payable', companyId);
+async function insertSettlementRow(insert: () => Promise<unknown>, periodStart: string, periodEnd: string): Promise<Row[]> {
+  try {
+    return (await insert()) as Row[];
+  } catch (err) {
+    const e = err as { code?: unknown; constraint?: unknown };
+    if (e.code === '23505' && e.constraint === 'uq_vat_returns_period_settlement') {
+      throw new ReturnRefusal(409, `VAT return for ${periodStart}–${periodEnd} has just been settled by another request.`,
+        'VAT_ALREADY_SETTLED');
+    }
+    throw err;
+  }
 }
+
+export { nextDayISO } from './vatSubmissionSupport';
+export { listVATReturns, type ListVATReturnsOptions, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
 
 type Row = DbRow;
-
-/**
- * The day after `isoDate`, as 'YYYY-MM-DD'.
- *
- * Built from explicit UTC parts (never `new Date(str)` + local getters) so it
- * cannot roll back a day for a caller east of UTC, and so month ends, leap-year
- * February and year ends all roll correctly. Accepts a bare date or a timestamp
- * and always returns a bare date. Throws on unparseable input rather than
- * posting a journal with a garbage date.
- */
-export function nextDayISO(isoDate: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
-  if (!m) throw new Error(`Invalid periodEnd '${isoDate}' — expected YYYY-MM-DD`);
-
-  const [, y, mo, d] = m;
-  const utc = Date.UTC(Number(y), Number(mo) - 1, Number(d));
-  if (Number.isNaN(utc)) throw new Error(`Invalid periodEnd '${isoDate}' — not a real date`);
-
-  const next = new Date(utc + 86_400_000);
-  // Reject 2026-02-30 and friends: Date.UTC rolls them over silently.
-  const round = new Date(utc);
-  if (round.getUTCMonth() !== Number(mo) - 1 || round.getUTCDate() !== Number(d)) {
-    throw new Error(`Invalid periodEnd '${isoDate}' — not a real calendar date`);
-  }
-
-  return [
-    next.getUTCFullYear(),
-    String(next.getUTCMonth() + 1).padStart(2, '0'),
-    String(next.getUTCDate()).padStart(2, '0'),
-  ].join('-');
-}
-
-// ── Public types ─────────────────────────────────────────────────────────────
-
-export interface VATSubmitInput {
-  periodStart: string;
-  periodEnd: string;
-  sarsReference?: string;
-}
-
-export interface VATReturnRecord {
-  id: string;
-  companyId: string;
-  periodStart: string;
-  periodEnd: string;
-  status: string;
-  totalOutputTax: number;
-  totalInputTax: number;
-  netVat: number;
-  sarsReference?: string;
-  submittedAt: string;
-  submittedBy?: string;
-  journalEntryId?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ListVATReturnsOptions {
-  year?: number;
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function mapRow(row: Row): VATReturnRecord {
-  return {
-    id:             String(row.id),
-    companyId:      String(row.company_id),
-    periodStart:    String(row.period_start),
-    periodEnd:      String(row.period_end),
-    status:         String(row.status),
-    totalOutputTax: Number(row.total_output_tax),
-    totalInputTax:  Number(row.total_input_tax),
-    netVat:         Number(row.net_vat),
-    sarsReference:  row.sars_reference ? String(row.sars_reference) : undefined,
-    submittedAt:    toIsoTimestamp(row.submitted_at as Date | string) ?? '',
-    submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,
-    journalEntryId: row.journal_entry_id ? String(row.journal_entry_id) : undefined,
-    createdAt:      toIsoTimestamp(row.created_at as Date | string) ?? '',
-    updatedAt:      toIsoTimestamp(row.updated_at as Date | string) ?? '',
-  };
-}
-
-/**
- * Refuse to post the clearing journal if its date has no fiscal period (P2-11).
- *
- * `createJournalEntry` INSERTs `fiscal_period_id = NULL` when it cannot resolve
- * a covering period, and `postJournalEntry` guards its closed-period check
- * behind `if (entry.fiscalPeriodId)` — so the entry POSTS and is then invisible
- * to every period-scoped report while still sitting in the ledger. Migration 501
- * names what that cost the last time: Britech's R267,109.70 salary
- * understatement, 200+ rows. A VAT settlement is the worst journal to lose that
- * way: it is the entry that clears the control accounts, so an invisible one
- * leaves the liability standing with no trace of the filing that settled it.
- *
- * V-05 made this reachable by moving the clearing date from periodEnd — always
- * inside the period being filed, and therefore always covered — to
- * periodEnd + 1 day, which can fall past the last period a company has.
- *
- * Scope, deliberately narrow. Only the SILENT case is refused:
- *   - a covering period exists                  → proceed, unchanged;
- *   - none exists but the year is inside
- *     `fiscalPeriodAutoCreate`'s window         → proceed: the write path
- *     creates the year itself, and when it cannot (an existing year with a gap)
- *     it throws on its own — pre-empting that would refuse filings that work;
- *   - none exists and the year is outside it    → REFUSE, before any write.
- *
- * It does NOT create a period. Provisioning a fiscal year is a decision an
- * accountant makes, not a side effect of filing a VAT return.
- */
-async function assertClearingDateHasFiscalPeriod(
-  companyId: string,
-  clearingDate: string,
-): Promise<void> {
-  if (await getFiscalPeriodIdForDate(companyId, clearingDate)) return;
-
-  const year = Number(clearingDate.slice(0, 4));
-  if (Number.isInteger(year) && isAutoCreatableYear(year)) return;
-
-  throw new Error(
-    `Cannot file this VAT return: no fiscal period covers the clearing date ${clearingDate} `
-    + `(the first day after the period being filed), and ${year} is outside the range in which `
-    + 'fiscal years are created automatically. The settlement journal would post with no fiscal '
-    + 'period and be invisible to the trial balance, the VAT201 and the AFS. Create the fiscal '
-    + `year ${year} first, then file again.`,
-  );
-}
 
 // ── submitVATReturn ───────────────────────────────────────────────────────────
 
 /**
- * Submit a VAT return for the given period.
- * Idempotent: throws if a 'submitted' record already exists for the period.
+ * Settle a VAT period against its live VAT201 version (wave 6 VR). Refuses (409) a period with no finalised or filed
+ * version, a released lock, an overlapping settlement or a ledger that has drifted from the version; throws when the
+ * version is already settled. After an amend it posts only the difference (a top-up linked to the new version).
  */
 export async function submitVATReturn(
   companyId: string,
@@ -217,26 +95,30 @@ export async function submitVATReturn(
   // not after the journal is posted.
   const clearingDate = nextDayISO(periodEnd);
 
-  // 1. Idempotency guard
-  const existing = (await sql`
-    SELECT id FROM vat_returns
-    WHERE company_id = ${companyId}::UUID
-      AND period_start = ${periodStart}::DATE
-      AND period_end   = ${periodEnd}::DATE
-      AND status = 'submitted'
-    LIMIT 1
-  `) as Row[];
-
-  if (existing.length > 0) {
-    throw new Error(
-      `VAT return for ${periodStart}–${periodEnd} has already been submitted (id: ${existing[0]!.id}).`,
-    );
+  // 0. The lifecycle is the record of the VAT201 (§0a.12): the live version for exactly this period, row-locked, its
+  //    VAT lock active; no overlapping settlement; and what the period already settled. Reads only, before any write.
+  const basis = await settlementBasis(companyId, periodStart, periodEnd);
+  if (basis.versionSettled) {
+    throw new ReturnRefusal(409,
+      `VAT return for ${periodStart}–${periodEnd} has already been submitted against version ${basis.version.versionNo}.`,
+      'VAT_ALREADY_SETTLED');
   }
 
-  // 2. Compute the period's VAT figures
-  const vatReturn = await getVATReturn(companyId, periodStart, periodEnd);
-  const { totalOutputTax, totalInputTax } = vatReturn;
-  const netVat = totalOutputTax - totalInputTax; // positive = payable, negative = refund
+  // 1. The control accounts' movement for the period (what the settlement clears). The version must still match the
+  //    VAT201 regenerated now (drift: never overridable), and the ledger must match that VAT201 unless an owner or
+  //    admin acknowledges the gap with a reason (vatSettlementFigures).
+  const ledger = await getVATReturn(companyId, periodStart, periodEnd);
+  const ledgerNet = cents(ledger.totalOutputTax - ledger.totalInputTax);
+  const gap = await checkSettlementFigures(companyId, periodStart, periodEnd, basis.version, ledgerNet,
+    input.acknowledgeLedgerGap);
+
+  // 2. Post only what the period has not settled yet: the whole return the first time, the difference after an amend
+  //    (a top-up linked to the new version). An amend that moved no tax figure leaves nothing to post: a NIL top-up
+  //    row still records that vN was settled (no journal, zero figures), so the period reads as submitted (round 2 M).
+  const totalOutputTax = cents(ledger.totalOutputTax - basis.prior.outputTax);
+  const totalInputTax = cents(ledger.totalInputTax - basis.prior.inputTax);
+  const netVat = cents(totalOutputTax - totalInputTax); // positive = payable, negative = refund
+  const topUp = basis.prior.count > 0;
 
   log.info('VAT return figures', { companyId, periodStart, periodEnd, totalOutputTax, totalInputTax, netVat }, 'accounting');
 
@@ -309,7 +191,7 @@ export async function submitVATReturn(
     const je = await createJournalEntry(companyId, {
       // First day of the FOLLOWING period — see the V-05 note in the file header.
       entryDate:   clearingDate,
-      description: `VAT201 submission ${periodStart} to ${periodEnd}`,
+      description: `VAT201 submission ${periodStart} to ${periodEnd}${topUp ? ` (top-up for v${basis.version.versionNo})` : ''}`,
       source:      'auto_vat_submission',
       lines,
     }, safeUserId);
@@ -324,11 +206,12 @@ export async function submitVATReturn(
 
   // 6. Insert vat_returns record
   const absNetVat = netVat; // signed: positive = payable, negative = refund
-  const rows = (await sql`
+  const rows = await insertSettlementRow(() => sql`
     INSERT INTO vat_returns (
       company_id, period_start, period_end, status,
       total_output_tax, total_input_tax, net_vat,
-      sars_reference, submitted_by, journal_entry_id
+      sars_reference, submitted_by, journal_entry_id,
+      ledger_gap_ledger_net, ledger_gap_report_net, ledger_gap_reason, return_version_id
     ) VALUES (
       ${companyId}::UUID,
       ${periodStart}::DATE,
@@ -338,36 +221,15 @@ export async function submitVATReturn(
       ${totalInputTax},
       ${absNetVat},
       ${sarsReference ?? null},
-      ${userId},
-      ${journalEntryId}::UUID
+      ${userId}, -- TEXT since 999w (HYb): the real user id, not resolveUserUuid's stand-in
+      ${journalEntryId}::UUID,
+      ${gap?.ledgerNetVat ?? null}, ${gap?.reportNetVat ?? null}, ${gap?.reason ?? null},
+      ${basis.version.id}::UUID
     )
     RETURNING *
-  `) as Row[];
+  `, periodStart, periodEnd);
 
   const record = mapRow(rows[0]!);
   log.info('VAT return record created', { id: record.id, netVat }, 'accounting');
   return record;
-}
-
-// ── listVATReturns ────────────────────────────────────────────────────────────
-
-export async function listVATReturns(
-  companyId: string,
-  options?: ListVATReturnsOptions,
-): Promise<VATReturnRecord[]> {
-  const rows = options?.year
-    ? (await sql`
-        SELECT * FROM vat_returns
-        WHERE company_id = ${companyId}::UUID
-          AND EXTRACT(YEAR FROM period_start) = ${options.year}
-        ORDER BY period_start DESC
-      `) as Row[]
-    : (await sql`
-        SELECT * FROM vat_returns
-        WHERE company_id = ${companyId}::UUID
-        ORDER BY period_start DESC
-        LIMIT 50
-      `) as Row[];
-
-  return rows.map(mapRow);
 }

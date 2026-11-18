@@ -76,7 +76,7 @@ describe('exportLoadedBankTx', () => {
   });
 });
 
-describe('BankTxFilters "Export all accounts" button', () => {
+describe('BankTxFilters "Export all accounts" menu item', () => {
   it('calls onExportAll, not onExport', () => {
     const onExport = vi.fn();
     const onExportAll = vi.fn();
@@ -91,11 +91,14 @@ describe('BankTxFilters "Export all accounts" button', () => {
       onTxTypeChange: noop, onAllocTypeChange: noop, onHasSuggestionChange: noop, onToggleCC: noop, onToggleBU: noop,
     } satisfies BankTxFiltersProps;
     render(<BankTxFilters {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: /Export all accounts/ }));
+    // Both exports are in the toolbar's More menu (WP4b).
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export all accounts' }));
     expect(onExportAll).toHaveBeenCalledTimes(1);
     expect(onExport).not.toHaveBeenCalled();
     // The plain Export button exports the loaded page only, and says so.
-    fireEvent.click(screen.getByRole('button', { name: /^Export this page$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export this page' }));
     expect(onExport).toHaveBeenCalledTimes(1);
     expect(onExportAll).toHaveBeenCalledTimes(1);
   });

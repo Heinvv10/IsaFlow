@@ -53,6 +53,9 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { canonicalSubtype } from './accountSubtypes';
 import { VAT_TAX_SUBTYPES } from '../reports/vatBoxBasis';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from '../reports/vatSubmissionClearing';
+import { getSystemAccountId } from './systemAccountResolver';
+import { MissingSystemAccountError } from './systemAccountKeys';
 
 /** A line as the guard needs it. `vatType` absent means untagged. */
 export interface VatLineRef {
@@ -187,6 +190,64 @@ export async function findActiveVatLock(
 }
 
 /**
+ * The ONE journal that may post into a locked VAT period although it moves VAT figures (wave 6 VR, coordinator
+ * ruling): the VAT settlement's clearing journal (`VAT_SUBMISSION_CLEARING_SOURCE`, written only by
+ * submitVATReturn), dated on the FIRST day of the locked period, when the period ending the day before has a live
+ * (finalised or filed) VAT201 version, i.e. the period it settles. It clears the control accounts for the previous
+ * period, and every VAT201, lock snapshot and drift reader excludes that source (vatEntryMembership), so it changes no
+ * figure of the locked return. Its LINES must be a clearing too (round-2 review L2): no line carries a vat_type, and
+ * every line is on a VAT control account (vat_output / vat_input) or on THE net-VAT account, exactly the one
+ * resolveNetVatAccount posts to: the active 2130 when there is one, otherwise the system 'payable' account (round 3:
+ * not any payables account; with 2130 present, trade payables is not a clearing line). Any other source, date, lines,
+ * or no finalised previous period: refused as before.
+ */
+export async function settlementClearingExempt(
+  companyId: string, date: string, lock: ActiveVatLock, source: string | null | undefined,
+  lines: readonly VatLineRef[], q: SqlExec = sql,
+): Promise<boolean> {
+  if (source !== VAT_SUBMISSION_CLEARING_SOURCE || lock.periodStart !== date) return false;
+  if (lines.length === 0 || lines.some((l) => l.vatType != null)) return false;
+  const rows = (await q`
+    SELECT 1 FROM tax_return_versions
+    WHERE company_id = ${companyId}::UUID AND form_type = 'VAT201' AND status IN ('finalised', 'filed')
+      AND period_end = ${date}::DATE - 1
+    LIMIT 1`) as Row[];
+  if (rows.length === 0) return false;
+  const ids = [...new Set(lines.map((l) => l.glAccountId))];
+  const accounts = (await q`
+    SELECT id, account_subtype FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])`) as Row[];
+  if (accounts.length !== ids.length) return false;
+  const control = (a: Row) => {
+    const canon = canonicalSubtype(a.account_subtype == null ? null : String(a.account_subtype));
+    return canon !== null && (VAT_TAX_SUBTYPES as readonly string[]).includes(canon);
+  };
+  const rest = accounts.filter((a) => !control(a)).map((a) => String(a.id));
+  if (rest.length === 0) return true;
+  const netVatAccountId = await netVatAccountOf(companyId, q);
+  return netVatAccountId !== null && rest.every((id) => id === netVatAccountId);
+}
+
+/**
+ * The account submitVATReturn parks the net VAT on, as resolveNetVatAccount (reports/vatSubmissionSupport) picks it:
+ * the active 2130 (same query, inlined: that module's imports would pull the fiscal-period services into every posting
+ * path), otherwise the resolver's system 'payable' account. Null when neither resolves (the settlement would refuse).
+ */
+async function netVatAccountOf(companyId: string, q: SqlExec): Promise<string | null> {
+  const rows = (await q`
+    SELECT id FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND account_code = '2130' AND is_active = true
+    LIMIT 1`) as Row[];
+  if (rows[0]) return String(rows[0].id);
+  try {
+    return await getSystemAccountId('payable', companyId);
+  } catch (err) {
+    if (err instanceof MissingSystemAccountError) return null;
+    throw err;
+  }
+}
+
+/**
  * Refuse a journal dated inside an active VAT lock when it moves a VAT figure.
  *
  * Call it BEFORE the write that makes the journal posted (the status UPDATE, or
@@ -200,12 +261,15 @@ export async function assertJournalVatPeriodOpen(
   entryDate: string | Date,
   lines: readonly VatLineRef[],
   q: SqlExec = sql,
+  /** The journal's source: only the VAT settlement's clearing journal can be exempt (settlementClearingExempt). */
+  source?: string | null,
 ): Promise<void> {
   await takeVatLockShared(companyId, q);
   const date = fmtDate(entryDate);
   const lock = await findActiveVatLock(companyId, date, q);
   if (!lock) return;
   if (await journalMovesVatFigure(companyId, lines, q)) {
+    if (await settlementClearingExempt(companyId, date, lock, source, lines, q)) return;
     throw new VatPeriodLockedError(date, lock);
   }
 }
