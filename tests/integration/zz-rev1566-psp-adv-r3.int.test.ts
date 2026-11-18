@@ -12,6 +12,7 @@ import emp501Recon from '../../pages/api/payroll/emp501/reconciliation';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
+import { updateEmployeeTool } from '@/lib/mcp/tools/writeEmployees';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 
 assertDisposable();
@@ -90,5 +91,35 @@ describe('J: a 3701 that reached a PSP without any writer (direct row), and an e
     await updatePayrollEmployee(who, f.company, { taxStatus: 'personal_service_provider', pspEntityType: 'company' });
     const got = await calculatePayrollRun(march, f.company).then(() => 'costed', (e: unknown) => String((e as { code?: string }).code));
     expect(got).toBe('PSP_STATUS_CHANGED_SINCE_APPROVAL');
+  });
+});
+
+describe('K: entity flip via MCP update_employee, and a flip back plus a recalc', () => {
+  it('MCP update_employee cannot move psp_entity_type (or tax_status): the row is unchanged and the call is not reported as a change', async () => {
+    const f = await seedEmployee(pool, fixtures, 'adv4 mcp', 30_000);
+    const who = await addEmployee(pool, f, 'adv4-mc', PAY);
+    await updatePayrollEmployee(who, f.company, { taxStatus: 'personal_service_provider', pspEntityType: 'company' });
+    const ctx = { userId: f.admin, companyId: f.company, claims: {} } as never;
+    const out = await updateEmployeeTool.handler({ employee_id: who, psp_entity_type: 'trust', pspEntityType: 'trust' }, ctx) as { isError?: boolean };
+    const row = (await pool.query('SELECT tax_status, psp_entity_type FROM payroll_employees WHERE id = $1', [who])).rows[0];
+    expect(row).toEqual({ tax_status: 'personal_service_provider', psp_entity_type: 'company' });
+    // A silently ignored argument reported as success would tell the agent the entity moved.
+    expect(out.isError).toBe(true);
+  });
+  it('reopened month: company -> trust -> company, then recalc: costed, at 27%', async () => {
+    const f = await seedEmployee(pool, fixtures, 'adv4 back', 30_000);
+    const who = await addEmployee(pool, f, 'adv4-bk', PAY);
+    await updatePayrollEmployee(who, f.company, { taxStatus: 'personal_service_provider', pspEntityType: 'company' });
+    const march = await month(f, 3);
+    const before = await lineOf(pool, march, who);
+    const w = await updatePayrollEmployee(who, f.company, { pspEntityType: 'trust' });
+    expect(w?.warnings?.join(' ')).toMatch(/entity moved from company to trust/);
+    await reopenPayrollRun({ runId: march, companyId: f.company, userId: f.admin, reason: 'adversarial reopen' });
+    const refused = await calculatePayrollRun(march, f.company).then(() => 'costed', (e: unknown) => String((e as { code?: string }).code));
+    expect(refused).toBe('PSP_STATUS_CHANGED_SINCE_APPROVAL');
+    await updatePayrollEmployee(who, f.company, { pspEntityType: 'company' });
+    const got = await calculatePayrollRun(march, f.company).then(() => 'costed', (e: unknown) => String((e as { code?: string }).code));
+    expect(got).toBe('costed');
+    expect((await lineOf(pool, march, who)).paye).toBe(before.paye);
   });
 });

@@ -25,4 +25,12 @@ describe('refuseEmployeeTermArgs', () => {
     expect(out?.isError).toBe(true);
     expect(JSON.stringify(out)).toContain('tax_status, occupation, hourly_rate');
   });
+
+  it('refuses a PSP entity type in either spelling, alone (wave 6 PSP): never a silent success that moved nothing', () => {
+    for (const args of [{ employee_id: 'e1', psp_entity_type: 'trust' }, { employee_id: 'e1', pspEntityType: 'trust' }]) {
+      const out = refuseEmployeeTermArgs(args);
+      expect(out?.isError).toBe(true);
+      expect(JSON.stringify(out)).toContain(Object.keys(args)[1]!);
+    }
+  });
 });
