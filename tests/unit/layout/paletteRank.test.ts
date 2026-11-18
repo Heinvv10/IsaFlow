@@ -33,6 +33,17 @@ describe('rankPages', () => {
   it('a label match carries no "also" hint', () => {
     expect(pageResult(rankPages(index, 'income statement', 1)[0]!, 'income statement').aliases).toBeUndefined();
   });
+  // The daily links were renamed (Customer List, Supplier List, Employee List, Transaction List); the old labels were
+  // aliases of these pages. Each query keeps master's top result (paletteRenameDrift.test.ts checks every query).
+  it.each([
+    ['customers', '/accounting/customers'],
+    ['suppliers', '/accounting/suppliers'],
+    ['employees', '/payroll/employees'],
+    ['transactions', '/accounting/bank-transactions'],
+    ['bank transactions', '/accounting/reports/bank-transactions'],
+  ])('"%s" keeps its top result: %s', (q, href) => {
+    expect(rankPages(index, q, 3)[0]?.href).toBe(href);
+  });
   it('returns nothing for an empty query or a zero limit', () => {
     expect(rankPages(index, '  ', 5)).toEqual([]);
     expect(rankPages(index, 'vat', 0)).toEqual([]);
