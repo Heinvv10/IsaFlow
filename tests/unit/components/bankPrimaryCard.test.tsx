@@ -62,7 +62,9 @@ describe('BankGroupCard', () => {
     render(<BankGroupCard group={groups[0]!} containsSelection={false} expanded={false} onToggle={noop} resume={null} onResume={noop} />);
     expect(nbsp(screen.getByTestId('card-ledger').textContent!)).toBe('Ledger R 0.30');
     expect(nbsp(screen.getByTestId('card-to-code').textContent!)).toBe('7 to code · in R 1.00 / out −R 3.00');
-    expect(screen.getByTestId('card-to-code').getAttribute('title')).toBe('7 lines still to code across this group');
+    // One line on the card (cut when long, WP4b): the tooltip carries the amounts too.
+    expect(nbsp(screen.getByTestId('card-to-code').getAttribute('title')!)).toBe('7 lines still to code across this group (in R 1.00 / out −R 3.00)');
+    expect(screen.getByTestId('card-to-code').className).toContain('truncate');
   });
 
   it('a group with nothing to code reads "All coded"', () => {

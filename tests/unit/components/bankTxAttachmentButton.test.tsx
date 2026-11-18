@@ -29,8 +29,9 @@ describe('the attachment button', () => {
   });
 
   it('leaves a row without attachments plain and unnumbered', () => {
+    // A reviewed row draws the plain paperclip; a New row keeps it in its More actions menu (WP4b).
     render(<BankTxTable {...tableProps({ transactions: withCounts({}) })} />);
-    const plain = screen.getByRole('button', { name: `Attachments, ${label('a')}` });
+    const plain = screen.getByRole('button', { name: `Attachments, ${label('d')}` });
     expect(plain.className).not.toContain('text-blue-400');
     expect(plain.textContent).toBe('');
   });
