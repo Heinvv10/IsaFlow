@@ -19,7 +19,9 @@
  * still has them.
  * Added by GA (review of #1574): `garnishee_frequency`. A garnishee instalment is monthly and is taken once per run, so
  * a weekly or fortnightly run would take it four or two times a month. Such a run is refused costing while an employee
- * on it has an order in force, until pro-rating is built. The weekly lift (FQc) removes `frequency`, never this clause.
+ * on it has an order in force, until pro-rating is built. The `frequency` clause is still in force on master (FQc built the
+ * weekly engine but did not lift it); FQd lifts it when weekly and fortnightly runs reach the product. That lift removes
+ * `frequency` only, never this clause.
  *
  * KNOWN LIMIT (wave 6 EF review): `tax_status` and the employee-frequency clause are judged on the employee's CURRENT
  * row, not as at the run. An employee moved to weekly after a monthly run makes that old run refuse (fails closed), and
