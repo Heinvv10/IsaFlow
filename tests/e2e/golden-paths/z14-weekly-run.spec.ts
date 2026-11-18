@@ -127,7 +127,9 @@ test('a weekly run: frequency on the employee, created per period from the page,
     await expect(page.getByRole('heading', { name: `Payroll Run — Week ${formatPeriodRange(week.periodStart, week.periodEnd)}` }))
       .toBeVisible({ timeout: 60_000 });
     // A run already calculated by an earlier execution says Recalculate.
+    const calculated = page.waitForResponse((r) => r.url().endsWith(`/api/payroll/runs/${runId}/calculate`) && r.request().method() === 'POST', { timeout: 120_000 });
     await page.getByRole('button', { name: /^(Calculate|Recalculate)$/ }).click();
+    expect((await calculated).ok(), 'the calculation succeeded').toBe(true);
     await expect(page.getByText(`${WEEKLY.firstName} ${WEEKLY.lastName}`).first()).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText(`${MONTHLY.firstName} ${MONTHLY.lastName}`)).toHaveCount(0);
     await snap(page, 'weekly-run-calculated', 'session-theme');
@@ -143,7 +145,8 @@ test('a weekly run: frequency on the employee, created per period from the page,
     approved = true;
 
     await page.goto('/payroll/runs', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText(`Week ${formatPeriodRange(week.periodStart, week.periodEnd)}`).first()).toBeVisible({ timeout: 60_000 });
+    // The list renders cards (narrow) and a table (wide): the one shown at this width.
+    await expect(page.getByText(`Week ${formatPeriodRange(week.periodStart, week.periodEnd)}`).filter({ visible: true }).first()).toBeVisible({ timeout: 60_000 });
     await snap(page, 'weekly-run-listed', 'session-theme');
   } finally {
     if (approved) await api.post(`/api/payroll/runs/${runId}/reopen`, { reason: 'z14 golden sandbox reset' });
