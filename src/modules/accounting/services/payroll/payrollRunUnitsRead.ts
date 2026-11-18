@@ -5,6 +5,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { normaliseSarsCode } from './payeAnnualPayment';
+import { hoursComponentOf } from './payrollRunHoursRead';
 import { getEmployeeComponents } from './payrollComponentService';
 import { overtimeHourlyRate } from './payrollRunInputUnits';
 import { monthBounds, type RunPeriod } from './payrollRunPeriodInputsRead';
@@ -74,10 +75,18 @@ async function kmToDateOf(companyId: string, period: RunPeriod, employeeIds: str
   return rows.map((r) => ({ employeeId: String(r.employee_id), km: Number(r.km) }));
 }
 
-export const monthlyBasicOf = async (companyId: string, employee: PayrollEmployee, period: RunPeriod) =>
-  (await getEmployeeComponents(employee.id, companyId, payrollRunReadDate(period)))
-    .filter((c) => c.isRecurring !== false && c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === '3601')
-    .reduce((t, c) => t + c.amount, 0);
+/**
+ * The monthly basic overtime is priced on: the recurring amount of the employee's one Basic Salary, picked as the hours are
+ * (payrollRunHoursRead.hoursComponentOf: the only 3601, else the one named "Basic Salary"). Other 3601 earnings (allowances,
+ * leave pay, corrections) are not the basic (review #1580 M2). 0 when none can be told: the write then refuses overtime.
+ */
+export async function monthlyBasicOf(companyId: string, employee: PayrollEmployee, period: RunPeriod): Promise<number> {
+  const recurring = (await getEmployeeComponents(employee.id, companyId, payrollRunReadDate(period))).filter((c) => c.isRecurring !== false);
+  const distinct = [...new Map(recurring.map((c) => [c.component.id, c.component])).values()];
+  const found = hoursComponentOf(distinct);
+  if (!('component' in found)) return 0;
+  return recurring.filter((c) => c.component.id === found.component.id).reduce((t, c) => t + c.amount, 0);
+}
 
 export async function readRunInputUnits(companyId: string, period: RunPeriod, employees: PayrollEmployee[]): Promise<RunInputUnits> {
   const components = await unitComponents(companyId);

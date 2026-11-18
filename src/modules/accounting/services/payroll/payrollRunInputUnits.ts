@@ -19,7 +19,7 @@
  * 2018), so km to date never change the figure (the oracle's ri-reimbursive-above-prescribed-3702-3722 states 8 000 prior km).
  */
 import { formatMoney } from '@/lib/money/formatMoney';
-import { normaliseSarsCode } from './payeAnnualPayment';
+import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { TRAVEL_CODE } from './fringeBenefits';
 import { getTaxYearConfig } from './taxTables';
 import type { EmployeeComponent, PayrollEmployee, ValidationResult } from './payrollTypes';
@@ -67,9 +67,6 @@ export function overtimeHourlyRate(
   return rate == null || !(rate > 0) ? null : cents(rate) / 100;
 }
 
-/** Overtime hours on the line, for ETI (ETI Act s7(5) counts hours worked, overtime included; version 8). */
-export const overtimeHoursOf = (components: EmployeeComponent[]): number =>
-  components.filter(isOvertime).reduce((h, c) => h + Number(c.quantity ?? 0), 0);
 
 /**
  * The line's components with each km row split as SARS treats it: the part within the prescribed rate (3702 / 3703, not
@@ -89,23 +86,30 @@ export function splitTravelRows(components: EmployeeComponent[], taxYear: number
     const code = excess > 0 || otherCompensation ? TRAVEL_WITHIN_RATE_CODE : TRAVEL_NOT_TAXABLE_CODE;
     const rows: EmployeeComponent[] = [];
     if (within !== 0 || excess === 0) {
-      rows.push({ ...c, amount: within, component: { ...c.component, sarsSourceCode: code, isTaxable: false, isUifApplicable: false, isSdlApplicable: false,
+      rows.push({ ...c, amount: within, reimbursiveTravel: true, component: { ...c.component, sarsSourceCode: code, isTaxable: false, isUifApplicable: false, isSdlApplicable: false,
         name: `${c.component.name}: ${km} km within the prescribed ${formatMoney(prescribed)} a km` } });
     }
     if (excess !== 0) {
-      rows.push({ ...c, amount: excess, quantity: null, quantityUnit: null, component: { ...c.component, sarsSourceCode: TRAVEL_EXCESS_CODE,
+      rows.push({ ...c, amount: excess, quantity: null, quantityUnit: null, reimbursiveTravel: true, component: { ...c.component, sarsSourceCode: TRAVEL_EXCESS_CODE,
         isTaxable: true, isUifApplicable: true, isSdlApplicable: true, name: `${c.component.name}: above the prescribed rate a km (taxed)` } });
     }
     return rows;
   });
 }
 
-/** OVERTIME_ABOVE_BCEA_THRESHOLD: overtime at a multiplier for an employee whose earnings, a year, pass the s6(3) threshold. */
-export function overtimeThresholdWarnings(components: EmployeeComponent[], periodEndIso: string, periodsInYear = 12): ValidationResult[] {
+/** Periods a year of each pay frequency; a run pays only employees of its own frequency, so the employee's is the run's. */
+export const PERIODS_A_YEAR: Record<string, number> = { monthly: 12, fortnightly: 26, weekly: 52 };
+
+/**
+ * OVERTIME_ABOVE_BCEA_THRESHOLD: overtime at a multiplier for an employee whose regular earnings, a year, pass the s6(3)
+ * threshold. Regular = periodic earnings: an annual payment (3605 bonus) or a lump sum is not annualised (review #1580 L2).
+ */
+export function overtimeThresholdWarnings(components: EmployeeComponent[], periodEndIso: string, periodsInYear: number): ValidationResult[] {
   const overtime = components.filter(isOvertime);
   const threshold = bceaThresholdAt(periodEndIso);
   if (overtime.length === 0 || threshold == null) return [];
-  const regular = components.filter((c) => c.component.componentType === 'earning' && !isOvertime(c) && !isTravel(c))
+  const regular = components.filter((c) => c.component.componentType === 'earning' && !isOvertime(c) && !isTravel(c)
+    && payeTreatment(c.component.sarsSourceCode) === 'periodic')
     .reduce((t, c) => t + c.amount, 0);
   if (regular * periodsInYear <= threshold) return [];
   return [{ code: OVERTIME_ABOVE_BCEA_THRESHOLD, severity: 'warning',

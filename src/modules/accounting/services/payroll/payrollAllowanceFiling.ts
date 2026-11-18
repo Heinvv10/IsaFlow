@@ -13,7 +13,8 @@
  *    rate and nothing else is paid for travel. Certificate rules (p. 50): 3703 "must not be reflected on an IRP5/IT3(a)
  *    certificate together with code 3701 and/or 3702 and/or 3722" and its value "must be included in the value of code 3702";
  *    "If code 3722/3772 is greater than zero, then code 3702/3752 must be greater than zero". 3703 is non-taxable income, so
- *    3696 is mandatory with it (p. 51; easyFileExportService). The run line already carries each code (splitTravelRows); the
+ *    3696 is mandatory with it (p. 51; easyFileExportService). Only items splitTravelRows made (`reimbursiveTravel`) are
+ *    certified (review #1580 M1): the batch path's own 3702 rows keep their old treatment, inside 3601. The run line carries each code; the
  *    year's certificate may meet them together (a 3703 month and a 3702 month), so 3703 folds into 3702 here.
  * The portion is exact: each line stores `payeIncludedAmount` (what the calculator took). A line from before the rate was
  * stored taxed the whole amount, so it counts at 100% and the certificate clamps into SARS's 20-80% band with a warning.
@@ -53,9 +54,9 @@ export async function listRunAllowanceFiling(
       COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3802' AND item->>'isNonCash' = 'true'), 0)::numeric AS vehicle_3802,
       COALESCE(SUM(CASE WHEN counted THEN COALESCE((item->>'payeIncludedAmount')::numeric, (item->>'amount')::numeric) ELSE 0 END), 0)::numeric AS included,
       COUNT(*) FILTER (WHERE counted AND item->>'payeIncludedAmount' IS NULL)::int AS legacy,
-      COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3702'), 0)::numeric AS travel_3702,
-      COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3703'), 0)::numeric AS travel_3703,
-      COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3722'), 0)::numeric AS travel_3722
+      COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3702' AND item->>'reimbursiveTravel' = 'true'), 0)::numeric AS travel_3702,
+      COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3703' AND item->>'reimbursiveTravel' = 'true'), 0)::numeric AS travel_3703,
+      COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3722' AND item->>'reimbursiveTravel' = 'true'), 0)::numeric AS travel_3722
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
@@ -111,7 +112,10 @@ export function allowanceCertificateFields(a: AllowanceFiling | undefined, who =
 function travelFields(a: AllowanceFiling): { sourceCode: string; amount: number }[] {
   const excess = Math.floor(a.travel3722);
   const alone = Math.floor(a.cash3701) < 1 && Math.floor(a.travel3702) < 1 && excess < 1;
-  const within = Math.floor(alone ? a.travel3703 : a.travel3702 + a.travel3703);
+  // p. 50: "If code 3722/3772 is greater than zero, then code 3702/3752 must be greater than zero". A within part that floors to
+  // R0 beside a certified 3722 is certified as R1 (review #1580 L1); the rand comes out of 3601 like every certified amount.
+  const floored = Math.floor(alone ? a.travel3703 : a.travel3702 + a.travel3703);
+  const within = excess >= 1 && floored < 1 && a.travel3702 + a.travel3703 > 0 ? 1 : floored;
   return [
     ...(within >= 1 ? [{ sourceCode: alone ? '3703' : '3702', amount: within }] : []),
     ...(excess >= 1 ? [{ sourceCode: '3722', amount: excess }] : []),

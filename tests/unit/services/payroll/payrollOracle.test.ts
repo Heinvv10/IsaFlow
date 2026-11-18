@@ -55,6 +55,7 @@ const EXPECTED_CASE_IDS = [
   'psp-trust-45pct',
   'ra-annual-cap-binds-2027',
   'rf-employer-contribution-15pct-rfi-cap-binds-on-total',
+  'ri-eti-hourly-overtime-counted-once',
   'ri-overtime-10h-at-1-5x',
   'ri-reimbursive-1000km-at-prescribed-3703',
   'ri-reimbursive-above-prescribed-3702-3722',
@@ -128,7 +129,7 @@ describe('payroll oracle fixtures', () => {
     'weekly-week-53-pay-sunday': 'FQc',
     });
     // RI closed its four gaps; its two BCEA-multiplier cases are UNVERIFIED and match the engine (adv-payroll signs them).
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x']);
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {

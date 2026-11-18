@@ -71,11 +71,18 @@ export function medicalFieldLines(emp: EmployeeInput): { fees: (string | null)[]
  * under the tax threshold, 08 above it when a medical credit took the tax off
  * and is on the certificate; anything else has no reason this file can state.
  */
+/**
+ * The cash allowances that count toward the tax threshold: the reimbursive travel within the prescribed rate (3702, 3703) is not
+ * remuneration (it is not taxed; review #1580 H2), so a low earner's within-rate km never lift them over the threshold. 3722 counts.
+ */
+export const thresholdAllowances = (emp: EmployeeInput): number =>
+  (emp.cashAllowances ?? []).filter((f) => f.sourceCode !== '3702' && f.sourceCode !== '3703').reduce((s, f) => s + Math.max(0, f.amount), 0);
+
 export function nilTaxReason(emp: EmployeeInput): '02' | '04' | '08' {
   // A non-cash fringe benefit (3801) is taxable remuneration like 3601 / 3605.
   const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0)
     + (emp.fringeBenefits ?? []).reduce((s, f) => s + Math.max(0, f.amount), 0)
-    + (emp.cashAllowances ?? []).reduce((s, f) => s + Math.max(0, f.amount), 0);
+    + thresholdAllowances(emp);
   const lumpSums = emp.lumpSums ?? [];
   if (emp.taxThreshold != null && income <= emp.taxThreshold) return lumpSums.length > 0 ? '04' : '02';
   const m = emp.medical;

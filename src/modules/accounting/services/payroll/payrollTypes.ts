@@ -96,6 +96,8 @@ export interface EmployeeComponent {
   quantityUnit?: QuantityUnit | null;
   /** RI (999t): overtime hours at 1.5 or 2.0 (BCEA s10(2), s16(1)); amount = hours x hourly rate x this. Null on other rows. */
   rateMultiplier?: number | null;
+  /** RI: a row splitTravelRows made from a km row (3702 / 3703 within the prescribed rate, 3722 above it); only these are certified. */
+  reimbursiveTravel?: true;
   /** The assignment costs this fraction of the line's RFI (migration 975; rfi.ts costs `amount` from it). Absent or null = a plain amount. */
   percentOfRfi?: number | null;
   /** Set by rfi.costPercentOfRfi on a percent_of_rfi row: the RFI its amount was costed on. */
@@ -201,6 +203,8 @@ export interface ComponentBreakdownItem {
   rate?: number;
   /** RI: the overtime multiplier the hours were priced at. */
   rateMultiplier?: number;
+  /** RI: made by splitTravelRows from a km row; the certificate certifies 3702 / 3703 / 3722 only from these (payrollAllowanceFiling). */
+  reimbursiveTravel?: true;
   /**
    * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
    * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;

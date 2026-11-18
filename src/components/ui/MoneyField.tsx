@@ -41,6 +41,8 @@ export interface MoneyFieldProps {
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;
   helperText?: string;
+  /** Appended to the echo, e.g. " a km" gives "R 6.00 a km" (a rate, not an amount). */
+  echoSuffix?: string;
   /** (i) tooltip next to the label, with an optional "Learn more" link. */
   help?: FieldHelpContent;
   placeholder?: string;
@@ -57,7 +59,7 @@ export interface MoneyFieldProps {
 
 export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(function MoneyField(
   {
-    label, value, onChange, id, name, currency = 'ZAR', error: externalError, helperText, help, resetKey, placeholder = '0.00',
+    label, value, onChange, id, name, currency = 'ZAR', error: externalError, helperText, echoSuffix = '', help, resetKey, placeholder = '0.00',
     required, disabled, allowNegative = false, min, max, className, onBlur,
   },
   ref,
@@ -82,7 +84,7 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
   });
   const error = externalError ?? field.error;
   const understood = field.text.trim() === '' ? null : parseSaAmount(field.text, { currency });
-  const echo = understood?.ok && (allowNegative || understood.cents >= 0) ? echoOf(understood.cents) : null;
+  const echo = understood?.ok && (allowNegative || understood.cents >= 0) ? `${echoOf(understood.cents)}${echoSuffix}` : null;
   const frame = { error, helperText, echo, help };
 
   return (

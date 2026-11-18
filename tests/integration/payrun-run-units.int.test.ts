@@ -57,6 +57,14 @@ describe('overtime: hours x hourly rate x multiplier, priced on the server (BCEA
     expect(last.units.rates).toEqual([{ employeeId: state.employee, hourlyRate: 115.38 }]);
   });
 
+  it('a second recurring 3601 (a shift allowance) is not the basic: overtime is still priced on R20 000 (review #1580 M2)', async () => {
+    const shift = await fx.addComponent(state.coA, 'Shift allowance', '3601', 'earning', true);
+    await fx.addRow(shift, 2000, '2026-01-01', null, true);
+    expect((await units(state.nov, { kind: 'overtime', multiplier: 1.5, quantity: 10 })).statusCode).toBe(200);
+    expect(await stored()).toContainEqual({ code: '3607', amount: 1730.7, quantity: 10, unit: 'hour', multiplier: 1.5 });
+    expect((await fx.get(state.nov)).body.data!.inputs.units.rates).toEqual([{ employeeId: state.employee, hourlyRate: 115.38 }]);
+  });
+
   it('a stale expectedQuantity is 409 and changes nothing; null clears the row', async () => {
     await units(state.nov, { kind: 'overtime', multiplier: 1.5, quantity: 10 });
     const stale = await units(state.nov, { kind: 'overtime', multiplier: 1.5, quantity: 12, expectedQuantity: 9 });
@@ -132,7 +140,11 @@ describe('travel: km x the rate a km, split at the prescribed R4.95 (tax year 20
   });
 
   it('the approved run reaches the certificate: 3702 4 950 and 3722 1 050 for company A only (BRS V25.3.0 p. 86, 90)', async () => {
+    // The batch path's own taxed 3702 row (payrollBatchPost) is not split travel: it stays in 3601, never certified (review #1580 M1).
+    const batch3702 = await fx.addComponent(state.coA, 'Travel (batch, taxable)', '3702', 'earning', true);
+    await fx.addRow(batch3702, 500, '2026-11-01', '2026-11-30');
     expect((await units(state.nov, { kind: 'travel', quantity: 1000, ratePerKm: 6 })).statusCode).toBe(200);
+    expect(item(await line(state.nov), '3702').map((i) => i.amount).sort()).toEqual([4950, 500].sort());
     const { planHash } = (await fx.preview(state.nov)).body.data! as { planHash: string };
     const approved = await fx.doApprove(state.nov, planHash);
     expect(approved.statusCode, JSON.stringify(approved.body)).toBe(200);

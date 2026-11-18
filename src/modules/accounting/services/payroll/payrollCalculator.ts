@@ -14,7 +14,7 @@ import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
-import { overtimeThresholdWarnings, splitTravelRows } from './payrollRunInputUnits';
+import { overtimeThresholdWarnings, PERIODS_A_YEAR, splitTravelRows } from './payrollRunInputUnits';
 import { costLineEti } from './payrollLineEti';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
@@ -64,7 +64,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   const acc = accumulateComponents(components);
   const { grossPay, allEarnings, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings, earningParts, employeeMedicalFees } = acc;
-  warnings.push(...overtimeThresholdWarnings(input.components, `${period.year}-${String(period.month).padStart(2, '0')}-28`));
+  warnings.push(...overtimeThresholdWarnings(input.components, `${period.year}-${String(period.month).padStart(2, '0')}-28`, PERIODS_A_YEAR[employee.payFrequency] ?? 12));
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration

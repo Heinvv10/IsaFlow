@@ -7,7 +7,7 @@
  * and the approval gate refuses it (payrollRunHoursGate). A nil entry (0) is a quantity like any other: stored, amount 0.
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
-import { isRunInputUnitRow, overtimeHoursOf } from './payrollRunInputUnits';
+import { isRunInputUnitRow } from './payrollRunInputUnits';
 import type { EmployeeComponent, PayrollEmployee, QuantityUnit, ValidationResult } from './payrollTypes';
 
 /** The units a pay basis is paid in (km is RI's travel, never a pay basis). */
@@ -37,7 +37,7 @@ const withQuantity = (c: EmployeeComponent) => c.quantity != null && c.quantityU
  * hours component, payrollRunHoursRead.hoursComponentOf), never by SARS code. 3601 is SARS's general code, so other 3601
  * earnings (allowances, leave pay, corrections) are ordinary pay and are left alone.
  */
-// Overtime hours and km rows (RI) are not the pay basis's hours or days: overtimeHoursOf adds overtime to ETI's hours below.
+// Overtime hours and km rows (RI) are not the pay basis's hours or days. ETI adds overtime itself (etiHours.overtimeHours, 3607).
 const quantityRows = (components: EmployeeComponent[]) => components.filter((c) => c.component.componentType === 'earning' && withQuantity(c) && !isRunInputUnitRow(c));
 
 /** The row that records this employee's hours or days in their own unit: exactly one counts, two are an error (hoursValidation). */
@@ -54,9 +54,8 @@ export function runHoursOf(employee: PayrollEmployee, components: EmployeeCompon
   const rows = recorded(employee, components);
   if (rows.length !== 1) return null;
   const quantity = Number(rows[0]!.quantity);
-  const overtime = overtimeHoursOf(components);
-  if (employee.payBasis === 'hourly') return Math.round((quantity + overtime) * 100) / 100;
-  return employee.hoursPerDay == null ? null : Math.round((quantity * Number(employee.hoursPerDay) + overtime) * 100) / 100;
+  if (employee.payBasis === 'hourly') return quantity;
+  return employee.hoursPerDay == null ? null : Math.round(quantity * Number(employee.hoursPerDay) * 100) / 100;
 }
 
 const err = (code: string, message: string): ValidationResult => ({ code, severity: 'error', message });

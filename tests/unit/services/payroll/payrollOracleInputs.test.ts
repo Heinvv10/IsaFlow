@@ -49,8 +49,8 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(employee.employmentType).toBe(c.input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent');
     // ET: the month's hours reach the calculator as the run hours, and the ordinary wage it derives is the fixture's.
     const { components } = buildCaseInput(c);
-    // RI: overtime hours count toward ETI's hours (ETI Act s7(5)) on top of the month's hours.
-    expect(runHoursOf(employee, components)).toBe(typeof u.monthlyHours === 'number' ? u.monthlyHours + (typeof u.overtimeHours === 'number' ? u.overtimeHours : 0) : null);
+    // RI: the run hours are the ordinary hours only; ETI adds overtime once itself (etiHours.overtimeHours; review #1580 H1).
+    expect(runHoursOf(employee, components)).toBe(typeof u.monthlyHours === 'number' ? u.monthlyHours : null);
     if (typeof u.ordinaryHoursWage === 'number') expect(ordinaryWageCents(components)).toBe(Math.round(u.ordinaryHoursWage * 100));
     // The directive (DR): a percentage as its fraction, an amount as is, else none.
     const d = buildCaseInput(c).regularPayDirective?.current ?? null;

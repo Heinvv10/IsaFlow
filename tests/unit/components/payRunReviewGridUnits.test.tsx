@@ -68,6 +68,7 @@ describe('travel km', () => {
     fireEvent.blur(rate);
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(body(0)).toEqual({ employeeId: 'e-1', units: { kind: 'travel', multiplier: null, quantity: 1000, ratePerKm: 6, expectedQuantity: null } });
+    expect(screen.getByText(/^R\s6\.00 a km$/)).toBeTruthy();
   });
 
   it('shows the km recorded this tax year under the cell, and nothing for an employee with none', async () => {

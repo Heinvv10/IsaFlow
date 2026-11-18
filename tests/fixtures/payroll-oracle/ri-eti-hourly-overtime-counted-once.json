@@ -1,0 +1,47 @@
+{
+  "id": "ri-eti-hourly-overtime-counted-once",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/ (table from 1 April 2025; minimum wage condition); ETI Act s7(5) (hours employed and paid, overtime in); BCEA s10(2)",
+  "notes": "June 2025 (tax year 2026), employee aged 24, employed since 1 March 2025 (month 4), hourly R30 (above the R28.79 national minimum wage from 1 March 2025), 160 ordinary hours = R4 800, plus 10 h overtime at 1.5x (BCEA s10(2)) = R450. ETI hours 170 (s7(5): overtime counts once); the minimum wage is tested on the 160 ordinary hours: R4 800 / 160 = R30.00 >= R28.79. Remuneration R5 250 is in the R2 500 - R5 499.99 band of the April 2025 table, first 12 months: R1 500.00. Review #1580 H1: counting the overtime twice made the ordinary hours 170, R28.24 an hour, below the minimum wage, and lost the ETI. PAYE nil (63 000 below 95 750); UIF 52.50; SDL 52.50; net 5 197.50. UNVERIFIED only for the BCEA multiplier (read in the 1997 gazetted text).",
+  "input": {
+    "period": {
+      "year": 2025,
+      "month": 6
+    },
+    "taxYear": 2026,
+    "employee": {
+      "dateOfBirth": "2001-01-01",
+      "startDate": "2025-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4800,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "monthlyHours": 160,
+      "overtimeHours": 10,
+      "overtimeMultiplier": 1.5
+    }
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 52.5,
+    "uifEmployer": 52.5,
+    "sdl": 52.5,
+    "eti": 1500,
+    "net": 5197.5
+  }
+}

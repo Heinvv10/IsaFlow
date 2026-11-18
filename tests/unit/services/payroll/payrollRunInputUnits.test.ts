@@ -3,6 +3,7 @@
  * the prescribed rate a km (SARS allowances guide, Travel Allowance from 1 March 2018: within the rate not taxed, 3703 or 3702; the
  * excess "irrespective of the kilometers travelled" taxed, 3722). R4.95 a km in tax year 2027 (PAYE-GEN-01-G03-A01 Rev 19 p. 2).
  */
+import { etiHoursOf } from '@/modules/accounting/services/payroll/etiHours';
 import { describe, expect, it } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import {
@@ -57,6 +58,13 @@ describe('travel km split at the prescribed rate', () => {
     expect(components.slice(2).map((c) => [c.component.sarsSourceCode, c.amount, c.component.isTaxable])).toEqual([['3702', 4000, false]]);
   });
 
+  it('only the rows the split made are marked reimbursiveTravel, and the line carries the mark (review #1580 M1)', () => {
+    expect(splitTravelRows([salary, km(6000, 1000)], 2027).map((c) => c.reimbursiveTravel ?? false)).toEqual([false, true, true]);
+    const line = calculatePayrollLine({ employee: employee(), components: [salary, km(6000, 1000), comp('batch', '3702', 500)], period: { year: 2026, month: 11 }, taxYear: 2027, annualPayrollEstimate: 10_000_000 });
+    expect(line.componentBreakdown.filter((i) => i.reimbursiveTravel).map((i) => [i.sarsSourceCode, i.amount])).toEqual([['3702', 4950], ['3722', 1050]]);
+    expect(line.componentBreakdown.find((i) => i.componentId === 'batch')?.reimbursiveTravel).toBeUndefined();
+  });
+
   it('tax year 2026 splits at R4.76 and 2025 at R4.84 (Notice 4456, GG 50243 para 4)', () => {
     expect(splitTravelRows([km(6000, 1000)], 2026).map((c) => c.amount)).toEqual([4760, 1240]);
     expect(splitTravelRows([km(6000, 1000)], 2025).map((c) => [c.component.sarsSourceCode, c.amount])).toEqual([['3702', 4840], ['3722', 1160]]);
@@ -76,9 +84,11 @@ describe('the hours machinery leaves overtime and km rows alone; ETI hours inclu
   const hourly = employee({ payBasis: 'hourly', hourlyRate: 60 });
   const hours = comp('basic', '3601', 9600, { quantity: 160, quantityUnit: 'hour' });
   const overtime = comp('ot', '3607', 900, { quantity: 10, quantityUnit: 'hour', rateMultiplier: 1.5 });
-  it('an hourly employee with overtime is not HOURS_DUPLICATE, and works 170 hours', () => {
+  it('an hourly employee with overtime is not HOURS_DUPLICATE; the run hours stay 160 ordinary, ETI counts 170 once (review #1580 H1)', () => {
     expect(hoursValidation(hourly, [hours, overtime]).map((v) => v.code)).toEqual([]);
-    expect(runHoursOf(hourly, [hours, overtime])).toBe(170);
+    expect(runHoursOf(hourly, [hours, overtime])).toBe(160);
+    const eti = etiHoursOf(hourly, { year: 2026, month: 11 } as never, runHoursOf(hourly, [hours, overtime]), [hours, overtime]);
+    expect([eti.hours, eti.ordinaryHours]).toEqual([170, 160]);
   });
   it('a km row on a monthly employee is not HOURS_UNIT_MISMATCH', () => {
     expect(hoursValidation(employee(), [salary, km(100, 10)])).toEqual([]);
@@ -94,7 +104,7 @@ describe('OVERTIME_ABOVE_BCEA_THRESHOLD (BCEA s6(3)): a warning, never a refusal
     expect(bceaThresholdAt('2026-05-01')).toBe(269_600.9);
   });
   it('warns at R22 500 a month (R270 000 a year) on a multiplier, not at R22 400, not without overtime', () => {
-    const at = (pay: number, rows: EmployeeComponent[]) => overtimeThresholdWarnings([comp('b', '3601', pay), ...rows], '2026-11-28').map((w) => w.code);
+    const at = (pay: number, rows: EmployeeComponent[]) => overtimeThresholdWarnings([comp('b', '3601', pay), ...rows], '2026-11-28', 12).map((w) => w.code);
     expect(at(22500, [ot])).toEqual(['OVERTIME_ABOVE_BCEA_THRESHOLD']);
     expect(at(22400, [ot])).toEqual([]);
     expect(at(22500, [])).toEqual([]);
@@ -102,6 +112,14 @@ describe('OVERTIME_ABOVE_BCEA_THRESHOLD (BCEA s6(3)): a warning, never a refusal
   it('a travel reimbursement is not earnings: R22 400 with R6 000 of km (R1 050 above the rate) does not warn', () => {
     const line = calculatePayrollLine({ employee: employee(), components: [comp('b', '3601', 22400), ot, km(6000, 1000)], period: { year: 2026, month: 11 }, taxYear: 2027, annualPayrollEstimate: 10_000_000 });
     expect(line.validationResults.map((v) => v.code)).not.toContain('OVERTIME_ABOVE_BCEA_THRESHOLD');
+  });
+
+  it('a 3605 bonus is not annualised; a weekly employee is annualised over 52 weeks (review #1580 L2)', () => {
+    expect(overtimeThresholdWarnings([comp('b', '3601', 15000), comp('bonus', '3605', 15000), ot], '2026-12-28', 12)).toEqual([]);
+    expect(overtimeThresholdWarnings([comp('b', '3601', 5200), ot], '2026-11-28', 52).map((w) => w.code)).toEqual(['OVERTIME_ABOVE_BCEA_THRESHOLD']);
+    expect(overtimeThresholdWarnings([comp('b', '3601', 5000), ot], '2026-11-28', 52)).toEqual([]);
+    const weekly = calculatePayrollLine({ employee: employee({ payFrequency: 'weekly' }), components: [comp('b', '3601', 5200), ot], period: { year: 2026, month: 11 }, taxYear: 2027, annualPayrollEstimate: 10_000_000 });
+    expect(weekly.validationResults.map((v) => v.code)).toContain('OVERTIME_ABOVE_BCEA_THRESHOLD');
   });
 
   it('reaches the line as a warning', () => {

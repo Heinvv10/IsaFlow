@@ -68,7 +68,7 @@ export function RunUnitCell({ id, kind, label, quantity, amount, hourlyRate, mul
         onChange={(e) => field.onTextChange(e.target.value)} onBlur={() => field.commit()}
         onKeyDown={(e) => { if (e.key === 'Enter') field.commit(); }} />
       {kind === 'travel' && (
-        <MoneyField id={`${id}-rate`} label={`Rate a km, ${label}`} value={rateCents} resetKey={resetKey} placeholder="Rate a km"
+        <MoneyField id={`${id}-rate`} label={`Rate a km, ${label}`} value={rateCents} resetKey={resetKey} placeholder="Rate a km" echoSuffix=" a km"
           onChange={(cents, validity) => {
             if (!validity.valid) { onRefuse(); return; }
             setRateCents(cents);
