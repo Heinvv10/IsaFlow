@@ -188,6 +188,9 @@
    {"line":75,"text":"FROM payroll_employee_components c","class":"S","owner":"FQb1","why":"assignment by id (DBF contribution mark)"},
    {"line":85,"text":"await tx`UPDATE payroll_employee_components SET db_fund_member_contribution = ${marked} WHERE id = ${assignmentId}::uuid`;","class":"S","owner":"FQb1","why":"assignment write by id"}
   ],
+  "src/modules/accounting/services/payroll/definedBenefitReadiness.ts": [
+   {"line":20,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"a set of employees over the tax year's final runs (DBF readiness), no per-month lookup"}
+  ],
   "src/modules/accounting/services/payroll/payrollComponentDateEdit.ts": [
    {"line":106,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQb1","why":"assignment by id"},
    {"line":114,"text":"FROM payroll_employee_components","class":"S","owner":"FQb1","why":"sibling assignments"},
