@@ -10,7 +10,9 @@
  *  - approve (payrollApprovalService): judgeGarnisheeBalances runs with the reads, before the first write, and refuses a
  *    run whose deduction is more than an order still owes (another approval moved the balance since this run was
  *    costed), or whose orders changed since it was costed (an order entered after calculation that is in force for the
- *    period, or one ended after calculation with an end date before the period): recalculate. applyRunGarnishees, after the header is approved, marks the run's deductions applied and
+ *    period, or one ended after calculation with an end date before the period): recalculate. A run that is already
+ *    'approved' (re-approved to post its journal, or a fresh one after a reversal) is not judged on its orders again:
+ *    its deductions were paid, and an order captured since belongs to a later run. applyRunGarnishees, after the header is approved, marks the run's deductions applied and
  *    sets each order's balance to its total debt less what is applied (an order reaching nil is 'satisfied').
  *  - reopen (payrollRunReopen): restoreRunGarnishees, after the header leaves 'approved', unmarks them and puts the
  *    balance back ('satisfied' returns to 'active').
@@ -71,10 +73,11 @@ export async function replaceRunGarnisheeDeductions(
 }
 
 /**
- * Before approval's first write: every unapplied deduction of the run fits what its order still owes.
+ * Before approval's first write: every unapplied deduction of the run fits what its order still owes, and (unless the
+ * run is already approved) no order was entered or ended since the run was costed.
  * Refused as PayrollApprovalRefusedError (a 4xx with nothing written). Locks the orders (FOR UPDATE) for the approval.
  */
-export async function judgeGarnisheeBalances(companyId: string, runId: string): Promise<void> {
+export async function judgeGarnisheeBalances(companyId: string, runId: string, alreadyApproved = false): Promise<void> {
   const rows = (await sql`
     SELECT o.creditor_name, o.instalment, o.balance, o.status, d.amount
       FROM payroll_garnishee_deductions d
@@ -88,6 +91,9 @@ export async function judgeGarnisheeBalances(companyId: string, runId: string): 
     throw new PayrollApprovalRefusedError(`${over.map((r) => `The garnishee order to ${orderName(r)} now owes ${formatMoney(Number(r.balance))} `
       + `but this run deducts ${formatMoney(Number(r.amount))}`).join('; ')}. Another approval changed the balance: recalculate the run.`);
   }
+  // A run already approved has paid its deductions: an order captured or ended since (court orders are usually
+  // backdated) must not stop its journal posting, and recalculating would deduct from a month already paid.
+  if (alreadyApproved) return;
   // Orders entered or ended since the run was costed, that change which orders the run's period takes (the loader's
   // own rule): the run still holds the old deductions. Employees on the run's lines; the run's calculation stamp.
   const stale = (await sql`
