@@ -152,6 +152,28 @@ export async function seedClearingReversal(
   ]);
 }
 
+/**
+ * The finalised VAT201 a settlement is posted against (wave 6 VR): an active VAT lock and version 1 for exactly the
+ * period, figures as `seedTradeVat` posts them (output 1000, input 300). Seed the trade first: the lock closes the period.
+ */
+export async function seedFinalisedVat201(
+  client: PoolClient, f: VatFixture, periodStart: string, periodEnd: string,
+): Promise<string> {
+  const lock = await client.query<{ id: string }>(
+    `INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
+     VALUES ($1, $2::DATE, $3::DATE, 1000, 300, 700, now(), 'fixture') RETURNING id`,
+    [f.companyId, periodStart, periodEnd],
+  );
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, status, figures,
+       posted_through, vat_period_lock_id, finalised_by)
+     VALUES ($1, 'VAT201', $2::DATE, $3::DATE, 1, 'finalised', '{"outputTax":1000,"inputTax":300,"netVat":700}'::JSONB,
+       now(), $4, 'fixture') RETURNING id`,
+    [f.companyId, periodStart, periodEnd, lock.rows[0]!.id],
+  );
+  return rows[0]!.id;
+}
+
 /** An OPEN fiscal period. `fiscal_periods_no_overlap` forbids overlapping ranges. */
 export async function seedFiscalPeriod(
   client: PoolClient, companyId: string,

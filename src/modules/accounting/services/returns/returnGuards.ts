@@ -7,7 +7,7 @@ const ACT_ROLES: readonly string[] = ['owner', 'admin', 'super_admin'];
 /** Whitespace and zero-width or invisible characters; migration 971 holds the SAME set in its trigger (keep the two in step). */
 const INVISIBLE = /[\s\u00AD\u0085\u00A0\u034F\u061C\u115F-\u1160\u1680\u17B4-\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{E0000}-\u{E0FFF}\u{13430}-\u{1343F}\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}]/gu;
 
-export function assertMayActOnReturns(role: string, what: 'file' | 'amend'): void {
+export function assertMayActOnReturns(role: string, what: 'file' | 'amend' | 'acknowledge a ledger gap on'): void {
   if (!ACT_ROLES.includes(role)) throw new ReturnRefusal(403, `Only an owner or admin can ${what} a return.`);
 }
 
