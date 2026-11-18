@@ -75,7 +75,7 @@ function NotesCell({
   return (
     <button
       onClick={() => setEditing(true)}
-      className={`text-xs truncate max-w-[140px] block text-left ${TOUCH_PAD} hover:text-[var(--ff-text-primary)] transition-colors`}
+      className={`text-xs truncate max-w-[112px] block text-left ${TOUCH_PAD} hover:text-[var(--ff-text-primary)] transition-colors`}
       title={value || 'Click to add note'}
       aria-label={value ? `Note, ${label}: ${value}` : `Add note, ${label}`}
     >
@@ -132,10 +132,10 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         {onOpenDetails ? (
           <button type="button" onClick={() => onOpenDetails(tx.id)} aria-label={`Details, ${label}`}
             className={`block w-full text-left hover:underline ${TOUCH_ROW}`}>
-            <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+            <span className="line-clamp-2 break-words text-xs" title={tx.description || undefined}>{tx.description || '—'}</span>
           </button>
         ) : (
-          <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+          <span className="line-clamp-2 break-words text-xs" title={tx.description || undefined}>{tx.description || '—'}</span>
         )}
         {isPendingFeedRow(tx) && <PendingFeedBadge />}
         <BankTxReviewBadge tx={tx} />
@@ -190,7 +190,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       {/* Selection — GL account / Supplier / Customer selector */}
       <BankTxSelectionCell tx={tx} sel={sel} rowType={rowType} isNew={isNew} label={label} table={table} dropdown={dropdown} />
       <td data-label="Rule" className="py-1 px-2">
-        <span className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[120px] block"
+        <span className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[96px] block"
           title={tx.allocationRuleName || ''}>
           {tx.allocationRuleName || '—'}
         </span>

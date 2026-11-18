@@ -118,7 +118,7 @@ export function useSupplierDimensionDefaults<T extends DimLine>(
   supplierId: string,
   setLines: (update: (prev: T[]) => T[]) => void,
   offered: OfferedMasters,
-): { defaults: SupplierLineDefaults; note: string } {
+): { defaults: SupplierLineDefaults; note: string; /** The held default FNO id ('' none): shown, as the CC1 of a line with no project, by the bill table. */ cc1Id: string } {
   const [held, setHeld] = useState<HeldDefaults>(NO_HELD);
   const [defaults, setDefaults] = useState<SupplierLineDefaults>(NONE);
   const applied = useRef<SupplierLineDefaults>(NONE);
@@ -140,5 +140,5 @@ export function useSupplierDimensionDefaults<T extends DimLine>(
   }, [held, cc2s, bus, status, setLines]);
 
   const fnoLabel = useDefaultFnoLabel(held.cc1Id);
-  return { defaults, note: defaultsNote(held, defaults, offered, fnoLabel) };
+  return { defaults, note: defaultsNote(held, defaults, offered, fnoLabel), cc1Id: held.cc1Id };
 }

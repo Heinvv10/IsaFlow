@@ -46,12 +46,22 @@ function stubLayout(scrollWidth: number, clientWidth: number): { fire: () => voi
 
 describe('sideways-scroll hint', () => {
   it('shows on every width where the line table overflows, and only then', async () => {
-    const layout = stubLayout(720, 600);
+    // 840 is wide enough to keep the table (the bill form stacks its lines below 820), yet narrower than its content.
+    const layout = stubLayout(900, 840);
     render(table([line('a')]));
     await waitFor(() => expect(screen.getByText(HINT)).toBeTruthy());
-    layout.setWidths(720, 720);
+    layout.setWidths(900, 900);
     layout.fire();
     await waitFor(() => expect(screen.queryByText(HINT)).toBeNull());
+  });
+
+  it('the bill form stacks its lines instead of scrolling when the region is too narrow for the columns', async () => {
+    stubLayout(720, 600);
+    render(table([line('a')]));
+    await waitFor(() => expect(screen.queryByRole('table')).toBeNull());
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.getByRole('region', { name: 'Invoice lines' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove line 1' })).toBeTruthy();
   });
 
   it('is absent when nothing overflows', () => {

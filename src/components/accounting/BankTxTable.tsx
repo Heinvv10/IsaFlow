@@ -65,20 +65,20 @@ export function BankTxTable(props: BankTxTableProps) {
                   aria-label="Select all transactions on this page" />
               </th>
               <th className={`${TH} w-24`}>Date</th>
-              <th className={TH}>Description</th>
-              <th className={`${TH} w-36`}>Notes</th>
+              <th className={`${TH} lg:min-w-[10rem]`}>Description</th>
+              <th className={`${TH} w-28 lg:min-w-[5rem]`}>Notes</th>
               <th className={`${TH} w-24`}>Type</th>
-              <th className={`${TH} w-52`}>Selection</th>
+              <th className={`${TH} w-52 lg:min-w-[9rem]`}>Selection</th>
               {/* Always rendered. Deriving its presence from the loaded rows made the
                   column appear and vanish between pages depending on which rows
                   happened to be rule-allocated. */}
-              <th className={`${TH} w-32`}>Rule</th>
+              <th className={`${TH} w-24 lg:min-w-[4.5rem]`}>Rule</th>
               <th className={`${TH} w-24`}>VAT</th>
               {showCC && <th className={`${TH} w-24`}>CC1</th>}
               {showCC && <th className={`${TH} w-24`}>CC2</th>}
               {showBU && <th className={`${TH} w-24`}>BU</th>}
-              <th className="py-2 px-2 font-medium text-right w-24">Spent</th>
-              <th className="py-2 px-2 font-medium text-right w-24">Received</th>
+              <th className="py-2 px-2 font-medium text-right w-24 lg:min-w-[5.5rem]">Spent</th>
+              <th className="py-2 px-2 font-medium text-right w-24 lg:min-w-[5.5rem]">Received</th>
               <th className="py-2 px-2 font-medium text-center w-16">Actions</th>
             </tr>
           </thead>

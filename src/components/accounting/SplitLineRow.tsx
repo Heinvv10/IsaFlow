@@ -97,7 +97,7 @@ export function SplitLineRow({
                 {options.map(o => (
                   <button key={o.id} onClick={() => onPick(o)}
                     className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2">
-                    {o.code && <span className="font-mono text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
+                    {o.code && <span className="font-mono text-[var(--ff-text-tertiary)] min-w-10 shrink-0">{o.code}</span>}
                     <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
                   </button>
                 ))}

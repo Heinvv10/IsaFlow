@@ -4,22 +4,20 @@
  * 870); the CC1 is derived from the CC2, never picked. The pickers are the
  * customer invoice table's, offering the same active masters.
  */
-import {
-  NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, classifyNonSupplyAccount,
-  type NonSupplyReason,
-} from '@/modules/accounting/services/gl/nonSupplyAccounts';
-import { useState } from 'react';
-import { Plus, Tags, Trash2 } from 'lucide-react';
-import { groupBillAccounts } from './billAccountOptions';
+import { useCallback, useState } from 'react';
+import { Plus, Tags } from 'lucide-react';
 import { useOverflowX } from '@/hooks/useOverflowX';
-import { formatCurrency } from '@/utils/formatters';
-import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { useElementWidth } from '@/hooks/useElementWidth';
 import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { billLineFields } from './BillLineFields';
+import { BillLinesCards, BillLinesTable } from './BillLineLayouts';
+import { useCostCentreLadder } from './billLineCc1';
 
-const inp =
-  'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ' +
-  'rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 ' +
-  'focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
+/** Narrower than this the columns would crush the description, so each line stacks as a card instead of a row. */
+const TABLE_MIN_WIDTH = 820;
+const TABLE_MIN_WIDTH_DIMENSIONS = 1060;
+/** Under this a stacked card puts every field on its own row. */
+const CARD_ONE_COLUMN = 420;
 
 export interface BillLineItem {
   key: string;
@@ -44,41 +42,6 @@ export interface GLAccount {
   accountType?: string;
 }
 
-/**
- * Why this line's account can never carry VAT, or null.
- *
- * `approveSupplierInvoice` posts `vatType: 'standard'` on every line whenever
- * the invoice's tax amount is non-zero, against whatever account the line
- * names — and until now no invoice screen said a word about it, while the bank
- * screens have warned since the guard shipped. An approver clicking through a
- * captured invoice miscoded to Salaries & Wages got no signal at all.
- *
- * WARNS, never blocks: same reasoning as the bank screens. The classification
- * is matched on account NAME and a handful of real names are ambiguous —
- * labour-broker wages, investment property, payroll software — so the choice
- * stays the approver's. Unlike the bank screens there is no unattended twin
- * here: nothing posts a supplier invoice on a schedule.
- *
- * WHAT THIS DOES NOT COVER, stated because the correspondence is not exact.
- * `approveSupplierInvoice` posts ONE combined VAT line from the invoice's
- * stored header `taxAmount` — the expense lines it builds carry no vatType at
- * all — so the posting decision is invoice-wide and blind to which line's
- * account is non-supply. On THIS screen the two agree, because the header tax
- * is the sum of the per-line tax (`new.tsx`, totalTax). On an invoice captured
- * or edited elsewhere they need not, and clearing every visible warning here
- * is not proof that the posted claim is clean. The exceptions report is what
- * checks the posted side.
- */
-function nonSupplyReason(
-  line: BillLineItem,
-  glAccounts: GLAccount[],
-): NonSupplyReason | null {
-  // No tax on the line means no claim to warn about, whatever the account is.
-  if (!(line.taxRate > 0)) return null;
-  const account = glAccounts.find(a => a.id === line.glAccountId);
-  return classifyNonSupplyAccount(account?.accountName ?? '');
-}
-
 interface Props {
   lines: BillLineItem[];
   glAccounts: GLAccount[];
@@ -88,7 +51,7 @@ interface Props {
   /** CC2 / BU picker options; without them the Dimensions toggle is not offered. */
   codingOptions?: InvoiceLineCodingOptions;
   /** The supplier's pre-filled CC2 / BU (migration 890) and what the server applies on save; see useSupplierDimensionDefaults. */
-  supplierDefaults?: { cc2Id: string; buId: string; note: string };
+  supplierDefaults?: { cc2Id: string; buId: string; note: string; /** The supplier's default FNO, shown as the CC1 of a line with no project. */ cc1Id?: string };
 }
 
 export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
@@ -97,6 +60,13 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
   // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
   const showDimensions = codingOptions !== undefined
     && (dimensionsToggled ?? lines.some(l => Boolean(l.cc2Id) || Boolean(l.buId)));
+  const ladder = useCostCentreLadder(showDimensions);
+  const { attach: attachWidth, width } = useElementWidth();
+  const attachRegion = useCallback((el: HTMLElement | null) => { attachLines(el); attachWidth(el); }, [attachLines, attachWidth]);
+  // Stack once the region cannot hold the columns (width 0 = not measured / no layout: keep the table).
+  const stacked = width > 0 && width < (showDimensions ? TABLE_MIN_WIDTH_DIMENSIONS : TABLE_MIN_WIDTH);
+  const ctx = { glAccounts, onUpdate, onRemove, codingOptions, supplierDefaults, ladder, showDimensions };
+  const rows = lines.map((line, i) => ({ key: line.key, f: billLineFields(line, i, ctx) }));
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
@@ -138,135 +108,15 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
         </p>
       )}
 
-      {linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
-      <div ref={attachLines} className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4" role="region" aria-label="Invoice lines" tabIndex={0}>
-        <table className="w-full min-w-[720px] text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800/60">
-            <tr>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">
-                Description
-              </th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-36">
-                GL Account
-              </th>
-              {showDimensions && (
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-36">
-                  CC2 project
-                </th>
-              )}
-              {showDimensions && (
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">
-                  BU
-                </th>
-              )}
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">
-                Qty
-              </th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">
-                Unit Price
-              </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">
-                Total
-              </th>
-              <th className="w-9" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {lines.map((line, index) => (
-              <tr
-                key={line.key}
-                className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
-              >
-                <td className="px-3 py-2">
-                  <input
-                    type="text"
-                    required
-                    value={line.description}
-                    onChange={e => onUpdate(line.key, 'description', e.target.value)}
-                    placeholder="Item description"
-                    className={inp}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <select
-                    aria-label={`Line ${index + 1} account`}
-                    value={line.glAccountId}
-                    onChange={e => onUpdate(line.key, 'glAccountId', e.target.value)}
-                    className={inp}
-                  >
-                    <option value="">Default (5100)</option>
-                    {groupBillAccounts(glAccounts).map(g => (
-                      <optgroup key={g.label} label={g.label}>
-                        {g.accounts.map(a => (
-                          <option key={a.id} value={a.id}>
-                            {a.accountCode} — {a.accountName}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                  {nonSupplyReason(line, glAccounts) && (
-                    <span
-                      className="mt-0.5 block text-xs leading-tight text-amber-500"
-                      title={NON_SUPPLY_ADVICE[nonSupplyReason(line, glAccounts)!]}
-                    >
-                      ⚠ {NON_SUPPLY_LABEL[nonSupplyReason(line, glAccounts)!]} — no supply, so no VAT
-                    </span>
-                  )}
-                </td>
-                {showDimensions && codingOptions && (
-                  <td className="px-3 py-2">
-                    <CodingPicker label="CC2 project" value={line.cc2Id ?? ''} options={codingOptions.cc2s} all={codingOptions}
-                      empty={supplierDefaults?.cc2Id ? 'Supplier default' : 'No CC2 project'} onChange={v => onUpdate(line.key, 'cc2Id', v)} />
-                  </td>
-                )}
-                {showDimensions && codingOptions && (
-                  <td className="px-3 py-2">
-                    <CodingPicker label="BU" value={line.buId ?? ''} options={codingOptions.bus} all={codingOptions}
-                      empty={supplierDefaults?.buId ? 'Supplier default' : 'No BU'} onChange={v => onUpdate(line.key, 'buId', v)} />
-                  </td>
-                )}
-                <td className="px-3 py-2">
-                  <input
-                    type="number"
-                    aria-label={`Line ${index + 1} quantity`}
-                    step="0.01"
-                    min="0.01"
-                    required
-                    value={line.quantity}
-                    onChange={e => onUpdate(line.key, 'quantity', Number(e.target.value))}
-                    className={`${inp} text-right`}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <input
-                    type="number"
-                    aria-label={`Line ${index + 1} unit price`}
-                    step="0.01"
-                    min="0"
-                    required
-                    value={line.unitPrice}
-                    onChange={e => onUpdate(line.key, 'unitPrice', Number(e.target.value))}
-                    className={`${inp} text-right`}
-                  />
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  {formatCurrency(line.quantity * line.unitPrice)}
-                </td>
-                <td className="px-2 py-2">
-                  <button
-                    type="button"
-                    aria-label={`Remove line ${index + 1}`}
-                    onClick={() => onRemove(line.key)}
-                    className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {!stacked && linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+      <div
+        ref={attachRegion}
+        className={stacked ? 'mx-5 my-4' : 'rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4'}
+        role="region" aria-label="Invoice lines" tabIndex={0}
+      >
+        {stacked
+          ? <BillLinesCards rows={rows} showDimensions={showDimensions} oneColumn={width < CARD_ONE_COLUMN} />
+          : <BillLinesTable rows={rows} showDimensions={showDimensions} />}
       </div>
     </div>
   );
