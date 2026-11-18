@@ -16,7 +16,7 @@ export const payrollTab: Tab = {
   href: '/payroll/runs',
   links: [
     { label: 'Pay Runs', href: '/payroll/runs' },
-    { label: 'Employees', href: '/payroll/employees' },
+    { label: 'Employee List', href: '/payroll/employees' },
     { label: 'Leave', href: '/payroll/leave' },
   ],
   topItems: [
