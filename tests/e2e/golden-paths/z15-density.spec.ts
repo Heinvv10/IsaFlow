@@ -2,7 +2,7 @@
 /**
  * Golden path (z15): table density works, and the P&L sits on the 4 px grid (master plan wave 4, DG).
  *
- * READ-ONLY, Demo company, dev only. The header toggle (`isaflow.tableDensity`) flips html[data-density]; in compact
+ * READ-ONLY, Demo company, dev only. The density toggle in the Settings cog's menu (`isaflow.tableDensity`) flips html[data-density]; in compact
  * the first body row of an ordinary list table is <= 34 px (py-1 cells), in comfortable it is the authored 49 px
  * for invoices, and it returns to 49 px when restored. Bank transaction and employee rows shrink. The income
  * statement's exempt grid row is the same height in both modes (it always runs: the P&L is exempt). Fixture tables in the
@@ -22,6 +22,13 @@ async function open(page: Page, path: string, density: 'comfortable' | 'compact'
   await expect(page.locator('html')).toHaveAttribute('data-density', density);
 }
 
+/** The density toggle sits in the Settings cog's menu (from lg; golden runs at 1280): open it once, then click. */
+async function pickDensity(page: Page, name: RegExp): Promise<void> {
+  const menu = page.getByRole('menu', { name: 'Settings' });
+  if (!(await menu.isVisible())) await page.locator('header').getByRole('button', { name: 'Settings', exact: true }).click();
+  await menu.getByRole('group', { name: 'Display' }).getByRole('button', { name }).click();
+}
+
 const firstRowHeight = async (page: Page): Promise<number> => {
   const row = page.locator('tbody tr').first();
   await expect(row).toBeVisible({ timeout: 30_000 });
@@ -32,10 +39,10 @@ test.describe('Table density and P&L grid', () => {
   test('invoice rows: 49 px comfortable, <= 34 px compact, 49 px again when restored', async ({ page }) => {
     await open(page, '/accounting/customer-invoices', 'comfortable');
     expect(await firstRowHeight(page)).toBeGreaterThanOrEqual(48);
-    await page.getByRole('button', { name: /^Compact/ }).first().click();
+    await pickDensity(page, /^Compact/);
     await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
     expect(await firstRowHeight(page)).toBeLessThanOrEqual(34);
-    await page.getByRole('button', { name: /^Comfortable/ }).first().click();
+    await pickDensity(page, /^Comfortable/);
     await expect(page.locator('html')).toHaveAttribute('data-density', 'comfortable');
     expect(await firstRowHeight(page)).toBeGreaterThanOrEqual(48);
   });
@@ -44,7 +51,7 @@ test.describe('Table density and P&L grid', () => {
     test(`${name} rows shrink in compact`, async ({ page }) => {
       await open(page, path, 'comfortable');
       const comfortable = await firstRowHeight(page);
-      await page.getByRole('button', { name: /^Compact/ }).first().click();
+      await pickDensity(page, /^Compact/);
       await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
       await expect.poll(() => firstRowHeight(page)).toBeLessThan(comfortable);
     });

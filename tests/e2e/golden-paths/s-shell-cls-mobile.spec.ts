@@ -22,6 +22,8 @@ import { SHELL_HEIGHTS } from '../../../src/components/layout/shellHeights';
 
 const EVIDENCE_DIR = 'docs/evidence/master-plan/wave1/shell';
 const INVOICES = '/accounting/customer-invoices';
+/** A page that keeps the section bar under the main row (a module reached through Library). */
+const ITEMS = '/accounting/items';
 /** What "the page has loaded" means on each page: its content, not a timer. */
 const LOADED: Record<string, string> = { '/accounting': '[data-tour="dashboard"]', [INVOICES]: 'main table tbody tr' };
 
@@ -93,15 +95,15 @@ for (const mode of ['top', 'side'] as const) {
 }
 
 // The skeleton's <main> and the shell's are different elements, so the layout-shift API cannot see a jump between
-// them: compare where each one starts instead.
+// them: compare where each one starts instead. On a page with a section bar (Inventory) and one without (Sales).
 for (const mode of ['top', 'side'] as const) {
-  test(`${mode} nav: the loading skeleton's content area starts where the shell's does`, async ({ page }) => {
+  for (const path of [INVOICES, ITEMS]) test(`${path}, ${mode} nav: the loading skeleton's content area starts where the shell's does`, async ({ page }) => {
     await page.setViewportSize({ width: 1568, height: 900 });
     if (mode === 'side') await page.addInitScript(() => localStorage.setItem('accounting-nav-mode', 'side'));
     let release = () => undefined as void;
     const held = new Promise<void>((r) => { release = r; });
     await page.route('**/api/auth/me*', async (route) => { await held; await route.continue(); });
-    await page.goto(INVOICES);
+    await page.goto(path);
     const skeleton = page.locator('main[aria-busy="true"]');
     await skeleton.waitFor();
     const before = await skeleton.boundingBox();
@@ -114,27 +116,33 @@ for (const mode of ['top', 'side'] as const) {
   });
 }
 
-test('the header and nav bars are exactly as tall as the slots ShellSkeleton reserves for them', async ({ page }) => {
-  await page.setViewportSize({ width: 1568, height: 844 });
-  await page.goto(INVOICES);
-  await settle(page);
-  const h = await page.evaluate(() => {
-    const height = (el: Element | null | undefined) => (el ? el.getBoundingClientRect().height : -1);
-    const navs = [...document.querySelectorAll('nav')].filter((n) => !n.closest('aside, main'));
-    return {
-      header: height(document.querySelector('header')),
-      topNav: height(navs[0]),
-      moduleNav: height(navs[1]?.closest('div.border-b')),
-      mainTop: document.querySelector('main')!.getBoundingClientRect().top,
-    };
+// Sales is on the main row, whose menu already holds its sections: no section bar, the page starts under the main
+// row. Inventory is reached through Library: its section bar stays.
+for (const [path, moduleNav] of [[INVOICES, false], [ITEMS, true]] as const) {
+  test(`${path}: the header and nav bars are exactly as tall as the slots ShellSkeleton reserves for them`, async ({ page }) => {
+    await page.setViewportSize({ width: 1568, height: 844 });
+    await page.goto(path);
+    await settle(page);
+    const h = await page.evaluate(() => {
+      const height = (el: Element | null | undefined) => (el ? el.getBoundingClientRect().height : -1);
+      const navs = [...document.querySelectorAll('nav')].filter((n) => !n.closest('aside, main'));
+      return {
+        header: height(document.querySelector('header')),
+        topNav: height(navs[0]),
+        moduleNav: height(navs[1]?.closest('div.border-b')),
+        mainTop: document.querySelector('main')!.getBoundingClientRect().top,
+      };
+    });
+    expect(h).toEqual(moduleNav
+      ? { ...SHELL_HEIGHTS, mainTop: SHELL_HEIGHTS.header + SHELL_HEIGHTS.topNav + SHELL_HEIGHTS.moduleNav }
+      : { header: SHELL_HEIGHTS.header, topNav: SHELL_HEIGHTS.topNav, moduleNav: -1, mainTop: SHELL_HEIGHTS.header + SHELL_HEIGHTS.topNav });
   });
-  expect(h).toEqual({ ...SHELL_HEIGHTS, mainTop: SHELL_HEIGHTS.header + SHELL_HEIGHTS.topNav + SHELL_HEIGHTS.moduleNav });
-});
+}
 
 test('at 200% text size the nav bars grow instead of running into the page (WCAG 1.4.4)', async ({ page }) => {
   await page.setViewportSize({ width: 1568, height: 900 });
   await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { document.documentElement.style.fontSize = '200%'; }));
-  await page.goto(INVOICES);
+  await page.goto(ITEMS);
   await settle(page);
   const r = await page.evaluate(() => {
     const navs = [...document.querySelectorAll('nav')].filter((n) => !n.closest('aside, main'));

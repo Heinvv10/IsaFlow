@@ -9,7 +9,7 @@ export const salesTab: Tab = {
     { label: 'Quotes', href: '/accounting/customer-quotes' },
     { label: 'Receipts', href: '/accounting/customer-payments' },
     { label: 'Credit Notes', href: '/accounting/credit-notes' },
-    { label: 'Customers', href: '/accounting/customers' },
+    { label: 'Customer List', href: '/accounting/customers' },
   ],
   topItems: [
     { label: 'Add a Customer', href: '/accounting/customers/new' },

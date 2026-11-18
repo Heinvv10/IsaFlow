@@ -15,10 +15,20 @@ describe('Create menu routes', () => {
     expect(existsSync(join(root, `pages${p}.tsx`)) || existsSync(join(root, `pages${p}/index.tsx`))).toBe(true);
   });
 
-  it('only New Quote carries a query, and it is exactly ?action=new', () => {
-    const withQuery = MENU_ITEMS.filter((i) => i.route.includes('?'));
-    expect(withQuery.map((i) => i.label)).toEqual(['New Quote']);
-    expect(withQuery[0].route).toBe('/accounting/customer-quotes?action=new');
+  it('holds exactly these seven, in this order, with these keys', () => {
+    expect(MENU_ITEMS.map((i) => [i.shortcutLetter, i.label, i.route])).toEqual([
+      ['I', 'New Invoice', '/accounting/customer-invoices/new'],
+      ['B', 'New Bill', '/accounting/supplier-invoices/new'],
+      ['O', 'New Purchase Order', '/accounting/purchase-orders/new'],
+      ['C', 'New Customer', '/accounting/customers/new'],
+      ['S', 'New Supplier', '/accounting/suppliers/new'],
+      ['P', 'Record Payment', '/accounting/customer-payments/new'],
+      ['J', 'New Journal Entry', '/accounting/journal-entries/new'],
+    ]);
+  });
+
+  it('no item carries a query string', () => {
+    expect(MENU_ITEMS.filter((i) => i.route.includes('?'))).toEqual([]);
   });
 
   it('Invoice and Bill match the command palette routes', () => {

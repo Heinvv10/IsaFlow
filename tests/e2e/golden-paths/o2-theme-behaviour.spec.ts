@@ -2,7 +2,7 @@
 /**
  * Golden path O2 - how the theme behaves (master plan 3b.1 / 3b.3), in a real browser.
  *
- *  - System follows the OS live; the header control switches theme; a saved Light survives a reload.
+ *  - System follows the OS live; the Settings menu's control switches theme; a saved Light survives a reload.
  *  - Public / customer-facing paths are light whatever is saved.
  *  - Phone width: the theme control and Log out are reachable (they live in the account menu).
  *  - Panels that are dark in both themes keep their text colour in the light theme; a
@@ -29,18 +29,23 @@ test.describe('preference', () => {
     await expect.poll(() => rootTheme(page)).toEqual({ dark: false, scheme: 'light' });
   });
 
-  test('the header control switches theme and a saved Light survives a reload', async ({ page }) => {
+  test('the Settings menu control switches theme and a saved Light survives a reload', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
     await settle(page);
-    await page.getByRole('button', { name: 'Light', exact: true }).click();
+    // From lg the theme control sits in the Settings cog's menu, not in the header bar.
+    const light = page.getByRole('menu', { name: 'Settings' }).getByRole('group', { name: 'Colour theme' }).getByRole('button', { name: 'Light', exact: true });
+    const openCog = () => page.locator('header').getByRole('button', { name: 'Settings', exact: true }).click();
+    await openCog();
+    await light.click();
     await expect.poll(() => rootTheme(page)).toEqual({ dark: false, scheme: 'light' });
     expect(await page.evaluate(() => window.localStorage.getItem('accounting-theme'))).toBe('light');
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await settle(page);
     expect(await rootTheme(page)).toEqual({ dark: false, scheme: 'light' });
-    await expect(page.getByRole('button', { name: 'Light', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await openCog();
+    await expect(light).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('the client portal is light with Dark saved, and passes axe color-contrast', async ({ page }) => {

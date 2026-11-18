@@ -7,6 +7,7 @@
  */
 import { isFlyout, type Tab, type NavItem } from './types';
 import { pathMatchesHref, hrefSpecificity, moreSpecific } from './activeTab';
+import { TABS } from '../accountingNavConfig';
 
 import { salesTab } from './sales';
 import { purchasesTab } from './purchases';
@@ -22,6 +23,15 @@ export const MODULE_BY_ID: Record<string, Tab> = {
   sales: salesTab, purchases: purchasesTab, inventory: inventoryTab, accounting: accountingTab,
   reports: reportsTab, tax: taxTab, payroll: payrollTab, practice: practiceTab,
 };
+
+/**
+ * Whether the module's section bar shows under the main row. A module with its own main-row tab (TABS) already opens
+ * every section from that tab's menu, so a bar there only repeats it (tests/unit/components/sectionBarDuplicate.test.tsx
+ * proves it link by link); a module reached through Library has no other always-visible menu and keeps its bar.
+ */
+export function hasSectionBar(moduleId: string): boolean {
+  return !!MODULE_BY_ID[moduleId] && !TABS.some((t) => t.id === moduleId);
+}
 
 /** Each top-level section of a module → a dropdown tab for ModuleNav. */
 export function moduleSectionsToTabs(moduleTab: Tab): Tab[] {

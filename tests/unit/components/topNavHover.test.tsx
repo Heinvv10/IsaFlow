@@ -279,7 +279,7 @@ describe('top-nav ArrowDown', () => {
     const chevron = within(tab('banking')).getByRole('button', { name: 'Banking menu' });
     chevron.focus();
     fireEvent.keyDown(chevron, { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(within(tab('banking')).getByRole('link', { name: 'Transactions' }));
+    expect(document.activeElement).toBe(within(tab('banking')).getByRole('link', { name: 'Bank Transactions' }));
   });
 });
 

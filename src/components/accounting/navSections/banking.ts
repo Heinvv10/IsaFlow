@@ -5,7 +5,7 @@ export const bankingTab: Tab = {
   href: '/accounting/bank-transactions',
   // Sections render as hover-only rows; the daily set is surfaced as direct links.
   links: [
-    { label: 'Transactions', href: '/accounting/bank-transactions' },
+    { label: 'Bank Transactions', href: '/accounting/bank-transactions' },
     { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
     { label: 'Transfers', href: '/accounting/bank-transfers' },
     { label: 'Import Statement', href: '/accounting/bank-reconciliation/import' },

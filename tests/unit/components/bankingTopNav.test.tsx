@@ -13,7 +13,7 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { TABS, getActiveTabId } from '@/components/accounting/accountingNavConfig';
 
 const DAILY: Array<[string, string]> = [
-  ['Transactions', '/accounting/bank-transactions'],
+  ['Bank Transactions', '/accounting/bank-transactions'],
   ['Reconcile', '/accounting/bank-reconciliation'],
   ['Transfers', '/accounting/bank-transfers'],
   ['Import Statement', '/accounting/bank-reconciliation/import'],

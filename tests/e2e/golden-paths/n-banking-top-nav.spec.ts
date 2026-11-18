@@ -16,7 +16,7 @@
 import { test, expect, openWithNav, waitForRoute, waitForClickNavigation } from '../helpers/navSpec';
 
 const LINKS: Array<{ name: string; path: RegExp }> = [
-  { name: 'Transactions', path: /\/accounting\/bank-transactions$/ },
+  { name: 'Bank Transactions', path: /\/accounting\/bank-transactions$/ },
   { name: 'Reconcile', path: /\/accounting\/bank-reconciliation$/ },
   { name: 'Transfers', path: /\/accounting\/bank-transfers$/ },
   { name: 'Import Statement', path: /\/accounting\/bank-reconciliation\/import$/ },

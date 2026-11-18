@@ -22,11 +22,11 @@ import {
   Plus,
   FileText,
   Receipt,
-  FileCheck,
+  ClipboardList,
   CreditCard,
   BookOpen,
   UserPlus,
-  ArrowLeftRight,
+  Truck,
   LucideIcon,
 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -44,13 +44,13 @@ interface MenuItem {
 }
 
 export const MENU_ITEMS: MenuItem[] = [
-  { label: 'New Invoice',       icon: FileText,        route: '/accounting/customer-invoices/new',      shortcutLetter: 'I' },
-  { label: 'New Bill',          icon: Receipt,         route: '/accounting/supplier-invoices/new',      shortcutLetter: 'B' },
-  { label: 'New Quote',         icon: FileCheck,       route: '/accounting/customer-quotes?action=new',   shortcutLetter: 'Q' },
-  { label: 'Record Payment',    icon: CreditCard,      route: '/accounting/customer-payments/new',        shortcutLetter: 'P' },
-  { label: 'New Journal Entry', icon: BookOpen,        route: '/accounting/journal-entries/new',          shortcutLetter: 'J' },
-  { label: 'New Contact',       icon: UserPlus,        route: '/accounting/customers/new',                shortcutLetter: 'C' },
-  { label: 'Bank Transfer',     icon: ArrowLeftRight,  route: '/accounting/bank-transfers',               shortcutLetter: 'T' },
+  { label: 'New Invoice',        icon: FileText,      route: '/accounting/customer-invoices/new',  shortcutLetter: 'I' },
+  { label: 'New Bill',           icon: Receipt,       route: '/accounting/supplier-invoices/new',  shortcutLetter: 'B' },
+  { label: 'New Purchase Order', icon: ClipboardList, route: '/accounting/purchase-orders/new',    shortcutLetter: 'O' },
+  { label: 'New Customer',       icon: UserPlus,      route: '/accounting/customers/new',          shortcutLetter: 'C' },
+  { label: 'New Supplier',       icon: Truck,         route: '/accounting/suppliers/new',          shortcutLetter: 'S' },
+  { label: 'Record Payment',     icon: CreditCard,    route: '/accounting/customer-payments/new',  shortcutLetter: 'P' },
+  { label: 'New Journal Entry',  icon: BookOpen,      route: '/accounting/journal-entries/new',    shortcutLetter: 'J' },
 ];
 
 // Map shortcut letter → index for quick lookup

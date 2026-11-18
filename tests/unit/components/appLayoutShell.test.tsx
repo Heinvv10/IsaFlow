@@ -48,7 +48,7 @@ const go = (pathname: string) => { h.router.pathname = pathname; h.router.asPath
 const page = (body: ReactNode = <p>page</p>) => <AppLayout>{body}</AppLayout>;
 const hamburger = () => screen.getByRole('button', { name: 'Open menu' });
 
-beforeEach(() => { go('/accounting'); h.auth.loading = false; h.router.push.mockClear(); h.auth.logout.mockClear(); localStorage.clear(); });
+beforeEach(() => { go('/accounting'); h.router.query = {}; h.auth.loading = false; h.router.push.mockClear(); h.auth.logout.mockClear(); localStorage.clear(); });
 afterEach(cleanup);
 
 describe('AppLayout announcements', () => {
@@ -99,13 +99,30 @@ describe('AppLayout', () => {
   });
 
   it('hands a page\'s navPath to the secondary nav, and nothing when the page gives none', () => {
-    go('/accounting/afs/[documentId]');
-    const { unmount } = render(<AppLayout navPath="/accounting/afs/p1?type=management_pack"><p>page</p></AppLayout>);
-    expect(screen.getByTestId('secondary-nav').getAttribute('data-module')).toBe('reports');
-    expect(screen.getByTestId('secondary-nav').getAttribute('data-nav-path')).toBe('/accounting/afs/p1?type=management_pack');
+    go('/accounting/items/[id]');
+    const { unmount } = render(<AppLayout navPath="/accounting/items/i1"><p>page</p></AppLayout>);
+    expect(screen.getByTestId('secondary-nav').getAttribute('data-module')).toBe('inventory');
+    expect(screen.getByTestId('secondary-nav').getAttribute('data-nav-path')).toBe('/accounting/items/i1');
     unmount();
     render(page());
     expect(screen.getByTestId('secondary-nav').getAttribute('data-nav-path')).toBe('');
+  });
+
+  // A module on the main row opens its sections from its own tab's menu, so a section bar there repeats it.
+  it.each([
+    ['/accounting/supplier-invoices', {}, null], ['/accounting/customer-invoices', {}, null],
+    ['/accounting/reports/balance-sheet', {}, null], ['/accounting/afs/[documentId]', {}, null],
+    ['/payroll/employees', {}, null], ['/accounting/sars/vat201', {}, null], ['/accounting/bank-transactions', {}, null],
+    ['/accounting/items', {}, 'inventory'], ['/accounting', { tab: 'chart-of-accounts' }, 'accounting'], ['/accounting/practice/clients', {}, 'practice'],
+  ] as const)('%s %j: section bar %s, and the skeleton reserves its row exactly then', (pathname, query, module) => {
+    go(pathname);
+    h.router.query = query;
+    const { unmount } = render(page());
+    expect(screen.queryByTestId('secondary-nav')?.getAttribute('data-module') ?? null).toBe(module);
+    unmount();
+    h.auth.loading = true;
+    render(page());
+    expect(!!screen.queryByTestId('shell-module-nav')).toBe(module !== null);
   });
 
   it('mounts PayrollPeriodBar on /payroll pages only, by segment', () => {

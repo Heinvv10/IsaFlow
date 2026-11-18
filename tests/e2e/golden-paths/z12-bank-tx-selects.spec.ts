@@ -185,14 +185,18 @@ for (const theme of THEMES) {
       await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `bank-tx-kit-selects-${theme}.png`) });
       await page.keyboard.press('Escape');
-      // UXB: the row is 41 px (py-1 cells, sm selects), and 33 px once the header toggle says compact (xs selects).
+      // UXB: the row is 41 px (py-1 cells, sm selects), and 33 px once the density toggle says compact (xs selects).
       const rowHeight = async () => (await row.boundingBox())!.height;
       expect(Math.abs((await rowHeight()) - 41), `comfortable row is ${await rowHeight()} px`).toBeLessThanOrEqual(1);
-      await page.getByRole('button', { name: /^Compact/ }).first().click();
+      // The density toggle sits in the Settings cog's menu (from lg); the menu is closed again before the row is used.
+      await page.locator('header').getByRole('button', { name: 'Settings', exact: true }).click();
+      const density = page.getByRole('menu', { name: 'Settings' }).getByRole('group', { name: 'Table row density' });
+      await density.getByRole('button', { name: /^Compact/ }).click();
       await expect.poll(rowHeight).toBeLessThanOrEqual(34);
       expect(Math.abs((await rowHeight()) - 33), `compact row is ${await rowHeight()} px`).toBeLessThanOrEqual(1);
-      await page.getByRole('button', { name: /^Comfortable/ }).first().click();
+      await density.getByRole('button', { name: /^Comfortable/ }).click();
       await expect.poll(rowHeight).toBeGreaterThanOrEqual(40);
+      await page.keyboard.press('Escape');
       // UXB: the customer picker is reachable at 1568x900: inside the viewport, search box and an option visible.
       await row.getByRole('combobox', { name: /^Allocation type, / }).click();
       await page.getByRole('option', { name: 'Customer', exact: true }).click();

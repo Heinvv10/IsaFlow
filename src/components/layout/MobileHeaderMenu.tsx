@@ -1,7 +1,8 @@
 /**
  * MobileHeaderMenu — below the lg breakpoint the header has no room for the theme, density and
  * navigation-mode controls, the user's name or Log out, so they live in this one menu. From lg up (xl in sidebar
- * mode) AppHeader shows them inline and this menu is hidden.
+ * mode) this menu is hidden: AppHeader shows the nav mode, the user and Log out inline, and the theme and density
+ * toggles sit in the Settings cog's menu (inline on the admin host, which has no cog).
  */
 import { useEffect, useRef, useState } from 'react';
 import { LogOut, PanelLeft, PanelTop, User } from 'lucide-react';
