@@ -36,10 +36,12 @@ function fakes(w: World): { db: Db & { end(): Promise<void> }; gt: GoTrueOps } {
       if (s === 'COMMIT') { if (w.failCommit) throw new Error('commit failed'); snapshot = null; w.log.push('COMMIT'); return rows([]); }
       if (s === 'ROLLBACK') { if (snapshot) { w.users = snapshot.users; w.companies = snapshot.companies; } w.log.push('ROLLBACK'); return rows([]); }
       if (/^SELECT id::text AS id FROM users/.test(s)) return rows([...w.users].filter(([, e]) => e.toLowerCase() === String(p[0]).toLowerCase()).map(([id]) => ({ id })));
-      if (/^SELECT count\(\*\)::int AS n FROM companies/.test(s)) return rows([{ n: w.companies.filter((c) => c.email.toLowerCase() === String(p[0]).toLowerCase() && /^601d000/.test(c.id)).length }]);
+      // The id pattern is read from the statement itself, so a statement that drops it matches the stranger company too.
+      const idRe = (): RegExp => { const m = /id::text ~ '([^']+)'/.exec(s); return m ? new RegExp(m[1]!) : /./; };
+      if (/^SELECT count\(\*\)::int AS n FROM companies/.test(s)) return rows([{ n: w.companies.filter((c) => c.email.toLowerCase() === String(p[0]).toLowerCase() && idRe().test(c.id)).length }]);
       if (/^SELECT email FROM users/.test(s)) return rows([...w.users.values()].filter((e) => e.endsWith(String(p[0]))).map((email) => ({ email })));
       if (/^UPDATE users SET email/.test(s)) { w.log.push('UPDATE users'); for (const [id, e] of w.users) if (id === p[0] && e.toLowerCase() === String(p[2]).toLowerCase()) w.users.set(id, String(p[1])); return rows([]); }
-      if (/^UPDATE companies SET email/.test(s)) { w.log.push('UPDATE companies'); for (const c of w.companies) if (c.email.toLowerCase() === String(p[1]).toLowerCase() && /^601d000/.test(c.id)) c.email = String(p[0]); return rows([]); }
+      if (/^UPDATE companies SET email/.test(s)) { w.log.push('UPDATE companies'); for (const c of w.companies) if (c.email.toLowerCase() === String(p[1]).toLowerCase() && idRe().test(c.id)) c.email = String(p[0]); return rows([]); }
       throw new Error(`unexpected SQL: ${s}`);
     },
   };

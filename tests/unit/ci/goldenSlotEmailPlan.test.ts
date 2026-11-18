@@ -98,13 +98,14 @@ describe('planEnvRewrite', () => {
     'GOLDEN_SLOT_1_NOTE=xyz-@isaflow.dev-inside',
     'SMTP_FROM=IsaFlow <noreply@isaflow.dev>',
     'OTHER_EMAIL=someone@isaflow.dev',
+    'LOGIN_HINT=use golden-slot-1@isaflow.dev to sign in',
     '',
   ].join('\n');
 
   it('rewrites a line only when its whole value is a known old address, and reports key names only', () => {
     const r = planEnvRewrite(text, knownAccounts());
     expect(r.changedKeys).toEqual(['GOLDEN_SLOT_1_EMAIL', 'GOLDEN_SLOT_2_EMAIL']);
-    expect(r.unrecognisedKeys).toEqual(['GOLDEN_SLOT_1_NOTE', 'SMTP_FROM', 'OTHER_EMAIL']);
+    expect(r.unrecognisedKeys).toEqual(['GOLDEN_SLOT_1_NOTE', 'SMTP_FROM', 'OTHER_EMAIL', 'LOGIN_HINT']);
     expect(r.text.split('\n')).toEqual([
       'DATABASE_URL=postgres://u@h:1/isaflow_dev',
       'GOLDEN_SLOT_1_EMAIL=golden-slot-1@isaflow.co.za',
@@ -113,6 +114,7 @@ describe('planEnvRewrite', () => {
       'GOLDEN_SLOT_1_NOTE=xyz-@isaflow.dev-inside',
       'SMTP_FROM=IsaFlow <noreply@isaflow.dev>',
       'OTHER_EMAIL=someone@isaflow.dev',
+      'LOGIN_HINT=use golden-slot-1@isaflow.dev to sign in',
       '',
     ]);
   });
