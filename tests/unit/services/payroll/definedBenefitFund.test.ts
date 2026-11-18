@@ -100,6 +100,14 @@ describe('X = A x B - C [Seventh Schedule para 12D(3), via Sage Pocket Guide 202
     expect(out[3]).toMatchObject({ amount: 6_500, dbEmployeeContribution: 1_500 });
   });
 
+  it('two marked 4001 rows (one likely an AVC): an error naming both, which blocks approval (breaker L2)', () => {
+    const warnings: ValidationResult[] = [];
+    costDefinedBenefitFund([salary(20_000), own('4001', 1_500), own('4001', 1_000, { component: { ...comp('4001', { componentType: 'deduction' }), name: 'Pension AVC' } }), db('3817', 0.4)], warnings);
+    const err = warnings.filter((w) => w.severity === 'error');
+    expect(err.map((w) => w.code)).toEqual(['DB_FUND_MEMBER_CONTRIBUTION_MULTIPLE']);
+    expect(err[0]!.message).toMatch(/more than one 4001 deduction is marked .*\(Code 4001, Pension AVC\).*AVC/);
+  });
+
   it('4001 deductions with none marked: an error naming the fix (blocks approval); a line with none is non-contributory', () => {
     const warnings: ValidationResult[] = [];
     costDefinedBenefitFund([salary(20_000), ee('4001', 1_500), db('3817', 0.4)], warnings);

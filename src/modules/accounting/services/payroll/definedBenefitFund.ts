@@ -125,6 +125,12 @@ export function costDefinedBenefitFund(components: readonly EmployeeComponent[],
       warnings.push({ code: 'DB_FUND_MEMBER_CONTRIBUTION_UNMARKED', severity: 'error',
         message: `${c.component.name}: mark the employee's compulsory contribution to this fund. The line has ${own} deductions but none is marked as the contribution to the defined-benefit fund, so C (para 12D(3)) is unknown.` });
     }
+    if (marked.length > 1) {
+      warnings.push({ code: 'DB_FUND_MEMBER_CONTRIBUTION_MULTIPLE', severity: 'error',
+        message: `${c.component.name}: more than one ${own} deduction is marked as the compulsory contribution to this fund `
+          + `(${marked.map((d) => d.component.name).join(', ')}). One is likely a voluntary contribution (AVC), which is not C (para 12D(3)): `
+          + 'untick it on the employee profile and recalculate.' });
+    }
     const employeeContribution = cTaken.has(own) ? 0 : round2(marked.reduce((s, d) => s + d.amount, 0));
     cTaken.add(own);
     const value = round2(factor * Math.max(0, rfi) - employeeContribution);

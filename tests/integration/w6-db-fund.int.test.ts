@@ -153,7 +153,7 @@ describe('assigning: every refusal writes nothing', () => {
     expect([made.statusCode, made.body.data]).toEqual([201, expect.objectContaining({ amount: 2200, dbMemberCategoryFactor: 0.4, dbMemberRetired: false })]);
     row.dbA = String(made.body.data!.id);
     row.pensionA = String((await assign(A, { componentId: pensionComp[A], amount: 1500 })).body.data!.id);
-    expect((await assign(A, { componentId: avcComp[A], amount: 1000 })).statusCode).toBe(201);
+    row.avcA = String((await assign(A, { componentId: avcComp[A], amount: 1000 })).body.data!.id);
     expect((await assign(B, { componentId: dbComp[B], amount: 15_000, dbMemberCategoryFactor: 0.04 })).statusCode).toBe(201);
     row.pensionB = String((await assign(B, { componentId: pensionComp[B], amount: 10_000 })).body.data!.id);
   });
@@ -193,6 +193,11 @@ describe('C is the marked contribution; none marked blocks approval', () => {
     expect(await count('SELECT count(*) AS n FROM payroll_employee_components WHERE id = $1 AND db_fund_member_contribution', [row.pensionA])).toBe(0);
     await pool.query('DELETE FROM payroll_employees WHERE id = $1', [other]);
     expect((await mark(A, row.pensionA!, true)).statusCode).toBe(200);
+    // A second marked 4001 overlapping it (the AVC) is a 409 and stays unmarked (breaker L2); unmarking is never refused.
+    const second = await mark(A, row.avcA!, true);
+    expect([second.statusCode, String(second.body.error?.message)]).toEqual([409, expect.stringMatching(/Pension is already marked .*AVC/)]);
+    expect(await count('SELECT count(*) AS n FROM payroll_employee_components WHERE id = $1 AND db_fund_member_contribution', [row.avcA])).toBe(0);
+    expect((await mark(A, row.avcA!, false)).statusCode).toBe(200);
     expect((await mark(B, row.pensionB!, true)).statusCode).toBe(200);
     expect(await count("SELECT count(*) AS n FROM audit_log WHERE entity_id = $1 AND changes->'metadata'->>'kind' = 'db_fund_contribution_mark'", [row.pensionA])).toBe(1);
     expect((await runLinesRefusal(A, runA))?.code).toBe('components_changed_after_calculation');

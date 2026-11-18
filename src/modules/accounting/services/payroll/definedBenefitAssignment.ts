@@ -8,7 +8,7 @@
  * - the employee's 4001 / 4003 deduction that is the compulsory contribution to the fund is marked
  *   (db_fund_member_contribution), so C in para 12D(3) excludes voluntary contributions, buy-back and other funds. The
  *   mark is a tax valuation input: refused to a Login-as session, audited (the approval gate then refuses a run
- *   calculated before it), and only on a 4001 / 4003 deduction of the company.
+ *   calculated before it), only on a 4001 / 4003 deduction of the employee named, and one live marked row per code (409).
  */
 import { withTransaction, type DbRow, type TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -62,6 +62,28 @@ export async function refuseSecondDbFactorRow(
 }
 
 /**
+ * Another live row of the same code, already marked, overlapping this one for the employee (#1571 breaker L2): two marked
+ * rows would put a voluntary contribution into C and understate X. Refused (DbFactorConflict, 409), as one factor per kind is.
+ */
+async function refuseSecondTick(tx: TxSql, companyId: string, employeeId: string, assignmentId: string, code: string): Promise<void> {
+  const rows = (await tx`
+    SELECT pc.name, o.effective_from, o.effective_to
+      FROM payroll_employee_components me
+      JOIN payroll_employee_components o ON o.employee_id = me.employee_id AND o.id <> me.id AND o.db_fund_member_contribution
+      JOIN payroll_components pc ON pc.id = o.component_id AND pc.company_id = ${companyId}::uuid AND btrim(pc.sars_source_code) = ${code}
+     WHERE me.id = ${assignmentId}::uuid AND me.employee_id = ${employeeId}::uuid
+       AND (o.effective_to IS NULL OR o.effective_to >= o.effective_from)
+       AND o.effective_from <= COALESCE(me.effective_to, 'infinity'::date) AND COALESCE(o.effective_to, 'infinity'::date) >= me.effective_from
+     ORDER BY o.id FOR UPDATE OF o
+  `) as DbRow[];
+  if (rows[0]) {
+    throw new DbFactorConflict(`${String(rows[0].name)} is already marked as this employee's compulsory ${code} contribution to the fund `
+      + `(${fmtDate(rows[0].effective_from)} to ${rows[0].effective_to ? fmtDate(rows[0].effective_to) : 'open-ended'}): only one row is C. `
+      + 'A second is likely a voluntary contribution (AVC); untick the other first if this one is the compulsory contribution.');
+  }
+}
+
+/**
  * Mark (or unmark) the employee's 4001 / 4003 deduction assignment as the compulsory contribution to the defined-benefit
  * fund. Returns false when the assignment is not that employee's in the company (the URL's employee, so one employee's page
  * cannot mark another's row). Refused to a Login-as session, before any read or write.
@@ -85,6 +107,7 @@ export async function setDbFundMemberContribution(
       throw new EmployeeComponentRefused('Only the employee\'s pension (4001) or provident (4003) fund contribution can be marked as the '
         + 'contribution to a defined-benefit fund.');
     }
+    if (marked) await refuseSecondTick(tx, companyId, employeeId, assignmentId, String(row.code));
     await tx`UPDATE payroll_employee_components SET db_fund_member_contribution = ${marked} WHERE id = ${assignmentId}::uuid`;
     const window = { from: fmtDate(row.effective_from), to: row.effective_to ? fmtDate(row.effective_to) : null, recurring: row.is_recurring !== false };
     await auditComponentChange(tx, companyId, assignmentId, window, window, 'db_fund_contribution_mark', actor);
