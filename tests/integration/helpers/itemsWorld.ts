@@ -52,7 +52,7 @@ export function as(pool: Pool, s: Side) {
 
 const WRITE_TOOLS = new Set([
   'bulk_upsert_items', 'update_item', 'deactivate_item', 'upsert_item_category', 'create_supplier_invoice', 'create_draft_invoice',
-  'create_draft_quote', 'bulk_create_supplier_invoices', 'bulk_create_customer_invoices',
+  'create_draft_quote', 'bulk_create_supplier_invoices', 'bulk_create_customer_invoices', 'update_supplier_invoice',
 ]);
 
 export const CATEGORIES = ['optics', 'stringing', 'backhaul', 'activations', 'poles', 'tools'] as const;

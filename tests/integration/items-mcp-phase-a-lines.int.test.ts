@@ -8,6 +8,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import purchaseOrders from '../../pages/api/accounting/purchase-orders';
+import invoiceDetail from '../../pages/api/accounting/customer-invoices-detail';
+import quotesRoute from '../../pages/api/accounting/customer-quotes';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { as, cleanupWorld, itemsWorld, type ItemsWorld } from './helpers/itemsWorld';
 import { callRoute } from './helpers/onboardingSetupFixture';
@@ -153,5 +155,87 @@ describe('a refused line leaves the other company untouched', () => {
     const mine = await B.ok('create_draft_invoice', { customer_id: w.b.customer, items: [{ description: 'b line', unit_price: 3, item_id: foreignItem }], invoice_date: '2026-11-10' });
     expect(await line('customer_invoice_items', 'invoice_id', String(mine.id))).toEqual([{ item_id: foreignItem, gl_account_id: w.b.revenue }]);
     expect(text(await B.run('create_draft_invoice', { customer_id: w.b.customer, items: [{ description: 'x', unit_price: 1, item_id: item }] }))).toMatch(/not an item of your company/);
+  });
+});
+
+describe('draft edits that REPLACE the lines carry item_id like create (update_supplier_invoice, customer invoice PUT, quote PUT)', () => {
+  const put = (route: unknown, body: Record<string, unknown>, url: string) => callRoute(route, w.a.u, body, url, 'PUT');
+
+  describe('update_supplier_invoice', () => {
+    let billId: string;
+    const lines = (...l: Array<Record<string, unknown>>) => l;
+    const base = { description: 'by item', quantity: 2, unit_price: 10 };
+
+    it('a line naming a NEW item takes its purchases account and stores item_id', async () => {
+      billId = String((await A.ok('create_supplier_invoice', bill(lines({ description: 'plain', quantity: 1, unit_price: 5 }), 'E1'))).id);
+      await A.ok('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, item_id: item }) });
+      expect(await line('supplier_invoice_items', 'supplier_invoice_id', billId)).toEqual([{ item_id: item, gl_account_id: w.a.expense }]);
+    });
+
+    it('a re-sent line WITHOUT item_id keeps the stored link even after the item is deactivated; null clears it', async () => {
+      const spare = await A.ok('bulk_upsert_items', { items: [{ code: 'E-SPARE', description: 'x', purchases_account_id: w.a.expense }] });
+      const spareId = String((spare.rows as Array<{ id: string }>)[0]!.id);
+      await A.ok('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, item_id: spareId }) });
+      await A.ok('deactivate_item', { item_id: spareId });
+      await A.ok('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, gl_account_id: w.a.expense }), notes: 'resave' });
+      expect((await line('supplier_invoice_items', 'supplier_invoice_id', billId))[0]).toMatchObject({ item_id: spareId });
+      await A.ok('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, gl_account_id: w.a.expense, item_id: null }) });
+      expect((await line('supplier_invoice_items', 'supplier_invoice_id', billId))[0]).toMatchObject({ item_id: null });
+    });
+
+    it('refuses an inactive or another company\'s item and leaves the lines as they were', async () => {
+      await A.ok('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, item_id: item }) });
+      expect(text(await A.run('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, item_id: inactiveItem }) }))).toMatch(/lines\[0\]\.item_id is an inactive item/);
+      expect(text(await A.run('update_supplier_invoice', { invoice_id: billId, lines: lines({ ...base, item_id: foreignItem }) }))).toMatch(/not an item of your company/);
+      expect(await line('supplier_invoice_items', 'supplier_invoice_id', billId)).toEqual([{ item_id: item, gl_account_id: w.a.expense }]);
+    });
+  });
+
+  describe('customer invoice PUT /customer-invoices-detail', () => {
+    let invId: string;
+    const url = '/api/accounting/customer-invoices-detail';
+    const row = { description: 'by item', quantity: 3, unitPrice: 20 };
+
+    it('a NEW item defaults the sales account; a line sent without itemId keeps the stored link; itemId null clears it', async () => {
+      invId = String((await A.ok('create_draft_invoice', invoice([{ description: 'plain', unit_price: 1 }]))).id);
+      const r1 = await put(invoiceDetail, { id: invId, items: [{ ...row, itemId: item }] }, url);
+      expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+      expect(await line('customer_invoice_items', 'invoice_id', invId)).toEqual([{ item_id: item, gl_account_id: w.a.revenue }]);
+      const r2 = await put(invoiceDetail, { id: invId, items: [{ ...row }] }, url);
+      expect(r2.status, JSON.stringify(r2.body)).toBe(200);
+      expect((await line('customer_invoice_items', 'invoice_id', invId))[0]).toMatchObject({ item_id: item });
+      const r3 = await put(invoiceDetail, { id: invId, items: [{ ...row, itemId: null }] }, url);
+      expect(r3.status).toBe(200);
+      expect((await line('customer_invoice_items', 'invoice_id', invId))[0]).toMatchObject({ item_id: null });
+    });
+
+    it('answers 400 for an inactive or another company\'s item and changes nothing', async () => {
+      await put(invoiceDetail, { id: invId, items: [{ ...row, itemId: item }] }, url);
+      for (const itemId of [inactiveItem, foreignItem]) {
+        const r = await put(invoiceDetail, { id: invId, items: [{ ...row, itemId }] }, url);
+        expect(r.status).toBe(400);
+        expect(JSON.stringify(r.body)).toMatch(/item_id is (an inactive item|not an item of your company)/);
+      }
+      expect(await line('customer_invoice_items', 'invoice_id', invId)).toEqual([{ item_id: item, gl_account_id: w.a.revenue }]);
+    });
+  });
+
+  describe('quote PUT /customer-quotes', () => {
+    let quoteId: string;
+    const url = '/api/accounting/customer-quotes';
+    const row = { description: 'q', quantity: 1, unitPrice: 9, taxRate: 15 };
+    const edit = (lines: Array<Record<string, unknown>>) => put(quotesRoute, { id: quoteId, customerName: 'Quote Co', lines }, url);
+
+    it('a NEW item defaults the sales account; no itemId keeps the stored link; null clears; a bad item is 400', async () => {
+      quoteId = String(((await A.ok('create_draft_quote', { customer_name: 'Quote Co', items: [{ description: 'q', unit_price: 9, item_id: bareItem }] })) as { id?: string }).id);
+      expect((await edit([{ ...row, itemId: item }])).status).toBe(200);
+      expect(await line('customer_quote_lines', 'quote_id', quoteId)).toEqual([{ item_id: item, gl_account_id: w.a.revenue }]);
+      expect((await edit([{ ...row }])).status).toBe(200);
+      expect((await line('customer_quote_lines', 'quote_id', quoteId))[0]).toMatchObject({ item_id: item });
+      for (const itemId of [inactiveItem, foreignItem]) expect((await edit([{ ...row, itemId }])).status).toBe(400);
+      expect((await line('customer_quote_lines', 'quote_id', quoteId))[0]).toMatchObject({ item_id: item });
+      expect((await edit([{ ...row, itemId: null }])).status).toBe(200);
+      expect((await line('customer_quote_lines', 'quote_id', quoteId))[0]).toMatchObject({ item_id: null });
+    });
   });
 });

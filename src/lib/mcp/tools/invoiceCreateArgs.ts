@@ -123,8 +123,10 @@ export function parseSupplierLines(
       accountIds.push(value);
     }
 
-    let itemId: string | undefined;
-    if (o.item_id !== undefined && o.item_id !== null) {
+    // undefined = not sent, null = clear the link (a draft edit; on create it is simply no item).
+    let itemId: string | null | undefined;
+    if (o.item_id === null) itemId = null;
+    else if (o.item_id !== undefined) {
       if (typeof o.item_id !== 'string' || castableArgError({ item_id: o.item_id }, { uuid: ['item_id'] })) {
         return `invalid lines[${i}].item_id`;
       }
@@ -135,7 +137,7 @@ export function parseSupplierLines(
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
 
-    items.push({ description, quantity, unitPrice, taxRate, glAccountId, ...(itemId ? { itemId } : {}) });
+    items.push({ description, quantity, unitPrice, taxRate, glAccountId, ...(itemId !== undefined ? { itemId } : {}) });
   }
 
   return { items, accountIds, dimensionRefs };

@@ -237,12 +237,12 @@ export async function applySupplierInvoiceDraftUpdate(
       await tx`
         INSERT INTO supplier_invoice_items (
           id, supplier_invoice_id, description, quantity, unit_price, tax_rate,
-          tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
+          tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id, item_id
         ) VALUES (
           COALESCE(${item.id ?? null}::UUID, gen_random_uuid()), ${plan.invoiceId}::UUID, ${item.description}, ${item.quantity}, ${item.unitPrice},
           ${item.taxRate}, ${item.taxAmount}, ${item.lineTotal}, ${item.glAccountId ?? null}::UUID,
           ${defaultVatClassification(item.taxRate)},
-          ${item.cc1Id ?? null}::UUID, ${item.cc2Id ?? null}::UUID, ${item.buId ?? null}::UUID
+          ${item.cc1Id ?? null}::UUID, ${item.cc2Id ?? null}::UUID, ${item.buId ?? null}::UUID, ${item.itemId ?? null}::UUID
         )`;
     }
   }));

@@ -157,7 +157,7 @@ export interface SupplierInvoiceItemInput {
   vatClassification?: VatType;
   glAccountId?: string;
   /** The catalogue item the line is for (migration 1005); its purchases account is the default when no glAccountId. */
-  itemId?: string;
+  itemId?: string | null;
   projectId?: string;
   costCenterId?: string;
   cc1Id?: string;

@@ -14,6 +14,7 @@ import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { shownPosition } from '@/lib/lineNumbers';
 import { quoteLineAmount, quoteTotals, taxRateProblem, withQuoteTaxRates } from './quoteLineTax';
 import { applyItemDefaultsToAccountIdLines } from '../items/itemLineDefaults';
+import { resolveEditLineItemsAccountId } from '../items/itemEditLines';
 
 type Row = DbRow;
 
@@ -230,8 +231,9 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
-  // Migration 1005: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
-  const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
+  // Migration 1005: a NEW item on a line is checked and defaults the sales account; a line without one keeps an identical stored line's.
+  const itemLines = await resolveEditLineItemsAccountId(companyId, 'sales', input.lines, (existing.lines ?? []).map((l) => ({
+    itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`);
   await assertValidLines(companyId, itemLines);
   const lines = await withQuoteTaxRates(companyId, itemLines);
   const { subtotal, taxAmount, total } = quoteTotals(lines);
