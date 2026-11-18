@@ -175,6 +175,24 @@ describe('FZ: a posted journal refuses amount changes', () => {
     })).rejects.toThrow(UNBALANCED);
   }, 60_000);
 
+  it('replica skips none of the GL triggers: a draft posted in replica is still balanced at COMMIT (rule 5 is ENABLE ALWAYS)', async () => {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      // Seeded as the fixture's superuser (exempt, nothing queued), then posted by migration_admin in replica, where
+      // trg_gl_je_balanced (ENABLE ORIGIN) is skipped: only rule 5 is left to refuse it.
+      const d = (await c.query(`INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+        VALUES ($1, '2026-01-25', 'FZ replica post', 'manual', 'draft', $2) RETURNING id`, [a.company, a.admin])).rows[0]!.id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 9, 0)', [d, a.company, expense]);
+      await c.query('GRANT SET ON PARAMETER session_replication_role TO migration_admin');
+      await c.query('SET LOCAL ROLE migration_admin');
+      await c.query("SET LOCAL session_replication_role = 'replica'");
+      await c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [d]);
+      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(UNBALANCED);
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); await pool.end(); }
+  }, 60_000);
+
   it('a posted journal takes no added or removed line, balanced or not; a journal born posted in this transaction must balance', async () => {
     const SET_FROZEN = /cannot be added or removed/;
     await expect(asAppUser((c) => c.query(
