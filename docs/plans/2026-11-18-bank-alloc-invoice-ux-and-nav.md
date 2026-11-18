@@ -260,4 +260,4 @@ This section records where the work departed from sections 4 and 5. The sections
 - Sidebar mode at 1366px or narrower with CC1, CC2 and BU all shown scrolls sideways with no hint.
 - "N" opens Create new over an open popover or dialog.
 - At 768px the header wraps and the user menu opens off the left edge.
-- Four menu labels are used twice (Invoices and Credit Notes under both Sales and Purchases, and two more listed in `tests/unit/nav/menuLabelCollisions.test.ts`).
+- "Invoices" and "Credit Notes" are each used under both Sales and Purchases (four clashes, listed in `tests/unit/nav/menuLabelCollisions.test.ts` on the nav branch).
