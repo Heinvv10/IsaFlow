@@ -40,11 +40,11 @@ export function BankRulesHeader({
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
       <Link
         href="/accounting/bank-reconciliation"
-        className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2"
+        className="inline-flex items-center gap-1 max-lg:min-h-11 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2"
       >
         <ArrowLeft className="h-4 w-4" /> Back to Reconciliation
       </Link>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-lg:flex-col max-lg:items-stretch max-lg:gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-yellow-500/10">
             <Zap className="h-6 w-6 text-yellow-500" />
@@ -59,13 +59,13 @@ export function BankRulesHeader({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-lg:flex-wrap">
           {bankAccounts.length > 1 && (
             <select
               value={selectedBankId}
               onChange={e => onSelectBank(e.target.value)}
               aria-label="Bank account"
-              className="ff-select text-sm py-2 px-3"
+              className="ff-select text-sm py-2 px-3 max-lg:min-h-11"
             >
               {bankAccounts.map(a => (
                 <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
@@ -77,7 +77,7 @@ export function BankRulesHeader({
               type="button"
               onClick={onRequestBulkDelete}
               disabled={bulkDeleting}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 max-lg:min-h-11 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-50"
             >
               {bulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               Delete {selectedCount} selected
@@ -89,14 +89,14 @@ export function BankRulesHeader({
             disabled={!!busy || !selectedBankId}
             title="Run all active rules. Auto-post rules will create journal entries; suggest rules attach a category for review."
             aria-label="Run rules now"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 max-lg:min-h-11 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
           >
             {busy === 'apply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Run rules now
           </button>
           <button
             type="button"
             onClick={onClickNewRule}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 max-lg:min-h-11 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium"
           >
             <Plus className="h-4 w-4" /> New Rule
           </button>
