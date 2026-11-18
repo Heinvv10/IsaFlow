@@ -4,3 +4,5 @@ export const TOUCH_ROW = 'max-lg:flex max-lg:min-h-11 max-lg:items-center';
 /** Truncating text buttons stay `block` (a flex box drops the ellipsis): pad a 16px line to 44px. */
 export const TOUCH_PAD = 'max-lg:py-3.5';
 export const TOUCH_MIN = 'max-lg:min-h-11';
+/** Every row action on desktop is at least 24x24px (WCAG 2.5.8 target size, WP4b); below lg TOUCH_ICON makes it 44px. */
+export const ROW_TARGET = 'inline-flex items-center justify-center min-h-6 min-w-6';

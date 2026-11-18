@@ -15,16 +15,22 @@ export interface UrlFilters {
   search: string; fromDate: string; toDate: string; fromAmount: string; toAmount: string;
   sortOrder: 'asc' | 'desc'; allocationFilter: AllocationFilter; txType: TxTypeFilter;
   allocType: AllocTypeFilter; hasSuggestion: HasSuggestionFilter; reconFilter: ReconFilter;
+  /** Rows per page (WP4b). A view choice, not a filter: Clear and an account switch keep it. */
+  pageSize: BankTxPageSize;
 }
 export interface UrlView { account: string; tab: BankTxTab; page: number; filters: UrlFilters }
 
+/** The page sizes the list offers; the first is the default. */
+export const BANK_TX_PAGE_SIZES = [25, 50, 100] as const;
+export type BankTxPageSize = typeof BANK_TX_PAGE_SIZES[number];
+
 export const DEFAULT_FILTERS: UrlFilters = {
   search: '', fromDate: '', toDate: '', fromAmount: '', toAmount: '', sortOrder: 'desc',
-  allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all', reconFilter: 'all',
+  allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all', reconFilter: 'all', pageSize: 25,
 };
 
 /** The query keys this page owns (account_id is the existing deep-link name used by other pages' links). */
-export const URL_KEYS = ['account_id', 'tab', 'page', 'q', 'from', 'to', 'min', 'max', 'sort', 'alloc', 'type', 'cat', 'sugg', 'recon'] as const;
+export const URL_KEYS = ['account_id', 'tab', 'page', 'q', 'from', 'to', 'min', 'max', 'sort', 'alloc', 'type', 'cat', 'sugg', 'recon', 'size'] as const;
 
 const TABS: readonly BankTxTab[] = ['new', 'reviewed', 'excluded', 'provisional'];
 const ALLOC: readonly AllocationFilter[] = ['unallocated', 'suggested', 'allocated'];
@@ -62,6 +68,8 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   set('allocationFilter', pick(one(query.alloc), ALLOC)); set('txType', pick(one(query.type), TYPES));
   set('allocType', pick(one(query.cat), CATS)); set('hasSuggestion', pick(one(query.sugg), SUGG));
   set('reconFilter', pick(one(query.recon), RECON));
+  // Any offered size, 25 included: an explicit ?size=25 must beat a size remembered in the browser.
+  set('pageSize', BANK_TX_PAGE_SIZES.find(n => String(n) === one(query.size)));
   // A range typed the wrong way round (min above max, from after to) is read the right way round, not as an empty list.
   if (filters.fromAmount !== undefined && filters.toAmount !== undefined && Number(filters.fromAmount) > Number(filters.toAmount)) {
     [filters.fromAmount, filters.toAmount] = [filters.toAmount, filters.fromAmount];
@@ -69,16 +77,23 @@ export function parseUrlView(query: Query): { account?: string; tab?: BankTxTab;
   if (filters.fromDate !== undefined && filters.toDate !== undefined && filters.fromDate > filters.toDate) {
     [filters.fromDate, filters.toDate] = [filters.toDate, filters.fromDate];
   }
+  const tab = pick(one(query.tab), TABS);
+  // The status filter is the New tab's (its select and the status tiles live there): on another tab it would narrow the
+  // list with nothing on screen saying so, so a link that pairs it with another tab is read without it.
+  if (tab !== undefined && tab !== 'new') delete filters.allocationFilter;
   return {
     account: one(query.account_id) || undefined,
-    tab: pick(one(query.tab), TABS),
+    tab,
     page: Number.isInteger(page) && page >= 1 && page <= 100_000 ? page : undefined,
     filters,
   };
 }
 
-/** The query for a view: only what differs from the plain page. */
-export function serializeUrlView(v: UrlView): Record<string, string> {
+/**
+ * The query for a view: only what differs from the plain page. `defaultPageSize` is the size the plain page would open
+ * with (the one remembered in this browser, else 25): an explicit 25 against a remembered 50 is written, so it stays 25.
+ */
+export function serializeUrlView(v: UrlView, defaultPageSize: number = DEFAULT_FILTERS.pageSize): Record<string, string> {
   const out: Record<string, string> = {};
   const d = DEFAULT_FILTERS, f = v.filters;
   if (v.account) out.account_id = v.account;
@@ -95,6 +110,8 @@ export function serializeUrlView(v: UrlView): Record<string, string> {
   if (f.allocType !== d.allocType) out.cat = f.allocType;
   if (f.hasSuggestion !== d.hasSuggestion) out.sugg = f.hasSuggestion;
   if (f.reconFilter !== d.reconFilter) out.recon = f.reconFilter;
+  // Written when not 25 (a link carries it), and also when it is 25 but the plain page would open with another size.
+  if (f.pageSize !== d.pageSize || f.pageSize !== defaultPageSize) out.size = String(f.pageSize);
   return out;
 }
 
