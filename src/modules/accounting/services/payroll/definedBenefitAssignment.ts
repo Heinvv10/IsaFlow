@@ -38,12 +38,15 @@ export async function refuseDbComponentWithoutFactor(tx: TxSql, companyId: strin
   }
 }
 
-/** Another live factor row of the same SARS code overlapping [from, to] for the employee, refused (DbFactorConflict). */
+/**
+ * Another live factor row of the same SARS code overlapping [from, to] for the employee, refused (DbFactorConflict). `exceptId`:
+ * the row being re-dated (Edit dates), which is not its own rival.
+ */
 export async function refuseSecondDbFactorRow(
-  tx: TxSql, companyId: string, a: { employeeId: string; componentId: string; from: string; to: string | null },
+  tx: TxSql, companyId: string, a: { employeeId: string; componentId: string; from: string; to: string | null }, exceptId?: string,
 ): Promise<void> {
   const rows = (await tx`
-    SELECT pc.name, c.effective_from, c.effective_to
+    SELECT c.id, pc.name, c.effective_from, c.effective_to
       FROM payroll_employee_components c
       JOIN payroll_components pc ON pc.id = c.component_id AND pc.company_id = ${companyId}::uuid
       JOIN payroll_components me ON me.id = ${a.componentId}::uuid AND me.company_id = ${companyId}::uuid
@@ -51,7 +54,7 @@ export async function refuseSecondDbFactorRow(
        AND btrim(pc.sars_source_code) = btrim(me.sars_source_code)
      ORDER BY c.id FOR UPDATE OF c
   `) as DbRow[];
-  for (const r of rows) {
+  for (const r of rows.filter((x) => String(x.id) !== exceptId)) {
     const from = fmtDate(r.effective_from);
     const to = r.effective_to ? fmtDate(r.effective_to) : null;
     if ((to === null || to >= from) && from <= (a.to ?? '9999-12-31') && (to === null || to >= a.from)) {
@@ -62,24 +65,46 @@ export async function refuseSecondDbFactorRow(
 }
 
 /**
- * Another live row of the same code, already marked, overlapping this one for the employee (#1571 breaker L2): two marked
+ * Another live row of the same code, already marked, overlapping [from, to] for the employee (#1571 breaker L2): two marked
  * rows would put a voluntary contribution into C and understate X. Refused (DbFactorConflict, 409), as one factor per kind is.
+ * The window is the row's own (a tick) or its new dates (Edit dates).
  */
-async function refuseSecondTick(tx: TxSql, companyId: string, employeeId: string, assignmentId: string, code: string): Promise<void> {
+async function refuseSecondTick(
+  tx: TxSql, companyId: string, a: { employeeId: string; assignmentId: string; code: string; from: string; to: string | null },
+): Promise<void> {
   const rows = (await tx`
     SELECT pc.name, o.effective_from, o.effective_to
-      FROM payroll_employee_components me
-      JOIN payroll_employee_components o ON o.employee_id = me.employee_id AND o.id <> me.id AND o.db_fund_member_contribution
-      JOIN payroll_components pc ON pc.id = o.component_id AND pc.company_id = ${companyId}::uuid AND btrim(pc.sars_source_code) = ${code}
-     WHERE me.id = ${assignmentId}::uuid AND me.employee_id = ${employeeId}::uuid
+      FROM payroll_employee_components o
+      JOIN payroll_components pc ON pc.id = o.component_id AND pc.company_id = ${companyId}::uuid AND btrim(pc.sars_source_code) = ${a.code}
+     WHERE o.employee_id = ${a.employeeId}::uuid AND o.id <> ${a.assignmentId}::uuid AND o.db_fund_member_contribution
        AND (o.effective_to IS NULL OR o.effective_to >= o.effective_from)
-       AND o.effective_from <= COALESCE(me.effective_to, 'infinity'::date) AND COALESCE(o.effective_to, 'infinity'::date) >= me.effective_from
+       AND o.effective_from <= COALESCE(${a.to}::date, 'infinity'::date) AND COALESCE(o.effective_to, 'infinity'::date) >= ${a.from}::date
      ORDER BY o.id FOR UPDATE OF o
   `) as DbRow[];
   if (rows[0]) {
-    throw new DbFactorConflict(`${String(rows[0].name)} is already marked as this employee's compulsory ${code} contribution to the fund `
+    throw new DbFactorConflict(`${String(rows[0].name)} is already marked as this employee's compulsory ${a.code} contribution to the fund `
       + `(${fmtDate(rows[0].effective_from)} to ${rows[0].effective_to ? fmtDate(rows[0].effective_to) : 'open-ended'}): only one row is C. `
       + 'A second is likely a voluntary contribution (AVC); untick the other first if this one is the compulsory contribution.');
+  }
+}
+
+/**
+ * Edit dates on a ticked contribution or a factor row (payrollComponentDateEdit, #1571 breaker final L): the new window must
+ * not overlap another live tick of the same code, or another factor row of the same code, of the employee (409). Called under
+ * the company lock, after the row's own siblings are locked.
+ */
+export async function refuseDbOverlapOnEdit(tx: TxSql, companyId: string, assignmentId: string, after: { from: string; to: string | null }): Promise<void> {
+  const row = ((await tx`
+    SELECT c.employee_id, c.component_id, c.db_fund_member_contribution, c.db_member_category_factor, btrim(pc.sars_source_code) AS code
+      FROM payroll_employee_components c
+      JOIN payroll_components pc ON pc.id = c.component_id AND pc.company_id = ${companyId}::uuid
+     WHERE c.id = ${assignmentId}::uuid
+  `) as DbRow[])[0];
+  if (!row) return;
+  const employeeId = String(row.employee_id);
+  if (row.db_fund_member_contribution === true) await refuseSecondTick(tx, companyId, { employeeId, assignmentId, code: String(row.code), ...after });
+  if (row.db_member_category_factor != null) {
+    await refuseSecondDbFactorRow(tx, companyId, { employeeId, componentId: String(row.component_id), ...after }, assignmentId);
   }
 }
 
@@ -107,7 +132,10 @@ export async function setDbFundMemberContribution(
       throw new EmployeeComponentRefused('Only the employee\'s pension (4001) or provident (4003) fund contribution can be marked as the '
         + 'contribution to a defined-benefit fund.');
     }
-    if (marked) await refuseSecondTick(tx, companyId, employeeId, assignmentId, String(row.code));
+    if (marked) {
+      await refuseSecondTick(tx, companyId, { employeeId, assignmentId, code: String(row.code),
+        from: fmtDate(row.effective_from), to: row.effective_to ? fmtDate(row.effective_to) : null });
+    }
     await tx`UPDATE payroll_employee_components SET db_fund_member_contribution = ${marked} WHERE id = ${assignmentId}::uuid`;
     const window = { from: fmtDate(row.effective_from), to: row.effective_to ? fmtDate(row.effective_to) : null, recurring: row.is_recurring !== false };
     await auditComponentChange(tx, companyId, assignmentId, window, window, 'db_fund_contribution_mark', actor);

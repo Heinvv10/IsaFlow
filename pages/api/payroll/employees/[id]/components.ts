@@ -125,6 +125,7 @@ async function handler(
       return apiResponse.success(res, { updated: aid });
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      if (err instanceof DbFactorConflict) return apiResponse.conflict(res, err.message);
       if (respondIfLockTimeout(res, err)) return;
       throw err;
     }

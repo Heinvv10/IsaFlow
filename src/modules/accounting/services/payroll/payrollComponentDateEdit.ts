@@ -32,6 +32,7 @@ import { log } from '@/lib/logger';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import { refuseDbOverlapOnEdit } from './definedBenefitAssignment';
 import { refuseOnceOffInPaidMonth, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
 import type { PayrollPeriod } from './payrollTypes';
 import { legacyFlips, live, shiftDay, type Sibling } from './payrollComponentLegacySupersede';
@@ -140,6 +141,8 @@ export async function changeAssignmentDates(
       // month the row gains. A row already dated in a paid month may stay in it (paidPeriodChanged judged that).
       if (after.recurring) await refuseRecurringInPaidMonth(tx, companyId, self, after);
       else await refuseOnceOffInPaidMonth(tx, companyId, after.from, after.to, self);
+      // DBF: a ticked contribution or a factor row re-dated onto another of its kind (DbFactorConflict, 409).
+      await refuseDbOverlapOnEdit(tx, companyId, assignmentId, after);
     }
     const [flip] = legacyFlips(siblings, siblings.map((r) => (r.id === self.id ? { ...r, ...after } : r)));
     if (flip) {

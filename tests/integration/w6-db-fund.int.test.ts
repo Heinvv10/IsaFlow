@@ -154,7 +154,9 @@ describe('assigning: every refusal writes nothing', () => {
     row.dbA = String(made.body.data!.id);
     row.pensionA = String((await assign(A, { componentId: pensionComp[A], amount: 1500 })).body.data!.id);
     row.avcA = String((await assign(A, { componentId: avcComp[A], amount: 1000 })).body.data!.id);
-    expect((await assign(B, { componentId: dbComp[B], amount: 15_000, dbMemberCategoryFactor: 0.04 })).statusCode).toBe(201);
+    const madeB = await assign(B, { componentId: dbComp[B], amount: 15_000, dbMemberCategoryFactor: 0.04 });
+    expect(madeB.statusCode).toBe(201);
+    row.dbB = String(madeB.body.data!.id);
     row.pensionB = String((await assign(B, { componentId: pensionComp[B], amount: 10_000 })).body.data!.id);
   });
 
@@ -307,5 +309,33 @@ describe('para 12D(6) member with a 4001: warned at calculate, refused at IRP5 r
     expect((status.body.data as { readiness: { errors: number } }).readiness.errors).toBe(errors.length);
     const sumA = await call(irp5Summary as Route, 'GET', '/api/payroll/irp5/summary', undefined, { company: A, query: { taxYear: '2027' } });
     expect(JSON.stringify(sumA.body.data)).not.toContain('IRP5_DB_RETIRED_MEMBER_4001');
+  });
+});
+
+describe('Edit dates keeps one tick and one factor row per kind (breaker final L): 409, nothing changed', () => {
+  const redate = (aid: string, effectiveFrom: string, effectiveTo: string | null) => callB(assignments as Route, 'PATCH',
+    `/api/payroll/employees/${emp[B]}/components`, emp[B], { company: B, query: { aid }, body: { effectiveFrom, effectiveTo } });
+  const datesOf = async (id: string) => (await pool.query<{ f: string; t: string | null }>(
+    "SELECT to_char(effective_from, 'YYYY-MM-DD') AS f, to_char(effective_to, 'YYYY-MM-DD') AS t FROM payroll_employee_components WHERE id = $1", [id])).rows[0];
+
+  it('B: the ticked pension ends in December; a ticked AVC from January cannot be re-dated into December', async () => {
+    expect((await redate(row.pensionB!, '2026-03-01', '2026-12-31')).statusCode).toBe(200);
+    const avc = String((await assign(B, { componentId: avcComp[B], amount: 500, effectiveFrom: '2027-01-01' })).body.data!.id);
+    expect((await mark(B, avc, true)).statusCode).toBe(200);
+    const res = await redate(avc, '2026-12-01', null);
+    expect([res.statusCode, String(res.body.error?.message)]).toEqual([409, expect.stringMatching(/Pension is already marked/)]);
+    expect(await datesOf(avc)).toEqual({ f: '2027-01-01', t: null });
+  });
+
+  it('B: the factor row ends in December; a second factor row from January cannot be re-dated into December', async () => {
+    expect((await redate(row.dbB!, '2026-03-01', '2026-12-31')).statusCode).toBe(200);
+    const second = String((await create(B, { name: 'Employer DB pension 2', sarsSourceCode: '3817', componentType: 'earning', fundType: 'defined_benefit' })).body.data!.id);
+    const made = await assign(B, { componentId: second, amount: 100, dbMemberCategoryFactor: 0.05, effectiveFrom: '2027-01-01' });
+    expect(made.statusCode).toBe(201);
+    const res = await redate(String(made.body.data!.id), '2026-12-01', null);
+    expect([res.statusCode, String(res.body.error?.message)]).toEqual([409, expect.stringMatching(/already carries a defined-benefit factor/)]);
+    expect(await datesOf(String(made.body.data!.id))).toEqual({ f: '2027-01-01', t: null });
+    // Re-dating within its own window is not refused by itself.
+    expect((await redate(String(made.body.data!.id), '2027-02-01', null)).statusCode).toBe(200);
   });
 });
