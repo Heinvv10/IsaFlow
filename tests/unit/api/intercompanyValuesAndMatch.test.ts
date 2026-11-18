@@ -21,7 +21,7 @@ vi.mock('@/modules/accounting/services/core/companyAccessService', () => access)
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => svc);
 
 import handler from '../../../pages/api/accounting/intercompany-transactions';
-import { IntercompanyNotFoundError, INTERCOMPANY_TRANSACTION_TYPES } from '@/modules/accounting/services/reports/intercompanyService';
+import { IntercompanyMatchRefusedError, IntercompanyNotFoundError, INTERCOMPANY_TRANSACTION_TYPES } from '@/modules/accounting/services/reports/intercompanyService';
 import { TX_TYPES } from '@/components/accounting/group/IntercompanyShared';
 
 const G = '80000000-0000-4000-8000-000000000001';
@@ -93,6 +93,13 @@ describe('match: a transaction not in this group → 404', () => {
     const res = await call({ action: 'match', groupId: G, sourceId: T1, targetId: T2 });
     expect(res.status).toHaveBeenCalledWith(404);
     expect(msg(res)).toContain(T2);
+  });
+
+  it('a refused match (row security changed fewer rows than asked) answers 403, not matched', async () => {
+    svc.matchIntercompanyTransactions.mockRejectedValue(new IntercompanyMatchRefusedError(2, 1));
+    const res = await call({ action: 'match', groupId: G, sourceId: T1, targetId: T2 });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(msg(res)).toContain('nothing was matched');
   });
 
   it('any other failure still propagates (500)', async () => {

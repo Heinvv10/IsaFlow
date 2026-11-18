@@ -20,7 +20,7 @@ import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/mo
 import { isUuidParam } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
-  INTERCOMPANY_TRANSACTION_TYPES, IntercompanyNotFoundError,
+  INTERCOMPANY_TRANSACTION_TYPES, IntercompanyMatchRefusedError, IntercompanyNotFoundError,
 } from '@/modules/accounting/services/reports/intercompanyService';
 
 /**
@@ -136,6 +136,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
       } catch (err) {
         if (err instanceof IntercompanyNotFoundError) return apiResponse.notFound(res, 'Intercompany transaction', err.missing.join(', '));
+        if (err instanceof IntercompanyMatchRefusedError) {
+          return apiResponse.forbidden(res, 'Matching needs an owner, admin or manager role in the source or target company of each transaction; nothing was matched.');
+        }
         throw err;
       }
       return apiResponse.success(res, { matched: true });

@@ -35,7 +35,7 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: logMock }));
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import {
   postEliminationAdjustment,
   reverseEliminationAdjustment,
@@ -201,14 +201,18 @@ describe('BL-85: verifyEntityOwnership — rejects cross-company entity access',
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WHERE clauses', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // The UPDATE runs in withTransaction (all rows or none): the callback gets the same mocked sql as its tx.
+    vi.mocked(withTransaction).mockImplementation((async (fn: (tx: unknown) => unknown) => fn(sql)) as never);
+  });
 
   it('includes groupId in all SQL calls', async () => {
     // SELECT source, SELECT target, UPDATE — 3 sql calls total
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: 'src', amount: '100', group_id: GROUP_A }] as never) // source SELECT
       .mockResolvedValueOnce([{ id: 'tgt', amount: '100', group_id: GROUP_A }] as never) // target SELECT
-      .mockResolvedValueOnce([] as never); // UPDATE
+      .mockResolvedValueOnce([{ id: 'src' }, { id: 'tgt' }] as never); // UPDATE ... RETURNING id
 
     await matchIntercompanyTransactions('src', 'tgt', GROUP_A);
 
@@ -249,7 +253,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: B186_SOURCE_B, amount: '200', group_id: GROUP_A }] as never)
       .mockResolvedValueOnce([{ id: B186_TARGET_B, amount: '200', group_id: GROUP_A }] as never)
-      .mockResolvedValueOnce([] as never);
+      .mockResolvedValueOnce([{ id: B186_SOURCE_B }, { id: B186_TARGET_B }] as never);
 
     await matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A);
 
