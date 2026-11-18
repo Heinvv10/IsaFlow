@@ -15,7 +15,8 @@
 --     and false again when it is reopened (the balance is restored). The balance is never touched at calculate.
 --
 -- INVARIANTS the triggers hold (INVOKER, so under the caller's RLS; ENABLE ALWAYS):
---   orders insert   the employee is this company's (an FK ignores RLS); created_by is the session user (auth.uid(),
+--   orders insert   takes the company's payroll approval lock (as ending does), so no order lands mid-calculation;
+--                   the employee is this company's (an FK ignores RLS); created_by is the session user (auth.uid(),
 --                   as 999h), never what the caller wrote; no session user is refused; status starts active and
 --                   balance starts at total_debt.
 --   orders update   the order's facts never change; balance always equals total_debt less the deductions applied to
@@ -104,6 +105,10 @@ BEGIN
     IF uid IS NULL THEN
       RAISE EXCEPTION 'payroll_garnishee_orders: an order needs a session user' USING ERRCODE = '42501';
     END IF;
+    -- The company's payroll approval lock (payrollRunLock.payrollApprovalLockScope), which calculate, approve and
+    -- reopen hold for their whole transaction: an order is never committed in the middle of a calculation, whoever
+    -- writes it, and created_at below is stamped after any calculation in flight (review #1574 round 2).
+    PERFORM pg_advisory_xact_lock(hashtextextended('payroll_approval:' || NEW.company_id::text, 0));
     IF NOT EXISTS (SELECT 1 FROM public.payroll_employees e WHERE e.id = NEW.employee_id AND e.company_id = NEW.company_id) THEN
       RAISE EXCEPTION 'payroll_garnishee_orders: the employee is not this company''s' USING ERRCODE = 'foreign_key_violation';
     END IF;
@@ -144,6 +149,7 @@ BEGIN
     END IF;
   END IF;
   IF NEW.status = 'ended' AND OLD.status <> 'ended' THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('payroll_approval:' || NEW.company_id::text, 0)); -- as INSERT
     IF uid IS NULL THEN
       RAISE EXCEPTION 'payroll_garnishee_orders: ending an order needs a session user' USING ERRCODE = '42501';
     END IF;

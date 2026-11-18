@@ -33,7 +33,8 @@ export async function loadRunGarnisheeOrders(
   const byEmployee = new Map<string, GarnisheeOrderInput[]>();
   if (employeeIds.length === 0) return byEmployee;
   const rows = (await sql`
-    SELECT id::text AS id, employee_id::text AS employee_id, kind, reference, creditor_name, instalment, balance, priority, created_at
+    SELECT id::text AS id, employee_id::text AS employee_id, kind, reference, creditor_name, instalment, balance, priority, created_at,
+           (start_date > ${day(periodStart)}::date OR end_date < ${day(periodEnd)}::date) AS part_month
       FROM payroll_garnishee_orders
      WHERE company_id = ${companyId}::uuid AND employee_id::text = ANY(${[...employeeIds]}::text[])
        AND status IN ('active', 'ended') AND start_date <= ${day(periodEnd)}::date
@@ -45,6 +46,7 @@ export async function loadRunGarnisheeOrders(
     list.push({
       id: String(r.id), kind: r.kind as GarnisheeKind, reference: String(r.reference), creditorName: String(r.creditor_name),
       instalment: Number(r.instalment), balance: r.balance == null ? null : Number(r.balance), priority: Number(r.priority),
+      partMonth: r.part_month === true,
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     });
     byEmployee.set(String(r.employee_id), list);

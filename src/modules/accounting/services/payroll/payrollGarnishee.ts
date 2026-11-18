@@ -25,7 +25,8 @@
  *    attachment and commission warns GARNISHEE_BASE_EXCLUDES_COMMISSION (UNVERIFIED vs s65J(1A)(b)); the base is not
  *    widened (rev #1574 L1).
  *  - Part month: an order in force for any day of the run's period takes its full monthly instalment; nothing is
- *    pro-rated for an order that starts or ends inside the period (rev #1574 L2).
+ *    pro-rated for an order that starts or ends inside the period (rev #1574 L2). Such a line warns
+ *    GARNISHEE_PART_MONTH (breaker round 2).
  *  - Monthly runs only: a weekly or fortnightly run with an order in force is refused (payrollRunKindGuard
  *    `garnishee_frequency`) until instalments are pro-rated per run.
  */
@@ -47,6 +48,9 @@ export interface GarnisheeOrderInput {
   /** What is still owed, or null for an order with no total (an ongoing maintenance order). */
   balance: number | null;
   priority: number;
+  /** In force for only part of the run's period (starts after its first day or ends before its last): the full
+   *  instalment is still taken (a named limit), and the line warns GARNISHEE_PART_MONTH. Set by the loader. */
+  partMonth?: boolean;
   /** For the oldest-first tie-break: ISO timestamp. */
   createdAt: string;
 }
@@ -76,6 +80,7 @@ const BASIC_SALARY_CODE = '3601';
 /** Commission (IRP5 3606): outside the base this release reads (rev #1574 L1, a named limit; the base is not widened). */
 const COMMISSION_CODE = '3606';
 export const GARNISHEE_BASE_EXCLUDES_COMMISSION = 'GARNISHEE_BASE_EXCLUDES_COMMISSION';
+export const GARNISHEE_PART_MONTH = 'GARNISHEE_PART_MONTH';
 
 const cents = (n: number): number => Math.round(n * 100);
 const KIND_ORDER: Record<GarnisheeKind, number> = { maintenance: 0, emolument_attachment: 1, administration: 2 };
@@ -138,6 +143,14 @@ export function applyGarnishees(input: {
         code: 'GARNISHEE_ADMINISTRATION_UNVERIFIED', severity: 'warning',
         message: `Administration order ${order.reference} is deducted in full, outside the 25% limit for emoluments attachment `
           + 'orders. IsaFlow has not checked this against the Magistrates\' Courts Act s74: confirm the amount against the order.',
+      });
+    }
+    if (order.partMonth) {
+      warnings.push({
+        code: GARNISHEE_PART_MONTH, severity: 'warning',
+        message: `full monthly instalment charged for a part-month order (named limit): garnishee order ${order.reference} `
+          + `(${order.creditorName}) starts or ends inside this pay period, and ${formatMoney(take / 100)} is deducted. `
+          + 'Check the order for what it says about a part month.',
       });
     }
     deductions.push({

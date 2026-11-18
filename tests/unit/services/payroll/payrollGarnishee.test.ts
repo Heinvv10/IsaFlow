@@ -64,6 +64,15 @@ describe('applyGarnishees', () => {
     expect(maintenanceOnly.warnings.map((w) => w.code)).not.toContain('GARNISHEE_BASE_EXCLUDES_COMMISSION');
   });
 
+  it('named limit: a part-month order still takes its full instalment, and the line says so (breaker round 2)', () => {
+    const r = applyGarnishees({ orders: [order({ kind: 'maintenance', instalment: 900, partMonth: true })], components: salary, netPayBefore: 17707.88 });
+    expect(r.total).toBe(900);
+    const w = r.warnings.find((x) => x.code === 'GARNISHEE_PART_MONTH');
+    expect(w?.message).toMatch(/^full monthly instalment charged for a part-month order \(named limit\)/);
+    const whole = applyGarnishees({ orders: [order({ kind: 'maintenance', instalment: 900 })], components: salary, netPayBefore: 17707.88 });
+    expect(whole.warnings.map((x) => x.code)).not.toContain('GARNISHEE_PART_MONTH');
+  });
+
   it('basic salary excludes overtime and allowances [s65J(1A)(b)]', () => {
     expect(basicSalaryOf([comp('3601', 10000), comp('3607', 4000), comp('3701', 2000), comp('4001', 500, 'deduction')])).toBe(10000);
     const r = applyGarnishees({ orders: [order({ instalment: 3000 })], components: [comp('3601', 10000), comp('3607', 4000)], netPayBefore: 12000 });
