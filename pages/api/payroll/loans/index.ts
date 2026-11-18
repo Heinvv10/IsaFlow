@@ -20,6 +20,7 @@ import {
   type LoanStatus,
 } from '@/modules/accounting/services/payroll/payrollLoanService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 
 const CreateBody = z
   .object({
@@ -70,6 +71,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       });
       return apiResponse.created(res, loan);
     } catch (err) {
+      if (respondIfRunKindUnsupported(res, err)) return; // wave 6 FQc: refused for a weekly or fortnightly employee (400)
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }

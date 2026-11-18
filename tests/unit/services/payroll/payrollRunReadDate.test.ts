@@ -56,7 +56,9 @@ describe.each(['Africa/Johannesburg', 'UTC'] as const)('process in %s', (zone) =
     for (const [values, asOf] of [[bound[0]!, '2026-03-31'], [bound[1]!, '2026-02-28']] as const) {
       expect(values.slice(0, 2)).toEqual(['e-1', 'c-1']);
       expect(values.length).toBeGreaterThan(2);
-      expect(values.slice(2).every(v => v === asOf)).toBe(true);
+      // Every bound value after them is the read date, or the absent run start (null: a monthly run, wave 6 FQc).
+      expect(values.slice(2).every(v => v === asOf || v === null)).toBe(true);
+      expect(values.slice(2)).toContain(asOf);
     }
   });
 });

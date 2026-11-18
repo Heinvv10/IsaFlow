@@ -177,7 +177,7 @@ export async function claimRunSeveranceDirectives(companyId: string, runId: stri
           company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by
         )
         SELECT ${companyId}::uuid, ${l.directiveId}::uuid,
-               (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date,
+               h.period_end, -- the run's last day (wave 6 FQc; a monthly run's month end, migration 999a)
                ${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}
         FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
         ON CONFLICT (company_id, tax_directive_id) DO UPDATE
@@ -212,7 +212,7 @@ export async function unpaidLeaverDirectiveNotes(companyId: string, runId: strin
     JOIN payroll_employees e ON e.company_id = h.company_id
     JOIN tax_directives d ON d.company_id = e.company_id AND d.employee_id = e.id
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-      AND e.end_date < make_date(h.period_year, h.period_month, 1)
+      AND e.end_date < h.period_start -- before the run's first day (wave 6 FQc; a monthly run's 1st)
       AND d.directive_type = 'severance' AND d.status = 'approved'
       AND NOT EXISTS (SELECT 1 FROM tax_directive_payments p WHERE p.company_id = d.company_id AND p.tax_directive_id = d.id)
       AND NOT EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id AND l.employee_id = e.id)
