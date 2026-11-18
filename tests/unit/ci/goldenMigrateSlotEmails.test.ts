@@ -56,14 +56,22 @@ describe('migrate-slot-emails main', () => {
       ['a stray word', ['apply']],
       ['--apply with --dry-run', ['--apply', '--dry-run']],
       ['a flag given twice', ['--apply', '--apply']],
-      ['a value flag with no value', ['--secrets-dir']],
-      ['a value flag followed by another flag', ['--workspace-root', '--apply']],
       ['--allow-unrecognised without --apply', ['--allow-unrecognised']],
     ])('refuses %s, before connecting or writing anything', async (_l, extra) => {
       await expect(run(extra)).rejects.toThrow(/argument|--/);
       expect(connected).toEqual([]);
       expect(w.log).toEqual([]);
       expect(read(ciEnv)).toContain(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+    });
+
+    it.each([
+      ['a value flag with no value', ['--secrets-dir']],
+      ['--env-file with no value', ['--env-file']],
+      ['a value flag followed by another flag', ['--workspace-root', '--apply']],
+    ])('refuses %s', async (_l, argv) => {
+      await expect(main(argv, mkIo(w))).rejects.toThrow(/needs a value/);
+      expect(connected).toEqual([]);
+      expect(w.log).toEqual([]);
     });
 
     it('with no arguments is a dry run: prints the plan and the env files, writes nothing', async () => {
@@ -76,6 +84,8 @@ describe('migrate-slot-emails main', () => {
       expect(out).toContain(`${f('ws', 'IsaFlow-a', '.env.local')}: would rewrite GOLDEN_SLOT_1_EMAIL, GOLDEN_SLOT_2_EMAIL`);
       expect(out).toContain(`${f('secrets', 'isaflow-reporting-qa.env')}: would rewrite E2E_ADMIN_EMAIL`);
       expect(out).toContain(`${f('ws', 'IsaFlow_wt', 'b', '.env.local')}: would rewrite GOLDEN_SLOT_3_EMAIL`);
+      expect(out).toContain('env files checked: 5'); // the CI file, two secrets files, one checkout, one worktree: the symlinked copy is the CI file
+      expect(out.split(`${ciEnv}: would rewrite`).length - 1).toBe(1);
       expect(out).not.toContain(f('ws', 'Other'));
       expect(out).not.toContain(f('ws', 'IsaFlow_wt', 'b', 'sub'));
       expect(out).not.toContain(f('secrets', 'notes.txt'));
