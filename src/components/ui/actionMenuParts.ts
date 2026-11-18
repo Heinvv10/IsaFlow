@@ -14,6 +14,12 @@ export const MENU_MIN_W = 180;
 /** A menu wider than the viewport is capped, so the left-aligned fallback still keeps the margin on the right. */
 export const MENU_MAX_W = `calc(100vw - ${EDGE_PX * 2}px)`;
 
+/**
+ * The marker a menu (and its trigger, while open) carries to say it closes ITSELF on Escape. An overlay that catches
+ * Escape first (useFocusTrap, capturing on document) skips it there, so the menu closes and the overlay stays.
+ */
+export const MENU_CLOSES_ON_ESCAPE = 'data-menu-closes-on-escape';
+
 export interface MenuItemLike { disabled?: boolean }
 
 export const enabledIndexes = (items: MenuItemLike[]): number[] => items.flatMap((it, i) => (it.disabled ? [] : [i]));

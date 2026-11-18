@@ -11,8 +11,10 @@
  * to the trigger (from the trigger too). On the trigger it is handled by a NATIVE listener on the button, so it stops at
  * the target: no bubbling listener above (a dialog's React onKeyDown, a native one on #root or document) sees it. A
  * listener in the CAPTURE phase above runs first and nothing here can stop it, so such a listener must skip an open
- * menu itself: useFocusTrap does (focus in [role="menu"] or on an open [aria-haspopup="menu"] trigger), so in a dialog
- * Escape closes the menu and the next one the dialog. Tab closes and lets focus go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
+ * menu itself. The menu and its open trigger carry `data-menu-closes-on-escape` (MENU_CLOSES_ON_ESCAPE): an opt-in
+ * promise that this menu closes itself on Escape, which useFocusTrap honours, so in a dialog Escape closes the menu
+ * and the next one the dialog. A menu without the marker leaves the dialog's Escape alone. Tab closes and lets focus
+ * go on from the trigger; focus leaving the menu any other way, or a click outside it, closes it, and a click on the
  * menu's own padding keeps focus in it. The menu is fixed to the viewport: its side (down, or up when there is not room
  * below; panelPlacement) is chosen once when it opens, it is kept inside the viewport horizontally by its MEASURED width
  * (8px each side, capped at the viewport less 16px), and it follows its trigger on scroll. If the items change while it
@@ -28,7 +30,8 @@ import { MoreVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { chooseSide, placePanel, type PanelPlacement, type PanelSide } from './panelPlacement';
 import {
-  ITEM_PX, MENU_PAD_PX, MENU_MIN_W, MENU_MAX_W, arrowTarget, enabledIndexes, horizontal, useIsomorphicLayoutEffect,
+  ITEM_PX, MENU_PAD_PX, MENU_MIN_W, MENU_MAX_W, MENU_CLOSES_ON_ESCAPE, arrowTarget, enabledIndexes, horizontal,
+  useIsomorphicLayoutEffect,
 } from './actionMenuParts';
 
 export interface ActionMenuItem {
@@ -230,6 +233,7 @@ export function ActionMenu({
         ref={triggerRef}
         type="button"
         aria-haspopup="menu"
+        {...(open ? { [MENU_CLOSES_ON_ESCAPE]: 'true' } : {})}
         aria-expanded={open}
         aria-label={triggerLabel}
         title={triggerTitle}
@@ -251,6 +255,7 @@ export function ActionMenu({
         <div
           ref={menuRef}
           role="menu"
+          {...{ [MENU_CLOSES_ON_ESCAPE]: 'true' }}
           aria-orientation="vertical"
           aria-label={triggerLabel}
           tabIndex={-1}

@@ -46,9 +46,10 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   // Forward, a link such as the sidebar's), never per render: a plain URL reached without a remount opens at the size
   // just picked, and the canonical form does not shift under the page's own writes. Blocked storage warns once per visit.
   const warned = useRef(false);
-  const readBase = useCallback(() => readPageSizePref(err => {
+  // On the server there is no storage to read (and no reason to warn): the default, as the plain page renders.
+  const readBase = useCallback(() => (typeof window === 'undefined' ? undefined : readPageSizePref(err => {
     if (!warned.current) { warned.current = true; warnPageSizePrefUnreadable(err); }
-  }) ?? DEFAULT_FILTERS.pageSize, []);
+  })) ?? DEFAULT_FILTERS.pageSize, []);
   const [baseSize, setBaseSize] = useState(readBase);
   /** The view's query, measured against baseSize. */
   const ser = useCallback((v: Parameters<typeof serializeUrlView>[0]) => serializeUrlView(v, baseSize), [baseSize]);

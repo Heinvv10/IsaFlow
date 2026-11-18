@@ -10,6 +10,7 @@
  * so stopPropagation cannot separate them, and both would close on Escape and fight over Tab.
  */
 import { useEffect, useRef, type RefObject } from 'react';
+import { MENU_CLOSES_ON_ESCAPE } from './actionMenuParts';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -43,9 +44,10 @@ export function useFocusTrap(
         // an empty one lets Escape close the overlay as before.
         if (a?.closest('[data-keeps-escape="true"]')) return;
         if (a?.closest('[data-select-panel="true"]') || a?.closest('[data-select-listbox="true"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
-        // An open menu (the kit ActionMenu, portalled) closes itself first, from its items or its trigger: the overlay
-        // stays, and the next Escape (focus back on the closed trigger) closes it.
-        if (a?.closest('[role="menu"]') || a?.closest('[aria-haspopup="menu"][aria-expanded="true"]')) return;
+        // An open menu that closes ITSELF on Escape (it opts in with MENU_CLOSES_ON_ESCAPE: the kit ActionMenu, on the
+        // menu and on its open trigger) keeps that Escape: the overlay stays, and the next one closes it. Any other menu
+        // leaves the overlay's Escape as it was.
+        if (a?.closest(`[${MENU_CLOSES_ON_ESCAPE}="true"]`)) return;
         e.stopPropagation();
         escape.current();
         return;

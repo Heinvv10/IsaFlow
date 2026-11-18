@@ -214,6 +214,27 @@ describe('a URL without a size, reached without a remount', () => {
   });
 });
 
+describe('picking the default size over a remembered one, then a link with no size', () => {
+  it('remembered 50, picked 25, then ?account_id=a&tab=reviewed: 25, and no spurious size=25 entry', async () => {
+    localStorage.setItem('isaflow.bankTxPageSize', '50');
+    try {
+      await open({ account_id: 'a' });
+      expect(lastParams().get('limit')).toBe('50');
+      fireEvent.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+      fireEvent.click(screen.getByRole('option', { name: '25' }));
+      await settle();
+      await waitFor(() => expect(cap.router!.query().size).toBe('25')); // 25 differs from the base the page loaded with
+      const before = cap.router!.calls.length;
+      await act(async () => { await cap.router!.navigate({ account_id: 'a', tab: 'reviewed' }); });
+      await settle();
+      expect(tabSelected()).toMatch(/^Reviewed/);
+      expect(lastParams().get('limit')).toBe('25');
+      expect(cap.router!.calls.slice(before)).toEqual([]); // the link is already the canonical form: nothing written
+      expect(cap.router!.query().size).toBeUndefined();
+    } finally { localStorage.removeItem('isaflow.bankTxPageSize'); }
+  });
+});
+
 describe('the remembered page size warns at most once per visit', () => {
   it('blocked storage warns once, not on every render', async () => {
     const getItem = window.localStorage.getItem.bind(window.localStorage);
