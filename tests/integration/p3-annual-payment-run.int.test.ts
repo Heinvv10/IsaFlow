@@ -90,10 +90,11 @@ afterAll(async () => {
 });
 
 describe('P3: the October run taxes annual payments by the SARS method', () => {
-  it('salary R28 000 + bonus R14 800: PAYE 4 161.00 + 3 848.00, and the header total agrees', async () => {
+  it('salary R28 000 + bonus R14 800: PAYE 4 161.01 + 3 848.00 (AN), and the header total agrees', async () => {
     const summary = await calculatePayrollRun(run, company);
     const l = await line(bonusMonth);
-    expect(Number(l.paye)).toBe(8009);
+    // AN (F = 365 / 30.4166): tax(28 000 × F) ÷ F = 4 161.01 (× 12: 4 161.00); the bonus 26% × 14 800 = 3 848.
+    expect(Number(l.paye)).toBe(8009.01);
     expect(Number(l.taxable_income)).toBe(42_800);
     // The breakdown keeps each component's SARS code, so later readers classify by it.
     expect((l.component_breakdown as Array<{ sarsSourceCode: string }>).map(c => c.sarsSourceCode).sort()).toEqual(['3601', '3605']);
@@ -106,15 +107,15 @@ describe('P3: the October run taxes annual payments by the SARS method', () => {
     expect(Number((await line(bonusOnly)).paye)).toBe(3780);
   });
 
-  it('under the threshold until the bonus: 2 700.00', async () => {
+  it('under the threshold until the bonus: 2 700.03 (AN: tax(7 000 × F + 30 000); × 12: 2 700.00)', async () => {
     await calculatePayrollRun(run, company);
-    expect(Number((await line(underThreshold)).paye)).toBe(2700);
+    expect(Number((await line(underThreshold)).paye)).toBe(2700.03);
   });
 
-  it('final run: leave pay-out and notice pay taxed as annual payments, 2 515.20 + 7 800.00', async () => {
+  it('final run: leave pay-out and notice pay taxed as annual payments, 2 515.21 + 7 800.00 (AN; × 12: 2 515.20)', async () => {
     await calculatePayrollRun(run, company);
     const l = await line(leaver);
     expect(Number(l.gross_pay)).toBe(51_670);
-    expect(Number(l.paye)).toBe(10_315.2);
+    expect(Number(l.paye)).toBe(10_315.21);
   });
 });

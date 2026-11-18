@@ -11,39 +11,12 @@ import Link from 'next/link';
 import { CalendarDays, Hash } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { fmtCents } from './bankCents';
+import { caveatFor, reasonFor, statementView, when } from './bankStatementView';
 import type { BankAccountSummary } from './useBankTxSummary';
 
-type Ref = NonNullable<BankAccountSummary['statement']['latest']>;
+export { NO_BALANCE_REASON, NO_BALANCE_UNRECORDED, UNCHECKED_SOURCE_CAVEAT, UNKNOWN_SOURCE_CAVEAT } from './bankStatementView';
 
 const BOX = 'min-h-[200px] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
-
-export const NO_BALANCE_REASON: Record<string, string> = {
-  not_in_file: 'Not provided by this file format',
-  unverified: 'In the file, but its running balance does not agree with its lines — not used',
-};
-export const NO_BALANCE_UNRECORDED = 'Not recorded for this import';
-
-/** Where a closing balance came from when nothing checked it (bank_import_batches.balance_source, migration 998). */
-export const UNCHECKED_SOURCE_CAVEAT: Record<string, string> = {
-  pdf_read: "From the PDF's running balance (not checked against a printed closing)",
-  ai_read: 'Read from the PDF by AI (not checked against the file)',
-};
-
-/** Provenance NOTHING has vouched for: a batch imported before migration 998 (NULL), or a value this code does not know. */
-export const UNKNOWN_SOURCE_CAVEAT = 'Where this balance came from was not recorded (not checked)';
-/** The only sources a closing balance can have been checked from: a printed closing, or a running balance that agreed with its lines. */
-const CHECKED_SOURCES = ['printed', 'running_balance'];
-type Provenance = 'checked' | 'unchecked' | 'unknown';
-const provenanceOf = (source: string | null): Provenance =>
-  source && CHECKED_SOURCES.includes(source) ? 'checked' : own(UNCHECKED_SOURCE_CAVEAT, source) ? 'unchecked' : 'unknown';
-/** "31 Oct 2026", or the plain words when the batch has no date (the column is NOT NULL; this is defence, not a case). */
-const when = (iso: string): string => (iso ? formatDisplayDate(iso) : 'date not recorded');
-
-/** Own keys only: a source of 'constructor' or '__proto__' must read as unknown, not as Object.prototype's members. */
-const own = (table: Record<string, string>, key: string | null): string | undefined =>
-  key !== null && Object.hasOwn(table, key) ? table[key] : undefined;
-
-const reasonFor = (ref: Ref): string => own(NO_BALANCE_REASON, ref.balanceSource) ?? NO_BALANCE_UNRECORDED;
 
 function Row({ label, testid, children }: { label: string; testid: string; children: React.ReactNode }) {
   return (
@@ -55,13 +28,12 @@ function Row({ label, testid, children }: { label: string; testid: string; child
 }
 
 const Caveat = ({ source }: { source: string | null }) => {
-  const kind = provenanceOf(source);
-  const text = kind === 'checked' ? undefined : kind === 'unchecked' ? own(UNCHECKED_SOURCE_CAVEAT, source) : UNKNOWN_SOURCE_CAVEAT;
+  const text = caveatFor(source);
   return text ? <p data-testid="statement-balance-caveat" className="px-4 py-1.5 text-xs text-amber-700 dark:text-amber-400">{text}</p> : null;
 };
 
 export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
-  const { latest, lastWithBalance, ledgerAtStatementCents, differenceCents } = bank.statement;
+  const { latest, differenceCents } = bank.statement;
   if (!latest) {
     return (
       <div className={`${BOX} p-4`} data-testid="bank-statement-panel">
@@ -72,13 +44,7 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
     );
   }
   const latestHasBalance = latest.closingCents !== null;
-  // The Difference is always measured at the last statement WITH a closing balance, on its own date.
-  const basis = lastWithBalance;
-  // The label and the figure agree: the ledger at the statement date only when the summary has it, else today's.
-  const atStatement = basis !== null && ledgerAtStatementCents !== null;
-  const provenance = basis ? provenanceOf(basis.balanceSource) : 'checked';
-  // Only a checked closing can read as reconciled: NULL or unknown provenance is as unvouched-for as an AI read.
-  const reconciled = provenance === 'checked' && differenceCents === 0;
+  const { basis, ledgerCents, ledgerAsAt, reconciled, differenceLabel } = statementView(bank);
   const diffTone = reconciled ? 'text-teal-700 dark:text-teal-400' : 'text-amber-700 dark:text-amber-400';
   const reconcileHref = basis && basis.closingCents !== null
     ? `/accounting/bank-reconciliation/new?bankAccountId=${bank.id}${basis.statementDate ? `&statementDate=${basis.statementDate}` : ''}&statementBalance=${(basis.closingCents / 100).toFixed(2)}`
@@ -118,11 +84,11 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
             <Caveat source={basis.balanceSource} />
           </>
         )}
-        <Row label={`Ledger balance (as at ${when(atStatement ? basis.statementDate : bank.ledgerAsAt)})`} testid="statement-ledger">
-          <span className="tabular-nums">{fmtCents(atStatement ? ledgerAtStatementCents : bank.ledgerCents)}</span>
+        <Row label={`Ledger balance (as at ${when(ledgerAsAt)})`} testid="statement-ledger">
+          <span className="tabular-nums">{fmtCents(ledgerCents)}</span>
         </Row>
         {basis && differenceCents !== null && (
-          <Row label={provenance === 'unchecked' ? 'Difference (not checked)' : provenance === 'unknown' ? 'Difference (source not recorded)' : `Difference (as at ${when(basis.statementDate)})`} testid="statement-difference">
+          <Row label={differenceLabel} testid="statement-difference">
             <span data-testid="statement-difference-value" className={`font-semibold tabular-nums ${diffTone}`}>{fmtCents(differenceCents)}</span>
             {reconcileHref && (
               <Link href={reconcileHref} data-testid="statement-reconcile-link"

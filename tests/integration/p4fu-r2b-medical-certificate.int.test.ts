@@ -9,7 +9,10 @@
  * - A: R13 000 a month, member + 3 dependants, R2 000 a month medical aid
  *   (deduction coded 4005), March to October. tax(156 000) = 28 080 - 17 820
  *   = 10 260 < the credit (376 x 2 + 254 x 2) x 12 = 15 120, so PAYE is nil and
- *   10 260 / 12 = 855 of credit is used a month: 4116 = 8 x 855 = 6 840.00;
+ *   10 260 / 12 = 855 of credit is used a month: 4116 = 8 x 855 = 6 840.00 under
+ *   × 12. Under wave-6 AN (365 ÷ 30.4166) the credit used is the tax it wiped,
+ *   tax(13 000 × F = 156 000.34) - 17 820 = 10 260.06, ÷ F = 855.0032 a month
+ *   (855 / 855.01 cumulatively), so 4116 = 6 840.03;
  *   4005 = 8 x 2 000 = 16 000. 3601 = 104 000 > the R99 000 threshold, so 02
  *   is not true: 08.
  * - B: the same pay and family, no medical aid deduction: refused, naming 4005.
@@ -123,19 +126,20 @@ afterAll(async () => {
 });
 
 describe('R3: medical fields on the e@syFile certificate', () => {
-  it('A: the lines record nil PAYE, 855 of credit and the R2 000 fees each month', async () => {
+  it('A: the lines record nil PAYE, 855 of credit (855.01 where AN\'s fraction rounds up) and the R2 000 fees each month', async () => {
     const lines = (await pool.query(
       `SELECT l.paye::float8 AS paye, l.medical_credit::float8 AS credit, l.medical_scheme_fees::float8 AS fees
          FROM payroll_run_lines l WHERE l.run_id = ANY($1)`, [runs.a])).rows;
     expect(lines).toHaveLength(8);
-    expect(lines.every(l => l.paye === 0 && l.credit === 855 && l.fees === 2_000), JSON.stringify(lines)).toBe(true);
+    expect(lines.every(l => l.paye === 0 && (l.credit === 855 || l.credit === 855.01) && l.fees === 2_000), JSON.stringify(lines)).toBe(true);
+    expect(Math.round(lines.reduce((t, l) => t + l.credit * 100, 0))).toBe(684_003); // 8 × 855.0032, AN
   });
 
-  it('A: an IT3(a) with reason 08, 4005 = 16 000 and 4116 = 6 840.00, valid by the BRS rules', async () => {
+  it('A: an IT3(a) with reason 08, 4005 = 16 000 and 4116 = 6 840.03 (AN), valid by the BRS rules', async () => {
     const out = await exportFile(fx.a);
     expect(out.status, JSON.stringify(out.body)).toBe(200);
     const fields = employeeRecord(out.file);
-    for (const want of ['3015,"IT3(a)"', '3601,104000', '4005,16000', '4116,6840.00', '4150,08']) expect(fields, want).toContain(want);
+    for (const want of ['3015,"IT3(a)"', '3601,104000', '4005,16000', '4116,6840.03', '4150,08']) expect(fields, want).toContain(want);
     expect(fields.filter(l => /^(4102|4115|4120),/.test(l))).toEqual([]);
     expect(validateCertificateTaxFields(fields)).toEqual([]);
   });
@@ -184,7 +188,8 @@ describe('R3: medical fields on the e@syFile certificate', () => {
   it('65 on the last day of the year (28 Feb 1962): the credit in PAYE and 4120; 1 Mar 1962: neither', async () => {
     const paye = async (key: Key) => (await pool.query('SELECT paye::float8 AS paye FROM payroll_run_lines WHERE run_id = $1', [runs[key][0]])).rows[0]!.paye;
     // 30 000: 37 383 a year for 65+ with member + 1 (3 115.25); less the 11 364.624 credit: 2 168.20. 64: 47 148 / 12 = 3 929.
-    expect([await paye('at65'), await paye('at64')]).toEqual([2_168.2, 3_929]);
+    // Under AN: (73 992.21 - 17 820 - 9 765) ÷ F - (9 024 + 11 364.62) ÷ 12 = 2 168.21; 64: 56 172.21 ÷ F - 752 = 3 929.01.
+    expect([await paye('at65'), await paye('at64')]).toEqual([2_168.21, 3_929.01]);
     const medical = async (key: Key) => employeeRecord((await exportFile(fx[key])).file).filter(l => /^(4005|4116|4120),/.test(l));
     expect(await medical('at65')).toEqual(['4005,5100', '4116,752.00', '4120,947.05']);
     expect(await medical('at64')).toEqual(['4005,5100', '4116,752.00']);

@@ -61,7 +61,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 async function open(q: Record<string, string> = {}) {
   cap.router = makeFakeRouter(q);
   render(<BankTransactionsPage />);
-  await screen.findByTestId('bank-tx-selection-bar');
+  await screen.findByTestId('bank-tx-selection-live');
   await waitFor(() => expect(((cap.table.transactions ?? []) as unknown[]).length).toBeGreaterThan(0));
   await settle();
 }

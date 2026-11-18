@@ -97,7 +97,7 @@ test('past the end: page 2 reloading with no rows and total > 0 moves to page 1 
     }).observe(document.body, { childList: true, subtree: true });
   });
   const page1 = page.waitForResponse((r) => /\/api\/accounting\/bank-transactions\?.*offset=0/.test(r.url()), { timeout: 30_000 });
-  await page.getByRole('button', { name: 'Actions', exact: true }).click(); // the toolbar's refresh (title "Refresh")
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click(); // the toolbar's refresh (named "Actions" before WP4b)
   await page1;
   await expect(page.locator(ROWS).first()).toBeVisible();
   expect(emptyShown, '"No new transactions" never showed while the total was above zero').toBe(false);

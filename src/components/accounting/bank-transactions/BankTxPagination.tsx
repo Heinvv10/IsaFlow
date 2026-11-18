@@ -1,4 +1,4 @@
-/** BankTxPagination — First / ten page numbers around the current page / Last, and the row range shown; plus the page's review footer. */
+/** BankTxPagination — First / ten page numbers around the current page / Last, and the row range shown. */
 
 interface Props {
   page: number;
@@ -26,18 +26,6 @@ export function BankTxPagination({ page, total, pageSize, onPage }: Props) {
         <button disabled={page >= totalPages} onClick={() => onPage(totalPages)} className="px-3 py-2 rounded text-xs text-[var(--ff-text-secondary)] disabled:opacity-30">Last</button>
       </nav>
       <span className="text-xs text-[var(--ff-text-tertiary)]">Displaying {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</span>
-    </div>
-  );
-}
-
-/** The sticky footer on the New tab: mark the selected rows as reviewed. */
-export function BankTxReviewBar({ selectedCount, onReview, busy = false }: { selectedCount: number; onReview: () => void; busy?: boolean }) {
-  return (
-    <div className="sticky bottom-0 bg-[var(--ff-bg-secondary)] border-t border-[var(--ff-border-light)] px-6 py-3 flex items-center justify-center">
-      <button onClick={onReview} disabled={selectedCount === 0 || busy} aria-busy={busy || undefined}
-        className="px-5 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
-        Mark Selected as Reviewed ({selectedCount})
-      </button>
     </div>
   );
 }
