@@ -237,6 +237,26 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
       await c.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
+  it('L1 [app_user]: posting a draft that holds a line the poster cannot see is judged on every line at COMMIT', async () => {
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      const other = (await c.query("INSERT INTO companies (name) VALUES ('FZ L1 other') RETURNING id")).rows[0].id;
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+        VALUES ($1, '6000', 'Other', 'expense', 'debit') RETURNING id`, [other])).rows[0].id;
+      const je = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-31', 'fz l1', 'manual', 'draft', $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 100, 0, $4), ($1, $3, 0, 100, $4)',
+        [je, ACC.sal, ACC.bank, A]);
+      // A legacy line of another company inside A's draft: A's poster cannot see it, so trg_gl_je_balanced sums 100 = 100.
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 777, 0, $3)', [je, acct, other]);
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_A, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
+      await c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [je]);
+      await expect(c.query('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toThrow(/does not balance: debit=877.00 credit=100.00/);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
   it('B10 [postgres, NOSUPERUSER] (the stated limit): the table owner can still DISABLE the freeze', async () => {
     const c = await su.connect();
     try {

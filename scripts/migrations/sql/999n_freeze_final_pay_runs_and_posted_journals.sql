@@ -11,8 +11,8 @@
 -- pool's login role is logged for wave 7. The one exemption is a SUPERUSER session (is_superuser), which can disable
 -- any trigger anyway; production has none on its app, deploy or admin pools, and the integration fixtures' postgres
 -- is one (it seeds shapes the app never writes). All triggers ENABLE ALWAYS, so session_replication_role = replica
--- does not skip them. Three SECURITY DEFINERs, owned by migration_admin, each with an app_definer_reviews row:
--- payroll_run_final_state (read only) and the two rule-4 queue trigger functions.
+-- does not skip them. Four SECURITY DEFINERs, owned by migration_admin, each with an app_definer_reviews row:
+-- payroll_run_final_state (read only), the two rule-4 queue trigger functions and rule 5's check.
 --   1. payroll_run_lines of a FINAL run (R-035 isPayRunFinal: status approved/paid AND approved_at or
 --      approval_grandfathered_at set) take no INSERT, no DELETE, and no UPDATE except of payslip_snapshot
 --      (PS3, 999k). A line moved INTO a final run is refused too. Finality is read past RLS by the definer (breaker
@@ -53,6 +53,9 @@
 --      46 / 586 / 3 857 ms (O(n^2)); deduped 5 / 7 / 17 ms, with the 5 000-line INSERT itself 167 ms against 146 ms
 --      for an exempt superuser (GUC list). With the queue, 8 000 lines (breaker L1: 11.2 s before, load ~110):
 --      check 40 / 49 ms, INSERT 294 / 347 ms against 243 / 241 ms for an exempt superuser.
+--   5. A journal moved into posted balances at COMMIT with every line summed past RLS (round 5, L1: the invoker sum of
+--      trg_gl_je_balanced left out a legacy line the poster could not see). A deferred constraint trigger on
+--      gl_journal_entries, AFTER UPDATE OF status, only for a move into posted.
 --
 -- DEMO. Demo holds no real money and is wiped by the reseed (wipePlan.ts:193/204). The Demo company
 -- (00000000-0000-0000-0000-000000000001, a literal: no GUC, no role check) is exempt from the GL DELETE rules only (a posted
@@ -100,15 +103,17 @@
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_frozen ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_no_delete ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_status_not_null ON public.gl_journal_entries;
+--   DROP TRIGGER IF EXISTS trg_gl_je_posted_balanced ON public.gl_journal_entries;
 --   ALTER TABLE public.gl_journal_entries DROP CONSTRAINT IF EXISTS gl_journal_entries_status_not_null;
 --   DROP TABLE IF EXISTS public.gl_journal_balance_queue;
 --   DROP FUNCTION IF EXISTS public.payroll_run_is_final(uuid, boolean), public.payroll_run_final_state(uuid),
 --     public.payroll_run_lines_final_frozen(), public.payroll_run_headers_final_frozen(), public.gl_journal_is_posted(uuid),
 --     public.gl_jl_posted_frozen(), public.gl_jl_posted_set_frozen(), public.gl_je_posted_frozen(),
 --     public.gl_je_posted_no_delete(), public.gl_posted_journal_balanced(), public.gl_jl_mark_unchecked(),
---     public.gl_je_status_not_null();
+--     public.gl_je_status_not_null(), public.gl_je_posted_balanced();
 --   DELETE FROM public.app_definer_reviews
---    WHERE signature IN ('payroll_run_final_state(uuid)', 'gl_posted_journal_balanced()', 'gl_jl_mark_unchecked()');
+--    WHERE signature IN ('payroll_run_final_state(uuid)', 'gl_posted_journal_balanced()', 'gl_jl_mark_unchecked()',
+--                        'gl_je_posted_balanced()');
 
 SET LOCAL lock_timeout = '5s';
 
@@ -601,3 +606,66 @@ BEGIN
 END
 $$;
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_posted_balanced;
+
+-- ── 5. a journal moved into posted balances at COMMIT, judged past RLS ────────────────────────────────────────
+
+-- trg_gl_je_balanced (draft -> posted) sums the lines as the caller, so a legacy line the poster cannot see (another
+-- company's line inside this journal) is left out and an unbalanced journal posts (breaker round 5, L1: Dr877/Cr100).
+-- This deferred check sums every line past RLS at COMMIT. SECURITY DEFINER owned by migration_admin, no EXECUTE grant
+-- (trigger only), app_definer_reviews row; the error names figures only to a caller who could see the journal (S2).
+CREATE OR REPLACE FUNCTION public.gl_je_posted_balanced()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_debit numeric;
+  v_credit numeric;
+  v_caller text := CASE current_setting('role') WHEN 'none' THEN session_user::text ELSE current_setting('role') END;
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = NEW.id AND e.status = 'posted') THEN
+    RETURN NULL;
+  END IF;
+  SELECT COALESCE(SUM(l.debit), 0), COALESCE(SUM(l.credit), 0) INTO v_debit, v_credit
+    FROM public.gl_journal_lines l WHERE l.journal_entry_id = NEW.id;
+  IF v_debit <> v_credit THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
+       AND NOT pg_catalog.pg_has_role(v_caller, 'app_service', 'MEMBER')
+       AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = NEW.company_id AND cu.user_id = auth.uid()) THEN
+      RAISE EXCEPTION 'gl_journal_entries: a posted journal does not balance' USING ERRCODE = '23514';
+    END IF;
+    RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', NEW.id, v_debit, v_credit
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NULL;
+END
+$$;
+ALTER FUNCTION public.gl_je_posted_balanced() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.gl_je_posted_balanced() FROM PUBLIC;
+
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT 'gl_je_posted_balanced()',
+       'none: deferred trigger on a journal''s move into posted (999n rule 5); sums all its lines past RLS; no EXECUTE grant (trigger only)',
+       public.app_definer_hash('public.gl_je_posted_balanced()'::regprocedure)
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+
+-- Created only when absent (no CREATE OR REPLACE for a constraint trigger; DROP would take ACCESS EXCLUSIVE), so a
+-- re-run takes SHARE ROW EXCLUSIVE only.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+                  WHERE tgrelid = 'public.gl_journal_entries'::regclass AND tgname = 'trg_gl_je_posted_balanced') THEN
+    CREATE CONSTRAINT TRIGGER trg_gl_je_posted_balanced
+      AFTER UPDATE OF status ON public.gl_journal_entries
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW
+      WHEN (NEW.status = 'posted' AND OLD.status IS DISTINCT FROM 'posted')
+      EXECUTE FUNCTION public.gl_je_posted_balanced();
+  END IF;
+END
+$$;
+ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_posted_balanced;
