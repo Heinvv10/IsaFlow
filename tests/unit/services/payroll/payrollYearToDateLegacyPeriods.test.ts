@@ -41,10 +41,12 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 4 }, [EMP]);
     const query = (sqlMock.mock.calls[0]![0] as TemplateStringsArray).join('?');
-    const remuneration = String(unsafeMock.mock.calls[0]![0]);
+    // The remuneration fragment (not the pay-order key, payrollRunOrder, spliced before it since wave 6 FQc).
+    const remuneration = String(unsafeMock.mock.calls.map((c) => String(c[0])).find((t) => t.includes('3605')));
     expect(remuneration).toContain("<> '3605'");
     expect(remuneration).toContain("= '3605'");
-    expect(query).toContain('COUNT(*) FILTER (WHERE on_tables AND periodic_before_deductions > 0)::int AS periods');
+    // Each line counts the share of its period worked (1 a month; a weekly starter's 0.4285; wave 6 FQc).
+    expect(query).toContain('COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0), 0)::float8 AS periods');
     expect(query).toContain('periodic_before_deductions > 0 OR annual_before_deductions > 0');
     expect(query).toContain('FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_lines');
     expect(query).toContain('AS uncounted_cap_lines');
