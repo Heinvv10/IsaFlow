@@ -11,6 +11,8 @@ describe('emp501TotalStatus', () => {
   it('any variance PSP PAYE does not explain keeps it a variance', () => {
     expect(emp501TotalStatus([row(4_050, 4_050), row(100, 0)], 4_150)).toBe('variance');
     expect(emp501TotalStatus([row(5_000, 4_050)], 5_000)).toBe('variance');
+    // Offsetting months: +500 unexplained in one, -500 in another, nil in sum, are still variances.
+    expect(emp501TotalStatus([row(4_550, 4_050), row(-500, 0)], 4_050)).toBe('variance');
   });
   it('no PSP PAYE, or no per-row PSP figures (a viewer): variance; nil variance: balanced', () => {
     expect(emp501TotalStatus([row(100, 0)], 100)).toBe('variance');
