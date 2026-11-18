@@ -39,6 +39,7 @@ export const FILE_SECONDS: Readonly<Record<string, number>> = {
   'z4-employee-pay-on-create.spec.ts': 65, 'z5-employee-bank-details.spec.ts': 41, 'z6-payrun-review-grid.spec.ts': 38,
   'z7-undo-drawers.spec.ts': 116, 'z9-employee-readiness.spec.ts': 99,
   'z22-admin-console.spec.ts': 70, // hosted: 62 s (run 43605704335, without System Health) plus a margin
+  'z30-bank-bulk-accept.spec.ts': 37, // hosted: 34.5 s and 40.3 s with its warm-up (runs 44261035241, 44249027688)
 };
 /** Mean seconds per o-theme-contrast screen, same runs. */
 export const CONTRAST_SECONDS: Readonly<Record<string, number>> = {
@@ -77,38 +78,42 @@ export function planItems(files: string[], contrastSource: string): Item[] {
 }
 
 /**
- * Contiguous split into `chunks` runs by a linear-partition DP over cumulative seconds: the longest run is minimised
- * exactly; the tie-break toward a longer shortest run is best-effort (the DP keeps one state per prefix, so it can miss
- * the best shortest run among equal longest ones). A midpoint rule let one more spec tip a chunk past the balance bound.
- * More chunks than items leaves the last ones empty.
+ * Contiguous split in suite order that makes the LONGEST chunk as short as it can be (a min-max linear partition; among
+ * equal maxima, the most even by sum of squares). The old midpoint rule (an item went to the chunk its cumulative
+ * midpoint fell in) let one added spec shift a boundary and leave the chunks 1.34x apart (z30 + z32, 18 Nov). While there
+ * are at least as many items as chunks every chunk gets one; with fewer, the trailing chunks are empty. A negative or
+ * non-finite weight is refused (it would make the optimum meaningless).
  */
 export function splitItems(items: Item[], chunks: number): Item[][] {
   if (!Number.isInteger(chunks) || chunks < 1) throw new Error(`golden chunk plan: chunks must be a positive integer, got ${chunks}`);
+  const bad = items.find((i) => !Number.isFinite(i.seconds) || i.seconds < 0);
+  if (bad) throw new Error(`golden chunk plan: ${bad.name} has an impossible weight ${bad.seconds}`);
+  const out: Item[][] = Array.from({ length: chunks }, () => []);
   const n = items.length;
   const parts = Math.min(chunks, n);
+  if (parts === 0) return out;
   const pre = [0];
   for (const item of items) pre.push(pre[pre.length - 1]! + item.seconds);
-  // best[j][i]: [longest, -shortest] of the first i items in j runs; cut[j][i]: where run j starts.
-  const best: Array<Array<[number, number] | null>> = Array.from({ length: parts + 1 }, () => Array<[number, number] | null>(n + 1).fill(null));
-  const cut: number[][] = Array.from({ length: parts + 1 }, () => Array<number>(n + 1).fill(0));
-  best[0]![0] = [0, -Infinity];
-  for (let j = 1; j <= parts; j += 1) {
-    for (let i = j; i <= n; i += 1) {
-      for (let p = j - 1; p < i; p += 1) {
-        const prev = best[j - 1]![p];
+  type Cost = { max: number; sq: number; cut: number };
+  // best[k][j]: the first j items in k non-empty chunks, and where the last of them starts.
+  const best: Array<Array<Cost | undefined>> = Array.from({ length: parts + 1 }, () => new Array<Cost | undefined>(n + 1));
+  best[0]![0] = { max: 0, sq: 0, cut: 0 };
+  for (let k = 1; k <= parts; k++) {
+    for (let j = k; j <= n - (parts - k); j++) {
+      for (let i = k - 1; i < j; i++) {
+        const prev = best[k - 1]![i];
         if (!prev) continue;
-        const run = pre[i]! - pre[p]!;
-        const cand: [number, number] = [Math.max(prev[0], run), Math.max(prev[1], -run)];
-        const cur = best[j]![i];
-        if (!cur || cand[0] < cur[0] || (cand[0] === cur[0] && cand[1] < cur[1])) { best[j]![i] = cand; cut[j]![i] = p; }
+        const s = pre[j]! - pre[i]!;
+        const c: Cost = { max: Math.max(prev.max, s), sq: prev.sq + s * s, cut: i };
+        const cur = best[k]![j];
+        if (!cur || c.max < cur.max || (c.max === cur.max && c.sq < cur.sq)) best[k]![j] = c;
       }
     }
   }
-  const out: Item[][] = Array.from({ length: chunks }, () => []);
-  for (let j = parts, i = n; j >= 1; j -= 1) {
-    const p = cut[j]![i]!;
-    out[j - 1] = items.slice(p, i);
-    i = p;
+  for (let k = parts, j = n; k >= 1; k--) {
+    const i = best[k]![j]!.cut;
+    out[k - 1] = items.slice(i, j);
+    j = i;
   }
   return out;
 }
