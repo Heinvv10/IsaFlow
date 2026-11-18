@@ -61,13 +61,13 @@ CREATE OR REPLACE FUNCTION public.approval_document_authors(p_company_id uuid, p
  LANGUAGE sql
  STABLE
  SET search_path TO 'pg_catalog', 'public', 'pg_temp'
-AS $function$
+AS $$
   SELECT CASE WHEN p_document_type = 'pay_run' THEN COALESCE((
     SELECT ARRAY[h.prepared_by::pg_catalog.uuid] FROM public.payroll_run_headers h
     WHERE h.id = p_document_id AND h.company_id = p_company_id AND h.prepared_by IS NOT NULL
   ), '{}'::pg_catalog.uuid[])
   ELSE public.approval_document_authors_pre_payroll_951(p_company_id, p_document_type, p_document_id) END
-$function$;
+$$;
 
 DO $$
 DECLARE
