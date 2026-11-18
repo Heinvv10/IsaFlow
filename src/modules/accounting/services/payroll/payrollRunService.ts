@@ -27,6 +27,7 @@ import { withEtiPriorMonths } from './etiPriorEmployment';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { payFrequencyOf } from './payrollFrequency';
+import { assertPreparerSupported } from './payrollPreparerGuard';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -51,6 +52,8 @@ export async function calculatePayrollRun(
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
   }
+  // Wave 6 HYb: the preparer this calculation records must be one R-035 approval can carry (payrollPreparerGuard).
+  await assertPreparerSupported(companyId, preparedBy ?? (run.created_by == null ? null : String(run.created_by)));
   const period: PayrollPeriod = {
     month: Number(run.period_month),
     year: Number(run.period_year),

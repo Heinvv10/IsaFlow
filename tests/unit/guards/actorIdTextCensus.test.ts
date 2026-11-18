@@ -2,7 +2,7 @@
  * Wave 6 HYa: actor ids on the payroll, SARS and tax tables are bound as text.
  *
  * users.id is varchar and a user id need not be UUID-shaped, but these tables' `*_by` columns are uuid until HYb turns
- * them to TEXT. Code that tolerates both writes `${userId}` (an untyped parameter: Postgres takes the column's type)
+ * them to TEXT (999w). Code that tolerates both writes `${userId}` (an untyped parameter: Postgres takes the column's type)
  * and compares `col::text = ${userId}`; `${userId}::uuid` fails for a non-UUID id today and keeps failing after HYb.
  *
  * The census, by table: every tracked src/ or pages/ file whose code (comments removed) names one of the tables, and
@@ -18,12 +18,12 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../../..');
 const S = 'src/modules/accounting/services/';
-const TABLE = /\b(payroll_run_headers|payroll_leave_requests|payroll_external_imports|sars_submissions|sars_efiling_events|tax_directives|tax_directive_payments|uif_declarations|vat_returns)\b/;
-const COLUMN = /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\b/;
+const TABLE = /\b(payroll_run_headers|payroll_leave_requests|payroll_external_imports|sars_submissions|sars_efiling_events|sars_source_codes|tax_directives|tax_directive_payments|uif_declarations|vat_returns|vat_adjustments)\b/;
+const COLUMN = /\b(approved_by|cancelled_by|created_by|imported_by|prepared_by|requested_by|submitted_by)\b/;
 /** An actor column cast to uuid, or `col = ${…}::uuid` on an actor column. */
 const ACTOR_UUID_CAST = [
-  /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\s*::\s*uuid\b/i,
-  /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\s*=\s*\$\{[^}]*\}\s*::\s*uuid\b/i,
+  /\b(approved_by|cancelled_by|created_by|imported_by|prepared_by|requested_by|submitted_by)\s*::\s*uuid\b/i,
+  /\b(approved_by|cancelled_by|created_by|imported_by|prepared_by|requested_by|submitted_by)\s*=\s*\$\{[^}]*\}\s*::\s*uuid\b/i,
 ];
 /**
  * Fail closed: in those files every `${…}::uuid` bind is refused unless its expression is listed here, verbatim, as
@@ -41,7 +41,7 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'undone', 'declarationId', 'submissionId', 'evt.submissionId', 'String(open[0].id)',
   // journals, documents, generic row ids
   'journalId', 'journalEntryId', 'gate.replaces.journalEntryId', 'live.map((h) => String(h.journal_entry_id))',
-  'entry.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
+  'entry.id', 'je.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
   // entity-change log cursors
@@ -112,6 +112,17 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     150: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
     331: 'sars_reference, submitted_by, journal_entry_id',
   },
+  // Wave 6 HYb: vat_adjustments and sars_source_codes are on 999w's list too (the information_schema query finds them).
+  [`${S}reports/vatAdjustmentService.ts`]: {
+    60: 'company_id, adjustment_date, vat_period, adjustment_type, amount, reason, created_by',
+    183: "SET status = 'approved', approved_by = ${userId}, approved_at = NOW(),",
+    215: 'approvedBy: row.approved_by ? String(row.approved_by) : undefined,',
+    217: 'createdBy: String(row.created_by),',
+  },
+  ['src/modules/admin/services/sarsCodesAdminService.ts']: {
+    135: 'source_document, source_url, official_excerpt, brs_version, imported_by',
+    154: 'imported_by = EXCLUDED.imported_by',
+  },
 };
 
 /** The VALUES line that binds the actor of a multi-line INSERT pinned above (the column is named on another line). */
@@ -129,14 +140,17 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 341: '${safeUserId}::UUID,' },
+  // Wave 6 HYb review L1: the real user id into the TEXT column, not resolveUserUuid's stand-in.
+  [`${S}reports/vatSubmissionService.ts`]: { 341: '${userId},' },
+  [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}' },
+  ['src/modules/admin/services/sarsCodesAdminService.ts']: {
+    139: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
+  },
 };
 
 /** file:line -> why an actor value is still cast to uuid there. */
 const UUID_CAST_EXEMPT: Readonly<Record<string, string>> = {
-  [`${S}reports/vatSubmissionService.ts:341`]:
-    'vat_returns.submitted_by takes resolveUserUuid(userId), always UUID-shaped, so the cast cannot fail; after HYb a uuid '
-    + 'value assigns to the TEXT column. The file is VR\'s (wave-6 spec section 3); VR binds the user id as text.',
+  // None since HYb review L1: vatSubmissionService binds vat_returns.submitted_by as the real user id.
 };
 
 function code(src: string): string {
