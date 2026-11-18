@@ -105,6 +105,49 @@ describe('the side guard (database)', () => {
     expect(res.state.statusCode).toBe(409);
   });
 
+  it('a revoked side still takes ON DELETE SET NULL: deleting what it points to succeeds and nulls the column; any other change is refused', async () => {
+    const own = { customer: crypto.randomUUID(), supplier: crypto.randomUUID(), loan: crypto.randomUUID(), expense: crypto.randomUUID(),
+      cc1: crypto.randomUUID(), cc2: crypto.randomUUID(), bu: crypto.randomUUID() };
+    const tag = own.customer.slice(0, 6);
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES ($1, $2, $3)', [own.customer, co.A, `IC SN customer ${tag}`]);
+    await pool.query('INSERT INTO suppliers(id, company_id, name) VALUES ($1, $2, $3)', [own.supplier, co.A, `IC SN supplier ${tag}`]);
+    await pool.query(`INSERT INTO gl_accounts(id, company_id, account_code, account_name, account_type, normal_balance)
+      VALUES ($1, $3, $4, 'SN loan', 'liability', 'credit'), ($2, $3, $5, 'SN expense', 'liability', 'credit')`,
+    [own.loan, own.expense, co.A, `SNL${tag}`, `SNE${tag}`]);
+    await pool.query(`INSERT INTO cost_centres(id, company_id, code, name, cc_type) VALUES ($1, $3, $4, 'SN cc1', 'cc1'), ($2, $3, $5, 'SN cc2', 'cc2')`,
+      [own.cc1, own.cc2, co.A, `SN1${tag}`, `SN2${tag}`]);
+    await pool.query("INSERT INTO business_units(id, company_id, code, name) VALUES ($1, $2, $3, 'SN bu')", [own.bu, co.A, `SNB${tag}`]);
+    await plantSide(pool, id, co.A, co.B, {
+      customer_id: own.customer, supplier_id: own.supplier, loan_account_id: own.loan, default_expense_account_id: own.expense,
+      default_cc1_id: own.cc1, default_cc2_id: own.cc2, default_bu_id: own.bu,
+    });
+    await asOwner(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
+
+    // Any other change to the revoked side is still refused, nulling a reference included when it comes with one.
+    await asAppUser(pool, U.a, co.A, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET customer_id = NULL, auto_accept = true WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET customer_id = $2 WHERE connection_id = $1', [id, party.aCustomer])).toBe(R.sideRevoked);
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET loan_account_id = $2 WHERE connection_id = $1', [id, acct.aLoan])).toBe(R.sideRevoked);
+    });
+
+    const deletes: [string, string, string][] = [
+      ['customers', own.customer, 'customer_id'], ['suppliers', own.supplier, 'supplier_id'], ['gl_accounts', own.loan, 'loan_account_id'],
+      ['gl_accounts', own.expense, 'default_expense_account_id'], ['cost_centres', own.cc1, 'default_cc1_id'],
+      ['cost_centres', own.cc2, 'default_cc2_id'], ['business_units', own.bu, 'default_bu_id'],
+    ];
+    for (const [table, rowId, column] of deletes) {
+      await pool.query(`DELETE FROM ${table} WHERE id = $1`, [rowId]);
+      expect((await sideRows(co.A)).rows[0][column], `${column} after deleting from ${table}`).toBeNull();
+    }
+    const side = (await sideRows(co.A)).rows[0];
+    expect(side).toMatchObject({ customer_id: null, supplier_id: null, loan_account_id: null, default_expense_account_id: null,
+      default_cc1_id: null, default_cc2_id: null, default_bu_id: null, auto_accept: false });
+    await asAppUser(pool, U.a, co.A, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
+    });
+  });
+
   it('a customer or supplier is linked to one connection per company: a second link is refused (unique index)', async () => {
     await plantSide(pool, id, co.A, co.B, { customer_id: party.aCustomer, supplier_id: party.aSupplier });
     const g2 = crypto.randomUUID();

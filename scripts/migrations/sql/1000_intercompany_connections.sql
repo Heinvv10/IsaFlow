@@ -1,4 +1,4 @@
--- 999p: Intercompany mirror posting, P1 (connections). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md.
+-- 1000: Intercompany mirror posting, P1 (connections). Plan: docs/plans/2026-11-17-intercompany-mirror-posting.md.
 --
 -- WHAT. The five tables of the plan's data model. P1's code reads and writes only the first two; the other three
 -- are tables, grants, RLS and guards so that P2-P6 add code, not schema.
@@ -380,6 +380,24 @@ BEGIN
     RAISE EXCEPTION 'a side keeps its connection and its company' USING ERRCODE = '23514';
   END IF;
   IF conn.status = 'revoked' THEN
+    -- The one change a revoked side takes: a referenced row deleted, where the FK's ON DELETE SET NULL nulls the column
+    -- (customers, suppliers, gl_accounts, cost_centres, business_units). Every other column stays as it was and each
+    -- reference stays or goes to NULL, and at least one does; anything else (a no-op included) is refused. Without this, deleting a customer (or a purge) would fail.
+    IF TG_OP = 'UPDATE' AND NEW.id IS NOT DISTINCT FROM OLD.id AND NEW.auto_accept IS NOT DISTINCT FROM OLD.auto_accept
+       AND NEW.created_at IS NOT DISTINCT FROM OLD.created_at
+       AND (NEW.customer_id IS NULL OR NEW.customer_id IS NOT DISTINCT FROM OLD.customer_id)
+       AND (NEW.supplier_id IS NULL OR NEW.supplier_id IS NOT DISTINCT FROM OLD.supplier_id)
+       AND (NEW.loan_account_id IS NULL OR NEW.loan_account_id IS NOT DISTINCT FROM OLD.loan_account_id)
+       AND (NEW.default_expense_account_id IS NULL OR NEW.default_expense_account_id IS NOT DISTINCT FROM OLD.default_expense_account_id)
+       AND (NEW.default_cc1_id IS NULL OR NEW.default_cc1_id IS NOT DISTINCT FROM OLD.default_cc1_id)
+       AND (NEW.default_cc2_id IS NULL OR NEW.default_cc2_id IS NOT DISTINCT FROM OLD.default_cc2_id)
+       AND (NEW.default_bu_id IS NULL OR NEW.default_bu_id IS NOT DISTINCT FROM OLD.default_bu_id)
+       AND (NEW.customer_id, NEW.supplier_id, NEW.loan_account_id, NEW.default_expense_account_id, NEW.default_cc1_id, NEW.default_cc2_id, NEW.default_bu_id)
+           IS DISTINCT FROM
+           (OLD.customer_id, OLD.supplier_id, OLD.loan_account_id, OLD.default_expense_account_id, OLD.default_cc1_id, OLD.default_cc2_id, OLD.default_bu_id) THEN
+      NEW.updated_at := clock_timestamp();
+      RETURN NEW;
+    END IF;
     RAISE EXCEPTION 'a revoked connection''s sides cannot change' USING ERRCODE = '23514';
   END IF;
   IF NOT ((NEW.company_id = conn.company_low_id AND NEW.partner_company_id = conn.company_high_id)
@@ -797,7 +815,7 @@ BEGIN
   IF pg_catalog.has_function_privilege('public', 'public.intercompany_in_one_group(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_group_membership_changed()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_membership_changed()', 'EXECUTE') THEN
-    RAISE EXCEPTION '999p: a role it must not reach can execute an intercompany definer function';
+    RAISE EXCEPTION '1000: a role it must not reach can execute an intercompany definer function';
   END IF;
 END $$;
 
