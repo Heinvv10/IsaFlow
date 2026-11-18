@@ -23,14 +23,15 @@ describe('the EMP501 reference', () => {
   });
 
   it('is not checked against the PAYE reference: only the reuse query runs, and a 7... reference passes', async () => {
-    m.sql.mockResolvedValueOnce([]); // no other period's return has it
+    m.sql.mockResolvedValueOnce([]).mockResolvedValueOnce([]); // EFa's PRN lock, then: no other period's return has it
     expect(await refusal(assertFilingReferenceIsTheCompanys('c1', EMP501, '7999999999123'))).toBeNull();
-    expect(m.sql).toHaveBeenCalledTimes(1);
-    expect(m.sql.mock.calls[0]![0].join('')).toMatch(/FROM tax_return_versions/);
+    const queries = m.sql.mock.calls.map((c) => (c[0] as string[]).join(''));
+    expect(queries.some((q) => /FROM companies/.test(q))).toBe(false); // no PAYE-number read
+    expect(queries.at(-1)).toMatch(/FROM tax_return_versions/);
   });
 
   it('is refused (409) when another period\'s return already records it', async () => {
-    m.sql.mockResolvedValueOnce([{ period_start: '2025-03-01', period_end: '2026-02-28' }]);
+    m.sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ period_start: '2025-03-01', period_end: '2026-02-28' }]);
     expect(await refusal(assertFilingReferenceIsTheCompanys('c1', EMP501, 'SUB123456')))
       .toMatchObject({ status: 409, refusalCode: 'FILING_REFERENCE_REUSED' });
   });
