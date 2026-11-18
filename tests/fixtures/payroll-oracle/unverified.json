@@ -16,7 +16,7 @@
   },
   {
     "case": "weekly-week-53-medical-retirement",
-    "reason": "As weekly-week-53-pay-sunday: no SARS page covers a 53rd pay day (x52 over n = 53, SimplePay's averaging). The period ratios (s11F cap, s6A credit) are bounded at a year, min(n, P) / P (AN, review #1578), so week 53 takes no credit: the hand figure in the case notes.",
+    "reason": "As weekly-week-53-pay-sunday: no SARS page covers a 53rd pay day (x52 over n = 53, SimplePay's averaging). The period ratios (s11F cap, s6A credit) are bounded at a year, min(n, P) / P (AN, review #1578), so week 53 takes no credit: the hand figure in the case notes. The fixture's 52 priors were written by a script from the hand figures, not taken from the engine: each prior's PAYE is (35 580 - 9 024) / 52 = 510.69 (51 of them, and 510.81 so the 52 sum to 26 556.00), its s6A credit 9 024 / 52 = 173.54 (51, and 173.46 so they sum to 9 024.00), its pension 600 and pay 6 000; the expected 684.23 and UIF 0 are hand-derived in the case notes.",
     "wouldVerify": "A SARS ruling or guide page on 53 weekly pay days in one year of assessment with medical scheme fees, or a SimplePay or Sage week-53 payslip with a medical credit."
   }
 ]

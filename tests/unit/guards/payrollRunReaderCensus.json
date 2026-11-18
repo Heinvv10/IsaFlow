@@ -299,7 +299,8 @@
    {"line":71,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQb1 converted (R): latest_recorded = array_agg ORDER BY the run order key DESC"}
   ],
   "src/modules/accounting/services/payroll/payrollMonthOrderGate.ts": [
-   {"line":26,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"the month's runs of the same frequency, judged in pay order (runOrderKeySql), refusing out-of-order approval (review #1575 H1)"}
+   {"line":27,"text":"SELECT period_year, period_month, pay_frequency FROM payroll_run_headers","class":"S","owner":"FQc","why":"the run itself, by id: its month and frequency, weekly or fortnightly only (round 2 G5, L2)"},
+   {"line":34,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"the month's runs of the same frequency, judged in pay order (runOrderKeySql), refusing out-of-order approval (review #1575 H1); only that month and frequency are read (round 2 L2)"}
   ],
   "src/modules/accounting/services/payroll/payrollNonCashFiling.ts": [
    {"line":56,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb2/EF","why":"tax-year sum"},

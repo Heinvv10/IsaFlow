@@ -1,5 +1,5 @@
 /**
- * Wave 6 FQc, review #1575 (payroll breaker B1-B7, rulings H1-H2, M1-M3, M5) on real Postgres, two tenants where it
+ * Wave 6 FQc, review #1575 (payroll breaker B1-B7 and round 2 G1-G5, rulings H1-H2, M1-M3, M5) on real Postgres, two tenants where it
  * matters. Each case drops the per-month unique in its own transaction and rolls back (w6-fqb1.helpers twoRunsInMonth;
  * FQx, migration 999p, drops it for good after FQc merges). The FQa run-kind guard is stubbed until FQd lifts its
  * frequency clause; payrollFrequencyGuard and the gates run for real.
@@ -18,6 +18,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDateGate';
+import { monthOrderRefusal } from '@/modules/accounting/services/payroll/payrollMonthOrderGate';
+import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import { loadLineCadences } from '@/modules/accounting/services/payroll/payrollRunCadence';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { applyPackageToEmployee, createPayPackage, setPackageComponents } from '@/modules/accounting/services/payroll/payPackageService';
@@ -191,5 +193,93 @@ describe('M5: every assignment writer refuses a 38xx or 3701 row for a weekly em
     expect(got.grid).toMatch(new RegExp(`^${PayrollRunInputRefusedError.name}: This component cannot be edited on a pay run`));
     expect(got.edit).toMatch(new RegExp(`^${EmployeeComponentRefused.name}: .*weekly`));
     expect(got.end).toBe('written');
+  });
+});
+
+const realReopen = (t: Tenant, runId: string) => reopenPayrollRun({ runId, companyId: t.company, userId: t.user, reason: 'review r2 reopen' });
+
+async function monthlySalary(t: Tenant, amount: number) {
+  const comp = String((await c.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type) VALUES ($1, 'Basic', '3601', 'earning') RETURNING id`, [t.company])).rows[0].id);
+  await c.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, '2020-01-01')`, [t.employee, comp, amount]);
+  for (const [code, type] of [['5200', 'expense'], ['1110', 'asset'], ['2140', 'liability'], ['2150', 'liability'], ['2160', 'liability'], ['2175', 'liability']] as const) {
+    await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+       VALUES ($1, $2, $3, $4, $5, 1, $6, $7) ON CONFLICT DO NOTHING`, [t.company, code, `r2 ${code}`, type, type === 'liability' ? 'credit' : 'debit', code === '1110' ? 'bank' : null, code === '1110']);
+  }
+}
+const monthlyRun = async (t: Tenant, month: number, extra: { offCycle?: string; runDate?: string } = {}) => String((await c.query(
+  `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, pay_frequency, run_kind, off_cycle_reason, run_date, period_start, period_end)
+   VALUES ($1, $2, 2026, 'draft', 'monthly', $3, $4, $5::date, make_date(2026, $2, 1), (make_date(2026, $2, 1) + interval '1 month - 1 day')::date) RETURNING id`,
+  [t.company, month, extra.offCycle ? 'off_cycle' : 'regular', extra.offCycle ?? null, extra.runDate ?? null])).rows[0].id);
+
+describe('round 2 (G1-G5): the month-order gate', () => {
+  it('G1 a stray DRAFT run of the month, never calculated, blocks no week; calculated after them, it is refused (arm b)', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      await seedWeekly(c, A);
+      const ids: string[] = [];
+      for (const week of WEEKS) ids.push(await weeklyRun(c, A, week));
+      // A mis-keyed week (Sunday start) created by mistake and left as a draft: no lines, nobody on it.
+      const stray = await weeklyRun(c, A, ['2026-05-31', '2026-06-06']);
+      const gates: Array<string | null> = [];
+      for (const id of ids) { await calculatePayrollRun(id, A.company); gates.push(await gate(id)); if (gates.at(-1) === null) await approve(c, id); }
+      const strayLines = Number((await c.query('SELECT count(*) FROM payroll_run_lines WHERE run_id = $1', [stray])).rows[0].count);
+      // Calculated after the weeks it sits among, the stray is refused by arm (b) until they are reopened.
+      await calculatePayrollRun(stray, A.company);
+      return { gates, strayLines, strayGate: await gate(stray) };
+    });
+    expect(got.gates).toEqual([null, null, null, null]);
+    expect(got.strayLines).toBe(0);
+    expect(got.strayGate).toBe('pay_order_in_month');
+  });
+
+  it('G2 two tenants: A\'s open week 1 does not block B\'s week 2', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      await seedWeekly(c, A); await seedWeekly(c, B);
+      await weeklyRun(c, A, WEEKS[0]);
+      const b1 = await weeklyRun(c, B, WEEKS[0]); await calculatePayrollRun(b1, B.company); await approve(c, b1);
+      const b2 = await weeklyRun(c, B, WEEKS[1]); await calculatePayrollRun(b2, B.company);
+      return (await judgeYearToDate(B.company, b2)).blocker?.code ?? null;
+    });
+    expect(got).toBeNull();
+  });
+
+  it('G3 a monthly company: May reopened (real reopen) and recalculated after June: the in-month gate is silent', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      await monthlySalary(A, 20000);
+      const may = await monthlyRun(A, 5); await calculatePayrollRun(may, A.company); await approve(c, may);
+      const jun = await monthlyRun(A, 6); await calculatePayrollRun(jun, A.company); await approve(c, jun);
+      await realReopen(A, may);
+      const inMonthReopenedOnly = await monthOrderRefusal(A.company, may);
+      await calculatePayrollRun(may, A.company);
+      return { inMonth: (await monthOrderRefusal(A.company, may))?.code ?? null, inMonthBefore: inMonthReopenedOnly?.code ?? null, whole: await gate(may) };
+    }, { keepMonthKey: true });
+    expect(got.inMonth).toBeNull();
+  });
+
+  it('G4 weekly: week 2 reopened by the real reopen and re-approved WITHOUT a recalculation passes (b)', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      await seedWeekly(c, A);
+      const ids: string[] = [];
+      for (const week of WEEKS) { const id = await weeklyRun(c, A, week); await calculatePayrollRun(id, A.company); await approve(c, id); ids.push(id); }
+      await realReopen(A, ids[1]!);
+      const hist = (await c.query('SELECT approval_history::text AS h, status FROM payroll_run_headers WHERE id = $1', [ids[1]])).rows[0];
+      return { hist, gate: await gate(ids[1]!) };
+    });
+    expect(got.gate).toBeNull();
+  });
+
+  it('G5 monthly runs are not judged in-month: regular 25 May and bonus 30 May approved, the regular reopened and recalculated, passes as on master', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      await monthlySalary(A, 20000);
+      const reg = await monthlyRun(A, 5, { runDate: '2026-05-25' }); await calculatePayrollRun(reg, A.company); await approve(c, reg);
+      const bonus = await monthlyRun(A, 5, { offCycle: 'bonus', runDate: '2026-05-30' });
+      const err = await calculatePayrollRun(bonus, A.company).then(() => null, (e: Error) => e.message);
+      await approve(c, bonus);
+      await realReopen(A, reg);
+      await calculatePayrollRun(reg, A.company);
+      return { err, inMonth: (await monthOrderRefusal(A.company, reg))?.code ?? null, whole: await gate(reg) };
+    });
+    expect(got.inMonth).toBeNull();
+    // Master's gate: the bonus is not a later month, and here the warning naming the bonus clears it: null either way.
+    expect(got.whole).toBeNull();
   });
 });
