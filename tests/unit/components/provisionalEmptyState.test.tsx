@@ -78,3 +78,16 @@ it('the list fails, then "Try again" loads it: the banner is gone and the rows s
   expect(screen.queryByText('Could not load the provisional entries - try again')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
 });
+
+// Cards hide the sortable header row, so below lg sorting is a select above the list.
+it('the sort select below lg re-orders the cards', async () => {
+  const mk = (id: string, days: number) => ({ ...entry, jeId: id, bankTxId: id, description: id, daysOutstanding: days });
+  vi.mocked(apiFetch).mockImplementation(async () => json({ success: true, data: { outstanding: [mk('older', 9), mk('newer', 1)] } }));
+  const { container } = render(<ProvisionalPage />);
+  const sort = await screen.findByRole('combobox', { name: 'Sort by' });
+  expect(sort.closest('label')!.className).toContain('lg:hidden');
+  const order = () => [...container.querySelectorAll('tbody tr')].map(r => r.textContent?.includes('older') ? 'older' : 'newer');
+  expect(order()).toEqual(['older', 'newer']);
+  fireEvent.change(sort, { target: { value: 'daysOutstanding:asc' } });
+  expect(order()).toEqual(['newer', 'older']);
+});

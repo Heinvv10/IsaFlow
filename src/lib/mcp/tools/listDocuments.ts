@@ -8,6 +8,7 @@
  * `detail: "summary"` totals the bank store over the WHOLE window without rows; one entity's documents are never
  * large, so a summary of the entity store is refused rather than faked.
  */
+import { listSettledDocuments, settledDocumentWire } from '@/modules/accounting/services/bank/settledDocumentService';
 import type { McpTool, McpToolResult } from '../types';
 import {
   listBankAttachments,
@@ -34,6 +35,8 @@ import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody 
  */
 export const DOCUMENTS_DEFAULT_LIMIT = 50;
 export const DOCUMENTS_MAX_LIMIT = 75;
+/** Settled documents on a bank line's first page; the rest are counted (settled_documents_total), not listed. */
+export const SETTLED_DOCUMENTS_MCP_MAX = 20;
 const EPOCH = new Date(0).toISOString();
 const SUMMARY_BANK_ONLY = 'detail "summary" and group_by cover the bank store (from and to); one entity\'s documents are listed directly: omit them';
 
@@ -43,6 +46,14 @@ async function listBankLineEntity(bankTxId: string, limit: number, offset: numbe
     // BEFORE the read: an empty page must not be what a foreign line looks like.
     if (!(await bankTxBelongsToCompany(companyId, bankTxId))) return toolError(NOT_FOUND);
     const page = await listBankAttachments(companyId, { bankTransactionId: bankTxId, limit, offset });
+    // The first page also carries the documents of what the line settles (read-only, not the line's own documents),
+    // at most SETTLED_DOCUMENTS_MCP_MAX of them so the worst page stays under the result limit (readLimitsSize).
+    const settledAll = offset === 0 ? await listSettledDocuments(companyId, bankTxId) : undefined;
+    const settled = settledAll && {
+      settled_documents: settledAll.slice(0, SETTLED_DOCUMENTS_MCP_MAX).map(settledDocumentWire),
+      settled_documents_total: settledAll.length,
+      settled_documents_truncated: settledAll.length > SETTLED_DOCUMENTS_MCP_MAX,
+    };
     return ok({ ...buildEnvelope({
       rows: page.rows.map((r) => ({
         store: r.store,
@@ -63,7 +74,8 @@ async function listBankLineEntity(bankTxId: string, limit: number, offset: numbe
       detail: 'standard',
       as_at: page.rows[0]?.transactionDate ?? EPOCH.slice(0, 10),
       posted_through: page.postedThrough,
-    }), next_offset: nextOffsetFromTotal(offset, page.rows.length, page.rowsTotal) });
+    }), next_offset: nextOffsetFromTotal(offset, page.rows.length, page.rowsTotal),
+    ...(settled ?? {}) });
   } catch (err) {
     return toolError(safeErrorText(err, 'Failed to list documents.'));
   }
@@ -74,7 +86,7 @@ export const listDocumentsTool: McpTool = {
     'Supporting documents on file. THERE ARE TWO SEPARATE STORES and this reads whichever one you address. ' +
     'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document (needs read:bank-tx as well as read:reports). ' +
     'Those rows carry store "bank_attachment" (an uploaded file) or "captured_document" (a captured document linked to the bank line that has no uploaded copy, e.g. one over 2 MB); both count as the line\'s supporting documents. ' +
-    'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + DOCUMENT_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. entity_type bank_transaction with the line\'s id lists that one line\'s documents from the bank store (rows as above, no date range needed; needs read:bank-tx as well), so a caller never has to know which store holds what. ' +
+    'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + DOCUMENT_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. entity_type bank_transaction with the line\'s id lists that one line\'s documents from the bank store (rows as above, no date range needed; needs read:bank-tx as well), so a caller never has to know which store holds what. On the first page it also returns settled_documents: the documents of the bills / invoices (and credit notes applied to them) the line\'s payment settles, each with source "settled_document", via (the payment and its number) and settles (the bill or invoice number, its total, the amount this payment applied and partial: true while the bill is still open after every payment and credit note; at most 20, with settled_documents_total and settled_documents_truncated). Those are evidence, not the line\'s own documents: they are not in rows and get_document does not serve them. ' +
     'DOES NOT COVER: a company-wide listing of the entity store. Those rows carry no company id and are fenced by their parent document, so they can only be read one entity at a time — there is no "all documents for this company" query, and asking for one would silently cross tenants. ' +
     'Nor does it return file bytes; use get_document for a single file. ' +
     'To find what has NO document, use list_unsupported_transactions — an empty page here means nothing was found for what you asked, not that nothing exists. ' +
