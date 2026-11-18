@@ -19,9 +19,6 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
-import { fmtDate } from '@/lib/fmtDate';
-import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
 import { entityTableName, hasEntityDocumentSql } from './documentPresenceSql';
 import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
 import {
@@ -111,92 +108,6 @@ export async function entityIdsWithDocuments(
 export { listBankAttachments } from './bankAttachmentQuery';
 export type { BankAttachmentRow, AttachmentFilters, AttachmentPage } from './bankAttachmentQuery';
 
-function iso(v: unknown): string {
-  return v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString();
-}
-
-export interface UnsupportedTxRow {
-  id: string;
-  transactionDate: string;
-  amount: number;
-  description: string;
-  reference: string | null;
-  status: string;
-}
-
-export interface UnsupportedFilters {
-  from: string;
-  to: string;
-  /** Compared against ABS(amount): money out is as material as money in. */
-  minAmount: number;
-  limit: number;
-}
-
-export interface UnsupportedPage {
-  rows: UnsupportedTxRow[];
-  rowsTotal: number;
-  /** Transactions in range over the threshold, supported or not. */
-  universeTotal: number;
-  postedThrough: string;
-}
-
-/**
- * Bank transactions over a materiality threshold with NO supporting document: no upload and no linked captured
- * document (bank/bankLineDocumentSql, the same definition as the grid's paperclip).
- */
-export async function listTransactionsWithoutDocuments(
-  companyId: string,
-  f: UnsupportedFilters,
-): Promise<UnsupportedPage> {
-  try {
-    const rows = (await sql`
-      SELECT bt.id, bt.transaction_date, bt.amount, bt.description, bt.reference, bt.status
-      FROM bank_transactions bt
-      WHERE bt.company_id = ${companyId}::UUID
-        AND bt.transaction_date >= ${f.from}::DATE
-        AND bt.transaction_date <= ${f.to}::DATE
-        AND ABS(bt.amount) >= ${f.minAmount}
-        AND bt.feed_state = 'posted'
-        AND NOT ${sql.unsafe(hasBankLineDocumentSql('bt'))}
-      ORDER BY ABS(bt.amount) DESC, bt.id DESC
-      LIMIT ${f.limit}
-    `) as DbRow[];
-
-    const [unsupported] = (await sql`
-      SELECT COUNT(*) AS cnt, MAX(bt.created_at) AS latest
-      FROM bank_transactions bt
-      WHERE bt.company_id = ${companyId}::UUID
-        AND bt.transaction_date >= ${f.from}::DATE
-        AND bt.transaction_date <= ${f.to}::DATE
-        AND ABS(bt.amount) >= ${f.minAmount}
-        AND bt.feed_state = 'posted'
-        AND NOT ${sql.unsafe(hasBankLineDocumentSql('bt'))}
-    `) as DbRow[];
-
-    const [universe] = (await sql`
-      SELECT COUNT(*) AS cnt FROM bank_transactions bt
-      WHERE bt.company_id = ${companyId}::UUID
-        AND bt.transaction_date >= ${f.from}::DATE
-        AND bt.transaction_date <= ${f.to}::DATE
-        AND ABS(bt.amount) >= ${f.minAmount}
-        AND bt.feed_state = 'posted'
-    `) as DbRow[];
-
-    return {
-      rows: rows.map((r) => ({
-        id: String(r.id),
-        transactionDate: fmtDate(r.transaction_date),
-        amount: Number(r.amount ?? 0),
-        description: String(r.description ?? ''),
-        reference: r.reference != null ? String(r.reference) : null,
-        status: String(r.status ?? ''),
-      })),
-      rowsTotal: Number(unsupported?.cnt ?? 0),
-      universeTotal: Number(universe?.cnt ?? 0),
-      postedThrough: unsupported?.latest != null ? iso(unsupported.latest) : new Date(0).toISOString(),
-    };
-  } catch (err) {
-    log.error('Failed to list unsupported transactions', { companyId, error: err }, 'accounting');
-    throw err;
-  }
-}
+// "Which transactions have no supporting evidence" lives in ./unsupportedTransactionsQuery.
+export { listTransactionsWithoutDocuments } from './unsupportedTransactionsQuery';
+export type { UnsupportedTxRow, UnsupportedFilters, UnsupportedPage, Evidence } from './unsupportedTransactionsQuery';
