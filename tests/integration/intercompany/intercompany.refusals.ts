@@ -53,6 +53,7 @@ export const R = {
   mirrorAccepted: '23514: a mirror link needs an accepted message',
   mirrorDocs: "23514: a mirror link joins the message's source and target documents",
   manualNoMessage: '23514: a manual pairing names no message',
+  docSlotTaken: '23514: a document is in one active or pending link at a time, whatever the connection',
   docNotOwn: "23514: the document is not this company's",
   linkFinal: '23514: an unlinked link is final',
   linkImmutable: '23514: a link changes only its confirmation and its status',

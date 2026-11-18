@@ -58,10 +58,15 @@
 --         ends in 40P01 only; and a connection that is committed between the revoking trigger's scan and its lock, with a side being
 --         updated in that same instant, can do the same. A deadlock rolls its whole transaction back.
 --   - A document is the target of ONE accepted message per RECEIVING COMPANY, whatever the connection (index
---     intercompany_messages_target_uq and the guard), and an ACTIVE link per company document position (doc_a per company A, doc_b
---     per company B, whatever the connection). A company that is the LOW company of one connection and the HIGH of another can hold
---     the same document as doc_a on one and doc_b on the other: no index spans the two positions, so only the message rule (one
---     accepted message per target, one mirror link per message) covers mirror links; two manual pairings are not covered.
+--     intercompany_messages_target_uq and the guard), and a company document is in ONE link at a time whatever the connection and
+--     whatever the position (doc_a of the low company on one connection, doc_b of the high company on another): the table
+--     intercompany_document_slots, a normalised (company, doc_type, doc_id) with a primary key, is kept by a definer trigger on the
+--     links (intercompany_link_slots_sync). A link holds a slot for each side that is VERIFIED: an ACTIVE link both (both
+--     confirmed); a pending pairing only the side its inserter confirmed (that document was checked to be the inserter's own). The
+--     other side of a pending pairing names a document nobody has checked, so it holds nothing: otherwise a partner could squat
+--     a company's document by proposing it. Confirming checks the confirmed side's document, then takes its slot. The primary key
+--     serialises two concurrent pairings of one document (the second waits for the first to commit, then is refused); no app role
+--     can touch the table. The per-position unique indexes on ACTIVE links stay as a second line.
 --   - A sides first save (INSERT), a message send and a link insert read their connection FOR SHARE (as accepting a message does),
 --     so a revoke in flight, manual or by the system, is waited for and seen: nothing is saved on a revoked connection.
 --   - The sides guard's depth >= 2 exemption (a foreign key's SET NULL action and the release trigger) trusts any trigger nesting;
@@ -75,7 +80,7 @@
 -- DEFINER FUNCTIONS (registered in app_definer_reviews, 930; owner migration_admin; pinned search_path, pg_temp last; EXECUTE for
 -- app_user and app_service only, none for the trigger functions): intercompany_in_one_group (reads, and takes the topology row FOR SHARE),
 -- intercompany_document_exists_as_writer, intercompany_message_documents_ok (reads); intercompany_group_membership_changed,
--- intercompany_release_links (trigger functions, write). 1000 registered the first and the fourth; their rows are updated here.
+-- intercompany_release_links, intercompany_link_slots_sync (trigger functions, write). 1000 registered the first and the fourth; their rows are updated here.
 --
 -- Rollback (code first; 1000's behaviour returns only by re-applying its function bodies):
 --   DROP INDEX IF EXISTS intercompany_messages_target_uq;
@@ -85,7 +90,9 @@
 --   DROP FUNCTION IF EXISTS public.intercompany_release_links(), public.intercompany_keys_guard(),
 --     public.intercompany_document_exists_as_writer(text, uuid, uuid), public.intercompany_message_documents_ok(uuid),
 --     public.intercompany_message_doc_exists(text, text, text, uuid, uuid), public.intercompany_shared_group(uuid, uuid);
---   DROP TABLE IF EXISTS public.intercompany_topology_lock;
+--   DROP TABLE IF EXISTS public.intercompany_topology_lock, public.intercompany_document_slots;
+--   DROP TRIGGER IF EXISTS trg_intercompany_link_slots ON intercompany_document_links;
+--   DROP FUNCTION IF EXISTS public.intercompany_link_slots_sync();
 --   DELETE FROM app_definer_reviews WHERE signature IN ('intercompany_document_exists_as_writer(text,uuid,uuid)',
 --     'intercompany_message_documents_ok(uuid)', 'intercompany_release_links()');
 
@@ -113,17 +120,19 @@ DO $$
 DECLARE
   dup text;
 BEGIN
-  SELECT string_agg(format('active link documents %s %s of company %s: links %s', d.t, d.doc, d.company, d.ids), '; ')
+  SELECT string_agg(format('link document %s %s of company %s: links %s', d.t, d.doc, d.company, d.ids), '; ')
     INTO dup
-    FROM (SELECT 'doc_a' AS pos, company_a_id AS company, doc_a_type AS t, doc_a_id AS doc, string_agg(id::text, ',') AS ids
-            FROM public.intercompany_document_links WHERE status = 'active'
-           GROUP BY company_a_id, doc_a_type, doc_a_id HAVING count(*) > 1
-          UNION ALL
-          SELECT 'doc_b', company_b_id, doc_b_type, doc_b_id, string_agg(id::text, ',')
-            FROM public.intercompany_document_links WHERE status = 'active'
-           GROUP BY company_b_id, doc_b_type, doc_b_id HAVING count(*) > 1) d;
+    FROM (SELECT s.company, s.t, s.doc, string_agg(s.id::text, ',') AS ids
+            FROM (SELECT company_a_id AS company, doc_a_type AS t, doc_a_id AS doc, id
+                    FROM public.intercompany_document_links
+                   WHERE status = 'active' OR (status = 'pending_confirmation' AND confirmed_by_a IS NOT NULL)
+                  UNION ALL
+                  SELECT company_b_id, doc_b_type, doc_b_id, id
+                    FROM public.intercompany_document_links
+                   WHERE status = 'active' OR (status = 'pending_confirmation' AND confirmed_by_b IS NOT NULL)) s
+           GROUP BY s.company, s.t, s.doc HAVING count(*) > 1) d;
   IF dup IS NOT NULL THEN
-    RAISE EXCEPTION '1002: cannot make active links unique per company document, duplicates exist (unlink all but one first): %', left(dup, 1500);
+    RAISE EXCEPTION '1002: cannot make link documents unique per company (a document is in one active or pending link at a time), duplicates exist (unlink all but one first): %', left(dup, 1500);
   END IF;
   SELECT string_agg(format('target %s %s of company %s: messages %s', d.t, d.doc, d.company, d.ids), '; ')
     INTO dup
@@ -887,6 +896,71 @@ CREATE TRIGGER trg_intercompany_links_guard BEFORE INSERT OR UPDATE ON intercomp
   FOR EACH ROW EXECUTE FUNCTION public.intercompany_links_guard();
 ALTER TABLE intercompany_document_links ENABLE ALWAYS TRIGGER trg_intercompany_links_guard;
 
+-- ── 6b. One link per company document, whatever the connection and the position ──────────────
+
+CREATE TABLE IF NOT EXISTS public.intercompany_document_slots (
+  company_id UUID NOT NULL,
+  doc_type TEXT NOT NULL,
+  doc_id UUID NOT NULL,
+  link_id UUID NOT NULL REFERENCES public.intercompany_document_links(id) ON DELETE CASCADE,
+  PRIMARY KEY (company_id, doc_type, doc_id)
+);
+CREATE INDEX IF NOT EXISTS intercompany_document_slots_link_idx ON public.intercompany_document_slots (link_id);
+ALTER TABLE public.intercompany_document_slots OWNER TO migration_admin;
+ALTER TABLE public.intercompany_document_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.intercompany_document_slots FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON public.intercompany_document_slots FROM PUBLIC, app_user, app_service;
+-- No privilege is granted, and the policy says the same for any session that is somehow given one (and for the RLS census).
+DROP POLICY IF EXISTS no_app_access ON public.intercompany_document_slots;
+CREATE POLICY no_app_access ON public.intercompany_document_slots FOR ALL TO app_user USING (false) WITH CHECK (false);
+COMMENT ON TABLE public.intercompany_document_slots IS
+  'The documents held by live links (active: both sides; pending: the side its inserter confirmed), one row per (company, type, id) whatever the connection and the position. Kept by intercompany_link_slots_sync; no app role has any privilege on it. See migration 1002.';
+
+-- Keeps the slots of a link in step with its status and confirmations. SECURITY DEFINER: the table is closed to app roles. A
+-- document that already holds a slot of another link is refused (also when the other pairing is uncommitted: the primary key waits
+-- for it). The refusal names no link.
+CREATE OR REPLACE FUNCTION public.intercompany_link_slots_sync()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  DELETE FROM public.intercompany_document_slots WHERE link_id = NEW.id;
+  IF NEW.status IN ('pending_confirmation', 'active') THEN
+    BEGIN
+      IF NEW.status = 'active' OR NEW.confirmed_by_a IS NOT NULL THEN
+        INSERT INTO public.intercompany_document_slots (company_id, doc_type, doc_id, link_id)
+        VALUES (NEW.company_a_id, NEW.doc_a_type, NEW.doc_a_id, NEW.id);
+      END IF;
+      IF NEW.status = 'active' OR NEW.confirmed_by_b IS NOT NULL THEN
+        INSERT INTO public.intercompany_document_slots (company_id, doc_type, doc_id, link_id)
+        VALUES (NEW.company_b_id, NEW.doc_b_type, NEW.doc_b_id, NEW.id);
+      END IF;
+    EXCEPTION WHEN unique_violation THEN
+      RAISE EXCEPTION 'a document is in one active or pending link at a time, whatever the connection' USING ERRCODE = '23514';
+    END;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+ALTER FUNCTION public.intercompany_link_slots_sync() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_link_slots_sync() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_intercompany_link_slots ON intercompany_document_links;
+CREATE TRIGGER trg_intercompany_link_slots AFTER INSERT OR UPDATE OF status, confirmed_by_a, confirmed_by_b ON intercompany_document_links
+  FOR EACH ROW EXECUTE FUNCTION public.intercompany_link_slots_sync();
+ALTER TABLE intercompany_document_links ENABLE ALWAYS TRIGGER trg_intercompany_link_slots;
+
+-- Rows 1000 may already hold (the duplicates check at the top of this file has refused any clash).
+INSERT INTO public.intercompany_document_slots (company_id, doc_type, doc_id, link_id)
+SELECT l.company_a_id, l.doc_a_type, l.doc_a_id, l.id FROM public.intercompany_document_links l
+ WHERE l.status = 'active' OR (l.status = 'pending_confirmation' AND l.confirmed_by_a IS NOT NULL)
+ON CONFLICT DO NOTHING;
+INSERT INTO public.intercompany_document_slots (company_id, doc_type, doc_id, link_id)
+SELECT l.company_b_id, l.doc_b_type, l.doc_b_id, l.id FROM public.intercompany_document_links l
+ WHERE l.status = 'active' OR (l.status = 'pending_confirmation' AND l.confirmed_by_b IS NOT NULL)
+ON CONFLICT DO NOTHING;
+
 -- A key is managed by a write role of its own company.
 CREATE OR REPLACE FUNCTION public.intercompany_keys_guard()
 RETURNS trigger
@@ -952,6 +1026,8 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'nothing (read of customer_invoices, supplier_invoices, credit_notes: does a document exist in a company in which the session user holds a write role; false otherwise)'),
     ('intercompany_group_membership_changed()', 'public.intercompany_group_membership_changed()',
      'intercompany_connections.status = ''revoked'' (its revoked_by / revoked_at stamps, through the connections guard system path) for a group connection whose companies no longer share a current active group, after FOR NO KEY UPDATE row locks on the candidate connections and their sides and FOR UPDATE on the topology row (intercompany_topology_lock); trigger function on company_group_members and company_groups, no EXECUTE for app roles'),
+    ('intercompany_link_slots_sync()', 'public.intercompany_link_slots_sync()',
+     'intercompany_document_slots (deletes and re-inserts the link''s rows: one per verified side of a live link, a primary key refusing a document that another live link holds); trigger function on intercompany_document_links, no EXECUTE for app roles'),
     ('intercompany_release_links()', 'public.intercompany_release_links()',
      'intercompany_connection_sides.customer_id and supplier_id = NULL and auto_accept = false for the sides of a connection that has just been revoked (through the sides guard''s foreign-key-action path); trigger function on intercompany_connections, no EXECUTE for app roles')
   ) AS v(signature, fn, writes)
@@ -960,9 +1036,12 @@ ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLU
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p,
-                  unnest(ARRAY['public', 'app_user', 'app_service']) r
-              WHERE pg_catalog.has_table_privilege(r, 'public.intercompany_topology_lock', p)) THEN
-    RAISE EXCEPTION '1002: an app role can reach intercompany_topology_lock';
+                  unnest(ARRAY['public', 'app_user', 'app_service']) r,
+                  unnest(ARRAY['public.intercompany_topology_lock', 'public.intercompany_document_slots']) t
+              WHERE pg_catalog.has_table_privilege(r, t, p))
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_link_slots_sync()', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_link_slots_sync()', 'EXECUTE') THEN
+    RAISE EXCEPTION '1002: an app role can reach intercompany_topology_lock, intercompany_document_slots or intercompany_link_slots_sync';
   END IF;
   IF pg_catalog.has_function_privilege('public', 'public.intercompany_in_one_group(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_documents_ok(uuid)', 'EXECUTE')

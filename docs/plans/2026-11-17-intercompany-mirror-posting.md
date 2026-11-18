@@ -146,9 +146,14 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   both documents (`intercompany_message_documents_ok`, a registered definer that answers only for the receiver's session, because the
   receiver cannot see the sender's documents). `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group
   connection; accept, reject and restore need the connection active (holding its row FOR SHARE, so a revocation at the same moment waits). A receiver
-  document is the target of ONE accepted message per RECEIVING COMPANY, whatever the connection (guard + unique index `intercompany_messages_target_uq`), and
-  an active link per company document position (`intercompany_links_doc_a_active` / `_doc_b_active` are keyed by company, not connection; a company that is
-  low on one connection and high on another is covered for mirror links by the message rule only). 1002 refuses to be applied over duplicates, naming them.
+  document is the target of ONE accepted message per RECEIVING COMPANY, whatever the connection (guard + unique index `intercompany_messages_target_uq`).
+- **A company document is in ONE link at a time, whatever the connection and the position.** `intercompany_document_slots` (a normalised
+  company / type / id with a primary key; closed to every app role) is kept by a definer trigger on the links: an active link holds both
+  documents, a pending pairing only the side its inserter confirmed (that document was checked to be the inserter's own). The other side of a
+  pending pairing names an unchecked document, so it holds nothing (a partner cannot squat a document by proposing it); confirming takes the
+  confirmed side's slot. The primary key serialises concurrent pairings (the second waits, then is refused), also across positions (doc_a of the
+  low company on one connection, doc_b of the high company on another). The per-position unique indexes on active links stay as a second line.
+  1002 refuses to be applied over duplicates, naming them, and backfills the slots of existing links.
 - **A revoked connection also switches auto-accept off** (the release trigger), so a re-activated connection never starts auto-handling
   by itself; a no-op UPDATE of a connection (`SET status = status`) needs the same write role as a change (the migration's own backfill
   runs it as the system path).

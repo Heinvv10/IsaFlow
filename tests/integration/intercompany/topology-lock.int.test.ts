@@ -35,9 +35,14 @@ describe('intercompany_topology_lock', () => {
     expect(t).toEqual({ owner: 'migration_admin', relrowsecurity: true });
     for (const role of ['app_user', 'app_service', 'public']) {
       for (const priv of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) {
-        expect((await pool.query('SELECT has_table_privilege($1, $2, $3) AS ok', [role, 'public.intercompany_topology_lock', priv])).rows[0].ok, `${role} ${priv}`).toBe(false);
+        for (const table of ['intercompany_topology_lock', 'intercompany_document_slots']) {
+          expect((await pool.query('SELECT has_table_privilege($1, $2, $3) AS ok', [role, `public.${table}`, priv])).rows[0].ok, `${role} ${priv} ${table}`).toBe(false);
+        }
       }
     }
+    // the slots table (link documents) is closed the same way, and says so in a policy as well (the RLS census wants one)
+    const slots = (await pool.query("SELECT pg_get_userbyid(relowner) AS owner, relrowsecurity, relforcerowsecurity, (SELECT count(*)::int FROM pg_policies WHERE tablename = 'intercompany_document_slots') AS policies FROM pg_class WHERE relname = 'intercompany_document_slots'")).rows[0];
+    expect(slots).toEqual({ owner: 'migration_admin', relrowsecurity: true, relforcerowsecurity: true, policies: 1 });
     expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
   });
 
@@ -154,9 +159,10 @@ describe('1002 over duplicate data: it refuses, naming the rows, and changes not
     const message = await applyOver(async (c) => {
       await c.query(`DROP INDEX public.intercompany_links_${column}_active`);
       await c.query('ALTER TABLE intercompany_document_links DISABLE TRIGGER trg_intercompany_links_guard');
+      await c.query('ALTER TABLE intercompany_document_links DISABLE TRIGGER trg_intercompany_link_slots');
       await c.query(`UPDATE intercompany_document_links SET status = 'active', ${column}_id = $1 WHERE id = ANY($2)`, [doc, [l1, l2]]);
     });
-    expect(message).toMatch(/^1002: cannot make active links unique per company document/);
+    expect(message).toMatch(/^1002: cannot make link documents unique per company/);
     expect(message).toContain(doc);
     expect(message).toContain(l1);
     expect(message).toContain(l2);
