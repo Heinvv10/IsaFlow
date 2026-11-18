@@ -54,6 +54,7 @@ export interface Io {
   /** Called with the checked GoTrue url and service key before any GoTrue call (the real facade reads process.env). */
   useGoTrue(url: string, serviceKey: string): GoTrueOps;
   say(line: string): void;
+  error(line: string): void;
 }
 
 /** Every path is required: main() has no default of its own, so a caller (a test) cannot fall back to the real files by omission. */
@@ -165,15 +166,26 @@ export async function main(args: ResolvedArgs, io: Io): Promise<number> {
   }
 }
 
+/**
+ * The command-line entry: parses, applies the real defaults, runs. A bad argument or any failure is one formatted line and exit
+ * code 1; a bad argument does no I/O at all. @returns the process exit code.
+ */
+export async function cli(argv: string[], io: Io): Promise<number> {
+  try {
+    return await main(resolveDefaults(parseMigrationArgs(argv)), io);
+  } catch (err) {
+    io.error(`migrate-slot-emails failed: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
 if (process.argv[1]?.endsWith('migrate-slot-emails.ts')) {
   const io: Io = {
     processEnv: process.env,
     connect: async (url) => { const c = new pg.Client({ connectionString: url }); await c.connect(); return c as unknown as Db & { end(): Promise<void> }; },
     useGoTrue: (url, key) => { process.env.GOTRUE_URL = url; process.env.SUPABASE_SERVICE_ROLE_KEY = key; return realGoTrueOps(); },
     say: (line) => { process.stdout.write(`${line}\n`); },
+    error: (line) => { process.stderr.write(`${line}\n`); },
   };
-  main(resolveDefaults(parseMigrationArgs(process.argv.slice(2))), io).then((code) => process.exit(code), (err: unknown) => {
-    process.stderr.write(`migrate-slot-emails failed: ${(err as Error).message}\n`);
-    process.exit(1);
-  });
+  cli(process.argv.slice(2), io).then((code) => process.exit(code));
 }

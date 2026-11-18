@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertTempUnderTest, rewriteEnvFiles } from '../../../scripts/ci/golden/slotEmailEnv';
 import { knownAccounts, parseMigrationArgs } from '../../../scripts/ci/golden/slotEmailPlan';
 import { homedir } from 'node:os';
-import { main, resolveDefaults, type Io, type ResolvedArgs } from '../../../scripts/ci/golden/migrate-slot-emails';
+import { cli, main, resolveDefaults, type Io, type ResolvedArgs } from '../../../scripts/ci/golden/migrate-slot-emails';
 import { EXPECTED_GOTRUE_URL } from '../../../scripts/ci/golden/slotConfig';
 import { fakes, newWorld, type World } from '../../helpers/slotEmailWorld';
 
@@ -15,7 +15,7 @@ const OLD1 = 'golden-slot-1@isaflow.dev';
 const NEW1 = 'golden-slot-1@isaflow.co.za';
 
 describe('migrate-slot-emails main', () => {
-  let dir: string; let outside: string; let ciEnv: string; let deployEnv: string; let secrets: string; let ws: string; let w: World; let said: string[]; let connected: string[];
+  let dir: string; let outside: string; let ciEnv: string; let deployEnv: string; let secrets: string; let ws: string; let w: World; let said: string[]; let errors: string[]; let connected: string[];
   const f = (...p: string[]): string => join(dir, ...p);
   const put = (path: string, text: string, mode = 0o600): void => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, text, { mode }); };
   const ciText = (over: Record<string, string> = {}): string => Object.entries({
@@ -24,7 +24,7 @@ describe('migrate-slot-emails main', () => {
   }).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
   const mkIo = (world: World, wrap?: (gt: ReturnType<typeof fakes>['gt']) => ReturnType<typeof fakes>['gt']): Io => {
     const x = fakes(world);
-    return { processEnv: {}, say: (l) => said.push(l), connect: async (u) => { connected.push(u); return x.db; }, useGoTrue: () => (wrap ? wrap(x.gt) : x.gt) };
+    return { processEnv: {}, say: (l) => said.push(l), error: (l) => errors.push(l), connect: async (u) => { connected.push(u); return x.db; }, useGoTrue: () => (wrap ? wrap(x.gt) : x.gt) };
   };
   /** Every path is passed explicitly and is a temp path; main() takes no default of its own. */
   const baseArgs = (): ResolvedArgs => ({ apply: false, allowUnrecognised: [], envFile: ciEnv, deployEnvFile: deployEnv, secretsDir: secrets, workspaceRoot: ws, allowedRoot: dir });
@@ -33,7 +33,7 @@ describe('migrate-slot-emails main', () => {
   const read = (p: string): string => readFileSync(p, 'utf8');
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'slot-email-')); outside = mkdtempSync(join(tmpdir(), 'slot-email-outside-')); ciEnv = f('ci.env'); deployEnv = f('deploy.env'); secrets = f('secrets'); ws = f('ws'); w = newWorld(); said = []; connected = [];
+    dir = mkdtempSync(join(tmpdir(), 'slot-email-')); outside = mkdtempSync(join(tmpdir(), 'slot-email-outside-')); ciEnv = f('ci.env'); deployEnv = f('deploy.env'); secrets = f('secrets'); ws = f('ws'); w = newWorld(); said = []; errors = []; connected = [];
     put(ciEnv, ciText());
     put(deployEnv, 'E2E_ADMIN_EMAIL=reporting-qa@isaflow.dev\nE2E_APPROVER_EMAIL=reporting-qa-approver@isaflow.dev\n');
     put(f('secrets', 'isaflow-dev-golden-qa.env'), 'GOLDEN_QA_W6_EMAIL=golden-qa-w6@isaflow.dev\nGOLDEN_QA_W6_PASSWORD=w6pw\n');
@@ -80,6 +80,23 @@ describe('migrate-slot-emails main', () => {
       ['a value flag followed by another flag', ['--workspace-root', '--apply']],
     ])('the parser refuses %s', (_l, argv) => {
       expect(() => parseMigrationArgs(argv)).toThrow(/needs a value/);
+    });
+
+    it.each([['a misspelt flag', ['--dryrun']], ['a flag with no value', ['--env-file']], ['--apply with --dry-run', ['--apply', '--dry-run']]])(
+      'the CLI entry turns %s into one formatted line and exit code 1, with no I/O (connect never called)', async (_l, argv) => {
+        expect(await cli(argv, mkIo(w))).toBe(1);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toMatch(/^migrate-slot-emails failed: .+/);
+        expect(errors[0]).not.toMatch(/\n|    at /);
+        expect(said).toEqual([]);
+        expect(connected).toEqual([]);
+        expect(w.log).toEqual([]);
+      });
+
+    it('the CLI entry also formats a failure from main (here the vitest temp-path guard, since cli() applies the real defaults)', async () => {
+      expect(await cli([], mkIo(w))).toBe(1);
+      expect(errors[0]).toMatch(/^migrate-slot-emails failed: refusing under vitest/);
+      expect(connected).toEqual([]);
     });
 
     it('main() has no defaults: a call missing any path option is refused before it reads or connects', async () => {
