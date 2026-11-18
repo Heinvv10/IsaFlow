@@ -6,6 +6,9 @@ import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
 import { contractorLineFlag } from './payrollOutsideTables';
+import { payFrequencyOf } from './payrollFrequency';
+import { periodsInYear } from './annualisationFactor';
+import { runIsBeforeSql, runOrderKeySql } from './payrollRunOrder';
 
 /**
  * Section 4(b) of the Skills Development Levies Act exempts an employer whose
@@ -92,9 +95,21 @@ export async function estimateAnnualRemuneration(
 ): Promise<number> {
   const index = periodIndex(period.year, period.month);
   const windowStart = index - (TRAILING_PERIODS - 1);
+  // A weekly or fortnightly regular run (wave 6 FQd, review #1622 M1): the month's decision is taken once, on the
+  // month's FIRST run of the frequency (pay order), its remuneration annualised by its own periods a year, so the
+  // month's later runs inherit it and the decision cannot move with the number of runs costed so far.
+  const self = ((await sql`
+    SELECT pay_frequency, run_kind FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[])[0];
+  const frequency = payFrequencyOf(self?.pay_frequency);
+  const periodic = self?.run_kind === 'regular' && (frequency === 'weekly' || frequency === 'fortnightly') ? frequency : null;
   const rows = (await sql`
     WITH runs AS (
-      SELECT prh.period_year * 12 + prh.period_month AS idx,
+      SELECT prh.period_year * 12 + prh.period_month AS idx, ${runOrderKeySql('prh')} AS ord,
+             -- The month's earlier regular run of this run's frequency (pay order): the one that decides a weekly or
+             -- fortnightly month (FQd).
+             (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid AND prh.run_kind = 'regular'
+              AND prh.pay_frequency = ${periodic ?? ''} AND ${runIsBeforeSql('prh', companyId, runId)}) AS earlier_of_month,
              -- The month's OTHER calculated, approved or paid runs (an off-cycle run beside the regular one): their
              -- remuneration is this month's too, whatever order they were calculated or paid in (wave 6 FQb1).
              (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid) AS same_month_other,
@@ -123,7 +138,8 @@ export async function estimateAnnualRemuneration(
            COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
            MIN(idx)::int AS first_index,
            COALESCE(SUM(remuneration) FILTER (WHERE same_month_other), 0)::float8 AS month_others,
-           (SELECT COALESCE(SUM(t.remuneration), 0) FROM runs t WHERE t.is_this_run)::float8 AS this_run_stored
+           (SELECT COALESCE(SUM(t.remuneration), 0) FROM runs t WHERE t.is_this_run)::float8 AS this_run_stored,
+           (SELECT t.remuneration FROM runs t WHERE t.earlier_of_month ORDER BY t.ord LIMIT 1)::float8 AS first_of_month
       FROM runs
      WHERE remuneration > 0
   `) as DbRow[];
@@ -148,7 +164,10 @@ export async function estimateAnnualRemuneration(
   // decide differently if one was calculated before the other existed: payrollSdlMonthGate refuses approval until both
   // are recalculated on the same month total.
   const monthOthers = Number(rows[0]?.month_others ?? 0);
-  const monthRemuneration = monthOthers + current;
+  const firstOfMonth = rows[0]?.first_of_month == null ? null : Number(rows[0].first_of_month);
+  const monthRemuneration = periodic
+    ? ((firstOfMonth ?? current) * periodsInYear(periodic)) / TRAILING_PERIODS
+    : monthOthers + current;
   const annual = Math.round(
     ((priorRemuneration + monthRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
@@ -159,7 +178,7 @@ export async function estimateAnnualRemuneration(
   log.info(
     'SDL leviability basis',
     {
-      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers,
+      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers, periodic, firstOfMonth,
       // Which judgement this is: the run's costing, or the approval gate re-judging its month (payrollSdlMonthGate).
       source: currentPeriodRemuneration === 'stored' ? 'approval-gate' : 'calculation',
     },
