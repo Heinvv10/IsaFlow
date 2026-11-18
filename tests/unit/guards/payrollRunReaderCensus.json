@@ -232,9 +232,10 @@
    {"line":156,"text":"DELETE FROM payroll_external_imports","class":"S","owner":"FQb1","why":"external import delete by id"}
   ],
   "src/modules/accounting/services/payroll/payrollFrequencyGuard.ts": [
-   {"line":61,"text":"SELECT 1 FROM payroll_employee_components c","class":"S","owner":"FQc","why":"EXISTS: an employee holds a row the frequency cannot cost in the run's window"},
-   {"line":109,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"EXISTS-style list: other regular runs of the frequency whose dates overlap this run's (review #1575 G6), any number a month"},
-   {"line":147,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"EXISTS over the tax year's final lines at another frequency (any number of runs a month)"}
+   {"line":62,"text":"SELECT 1 FROM payroll_employee_components c","class":"S","owner":"FQc","why":"EXISTS: an employee holds a row the frequency cannot cost in the run's window"},
+   {"line":111,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"EXISTS-style list: other regular runs of the frequency whose dates overlap this run's (review #1575 G6), any number a month"},
+   {"line":139,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"an employee's lines on runs of ANOTHER frequency whose dates overlap this run's (review #1575 r4), any number a month"},
+   {"line":180,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"EXISTS over the tax year's final lines at another frequency (any number of runs a month)"}
   ],
   "src/modules/accounting/services/payroll/payrollJournalBuilder.ts": [
    {"line":84,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"FQc converted (R): by run id; description runJournalDescriptionOf the run; entry date and reference stay the EMP201 month's (the period the liability is declared in)"}

@@ -24,6 +24,7 @@ import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYea
 import { getTaxYear } from './taxTables';
 import type { PayFrequency, PayrollPeriod } from './payrollTypes';
 import { dateColumnOf, payFrequencyOf, runPeriodOf } from './payrollFrequency';
+import { payrollRunReadDate } from './payrollRunReadDate';
 
 export class PayFrequencyRefusedError extends Error {
   constructor(
@@ -121,6 +122,34 @@ async function refuseOverlappingRun(companyId: string, run: FrequencyRun, start:
     + 'so this run is not calculated' }], 'PAY_PERIOD_OVERLAP');
 }
 
+/**
+ * An employee already paid, on a non-cancelled run of ANOTHER frequency, for days this run also pays: refused (409
+ * PAY_PERIOD_OVERLAP), naming the employee and that run's dates. The mid-year frequency check sees one tax year only, so a
+ * move from weekly to fortnightly at a tax-year boundary could otherwise pay the overlapping days twice (review #1575 r4).
+ * A monthly run's dates are its calendar month.
+ */
+async function refuseOtherFrequencyOverlap(companyId: string, run: FrequencyRun, employeeIds: string[]): Promise<void> {
+  if (employeeIds.length === 0) return;
+  const { period } = run;
+  const start = period.start ?? `${period.year}-${String(period.month).padStart(2, '0')}-01`;
+  const end = period.end ?? payrollRunReadDate(period);
+  const rows = (await sql`
+    SELECT e.employee_number, h.pay_frequency, to_char(h.period_start, 'YYYY-MM-DD') AS start, to_char(h.period_end, 'YYYY-MM-DD') AS stop
+      FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
+      JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+     WHERE h.company_id = ${companyId}::uuid AND h.pay_frequency <> ${run.frequency} AND h.status <> 'cancelled'
+       AND h.id IS DISTINCT FROM ${run.runId ?? null}::uuid
+       AND daterange(h.period_start, h.period_end, '[]') && daterange(${start}::date, ${end}::date, '[]')
+       AND l.employee_id = ANY(${employeeIds}::uuid[])
+     ORDER BY e.employee_number, h.period_start
+  `) as DbRow[];
+  if (rows.length === 0) return;
+  throw new PayFrequencyRefusedError(409, rows.map((r) => ({ clause: 'pay_period_overlap' as const,
+    detail: `employee ${String(r.employee_number)} is already paid for ${String(r.start)} to ${String(r.stop)} on a ${String(r.pay_frequency)} `
+      + `run, and this ${run.frequency} run's dates ${start} to ${end} overlap them: those days would be paid twice` })), 'PAY_PERIOD_OVERLAP');
+}
+
 /** At calculate, before any write. `employeeIds`: the run's population. */
 export async function assertFrequencyCostable(
   companyId: string,
@@ -143,6 +172,7 @@ export async function assertFrequencyCostable(
     const reasons = termsReasons(await unsupportedTerms(companyId, employeeIds, period.start, period.end), frequency);
     if (reasons.length > 0) throw new PayFrequencyRefusedError(400, reasons);
   }
+  await refuseOtherFrequencyOverlap(companyId, run, employeeIds);
   const taxYear = getTaxYear(period.month, period.year);
   const mixed = (await sql`
     SELECT array_agg(DISTINCT e.employee_number) AS numbers

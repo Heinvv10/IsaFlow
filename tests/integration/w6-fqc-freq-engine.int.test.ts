@@ -148,12 +148,12 @@ describe('what a weekly run refuses this wave (payrollFrequencyGuard)', () => {
     const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
       const a = await seedWeekly(c, A);
       await seedWeekly(c, B);
-      const may = async (t: Tenant, employee: string) => {
+      const april = async (t: Tenant, employee: string) => {
         const id = String((await c.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, approved_at)
-                                           VALUES ($1, 5, 2026, 'approved', now()) RETURNING id`, [t.company])).rows[0].id);
+                                           VALUES ($1, 4, 2026, 'approved', now()) RETURNING id`, [t.company])).rows[0].id);
         await c.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay) VALUES ($1, $2, 1, 1, 0, 1)`, [id, employee]);
       };
-      await may(A, a.big); // A's employee only: B's same-numbered employee was never paid monthly
+      await april(A, a.big); // April, no overlap with June's weeks; A's employee only: B's was never paid monthly
       const refused = await calculatePayrollRun(await weeklyRun(c, A, WEEKS[0]), A.company).then(() => null, (e: unknown) => e as { code?: string; status?: number; message: string });
       const other = await calculatePayrollRun(await weeklyRun(c, B, WEEKS[0]), B.company).then(() => 'ok', (e: unknown) => e);
       return { refused, other };

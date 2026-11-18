@@ -306,3 +306,32 @@ describe('round 2 (G1-G5): the month-order gate', () => {
     expect(got.whole).toBeNull();
   });
 });
+
+describe('round 4: one employee, two frequencies, overlapping days', () => {
+  it('weekly 22-28 Feb 2026 (tax year 2026), then fortnightly 26 Feb-11 Mar 2026 (2027): refused (409 PAY_PERIOD_OVERLAP) naming the employee and the week', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      const a = await seedWeekly(c, A);
+      const b = await seedWeekly(c, B);
+      for (const [t, who] of [[B, b], [A, a]] as const) {
+        const week = await weeklyRun(c, t, ['2026-02-22', '2026-02-28'], 2);
+        await calculatePayrollRun(week, t.company);
+        await approve(c, week);
+        await c.query(`UPDATE payroll_employees SET pay_frequency = 'fortnightly' WHERE id = ANY($1)`, [[who.young, who.big]]);
+      }
+      const fortnight = async (t: Tenant) => String((await c.query(
+        `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, pay_frequency, period_start, period_end)
+         VALUES ($1, 3, 2026, 'draft', 'fortnightly', '2026-02-26', '2026-03-11') RETURNING id`, [t.company])).rows[0].id);
+      const refused = await calculatePayrollRun(await fortnight(A), A.company)
+        .then(() => null, (e: unknown) => e as { code?: string; status?: number; message: string });
+      // After the overlap: the next fortnight from 12 March is costed.
+      await c.query(`UPDATE payroll_run_headers SET period_start = '2026-03-12', period_end = '2026-03-25' WHERE company_id = $1 AND pay_frequency = 'fortnightly'`, [A.company]);
+      const next = String((await c.query(`SELECT id FROM payroll_run_headers WHERE company_id = $1 AND pay_frequency = 'fortnightly'`, [A.company])).rows[0].id);
+      const after = await calculatePayrollRun(next, A.company).then(() => 'ok', (e: Error) => e.message);
+      return { refused, after };
+    });
+    expect(got.refused).toMatchObject({ code: 'PAY_PERIOD_OVERLAP', status: 409 });
+    expect(got.refused?.message).toContain('employee FQC-BIG is already paid for 2026-02-22 to 2026-02-28 on a weekly run');
+    expect(got.after).toBe('ok');
+  });
+});
+
