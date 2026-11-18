@@ -274,8 +274,12 @@ describe('para 12D(6) member with a 4001: warned at calculate, refused at IRP5 r
       .employees.find((e) => e.employeeId === emp[C])!;
     const msg = row.messages.find((m) => m.code === 'IRP5_DB_RETIRED_MEMBER_4001');
     expect([msg?.severity, msg?.message.startsWith(`${name}: a retired defined-benefit fund member`), msg?.message.includes('"4001 must be zero"')]).toEqual(['error', true, true]);
+    // C has one employee: the year-end count is that row's errors, this one included (the fixture's SARS code table is empty,
+    // so IRP5_UNKNOWN_CODE errors sit beside it in both).
+    const errors = row.messages.filter((m) => m.severity === 'error');
+    expect(errors.filter((m) => m.code === 'IRP5_DB_RETIRED_MEMBER_4001')).toHaveLength(1);
     const status = await callC(yearEndStatus as Route, 'GET', '/api/payroll/year-end/status', undefined, { company: C, query: { taxYear: '2027' } });
-    expect((status.body.data as { readiness: { errors: number } }).readiness.errors).toBeGreaterThanOrEqual(1);
+    expect((status.body.data as { readiness: { errors: number } }).readiness.errors).toBe(errors.length);
     const sumA = await call(irp5Summary as Route, 'GET', '/api/payroll/irp5/summary', undefined, { company: A, query: { taxYear: '2027' } });
     expect(JSON.stringify(sumA.body.data)).not.toContain('IRP5_DB_RETIRED_MEMBER_4001');
   });
