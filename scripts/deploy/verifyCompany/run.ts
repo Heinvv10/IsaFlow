@@ -17,6 +17,7 @@ import { APPROVER_LOGIN, LOGIN_PURPOSE, VERIFY_LOGIN, type LoginIdentity } from 
 import { choosePassword, type PasswordChoice } from './password';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import { actorRank } from '../../../src/modules/accounting/services/gl/approvalRank';
+import { sendsSecureCookies } from '../../../tests/e2e/golden-paths/helpers/suitePreconditions';
 import type { DbOutcome, UserIds } from './provisionDb';
 import type { PlanLine } from './seedVerifyCompany';
 
@@ -173,6 +174,8 @@ async function provision(o: RunOptions, d: Deps): Promise<RunResult> {
   const plan = await d.plan(d.db, o.dryRun && outcome.companyCreated ? null : ctx);
   for (const p of plan) d.say(`seed through ${o.baseUrl}: ${p.name}: ${p.state === 'make' ? (o.dryRun ? 'would make' : 'make') : 'present, skipped'}`);
   if (o.dryRun) {
+    d.say(`would then log in through ${o.baseUrl} as both logins and run the golden suite's start-up checks (session, company, system accounts)`
+      + (sendsSecureCookies(o.baseUrl) ? '' : `; warning: the suite's client sends a production build's Secure cookies over plain http only to localhost, so against a production app at ${o.baseUrl} that check fails: use http://localhost:<port>`));
     d.say(`would write ${o.envFile}: ${[VERIFY_LOGIN, APPROVER_LOGIN].map((w) => `${w.emailKey}, ${w.passwordKey}`).join(', ')} (only those keys, mode kept or 0600)`);
     return { companyId: outcome.companyId, ran: [], wroteEnv: false };
   }

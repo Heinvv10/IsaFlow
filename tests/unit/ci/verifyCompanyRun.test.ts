@@ -219,7 +219,7 @@ describe('runProvisioning', () => {
     expect(r.saved.size + r.finals.size).toBe(0);
     const said = r.log.filter((l) => l.startsWith('say:')).join('\n');
     expect(said).toContain('would be created');
-    expect(said).toContain('would write /x/deploy.env');
+    expect(said).toMatch(/would then log in through http:\/\/app .*warning: .*http:\/\/localhost:<port>[^]*would write \/x\/deploy\.env/); // http, not localhost
     expect(said).not.toContain(' was created');
   });
 
