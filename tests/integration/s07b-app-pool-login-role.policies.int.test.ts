@@ -22,6 +22,7 @@ const FORGEABLE: RegExp[] = [
   /(\w+\.)?(?:group_id|id|company_id|child_company_id|parent_company_id|group_company_id|source_company_id|target_company_id) IN \( SELECT rls_user_(?:write_)?(?:group|company)_ids\(\) AS rls_user_\w+\)/g,
   /rls_group_may_bootstrap\(group_id\)/g,
   /rls_coa_mapping_ok\(group_id, group_account_id, company_id, company_account_id\)/g,
+  /rls_adjustment_refs_ok\(group_id, fiscal_period_id, source_intercompany_id\)/g,
   /rls_intercompany_parties_ok\(group_id, source_company_id, target_company_id, source_journal_entry_id, target_journal_entry_id\)/g,
   /\(created_by\)::text = auth\.uid\(\)/g,
   // These come before the generic patterns below, which would otherwise eat the tail of parent_company_id.

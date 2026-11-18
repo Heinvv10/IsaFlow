@@ -13,6 +13,7 @@ export {
   updateGroup,
   deleteGroup,
   addMember,
+  findMember,
   updateMember,
   removeMember,
   getGroupMembers,
@@ -45,6 +46,7 @@ export {
   listIntercompanyTransactions,
   createIntercompanyTransaction,
   matchIntercompanyTransactions,
+  getTransactionParties,
   getIntercompanyReconciliation,
   mapIntercompanyTx,
 } from './intercompanyService';

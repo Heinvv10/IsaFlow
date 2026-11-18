@@ -54,6 +54,13 @@
 --     the old row, and a check on the unchanged value would refuse a writer outside the holding company).
 --   - consolidation_adjustments_on_company_periods(): the fiscal-period census counts adjustments that
 --     point at a company's periods across every group, including one the company has since left.
+--   - consolidation_adjustments INSERT: the fiscal period it points at belongs to a CURRENT member company of
+--     its group (else a group writer could pin a foreign company's periods and lock its fiscal-start change),
+--     and the intercompany transaction it came from belongs to the same group (rls_adjustment_refs_ok); the
+--     group, period and source of a stored adjustment never change (posting and reversing change its status).
+--   - intercompany_transactions: besides the parties and amounts, created_at never changes and matched_by, when
+--     it changes, is the caller. variance_amount, match_status and matched_at are the matching fields: they
+--     stay writable, to a writer of a party, as part of matching.
 --
 -- NOT CHANGED, on purpose: a session still reads company_group_members rows of its own companies only,
 -- and still writes a member row with that company active (the old WITH CHECK). Both limits predate this
@@ -149,6 +156,21 @@ AS $$
      AND EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.id = p_company_account AND a.company_id = p_company)
 $$;
 
+-- The references of a consolidation adjustment: its fiscal period (if any) is one of a CURRENT member company's of the
+-- group, and the intercompany transaction it came from (if any) is the group's own. False for a group the caller does
+-- not write (no oracle on who belongs to a foreign group).
+CREATE OR REPLACE FUNCTION public.rls_adjustment_refs_ok(p_group uuid, p_period uuid, p_source uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT p_group IN (SELECT public.rls_user_write_group_ids())
+     AND (p_period IS NULL OR EXISTS (SELECT 1 FROM public.fiscal_periods fp
+            JOIN public.company_group_members m ON m.company_id = fp.company_id AND m.group_id = p_group AND m.left_date IS NULL
+           WHERE fp.id = p_period))
+     AND (p_source IS NULL OR EXISTS (SELECT 1 FROM public.intercompany_transactions t WHERE t.id = p_source AND t.group_id = p_group))
+$$;
+
 -- The fiscal-period census (gl/fiscalPeriodReferences): consolidation adjustments, of ANY group, that point at
 -- one of the company's fiscal periods. The adjustment rows are the group's, so a company that has left the
 -- group no longer sees them through its own session; the count is of its own periods only, and only for a
@@ -159,9 +181,11 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  -- A request (claims present) asks only about a company it belongs to. A path with no claims (a migration, the
-  -- service pool, a test on the owner's connection) is held to its own role's reach, as company_groups_guard.
-  IF auth.uid() IS NOT NULL AND (p_company IS NULL OR p_company NOT IN (SELECT auth.user_companies())) THEN
+  -- A request asks only about a company it belongs to, and a request is a session in role app_user: one that has
+  -- cleared its claims is refused, not answered. A path in no such role (a migration, the service pool, a test on the
+  -- owner's connection) is not a request and is answered; the count is of one company's own periods.
+  IF (auth.uid() IS NOT NULL AND (p_company IS NULL OR p_company NOT IN (SELECT auth.user_companies())))
+     OR (auth.uid() IS NULL AND pg_catalog.current_setting('role', true) = 'app_user') THEN
     RAISE EXCEPTION 'consolidation_adjustments_on_company_periods: not a member of the company' USING ERRCODE = '42501';
   END IF;
   RETURN (SELECT COUNT(*) FROM public.consolidation_adjustments ca
@@ -175,6 +199,7 @@ ALTER FUNCTION public.rls_user_write_company_ids() OWNER TO migration_admin;
 ALTER FUNCTION public.rls_group_may_bootstrap(uuid) OWNER TO migration_admin;
 ALTER FUNCTION public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid) OWNER TO migration_admin;
 ALTER FUNCTION public.rls_coa_mapping_ok(uuid, uuid, uuid, uuid) OWNER TO migration_admin;
+ALTER FUNCTION public.rls_adjustment_refs_ok(uuid, uuid, uuid) OWNER TO migration_admin;
 ALTER FUNCTION public.consolidation_adjustments_on_company_periods(uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.rls_user_group_ids() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_user_write_group_ids() FROM PUBLIC;
@@ -182,6 +207,7 @@ REVOKE ALL ON FUNCTION public.rls_user_write_company_ids() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_group_may_bootstrap(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rls_coa_mapping_ok(uuid, uuid, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rls_adjustment_refs_ok(uuid, uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.consolidation_adjustments_on_company_periods(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.rls_user_group_ids() TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_user_write_group_ids() TO app_user;
@@ -189,6 +215,7 @@ GRANT EXECUTE ON FUNCTION public.rls_user_write_company_ids() TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_group_may_bootstrap(uuid) TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid) TO app_user;
 GRANT EXECUTE ON FUNCTION public.rls_coa_mapping_ok(uuid, uuid, uuid, uuid) TO app_user;
+GRANT EXECUTE ON FUNCTION public.rls_adjustment_refs_ok(uuid, uuid, uuid) TO app_user;
 GRANT EXECUTE ON FUNCTION public.consolidation_adjustments_on_company_periods(uuid) TO app_user;
 
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
@@ -200,6 +227,7 @@ SELECT v.signature, 'nothing (read)', public.app_definer_hash(v.proc::regprocedu
     ('rls_group_may_bootstrap(uuid)', 'public.rls_group_may_bootstrap(uuid)'),
     ('rls_intercompany_parties_ok(uuid,uuid,uuid,uuid,uuid)', 'public.rls_intercompany_parties_ok(uuid, uuid, uuid, uuid, uuid)'),
     ('rls_coa_mapping_ok(uuid,uuid,uuid,uuid)', 'public.rls_coa_mapping_ok(uuid, uuid, uuid, uuid)'),
+    ('rls_adjustment_refs_ok(uuid,uuid,uuid)', 'public.rls_adjustment_refs_ok(uuid, uuid, uuid)'),
     ('consolidation_adjustments_on_company_periods(uuid)', 'public.consolidation_adjustments_on_company_periods(uuid)')
   ) v(signature, proc)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
@@ -241,7 +269,7 @@ CREATE TRIGGER trg_company_relationship_keys_immutable BEFORE UPDATE OF parent_c
   FOR EACH ROW EXECUTE FUNCTION public.company_relationship_keys_immutable();
 
 -- A stored intercompany transaction is what was recorded: matching changes only its status columns
--- (match_status, variance_amount, matched_at, matched_by).
+-- (match_status, variance_amount, matched_at, matched_by, the last only as the caller).
 CREATE OR REPLACE FUNCTION public.intercompany_transaction_parties_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -254,9 +282,14 @@ BEGIN
      OR NEW.target_journal_entry_id IS DISTINCT FROM OLD.target_journal_entry_id
      OR NEW.amount IS DISTINCT FROM OLD.amount OR NEW.currency IS DISTINCT FROM OLD.currency
      OR NEW.transaction_type IS DISTINCT FROM OLD.transaction_type OR NEW.transaction_date IS DISTINCT FROM OLD.transaction_date
-     OR NEW.description IS DISTINCT FROM OLD.description THEN
-    RAISE EXCEPTION 'intercompany_transactions: a recorded transaction keeps its group, parties, journals, amount, currency, type, date and description; matching changes only its status'
+     OR NEW.description IS DISTINCT FROM OLD.description OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'intercompany_transactions: a recorded transaction keeps its group, parties, journals, amount, currency, type, date, description and creation time; matching changes only its status'
       USING ERRCODE = '23514';
+  END IF;
+  -- matched_by, when it changes, is whoever matched it: a request's caller cannot sign another user's name.
+  IF NEW.matched_by IS DISTINCT FROM OLD.matched_by AND NEW.matched_by IS NOT NULL
+     AND (auth.uid() IS NULL OR NEW.matched_by::pg_catalog.text <> auth.uid()) AND current_user = 'app_user' THEN
+    RAISE EXCEPTION 'intercompany_transactions: matched_by is the user who matched it' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
 END;
@@ -265,23 +298,49 @@ DROP TRIGGER IF EXISTS trg_intercompany_transaction_parties_immutable ON interco
 CREATE TRIGGER trg_intercompany_transaction_parties_immutable BEFORE UPDATE ON intercompany_transactions
   FOR EACH ROW EXECUTE FUNCTION public.intercompany_transaction_parties_immutable();
 
--- company_groups: created_by never changes, and a CHANGED holding company must be one of the caller's. Only
--- when the statement carries the caller's claims: a path with none (a migration, the service pool's
--- cron) is held to its own role's reach, as everywhere else in this file.
-CREATE OR REPLACE FUNCTION public.company_groups_guard()
+-- A stored consolidation adjustment keeps its group, fiscal period and source transaction: posting and reversing
+-- change only its status (the references were checked when it was inserted, against the members of that day).
+CREATE OR REPLACE FUNCTION public.consolidation_adjustment_refs_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
+  IF NEW.group_id IS DISTINCT FROM OLD.group_id OR NEW.fiscal_period_id IS DISTINCT FROM OLD.fiscal_period_id
+     OR NEW.source_intercompany_id IS DISTINCT FROM OLD.source_intercompany_id THEN
+    RAISE EXCEPTION 'consolidation_adjustments: the group, fiscal period and source transaction of an adjustment never change'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_consolidation_adjustment_refs_immutable ON consolidation_adjustments;
+CREATE TRIGGER trg_consolidation_adjustment_refs_immutable
+  BEFORE UPDATE OF group_id, fiscal_period_id, source_intercompany_id ON consolidation_adjustments
+  FOR EACH ROW EXECUTE FUNCTION public.consolidation_adjustment_refs_immutable();
+
+-- company_groups: created_by never changes, and a CHANGED holding company must be one of the caller's. A statement with
+-- no claims is a path in no request (a migration, the service pool), held to its own role's reach, EXCEPT in role
+-- app_user: a session there that has cleared its claims mid-statement (set_config in the SET list) is refused.
+CREATE OR REPLACE FUNCTION public.company_groups_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  creator_changed boolean := NEW.created_by IS DISTINCT FROM OLD.created_by;
+  holding_changed boolean := NEW.holding_company_id IS NOT NULL AND NEW.holding_company_id IS DISTINCT FROM OLD.holding_company_id;
+BEGIN
   IF auth.uid() IS NULL THEN
+    IF current_user = 'app_user' AND (creator_changed OR holding_changed) THEN
+      RAISE EXCEPTION 'company_groups: no claims on this statement' USING ERRCODE = '42501';
+    END IF;
     RETURN NEW;
   END IF;
-  IF NEW.created_by IS DISTINCT FROM OLD.created_by THEN
+  IF creator_changed THEN
     RAISE EXCEPTION 'company_groups: created_by never changes' USING ERRCODE = '23514';
   END IF;
-  IF NEW.holding_company_id IS NOT NULL AND NEW.holding_company_id IS DISTINCT FROM OLD.holding_company_id
-     AND NEW.holding_company_id NOT IN (SELECT auth.user_companies()) THEN
+  IF holding_changed AND NEW.holding_company_id NOT IN (SELECT auth.user_companies()) THEN
     RAISE EXCEPTION 'company_groups: the holding company must be one of your companies' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
@@ -376,7 +435,8 @@ DROP POLICY IF EXISTS tenant_isolation_delete ON consolidation_adjustments;
 CREATE POLICY tenant_isolation_select ON consolidation_adjustments FOR SELECT TO app_user
   USING (group_id IN (SELECT public.rls_user_group_ids()));
 CREATE POLICY tenant_isolation_insert ON consolidation_adjustments FOR INSERT TO app_user
-  WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids()));
+  WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids())
+              AND public.rls_adjustment_refs_ok(group_id, fiscal_period_id, source_intercompany_id));
 CREATE POLICY tenant_isolation_update ON consolidation_adjustments FOR UPDATE TO app_user
   USING (group_id IN (SELECT public.rls_user_write_group_ids()))
   WITH CHECK (group_id IN (SELECT public.rls_user_write_group_ids()));

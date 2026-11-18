@@ -14,7 +14,7 @@ const access = vi.hoisted(() => ({
   userCreatedGroup: vi.fn(), userCanWriteCompany: vi.fn(),
 }));
 const svc = vi.hoisted(() => ({
-  createGroup: vi.fn(), updateGroup: vi.fn(), addMember: vi.fn(), getGroup: vi.fn(), listGroupsForUser: vi.fn(),
+  createGroup: vi.fn(), updateGroup: vi.fn(), addMember: vi.fn(), findMember: vi.fn(), getTransactionParties: vi.fn(), getGroup: vi.fn(), listGroupsForUser: vi.fn(),
   deleteGroup: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), getGroupMembers: vi.fn(), getGroupAccounts: vi.fn(),
   createGroupAccount: vi.fn(), updateGroupAccount: vi.fn(), deleteGroupAccount: vi.fn(), autoGenerateGroupCOA: vi.fn(),
   getCoaMappings: vi.fn(), setCoaMapping: vi.fn(), removeCoaMapping: vi.fn(), autoMapAccounts: vi.fn(), getUnmappedAccounts: vi.fn(),
@@ -53,6 +53,8 @@ const msg = (res: { json: ReturnType<typeof vi.fn> }) => JSON.stringify(res.json
 beforeEach(() => {
   for (const fn of [...Object.values(svc), ...Object.values(rel)]) fn.mockReset().mockResolvedValue({ id: 'x' });
   rel.remove.mockResolvedValue(true);
+  svc.findMember.mockResolvedValue({ companyId: '10000000-0000-4000-8000-0000000000a1' });
+  svc.getTransactionParties.mockResolvedValue([]);
   for (const fn of Object.values(access)) fn.mockReset().mockResolvedValue(true);
 });
 

@@ -19,7 +19,7 @@ export function groupsFixture(pool: Pool) {
   const u = { UA: id(), UV: id(), UW: id(), UX: id(), UY: id(), UB: id(), UC: id() };
   const g = { GA: id(), GB: id(), GE: id(), GC: id() };
   const row = { gaAcct: id(), gbAcct: id(), glA1: id(), glB1: id(), mapB: id(), txB: id(), adjA: id(), adjB: id(),
-    relA: id(), relB: id(), relAtoB: id(), elimA: id(), elimB: id(), adjC: id(), gcAcct: id(), txC: id(), jeA1: id(), jeA4: id(), txA1A4: id(), txA4: id(), mapA: id(), glA1b: id(), fyA4: id(), fpA4: id(), adjP: id(), glA4: id(), mapA4: id() };
+    relA: id(), relB: id(), relAtoB: id(), elimA: id(), elimB: id(), adjC: id(), gcAcct: id(), txC: id(), jeA1: id(), jeA4: id(), txA1A4: id(), txA4: id(), mapA: id(), glA1b: id(), fyA4: id(), fpA4: id(), adjP: id(), glA4: id(), mapA4: id(), fyB1: id(), fpB1: id(), fyA2: id(), fpA2: id() };
 
   async function setup(): Promise<void> {
     for (const [k, v] of Object.entries(co)) await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [v, `CG999r ${k}`]);
@@ -60,6 +60,11 @@ export function groupsFixture(pool: Pool) {
     await pool.query(`INSERT INTO fiscal_years (id, company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, $2, 2026, '2026-03-01', '2027-02-28', 'normal')`, [row.fyA4, co.A4]);
     await pool.query(`INSERT INTO fiscal_periods (id, company_id, period_name, period_number, fiscal_year, start_date, end_date, fiscal_year_id) VALUES ($1, $2, 'P1', 1, 2026, '2026-03-01', '2026-03-31', $3)`, [row.fpA4, co.A4, row.fyA4]);
     await pool.query(`INSERT INTO consolidation_adjustments (id, group_id, adjustment_type, fiscal_period_id) VALUES ($1, $2, 'interco_balance', $3)`, [row.adjP, g.GA, row.fpA4]);
+    // Periods of two companies that are NOT members of GA (B1 is another tenant's, A2 is UA's own but outside GA).
+    for (const [fy, fp, c] of [[row.fyB1, row.fpB1, co.B1], [row.fyA2, row.fpA2, co.A2]] as const) {
+      await pool.query(`INSERT INTO fiscal_years (id, company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, $2, 2026, '2026-03-01', '2027-02-28', 'normal')`, [fy, c]);
+      await pool.query(`INSERT INTO fiscal_periods (id, company_id, period_name, period_number, fiscal_year, start_date, end_date, fiscal_year_id) VALUES ($1, $2, 'P1', 1, 2026, '2026-03-01', '2026-03-31', $3)`, [fp, c, fy]);
+    }
     await pool.query(`INSERT INTO company_relationships (id, parent_company_id, child_company_id) VALUES ($1, $2, $3), ($4, $5, $6), ($7, $2, $5)`,
       [row.relA, co.A1, co.A2, row.relB, co.B1, co.B2, row.relAtoB]);
     await pool.query(`INSERT INTO intercompany_eliminations (id, group_company_id, from_company_id, to_company_id, period_start, period_end, elimination_type, amount)

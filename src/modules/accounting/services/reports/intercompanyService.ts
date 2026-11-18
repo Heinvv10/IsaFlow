@@ -155,6 +155,17 @@ export async function createIntercompanyTransaction(input: {
   return mapIntercompanyTx(rows[0]!);
 }
 
+/** The two parties of each listed transaction of THIS group the caller can see (the route checks a write role in one of them). */
+export async function getTransactionParties(
+  ids: string[], groupId: string,
+): Promise<Array<{ id: string; sourceCompanyId: string; targetCompanyId: string }>> {
+  const rows = (await sql`
+    SELECT id, source_company_id, target_company_id FROM intercompany_transactions
+    WHERE id = ANY(${ids}::UUID[]) AND group_id = ${groupId}::UUID
+  `) as Row[];
+  return rows.map((r) => ({ id: String(r.id), sourceCompanyId: String(r.source_company_id), targetCompanyId: String(r.target_company_id) }));
+}
+
 export async function matchIntercompanyTransactions(
   sourceId: string,
   targetId: string,
@@ -172,14 +183,21 @@ export async function matchIntercompanyTransactions(
   const variance = Math.abs(Number(source.amount) - Number(target.amount));
   const status = variance === 0 ? 'matched' : 'variance';
 
-  await sql`
+  // Row security (999r) lets a writer of one of a row's parties update it: a row the caller may not touch is simply not
+  // updated. Both rows or none: a fewer-than-expected count throws (a 5xx rolls the request back), never a partial match.
+  const expected = new Set([sourceId, targetId]).size;
+  const updated = (await sql`
     UPDATE intercompany_transactions SET
       match_status = ${status},
       variance_amount = ${variance},
       matched_at = NOW()
     WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
       AND group_id = ${groupId}::UUID
-  `;
+    RETURNING id
+  `) as Row[];
+  if (updated.length !== expected) {
+    throw new Error(`Intercompany match not applied: ${updated.length} of ${expected} transactions could be updated by this user`);
+  }
 
   log.info('Intercompany transactions matched', { sourceId, targetId, groupId, status, variance }, 'accounting');
 }

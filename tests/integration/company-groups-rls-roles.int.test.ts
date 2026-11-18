@@ -97,7 +97,7 @@ describe('the helpers answer only for what the caller writes (B4)', () => {
         has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec, has_function_privilege('app_user', p.oid, 'EXECUTE') AS app_exec,
         (SELECT count(*)::int FROM public.app_definer_reviews d WHERE d.signature = p.oid::regprocedure::text) AS reviewed
       FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND (p.proname LIKE 'rls\_%' OR p.proname = 'consolidation_adjustments_on_company_periods') ORDER BY 1`);
-    expect(r.rows.map((x: { proname: string }) => x.proname)).toEqual(['consolidation_adjustments_on_company_periods', 'rls_coa_mapping_ok', 'rls_group_may_bootstrap',
+    expect(r.rows.map((x: { proname: string }) => x.proname)).toEqual(['consolidation_adjustments_on_company_periods', 'rls_adjustment_refs_ok', 'rls_coa_mapping_ok', 'rls_group_may_bootstrap',
       'rls_intercompany_parties_ok', 'rls_user_group_ids', 'rls_user_write_company_ids', 'rls_user_write_group_ids']);
     for (const f of r.rows) {
       expect(f.prosecdef, f.proname).toBe(true);

@@ -80,14 +80,15 @@ describe('group-keyed tables: members read, a writer of a member company writes'
   });
   it('a row cannot be moved into a group the writer does not write (foreign, or one it only reads)', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
-      expect(await F.codeOf(q, 'UPDATE consolidation_adjustments SET group_id = $2 WHERE id = $1', [row.adjA, g.GB])).toBe(DENIED);
+      expect(await F.codeOf(q, 'UPDATE consolidation_adjustments SET group_id = $2 WHERE id = $1', [row.adjA, g.GB])).toBe('23514');   // the adjustment's keys-immutable trigger
     });
     // UV writes GC (owner of A3) and only reads GA (viewer of A1): GA is visible to it, so only the write check stops the move.
     await F.asAppUser(u.UV, co.A3, async (q) => {
       for (const [table, id] of [['consolidation_adjustments', row.adjC], ['group_accounts', row.gcAcct], ['intercompany_transactions', row.txC]]) {
-        // intercompany_transactions is stopped earlier, by its keys-immutable trigger; the other two by the UPDATE policy.
+        // consolidation_adjustments and intercompany_transactions are stopped earlier, by their keys-immutable triggers;
+        // group_accounts by the UPDATE policy.
         expect(await F.codeOf(q, `UPDATE ${table} SET group_id = $2 WHERE id = $1`, [id, g.GA]), table)
-          .toBe(table === 'intercompany_transactions' ? '23514' : DENIED);
+          .toBe(table === 'group_accounts' ? DENIED : '23514');
       }
     });
   });
@@ -234,7 +235,9 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
   it('a viewer of one group and writer of another reaches only the writer group\'s rows', async () => {
     await F.asAppUser(u.UV, co.A3, async (q) => {
       for (const t of ['group_accounts', 'consolidation_adjustments', 'intercompany_transactions']) {
-        expect((await q.query(`UPDATE ${t} SET created_at = NOW()`)).rowCount, `update ${t}`).toBe(1);
+        // a column the table's triggers leave writable (a transaction's created_at is frozen)
+        const col = t === 'intercompany_transactions' ? 'variance_amount = 0' : 'created_at = NOW()';
+        expect((await q.query(`UPDATE ${t} SET ${col}`)).rowCount, `update ${t}`).toBe(1);
       }
       expect((await q.query('DELETE FROM group_accounts')).rowCount).toBe(1);   // the chart is edited and pruned by the app
       // Nothing else is ever hard-deleted by the app: adjustments are reversed, transactions kept, groups deactivated.

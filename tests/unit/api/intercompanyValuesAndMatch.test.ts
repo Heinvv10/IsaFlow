@@ -9,7 +9,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const access = vi.hoisted(() => ({ userBelongsToGroup: vi.fn(), userCanWriteGroup: vi.fn(), userCanWriteCompany: vi.fn() }));
 const svc = vi.hoisted(() => ({
-  listIntercompanyTransactions: vi.fn(), createIntercompanyTransaction: vi.fn(), matchIntercompanyTransactions: vi.fn(),
+  listIntercompanyTransactions: vi.fn(), createIntercompanyTransaction: vi.fn(), matchIntercompanyTransactions: vi.fn(), getTransactionParties: vi.fn(),
   getIntercompanyReconciliation: vi.fn(),
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ ok: 1 }]) }));
@@ -42,6 +42,7 @@ const msg = (res: { json: ReturnType<typeof vi.fn> }) => JSON.stringify(res.json
 beforeEach(() => {
   for (const fn of [...Object.values(access), ...Object.values(svc)]) fn.mockReset().mockResolvedValue(true);
   svc.createIntercompanyTransaction.mockResolvedValue({ id: 'tx' });
+  svc.getTransactionParties.mockResolvedValue([]);
 });
 
 describe('create: values are validated before any query (400)', () => {

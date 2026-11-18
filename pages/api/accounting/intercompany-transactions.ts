@@ -14,6 +14,7 @@ import {
   listIntercompanyTransactions,
   createIntercompanyTransaction,
   matchIntercompanyTransactions,
+  getTransactionParties,
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
 import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
@@ -132,6 +133,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (badMatch) return apiResponse.badRequest(res, `${badMatch} must be a valid UUID`);
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
+      // Row security (999r) lets a transaction be updated by a write role in one of ITS parties: check each row here, so the
+      // refusal is a 403 and never a half-applied match. A row not found is the service's typed 404, as before.
+      for (const row of await getTransactionParties([sourceId, targetId], matchGroupId as string)) {
+        if (!(await userCanWriteCompany(userId, row.sourceCompanyId)) && !(await userCanWriteCompany(userId, row.targetCompanyId))) {
+          return apiResponse.forbidden(res, 'Matching needs an owner, admin or manager role in the source or target company of each transaction.');
+        }
+      }
       try {
         await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
       } catch (err) {
