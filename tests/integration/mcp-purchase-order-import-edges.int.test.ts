@@ -13,7 +13,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import { dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import type { McpToolContext } from '@/lib/mcp/types';
 import { putPo } from './helpers/budgetPoFixture';
 import { callTool, counterNext, dropPoDocuments, poCount, sagePo, type Json } from './helpers/poImportHarness';
 import { bulkCreatePurchaseOrdersTool as create } from '@/lib/mcp/tools/writeBulkPurchaseOrders';
@@ -108,10 +109,21 @@ describe('the budget', () => {
 });
 
 describe('concurrency', () => {
-  it('two imports of one Sage id at once make one PO; the other reports it already there', async () => {
+  it('a second import of one Sage id waits for the first and then reports it already there; one PO', async () => {
     const po = sagePo(30, f, { status: 'billed', ref: 'race-1' });
-    const [a, b] = await Promise.all([callTool(pool, f, create, { purchase_orders: [po] }), callTool(pool, f, create, { purchase_orders: [po] })]);
-    expect([a.body.created, b.body.created].sort()).toEqual([0, 1]);
+    const ctx = { userId: f.owner, companyId: f.co, scopes: ['write:invoices', 'read:invoices'], tokenJti: 'j', oauthAppId: null } as McpToolContext;
+    // The first import's transaction stays open (its PO inserted, uncommitted) while the second runs.
+    const first = await openRequest(pool, f, f.owner);
+    const one = await first.run(() => create.handler({ idempotency_key: 'race-a', purchase_orders: [po] }, ctx));
+    expect(JSON.parse(one.content[0]!.text)).toMatchObject({ created: 1 });
+    let settled = false;
+    const second = callTool(pool, f, create, { purchase_orders: [po] }).finally(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 500));
+    expect(settled).toBe(false); // it is waiting on the first import's locks
+    await first.commit();
+    const two = await second;
+    expect(two.isError, two.text).toBe(false);
+    expect(two.body).toMatchObject({ created: 0, already_existed: 1 });
     expect(Number((await pool.query("SELECT count(*) AS n FROM purchase_orders WHERE company_id = $1 AND external_ref = 'race-1'", [f.co])).rows[0].n)).toBe(1);
   });
 });

@@ -32,7 +32,8 @@ keep their numbers, then each gets its Sage PDF attached.
 | Status | `draft`; `open` = `approved`; `billed` = **`closed`** (new); `cancelled`. Sage mapping: Pending/Overdue → open, Invoiced → billed, Cancelled → cancelled. `partially_received` / `received` are refused: they come from goods receipts, and none exist for imported POs. |
 | Invoiced POs must not be committed | A new status, `closed`. Committed spend (`COMMITTING_PO_STATUSES`), the bill-line link list, the bank-match payable list and the unmatched list are all allowlists without it. Edit, cancel and delete accept only other statuses, so a closed PO is read-only. Mapping Invoiced to `received` would have counted every Invoiced PO as open commitment, because the Sage bills are not linked by `po_item_id`. |
 | Open POs and the budget | An open PO is approved through the same check the Approve action runs (channel `mcp`, company budget lock held once). Under block, an over-budget PO refuses the batch, so the import is no way around the control. Under warn, `budget_warnings` are returned. No `refused` event is recorded: the PO it would name was rolled back (954's FK trigger). |
-| Amounts | po_items keeps quantity and unit price to 2 decimals. Lines may send the source's own `line_total` / `tax_amount` (Sage Exclusive/Tax), which are stored as sent. VAT must agree with them within 2 cents. Otherwise amounts are computed (exclusive, or `inclusive: true` the way an inclusive document rounds). `expected_totals` must equal the lines' sums to the cent. |
+| Amounts | Lines may send the source's own `line_total` / `tax_amount` (Sage Exclusive/Tax), stored as sent. A line amount may be below quantity × unit price (a discount) but never above it by more than a cent, which catches the VAT-inclusive Total sent as Exclusive. VAT must agree with the line within 2 c. Otherwise amounts are computed: exclusive, or `inclusive: true` rounding as an inclusive document does. `expected_totals` must equal the lines' sums to the cent. Quantity has at most 2 decimals; a line and a PO total stay within NUMERIC(15,2). |
+| Unit price | The stored unit price is the line's effective ex-VAT price (line amount / quantity, 6 decimals; 1001 widens `po_items.unit_price` to NUMERIC(19,6)). So `line_total = round(quantity × unit_price)` holds for every PO line: the app's edit recomputes `line_total` from those two, and a bill copies them. A discounted line therefore shows its discounted unit price. |
 | Counter | The import locks the `purchase_order` counter row first (5 s budget → `ROW_LOCK_TIMEOUT`), as every PO writer does before inserting. That lock also serialises the "number exists?" check. Afterwards `next_number = GREATEST(next_number, max imported + 1)`, for numbers of the counter's own form (prefix + digits). After PO0000953 the app's next PO is PO0000954. |
 | Scope | Existing `write:invoices` / `read:invoices`. A new scope would force every connector to re-consent. |
 | Price | Free (`null` in flow metering): a PO is a commitment and bills nothing. **Owner's call**: the bulk invoice creates cost 3 Flows each. |
@@ -42,7 +43,15 @@ keep their numbers, then each gets its Sage PDF attached.
 
 - **Linking POs to bills:** nothing links imported POs to the Sage bills. Closed POs are kept out of committed spend
   by their status. `quantity_received` / `quantity_invoiced` stay 0.
+- **Partly invoiced POs:** a Sage PO partly invoiced and imported as open counts in full as committed, while its Sage
+  bills also count as actual, until a person closes or cancels it.
+- **Re-runs never update:** a stored PO is never changed by a re-run. A changed number, date, total or status shows in
+  `differences` (`payload_differs: true`) and must be fixed in the app. Closing an approved PO has no tool and no app
+  action (Cancel makes it cancelled); that is a follow-up if Sage POs move from Pending to Invoiced after the load.
+- **No negative lines:** discount or rebate lines with negative amounts are refused, and a document-level discount
+  fails `expected_totals`. Fold such a discount into the lines' `line_total`.
+- **No item lines:** `item_id` is not accepted. `po_items.product_id` references `products`, and no MCP tool returns
+  products ids (`list_items` reads the separate `items` catalogue).
 - **App list cap:** `/api/accounting/purchase-orders` (the app's list) returns at most 200 rows. With 757 POs the
   page shows the newest 200 per tab. That is a separate, existing limit.
-- **Re-runs don't update:** a re-run never updates a stored PO. A corrected Sage PO shows as `payload_differs` and
-  must be fixed in the app.
+- **Lock hold:** a batch holds the PO counter row until it commits; an in-app PO created meanwhile waits up to 5 s.
