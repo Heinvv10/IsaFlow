@@ -86,10 +86,10 @@ export default function IntercompanyReconciliationPage() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (keepMsg = false) => {
     if (!selectedGroupId) return;
     setLoadingTx(true);
-    setMsg(null);
+    if (!keepMsg) setMsg(null);
     const params = new URLSearchParams({
       group_id: selectedGroupId,
       ...(periodStart ? { period_start: periodStart } : {}),
@@ -162,12 +162,12 @@ export default function IntercompanyReconciliationPage() {
       const res = await apiFetch('/api/accounting/intercompany-transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'match', sourceId: matchSelection[0], targetId: matchSelection[1] }),
+        body: JSON.stringify({ action: 'match', groupId: selectedGroupId, sourceId: matchSelection[0], targetId: matchSelection[1] }),
       });
       await assertOk(res, 'Could not match the transactions - try again');
       setMsg({ type: 'success', text: 'Transactions matched' });
       setMatchSelection([]);
-      await loadData();
+      await loadData(true);
     } catch (err) {
       setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not match the transactions - try again') });
     } finally { setSaving(false); }
