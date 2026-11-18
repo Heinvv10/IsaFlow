@@ -8,7 +8,7 @@
  * existing services or direct GL queries.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { buildBankingCard, buildSalesCard, buildPurchasesCard, buildVatCard, buildPayrollCard } from './monthEndLedgerCards';
@@ -200,16 +200,22 @@ export async function getMonthEndWorkbench(
 
   // Each card runs independently — one broken sub-query (e.g. a missing
   // column after a future migration) must not blank the whole workbench.
+  // Each card also runs in its own SAVEPOINT: withAuth holds one transaction for the
+  // whole request, and a failed statement (e.g. 42501 on a table) aborts it, so
+  // without this every later card fails with 25P02 "current transaction is aborted".
+  // Sibling savepoints on one connection queue (savepointQueue), so this is safe
+  // under allSettled.
+  const isolated = <T>(name: string, fn: () => Promise<T>): Promise<T> => withSavepoint(`wb_card_${name}`, fn);
   const settled = await Promise.allSettled([
-    buildBankingCard(companyId, end),
-    buildSalesCard(companyId, end),
-    buildPurchasesCard(companyId, end),
-    buildVatCard(companyId, start, end),
-    buildPayrollCard(companyId, period),
-    buildAfsCard(companyId, period),
-    buildExceptionsCard(companyId, end),
-    buildReviewCard(companyId, start, end, period),
-    buildTrialBalance(companyId, start, end),
+    isolated('banking', () => buildBankingCard(companyId, end)),
+    isolated('sales', () => buildSalesCard(companyId, end)),
+    isolated('purchases', () => buildPurchasesCard(companyId, end)),
+    isolated('vat', () => buildVatCard(companyId, start, end)),
+    isolated('payroll', () => buildPayrollCard(companyId, period)),
+    isolated('afs', () => buildAfsCard(companyId, period)),
+    isolated('exceptions', () => buildExceptionsCard(companyId, end)),
+    isolated('review', () => buildReviewCard(companyId, start, end, period)),
+    isolated('trial_balance', () => buildTrialBalance(companyId, start, end)),
   ]);
 
   const cardLabels: ReadonlyArray<{ id: string; title: string }> = [
