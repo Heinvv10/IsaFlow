@@ -196,7 +196,8 @@ describe('a PSP trust in March, an employee from April', () => {
     expect((body.data as unknown as { totalPspPaye: number }).totalPspPaye).toBe(22_500);
     const text = JSON.stringify(body.data.runWarnings);
     expect(text).not.toMatch(/TSB-psp-switch|Extra/);
-    expect(body.data.runWarnings.filter((w) => w.includes('personal service provider pay (1 payee)'))).toHaveLength(1);
+    expect(body.data.runWarnings.filter((w) => w.includes('of PAYE on personal service provider pay is not on the'))).toHaveLength(1);
+    expect(text).not.toMatch(/payee/);
   });
 });
 
@@ -276,6 +277,7 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
     expect(data.runWarnings.some((w) => w.includes('TSB-psp-ye'))).toBe(true);
     const viewer = await (await viewerOf(f))(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
     expect(JSON.stringify(viewer.body)).not.toMatch(/TSB-psp-ye|Extra/);
-    expect(JSON.stringify(viewer.body)).toContain('(1 payee)');
+    expect(JSON.stringify(viewer.body)).toContain('of PAYE on personal service provider pay is not on the');
+    expect(JSON.stringify(viewer.body)).not.toMatch(/payee/);
   });
 });

@@ -100,11 +100,12 @@ export async function pspSwitchWarning(
 
 /**
  * The same for a reader without payroll-detail access (a viewer of an aggregate-only route): one line, the PSP lines'
- * total PAYE and count, no name, employee number or per-person amount. Null when there is none.
+ * total PAYE only: no count, name, employee number or per-person amount. Null when there is none.
  */
 export function pspAggregateWarning(totals: readonly PspFilingTotal[], filing: string): string | null {
   if (totals.length === 0) return null;
   const paye = Math.round(totals.reduce((t, x) => t + x.paye, 0) * 100) / 100;
-  return `${formatMoney(paye)} of PAYE on personal service provider pay (${totals.length} payee${totals.length === 1 ? '' : 's'}) is not on the `
+  // No payee count: with one PSP it would let a viewer read that person's PAYE (review Low). The detail lines name each one.
+  return `${formatMoney(paye)} of PAYE on personal service provider pay is not on the `
     + `${filing}: a PSP's certificate is the company's or trust's (nature of person H), which IsaFlow does not produce. UNVERIFIED.`;
 }
