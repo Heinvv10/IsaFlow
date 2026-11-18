@@ -18,6 +18,7 @@ import { admitPortalInvite } from '../../pages/api/payroll/employees/[id]/portal
 import login from '../../pages/api/employee-portal/login';
 import accept from '../../pages/api/employee-portal/accept';
 import me from '../../pages/api/employee-portal/me';
+import logout from '../../pages/api/employee-portal/logout';
 import { type Res, type Route, type rig } from './brkr.helpers';
 import { applyCookies, response } from './mfa-impersonation-postgres.helpers';
 
@@ -70,10 +71,15 @@ export function lastToken(): string {
 }
 
 /** A portal request: only the cookies in `jar`, from `ip`. */
-export async function portal(route: unknown, method: string, jar: Record<string, string>, body?: unknown, ip = '198.51.100.7'): Promise<Res & { headers: Map<string, unknown> }> {
+/** A browser's same-origin POST headers (the portal refuses anything else; employeePortalSameOrigin). */
+export const SAME_ORIGIN = { host: 'app.example.invalid', origin: 'https://app.example.invalid', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
+
+export async function portal(route: unknown, method: string, jar: Record<string, string>, body?: unknown, ip = '198.51.100.7',
+  headers: Record<string, string | undefined> = SAME_ORIGIN): Promise<Res & { headers: Map<string, unknown> }> {
+  const sent = Object.fromEntries(Object.entries(headers).filter(([, v]) => v !== undefined)) as Record<string, string>;
   const req = {
     method, url: '/api/employee-portal', query: {}, body, cookies: { ...jar },
-    headers: { cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; '), 'content-type': 'application/json', 'x-forwarded-for': ip },
+    headers: { ...sent, cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; '), 'x-forwarded-for': ip },
     socket: { remoteAddress: ip },
   } as unknown as NextApiRequest;
   const result = response();
@@ -88,6 +94,7 @@ export async function portal(route: unknown, method: string, jar: Record<string,
 export const doLogin = (jar: Record<string, string>, body: unknown, ip?: string) => portal(login, 'POST', jar, body, ip);
 export const doAccept = (jar: Record<string, string>, body: unknown, ip?: string) => portal(accept, 'POST', jar, body, ip);
 export const doMe = (jar: Record<string, string>) => portal(me, 'GET', jar);
+export const portalRoutes = { login, accept, logout };
 
 export async function cleanup(r: R): Promise<void> {
   await r.pool.query('DELETE FROM employee_portal_access WHERE company_id = $1', [r.company]);

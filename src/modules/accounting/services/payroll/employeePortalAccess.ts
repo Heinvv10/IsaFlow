@@ -5,8 +5,9 @@
  * rule 20 / F7), the company setting (PORTAL_OFF), this company's employee (NOT_FOUND), an address on file (NO_EMAIL;
  * PE's payroll_employees.email, which only an owner or admin sets), the employee still within access (ACCESS_ENDED:
  * a leaver past the end of the next tax year), not already active (ALREADY_ACTIVE: revoke first), then the send
- * limit. The login row is then written on migration_admin (no app role writes the table, 937's rule), with only the
- * sha256 of a fresh 256-bit token, valid 7 days; any earlier invite's token stops working. The link carries the token
+ * limit. The login row is then written on migration_admin (no app role writes the table, 937's rule), with its audit
+ * row in the same transaction (review #1570 L2: no change without its audit row), the address in its one portal
+ * spelling (employeePortalAddress; review M1), and only the sha256 of a fresh 256-bit token, valid 7 days; any earlier invite's token stops working. The link carries the token
  * in the URL FRAGMENT, so it never reaches a server log or analytics. The mail goes through the injected Mailer
  * (rule 11; the route passes sendEmail, tests a capture mailer). A failed send is reported (`sent: false`), not
  * thrown, so the audit row commits; inviting again issues a new link.
@@ -23,6 +24,8 @@ import type { EmployeeEmailActor } from './payrollEmployeeEmail';
 import { EmployeePortalRefusal } from './employeePortalRefusal';
 import { portalClosedReason } from './employeePortalSettings';
 import { portalAccessEnds, portalAccessOpen } from './employeePortalWindow';
+import { normalisePortalEmail } from './employeePortalAddress';
+import { clientTx } from './employeePortalAddressChange';
 
 export const INVITE_TTL_DAYS = 7;
 const appOrigin = () => (process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za').replace(/\/+$/, '');
@@ -60,7 +63,8 @@ export async function readEmployeePortalAccess(companyId: string, employeeId: st
   `) as Array<Record<string, unknown>>)[0];
   return {
     status: (row?.status as EmployeePortalAccessView['status']) ?? 'none',
-    email: row ? String(row.email) : null,
+    // The address the portal answers to is the one on file now (login, accept and session require them equal).
+    email: row ? (emp.email ?? String(row.email)) : null,
     invitedAt: iso(row?.invited_at), inviteExpiresAt: iso(row?.invite_expires_at),
     activatedAt: iso(row?.activated_at), lastLoginAt: iso(row?.last_login_at),
     accessEnds: portalAccessEnds({ status: emp.status, endDate: emp.end_date }),
@@ -93,6 +97,8 @@ export async function inviteEmployeeToPortal(input: InviteInput): Promise<{ stat
   const emp = await employee(companyId, employeeId);
   if (!emp) throw new EmployeePortalRefusal('NOT_FOUND', 'Employee not found');
   if (!emp.email) throw new EmployeePortalRefusal('NO_EMAIL', 'Add the employee\'s email address first.');
+  const address = normalisePortalEmail(emp.email);
+  if (!address) throw new EmployeePortalRefusal('NO_EMAIL', 'The portal needs a plain email address (letters, digits and symbols only).');
   if (!portalAccessOpen({ status: emp.status, endDate: emp.end_date })) {
     throw new EmployeePortalRefusal('ACCESS_ENDED', 'This employee\'s portal access has ended.');
   }
@@ -104,8 +110,10 @@ export async function inviteEmployeeToPortal(input: InviteInput): Promise<{ stat
   if (!(await input.admit())) throw new EmployeePortalRefusal('RATE_LIMITED', 'Too many invitations. Please try again shortly.');
 
   const token = randomBytes(32).toString('base64url');
-  const written = await migrationAdminTx('employee portal invite', async (client) => (await client.query(
-    `INSERT INTO employee_portal_access (company_id, employee_id, email, status, invite_token_hash, invite_expires_at, invited_by)
+  const actorAudit = { userId: actor.userId, userEmail: actor.userEmail, ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined };
+  await migrationAdminTx('employee portal invite', async (client) => {
+    const rows = (await client.query(
+      `INSERT INTO employee_portal_access (company_id, employee_id, email, status, invite_token_hash, invite_expires_at, invited_by)
      VALUES ($1::uuid, $2::uuid, $3, 'invited', $4, now() + make_interval(days => $5), $6)
      ON CONFLICT (company_id, employee_id) DO UPDATE
        SET email = EXCLUDED.email, status = 'invited', password_hash = NULL, invite_token_hash = EXCLUDED.invite_token_hash,
@@ -114,36 +122,37 @@ export async function inviteEmployeeToPortal(input: InviteInput): Promise<{ stat
            session_version = employee_portal_access.session_version + 1, updated_at = now()
      WHERE employee_portal_access.status <> 'active'
      RETURNING id`,
-    [companyId, employeeId, emp.email, inviteTokenHash(token), INVITE_TTL_DAYS, actor.userId],
-  )).rows as Array<{ id: string }>);
-  if (!written[0]) throw already();
-
-  await logAuditOrThrow({
-    companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'create', entityType: 'employee_portal_access',
-    entityId: written[0].id, changes: { fields: [{ field: 'invited', old: null, new: emp.email, label: 'Portal invitation' }] },
-    ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
+    [companyId, employeeId, address, inviteTokenHash(token), INVITE_TTL_DAYS, actor.userId],
+    )).rows as Array<{ id: string }>;
+    if (!rows[0]) throw already();
+    await logAuditOrThrow({
+      companyId, ...actorAudit, action: 'create', entityType: 'employee_portal_access', entityId: rows[0].id,
+      changes: { fields: [{ field: 'invited', old: null, new: address, label: 'Portal invitation' }] },
+    }, clientTx(client));
   });
   const employer = ((await sql`SELECT name FROM companies WHERE id = ${companyId}::uuid`) as Array<{ name: string }>)[0]?.name ?? '';
   const link = `${appOrigin()}/employee-portal/accept#t=${token}`;
-  const result = await input.mailer({ to: emp.email, ...portalInviteMessage(employer, emp.first_name, link), ...SEND });
+  const result = await input.mailer({ to: address, ...portalInviteMessage(employer, emp.first_name, link), ...SEND });
   return result.success ? { status: 'invited', sent: true } : { status: 'invited', sent: false, error: 'The invitation email could not be sent. Invite again.' };
 }
 
 /** Ends the login and every session signed in with it. */
 export async function revokeEmployeePortalAccess(companyId: string, employeeId: string, actor: EmployeeEmailActor): Promise<void> {
   if (!(await employee(companyId, employeeId))) throw new EmployeePortalRefusal('NOT_FOUND', 'Employee not found');
-  const done = await migrationAdminTx('employee portal revoke', async (client) => (await client.query(
+  await migrationAdminTx('employee portal revoke', async (client) => {
+    const done = (await client.query(
     `UPDATE employee_portal_access
         SET status = 'revoked', revoked_at = now(), revoked_by = $3, password_hash = NULL, invite_token_hash = NULL,
             session_version = session_version + 1, updated_at = now()
       WHERE company_id = $1::uuid AND employee_id = $2::uuid AND status <> 'revoked'
       RETURNING id`,
     [companyId, employeeId, actor.userId],
-  )).rows as Array<{ id: string }>);
-  if (!done[0]) throw new EmployeePortalRefusal('NO_ACCESS', 'This employee has no portal access to revoke.');
-  await logAuditOrThrow({
-    companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'delete', entityType: 'employee_portal_access',
-    entityId: done[0].id, changes: { fields: [{ field: 'status', old: 'invited/active', new: 'revoked', label: 'Portal access' }] },
-    ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
+    )).rows as Array<{ id: string }>;
+    if (!done[0]) throw new EmployeePortalRefusal('NO_ACCESS', 'This employee has no portal access to revoke.');
+    await logAuditOrThrow({
+      companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'delete', entityType: 'employee_portal_access',
+      entityId: done[0].id, changes: { fields: [{ field: 'status', old: 'invited/active', new: 'revoked', label: 'Portal access' }] },
+      ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
+    }, clientTx(client));
   });
 }
