@@ -15,11 +15,12 @@ import { stampFilingFile } from '@/modules/accounting/services/returns/filingFil
 import { EMP_VERSION, VAT_VERSION } from './filingFileSeed';
 
 const PRN = '4123456789V00000001';
-/** First query: the company's numbers; second: another period's version with this PRN. */
+/** Queries in order: the company's numbers; the per-company PRN lock; another period's version or submission with this PRN. */
 const db = (company: Record<string, unknown>, reused: Record<string, unknown>[] = []) => {
   m.sql.mockReset();
-  m.sql.mockResolvedValueOnce([company]).mockResolvedValueOnce(reused);
+  m.sql.mockResolvedValueOnce([company]).mockResolvedValueOnce([]).mockResolvedValueOnce(reused);
 };
+const sqlText = (i: number) => (m.sql.mock.calls[i]![0] as string[]).join('?');
 const refusal = async (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e);
 
 beforeEach(() => vi.clearAllMocks());
@@ -58,6 +59,9 @@ describe('the PRN is the company\'s', () => {
     db({ vat_number: null }, [{ period_start: '2026-02-01', period_end: '2026-03-31' }]);
     expect(await refusal(assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, PRN)))
       .toMatchObject({ status: 409, refusalCode: 'FILING_REFERENCE_REUSED', message: expect.stringMatching(/2026-02-01 to 2026-03-31/) });
+    // L2: the per-company advisory lock is taken before the reuse is read, and legacy submissions are read too.
+    expect(sqlText(1)).toMatch(/pg_advisory_xact_lock/);
+    expect(sqlText(2)).toMatch(/FROM tax_return_versions[\s\S]*UNION ALL[\s\S]*FROM sars_submissions[\s\S]*submission_reference/);
   });
 });
 

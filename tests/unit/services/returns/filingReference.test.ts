@@ -12,6 +12,10 @@ describe('parseFilingReference', () => {
     expect(parseFilingReference('VAT201', '4123456789 V 20260300')).toBe('4123456789V20260300');
     expect(parseFilingReference('VAT201', '4123456789-V-20260300')).toBe('4123456789V20260300');
     expect(parseFilingReference('VAT201', '412 345 6789\tv2026-0300')).toBe('4123456789V20260300');
+    // L1 (review r2): Unicode hyphens and dashes U+2010-2015 and the minus sign U+2212, as a word processor types them.
+    for (const dash of ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']) {
+      expect(parseFilingReference('VAT201', `4123456789${dash}V${dash}20260300`), dash.codePointAt(0)!.toString(16)).toBe('4123456789V20260300');
+    }
   });
 
   it('EMP201, UNVERIFIED shape: one letter and 8 digits, or two letters, YYMM and 3 digits', () => {
