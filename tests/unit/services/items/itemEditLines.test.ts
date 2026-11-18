@@ -139,6 +139,22 @@ describe('review round 2: VAT on lines nobody changed, and a non-string item_id'
     expect(itemReads()).toBe(0);
   });
 
+  it('a resent line whose item is standard-rated takes 15, but 0 on an account whose input tax is denied (the unattended VAT guard, as at create)', async () => {
+    const accounts = (denied: boolean) => {
+      db([item(ITEM_A, { vat_on_purchases: 'standard' })]);
+      const base = sqlMock.getMockImplementation()!;
+      sqlMock.mockImplementation(async (strings: ReadonlyArray<string>, ...values: unknown[]) => (strings.join('?').includes('FROM gl_accounts')
+        ? (values[1] as string[]).map((id) => ({ id, is_active: true, account_name: 'Meals', vat_input_denied: denied }))
+        : base(strings, ...values)));
+    };
+    accounts(false);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN })], [stored(ITEM_A)], label, { deriveTax: true }))[0]!.taxRate).toBe(15);
+    accounts(true);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN })], [stored(ITEM_A)], label, { deriveTax: true }))[0]!.taxRate).toBe(0);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ glAccountId: OWN, taxRate: 15 })], [stored(ITEM_A)], label, { deriveTax: true }))[0]!.taxRate).toBe(15);
+    expect((await resolveEditLineItems(COMPANY, 'sales', [line({ glAccountId: OWN })], [stored(ITEM_A, 'Fibre')], label, { deriveTax: true }))[0]!.taxRate).toBeUndefined();
+  });
+
   it('the item read for the derivation is company-scoped', async () => {
     db([exempt({ id: ITEM_A })]);
     await resolveEditLineItems(COMPANY, 'purchase', [line()], [stored(ITEM_A)], label, { deriveTax: true });

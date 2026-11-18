@@ -123,6 +123,62 @@ describe('item VAT (deriveTax)', () => {
   });
 });
 
+describe('a DERIVED purchase rate is an input-VAT claim nobody chose: it goes through the unattended VAT guard', () => {
+  const standard = () => item({ vat_on_purchases: 'standard', vat_on_sales: 'standard' });
+  const accountsAre = (over: Record<string, unknown>) => (ids: string[]) => ids.map((id) => ({ id, is_active: true, account_name: 'Stock purchases', ...over }));
+  const derived = async (kind: 'purchase' | 'sales', line: Record<string, unknown> = {}) =>
+    (await applyItemLineDefaults(COMPANY, [{ itemId: ITEM, ...line }], kind, label, { deriveTax: true }))[0]!;
+
+  it('an ordinary expense account keeps the standard rate', async () => {
+    db([standard()], accountsAre({}));
+    expect((await derived('purchase')).taxRate).toBe(15);
+  });
+
+  it('an account whose input tax is denied (s17(2)(a)) takes 0, on the item\'s default account and on the line\'s own', async () => {
+    db([standard()], accountsAre({ vat_input_denied: true }));
+    const line = await derived('purchase');
+    expect(line).toMatchObject({ glAccountId: PURCH, taxRate: 0 });
+    expect(line.vatClassification).toBeUndefined();
+    expect((await derived('purchase', { glAccountId: OWN })).taxRate).toBe(0);
+  });
+
+  it('an account no supply arises on (salaries) and a bank account take 0', async () => {
+    db([standard()], accountsAre({ account_name: 'Salaries and wages' }));
+    expect((await derived('purchase')).taxRate).toBe(0);
+    db([standard()], accountsAre({ account_subtype: 'bank' }));
+    expect((await derived('purchase')).taxRate).toBe(0);
+  });
+
+  it('only the lines on a guarded account lose the rate', async () => {
+    db([standard()], (ids) => ids.map((id) => ({ id, is_active: true, account_name: 'x', vat_input_denied: id === OWN })));
+    const out = await applyItemLineDefaults(COMPANY, [{ itemId: ITEM }, { itemId: ITEM, glAccountId: OWN }], 'purchase', label, { deriveTax: true });
+    expect(out.map((l) => l.taxRate)).toEqual([15, 0]);
+  });
+
+  it('a rate the caller names stands (the attended choice), and a zero-rated item keeps its classification', async () => {
+    db([standard()], accountsAre({ vat_input_denied: true }));
+    expect((await derived('purchase', { taxRate: 15 })).taxRate).toBe(15);
+    db([item({ vat_on_purchases: 'zero' })], accountsAre({ vat_input_denied: true }));
+    expect(await derived('purchase')).toMatchObject({ taxRate: 0, vatClassification: 'zero_rated' });
+  });
+
+  it('a sales (quote) line is output VAT, not a claim: it keeps the standard rate', async () => {
+    db([standard()], accountsAre({ vat_input_denied: true, account_name: 'Interest received' }));
+    expect((await derived('sales')).taxRate).toBe(15);
+  });
+
+  it('the guard reads are company-scoped', async () => {
+    db([standard()], accountsAre({}));
+    await derived('purchase');
+    const reads = sqlMock.mock.calls.filter((c: unknown[]) => (c[0] as string[]).join('?').includes('FROM gl_accounts'));
+    expect(reads.length).toBeGreaterThan(1);
+    for (const c of reads) {
+      expect((c[0] as string[]).join('?')).toMatch(/company_id = \?::UUID/);
+      expect(c[1]).toBe(COMPANY);
+    }
+  });
+});
+
 describe('an empty item_id is no item (never reaches a ::UUID cast)', () => {
   it('applyItemLineDefaults turns "" into null, with and without a named item in the batch', async () => {
     expect(await applyItemLineDefaults(COMPANY, [{ itemId: '' }], 'sales', label)).toEqual([{ itemId: null }]);

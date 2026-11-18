@@ -11,7 +11,7 @@
  * Reads only (the item read of the lines that need a check); every refusal is an `ItemLineRefusal` before any write.
  */
 import {
-  ItemLineRefusal, applyItemLineDefaults, itemVatTreatments, type ItemDefaultKind, type ItemDefaultOptions,
+  ItemLineRefusal, applyItemLineDefaults, guardDerivedPurchaseRates, itemVatTreatments, type ItemDefaultKind, type ItemDefaultOptions,
 } from './itemLineDefaults';
 
 export interface StoredItemLine {
@@ -74,10 +74,13 @@ export async function resolveEditLineItems<T extends EditLine>(
   const need = resolved.flatMap((l, i) => (!check[i] && typeof l.itemId === 'string' && l.itemId !== '' && (l.taxRate === undefined || l.taxRate === null) ? [i] : []));
   if (need.length === 0) return resolved;
   const vat = await itemVatTreatments(companyId, kind, need.map((i) => resolved[i]!.itemId as string));
-  return resolved.map((l, i) => {
+  const derived = new Set<number>(); // a standard rate taken from the item is a claim nobody chose: guarded as at create
+  const rated = resolved.map((l, i) => {
     const t = need.includes(i) ? vat.get((l.itemId as string).toLowerCase()) : undefined;
+    if (t && t.taxRate > 0) derived.add(i);
     return t ? { ...l, taxRate: t.taxRate, ...(t.vatClassification && !l.vatClassification ? { vatClassification: t.vatClassification } : {}) } : l;
   });
+  return guardDerivedPurchaseRates(companyId, kind, rated, derived);
 }
 
 interface AccountIdEditLine {

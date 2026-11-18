@@ -7,11 +7,18 @@
  * An item that is not this company's, that has been deleted, or that is inactive refuses the line. The refusal is
  * raised BEFORE the document's first write, by every writer that calls this, and the message for another company's
  * item is the one for an item that does not exist.
+ *
+ * A rate DERIVED from the item on a purchase line is an input-VAT claim nobody chose, so it goes through the unattended
+ * VAT guard (`guardDerivedPurchaseRates`); a rate the caller names is theirs and stands.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { SA_STANDARD_VAT_RATE_PCT } from '@/lib/vat/standardRate';
+import { VAT_CODE_STANDARD, fetchVatDenialFlags } from '../gl/inputVatDenial';
+import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
+import { fetchBankContraFlags } from '../gl/bankContraVat';
+import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 
 /** Registered in `mcp/tools/refusalCodes.ts`: the message reaches an MCP caller. Names only the caller's own line. */
 export class ItemLineRefusal extends Error {
@@ -73,6 +80,33 @@ export async function itemVatTreatments(
 }
 
 /**
+ * The lines at `derived` took the standard rate from their item, not from the caller. On a purchase line that is an input-VAT
+ * claim made unattended, so each goes through the unattended guard (gl/ruleVatResolution: an account whose input tax is
+ * denied under s17(2)(a), an account no supply arises on, a bank account) and takes 0 where the guard drops the claim. The
+ * guard logs each drop. A sales line is output VAT and is returned as given; so is a line with no account to judge.
+ */
+export async function guardDerivedPurchaseRates<T extends { glAccountId?: string | null; taxRate?: number | null }>(
+  companyId: string, kind: ItemDefaultKind, lines: readonly T[], derived: ReadonlySet<number>,
+): Promise<T[]> {
+  const accountOf = (i: number): string | null => (derived.has(i) && lines[i]!.glAccountId ? lines[i]!.glAccountId!.toLowerCase() : null);
+  const ids = [...new Set(lines.flatMap((_, i) => accountOf(i) ?? []))];
+  if (kind !== 'purchase' || ids.length === 0) return [...lines];
+  const [denied, names, banks] = await Promise.all([
+    fetchVatDenialFlags(companyId, ids), fetchAccountNames(companyId, ids), fetchBankContraFlags(companyId, ids),
+  ]);
+  const dropped = new Set<string>();
+  for (const id of ids) {
+    const decision = await resolveRuleVatCode({
+      allocType: 'account', companyId, requestedVatCode: VAT_CODE_STANDARD, glAccountId: id,
+      ruleGlAccountVatDenied: denied.get(id) ?? false, ruleGlAccountName: names.get(id) ?? null, ruleGlAccountIsBank: banks.get(id) ?? false,
+      denialContext: { source: 'item_line_default' }, guardContext: { glAccountId: id },
+    });
+    if (decision.vatCode !== VAT_CODE_STANDARD) dropped.add(id);
+  }
+  return lines.map((l, i) => (dropped.has(accountOf(i) ?? '') ? { ...l, taxRate: 0 } : l));
+}
+
+/**
  * Returns the lines with `glAccountId` filled from the item where the line named an item and no account (and, with
  * `deriveTax`, `taxRate` where it had none). A batch with no item is returned as given and reads nothing.
  */
@@ -118,13 +152,15 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
       }
     }
   }
-  return lines.map((l) => {
+  const derived = new Set<number>(); // the lines whose STANDARD rate came from the item
+  const out = lines.map((l, i) => {
     if (l.itemId === '') return { ...l, itemId: null }; // an empty string is "no item": never reaches a ::UUID cast
     if (l.itemId === undefined || l.itemId === null) return l;
     const item = byId.get(l.itemId.toLowerCase())!;
     const fallback = kind === 'purchase' ? item.purchases_account_id : item.sales_account_id;
     const vat = opts.deriveTax && (l.taxRate === undefined || l.taxRate === null)
       ? itemVatTreatment(kind === 'purchase' ? item.vat_on_purchases : item.vat_on_sales) : null;
+    if (vat && vat.taxRate > 0) derived.add(i);
     return {
       ...l,
       itemId: l.itemId.toLowerCase(),
@@ -132,6 +168,7 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
       ...(vat ? { taxRate: vat.taxRate, ...(vat.vatClassification && !l.vatClassification ? { vatClassification: vat.vatClassification } : {}) } : {}),
     };
   });
+  return guardDerivedPurchaseRates(companyId, kind, out, derived);
 }
 
 interface AccountKeyedLine {
