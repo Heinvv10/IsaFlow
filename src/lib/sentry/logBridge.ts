@@ -102,7 +102,7 @@ function forward(input: LogErrorInput): void {
     if (requestId) scope.setTag('request_id', requestId);
     if (err) Sentry.captureException(err);
     else Sentry.captureMessage(message.replace(EMAIL_RE, '<email>'), 'error');
-    });
+  });
 }
 
 export function forwardLogError(input: LogErrorInput): void {
