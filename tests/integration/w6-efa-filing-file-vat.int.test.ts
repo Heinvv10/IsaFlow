@@ -153,6 +153,10 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
     expect((await row(jun)).status).toBe('finalised');
     expect((await fileV(jun, { reference: `${PRN('vat201', 7).slice(0, 10)}-v-${PRN('vat201', 7).slice(11)}`, withoutFile: true })).status).toBe(200);
     expect((await row(jun)).filed_reference).toBe(PRN('vat201', 7));
+    // The submission's form_data holds what it held before EFa: the recorded form stays on the version.
+    const formData = ((await sql`SELECT form_data FROM sars_submissions WHERE id = ${(await row(jun)).sars_submission_id}::UUID`) as Row[])[0]!.form_data as Row;
+    expect(formData).toMatchObject({ outputTax: 150, returnVersionId: jun });
+    expect(formData).not.toHaveProperty('sarsForm');
     // April's PRN may not be June's (judged before the drift April carries since the first test).
     const reused = await fileV(apr, { reference: PRN('vat201', 7) });
     expect(reused.status).toBe(409);
