@@ -27,7 +27,13 @@ type Opts = { company?: string; user?: string };
 
 export const captured: EmailOptions[] = [];
 export const failNext = { count: 0 };
+/** The next N sends throw (an SMTP client crash), rather than report a failure. */
+export const throwNext = { count: 0 };
 export const capture: Mailer = async (o) => {
+  if (throwNext.count > 0) {
+    throwNext.count -= 1;
+    throw new Error('capture mailer: simulated SMTP crash');
+  }
   if (failNext.count > 0) {
     failNext.count -= 1;
     return { success: false, error: '550 mailbox unavailable', provablyNotSent: true };
