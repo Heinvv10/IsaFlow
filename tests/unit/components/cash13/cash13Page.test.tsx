@@ -72,7 +72,7 @@ describe('13 weeks from the engine', () => {
     expect(within(table).getByRole('columnheader', { name: 'Week 1 · 16 Nov' })).toBeTruthy();
     for (const g of ['Receipts from customers', 'Supplier payments', 'Payroll', 'SARS', 'Loans', 'Recurring invoices', 'Budget estimate', 'Expected items you added']) {
       expect(within(table).getByRole('rowheader', { name: g }).getAttribute('scope')).toBe('rowgroup');
-      expect(within(table).getByRole('rowheader', { name: `Total ${g.toLowerCase()}` })).toBeTruthy();
+      expect(within(table).getByRole('rowheader', { name: g === 'SARS' ? 'Total SARS' : `Total ${g.toLowerCase()}` })).toBeTruthy();
     }
     expect(within(table).getByRole('rowheader', { name: 'Opening cash' })).toBeTruthy();
     const closing = screen.getByTestId('closing-row');
