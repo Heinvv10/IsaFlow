@@ -7,7 +7,6 @@
  * U+0130 'İ' is 'i̇' in JS and 'i' in PG, which opened a fresh bucket per spelling.) The invite stores this value, and
  * the login, accept and session checks require it to equal `lower(payroll_employees.email)`: the address on file now.
  */
-// eslint-disable-next-line no-control-regex
 const NON_ASCII = /[^\x00-\x7f]/;
 
 export function normalisePortalEmail(raw: string): string | null {
