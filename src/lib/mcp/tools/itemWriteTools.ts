@@ -59,7 +59,7 @@ export const bulkUpsertItemsTool: McpTool = {
     const parsed = parseItemRows(args.items);
     if (typeof parsed === 'string') return toolError(parsed);
     const dryRun = args.dry_run === true;
-    const plan = await planItemBatch(ctx.companyId, parsed.rows);
+    const plan = await planItemBatch(ctx.companyId, parsed.rows, { dryRun });
     const refusals = [...parsed.refusals, ...plan.refusals];
     if (refusals.length > 0) return batchRefusal(refusals, dryRun);
 
@@ -122,7 +122,7 @@ export const updateItemTool: McpTool = {
     if (Object.keys(checked.fields).length === 0) return toolError('send at least one field to change');
 
     const dryRun = args.dry_run === true;
-    const plan = await planItemBatch(ctx.companyId, [{ index: 0, fields: checked.fields, targetId: itemId }]);
+    const plan = await planItemBatch(ctx.companyId, [{ index: 0, fields: checked.fields, targetId: itemId }], { dryRun });
     const refusal = plan.refusals[0];
     if (refusal) return refusal.code === 'item_not_found' ? toolError(NOT_FOUND) : rowRefusal(refusal.code, refusal.reason);
     const planned = plan.planned[0]!;

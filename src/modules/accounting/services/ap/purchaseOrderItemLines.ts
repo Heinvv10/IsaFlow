@@ -12,14 +12,14 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { ItemLineRefusal, applyItemLineDefaults } from '../items/itemLineDefaults';
 import { resolveEditLineItemsSnake } from '../items/itemEditLines';
-import { billLineAccountRefusal } from './billLineAccountGuard';
+import { billLineAccountRefusalsById } from './billLineAccountGuard';
 
 async function holdDefaultedAccounts(companyId: string, defaulted: Array<{ index: number; account: string }>): Promise<void> {
-  const seen = new Set<string>();
+  // ONE query over the distinct accounts, FOR SHARE in id order (a per-account loop would lock in line order and could
+  // deadlock a concurrent account merge, which locks in id order).
+  const refusals = await billLineAccountRefusalsById(companyId, defaulted.map((d) => d.account));
   for (const { index, account } of defaulted) {
-    if (seen.has(account)) continue;
-    seen.add(account);
-    const refusal = await billLineAccountRefusal(companyId, [account]);
+    const refusal = refusals.get(account.toLowerCase());
     if (refusal) throw new ItemLineRefusal(`items[${index}].item_id: the item's purchases account is not acceptable on a purchase order line. ${refusal}`);
   }
 }

@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ItemFields } from './itemFieldValidation';
 import { ITEM_CODE_SEED, takeCompanyNumberLock } from '../core/numberLock';
-import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
+import { billLineAccountRefusalsById } from '../ap/billLineAccountGuard';
 import { invoiceLineCodingRefusal } from '../ar/invoiceLineCodingGuard';
 
 export interface ExistingItem {
@@ -73,8 +73,16 @@ function mapExisting(r: DbRow): ExistingItem {
   };
 }
 
+export interface UpsertLoadOptions {
+  /**
+   * Take row locks on the accounts the bill-line rule reads (FOR SHARE, once, in id order, so a concurrent account merge cannot
+   * deadlock it). A DRY RUN passes false: it only describes, and must neither queue behind nor block a merge.
+   */
+  lock?: boolean;
+}
+
 export async function loadUpsertContext(
-  companyId: string, rows: ItemFields[], extraItemIds: string[] = [],
+  companyId: string, rows: ItemFields[], extraItemIds: string[] = [], opts: UpsertLoadOptions = {},
 ): Promise<UpsertContext> {
   // One batch at a time per company: two concurrent upserts of the same catalogue would otherwise both plan "create".
   // The bounded number lock (migration 864): a second batch waits at most 5 s, then 55P03 answers 503 + Retry-After.
@@ -129,9 +137,9 @@ export async function loadUpsertContext(
   // default on invoices and quotes). Only accounts that exist and are active: the plan refuses the rest by its own codes.
   const accountProblems = new Map<string, string>();
   const live = (id: string | undefined): id is string => !!id && accounts.get(id) === true;
-  for (const id of new Set(rows.map((r) => r.purchasesAccountId).filter(live))) {
-    const problem = await billLineAccountRefusal(companyId, [id]);
-    if (problem) accountProblems.set(`purchases:${id}`, problem);
+  const purchaseIds = [...new Set(rows.map((r) => r.purchasesAccountId).filter(live))];
+  for (const [id, problem] of await billLineAccountRefusalsById(companyId, purchaseIds, { lock: opts.lock ?? true })) {
+    accountProblems.set(`purchases:${id}`, problem);
   }
   for (const id of new Set(rows.map((r) => r.salesAccountId).filter(live))) {
     const problem = await invoiceLineCodingRefusal(companyId, [{ glAccountId: id, projectId: null }], { lock: false });

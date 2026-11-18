@@ -13,9 +13,10 @@ import { log } from '@/lib/logger';
 import { loadUpsertContext } from './itemUpsertContext';
 import { planItemRows, type ItemPlan, type PlanInputRow, type PlannedItemRow } from './itemUpsertPlan';
 
-export async function planItemBatch(companyId: string, rows: PlanInputRow[]): Promise<ItemPlan> {
+/** `dryRun` plans without row locks on the accounts it inspects (a preview must not queue behind, or block, an account merge). */
+export async function planItemBatch(companyId: string, rows: PlanInputRow[], opts: { dryRun?: boolean } = {}): Promise<ItemPlan> {
   const ctx = await loadUpsertContext(
-    companyId, rows.map((r) => r.fields), rows.map((r) => r.targetId).filter((id): id is string => !!id),
+    companyId, rows.map((r) => r.fields), rows.map((r) => r.targetId).filter((id): id is string => !!id), { lock: !opts.dryRun },
   );
   return planItemRows(rows, ctx);
 }

@@ -389,3 +389,18 @@ describe('external identity (breaker)', () => {
     expect(itemWrites()).toEqual([]);
   });
 });
+
+describe('account locks (review round 2)', () => {
+  it('a dry run loads the context WITHOUT row locks on the accounts; a live call with them', async () => {
+    await call('bulk_upsert_items', { items: [{ code: 'L1', description: 'd' }], dry_run: true, idempotency_key: 'k-l1' });
+    expect(vi.mocked(loadUpsertContext).mock.calls.at(-1)![3]).toEqual({ lock: false });
+    await call('bulk_upsert_items', { items: [{ code: 'L2', description: 'd' }], idempotency_key: 'k-l2' });
+    expect(vi.mocked(loadUpsertContext).mock.calls.at(-1)![3]).toEqual({ lock: true });
+    const ID = 'bbbbbbbb-0000-4000-8000-000000000001';
+    vi.mocked(loadUpsertContext).mockResolvedValue(upsertCtx([stored({ id: ID, code: 'A', description: 'Old' })]));
+    await call('update_item', { item_id: ID, description: 'New', dry_run: true, idempotency_key: 'k-l3' });
+    expect(vi.mocked(loadUpsertContext).mock.calls.at(-1)![3]).toEqual({ lock: false });
+    await call('update_item', { item_id: ID, description: 'Newer', idempotency_key: 'k-l4' });
+    expect(vi.mocked(loadUpsertContext).mock.calls.at(-1)![3]).toEqual({ lock: true });
+  });
+});

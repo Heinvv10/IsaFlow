@@ -201,9 +201,13 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
     WHERE cql.quote_id = cq.id AND cq.company_id = ${companyId}::UUID AND cql.item_id = ${duplicateId}::UUID
     RETURNING cql.id
   `;
+  // Also a legacy row with NO company (a product of no company: only a superuser could write one) that names this company's
+  // duplicate: left behind, it would keep the duplicate from ever being purged.
   const r7 = await sql`
     UPDATE stock_movements SET item_id = ${primaryId}::UUID
-    WHERE company_id = ${companyId}::UUID AND item_id = ${duplicateId}::UUID
+    WHERE item_id = ${duplicateId}::UUID
+      AND (company_id = ${companyId}::UUID
+           OR (company_id IS NULL AND NOT EXISTS (SELECT 1 FROM products p WHERE p.id = stock_movements.product_id AND p.company_id <> ${companyId}::UUID)))
     RETURNING id
   `;
   count += r4.length + r5.length + r6.length + r7.length;

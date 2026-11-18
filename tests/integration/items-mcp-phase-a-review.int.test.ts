@@ -212,6 +212,23 @@ describe('merge and purge', () => {
     expect((await pool.query('SELECT deleted_at FROM items WHERE id = $1', [d])).rows[0].deleted_at).not.toBeNull();
   });
 
+  it('mergeItems also repoints a legacy NULL-company stock movement that names the duplicate, so the duplicate can then be purged', async () => {
+    await upsert([{ code: 'M-P2', description: 'primary' }, { code: 'M-D2', description: 'duplicate' }]);
+    const [p, d] = [await idOf('M-P2'), await idOf('M-D2')];
+    const orphan = String((await pool.query(`SELECT id FROM products WHERE code = 'IR-ORPHAN'`)).rows[0].id);
+    const row = String((await pool.query(
+      `INSERT INTO stock_movements (product_id, item_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1) RETURNING id`, [orphan, d])).rows[0].id);
+    expect((await pool.query('SELECT company_id FROM stock_movements WHERE id = $1', [row])).rows[0].company_id).toBeNull();
+
+    const result = await mergeEntities(w.a.u.homeCompanyId, 'item', p, d, w.a.u.userId);
+    expect(result.reassignedTransactions).toBe(1);
+    expect((await pool.query('SELECT item_id FROM stock_movements WHERE id = $1', [row])).rows).toEqual([{ item_id: p }]);
+
+    await pool.query(`UPDATE items SET deleted_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, [d]);
+    await purgeExpiredDeletes(w.a.u.homeCompanyId);
+    expect((await pool.query('SELECT 1 FROM items WHERE id = $1', [d])).rowCount).toBe(0);
+  });
+
   it('the purge skips a deleted item a line still names, and removes one nothing names (it no longer fails the purge)', async () => {
     await upsert([{ code: 'P-USED', description: 'used' }, { code: 'P-FREE', description: 'free' }]);
     const [used, free] = [await idOf('P-USED'), await idOf('P-FREE')];
