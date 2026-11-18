@@ -183,6 +183,11 @@
   "src/modules/accounting/services/payroll/payrollBatchShared.ts": [
    {"line":165,"text":"SELECT * FROM payroll_batches","class":"S","owner":"FQb1","why":"batch by id"}
   ],
+  "src/modules/accounting/services/payroll/definedBenefitAssignment.ts": [
+   {"line":47,"text":"FROM payroll_employee_components c","class":"S","owner":"FQb1","why":"one employee's factor rows (DBF one-per-kind check), no run"},
+   {"line":75,"text":"FROM payroll_employee_components c","class":"S","owner":"FQb1","why":"assignment by id (DBF contribution mark)"},
+   {"line":85,"text":"await tx`UPDATE payroll_employee_components SET db_fund_member_contribution = ${marked} WHERE id = ${assignmentId}::uuid`;","class":"S","owner":"FQb1","why":"assignment write by id"}
+  ],
   "src/modules/accounting/services/payroll/payrollComponentDateEdit.ts": [
    {"line":106,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQb1","why":"assignment by id"},
    {"line":114,"text":"FROM payroll_employee_components","class":"S","owner":"FQb1","why":"sibling assignments"},
@@ -360,7 +365,8 @@
    {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
    {"line":128,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
    {"line":145,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":164,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":164,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":183,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id (DBF db_fund_unsettled)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRegularDirective.ts": [
    {"line":57,"text":"COALESCE((SELECT h.run_date FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid), b.last_day) AS judge","class":"S","owner":"FQb1","why":"by run id (run_date)"},

@@ -30,6 +30,7 @@ const WRITERS: Record<string, [number, string]> = {
   [`${SERVICES}payPackageService.ts`]: [1, 'package apply: refuseAssignmentWrite under the company lock'],
   [`${SERVICES}payPackageSupersede.ts`]: [2, 'package apply cut: paidPeriodChanged under the company lock'],
   [`${SERVICES}payrollComponentDateEdit.ts`]: [1, 'Edit dates / End: paid months and recurring overlap under the company lock'],
+  [`${SERVICES}definedBenefitAssignment.ts`]: [1, 'DBF: marks a 4001 / 4003 as the defined-benefit fund contribution (C) by id, under the company lock; Login-as refused; audited (dates unchanged)'],
   [`${SERVICES}payrollRunRowWrite.ts`]: [3, "pay-run grid: its unapproved run month's once-off only, under the company lock; refuseAssignmentWrite on insert; audited"],
 };
 
