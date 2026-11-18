@@ -80,10 +80,13 @@ export function planItems(files: string[], contrastSource: string): Item[] {
  * Contiguous split in suite order that makes the LONGEST chunk as short as it can be (a min-max linear partition; among
  * equal maxima, the most even by sum of squares). The old midpoint rule (an item went to the chunk its cumulative
  * midpoint fell in) let one added spec shift a boundary and leave the chunks 1.34x apart (z30 + z32, 18 Nov). While there
- * are at least as many items as chunks every chunk gets one; with fewer, the trailing chunks are empty.
+ * are at least as many items as chunks every chunk gets one; with fewer, the trailing chunks are empty. A negative or
+ * non-finite weight is refused (it would make the optimum meaningless).
  */
 export function splitItems(items: Item[], chunks: number): Item[][] {
   if (!Number.isInteger(chunks) || chunks < 1) throw new Error(`golden chunk plan: chunks must be a positive integer, got ${chunks}`);
+  const bad = items.find((i) => !Number.isFinite(i.seconds) || i.seconds < 0);
+  if (bad) throw new Error(`golden chunk plan: ${bad.name} has an impossible weight ${bad.seconds}`);
   const out: Item[][] = Array.from({ length: chunks }, () => []);
   const n = items.length;
   const parts = Math.min(chunks, n);

@@ -8,6 +8,21 @@ import {
 } from '../../../scripts/ci/golden-hosted/goldenChunkPlan';
 
 const ROOT = path.resolve(__dirname, '../../..');
+
+/** The min-max over every contiguous split of `w` into `k` non-empty parts, by trying them all (small inputs only). */
+function bruteMinMax(w: number[], k: number): number {
+  if (k === 1) return w.reduce((a, b) => a + b, 0);
+  let best = Infinity;
+  for (let i = 1; i <= w.length - k + 1; i++) best = Math.min(best, Math.max(w.slice(0, i).reduce((a, b) => a + b, 0), bruteMinMax(w.slice(i), k - 1)));
+  return best;
+}
+/** The same optimum by another route: the least cap (integer weights) that a greedy fill keeps to k parts. */
+function optimalMax(w: number[], k: number): number {
+  const parts = (cap: number) => { let n = 1, run = 0; for (const x of w) { if (run + x > cap) { n += 1; run = 0; } run += x; } return n; };
+  let lo = Math.max(...w), hi = w.reduce((a, b) => a + b, 0);
+  while (lo < hi) { const mid = Math.floor((lo + hi) / 2); if (parts(mid) <= k) hi = mid; else lo = mid + 1; }
+  return lo;
+}
 const DIR = path.join(ROOT, SPEC_DIR);
 const FILES = readdirSync(DIR).filter((f) => f.endsWith('.spec.ts'));
 const CONTRAST_SRC = readFileSync(path.join(DIR, CONTRAST_FILE), 'utf8');
@@ -25,11 +40,30 @@ describe('golden chunk plan against the real specs', () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it('keeps the chunks within 25% of each other, none empty, none over 12 minutes of measured test time', () => {
+  it('leaves no chunk empty and none over 12 minutes of measured test time', () => {
     const secs = Array.from({ length: N }, (_, i) => chunkSeconds(planChunk(ROOT, i + 1, N).items));
     expect(Math.min(...secs)).toBeGreaterThan(0);
-    expect(Math.max(...secs) / Math.min(...secs)).toBeLessThan(1.25);
     expect(Math.max(...secs)).toBeLessThan(12 * 60);
+  });
+
+  // What the splitter guarantees, not a ratio with thin headroom (that turned red in unrelated PRs as specs were added):
+  // its longest chunk is the optimum (checked by an independent binary search), which is within total/N + the largest item.
+  it.each([
+    ['the suite as it is', () => ROOT],
+    ['the suite plus one new default-weight spec (18 Nov: z30 beside z32 put the midpoint rule 54 s over the optimum; any new spec can shift a boundary)', () => {
+      const tmp = mkdtempSync(path.join(os.tmpdir(), 'chunk-'));
+      mkdirSync(path.join(tmp, SPEC_DIR), { recursive: true });
+      for (const f of FILES) writeFileSync(path.join(tmp, SPEC_DIR, f), f === CONTRAST_FILE ? CONTRAST_SRC : '');
+      writeFileSync(path.join(tmp, SPEC_DIR, 'zz-new-spec.spec.ts'), '');
+      return tmp;
+    }],
+  ])('%s: the longest chunk is the optimum, within total/N + the largest item', (_name, root) => {
+    const dir = root();
+    const items = planItems(readdirSync(path.join(dir, SPEC_DIR)), CONTRAST_SRC);
+    const secs = Array.from({ length: N }, (_, i) => chunkSeconds(planChunk(dir, i + 1, N).items));
+    const weights = items.map((i) => i.seconds);
+    expect(Math.max(...secs)).toBe(optimalMax(weights, N));
+    expect(Math.max(...secs)).toBeLessThanOrEqual(weights.reduce((a, b) => a + b, 0) / N + Math.max(...weights));
   });
 
   it('keeps the suite order: a chunk is a run of the old single run', () => {
@@ -100,13 +134,24 @@ describe('golden chunk plan mechanics', () => {
     expect(parts.flat().map((i) => i.name)).toEqual(['s0.spec.ts', 's1.spec.ts', 's2.spec.ts', 's3.spec.ts', 's4.spec.ts', 's5.spec.ts', 's6.spec.ts']);
   });
 
-  it('keeps the real suite within 25% when one more spec lands (18 Nov: z30 beside z32 put the midpoint rule at 1.34)', () => {
-    const tmp = mkdtempSync(path.join(os.tmpdir(), 'chunk-'));
-    mkdirSync(path.join(tmp, SPEC_DIR), { recursive: true });
-    for (const f of FILES) writeFileSync(path.join(tmp, SPEC_DIR, f), f === CONTRAST_FILE ? CONTRAST_SRC : '');
-    writeFileSync(path.join(tmp, SPEC_DIR, 'z30-bank-bulk-accept.spec.ts'), ''); // a new spec: the default weight
-    const secs = Array.from({ length: N }, (_, i) => chunkSeconds(planChunk(tmp, i + 1, N).items));
-    expect(Math.max(...secs) / Math.min(...secs)).toBeLessThan(1.25);
+  it('is optimal: on random small inputs the longest chunk equals a brute-force min-max over every contiguous split', () => {
+    let seed = 7;
+    const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    for (let t = 0; t < 400; t++) {
+      const w = Array.from({ length: 1 + rnd(9) }, () => rnd(10) * 10);
+      const k = 1 + rnd(5);
+      const items = w.map((seconds, i): Item => ({ kind: 'file', name: `s${i}.spec.ts`, seconds }));
+      const parts = splitItems(items, k);
+      expect(parts.flat()).toEqual(items);
+      if (w.length >= k) expect(parts.every((p) => p.length > 0)).toBe(true);
+      expect(Math.max(...parts.map(chunkSeconds)), `${JSON.stringify(w)} in ${k}`).toBe(bruteMinMax(w, Math.min(k, w.length)));
+    }
+  });
+
+  it('refuses a negative or non-finite weight', () => {
+    for (const seconds of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => splitItems([{ kind: 'file', name: 'a.spec.ts', seconds }], 1)).toThrow(/impossible weight/);
+    }
   });
 
   it('makes one invocation per run of the same kind, with the screens in a --grep', () => {
