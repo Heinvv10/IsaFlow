@@ -102,7 +102,9 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
   // Locked after the first posting; before it the periods are rebuilt to follow (fiscalYearStartChange.ts).
   // FIRST: a start-month change takes the year-registry advisory lock, and it must come before any lock
   // on the companies row (the entity-type check below takes FOR UPDATE), the order budget writers use.
-  const financialYearChanged = await assertFinancialYearStartChange(id, v('financialYearStart'));
+  // A sent month is written only over the month the caller loaded (financialYearStartGuard.ts): 409 otherwise.
+  const financialYearChanged = await assertFinancialYearStartChange(
+    id, v('financialYearStart'), input.loadedFinancialYearStart);
   // A new entity type needs its own required proof on file (throws EntityTypeChangeRefused).
   if (isEntityTypeCode(input.entityType)) await assertEntityTypeChangeAllowed(id, input.entityType);
 

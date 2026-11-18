@@ -1,10 +1,12 @@
 /**
  * The month's earlier final lines of each employee on an off-cycle run (wave 6 OC; the rules are payrollOffCycleMonth.ts):
  * the lines of this company's FINAL runs (payRunFinalSql) of the same pay month and frequency that come before this
- * run in pay order (runOrderKeySql: the regular run first, then earlier off-cycle runs). Their stored UIF and ETI, and
- * the earnings they paid, rebuilt from the stored breakdown as the line costed them (the month's ETI base, hours and
- * wage): an item is an earning when its component is one (joined by id within the company) or it is a termination
- * pay-out (synthetic:termination:*). Scoped by company_id throughout.
+ * run in pay order (runOrderKeySql: the regular run first, then earlier off-cycle runs). Their stored ETI, and the
+ * earnings they paid, rebuilt from the stored breakdown as the line costed them: an item is an earning when its
+ * component is one (joined by id within the company) or it is a termination pay-out (synthetic:termination:*). From
+ * those earnings: the month's ETI base, hours and wage, and the UIF remuneration (the UIF-applicable ones at their PAYE
+ * share where they carry one, exactly as payrollRunCadence reads a weekly run's month to date). Scoped by company_id
+ * throughout.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -14,6 +16,13 @@ import type { MonthEarlierLines } from './payrollOffCycleMonth';
 import type { ComponentBreakdownItem, EmployeeComponent } from './payrollTypes';
 
 const n = (v: unknown): number => Number(v) || 0;
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+/** The UIF remuneration a stored breakdown levied on: its UIF-applicable earnings, at their PAYE share where stored. */
+export function uifRemunerationOf(items: Array<ComponentBreakdownItem & { isEarning?: boolean }>): number {
+  return items.filter((i) => i.isEarning === true && i.isUifApplicable === true)
+    .reduce((t, i) => t + n(i.payeIncludedAmount ?? i.amount), 0);
+}
 
 /** The earnings a stored breakdown paid, as components (only what the ETI base, hours and wage read). */
 export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEarning?: boolean }>): EmployeeComponent[] {
@@ -32,7 +41,7 @@ export function earningsOfBreakdown(items: Array<ComponentBreakdownItem & { isEa
 export async function loadMonthEarlierLines(companyId: string, runId: string, employeeIds: string[]): Promise<Map<string, MonthEarlierLines>> {
   if (employeeIds.length === 0) return new Map();
   const rows = (await sql`
-    SELECT l.employee_id, l.uif_employee, l.uif_employer, l.eti,
+    SELECT l.employee_id, l.eti,
            COALESCE((
              SELECT jsonb_agg(item || jsonb_build_object('isEarning',
                       pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%'))
@@ -52,12 +61,12 @@ export async function loadMonthEarlierLines(companyId: string, runId: string, em
   const out = new Map<string, MonthEarlierLines>();
   for (const r of rows) {
     const id = String(r.employee_id);
-    const had = out.get(id) ?? { uifEmployee: 0, uifEmployer: 0, eti: 0, etiComponents: [] };
+    const items = (r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean }>;
+    const had = out.get(id) ?? { uifRemuneration: 0, eti: 0, etiComponents: [] };
     out.set(id, {
-      uifEmployee: had.uifEmployee + n(r.uif_employee),
-      uifEmployer: had.uifEmployer + n(r.uif_employer),
-      eti: had.eti + n(r.eti),
-      etiComponents: [...had.etiComponents, ...earningsOfBreakdown((r.items ?? []) as Array<ComponentBreakdownItem & { isEarning?: boolean }>)],
+      uifRemuneration: round2(had.uifRemuneration + uifRemunerationOf(items)),
+      eti: round2(had.eti + n(r.eti)),
+      etiComponents: [...had.etiComponents, ...earningsOfBreakdown(items)],
     });
   }
   return out;

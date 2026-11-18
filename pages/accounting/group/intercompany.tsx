@@ -86,10 +86,10 @@ export default function IntercompanyReconciliationPage() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (keepMsg = false) => {
     if (!selectedGroupId) return;
     setLoadingTx(true);
-    setMsg(null);
+    if (!keepMsg) setMsg(null);
     const params = new URLSearchParams({
       group_id: selectedGroupId,
       ...(periodStart ? { period_start: periodStart } : {}),
@@ -141,7 +141,7 @@ export default function IntercompanyReconciliationPage() {
       setMsg({ type: 'success', text: 'Transaction recorded' });
       setShowCreate(false);
       setForm(BLANK_FORM);
-      await loadData();
+      await loadData(true);
     } catch (err) {
       setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not create the transaction - try again') });
     } finally { setSaving(false); }
@@ -162,12 +162,12 @@ export default function IntercompanyReconciliationPage() {
       const res = await apiFetch('/api/accounting/intercompany-transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'match', sourceId: matchSelection[0], targetId: matchSelection[1] }),
+        body: JSON.stringify({ action: 'match', groupId: selectedGroupId, sourceId: matchSelection[0], targetId: matchSelection[1] }),
       });
       await assertOk(res, 'Could not match the transactions - try again');
       setMsg({ type: 'success', text: 'Transactions matched' });
       setMatchSelection([]);
-      await loadData();
+      await loadData(true);
     } catch (err) {
       setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not match the transactions - try again') });
     } finally { setSaving(false); }
@@ -205,7 +205,7 @@ export default function IntercompanyReconciliationPage() {
                 <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
                 <select
                   value={selectedGroupId}
-                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                  onChange={(e) => { setSelectedGroupId(e.target.value); setMatchSelection([]); }}
                   className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)]"
                 >
                   {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}

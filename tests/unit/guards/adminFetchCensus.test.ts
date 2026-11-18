@@ -11,6 +11,9 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { adminFetchViolations } from '../../helpers/adminFetchCensus';
 import { selectClientFiles } from '../../../scripts/ci/clientResponseSelect';
+import { useCpuBoundTimeout } from '../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 const IMP = `import { adminFetch } from '@/lib/admin/adminFetch';\nimport { apiFetch, apiJson } from '@/lib/apiFetch';\n`;
 const wrap = (body: string, imports = IMP) => `${imports}export async function f() {\n${body}\n}\n`;

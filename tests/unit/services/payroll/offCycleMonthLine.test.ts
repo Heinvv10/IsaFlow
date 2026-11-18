@@ -1,8 +1,8 @@
 /**
  * Wave 6 OC: an off-cycle line after its month's regular line (payrollOffCycleMonth.ts).
  *  - UIF: UIC Act 4 of 2002 s6(1)-(2): 1% of the remuneration paid during the month, not on remuneration above the
- *    ceiling during any month, so the month's runs together stop at 1% of the ceiling (spec F12: a monthly employee's
- *    off-cycle runs only).
+ *    ceiling during any month: the line levies only the room the month's earlier REMUNERATION left under the ceiling
+ *    (coordinator ruling 2026-11-16 06:40), so the month's runs together stop at 1% of the ceiling.
  *  - ETI: ETI Act 26 of 2013 s7: a monthly amount on the monthly remuneration; the month is recomputed on everything it
  *    paid and the off-cycle line carries the difference, NEGATIVE when a bonus pushes the month into the taper.
  *  - PAYE: PAYE-GEN-01-G21 (2027) pp. 32-33: a bonus is an annual payment, tax(AE + A) - tax(AE), on the month's AE (the
@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import { capUifToMonth, monthUifCap, NO_EARLIER_LINES, type MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
+import { NO_EARLIER_LINES, type MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
 import { getTaxYearConfig } from '@/modules/accounting/services/payroll/taxTables';
 import type { EmployeeComponent, PayeYearToDate, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 import { expectRecomputes } from './payrollExplainRecompute.helpers';
@@ -32,7 +32,7 @@ const regularLine = (salary: number, e = employee()) => calculatePayrollLine({
 });
 /** The month's earlier lines as the reader gives them: the regular line's stored figures and its earnings. */
 const earlierFrom = (r: ReturnType<typeof regularLine>, salary: number): MonthEarlierLines => ({
-  uifEmployee: r.uif.employeeContribution, uifEmployer: r.uif.employerContribution, eti: r.eti.monthlyEti,
+  uifRemuneration: salary, eti: r.eti.monthlyEti,
   etiComponents: [earning('basic', '3601', salary)],
 });
 const bonusLine = (bonus: number, earlier: MonthEarlierLines, ytd?: PayeYearToDate, e = employee()) => calculatePayrollLine({
@@ -41,10 +41,7 @@ const bonusLine = (bonus: number, earlier: MonthEarlierLines, ytd?: PayeYearToDa
 });
 
 describe('UIF across the month (UIC Act s6(2))', () => {
-  const cap = monthUifCap(2027);
-  it('the cap is 1% of the monthly ceiling', () => {
-    expect(cap).toBe(Math.round(getTaxYearConfig(2027).uifCeiling) / 100);
-  });
+  const cap = Math.round(getTaxYearConfig(2027).uifCeiling) / 100;
   it('a regular line at the ceiling leaves the bonus no UIF', () => {
     const regular = regularLine(30_000);
     expect(regular.uif.employeeContribution).toBe(cap);
@@ -66,12 +63,12 @@ describe('UIF across the month (UIC Act s6(2))', () => {
     expect(bonus.uif.isCapped).toBe(false);
   });
   it('without earlier lines nothing is capped beyond the ceiling itself', () => {
-    expect(capUifToMonth({ employeeContribution: 50, employerContribution: 50, isCapped: false }, NO_EARLIER_LINES, 2027))
-      .toMatchObject({ employeeContribution: 50, employerContribution: 50, isCapped: false });
+    expect(bonusLine(5_000, NO_EARLIER_LINES).uif).toMatchObject({ employeeContribution: 50, employerContribution: 50, isCapped: false });
   });
-  it('an earlier over-contribution never makes this line negative', () => {
-    expect(capUifToMonth({ employeeContribution: 50, employerContribution: 50, isCapped: false },
-      { ...NO_EARLIER_LINES, uifEmployee: cap + 5, uifEmployer: cap + 5 }, 2027).employeeContribution).toBe(0);
+  it('earlier remuneration far above the ceiling never makes this line negative', () => {
+    const bonus = bonusLine(5_000, { ...NO_EARLIER_LINES, uifRemuneration: 90_000 });
+    expect(bonus.uif).toMatchObject({ employeeContribution: 0, employerContribution: 0, isCapped: true });
+    expectRecomputes(bonus);
   });
 });
 

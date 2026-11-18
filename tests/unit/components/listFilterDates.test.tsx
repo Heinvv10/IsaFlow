@@ -1,5 +1,5 @@
 /** F2: list/period filter dates are typed DateFields. Valid text commits ISO on blur; refused text never reaches the filter state. */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { PeriodControl } from '@/components/accounting/PeriodControl';
 import { BankTxFilters, type BankTxFiltersProps } from '@/components/accounting/bank-transactions/BankTxFilters';
@@ -45,6 +45,7 @@ describe('BankTxFilters date range', () => {
   it('typed text commits as ISO; invalid text does not fetch', () => {
     const onFromDateChange = vi.fn();
     render(<BankTxFilters {...props} onFromDateChange={onFromDateChange} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ })); // the dates fold behind Filters at a narrow width (WP4b)
     typeDate(screen.getByLabelText('From date'), '1 Oct 2026');
     expect(onFromDateChange).toHaveBeenCalledTimes(1);
     expect(onFromDateChange).toHaveBeenLastCalledWith('2026-10-01');

@@ -19,6 +19,8 @@ import { loadGridCells, loadGridReadModel } from '@/modules/accounting/services/
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
+import { assertTxUsable } from '@/lib/als';
+import { cellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { planCellWrites, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
 import { recordSnapshot } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
 import { budgetPlanHash } from '@/modules/accounting/services/budgets/budgetPlanHash';
@@ -26,7 +28,7 @@ import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolled
 import type { McpToolContext, McpToolResult } from '../types';
 import { isResult, ownVersion } from './budgetToolArgs';
 import { planHashRefusal, staleRefusal, STALE_SINCE_DRY_RUN } from './budgetWriteGate';
-import { actualDiff, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
+import { actualDiff, cellLabels, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
 import { ok, toolError } from './toolHelpers';
 
 export { STALE_SINCE_DRY_RUN };
@@ -87,28 +89,54 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
   };
   const readAfter = async (): Promise<CellMap> => cellMap((await loadGridCells(ctx.companyId, { versionId }, ctx.userId)).cells);
 
+  const refusals = () => {
+    const listing = diffListing(model, actualDiff(plan.entries, before, before), w.rowRefusals, { offset: 0, limit: MAX_REFUSALS_NAMED });
+    return refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused);
+  };
+
   if (w.dryRun) {
+    // The save runs (rolled back) on the cells that are not refused, so even with refused rows the other
+    // cells, their sources and the totals are what the save would leave. A save of that subset can be refused
+    // for a reason the whole request would not have (a refused clear leaves an old-level cell standing), so
+    // with refused rows a save refusal is never answered: the other cells are checked once nothing is refused.
+    // While any row is refused, a replace's accounts that would clear unlisted cells are held back whole: a
+    // refused row may be the very cell the caller meant to keep, and the account's new cells without those
+    // clears could break the one-level rule, a refusal the full request would not get.
+    const holdClears = refused > 0 && w.mode === 'replace';
+    const accountOf = (key: string) => key.slice(0, key.indexOf('|'));
+    const held = new Set(holdClears ? plan.entries.filter((e) => e.index === null).map((e) => accountOf(e.key)) : []);
+    let entries = plan.entries.filter((e) => e.status === 'refused' || !held.has(accountOf(e.key)));
+    let unchecked = false;
+    const trial = plan.save.filter((c) => !held.has(accountOf(cellKey(c))));
     let after: CellMap = before;
-    if (refused === 0 && plan.save.length > 0) {
+    if (trial.length > 0) {
       try {
         await inRolledBackSavepoint('mcp_budget_dry_run', async () => {
-          await saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: token, cells: plan.save });
+          await saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: token, cells: trial });
           after = await readAfter();
         });
       } catch (err) {
-        if (err instanceof BudgetVersionError) return toolError(`The save would be refused: ${err.message}`);
-        throw err;
+        if (!(err instanceof BudgetVersionError)) throw err;
+        assertTxUsable();
+        if (refused === 0) return toolError(`The save would be refused: ${err.message}`);
+        unchecked = true;
+        entries = entries.filter((e) => e.status === 'refused');
       }
     }
-    const listing = diffListing(model, actualDiff(plan.entries, before, after), w.rowRefusals, w.page);
+    const listing = diffListing(model, actualDiff(entries, before, after), w.rowRefusals, w.page);
     const ready = refused === 0 && plan.save.length > 0;
     return {
       ...ok({
         dry_run: true, ...base, ready: refused === 0, version_token: token, plan_hash: ready ? hash : null, counts: listing.counts,
         cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated, next_offset: listing.next_offset,
-        totals: sectionTotals(model, before, after),
+        totals: unchecked ? null : sectionTotals(model, before, after),
+        ...(unchecked || held.size > 0 ? { pending: {
+          other_cells_unchecked: unchecked,
+          held_accounts: [...held].map((id) => cellLabels(model).account(id)),
+        } } : {}),
         next_step: refused > 0
-          ? 'Fix or remove the refused cells, then dry-run again.'
+          ? `Fix or remove the refused cells, then dry-run again.${unchecked ? ' The other cells are checked once nothing is refused.' : ''}${
+            held.size > 0 ? ' Accounts whose other cells replace would clear (pending.held_accounts) are listed once nothing is refused.' : ''}`
           : plan.save.length === 0 ? 'Nothing would change.' : `Apply: call ${w.tool} again with the same arguments, dry_run false and this plan_hash.`,
       }),
       wroteNothing: true,
@@ -117,10 +145,7 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
 
   const stale = staleRefusal(w.versionToken, token);
   if (stale) return stale;
-  if (refused > 0) {
-    const listing = diffListing(model, actualDiff(plan.entries, before, before), w.rowRefusals, { offset: 0, limit: MAX_REFUSALS_NAMED });
-    return toolError(refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused));
-  }
+  if (refused > 0) return toolError(refusals());
   if (plan.save.length === 0) return { ...ok({ ...base, saved: 0, deleted: 0, version_token: token, note: 'Nothing changed: every cell already holds its amount.' }), wroteNothing: true };
   const planRefused = planHashRefusal({ tool: w.tool, given: w.planHash, hash, required: w.hashRequired, why: w.hashWhy });
   if (planRefused) return planRefused;

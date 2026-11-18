@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Search, Upload } from 'lucide-react';
+import { Check, Search, Upload } from 'lucide-react';
 import { fmtCents } from './bankCents';
 import { todayInSast } from '@/lib/saDateParser';
 import { Select, type SelectOption } from '@/components/ui/Select';
@@ -106,6 +106,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
               <button onClick={() => onSelectBank(a.id)} aria-current={active ? 'true' : undefined}
                 className="flex-1 flex items-center gap-3 text-left min-w-0">
                 {!a.isActive && <span data-testid="row-inactive-chip" className="shrink-0 rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)]">Inactive</span>}
+                {active && <Check data-testid="row-selected-mark" aria-hidden="true" className="h-4 w-4 shrink-0 text-teal-700 dark:text-teal-400" />}
                 <span className={`truncate ${active ? 'text-teal-700 dark:text-teal-400 font-semibold' : 'text-[var(--ff-text-primary)]'}`}>
                   {a.accountName}
                 </span>

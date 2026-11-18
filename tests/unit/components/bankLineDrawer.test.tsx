@@ -56,7 +56,7 @@ describe('BankLineDrawerBody', () => {
     expect(screen.getByText('1110 Bank')).toBeTruthy();
     expect(screen.getByText('5000 Fuel', { selector: 'td' })).toBeTruthy();
     expect(urls()).toContain('/api/accounting/journal-entries-detail?id=je-1');
-    expect(urls()).toContain('/api/accounting/bank-tx-attachments?bankTransactionId=tx-1');
+    expect(urls()).toContain('/api/accounting/bank-tx-attachments?bankTransactionId=tx-1&include_settled=1');
   });
 
   it('never hyperlinks an attachment the shared allowlist refuses', async () => {

@@ -22,6 +22,9 @@ import {
   FinancialYearStartLockedError, FinancialYearStartScopeError, FiscalPeriodsInUseError,
   InvalidFinancialYearStartError, financialYearStartView,
 } from '@/modules/accounting/services/gl/fiscalYearStartChange';
+import {
+  CompanySettingsStaleError, FinancialYearStartLoadedMissingError,
+} from '@/modules/accounting/services/gl/financialYearStartGuard';
 
 // Re-exported: tests and older imports name them from this route.
 export { isValidVatPeriod, isValidVatSystemType };
@@ -123,7 +126,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.conflict(res, err.message, { postedJournals: err.postedJournals });
       }
       if (err instanceof FiscalPeriodsInUseError) return apiResponse.conflict(res, err.message, { references: err.references });
-      if (err instanceof InvalidFinancialYearStartError || err instanceof FinancialYearStartScopeError) {
+      // The month in the row is not the one the page loaded (a change of year end since): reload, nothing written.
+      if (err instanceof CompanySettingsStaleError) return apiResponse.conflict(res, err.message, { reason: err.code });
+      if (err instanceof InvalidFinancialYearStartError || err instanceof FinancialYearStartScopeError
+        || err instanceof FinancialYearStartLoadedMissingError) {
         return apiResponse.badRequest(res, err.message);
       }
       throw err;

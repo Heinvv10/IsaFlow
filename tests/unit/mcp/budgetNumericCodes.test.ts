@@ -157,7 +157,8 @@ describe('each tool reads a whole number as its code and refuses a fraction', ()
     const dry = json(await setBudgetAnnualTool.handler({ ...base, dry_run: true, rows: [{ account: 6000, amount: '1200.00', spread: 'flat' }, { account: 1.5, amount: '1.00', spread: 'flat' }] }, ctx()));
     expect(dry.counts).toMatchObject({ refused: 1 });
     expect(JSON.stringify(dry.cells)).toMatch(/1\.5 is not an account code/);
-    expect(vi.mocked(saveCells).mock.calls).toHaveLength(0);
+    // Only the whole-number code's row reaches the dry run's rolled-back save.
+    expect([...new Set(vi.mocked(saveCells).mock.calls.flatMap((c) => c[2].cells.map((x) => x.glAccountId)))]).toEqual([RENT]);
   });
 
   it('seed_budget account_uplifts', async () => {

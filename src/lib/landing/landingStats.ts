@@ -22,7 +22,7 @@ export async function getLandingStats(): Promise<LandingStats | null> {
           AND name NOT LIKE 'LARGE%'
           AND name NOT LIKE 'My Test%'
           AND name NOT LIKE 'QA%'
-          AND name NOT LIKE 'ISAFlow Demo%'
+          AND COALESCE(is_demo, false) = false
       `,
       sql`
         SELECT

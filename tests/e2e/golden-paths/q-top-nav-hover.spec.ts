@@ -33,7 +33,7 @@ for (const { tab, link, path } of T1) {
     await openWithNav(page, '/accounting');
     await tabOf(page, tab).hover();
     const target = tabOf(page, tab).getByRole('link', { name: link, exact: true });
-    // VAT201 only exists for a VAT vendor. This spec also runs in the post-deploy check against production Demo,
+    // VAT201 only exists for a VAT vendor. This spec also runs in the post-deploy check against production (the Deploy Verification company, which is VAT-registered),
     // where a missing link must never be a red run (a red run rolls the deploy back).
     if (link === 'VAT201') {
       await expect(tabOf(page, tab).getByRole('link', { name: 'EMP201', exact: true })).toBeVisible();

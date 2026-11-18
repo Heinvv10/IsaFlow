@@ -9,7 +9,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withTransaction: vi.f
 
 import { judgeOffCycleShape, OffCycleRunRefusedError, type OffCycleRunInput } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { offCyclePayDateRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
-import { payrollRunJournalDescription } from '@/modules/accounting/services/payroll/payrollJournalDescription';
+import { runJournalDescriptionOf } from '@/modules/accounting/services/payroll/payrollJournalDescription';
 
 const E1 = '11111111-1111-4111-8111-111111111111';
 const E2 = '22222222-2222-4222-8222-222222222222';
@@ -66,10 +66,14 @@ describe('approval: never after the pay date (carried item 2)', () => {
   });
 });
 
-describe('the journal names the off-cycle kind', () => {
-  it('a regular run is unchanged; an off-cycle run carries its reason', () => {
-    expect(payrollRunJournalDescription(2026, 11)).toBe('Payroll run 2026-11');
-    expect(payrollRunJournalDescription(2026, 11, 'bonus')).toBe('Payroll run 2026-11 bonus');
-    expect(payrollRunJournalDescription(2026, 11, 'termination')).toBe('Payroll run 2026-11 termination');
+describe('the journal names the off-cycle kind (FQc\'s run-keyed description, adopted by OC)', () => {
+  const hdr = (over: Record<string, unknown>) => ({ period_year: 2026, period_month: 11, pay_frequency: 'monthly', run_kind: 'regular',
+    off_cycle_reason: null, run_date: null, period_end: '2026-11-30', ...over });
+  it('a regular run is unchanged; an off-cycle run carries its reason and pay date', () => {
+    expect(runJournalDescriptionOf(hdr({}))).toBe('Payroll run 2026-11');
+    expect(runJournalDescriptionOf(hdr({ run_kind: 'off_cycle', off_cycle_reason: 'bonus', run_date: '2026-11-28' })))
+      .toBe('Payroll run 2026-11 bonus, paid 2026-11-28');
+    expect(runJournalDescriptionOf(hdr({ run_kind: 'off_cycle', off_cycle_reason: 'termination', run_date: '2026-11-20' })))
+      .toBe('Payroll run 2026-11 termination, paid 2026-11-20');
   });
 });

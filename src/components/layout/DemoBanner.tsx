@@ -1,7 +1,7 @@
 // src/components/layout/DemoBanner.tsx
 //
 // Persistent amber bar shown across the whole app while the user has the
-// seeded "ISAFlow Demo" company active. Stops users from confusing demo
+// seeded demo company active. Stops users from confusing demo
 // data with their real books and gives them a one-click escape back to
 // their own company (or to onboarding if they don't have one yet).
 
@@ -34,6 +34,7 @@ export function DemoBanner() {
   const [error, setError] = useState<string | null>(null);
 
   const isDemo = readIsDemo(activeCompany, companies);
+  const demoName = activeCompany?.name?.trim() || 'IsaFlow Demo';
 
   // First non-demo membership the user has. We prefer the row marked
   // `isDefault`, then fall back to the first company that isn't a demo.
@@ -69,7 +70,7 @@ export function DemoBanner() {
       <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
       <span className="text-center">
         <span className="font-semibold uppercase tracking-wider mr-2 text-xs">Demo</span>
-        You are viewing <span className="font-medium text-amber-900 dark:text-amber-100">ISAFlow Demo</span>.
+        You are viewing <span className="font-medium text-amber-900 dark:text-amber-100">{demoName}</span>.
         All data is illustrative; nothing posts to real books.
       </span>
 

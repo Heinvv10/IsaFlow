@@ -23,10 +23,13 @@ import { profitAndLossTool } from './tools/reportsProfitAndLoss';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { attachEntityDocumentTool } from './tools/writeAttachEntityDocument';
+import { createUploadUrlsTool } from './tools/writeCreateUploadUrls';
+import { finalizeUploadsTool } from './tools/writeFinalizeUploads';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
 import { listUnappliedPaymentsTool } from './tools/supplierPayments';
 import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
+import { listPurchaseOrdersTool } from './tools/listPurchaseOrders';
 import { findDoubleSettlementsTool } from './tools/findDoubleSettlements';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
@@ -99,6 +102,7 @@ import {
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
 import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
+import { bulkCreatePurchaseOrdersTool } from './tools/writeBulkPurchaseOrders';
 import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
 import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
@@ -241,6 +245,7 @@ export const MCP_TOOLS = [
   listUnappliedReceiptsTool,
   listUnappliedPaymentsTool,
   listSupplierPaymentsTool,
+  listPurchaseOrdersTool,
   findDoubleSettlementsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
@@ -317,6 +322,8 @@ export const MCP_TOOLS = [
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
   bulkCreateSupplierInvoicesTool,
+  // Purchase orders with the caller's own numbers (Sage PO migration). Posts nothing.
+  bulkCreatePurchaseOrdersTool,
   bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,
@@ -328,6 +335,9 @@ export const MCP_TOOLS = [
   setOpeningBalanceTool,
   attachDocumentTool,
   attachEntityDocumentTool,
+  // Two-step attach with no bytes in the call: URLs first, then verify + write. Post nothing.
+  createUploadUrlsTool,
+  finalizeUploadsTool,
   cancelBankReconciliationTool,
   // Reopening posts nothing but undoes a sign-off, so requiresPost (as reopen_fiscal_period).
   reopenBankReconciliationTool,

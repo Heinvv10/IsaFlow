@@ -7,6 +7,7 @@
  * (entity payroll_fringe_benefit) that the approval gate reads, so a run calculated before the change is told to
  * recalculate (payrollRunRecalcGate). Refusals are thrown before the first write (a 4xx commits).
  */
+import { assertFrequencyTermsAssignable } from './payrollFrequencyGuard';
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -128,6 +129,7 @@ export async function createFringeBenefit(
   companyId: string, employeeId: string, input: FringeBenefitInput, actor: ComponentChangeActor,
 ): Promise<FringeBenefit> {
   checkInput(input);
+  await assertFrequencyTermsAssignable(companyId, employeeId, 'a fringe benefit'); // wave 6 FQc, §0a.11
   return withTransaction(async (tx) => {
     await lockEmployee(tx, companyId, employeeId);
     if (input.kind === 'company_vehicle' && !(await loadVehicleBenefitComponent(companyId, tx))) {
