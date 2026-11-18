@@ -20,7 +20,7 @@ vi.mock('@/components/accounting/bank-transactions/useBankTxSummary', async () =
 });
 vi.mock('@/components/accounting/bank-transactions/useBankTxActions', () => ({ buildBankTxActions: () => ({}) }));
 vi.mock('@/components/accounting/bank-transactions/BankTxBankCards', () => ({ BankTxBankCards: () => null }));
-vi.mock('@/components/accounting/bank-transactions/BankTxFilters', () => ({ BankTxFilters: () => null }));
+vi.mock('@/components/accounting/bank-transactions/BankTxFilters', () => ({ BankTxFilters: (p: { bulkAccept?: React.ReactNode }) => <>{p.bulkAccept}</> })); // the toolbar's slot only
 vi.mock('@/components/accounting/bank-transactions/BankTxBatchPanel', () => ({ BankTxBatchPanel: () => null }));
 vi.mock('@/components/accounting/bank-transactions/BankTxSuppliersNotice', () => ({ BankTxSuppliersNotice: () => null }));
 vi.mock('@/components/accounting/banking/BankEmptyState', () => ({ BankEmptyState: () => null }));

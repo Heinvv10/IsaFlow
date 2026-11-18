@@ -33,7 +33,9 @@ export async function measureM9Exclude(page: Page, ev: Evidence, api: Api, seed:
   const id = await restoreImported(api, seed, ref);
   const row = await openBank(page, seed, ref);
   const tally = new Tally(page);
-  await tally.click(row.getByRole('button', { name: /^Exclude, / }));
+  // Exclude is the last item of the row's More actions menu since WP4b (one click more than the old row button; X still excludes in one key).
+  await tally.click(row.getByRole('button', { name: /^More actions, / }));
+  await tally.click(page.getByRole('menuitem', { name: 'Exclude', exact: true }));
   await tally.click(page.getByRole('button', { name: 'Duplicate', exact: true }));
   await tally.click(page.getByRole('button', { name: 'Exclude Transaction' }));
   const undo = page.getByRole('button', { name: 'Undo', exact: true });

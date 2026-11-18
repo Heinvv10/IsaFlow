@@ -19,9 +19,9 @@ import { useBankTxModalState } from '@/components/accounting/bank-transactions/u
 import { useBankTxSelection } from '@/components/accounting/bank-transactions/useBankTxSelection';
 import { useBankTxFilters } from '@/components/accounting/bank-transactions/useBankTxFilters';
 import { pruneSelection, selectedOnScreen } from '@/components/accounting/bank-transactions/bankTxSelectionView';
-import { BankTxSelectionBar } from '@/components/accounting/bank-transactions/BankTxSelectionBar';
 import { ActiveFiltersChip } from '@/components/accounting/bank-transactions/ActiveFiltersChip';
-import { isBulkBusy, useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
+import { BankTxSelectionLive } from '@/components/accounting/bank-transactions/BankTxSelectionBar';
+import { useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import { useBankTxSummary, type BankAccountSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
 import { useBankTxView } from '@/components/accounting/bank-transactions/useBankTxView';
 import { useBankCardOrder } from '@/components/accounting/bank-transactions/useBankCardOrder';
@@ -42,15 +42,16 @@ import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accoun
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { BulkAcceptButton } from '@/components/accounting/bank-transactions/bulkAccept/BulkAcceptButton';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
-import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
+import { BankTxListFooter } from '@/components/accounting/bank-transactions/BankTxListFooter';
+import { statusTileClick, type StatusTile } from '@/components/accounting/bank-transactions/bankTxStatusTiles';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
-import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-transactions/BankTxPagination';
+import { BankTxPagination } from '@/components/accounting/bank-transactions/BankTxPagination';
 import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { useSeedRowSelections } from '@/components/accounting/bank-transactions/useSeedRowSelections';
 import { awaitingShown, filtersActive, listKey, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
 import { useBankTxList } from '@/components/accounting/bank-transactions/useBankTxList';
-import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
 import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
 
@@ -86,7 +87,7 @@ export default function BankTransactionsPage() {
   const [page, setPage] = useState(1);
   const f = useBankTxFilters(setPage);
   const busy = useBankTxBusy();
-  const { searchTerm, debouncedSearch, fromDate, toDate, fromAmount, toAmount, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter } = f;
+  const { searchTerm, debouncedSearch, fromDate, toDate, fromAmount, toAmount, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter, pageSize: PAGE_SIZE } = f;
   // Selection / UI
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rowSelections, setRowSelections] = useState<Record<string, RowSelection>>({});
@@ -101,6 +102,8 @@ export default function BankTransactionsPage() {
   // ---- The view (account, tab, page, filters) lives in the URL; switching account or tab is ONE batch (one fetch) ----
   const clearSelection = useCallback(() => { setSelectedIds(new Set()); setRowSelections({}); }, []);
   const { selectBank, changeTab, clampPage, latestQuery, restored } = useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection });
+  // A status tile toggles the status filter (or the Excluded tab) in one batch with the tab switch: one fetch.
+  const onTile = (t: StatusTile) => { const next = statusTileClick({ tab, allocationFilter }, t); changeTab(next.tab); f.setAllocationFilter(next.allocationFilter); setPage(1); };
   const list = useBankTxList({ selectedBank, ready: router.isReady && restored, tab, page, pageSize: PAGE_SIZE, filters: f.values });
   const { transactions, setTransactions, isLoading, error, loaded, setLoaded } = list, total = loaded.total;
   const { detailTx: listTx, openDetail, closeDetail: closeListDetail } = useBankLineDetail(transactions);
@@ -190,7 +193,7 @@ export default function BankTransactionsPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {summary.stale && <BankTxSummaryNotice kind="stale" onRetry={() => void refreshSummary()} />}
         <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} shown={shown} onSelectBank={selectBank} cardOrder={cardOrder}
-          onAccountsChanged={() => void refreshSummary()} onShowProvisional={() => changeTab('provisional')} />
+          onAccountsChanged={() => void refreshSummary()} onShowProvisional={() => changeTab('provisional')} tab={tab} allocationFilter={allocationFilter} onTile={onTile} />
 
         <BankTxTabs tab={tab} onTab={changeTab} provisionalCount={bank?.counts.provisional ?? 0} />
 
@@ -214,12 +217,13 @@ export default function BankTransactionsPage() {
           onTxTypeChange={withReset(f.setTxType)} onAllocTypeChange={withReset(f.setAllocType)}
           onHasSuggestionChange={withReset(f.setHasSuggestion)}
           onReconFilterChange={withReset(f.setReconFilter)}
-          onToggleCC={toggleCC} onToggleBU={toggleBU}
+          onToggleCC={toggleCC} onToggleBU={toggleBU} onClearSelection={() => setSelectedIds(new Set())}
+          bulkAccept={<BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterBulkAccept} refreshKey={total}
+            hideTrigger={onScreenSelected.size > 0} />}
         />
 
         <ActiveFiltersChip labels={f.activeLabels} onClear={f.clear} />
-        <BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterBulkAccept} refreshKey={total} />
-        <BankTxSelectionBar count={onScreenSelected.size} onClear={() => setSelectedIds(new Set())} />
+        <BankTxSelectionLive count={onScreenSelected.size} />
         <BankTxSuppliersNotice status={suppliersStatus} />
 
         <BankTxBatchPanel
@@ -235,16 +239,14 @@ export default function BankTransactionsPage() {
         />
 
         {/* Table */}
-        <div className="px-4 py-2">
-          <CodingMetricsStrip />
-          <AutoPostRunsPanel onUndone={afterMutation} />
+        <div className="px-4 pt-1 pb-2">
           <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={afterMutation} />
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
           <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
           {sel.noneActive && <BankTxSummaryNotice kind="none-active" />}
           {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={(isLoading || summary.status === 'loading' || choosing) && !refreshing} refreshing={refreshing} error={error}
-            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.activeLabels}
-            detailTx={detailTx} onDetailClose={closeDetail}>
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab} activeFilters={f.narrowingLabels}
+            detailTx={detailTx} onDetailClose={closeDetail} pageSize={PAGE_SIZE}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
@@ -268,10 +270,8 @@ export default function BankTransactionsPage() {
         </div>
 
         <BankTxPagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
-
-        {tab === 'new' && transactions.length > 0 && (
-          <BankTxReviewBar selectedCount={onScreenSelected.size} onReview={actions.handleBulkAccept} busy={isBulkBusy(busy.busy)} />
-        )}
+        <BankTxListFooter pageSize={PAGE_SIZE} onPageSize={f.setPageSize} />
+        <div className="px-4 pb-4"><AutoPostRunsPanel onUndone={afterMutation} /></div>
       </div>
 
       <BankTxPageModals

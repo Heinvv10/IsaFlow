@@ -53,6 +53,7 @@ import type { getMonthlyMovements } from '@/modules/accounting/services/reports/
 import type { BudgetComparatorResponse } from './apiRoutesBudgetComparator';
 import type { BudgetDynamicRoutes, BudgetStaticRoutes } from './apiRoutesBudgets';
 import type { PayrollDynamicRoutes } from './apiRoutesPayroll';
+import type { IntercompanyDynamicRoutes, IntercompanyStaticRoutes } from './apiRoutesIntercompany';
 import type { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
@@ -80,7 +81,6 @@ import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/finan
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 import type { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
-
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
  * Matching is by pathname only — `apiJson` does not know the HTTP verb. A
@@ -111,7 +111,7 @@ import type { preValidateTaxYear } from '@/modules/accounting/services/payroll/p
  * changed by people who never read this file, so it is pinned by typeproof
  * cases 15-17 rather than by this comment.
  */
-interface StaticRoutes extends BudgetStaticRoutes {
+interface StaticRoutes extends BudgetStaticRoutes, IntercompanyStaticRoutes {
   // GET; `preview` only when `?newYearEndMonth=` is sent. `undo.changeId` is the latest live change, null when none.
   '/api/accounting/financial-year-end-change': {
     currentYear: FiscalYearRecord;
@@ -191,7 +191,7 @@ interface StaticRoutes extends BudgetStaticRoutes {
  * would silently inherit this type. That is precisely the defect class this
  * file exists to close, so the matcher rejects any binding containing `/`.
  */
-interface DynamicRoutes extends BudgetDynamicRoutes, PayrollDynamicRoutes {
+interface DynamicRoutes extends BudgetDynamicRoutes, PayrollDynamicRoutes, IntercompanyDynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
   '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
   // The board pack document, composed server-side. Projected off the

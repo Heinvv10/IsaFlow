@@ -61,6 +61,7 @@ const DEV_ONLY_SPECS = [
   'z3-pnl-pdf',
   'z30-bank-bulk-accept',
   'z31-bank-tx-modal-a11y',
+  'z32-bank-tx-layout',
   'z4-employee-pay-on-create',
   'z5-employee-bank-details',
   'z6-payrun-review-grid',

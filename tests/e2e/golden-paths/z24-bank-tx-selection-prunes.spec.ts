@@ -3,7 +3,8 @@
  *
  * Data-independent, writes nothing and clicks nothing that writes, so it also runs in the post-deploy verify: it ticks a row
  * (when the account has one on the New tab), changes the list (a search that matches nothing, then cleared; a tab; a next page when there is one) and
- * asserts the always-visible "N selected" bar reads 0 each time (and keeps reading 0 when the row comes back: the tick was dropped, not hidden). A company with no bank account, with only inactive
+ * asserts the always-mounted "N selected" live region reads 0 each time, and the contextual selection bar (WP4b: it shows only
+ * while something is ticked) is gone (and stays 0 when the row comes back: the tick was dropped, not hidden). A company with no bank account, with only inactive
  * accounts, or with nothing to tick passes the parts it can reach and says nothing about the rest. The state it guards:
  * a bulk action (Delete, Mark as Reviewed, Batch Allocate) acting on rows no longer on screen.
  */
@@ -20,9 +21,11 @@ test('bank transactions: ticked rows are dropped when the list changes', async (
   await expect(page.getByTestId('bank-summary-error')).toHaveCount(0);
   if (await empty.count() > 0 || await noActive.count() > 0) return;
 
-  // The bar is always there, and starts at 0.
-  const selected = page.getByTestId('bank-tx-selected-count');
+  // The live region is always there, and starts at 0; the selection bar shows only while something is ticked.
+  const selected = page.getByTestId('bank-tx-selection-live');
+  const bar = page.getByTestId('bank-tx-selection-bar');
   await expect(selected).toHaveText('0 selected');
+  await expect(bar).toHaveCount(0);
 
   // Wait for the list to settle: rows, or the empty state.
   await expect(page.getByTestId('bank-tx-table').or(page.getByTestId('bank-tx-empty'))).toBeVisible({ timeout: 45_000 });
@@ -31,6 +34,7 @@ test('bank transactions: ticked rows are dropped when the list changes', async (
 
   await boxes.first().check();
   await expect(selected).toHaveText(/^[1-9]\d* selected$/);
+  await expect(bar.getByTestId('bank-tx-selected-count')).toHaveText(/^[1-9]\d* selected$/);
 
   // Change the list on the SAME tab (a filter), so the tab reset cannot be what clears the tick: the search matches nothing,
   // the ticked row leaves the screen, and the bar reads 0. Then the search is cleared and the row is back on screen: the tick
@@ -43,6 +47,7 @@ test('bank transactions: ticked rows are dropped when the list changes', async (
   await search.fill('');
   await expect(page.getByTestId('bank-tx-table')).toBeVisible({ timeout: 30_000 });
   await expect(selected).toHaveText('0 selected');
+  await expect(bar).toHaveCount(0);
 
   // Another tab and back: still nothing ticked.
   await page.getByTestId('bank-tx-tab-reviewed').click();
