@@ -147,6 +147,13 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await card.getByRole('button', { name: 'Email payslips' }).click();
   const dialog = page.getByRole('dialog', { name: 'Email payslips?' });
   await expect(dialog).toContainText('40-bit RC4');
+  // The dialog fades and zooms in (Modal: animate-in fade-in-0 zoom-in-95). axe measured mid-fade reads the
+  // half-transparent footer button as low contrast, so wait for the dialog's own animations (and its backdrop's) to
+  // finish first. Scoped to the dialog: an endless spinner elsewhere on the page must not stall this.
+  await dialog.evaluate(async (el) => {
+    const host = el.parentElement ?? el;
+    await Promise.all(host.getAnimations({ subtree: true }).filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined)));
+  });
   if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-confirm-${theme}.png` });
   expect(await seriousAxe(page), `axe ${theme} confirm`).toEqual([]);
   await dialog.getByRole('button', { name: 'Email payslips' }).click();
@@ -163,6 +170,7 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await settle(page);
   for (const width of [1568, 390]) {
     await page.setViewportSize({ width, height: 1000 });
+    await settle(page); // a resize can start a layout or colour transition; measure the settled page
     if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-${theme}-${width}.png`, fullPage: true });
     expect(await seriousAxe(page), `axe ${theme} ${width}`).toEqual([]);
   }
