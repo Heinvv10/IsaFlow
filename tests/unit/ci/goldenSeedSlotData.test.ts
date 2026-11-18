@@ -232,7 +232,7 @@ function fakeContext(scopedTo: string, calls: string[]): SeedContext {
 }
 
 describe('seedThroughContext', () => {
-  const slot = { companyId: '601d0000-0000-4000-8000-000000000002', email: 'golden-slot-2@isaflow.dev', password: 'pw' };
+  const slot = { companyId: '601d0000-0000-4000-8000-000000000002', email: 'golden-slot-2@isaflow.co.za', password: 'pw' };
 
   it('writes nothing when the session is scoped to another company than the slot\'s', async () => {
     const calls: string[] = [];

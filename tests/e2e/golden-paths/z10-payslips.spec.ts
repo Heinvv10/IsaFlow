@@ -5,7 +5,7 @@
  *  - A calculated run: the row's Payslip opens the drawer; the PDF is a PDF, carries the stored net, the bank
  *    account's last four digits only, and "DRAFT" (the run is not approved, so it has no approval time).
  *  - R-035, then approve: no DRAFT, and the page says "Payslips are ready". Cleared by clearPayRunApproval, as
- *    h-payroll-run does: with E2E_APPROVER_EMAIL / _PASSWORD set (reporting-qa-approver@isaflow.dev on dev, a member
+ *    h-payroll-run does: with E2E_APPROVER_EMAIL / _PASSWORD set (reporting-qa-approver@isaflow.co.za on dev, a member
  *    of the sandbox) a second person decides; without them, the suite user is the sandbox's sole eligible approver
  *    on a fresh CI database (the audited sole-approver exception), and where self-approval is refused (dev, whose
  *    sandbox also has the approver) this one test is SKIPPED with the reason. Never a faked approval. The DRAFT and

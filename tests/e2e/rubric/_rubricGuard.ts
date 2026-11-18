@@ -18,8 +18,8 @@
 export const PORT_ALLOW_LIST: readonly number[] = [3271, 3272, 3273, 3274, 3275, 3276, 3277, 3278, 3279, 3280];
 /** Production: nginx (80, 3101) and the blue/green colours (3111, 3112). Checked before, and apart from, the allow-list. */
 export const PORT_DENY_LIST: readonly number[] = [80, 3101, 3111, 3112];
-export const REQUESTER_EMAIL = 'reporting-qa@isaflow.dev';
-export const APPROVER_EMAIL = 'reporting-qa-approver@isaflow.dev';
+export const REQUESTER_EMAIL = 'reporting-qa@isaflow.co.za';
+export const APPROVER_EMAIL = 'reporting-qa-approver@isaflow.co.za';
 export const SANDBOX_PREFIX = '0RS Rubric Sandbox ';
 export const DEMO_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 export const EMAIL_ROUTE = '/api/accounting/invoice-email';

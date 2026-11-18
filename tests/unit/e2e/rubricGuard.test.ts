@@ -91,7 +91,8 @@ describe('logins', () => {
 
   it.each([
     ['hein@h10.co.za', APPROVER_EMAIL, /requester must be/],
-    ['Reporting-QA@isaflow.dev', APPROVER_EMAIL, /requester must be/],
+    ['Reporting-QA@isaflow.co.za', APPROVER_EMAIL, /requester must be/],
+    ['reporting-qa@isaflow.dev', APPROVER_EMAIL, /requester must be/],
     [` ${REQUESTER_EMAIL}`, APPROVER_EMAIL, /requester must be/],
     [undefined, APPROVER_EMAIL, /requester must be/],
     [REQUESTER_EMAIL, REQUESTER_EMAIL, /approver must be/],
@@ -144,7 +145,7 @@ describe('session', () => {
   });
 
   it('refuses another user', () => {
-    refused(() => assertSession(me({ user: { email: 'golden-slot-1@isaflow.dev' } }), REQUESTER_EMAIL), /session belongs to/);
+    refused(() => assertSession(me({ user: { email: 'golden-slot-1@isaflow.co.za' } }), REQUESTER_EMAIL), /session belongs to/);
   });
 
   it('refuses a session scoped to Demo', () => {

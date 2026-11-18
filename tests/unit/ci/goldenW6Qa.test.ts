@@ -19,7 +19,7 @@ describe('membershipProblems', () => {
 });
 
 describe('readW6Qa', () => {
-  const full = { GOLDEN_QA_W6_EMAIL: 'golden-qa-w6@isaflow.dev', GOLDEN_QA_W6_PASSWORD: 'p', GOLDEN_QA_W6_COMPANY_ID: ID };
+  const full = { GOLDEN_QA_W6_EMAIL: 'golden-qa-w6@isaflow.co.za', GOLDEN_QA_W6_PASSWORD: 'p', GOLDEN_QA_W6_COMPANY_ID: ID };
   it('reads the three variables', () => expect(readW6Qa(full)).toEqual({ email: full.GOLDEN_QA_W6_EMAIL, password: 'p', companyId: ID }));
   it('names what is missing instead of falling back', () => {
     expect(() => readW6Qa({ ...full, GOLDEN_QA_W6_COMPANY_ID: '' })).toThrow(/missing: GOLDEN_QA_W6_COMPANY_ID/);

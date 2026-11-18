@@ -101,7 +101,7 @@ describe('GoTrue user', () => {
     gotrue.adminCreateUser.mockResolvedValue({ id: 'gt-1' });
     await expect(ensureGoTrueUser(3, 'pw-from-env')).resolves.toBe('gt-1');
     expect(gotrue.adminCreateUser).toHaveBeenCalledWith({
-      email: 'golden-slot-3@isaflow.dev', password: 'pw-from-env', email_confirm: true, user_metadata: { purpose: 'golden-paths CI slot' },
+      email: 'golden-slot-3@isaflow.co.za', password: 'pw-from-env', email_confirm: true, user_metadata: { purpose: 'golden-paths CI slot' },
     });
     // The password reset waits for the commit (setGoTrueUserPassword): a failed transaction must not have changed it.
     expect(gotrue.adminUpdateUser).not.toHaveBeenCalled();
@@ -115,7 +115,7 @@ describe('GoTrue user', () => {
 });
 
 describe('publishSlotLogin', () => {
-  const opts = { n: 2, email: 'golden-slot-2@isaflow.dev', userId: 'gt-2', password: 'pw', envFile: '/home/hein/isaflow-ci.env' };
+  const opts = { n: 2, email: 'golden-slot-2@isaflow.co.za', userId: 'gt-2', password: 'pw', envFile: '/home/hein/isaflow-ci.env' };
 
   it('sets the GoTrue password first and then writes the env file', async () => {
     const order: string[] = [];
@@ -129,7 +129,7 @@ describe('publishSlotLogin', () => {
     const failing = () => { throw new Error('EACCES: permission denied'); };
     const err = await publishSlotLogin({ ...opts, write: failing }).catch((e: Error) => e);
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toContain('golden-slot-2@isaflow.dev');
+    expect((err as Error).message).toContain('golden-slot-2@isaflow.co.za');
     expect((err as Error).message).toContain('/home/hein/isaflow-ci.env');
     expect((err as Error).message).toContain('EACCES: permission denied');
     expect((err as Error).message).toMatch(/disagree until provision-slots\.ts is run again, which heals it/);

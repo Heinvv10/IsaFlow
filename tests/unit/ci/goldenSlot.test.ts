@@ -7,7 +7,7 @@ import { describeGoldenCompany, readGoldenSlot } from '../../e2e/golden-paths/he
 import { loginGolden } from '../../e2e/golden-paths/helpers/goldenLogin';
 
 const SLOT_ID = '601d0000-0000-4000-8000-000000000002';
-const SLOT = { companyId: SLOT_ID, email: 'golden-slot-2@isaflow.dev', password: 'slot-pass' };
+const SLOT = { companyId: SLOT_ID, email: 'golden-slot-2@isaflow.co.za', password: 'slot-pass' };
 const SLOT_ENV = { GOLDEN_SLOT_NUMBER: '2', GOLDEN_COMPANY_ID: SLOT.companyId, GOLDEN_USER_EMAIL: SLOT.email, ['GOLDEN_USER_' + 'PASSWORD']: SLOT.password };
 
 describe('readGoldenSlot', () => {
@@ -39,7 +39,7 @@ describe('readGoldenSlot', () => {
   });
 
   it('refuses an email copied from another runner slot', () => {
-    expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_USER_EMAIL: 'golden-slot-1@isaflow.dev' })).toThrow(/must be golden-slot-2@isaflow.dev/);
+    expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_USER_EMAIL: 'golden-slot-1@isaflow.co.za' })).toThrow(/must be golden-slot-2@isaflow.co.za/);
   });
 
   it('refuses slot credentials without the runner slot number', () => {
@@ -57,7 +57,7 @@ describe('describeGoldenCompany', () => {
     const text = describeGoldenCompany(SLOT_ENV);
     expect(text).toContain('GOLDEN SLOT 2');
     expect(text).toContain(SLOT_ID);
-    expect(text).toContain('golden-slot-2@isaflow.dev');
+    expect(text).toContain('golden-slot-2@isaflow.co.za');
     expect(text).toContain('--reset-slot 2');
     // The CLI refuses a reset without a seed url, so the advice must carry one.
     expect(text).toMatch(/--reset-slot 2 --seed-url http:\/\/localhost:/);

@@ -99,7 +99,7 @@ const request = (over: Partial<Parameters<typeof buildBoardPackDocument>[0]> = {
   companyId: COMPANY,
   from: '2026-03-01',
   to: '2026-08-31',
-  preparedBy: 'reporting-qa@isaflow.dev',
+  preparedBy: 'reporting-qa@isaflow.co.za',
   generatedAt: '2026-09-07T06:00:00.000Z',
   ...over,
 });
