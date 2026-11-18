@@ -197,7 +197,8 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     // Tenancy on payroll_run_lines is the RLS PR's job; 999n judges only finality, the same for every caller.
     const { run } = await finalRun();
     await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [run]);
-    await as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay WHERE run_id = $1', [run]));
+    await as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run]));
+    expect((await one('SELECT sum(net_pay)::text AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe('802.00');
   });
   it('Demo: the exemption covers the GL DELETE rules only; a posted Demo journal still takes no new line', async () => {
     const DEMO = '00000000-0000-0000-0000-000000000001';
