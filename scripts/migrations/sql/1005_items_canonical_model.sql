@@ -35,8 +35,13 @@
 --                         check. stock_movements: a composite FK (company_id, item_id) -> items(company_id, id) on a new
 --                         unique index items_company_id_id_key (NOT VALID, validated when clean; a NULL company_id, an
 --                         orphan row only a superuser can write, skips it). The four line tables have no company_id of their
---                         own, so a BEFORE INSERT OR UPDATE OF item_id trigger (SECURITY INVOKER, line_item_same_company)
---                         compares the item's company with the line's header's. Rows written before 1005 are not rechecked.
+--                         own, so a BEFORE INSERT OR UPDATE OF item_id, <header FK column> trigger (SECURITY INVOKER,
+--                         line_item_same_company) compares the item's company with the line's header's at the moment a line
+--                         is written or its item or header is changed. LIMIT, stated plainly: it does not fire when a
+--                         HEADER's own company_id is changed afterwards (the line rows are not touched); RLS stops an
+--                         app_user doing that, a superuser or owner could. Rows written before 1005 are not rechecked.
+--   stock fill trigger    also refuses a row whose product belongs to ANOTHER company than the row's company_id (a movement
+--                         cannot name a product of company B while claiming company A).
 --
 -- ORDER. The backfill runs BEFORE row level security is switched on, so it sees every row.
 --
@@ -137,9 +142,14 @@ UPDATE public.stock_levels sl SET company_id = p.company_id
 -- that session's RLS, so another company's product yields NULL (then the policy's WITH CHECK refuses the row).
 CREATE OR REPLACE FUNCTION public.stock_row_fill_company() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_company uuid;
 BEGIN
+  SELECT p.company_id INTO v_company FROM public.products p WHERE p.id = NEW.product_id;
   IF NEW.company_id IS NULL THEN
-    SELECT p.company_id INTO NEW.company_id FROM public.products p WHERE p.id = NEW.product_id;
+    NEW.company_id := v_company;
+  ELSIF v_company IS NOT NULL AND v_company <> NEW.company_id THEN
+    RAISE EXCEPTION '%: the product belongs to another company than the row''s company_id', TG_TABLE_NAME USING ERRCODE = 'foreign_key_violation';
   END IF;
   RETURN NEW;
 END $$;
@@ -243,7 +253,8 @@ BEGIN
   END IF;
 END $$;
 
--- The line tables carry no company_id: the item's company is compared with the header's. SECURITY INVOKER, so the item is
+-- The line tables carry no company_id: the item's company is compared with the header's (on INSERT, and on an UPDATE of the item
+-- or of the header FK column). SECURITY INVOKER, so the item is
 -- read under the caller's row level security (another company's item is invisible to a tenant session: refused).
 CREATE OR REPLACE FUNCTION public.line_item_same_company() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
@@ -270,14 +281,14 @@ BEGIN
 END $$;
 
 DROP TRIGGER IF EXISTS po_items_item_company ON public.po_items;
-CREATE TRIGGER po_items_item_company BEFORE INSERT OR UPDATE OF item_id ON public.po_items
+CREATE TRIGGER po_items_item_company BEFORE INSERT OR UPDATE OF item_id, purchase_order_id ON public.po_items
   FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();
 DROP TRIGGER IF EXISTS supplier_invoice_items_item_company ON public.supplier_invoice_items;
-CREATE TRIGGER supplier_invoice_items_item_company BEFORE INSERT OR UPDATE OF item_id ON public.supplier_invoice_items
+CREATE TRIGGER supplier_invoice_items_item_company BEFORE INSERT OR UPDATE OF item_id, supplier_invoice_id ON public.supplier_invoice_items
   FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();
 DROP TRIGGER IF EXISTS customer_invoice_items_item_company ON public.customer_invoice_items;
-CREATE TRIGGER customer_invoice_items_item_company BEFORE INSERT OR UPDATE OF item_id ON public.customer_invoice_items
+CREATE TRIGGER customer_invoice_items_item_company BEFORE INSERT OR UPDATE OF item_id, invoice_id ON public.customer_invoice_items
   FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();
 DROP TRIGGER IF EXISTS customer_quote_lines_item_company ON public.customer_quote_lines;
-CREATE TRIGGER customer_quote_lines_item_company BEFORE INSERT OR UPDATE OF item_id ON public.customer_quote_lines
+CREATE TRIGGER customer_quote_lines_item_company BEFORE INSERT OR UPDATE OF item_id, quote_id ON public.customer_quote_lines
   FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();

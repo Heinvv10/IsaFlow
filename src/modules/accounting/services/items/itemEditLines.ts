@@ -10,7 +10,9 @@
  *  - `item_id: null` clears the link; a line whose description, quantity or price changed loses it.
  * Reads only (the item read of the lines that need a check); every refusal is an `ItemLineRefusal` before any write.
  */
-import { applyItemLineDefaults, type ItemDefaultKind, type ItemDefaultOptions } from './itemLineDefaults';
+import {
+  ItemLineRefusal, applyItemLineDefaults, itemVatTreatments, type ItemDefaultKind, type ItemDefaultOptions,
+} from './itemLineDefaults';
 
 export interface StoredItemLine {
   itemId: string | null;
@@ -40,6 +42,10 @@ export async function resolveEditLineItems<T extends EditLine>(
   label: (index: number) => string,
   opts: ItemDefaultOptions = {},
 ): Promise<T[]> {
+  // A non-string item id (123, true, {}) is not an id to cast: refused here, as the create path refuses it.
+  sent.forEach((l, i) => {
+    if (l.itemId !== undefined && l.itemId !== null && typeof l.itemId !== 'string') throw new ItemLineRefusal(`${label(i)}.item_id must be a UUID`);
+  });
   const pool = stored.map((s) => ({ key: key(s.description, s.quantity, s.unitPrice), itemId: s.itemId?.toLowerCase() ?? null, used: false }));
   const inherited = sent.map((l) => {
     const hit = pool.find((p) => !p.used && p.key === key(l.description, l.quantity, l.unitPrice));
@@ -53,7 +59,7 @@ export async function resolveEditLineItems<T extends EditLine>(
       itemId: check[i] ? l.itemId : undefined, glAccountId: l.glAccountId, taxRate: l.taxRate, vatClassification: l.vatClassification,
     })), kind, label, opts,
   );
-  return sent.map((l, i) => {
+  const resolved = sent.map((l, i) => {
     if (check[i]) {
       const c = checked[i]!;
       return { ...l, itemId: c.itemId, glAccountId: c.glAccountId, ...(c.taxRate !== l.taxRate ? { taxRate: c.taxRate } : {}), ...(c.vatClassification !== l.vatClassification ? { vatClassification: c.vatClassification } : {}) };
@@ -61,6 +67,16 @@ export async function resolveEditLineItems<T extends EditLine>(
     if (l.itemId === null) return l;
     if (l.itemId === '') return { ...l, itemId: null }; // "" is no item, not an id to cast
     return typeof l.itemId === 'string' ? { ...l, itemId: l.itemId.toLowerCase() } : (inherited[i] ? { ...l, itemId: inherited[i] } : l);
+  });
+  // A resent or inherited line (not newly named, so not read above) that ends with an item and no rate takes the item's VAT as
+  // it did at create: an exempt item's line must not fall back to the document's 15% because it was saved again unchanged.
+  if (!opts.deriveTax) return resolved;
+  const need = resolved.flatMap((l, i) => (!check[i] && typeof l.itemId === 'string' && l.itemId !== '' && (l.taxRate === undefined || l.taxRate === null) ? [i] : []));
+  if (need.length === 0) return resolved;
+  const vat = await itemVatTreatments(companyId, kind, need.map((i) => resolved[i]!.itemId as string));
+  return resolved.map((l, i) => {
+    const t = need.includes(i) ? vat.get((l.itemId as string).toLowerCase()) : undefined;
+    return t ? { ...l, taxRate: t.taxRate, ...(t.vatClassification && !l.vatClassification ? { vatClassification: t.vatClassification } : {}) } : l;
   });
 }
 

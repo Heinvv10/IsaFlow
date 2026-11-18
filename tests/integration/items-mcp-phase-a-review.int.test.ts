@@ -23,6 +23,7 @@ import { text } from './helpers/mcpBudgetFixture';
 import { mergeEntities } from '../../src/modules/accounting/services/core/duplicateMergeService';
 import { purgeExpiredDeletes } from '../../src/modules/accounting/services/core/softDeleteService';
 import { findConfigurationReferences } from '../../src/modules/accounting/services/gl/accountMergeReferences';
+import { getStockValuation } from '../../src/modules/accounting/services/items/stockValuationService';
 import { WIPE_STEPS, deleteSql } from '../../scripts/lib/demoReseed/wipePlan';
 
 assertDisposable();
@@ -435,5 +436,104 @@ describe('an empty item_id on the REST draft edits (breaker)', () => {
     const iput = await callRoute(invoiceDetail, w.a.u, { id: inv, items: [{ description: 'e', quantity: 1, unitPrice: 1, itemId: '' }] }, '/api/accounting/customer-invoices-detail', 'PUT');
     expect(iput.status).toBeGreaterThanOrEqual(400);
     expect(iput.status).toBeLessThan(500);
+  });
+});
+
+describe('round 2 breaker: VAT on resent lines, merged refs, header-FK trigger, stock company, non-string item_id', () => {
+  let exemptItem: string;
+  beforeAll(async () => {
+    await upsert([{ code: 'R2-EX', description: 'exempt', vat_on_purchases: 'exempt', vat_on_sales: 'exempt', purchases_account_id: w.a.expense, sales_account_id: w.a.revenue }]);
+    exemptItem = await idOf('R2-EX');
+  });
+
+  it('an identical resend of a saved draft keeps an exempt item line at 0 on the PO PUT, the quote edit and the bill edit', async () => {
+    const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'x', quantity: 1, unitPrice: 100, itemId: exemptItem }] }, '/api/accounting/purchase-orders');
+    const poId = String((po.body.data as { id: string }).id);
+    const put = await callRoute(purchaseOrderDetail, w.a.u, { items: [{ description: 'x', quantity: 1, unit_price: 100 }] }, `/api/accounting/purchase-orders/${poId}`, 'PUT', { id: poId });
+    expect(put.status, JSON.stringify(put.body)).toBe(200);
+    expect((await pool.query('SELECT item_id, tax_rate FROM po_items WHERE purchase_order_id = $1', [poId])).rows).toEqual([{ item_id: exemptItem, tax_rate: '0.00' }]);
+
+    const quote = String((await A.ok('create_draft_quote', { customer_name: 'R2', items: [{ description: 'x', unit_price: 100, item_id: exemptItem }] }) as { id: string }).id);
+    const qput = await callRoute(quotesRoute, w.a.u, { id: quote, customerName: 'R2', lines: [{ description: 'x', quantity: 1, unitPrice: 100 }] }, '/api/accounting/customer-quotes', 'PUT');
+    expect(qput.status, JSON.stringify(qput.body)).toBe(200);
+    expect((await pool.query('SELECT item_id, tax_rate FROM customer_quote_lines WHERE quote_id = $1', [quote])).rows).toEqual([{ item_id: exemptItem, tax_rate: '0.00' }]);
+
+    // A bill's draft edit already refuses to replace an 'exempt' line (its classification would not survive), so the bill case uses a zero-rated item.
+    await upsert([{ code: 'R2-ZR', description: 'zero', vat_on_purchases: 'zero', vat_on_sales: 'zero', purchases_account_id: w.a.expense }]);
+    const zeroItem = await idOf('R2-ZR');
+    const bill = String((await A.ok('create_supplier_invoice', { supplier_id: w.a.supplier, invoice_number: 'R2-1', invoice_date: '2026-11-10', lines: [{ description: 'x', quantity: 1, unit_price: 100, item_id: zeroItem }] })).id);
+    await A.ok('update_supplier_invoice', { invoice_id: bill, lines: [{ description: 'x', quantity: 1, unit_price: 100 }] });
+    expect((await pool.query('SELECT item_id, tax_rate, vat_classification FROM supplier_invoice_items WHERE supplier_invoice_id = $1', [bill])).rows)
+      .toEqual([{ item_id: zeroItem, tax_rate: '0.00', vat_classification: 'zero_rated' }]);
+  });
+
+  it('PO PUT answers 400 (not a 500 on the UUID cast) for a non-string item_id', async () => {
+    const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'n', quantity: 1, unitPrice: 1, taxRate: 15 }] }, '/api/accounting/purchase-orders');
+    const poId = String((po.body.data as { id: string }).id);
+    for (const bad of [123, true, {}]) {
+      const r = await callRoute(purchaseOrderDetail, w.a.u, { items: [{ description: 'n', quantity: 1, unit_price: 1, tax_rate: 15, item_id: bad }] }, `/api/accounting/purchase-orders/${poId}`, 'PUT', { id: poId });
+      expect(r.status, JSON.stringify(r.body)).toBe(400);
+      expect(JSON.stringify(r.body)).toMatch(/item_id must be a UUID/);
+    }
+  });
+
+  it('a merge gives the duplicate\'s external ref to a primary that has none, so a re-sync of that ref matches the primary', async () => {
+    await upsert([{ code: 'R2-P', description: 'primary' }, { code: 'R2-D', description: 'dup', external_system: 'sage', external_ref: 'SAGE-R2-D' }]);
+    const [p, d] = [await idOf('R2-P'), await idOf('R2-D')];
+    await mergeEntities(w.a.u.homeCompanyId, 'item', p, d, w.a.u.userId);
+    expect((await pool.query('SELECT external_system, external_ref FROM items WHERE id = $1', [p])).rows).toEqual([{ external_system: 'sage', external_ref: 'SAGE-R2-D' }]);
+    expect((await pool.query('SELECT external_ref FROM items WHERE id = $1', [d])).rows).toEqual([{ external_ref: null }]);
+    const again = await A.ok('bulk_upsert_items', { items: [{ code: 'R2-P', description: 'primary again', external_system: 'sage', external_ref: 'SAGE-R2-D' }] });
+    expect(JSON.stringify(again)).toContain(p);
+  });
+
+  it('a primary with its own ref keeps it; the duplicate\'s is cleared and noted, and no longer blocks a new item with that ref', async () => {
+    await upsert([{ code: 'R2-P2', description: 'primary', external_system: 'sage', external_ref: 'SAGE-P2' }, { code: 'R2-D2', description: 'dup', external_system: 'sage', external_ref: 'SAGE-D2' }]);
+    const [p, d] = [await idOf('R2-P2'), await idOf('R2-D2')];
+    await mergeEntities(w.a.u.homeCompanyId, 'item', p, d, w.a.u.userId);
+    expect((await pool.query('SELECT external_ref FROM items WHERE id = $1', [p])).rows).toEqual([{ external_ref: 'SAGE-P2' }]);
+    const dup = (await pool.query('SELECT external_ref, notes FROM items WHERE id = $1', [d])).rows[0];
+    expect(dup.external_ref).toBeNull();
+    expect(dup.notes).toContain('sage/SAGE-D2');
+    await upsert([{ code: 'R2-N', description: 'new', external_system: 'sage', external_ref: 'SAGE-D2' }]);
+    expect((await pool.query(`SELECT 1 FROM items WHERE company_id = $1 AND external_ref = 'SAGE-D2' AND deleted_at IS NULL`, [w.a.u.homeCompanyId])).rowCount).toBe(1);
+  });
+
+  it('the line triggers also fire on an UPDATE of the header FK column: moving a line under another company\'s document is refused', async () => {
+    const bPo = await callRoute(purchaseOrders, w.b.u, { supplierId: w.b.supplier, items: [{ description: 'b', quantity: 1, unitPrice: 1, taxRate: 15 }] }, '/api/accounting/purchase-orders');
+    const bPoId = String((bPo.body.data as { id: string }).id);
+    const aPo = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'a', quantity: 1, unitPrice: 1, taxRate: 15, itemId }] }, '/api/accounting/purchase-orders');
+    const aPoId = String((aPo.body.data as { id: string }).id);
+    await expect(pool.query('UPDATE po_items SET purchase_order_id = $2 WHERE purchase_order_id = $1', [aPoId, bPoId])).rejects.toThrow(/not the document's company's/);
+    expect((await pool.query('SELECT 1 FROM po_items WHERE purchase_order_id = $1', [aPoId])).rowCount).toBe(1);
+  });
+
+  it('a stock row in company A that names company B\'s product is refused, for movements and levels', async () => {
+    const bProduct = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-BP', 'IR-BP') RETURNING id`, [w.b.u.homeCompanyId])).rows[0].id);
+    await expect(pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.a.u.homeCompanyId, bProduct]))
+      .rejects.toThrow(/belongs to another company/);
+    const wh = String((await pool.query(`INSERT INTO warehouses (company_id, code, name) VALUES ($1, 'IR-W', 'IR-W') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
+    await expect(pool.query(`INSERT INTO stock_levels (company_id, product_id, warehouse_id, quantity) VALUES ($1, $2, $3, 1)`, [w.a.u.homeCompanyId, bProduct, wh]))
+      .rejects.toThrow(/belongs to another company/);
+    // its own company's product is fine
+    await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.b.u.homeCompanyId, bProduct]);
+    await pool.query('DELETE FROM stock_movements WHERE product_id = $1', [bProduct]);
+    await pool.query('DELETE FROM stock_levels WHERE product_id = $1', [bProduct]);
+    await pool.query('DELETE FROM products WHERE id = $1', [bProduct]);
+  });
+
+  it('the valuation counts only movements of the product\'s own company (a row written around the trigger by a superuser is left out)', async () => {
+    const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-VAL', 'IR-VAL') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
+    await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 3, 30)`, [w.a.u.homeCompanyId, product]);
+    await pool.query('ALTER TABLE stock_movements DISABLE TRIGGER USER');
+    try {
+      await pool.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost) VALUES ($1, $2, 'purchase', 5, 50)`, [w.b.u.homeCompanyId, product]);
+    } finally {
+      await pool.query('ALTER TABLE stock_movements ENABLE TRIGGER USER');
+    }
+    const valuation = await getStockValuation(w.a.u.homeCompanyId, '2099-01-01');
+    expect(valuation.rows.find((r) => r.code === 'IR-VAL')).toMatchObject({ quantityOnHand: 3, value: 30 });
+    await pool.query('DELETE FROM stock_movements WHERE product_id = $1', [product]);
+    await pool.query('DELETE FROM products WHERE id = $1', [product]);
   });
 });

@@ -51,6 +51,28 @@ export function itemVatTreatment(vatType: unknown): { taxRate: number; vatClassi
 }
 
 /**
+ * The VAT treatment of items a line ALREADY carries (a draft edit's resent / inherited lines): read without the active check
+ * (an item deactivated since still gives its VAT), company-scoped. Returns per input id the treatment, or nothing for an item
+ * that is missing, deleted or has an unknown VAT type.
+ */
+export async function itemVatTreatments(
+  companyId: string, kind: ItemDefaultKind, itemIds: readonly string[],
+): Promise<Map<string, NonNullable<ReturnType<typeof itemVatTreatment>>>> {
+  const out = new Map<string, NonNullable<ReturnType<typeof itemVatTreatment>>>();
+  const ids = [...new Set(itemIds.map((i) => i.toLowerCase()))];
+  if (ids.length === 0) return out;
+  const rows = (await sql`
+    SELECT id, vat_on_sales, vat_on_purchases FROM items
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND deleted_at IS NULL
+  `) as DbRow[];
+  for (const r of rows) {
+    const t = itemVatTreatment(kind === 'purchase' ? r.vat_on_purchases : r.vat_on_sales);
+    if (t) out.set(String(r.id).toLowerCase(), t);
+  }
+  return out;
+}
+
+/**
  * Returns the lines with `glAccountId` filled from the item where the line named an item and no account (and, with
  * `deriveTax`, `taxRate` where it had none). A batch with no item is returned as given and reads nothing.
  */

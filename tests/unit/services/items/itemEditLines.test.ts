@@ -114,3 +114,42 @@ describe('an empty item_id on a draft edit', () => {
     expect(out[0]!.itemId).toBeNull();
   });
 });
+
+describe('review round 2: VAT on lines nobody changed, and a non-string item_id', () => {
+  const exempt = (over: Record<string, unknown> & { id: string }) => item(over.id, { vat_on_purchases: 'exempt', vat_on_sales: 'exempt', ...over });
+
+  it('a RESENT line (no item_id, no rate) inherits the item and takes the item\'s VAT, as at create: it stays 0, not the document\'s 15', async () => {
+    db([exempt({ id: ITEM_A })]);
+    const out = await resolveEditLineItems(COMPANY, 'purchase', [line()], [stored(ITEM_A)], label, { deriveTax: true });
+    expect(out[0]).toMatchObject({ itemId: ITEM_A, taxRate: 0, vatClassification: 'exempt' });
+  });
+
+  it('the same for a line that re-sends the item it already had, and for an item deactivated since (no active check)', async () => {
+    db([exempt({ id: ITEM_A, is_active: false })]);
+    const out = await resolveEditLineItems(COMPANY, 'purchase', [line({ itemId: ITEM_A })], [stored(ITEM_A)], label, { deriveTax: true });
+    expect(out[0]).toMatchObject({ itemId: ITEM_A, taxRate: 0 });
+  });
+
+  it('an explicit rate wins, nothing is derived without deriveTax, and a line with no item reads nothing', async () => {
+    db([exempt({ id: ITEM_A })]);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line({ taxRate: 15 })], [stored(ITEM_A)], label, { deriveTax: true }))[0]!.taxRate).toBe(15);
+    expect((await resolveEditLineItems(COMPANY, 'purchase', [line()], [stored(ITEM_A)], label))[0]!.taxRate).toBeUndefined();
+    sqlMock.mockClear();
+    await resolveEditLineItems(COMPANY, 'purchase', [line({ description: 'other' })], [stored(null)], label, { deriveTax: true });
+    expect(itemReads()).toBe(0);
+  });
+
+  it('the item read for the derivation is company-scoped', async () => {
+    db([exempt({ id: ITEM_A })]);
+    await resolveEditLineItems(COMPANY, 'purchase', [line()], [stored(ITEM_A)], label, { deriveTax: true });
+    const call = sqlMock.mock.calls.find((c: unknown[]) => (c[0] as string[]).join('?').includes('FROM items'))!;
+    expect(call.slice(1)).toContain(COMPANY);
+    expect((call[0] as string[]).join('?')).toMatch(/company_id = \?::UUID/);
+  });
+
+  it('refuses a non-string, non-null item_id (123, true, {}) with the create path\'s "must be a UUID"', async () => {
+    for (const bad of [123, true, {}, ['x']]) {
+      await expect(resolveEditLineItems(COMPANY, 'purchase', [line(), line({ itemId: bad as never })], [], label)).rejects.toThrow('lines[1].item_id must be a UUID');
+    }
+  });
+});

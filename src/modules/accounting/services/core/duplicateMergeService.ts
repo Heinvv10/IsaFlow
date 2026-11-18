@@ -212,8 +212,31 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
   `;
   count += r4.length + r5.length + r6.length + r7.length;
 
+  // The duplicate's external identity (migration 1005): left on the soft-deleted row it would refuse every re-sync of that
+  // reference (item_deleted / external_ref_in_use) for good. Free it first (the unique index counts deleted rows), then give it to
+  // the primary when the primary has none; otherwise it is only cleared, and the duplicate's notes keep what it was.
+  const [dup] = (await sql`
+    SELECT code, external_system, external_ref, external_document_number FROM items
+    WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
+  `) as Array<{ code: string; external_system: string | null; external_ref: string | null; external_document_number: string | null }>;
+  let movedRef = false;
+  if (dup?.external_ref) {
+    await sql`
+      UPDATE items SET external_system = NULL, external_ref = NULL, external_document_number = NULL
+      WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
+    `;
+    const given = (await sql`
+      UPDATE items SET external_system = ${dup.external_system}::TEXT, external_ref = ${dup.external_ref}::TEXT,
+             external_document_number = COALESCE(external_document_number, ${dup.external_document_number}::TEXT), updated_at = NOW()
+      WHERE id = ${primaryId}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL
+      RETURNING id
+    `) as unknown[];
+    movedRef = given.length > 0;
+  }
+
   await sql`
-    UPDATE items SET deleted_at = NOW()
+    UPDATE items SET deleted_at = NOW(),
+           notes = concat_ws(E'\n', NULLIF(notes, ''), ${`Merged into another item. ${dup?.external_ref ? `Its external reference ${dup.external_system}/${dup.external_ref} ${movedRef ? 'moved to the primary item' : 'was cleared (the primary item has its own)'}.` : ''}`.trim()}::TEXT)
     WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
   `;
 
