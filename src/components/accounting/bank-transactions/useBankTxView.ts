@@ -21,6 +21,8 @@ import type { BankTxFilterState } from './useBankTxFilters';
 import {
   DEFAULT_FILTERS, mergeOwnedQuery, ownedQueryKey, parseUrlView, serializeUrlView, type UrlFilters,
 } from './bankTxUrlState';
+import { readPageSizePref, warnPageSizePrefUnreadable } from './bankTxPageSizePref';
+
 
 interface RouterLike {
   isReady: boolean; pathname: string; query: Record<string, string | string[] | undefined>;
@@ -40,6 +42,17 @@ interface Args {
 }
 
 export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedBank, tab, setTab, page, setPage, f, clearSelection }: Args) {
+  // The size a URL without one opens with (the remembered one, else 25). Read when a URL is APPLIED (the first load, Back /
+  // Forward, a link such as the sidebar's), never per render: a plain URL reached without a remount opens at the size
+  // just picked, and the canonical form does not shift under the page's own writes. Blocked storage warns once per visit.
+  const warned = useRef(false);
+  // On the server there is no storage to read (and no reason to warn): the default, as the plain page renders.
+  const readBase = useCallback(() => (typeof window === 'undefined' ? undefined : readPageSizePref(err => {
+    if (!warned.current) { warned.current = true; warnPageSizePrefUnreadable(err); }
+  })) ?? DEFAULT_FILTERS.pageSize, []);
+  const [baseSize, setBaseSize] = useState(readBase);
+  /** The view's query, measured against baseSize. */
+  const ser = useCallback((v: Parameters<typeof serializeUrlView>[0]) => serializeUrlView(v, baseSize), [baseSize]);
   const routerRef = useRef(router);
   const live = useRef({ bankAccounts, selectedBank, f, clearSelection });
   useEffect(() => { routerRef.current = router; live.current = { bankAccounts, selectedBank, f, clearSelection }; });
@@ -87,7 +100,10 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
 
   const apply = useCallback((q: RouterLike['query'], withAccount: boolean) => {
     const p = parseUrlView(q);
-    const filters: UrlFilters = { ...DEFAULT_FILTERS, ...p.filters };
+    // The page size: the URL's, else the one remembered in this browser (read now), else 25.
+    const base = readBase();
+    setBaseSize(base);
+    const filters: UrlFilters = { ...DEFAULT_FILTERS, pageSize: base, ...p.filters };
     const account = withAccount && p.account && p.account !== live.current.selectedBank
       && live.current.bankAccounts.some(b => b.id === p.account && b.isActive) ? p.account : null;
     const nextTab = p.tab ?? 'new';
@@ -95,8 +111,9 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
     if (nextTab !== tab) handledTab.current = nextTab;
     live.current.f.apply(filters); setPage(p.page ?? 1); setTab(nextTab); live.current.clearSelection();
     if (account) setSelectedBank(account);
-    return serializeUrlView({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }); // the canonical form of what was applied
-  }, [tab, setPage, setTab, setSelectedBank]);
+    // The canonical form of what was applied, against the base just read (state set above lands on the next render).
+    return serializeUrlView({ account: account ?? live.current.selectedBank, tab: nextTab, page: p.page ?? 1, filters }, base);
+  }, [tab, setPage, setTab, setSelectedBank, readBase]);
   // Back/Forward/a link took us to this URL. If it is not the canonical form of the view it shows (junk parameters, an account
   // that is not available), the correction REPLACES that entry: pushing one would leave the junk URL one Back away, forever.
   const applyExternal = useCallback((q: RouterLike['query'], incomingKey: string) => {
@@ -119,11 +136,11 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   }, [router.isReady, router.query, restored, apply]);
 
   const view = { account: selectedBank, tab, page, filters: f.values };
-  const viewKey = ownedQueryKey(serializeUrlView(view));
+  const viewKey = ownedQueryKey(ser(view));
   useEffect(() => { // write the view
     if (!restored || !selectedBank) return;
     const r = routerRef.current;
-    const owned = serializeUrlView(view);
+    const owned = ser(view);
     const key = ownedQueryKey(owned);
     const prev = lastSent.current;
     lastSent.current = { account: selectedBank, tab, page };
@@ -166,7 +183,7 @@ export function useBankTxView({ router, bankAccounts, selectedBank, setSelectedB
   const viewNow = useRef(view);
   useEffect(() => { viewNow.current = view; });
   const latestQuery = useCallback(() => (restored && viewNow.current.account
-    ? mergeOwnedQuery(routerRef.current.query, serializeUrlView(viewNow.current)) : routerRef.current.query), [restored]);
+    ? mergeOwnedQuery(routerRef.current.query, ser(viewNow.current)) : routerRef.current.query), [restored, ser]);
 
   return { selectBank, changeTab, clampPage, latestQuery, restored };
 }
