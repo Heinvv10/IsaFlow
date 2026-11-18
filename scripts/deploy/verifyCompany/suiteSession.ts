@@ -4,7 +4,7 @@
  * laxer than the suite's passes a run the suite then fails.
  *
  * The rules copied: a `Secure` cookie is sent over https, or over plain http to `localhost` / `*.localhost` only (never to an IP address);
- * a `Domain` the request host does not match is dropped when it is set; a cookie without one is host-only; `Path` prefixes;
+ * a cookie goes only to a host its `Domain` matches (one without is host-only); `Path` prefixes;
  * `Max-Age<=0` deletes. Incident 2026-11-18: the seed's client (scripts/ci/golden-hosted/seed-demo-app.ts `Client`) sends every cookie
  * anywhere, so the provisioner seeded through http://127.0.0.1:3101 while the suite, there, got 401 on every GET.
  * tests/unit/ci/verifyCompanySuiteReadiness.test.ts holds this to Playwright's own behaviour.
@@ -16,7 +16,7 @@ interface Cookie { name: string; value: string; domain: string; path: string; se
 /** playwright-core cookieStore domainMatches: exact host, or a dotted domain the host ends in. */
 const domainMatches = (host: string, domain: string): boolean => host === domain || (domain.startsWith('.') && `.${host}`.endsWith(domain));
 
-/** One Set-Cookie header, as received at `url`; null when Playwright would drop it. `expired` when it deletes the cookie. */
+/** One Set-Cookie header, as received at `url` (a `Domain` the host does not match is kept and never sent). `expired`: it deletes the cookie. */
 export function parseSetCookie(header: string, url: URL): (Cookie & { expired: boolean }) | null {
   const [pair = '', ...attrs] = header.split(';');
   const eq = pair.indexOf('=');
@@ -31,7 +31,7 @@ export function parseSetCookie(header: string, url: URL): (Cookie & { expired: b
     else if (key === 'path' && val.startsWith('/')) cookie.path = val;
     else if (key === 'max-age' && Number(val) <= 0) cookie.expired = true;
   }
-  return domainMatches(url.hostname, cookie.domain) ? cookie : null;
+  return cookie;
 }
 
 /** Whether `c` goes with a request to `url` (playwright-core cookieStore.js Cookie.matches). */
