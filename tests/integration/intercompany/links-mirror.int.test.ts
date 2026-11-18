@@ -87,7 +87,7 @@ describe('a mirror link', () => {
     const args = mirrorArgs(id, co.A, m, src, tgt);
     const first = await asAppUser(pool, U.b, co.B, async (q) => (await q.query(LINK, args)).rows[0].id as string, true);
     await asAppUser(pool, U.b, co.B, async (q) => {
-      expect(await outcome(q, LINK, args)).toBe('23505: duplicate key value violates unique constraint "intercompany_links_doc_a_active"');
+      expect(await outcome(q, LINK, args)).toMatch(/^23505: duplicate key value violates unique constraint "intercompany_links_(doc_a_active|doc_b_active|message_uq)"$/);
     });
     // (a second accepted message naming the same RECEIVER document is refused at the message: see messages-documents)
     // a second message (another kind) from the SAME source document to a new receiver document: only the sender's side clashes

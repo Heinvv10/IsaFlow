@@ -130,7 +130,8 @@ describe('creating a connection (database)', () => {
       expect(await outcome(q, INSERT, [low, high, 'group', 'active'])).toBe(R.needsWriteBoth);
     });
     await asOwner(pool, null, low, async (q) => {
-      expect(await outcome(q, INSERT, [low, high, 'group', 'active'])).toBe(R.needsWriteBoth);
+      // no signed-in user: not a party, so the group check (which comes first) refuses
+      expect(await outcome(q, INSERT, [low, high, 'group', 'active'])).toBe(R.needsOneGroup);
     });
     await asOwner(pool, U.ab, low, async (q) => {
       // what the client sends for the stamps is overwritten

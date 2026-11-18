@@ -126,7 +126,7 @@ describe('accepting: the target is the receiver\'s and fits the kind', () => {
   });
 });
 
-describe('a receiver document is the target of ONE accepted message per connection', () => {
+describe('a receiver document is the target of ONE accepted message per receiving company', () => {
   it('a second message naming it is refused (and one that targets another document is not)', async () => {
     const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
     const first = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
@@ -149,7 +149,7 @@ describe('a receiver document is the target of ONE accepted message per connecti
     expect(await handle(U.b, co.B, wins, accepting('supplier_invoice', tgt))).toBe('ok');
   });
 
-  it('it is per connection: the same document is the accepted target on another connection of the receiver', async () => {
+  it('it is per RECEIVING COMPANY, not per connection: another connection of the receiver, or a replacement of a revoked pair, cannot take the document again', async () => {
     const tgt = await plantDocument(pool, 'supplier_invoice', co.B);
     await pool.query("INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, 'owner')", [co.C, U.b]);   // a writer of both B and C
     const k = crypto.randomUUID();
@@ -160,7 +160,14 @@ describe('a receiver document is the target of ONE accepted message per connecti
       const first = await plantMessage(pool, id, co.A, co.B, { kind: 'invoice' });
       const second = await plantMessage(pool, other, co.C, co.B, { kind: 'invoice', user: U.b });
       expect(await handle(U.b, co.B, first, accepting('supplier_invoice', tgt))).toBe('ok');
-      expect(await handle(U.b, co.B, second, accepting('supplier_invoice', tgt))).toBe('ok');
+      expect(await handle(U.b, co.B, second, accepting('supplier_invoice', tgt))).toBe(R.msgTargetTaken);      // another connection of B
+      expect(await handle(U.b, co.B, second, accepting('supplier_invoice', await plantDocument(pool, 'supplier_invoice', co.B)))).toBe('ok');
+      // the pair A-B is revoked and replaced by a new row (the live-pair index allows it): the old accept still holds the document
+      await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
+      await pool.query('DELETE FROM intercompany_messages WHERE id = $1', [second]);
+      const replacement = await plantConnection(pool, co.A, co.B);
+      const third = await plantMessage(pool, replacement, co.A, co.B, { kind: 'invoice' });
+      expect(await handle(U.b, co.B, third, accepting('supplier_invoice', tgt))).toBe(R.msgTargetTaken);
     } finally {
       await pool.query('DELETE FROM intercompany_messages WHERE connection_id IN (SELECT id FROM intercompany_connections WHERE company_low_id = ANY($1) AND company_high_id = ANY($1) AND NOT (company_low_id = ANY($2) AND company_high_id = ANY($2)))', [[co.B, co.C], [co.A, co.B]]);
       await pool.query('DELETE FROM intercompany_connections WHERE company_low_id = ANY($1) AND company_high_id = ANY($1) AND NOT (company_low_id = ANY($2) AND company_high_id = ANY($2))', [[co.B, co.C], [co.A, co.B]]);
@@ -188,7 +195,7 @@ describe('a receiver document is the target of ONE accepted message per connecti
     const run = (m: string) => asAppUser(pool, U.b, co.B, (q) => outcome(q, `UPDATE intercompany_messages SET ${accepting('supplier_invoice', tgt)} WHERE id = $1`, [m]), true);
     const results = await Promise.all([run(a), run(b)]);
     expect(results.filter((r) => r === 'ok')).toHaveLength(1);
-    expect(results.find((r) => r !== 'ok')).toMatch(/^(23514: a document is the target of one accepted message per connection|23505: duplicate key value violates unique constraint "intercompany_messages_target_uq")$/);
+    expect(results.find((r) => r !== 'ok')).toMatch(/^(23514: a document is the target of one accepted message per receiving company|23505: duplicate key value violates unique constraint "intercompany_messages_target_uq")$/);
   });
 });
 

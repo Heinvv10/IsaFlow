@@ -56,7 +56,7 @@ describe('the user_companies() half of every policy', () => {
       expect((await q.query("UPDATE company_connection_keys SET key_hash = repeat('f', 64)")).rowCount).toBe(0);
       expect(await outcome(q, "INSERT INTO company_connection_keys(company_id, key_hash) VALUES ($1, $2)", [co.A, hash('9')])).toBe(R.keyWriteRole);
       expect(await outcome(q, `INSERT INTO intercompany_connections(company_low_id, company_high_id, kind, status, invited_by_company_id) VALUES ($1, $2, 'group', 'active', $1)`, [co.A, co.B]))
-        .toBe(R.needsWriteBoth);
+        .toBe(R.needsOneGroup);   // the stranger is no party, so the group check refuses before the roles and says nothing of A and B
       expect(await outcome(q, 'INSERT INTO intercompany_connection_sides(connection_id, company_id, partner_company_id) VALUES ($1, $2, $3)', [id, co.A, co.B])).toBe(R.noNoConnection);
     });
     expect(await count(pool, "SELECT COUNT(*)::int AS n FROM intercompany_connections WHERE status = 'active'")).toBe(1);

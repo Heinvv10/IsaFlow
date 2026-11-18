@@ -43,9 +43,12 @@ describe('intercompany_in_one_group is no membership oracle', () => {
     await asAppUser(pool, U.x, co.C, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(false); });
     // a user of ONE company is a party even when the session company is another of theirs
     await asAppUser(pool, U.ac, co.C, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(true); });
-    // a worker's context (the session company, no user) is a party
-    await asOwner(pool, null, co.B, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(true); });
-    await asOwner(pool, null, co.C, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(false); });
+    // the session's company is a GUC any session can set: it makes nobody a party. A user of another company who SAYS they act
+    // as A, and a session with no user at all that says it acts as A or B, learn nothing.
+    await asAppUser(pool, U.x, co.A, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(false); });
+    await asAppUser(pool, U.c, co.B, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(false); });
+    await asOwner(pool, null, co.B, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(false); });
+    await asOwner(pool, null, co.A, async (q) => { expect(await inOneGroup(q, co.A, co.B)).toBe(false); });
   });
 
   it('is false once a company has left, and once the group is inactive, for a party too', async () => {

@@ -37,7 +37,7 @@ export const R = {
   msgSendRole: '42501: a message is sent by a user with a write role in the sending company',
   msgHandleRole: '42501: a message is handled by a user with a write role in the receiving company',
   msgTarget: '23514: a message targets a document of the receiving company that fits its kind, and an accepted one names it',
-  msgTargetTaken: '23514: a document is the target of one accepted message per connection',
+  msgTargetTaken: '23514: a document is the target of one accepted message per receiving company',
   msgSource: '23514: a document message names a source document of the sending company that fits its kind',
   mirrorKind: '23514: a mirror link needs a message that creates a document',
   linkNotActive: '23514: documents are linked only on an active connection',

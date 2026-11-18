@@ -122,16 +122,19 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
 - **Group topology is serialised (closed).** Under READ COMMITTED a check of "do A and B share a group" is stale by the time its writer commits,
   and two memberships changed at the same moment each see the other's change uncommitted (write skew: both leaves pass, no group is left,
   the connection stays active). One lock protocol, documented in 1002's header: every DECIDER (`intercompany_in_one_group`: a connection
-  created or re-activated, auto-accept switched on, a message sent) takes one advisory lock SHARED after its party check and holds it to
-  commit; every CHANGER (the revoking trigger on `company_group_members` / `company_groups`) takes it EXCLUSIVE, after locking the candidate
-  connections' sides rows (a session holding a side row, switching auto-accept on, would otherwise wait for the shared lock while the release
-  UPDATE needs its row: a deadlock), then re-reads membership and revokes. Leaves, deactivations and writers therefore serialise, in every
-  order, without 40P01 (`group-race.int.test.ts`, two real connections per case). One key for the whole topology, not one per pair: a pair whose
-  connection is being created is invisible to a scan, which made per-pair locking leaky, and a leave is rare. Limits: one statement changing
-  several membership rows fires its row triggers one at a time (safe, but two such statements over the same rows in opposite orders can
-  deadlock: one aborts with 40P01, nothing is corrupted); a company that joins the group while the deactivation waits is picked up (the
-  members are re-read after the lock), a company that joins after that is simply not yet in a connection. A message is still only an inbox
-  item until a person (or, from P2, the receiver's auto-accept worker, which re-checks `intercompany_in_one_group` at action time) acts on it.
+  created or re-activated, auto-accept switched on, a message sent) takes the row of `intercompany_topology_lock` FOR SHARE after its party check
+  and holds it to commit; every CHANGER (the revoking trigger on `company_group_members` / `company_groups`) takes it FOR UPDATE, after locking
+  the candidate connections and their sides rows (so a session holding a side row, switching auto-accept on, cannot deadlock with the release
+  UPDATE), then re-reads membership and revokes. Leaves, deactivations and writers therefore serialise, in every order, without 40P01
+  (`group-race*.int.test.ts`, two or three real connections per case). The lock is a table row no app role can touch, not an advisory key: a
+  public key could be held by any app_user session until it disconnects, stalling every tenant. It is ONE row for the whole topology, not one per
+  pair (a pair whose connection is being created is invisible to a scan, which made per-pair locking leaky), so its scope is cross-tenant and
+  short. `intercompany_in_one_group` answers only for a signed-in user of one of the two companies (`auth.user_companies()`), never on the strength
+  of the session's company GUC. A side's first save, a message send and a link insert hold their connection FOR SHARE, so a revoke in flight is
+  waited for and seen. Limits: one statement changing several membership rows fires its row triggers one at a time (two such statements over the
+  same rows in opposite orders can deadlock: one aborts with 40P01, nothing is corrupted); an in-transaction "shared lock, then a row the leaver
+  holds" ends in 40P01 only. A message is still only an inbox item until a person (or, from P2, the receiver's auto-accept worker, which re-checks
+  `intercompany_in_one_group` at action time) acts on it.
 - **Links.** A pending pairing holds no unique slot (the unique indexes cover ACTIVE links only; confirming re-checks them), so a partner
   cannot squat a document by proposing it. Confirming needs the connection active (unlinking does not), and the confirmed side's document must
   exist in its company (`intercompany_document_exists_as_writer`, a registered definer that answers only for a company in which the caller
@@ -143,7 +146,9 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   both documents (`intercompany_message_documents_ok`, a registered definer that answers only for the receiver's session, because the
   receiver cannot see the sender's documents). `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group
   connection; accept, reject and restore need the connection active (holding its row FOR SHARE, so a revocation at the same moment waits). A receiver
-  document is the target of ONE accepted message per connection (guard + unique index `intercompany_messages_target_uq`).
+  document is the target of ONE accepted message per RECEIVING COMPANY, whatever the connection (guard + unique index `intercompany_messages_target_uq`), and
+  an active link per company document position (`intercompany_links_doc_a_active` / `_doc_b_active` are keyed by company, not connection; a company that is
+  low on one connection and high on another is covered for mirror links by the message rule only). 1002 refuses to be applied over duplicates, naming them.
 - **A revoked connection also switches auto-accept off** (the release trigger), so a re-activated connection never starts auto-handling
   by itself; a no-op UPDATE of a connection (`SET status = status`) needs the same write role as a change (the migration's own backfill
   runs it as the system path).
