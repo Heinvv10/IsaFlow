@@ -11,13 +11,16 @@
 -- pool's login role is logged for wave 7. The one exemption is a SUPERUSER session (is_superuser), which can disable
 -- any trigger anyway; production has none on its app, deploy or admin pools, and the integration fixtures' postgres
 -- is one (it seeds shapes the app never writes). All triggers ENABLE ALWAYS, so session_replication_role = replica
--- does not skip them. One SECURITY DEFINER: payroll_run_final_state (read only, app_definer_reviews row below).
+-- does not skip them. Three SECURITY DEFINERs, owned by migration_admin, each with an app_definer_reviews row:
+-- payroll_run_final_state (read only) and the two rule-4 queue trigger functions.
 --   1. payroll_run_lines of a FINAL run (R-035 isPayRunFinal: status approved/paid AND approved_at or
 --      approval_grandfathered_at set) take no INSERT, no DELETE, and no UPDATE except of payslip_snapshot
 --      (PS3, 999k). A line moved INTO a final run is refused too. Finality is read past RLS by the definer (breaker
---      H4: an invoker read made a header the caller cannot see look "not final"), FOR SHARE, so a line write racing
---      an approval waits for it. It fails closed: a run_id naming no header counts as final, except the ON DELETE
---      CASCADE of a header delete (a DELETE fired inside another trigger with the header gone).
+--      H4), FOR SHARE, so a line write racing an approval waits for it. Before any lock it applies the header's RLS
+--      test to the caller (breaker D1): a header the caller's role could not see answers "final" unlocked, so another
+--      tenant learns nothing, blocks nothing, and writes nothing. It fails closed: a run_id naming no header counts
+--      as final, except the ON DELETE CASCADE of a header delete (a DELETE fired inside another trigger). EXECUTE
+--      only for the line writers (app_user, platform_admin, postgres; migration_admin owns it).
 --   2. payroll_run_headers of a final run keep their figures and identity (company, period, run date, frequency,
 --      kind, totals, employee count, posted_journal_entry_id). While the run stays approved/paid its approval stamps
 --      cannot be moved (approved_at may only go NULL -> set, as re-approving a grandfathered run does;
@@ -31,18 +34,22 @@
 --      gl_account_id and the dimensions stay writable: account merge and the VAT late-claim split move gl_account_id
 --      on posted lines, and tagging moves cc1/cc2/bu (writer census, PR body). A posted or reversed journal takes no
 --      added or removed line (breaker H2) unless it was created in this transaction (created_at = now(); year-end and
---      depreciation insert theirs so), cannot go back to 'draft', is not deleted (breaker B5), keeps created_at, and
---      a posted auto_payroll journal keeps its entry_date and company_id (breaker B6).
+--      depreciation insert theirs so); a line DELETE is judged by its ENTRY's company (X1). The entry leaves posted
+--      only to reversed (no draft, no NULL, no reversed -> posted: breakers N1/N2, H3), is not deleted (B5), and
+--      keeps created_at and company_id (X1); a posted auto_payroll journal keeps its entry_date (B6). No entry gets a
+--      NULL status (trigger now; CHECK (status IS NOT NULL) NOT VALID, VALIDATE logged for wave 7 after a production
+--      census, since production may hold NULL rows).
 --   4. A posted or reversed journal whose line set changed must balance at COMMIT (a constraint trigger on
---      gl_journal_lines, DEFERRABLE INITIALLY DEFERRED), which covers a journal INSERTed already posted (E-1), and
---      any move INTO posted (reversed -> posted too, breaker H3) balances when it happens. No line count is
---      required (a posted header with no lines is 0 = 0), unlike trg_gl_je_balanced on draft -> posted, unchanged.
---      The check runs once per journal per firing, not once per line: an immediate per-row trigger keeps a
---      transaction-local list of journals written since their last check. Measured (fixture PG16, box load ~100),
+--      gl_journal_lines, DEFERRABLE INITIALLY DEFERRED), which covers a journal INSERTed already posted (E-1). No line
+--      count is required (a posted header with no lines is 0 = 0), unlike trg_gl_je_balanced on NULL/draft ->
+--      posted, unchanged. The check runs once per journal per firing, not once per line: an immediate per-row trigger
+--      queues the journal in gl_journal_balance_queue (UNLOGGED, owned by migration_admin, keyed by txid_current();
+--      no app role can touch it: breaker G1 cleared the earlier GUC list), and the check runs past RLS. Measured
+--      (fixture PG16, box load ~100),
 --      deferred check of one born-posted journal as a non-superuser at 500 / 2 000 / 5 000 lines: once per line
 --      46 / 586 / 3 857 ms (O(n^2)); deduped 5 / 7 / 17 ms, with the 5 000-line INSERT itself 167 ms against 146 ms
---      for an exempt superuser. 8 000 lines (breaker L1: 11.2 s before): check 22 / 26 ms, INSERT 363 / 449 ms
---      against 246 / 243 ms exempt (the added per-row line-set and list triggers).
+--      for an exempt superuser (GUC list). With the queue, 8 000 lines (breaker L1: 11.2 s before, load ~110):
+--      check 40 / 49 ms, INSERT 294 / 347 ms against 243 / 241 ms for an exempt superuser.
 --
 -- DEMO. Demo holds no real money and is wiped by the reseed (wipePlan.ts:193/204). The Demo company
 -- (00000000-0000-0000-0000-000000000001, a literal: no GUC, no role check) is exempt from the GL DELETE rules only (a posted
@@ -54,9 +61,8 @@
 -- BOUNDARY (stated, not oversold). These stop a bug, a mis-wired path or one injected statement. Someone running
 -- arbitrary SQL as app_user can still: reopen (status -> calculated, as the app does), edit, and re-approve; delete a
 -- whole run header (its lines cascade); move a posted line's gl_account_id (merge_gl_accounts moves posted lines, so
--- the account is not frozen); set app.current_company_id to another tenant before COMMIT so rule 4's RLS-scoped read
--- sees nothing, or clear isaflow.fz_unchecked_journals after its last line write so rule 4 skips the journal; add or
--- remove BALANCED lines on a journal it created in the same transaction. The owner can disable the triggers (above).
+-- the account is not frozen); add or remove BALANCED lines on a journal it created in the same transaction. The
+-- table owner (postgres, a member of migration_admin) can disable the triggers and write the rule-4 queue (above).
 -- Children of a run are NOT frozen (breaker L2): payroll_loan_payments, payroll_run_directive_uses and
 -- tax_directive_payments.payroll_run_id stay writable; freezing them is logged for wave 7. Only privileges close
 -- these.
@@ -77,8 +83,9 @@
 --
 -- LOCKS. No DROP TRIGGER (which takes ACCESS EXCLUSIVE even when there is nothing to drop): CREATE OR REPLACE
 -- TRIGGER (PG14+), the constraint trigger only when absent, and ENABLE ALWAYS each take SHARE ROW EXCLUSIVE on the
--- four tables for an instant, bounded by lock_timeout. Measured in pg_locks, first run and re-run alike: exactly
--- ShareRowExclusiveLock on each of the four, nothing stronger. No scan, no backfill: rows are judged when next written.
+-- four tables for an instant, bounded by lock_timeout. The one stronger lock: ADD CONSTRAINT ... NOT VALID takes
+-- ACCESS EXCLUSIVE on gl_journal_entries for an instant on the first run only (NOT VALID: no scan); a re-run skips
+-- it. Measured in pg_locks in the PR body. No scan, no backfill: rows are judged when next written.
 --
 -- Rollback:
 --   DROP TRIGGER IF EXISTS trg_payroll_run_lines_final_frozen ON public.payroll_run_lines;
@@ -89,11 +96,16 @@
 --   DROP TRIGGER IF EXISTS trg_gl_jl_posted_set_frozen ON public.gl_journal_lines;
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_frozen ON public.gl_journal_entries;
 --   DROP TRIGGER IF EXISTS trg_gl_je_posted_no_delete ON public.gl_journal_entries;
+--   DROP TRIGGER IF EXISTS trg_gl_je_status_not_null ON public.gl_journal_entries;
+--   ALTER TABLE public.gl_journal_entries DROP CONSTRAINT IF EXISTS gl_journal_entries_status_not_null;
+--   DROP TABLE IF EXISTS public.gl_journal_balance_queue;
 --   DROP FUNCTION IF EXISTS public.payroll_run_is_final(uuid, boolean), public.payroll_run_final_state(uuid),
 --     public.payroll_run_lines_final_frozen(), public.payroll_run_headers_final_frozen(), public.gl_journal_is_posted(uuid),
 --     public.gl_jl_posted_frozen(), public.gl_jl_posted_set_frozen(), public.gl_je_posted_frozen(),
---     public.gl_je_posted_no_delete(), public.gl_posted_journal_balanced(), public.gl_jl_mark_unchecked();
---   DELETE FROM public.app_definer_reviews WHERE signature = 'payroll_run_final_state(uuid)';
+--     public.gl_je_posted_no_delete(), public.gl_posted_journal_balanced(), public.gl_jl_mark_unchecked(),
+--     public.gl_je_status_not_null();
+--   DELETE FROM public.app_definer_reviews
+--    WHERE signature IN ('payroll_run_final_state(uuid)', 'gl_posted_journal_balanced()', 'gl_jl_mark_unchecked()');
 
 SET LOCAL lock_timeout = '5s';
 
@@ -101,7 +113,11 @@ SET LOCAL lock_timeout = '5s';
 
 -- Finality is read past RLS (breaker H4): payroll_run_headers forces RLS, so an invoker-rights read made a header the
 -- caller cannot see (no claims, another tenant) look "not final". SECURITY DEFINER owned by migration_admin
--- (BYPASSRLS), pinned search_path, reads one row, writes nothing. NULL when the header does not exist.
+-- (BYPASSRLS), pinned search_path, writes nothing. Before any lock it applies the header's own RLS test to the
+-- CALLER (breaker D1): the caller's role is the session's SET ROLE target (current_setting('role'), which a definer
+-- does not change) or the login role; one that bypasses RLS sees every header, app_user only its users' companies
+-- (tenant_isolation: company_users of auth.uid()). A header the caller could not see answers "final" and is not
+-- locked, so another tenant learns nothing and blocks nothing. NULL when the header does not exist.
 CREATE OR REPLACE FUNCTION public.payroll_run_final_state(p_run uuid)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -109,8 +125,18 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
+  v_company uuid;
+  v_caller text := CASE current_setting('role') WHEN 'none' THEN session_user::text ELSE current_setting('role') END;
   v_final boolean;
 BEGIN
+  SELECT h.company_id INTO v_company FROM public.payroll_run_headers h WHERE h.id = p_run;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = v_caller AND (r.rolbypassrls OR r.rolsuper))
+     AND NOT EXISTS (SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = auth.uid()) THEN
+    RETURN true;
+  END IF;
   SELECT h.status IN ('approved', 'paid') AND COALESCE(h.approved_at, h.approval_grandfathered_at) IS NOT NULL
     INTO v_final
     FROM public.payroll_run_headers h
@@ -121,11 +147,11 @@ END
 $$;
 ALTER FUNCTION public.payroll_run_final_state(uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.payroll_run_final_state(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.payroll_run_final_state(uuid) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.payroll_run_final_state(uuid) TO app_user, platform_admin, postgres;
 
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT 'payroll_run_final_state(uuid)',
-       'none: reads one payroll_run_headers row FOR SHARE (status, approved_at, approval_grandfathered_at) past RLS so the 999n line freeze judges finality for every caller; returns NULL for a missing header',
+       'none: reads one payroll_run_headers row (company_id; then FOR SHARE status, approved_at, approval_grandfathered_at) past RLS so the 999n line freeze judges finality; a header the caller''s role could not see under RLS answers true unlocked; NULL for a missing header; EXECUTE to the payroll_run_lines writers only',
        public.app_definer_hash('public.payroll_run_final_state(uuid)'::regprocedure)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
@@ -293,9 +319,11 @@ ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_posted_froze
 
 -- A posted or reversed journal's line set (breaker H2): no line added or removed, unless the journal was created in
 -- this transaction (created_at = now(), the transaction's start; created_at is frozen once posted, below), which is
--- how year-end and depreciation insert theirs. A line DELETE whose journal is gone is the ON DELETE CASCADE of an
--- entry delete, judged by the entry rule. The Demo company (00000000-0000-0000-0000-000000000001) is exempt from the DELETE half only: the
--- Demo reseed wipes and rebuilds its ledger.
+-- how year-end and depreciation insert theirs. A line DELETE fired inside another trigger with its entry gone is the
+-- ON DELETE CASCADE of an entry delete, judged by the entry rule; an entry the caller cannot see otherwise refuses.
+-- Demo holds no real money and is wiped by the reseed (wipePlan.ts:193/204): a DELETE of a line whose ENTRY belongs
+-- to the Demo company (00000000-0000-0000-0000-000000000001, a literal) passes (breaker X1: judged by the entry's company, which is frozen
+-- once posted, never by the line's own).
 CREATE OR REPLACE FUNCTION public.gl_jl_posted_set_frozen()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -303,20 +331,30 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_entry uuid;
+  v_status text;
+  v_company uuid;
+  v_created timestamptz;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
   END IF;
-  IF TG_OP = 'DELETE' THEN
-    v_entry := OLD.journal_entry_id;
-    IF OLD.company_id = '00000000-0000-0000-0000-000000000001'::uuid THEN
+  v_entry := CASE TG_OP WHEN 'DELETE' THEN OLD.journal_entry_id ELSE NEW.journal_entry_id END;
+  SELECT e.status, e.company_id, e.created_at INTO v_status, v_company, v_created
+    FROM public.gl_journal_entries e WHERE e.id = v_entry;
+  IF NOT FOUND THEN
+    IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
       RETURN OLD;
     END IF;
-  ELSE
-    v_entry := NEW.journal_entry_id;
+    IF TG_OP = 'DELETE' THEN
+      RAISE EXCEPTION 'gl_journal_lines: a line whose journal the caller cannot see cannot be added or removed'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.gl_journal_entries e
-              WHERE e.id = v_entry AND e.status IN ('posted', 'reversed') AND e.created_at IS DISTINCT FROM now()) THEN
+  IF TG_OP = 'DELETE' AND v_company = '00000000-0000-0000-0000-000000000001'::uuid THEN
+    RETURN OLD;
+  END IF;
+  IF v_status IN ('posted', 'reversed') AND v_created IS DISTINCT FROM now() THEN
     RAISE EXCEPTION 'gl_journal_lines: a posted journal''s lines cannot be added or removed (reverse it instead)'
       USING ERRCODE = '23514';
   END IF;
@@ -329,39 +367,32 @@ CREATE OR REPLACE TRIGGER trg_gl_jl_posted_set_frozen
   FOR EACH ROW EXECUTE FUNCTION public.gl_jl_posted_set_frozen();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_posted_set_frozen;
 
--- A posted or reversed entry: never back to draft; created_at frozen (the born-here test above reads it); a payroll
--- journal keeps its date and company (breaker B6/M2); any move INTO posted balances its lines (breaker H3: a
--- reversed -> posted hop skipped trg_gl_je_balanced, which judges draft -> posted only).
+-- A posted or reversed entry (breakers B6, H3, N1/N2, X1): it leaves posted only to reversed (no draft, no NULL, no
+-- other value; reversed is final, which closes H3's reversed -> posted hop: trg_gl_je_balanced already balances
+-- NULL/draft -> posted); it keeps created_at (the born-here test above reads it) and company_id (so no journal
+-- reaches the Demo exemption by moving there); a payroll journal keeps its date.
 CREATE OR REPLACE FUNCTION public.gl_je_posted_frozen()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-DECLARE
-  v_debit numeric;
-  v_credit numeric;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
   IF OLD.status IN ('posted', 'reversed') THEN
-    IF NEW.status = 'draft' THEN
-      RAISE EXCEPTION 'gl_journal_entries: a posted journal cannot go back to draft (reverse it instead)' USING ERRCODE = '23514';
+    IF NEW.status IS DISTINCT FROM OLD.status AND NOT (OLD.status = 'posted' AND NEW.status = 'reversed') THEN
+      RAISE EXCEPTION 'gl_journal_entries: a posted journal leaves posted only to reversed (reverse it instead)'
+        USING ERRCODE = '23514';
     END IF;
     IF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
       RAISE EXCEPTION 'gl_journal_entries: a posted journal''s created_at is frozen' USING ERRCODE = '23514';
     END IF;
-    IF OLD.source = 'auto_payroll'
-       AND (NEW.entry_date, NEW.company_id, NEW.source) IS DISTINCT FROM (OLD.entry_date, OLD.company_id, OLD.source) THEN
-      RAISE EXCEPTION 'gl_journal_entries: a posted payroll journal keeps its date and company (reverse it instead)'
-        USING ERRCODE = '23514';
+    IF NEW.company_id IS DISTINCT FROM OLD.company_id THEN
+      RAISE EXCEPTION 'gl_journal_entries: a posted journal keeps its company (reverse it instead)' USING ERRCODE = '23514';
     END IF;
-  END IF;
-  IF NEW.status = 'posted' AND OLD.status IS DISTINCT FROM 'posted' THEN
-    SELECT COALESCE(SUM(l.debit), 0), COALESCE(SUM(l.credit), 0) INTO v_debit, v_credit
-      FROM public.gl_journal_lines l WHERE l.journal_entry_id = NEW.id;
-    IF v_debit <> v_credit THEN
-      RAISE EXCEPTION 'gl_journal_entries: posted journal % does not balance: debit=% credit=%', NEW.id, v_debit, v_credit
+    IF OLD.source = 'auto_payroll' AND (NEW.entry_date, NEW.source) IS DISTINCT FROM (OLD.entry_date, OLD.source) THEN
+      RAISE EXCEPTION 'gl_journal_entries: a posted payroll journal keeps its date (reverse it instead)'
         USING ERRCODE = '23514';
     END IF;
   END IF;
@@ -372,11 +403,41 @@ $$;
 CREATE OR REPLACE TRIGGER trg_gl_je_posted_frozen
   BEFORE UPDATE ON public.gl_journal_entries
   FOR EACH ROW
-  WHEN (OLD.status IN ('posted', 'reversed') OR NEW.status = 'posted')
+  WHEN (OLD.status IN ('posted', 'reversed'))
   EXECUTE FUNCTION public.gl_je_posted_frozen();
 ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_posted_frozen;
 
--- A posted or reversed entry is not deleted (breaker B5: its lines went with it by cascade). Demo is exempt (reseed).
+-- No entry gets a NULL status (breaker N1/N2: posted -> NULL took a journal out of every status rule). The trigger
+-- covers new writes now; the CHECK is NOT VALID so existing rows are not scanned (production may hold NULL rows and
+-- fail the deploy); VALIDATE is logged for wave 7, after a production census.
+CREATE OR REPLACE FUNCTION public.gl_je_status_not_null()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  RAISE EXCEPTION 'gl_journal_entries: a journal''s status cannot be NULL' USING ERRCODE = '23514';
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_gl_je_status_not_null
+  BEFORE INSERT OR UPDATE ON public.gl_journal_entries
+  FOR EACH ROW
+  WHEN (NEW.status IS NULL)
+  EXECUTE FUNCTION public.gl_je_status_not_null();
+ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_status_not_null;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+                  WHERE conrelid = 'public.gl_journal_entries'::regclass AND conname = 'gl_journal_entries_status_not_null') THEN
+    ALTER TABLE public.gl_journal_entries ADD CONSTRAINT gl_journal_entries_status_not_null CHECK (status IS NOT NULL) NOT VALID;
+  END IF;
+END
+$$;
+
+-- A posted or reversed entry is not deleted (breaker B5: its lines went with it by cascade). Demo is exempt: it holds
+-- no real money and is wiped by the reseed (wipePlan.ts:193/204); an entry's company_id is frozen once posted (X1).
 CREATE OR REPLACE FUNCTION public.gl_je_posted_no_delete()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -399,32 +460,40 @@ ALTER TABLE public.gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_posted_no_
 
 -- ── 4. a posted or reversed journal whose line set changed balances at COMMIT ──────────────────────────────────
 
+-- The unchecked queue (breaker G1: a GUC list was settable by any role, so clearing it skipped the check). An UNLOGGED
+-- table owned by migration_admin, keyed by (txid_current(), entry), that no app role can read or write. Every line
+-- INSERT or DELETE (immediate, per row) queues its journal; the deferred check takes the journal off the queue and
+-- checks it once, the rest of that journal's events find nothing and skip; a line written after a check queues it
+-- again. Both trigger functions are SECURITY DEFINER (the queue's owner) with no EXECUTE for anyone: a trigger needs
+-- none to fire, and a trigger function cannot be called directly. They read the journal past RLS, so the check no
+-- longer depends on the caller's company context. A savepoint rollback takes queued rows with the lines they cover.
+CREATE UNLOGGED TABLE IF NOT EXISTS public.gl_journal_balance_queue (
+  txid bigint NOT NULL,
+  journal_entry_id uuid NOT NULL,
+  PRIMARY KEY (txid, journal_entry_id)
+);
+ALTER TABLE public.gl_journal_balance_queue OWNER TO migration_admin;
+REVOKE ALL ON TABLE public.gl_journal_balance_queue FROM PUBLIC, app_user, app_service, platform_admin;
+
 CREATE OR REPLACE FUNCTION public.gl_posted_journal_balanced()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_entry uuid;
   v_debit numeric;
   v_credit numeric;
-  v_unchecked text;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
   END IF;
-  IF TG_OP = 'DELETE' THEN
-    v_entry := OLD.journal_entry_id;
-  ELSE
-    v_entry := NEW.journal_entry_id;
-  END IF;
-  -- One check per journal per firing: the first queued event checks it and takes it off the unchecked list, the
-  -- rest of that journal's events skip. A line written after that check puts it back (gl_jl_mark_unchecked).
-  v_unchecked := COALESCE(current_setting('isaflow.fz_unchecked_journals', true), '');
-  IF strpos(v_unchecked, v_entry::text) = 0 THEN
+  v_entry := CASE TG_OP WHEN 'DELETE' THEN OLD.journal_entry_id ELSE NEW.journal_entry_id END;
+  DELETE FROM public.gl_journal_balance_queue q WHERE q.txid = txid_current() AND q.journal_entry_id = v_entry;
+  IF NOT FOUND THEN
     RETURN NULL;
   END IF;
-  PERFORM set_config('isaflow.fz_unchecked_journals', replace(v_unchecked, v_entry::text || ',', ''), true);
   IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = v_entry AND e.status IN ('posted', 'reversed')) THEN
     RETURN NULL;
   END IF;
@@ -437,34 +506,38 @@ BEGIN
   RETURN NULL;
 END
 $$;
+ALTER FUNCTION public.gl_posted_journal_balanced() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.gl_posted_journal_balanced() FROM PUBLIC;
 
--- The unchecked list: every line INSERT or DELETE (immediate, per row) puts its journal on a transaction-local
--- list, so the deferred check runs once per journal per firing instead of once per line (a 5 000-line journal
--- went from O(n^2) to O(n); timing in the header). A savepoint rollback reverts the list with the lines it covered.
 CREATE OR REPLACE FUNCTION public.gl_jl_mark_unchecked()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-DECLARE
-  v_entry text;
-  v_unchecked text;
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NULL;
   END IF;
-  IF TG_OP = 'DELETE' THEN
-    v_entry := OLD.journal_entry_id::text;
-  ELSE
-    v_entry := NEW.journal_entry_id::text;
-  END IF;
-  v_unchecked := COALESCE(current_setting('isaflow.fz_unchecked_journals', true), '');
-  IF strpos(v_unchecked, v_entry) = 0 THEN
-    PERFORM set_config('isaflow.fz_unchecked_journals', v_unchecked || v_entry || ',', true);
-  END IF;
+  INSERT INTO public.gl_journal_balance_queue (txid, journal_entry_id)
+  VALUES (txid_current(), CASE TG_OP WHEN 'DELETE' THEN OLD.journal_entry_id ELSE NEW.journal_entry_id END)
+  ON CONFLICT DO NOTHING;
   RETURN NULL;
 END
 $$;
+ALTER FUNCTION public.gl_jl_mark_unchecked() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.gl_jl_mark_unchecked() FROM PUBLIC;
+
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT 'gl_posted_journal_balanced()',
+       'gl_journal_balance_queue: DELETE of this transaction''s row for one journal (deferred line trigger, 999n rule 4); reads that journal''s entry and line sums past RLS; no EXECUTE grant (trigger only)',
+       public.app_definer_hash('public.gl_posted_journal_balanced()'::regprocedure)
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT 'gl_jl_mark_unchecked()',
+       'gl_journal_balance_queue: INSERT (txid_current(), journal) ON CONFLICT DO NOTHING per line INSERT/DELETE (999n rule 4 queue); no EXECUTE grant (trigger only)',
+       public.app_definer_hash('public.gl_jl_mark_unchecked()'::regprocedure)
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 CREATE OR REPLACE TRIGGER trg_gl_jl_mark_unchecked
   AFTER INSERT OR DELETE ON public.gl_journal_lines

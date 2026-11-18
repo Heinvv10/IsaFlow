@@ -147,14 +147,27 @@ describe('FZ breaker (A): a posted payroll journal of a final run cannot be chan
         await c.query(`UPDATE gl_journal_entries SET ${set} WHERE id = $1`, [id]);
       } finally { await c.query('ROLLBACK'); c.release(); }
     };
-    await expect(attempt("entry_date = DATE '2099-06-16'")).rejects.toThrow(/keeps its date and company/);
-    await expect(attempt("company_id = (SELECT id FROM companies WHERE id <> company_id LIMIT 1)")).rejects.toThrow(/keeps its date and company/);
+    await expect(attempt("entry_date = DATE '2099-06-16'")).rejects.toThrow(/posted payroll journal keeps its date/);
+    await expect(attempt("company_id = (SELECT id FROM companies WHERE id <> company_id LIMIT 1)")).rejects.toThrow(/posted journal keeps its company/);
     await expect(attempt("created_at = created_at - interval '1 day'")).rejects.toThrow(/created_at is frozen/);
   });
-  it('H3: a reversed journal made unbalanced (as the superuser) cannot hop back to posted', async () => {
+  it('H3: reversed never hops back to posted; a legacy NULL-status journal moved into posted must balance', async () => {
     const je = await mkJournal('reversed');
-    await su.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND credit = 800', [je]);
-    await expect(as('postgres', (c) => c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [je]))).rejects.toThrow(/does not balance/);
+    await expect(as('postgres', (c) => c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [je]))).rejects.toThrow(/leaves posted only to reversed/);
+    // A legacy row with a NULL status (the NOT VALID check admits old ones; here made inside a rolled-back
+    // transaction by dropping it): moving it to posted is balanced by trg_gl_je_balanced (NULL/draft -> posted).
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE gl_journal_entries DROP CONSTRAINT gl_journal_entries_status_not_null');
+      await c.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_status_not_null');
+      const legacy = (await c.query(`INSERT INTO gl_journal_entries (entry_date, description, source, status, created_by, company_id)
+        VALUES ('2026-03-31', 'fz legacy', 'manual', NULL, $1, $2) RETURNING id`, [USER_A, A])).rows[0].id;
+      await c.query('INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 10, 0, $3)', [legacy, ACC.sal, A]);
+      await c.query('ALTER TABLE gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_status_not_null');
+      await c.query('SET LOCAL ROLE fz_pg_ns');
+      await expect(c.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [legacy])).rejects.toThrow(/not balanced/);
+    } finally { await c.query('ROLLBACK'); c.release(); }
   });
 });
 
@@ -193,11 +206,13 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     await as('postgres', (c) => c.query('DELETE FROM payroll_run_headers WHERE id = $1', [run]));
     expect((await one('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe(0);
   });
-  it('H4: finality is judged past RLS: a calculated run\'s line, edited by a caller who cannot see its header, is not frozen', async () => {
-    // Tenancy on payroll_run_lines is the RLS PR's job; 999n judges only finality, the same for every caller.
+  it('D1: a caller who cannot see a run\'s header gets "final" (fail closed): its line write is refused even on a calculated run', async () => {
     const { run } = await finalRun();
     await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [run]);
-    await as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run]));
+    await expect(as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run])))
+      .rejects.toThrow(/figures are frozen/);
+    // A's own user, who can see it, edits the calculated run's line.
+    await as('app_user', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run]));
     expect((await one('SELECT sum(net_pay)::text AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe('802.00');
   });
   it('Demo (no real money, wiped by the reseed): its posted lines and entries may be deleted, but a posted Demo journal still takes no new line', async () => {
