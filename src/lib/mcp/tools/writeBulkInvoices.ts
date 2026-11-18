@@ -98,7 +98,7 @@ const SUPPLIER_LINE_SCHEMA = {
  */
 export function elementError(index: number, err: unknown, fallback: string): unknown {
   if (err instanceof MissingSystemAccountError) return err;
-  // A line's item (migration 1002) refused: keep the registered refusal, named by element, so the agent sees which one to fix.
+  // A line's item (migration 1005) refused: keep the registered refusal, named by element, so the agent sees which one to fix.
   if (err instanceof ItemLineRefusal) return new ItemLineRefusal(`invoices[${index}]: ${err.message}`);
   return new Error(`invoices[${index}]: ${safeErrorText(err, fallback)}`, { cause: err });
 }

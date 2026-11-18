@@ -175,7 +175,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // A customer invoice line's revenue account, job or CC1 / CC2 / BU (with the customer's FNO) refused
   // (ar/invoiceLineCoding): names only the caller's own account, job or cost centre.
   'INVOICE_LINE_CODING_REFUSED',
-  // items/itemLineDefaults (migration 1002): a document line names an item that is not this company's, or is inactive.
+  // items/itemLineDefaults (migration 1005): a document line names an item that is not this company's, or is inactive.
   // Names only the caller's own line position; raised before the document's first write.
   'ITEM_LINE_REFUSED',
   // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.

@@ -129,7 +129,7 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'soft_delete_journal_reversals' },
   { table: 'stock_adjustments' },
   { table: 'stock_items' },
-  // company_id since migration 1002 (rows of a product with no company have none and are nobody's).
+  // company_id since migration 1005 (rows of a product with no company have none and are nobody's).
   { table: 'stock_levels' },
   { table: 'stock_movements' },
   { table: 'supplier_activities' },
@@ -168,7 +168,7 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'payroll_loan_schedule', via: [['loan_id', 'payroll_loans']] },
   { table: 'payroll_run_headers' },
   { table: 'po_items', via: [['product_id', 'products'], ['purchase_order_id', 'purchase_orders']] },
-  // After every table whose lines name an item (po_items, the bill / invoice / quote lines, stock_movements): item_id FKs, migration 1002.
+  // After every table whose lines name an item (po_items, the bill / invoice / quote lines, stock_movements): item_id FKs, migration 1005.
   { table: 'items' },
   { table: 'portal_contacts' },
   { table: 'project_tasks', via: [['project_id', 'projects']] },

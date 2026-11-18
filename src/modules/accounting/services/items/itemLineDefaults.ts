@@ -1,5 +1,5 @@
 /**
- * A document line may name the catalogue item it is for (`item_id`, migration 1002) on a purchase order, a bill, a
+ * A document line may name the catalogue item it is for (`item_id`, migration 1005) on a purchase order, a bill, a
  * customer invoice or a quote. With an item and no `gl_account_id` the line takes the item's default account: the
  * PURCHASES account on a PO or bill, the SALES account on an invoice or quote. An account the line names itself always
  * wins. Dimensions (CC1 / CC2 / BU) are not touched.

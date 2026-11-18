@@ -18,7 +18,7 @@ export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   description: string;
   quantity?: number;
   unitPrice: number;
-  /** The catalogue item (migration 1002), when the line names one. */
+  /** The catalogue item (migration 1005), when the line names one. */
   itemId?: string;
 }
 

@@ -41,7 +41,7 @@ export interface DraftInvoiceLineInput {
   /** Revenue account and job (migration 874). Optional; read through parseLineCoding. */
   glAccountId?: string | null;
   projectId?: string | null;
-  /** The catalogue item the line is for (migration 1002); its sales account is the default when no glAccountId. */
+  /** The catalogue item the line is for (migration 1005); its sales account is the default when no glAccountId. */
   itemId?: string | null;
   /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
   cc1Id?: string;
@@ -188,7 +188,7 @@ export async function createDraftCustomerInvoice(
       if (isDimensionRefusal(err)) throw new InvoiceLineValidationError(err.message);
       throw err;
     });
-  // Migration 1002: a line naming a catalogue item (this company's, active) and no account takes the item's sales account.
+  // Migration 1005: a line naming a catalogue item (this company's, active) and no account takes the item's sales account.
   const items = await applyItemLineDefaults(companyId, derivedItems, 'sales', (i) => `items[${i}]`);
 
   const priced = priceDraftLines(items);

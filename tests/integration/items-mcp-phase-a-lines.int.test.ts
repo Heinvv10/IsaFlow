@@ -1,5 +1,5 @@
 /**
- * Document lines that name a catalogue item (Phase A, migration 1002), against a real database: a bill, an invoice and a
+ * Document lines that name a catalogue item (Phase A, migration 1005), against a real database: a bill, an invoice and a
  * quote line created over MCP, and a purchase-order line created through the REST route, store `item_id` and, with no
  * account of their own, default their GL account from the item (purchases account for bills and POs, sales account for
  * invoices and quotes). A line's own account wins; an inactive item or another company's is refused before anything is

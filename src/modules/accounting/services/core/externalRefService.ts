@@ -105,7 +105,7 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         FROM customers
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'item':
-      // The catalogue entry (migration 1002): number = its code. Unique per (company, system, ref), so at most one row.
+      // The catalogue entry (migration 1005): number = its code. Unique per (company, system, ref), so at most one row.
       return (await sql`
         SELECT id, code AS number, CASE WHEN is_active THEN 'active' ELSE 'inactive' END AS status, NULL::DATE AS date,
                NULL::NUMERIC AS total_amount, external_document_number, (deleted_at IS NULL) AS live

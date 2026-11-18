@@ -27,7 +27,7 @@ export interface QuoteLine {
   taxRate: number;
   lineTotal: number;
   accountId: string | null;
-  /** The catalogue item the line is for (migration 1002). */
+  /** The catalogue item the line is for (migration 1005). */
   itemId: string | null;
 }
 
@@ -189,7 +189,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   // R-067: before insertWithReservedNumber, which writes the company's counter.
   // convertToInvoice copies this client_id onto the invoice verbatim.
   await assertCustomerInCompany(companyId, input.clientId);
-  // Migration 1002: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
+  // Migration 1005: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
   const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
   await assertValidLines(companyId, itemLines);
   const lines = await withQuoteTaxRates(companyId, itemLines);
@@ -230,7 +230,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
-  // Migration 1002: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
+  // Migration 1005: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
   const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
   await assertValidLines(companyId, itemLines);
   const lines = await withQuoteTaxRates(companyId, itemLines);

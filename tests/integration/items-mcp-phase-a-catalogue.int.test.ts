@@ -176,7 +176,7 @@ describe('another company is out of reach', () => {
   });
 });
 
-describe('stock_movements are company-scoped (migration 1002)', () => {
+describe('stock_movements are company-scoped (migration 1005)', () => {
   let productA: string;
   let productB: string;
   let itemA: string;

@@ -1,4 +1,4 @@
--- 1002: Items canonical model, Phase A of the Items / Inventory / PO MCP programme (docs/design/items-inventory-po-mcp.md).
+-- 1005: Items canonical model, Phase A of the Items / Inventory / PO MCP programme (docs/design/items-inventory-po-mcp.md).
 --
 -- WHAT.
 --   items                 external_system / external_ref / external_document_number (the source system's identity of the
@@ -67,7 +67,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS items_company_external_ref_key
   ON public.items (company_id, external_system, external_ref) WHERE external_ref IS NOT NULL;
 
 COMMENT ON COLUMN public.items.inventory_tracked IS
-  '1002: true only for an item whose quantity on hand is kept. A service never is; Sage quantities are not imported by the item tools.';
+  '1005: true only for an item whose quantity on hand is kept. A service never is; Sage quantities are not imported by the item tools.';
 
 -- ── item_categories ──────────────────────────────────────────────────────────────────────────────────────────────
 ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS code TEXT;
@@ -108,12 +108,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.stock_movements WHERE company_id IS NULL) THEN
     ALTER TABLE public.stock_movements VALIDATE CONSTRAINT stock_movements_company_id_not_null;
   ELSE
-    RAISE NOTICE '1002: stock_movements has rows with no company; stock_movements_company_id_not_null stays NOT VALID';
+    RAISE NOTICE '1005: stock_movements has rows with no company; stock_movements_company_id_not_null stays NOT VALID';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.stock_levels WHERE company_id IS NULL) THEN
     ALTER TABLE public.stock_levels VALIDATE CONSTRAINT stock_levels_company_id_not_null;
   ELSE
-    RAISE NOTICE '1002: stock_levels has rows with no company; stock_levels_company_id_not_null stays NOT VALID';
+    RAISE NOTICE '1005: stock_levels has rows with no company; stock_levels_company_id_not_null stays NOT VALID';
   END IF;
 END $$;
 

@@ -7,7 +7,7 @@
  * that is actually used. This service reads the third, and says so, because a
  * valuation built on either of the empty two would confidently return zero.
  *
- * `stock_movements` and `stock_levels` gained their own `company_id` in migration 1002 (backfilled
+ * `stock_movements` and `stock_levels` gained their own `company_id` in migration 1005 (backfilled
  * from the product; legacy rows of a company-less product stay NULL). Every query here still
  * scopes by joining `products`, the model that holds data — the join is the tenant boundary, so it is an INNER join and the
  * predicate lives in WHERE. A row whose product carries a NULL `company_id`

@@ -141,7 +141,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    let items = sentItems; // migration 1002: a line naming an item and no account takes the item's purchases account (checked below)
+    let items = sentItems; // migration 1005: a line naming an item and no account takes the item's purchases account (checked below)
     try {
       if (sentItems?.length) items = await applyItemDefaultsToSnakeLines(companyId, sentItems, 'purchase', (n) => `items[${n}]`);
     } catch (err) {

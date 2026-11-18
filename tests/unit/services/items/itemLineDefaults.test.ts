@@ -1,5 +1,5 @@
 /**
- * A document line may name a catalogue item (migration 1002): the item's purchases account is the default of a PO / bill
+ * A document line may name a catalogue item (migration 1005): the item's purchases account is the default of a PO / bill
  * line, its sales account the default of an invoice / quote line; an account the line names wins; another company's,
  * deleted or inactive item refuses the line before the document's first write. The query names company_id.
  */

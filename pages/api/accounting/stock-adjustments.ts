@@ -98,7 +98,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const movementType = isCount ? (deltaCents > 0 ? 'adjustment_in' : 'adjustment_out')
       : body.adjustmentType === 'increase' ? 'adjustment_in'
       : body.adjustmentType === 'write_off' ? 'write_off' : 'adjustment_out';
-    // Migration 1002 gave `stock_movements` its own company_id (the column the INSERT used to name before it existed, which
+    // Migration 1005 gave `stock_movements` its own company_id (the column the INSERT used to name before it existed, which
     // raised 42703 on every adjustment): written here from the request's company, after the product-ownership check above.
     if (deltaCents !== 0) {
       await sql`INSERT INTO stock_movements (company_id, product_id, warehouse_id, movement_type, quantity, unit_cost, total_cost, reference_type, reference_id, created_by) VALUES (${companyId}::UUID, ${body.productId}, ${body.warehouseId || null}, ${movementType}, ${magnitude}, ${body.unitCost || 0}, ${body.unitCost || 0}::NUMERIC * ${magnitude}::NUMERIC, 'stock_adjustment', ${String(inserted[0]?.id)}, ${String(req.user.id)})`;

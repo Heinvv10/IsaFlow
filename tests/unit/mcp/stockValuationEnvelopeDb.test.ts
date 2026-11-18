@@ -51,7 +51,7 @@ async function addProduct(companyId: string | null, code: string): Promise<strin
 }
 
 async function addMovement(productId: string, type: string, qty: number, cost: number): Promise<void> {
-  // Migration 1002: stock_movements carries its own company_id and a new row must have one (CHECK). A movement of a product
+  // Migration 1005: stock_movements carries its own company_id and a new row must have one (CHECK). A movement of a product
   // with NO company (the orphan case below) is given the first company's id only to satisfy that; the service's orphan
   // disclosure judges by the PRODUCT's company_id, which stays NULL.
   await sql`

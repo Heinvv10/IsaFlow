@@ -2,7 +2,7 @@
  * Purchase Orders API — CRUD
  * POST items[] may carry cc1Id / cc2Id / buId (budgets P5-3, the bill lines' rules: `ap/purchaseOrderLineDimensions`);
  * lines are created with no GL account (census 7: the budget check treats them as "No budget") unless they name an `itemId`
- * (migration 1002): then the item's purchases account is the line's account.
+ * (migration 1005): then the item's purchases account is the line's account.
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -63,7 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    // Migration 1002: a line naming a catalogue item (this company's, active) takes the item's purchases account, which
+    // Migration 1005: a line naming a catalogue item (this company's, active) takes the item's purchases account, which
     // is what the budget check reads (a line with no item still has no account, census 7). Before the number reservation.
     let lineItems: Array<{ itemId?: string | null; glAccountId?: string | null }>;
     try {

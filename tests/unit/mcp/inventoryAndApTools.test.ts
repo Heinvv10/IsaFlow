@@ -6,7 +6,7 @@
  *     Every movement in these books is a purchase carrying total_cost 0.00, so
  *     stock has been received and never valued, and the report has to say that
  *     rather than return a plausible-looking zero.
- *   - (before migration 1002 stock_movements had no company_id of its own.) A movement whose product
+ *   - (before migration 1005 stock_movements had no company_id of its own.) A movement whose product
  *     has no tenant must not be attributed to the caller, and must not vanish.
  *   - supplier_statement runs the OTHER WAY to the customer one.
  */
