@@ -93,6 +93,7 @@ export function reportFinalizeFailure(
     userId: ctx.userId,
     ...ctx.extra,
     message: describe(err).message,
+    sentryCaptured: true, // captured below; the log bridge must not send it twice
   }, ctx.component ?? 'Auth');
   if (process.env.SENTRY_ENABLED !== 'true') return;
   try {
@@ -184,6 +185,7 @@ export function answerThrow(
     userId: ctx.userId,
     ...ctx.extra,
     ...describe(err),
+    sentryCaptured: true, // captured below; the log bridge must not send it twice
   }, 'Auth');
   if (process.env.SENTRY_ENABLED === 'true') {
     try {
