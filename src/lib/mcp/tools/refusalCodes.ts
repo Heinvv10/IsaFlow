@@ -212,6 +212,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PRACTICE_JOB_NOT_FOUND',
   // Wave 6 PSP: a component a personal service provider cannot carry (pspComponentGuard).
   'PSP_COMPONENT_REFUSED',
+  'PSP_STATUS_CHANGED_SINCE_APPROVAL',
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',

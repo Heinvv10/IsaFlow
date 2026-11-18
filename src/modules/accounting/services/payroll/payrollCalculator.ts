@@ -12,7 +12,7 @@ import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
-import { pspComponentResults, pspPayeBase } from './pspLineRules';
+import { pspComponentResults, pspDirectiveResults, pspPayeBase } from './pspLineRules';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
@@ -149,7 +149,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
   // A PSP's line is flagged even under a directive: the flag is what keeps it off every natural-person filing (pspLineFlag).
   if (treatment.paye === 'none' || treatment.paye === 'flat_psp' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye, psp));
-  if (psp) warnings.push(...pspComponentResults(components));
+  if (psp) warnings.push(...pspComponentResults(components), ...pspDirectiveResults(directive));
   if (directiveOnContractor) warnings.push(contractorDirectiveResult(directiveOnContractor));
   warnings.push(...(directed?.results ?? []), ...(capped?.result ? [capped.result] : []), ...directiveStateResults(input.regularPayDirective));
 

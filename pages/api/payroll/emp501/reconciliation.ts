@@ -36,7 +36,10 @@ export interface ReconciliationRow {
    * the variance. Payroll-detail roles only (withPayrollDetailAccess's set): absent for a viewer.
    */
   pspPaye?: number;
-  status: 'balanced' | 'variance' | 'no_data';
+  /** variance - pspPaye: what no PSP explains (payroll-detail roles only, as pspPaye). */
+  unexplainedVariance?: number;
+  /** explained_psp: the month's whole variance is PSP PAYE (payroll-detail roles only; a viewer sees 'variance'). */
+  status: 'balanced' | 'explained_psp' | 'variance' | 'no_data';
 }
 
 export interface Emp501Summary {
@@ -45,6 +48,9 @@ export interface Emp501Summary {
   totalEmp201: number;
   totalIrp5: number;
   totalVariance: number;
+  /** All PSP PAYE in the year, and the variance it does not explain: aggregate figures, for every role (review H). */
+  totalPspPaye: number;
+  totalUnexplainedVariance: number;
   /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
   runWarnings: string[];
 }
@@ -108,6 +114,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const irp5 = lineMap.get(key) ?? 0;
     const variance = emp201 - irp5;
     const hasData = headerMap.has(key) || lineMap.has(key);
+    const pspPaye = pspMap.get(key) ?? 0;
+    const unexplained = Math.round((variance - pspPaye) * 100) / 100;
+    const explained = Math.abs(variance) >= 0.01 && Math.abs(unexplained) < 0.01;
     return {
       month,
       monthLabel: `${MONTH_LABELS[month]} ${year}`,
@@ -115,8 +124,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       emp201Paye: emp201,
       irp5Paye: irp5,
       variance,
-      ...(detail ? { pspPaye: pspMap.get(key) ?? 0 } : {}),
-      status: hasData ? (Math.abs(variance) < 0.01 ? 'balanced' : 'variance') : 'no_data',
+      ...(detail ? { pspPaye, unexplainedVariance: unexplained } : {}),
+      status: !hasData ? 'no_data' : Math.abs(variance) < 0.01 ? 'balanced' : detail && explained ? 'explained_psp' : 'variance',
     };
   });
 
@@ -126,6 +135,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalEmp201: rows.reduce((s, r) => s + r.emp201Paye, 0),
     totalIrp5: rows.reduce((s, r) => s + r.irp5Paye, 0),
     totalVariance: rows.reduce((s, r) => s + r.variance, 0),
+    totalPspPaye: Math.round([...pspMap.values()].reduce((s, v) => s + v, 0) * 100) / 100,
+    totalUnexplainedVariance: Math.round((rows.reduce((s, r) => s + r.variance, 0) - [...pspMap.values()].reduce((s, v) => s + v, 0)) * 100) / 100,
     runWarnings: [
       ...await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
       // The PAYE difference a PSP's months leave, explained by name (pspFiling; UNVERIFIED until the PSP certificate is produced).

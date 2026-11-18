@@ -20,7 +20,7 @@ interface YearEndStatus {
   employees: { total: number; withPayroll: number };
   payrollRuns: { monthsCovered: number; totalPaye: number };
   readiness: { errors: number; warnings: number; componentIssues: number; certificatesReady: number };
-  emp501: { balanced: boolean; totalEmp201: number; totalIrp5: number; totalVariance: number };
+  emp501: { balanced: boolean; totalEmp201: number; totalIrp5: number; totalVariance: number; pspPaye?: number };
   periodLock: { locked: boolean; lockdownDate: string | null };
 }
 
@@ -251,6 +251,7 @@ function buildSteps(status: YearEndStatus | null, downloadEasyFile: () => void):
       state: status.emp501.balanced ? 'done' : 'pending',
       detail: status.emp501.totalEmp201 > 0
         ? `EMP201 ${formatCurrency(status.emp501.totalEmp201)} · IRP5 ${formatCurrency(status.emp501.totalIrp5)} · variance ${formatCurrency(Math.abs(status.emp501.totalVariance))}`
+          + (status.emp501.pspPaye ? ` (of which PSP PAYE ${formatCurrency(status.emp501.pspPaye)}, on no certificate here: see EMP501)` : '')
         : 'No EMP501 data yet — post runs first',
       action: { label: 'EMP501', href: '/payroll/emp501' },
     },

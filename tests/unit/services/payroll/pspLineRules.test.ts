@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  pspComponentResults, pspPayeBase, pspRefusedKind, pspTaxBasis,
+  pspComponentResults, pspDirectiveResults, pspPayeBase, pspRefusedKind, pspTaxBasis,
 } from '@/modules/accounting/services/payroll/pspLineRules';
 import { pspFlatPaye, outsideTablesResult } from '@/modules/accounting/services/payroll/taxStatusTreatment';
 import { isPspLine, isContractorLine } from '@/modules/accounting/services/payroll/payrollOutsideTables';
@@ -24,11 +24,12 @@ describe('pspRefusedKind', () => {
     ['3828', 'earning', 'retirement fund contribution'], ['4030', 'deduction', 's18A donation'],
     ['LOAN', 'deduction', 'loan'], ['3801', 'earning', 'loan'], ['3802', 'earning', 'fringe benefit'],
     ['3810', 'earning', 'fringe benefit'], [' 4001 ', 'deduction', 'retirement fund contribution'],
+    ['3701', 'earning', 'travel allowance'], ['IRP3(c)', 'directive', 'IRP3(c) directive'],
   ])('%s (%s) is refused as a %s', (code, type, kind) => {
     expect(pspRefusedKind({ sarsSourceCode: code, componentType: type })).toBe(kind);
   });
 
-  it.each([['3601', 'earning'], ['3605', 'earning'], ['3701', 'earning'], ['4005', 'deduction'], ['4474', 'deduction']])('%s (%s) is allowed', (code, type) => {
+  it.each([['3601', 'earning'], ['3605', 'earning'], ['3702', 'earning'], ['4005', 'deduction'], ['4474', 'deduction']])('%s (%s) is allowed', (code, type) => {
     expect(pspRefusedKind({ sarsSourceCode: code, componentType: type })).toBeNull();
   });
 
@@ -52,12 +53,25 @@ describe('pspComponentResults: an error on the line, naming each refused item', 
   });
 });
 
+describe('pspDirectiveResults (L3)', () => {
+  it('an IRP3(c) fixed amount is an error naming the directive; an IRP3(b) or none is no result', () => {
+    const [r] = pspDirectiveResults({ type: 'fixed_amount', number: 'D-9' });
+    expect([r!.code, r!.severity]).toEqual(['PSP_DIRECTIVE_REFUSED', 'error']);
+    expect(r!.message).toContain('IRP3(c)');
+    expect(r!.message).toContain('D-9');
+    expect(pspDirectiveResults({ type: 'fixed_percentage', number: null })).toEqual([]);
+    expect(pspDirectiveResults(null)).toEqual([]);
+  });
+});
+
 describe('pspPayeBase: before any deduction, less non-cash earnings', () => {
   it('deductions do not reach it; a non-cash benefit (at its inclusion rate) comes out; never below nil', () => {
     const rem = { periodic: 50_000, annualPayment: 5_000 };
     expect(pspPayeBase(rem, [comp('3601', 'earning', 50_000), comp('4001', 'deduction', 10_000)])).toBe(55_000);
     expect(pspPayeBase(rem, [comp('3802', 'earning', 10_000, { isNonCash: true, payeInclusionRate: 0.8 })])).toBe(47_000);
     expect(pspPayeBase({ periodic: 0, annualPayment: 0 }, [comp('3802', 'earning', 10_000, { isNonCash: true })])).toBe(0);
+    // A cash earning an employee includes in part (80% of a 3701) is a payment to a PSP in full.
+    expect(pspPayeBase({ periodic: 48_000, annualPayment: 0 }, [comp('3601', 'earning', 40_000), comp('3701', 'earning', 10_000, { payeInclusionRate: 0.8 })])).toBe(50_000);
   });
 });
 

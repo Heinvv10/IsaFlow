@@ -16,7 +16,7 @@ interface ReconciliationRow {
   emp201Paye: number;
   irp5Paye: number;
   variance: number;
-  status: 'balanced' | 'variance' | 'no_data';
+  status: 'balanced' | 'explained_psp' | 'variance' | 'no_data';
 }
 
 interface Emp501Summary {
@@ -32,11 +32,13 @@ interface Emp501Summary {
 const STATUS_STYLES: Record<string, string> = {
   balanced: 'bg-teal-500/10 text-teal-400',
   variance: 'bg-red-500/10 text-red-400',
+  explained_psp: 'bg-amber-500/10 text-amber-400',
   no_data: 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]',
 };
 const STATUS_LABELS: Record<string, string> = {
   balanced: 'Balanced',
   variance: 'Variance',
+  explained_psp: 'PSP PAYE (see note)',
   no_data: 'No Data',
 };
 

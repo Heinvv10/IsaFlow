@@ -67,9 +67,11 @@ export function pspFilingWarning(t: PspFilingTotal, filing: string): string {
 }
 
 /**
- * H2: a tax status moved into or out of PSP in a tax year that already has final runs for the employee. Not refused (the
- * filings split the year per line), but named: the year's certificates now split in two (a natural person's and the
- * PSP's), and SARS's BRS (V25.3.0 p. 17) asks for a separate certificate when the nature of person changes. Null otherwise.
+ * H2: a tax status moved into or out of PSP in a tax year that already has runs for the employee: final ones, or one
+ * calculated and not yet approved (review G). Not refused (the filings split the year per line), but named: earlier
+ * approved months keep their treatment (a reopened one refuses to change it, PSP_STATUS_CHANGED_SINCE_APPROVAL), a month
+ * not yet approved is recalculated WHOLE under the new status, and the year's certificates split in two (a separate
+ * certificate when the nature of person changes, SARS BRS V25.3.0 p. 17). Null otherwise.
  */
 export async function pspSwitchWarning(
   companyId: string, employeeId: string, before: string | null, after: string | null, today = new Date(),
@@ -79,19 +81,21 @@ export async function pspSwitchWarning(
   const taxYear = payeTaxYearOf(today.getMonth() + 1, today.getFullYear());
   const { start, end } = payeTaxYearBounds(taxYear);
   const rows = (await sql`
-    SELECT count(DISTINCT h.id)::int AS runs
+    SELECT count(DISTINCT h.id) FILTER (WHERE ${sql.unsafe(payRunFinalSql('h'))})::int AS final_runs,
+           count(DISTINCT h.id) FILTER (WHERE h.status = 'calculated')::int AS open_runs
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
      WHERE h.company_id = ${companyId}::uuid AND l.employee_id = ${employeeId}::uuid
-       AND ${sql.unsafe(payRunFinalSql('h'))}
        AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
   `) as DbRow[];
-  const runs = Number(rows[0]?.runs ?? 0);
-  if (runs === 0) return null;
+  const finalRuns = Number(rows[0]?.final_runs ?? 0);
+  const openRuns = Number(rows[0]?.open_runs ?? 0);
+  if (finalRuns === 0 && openRuns === 0) return null;
   return `The tax status moved ${after === psp ? 'to' : 'from'} personal service provider in the ${taxYear - 1}/${taxYear} tax year, `
-    + `which already has ${runs} final run(s) for this person. Earlier months keep how they were taxed: the year's filings split `
-    + 'per month into a natural person\'s certificate and the PSP\'s (a separate certificate, SARS PAYE Employer Reconciliation BRS '
-    + 'V25.3.0 p. 17). Check the change is meant to apply from the next run.';
+    + `which already has ${finalRuns} final and ${openRuns} calculated run(s) for this person. Earlier months keep how they were taxed `
+    + '(a reopened month refuses to recalculate under the new status). A month not yet approved is recalculated whole under the new '
+    + 'status: a part-month split needs two employee records. The year\'s filings split per month into a natural person\'s certificate '
+    + 'and the PSP\'s (a separate certificate, SARS PAYE Employer Reconciliation BRS V25.3.0 p. 17).';
 }
 
 /**

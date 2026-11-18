@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
-import { PspComponentRefused } from '@/modules/accounting/services/payroll/pspLineRules';
+import { PspComponentRefused, PspStatusChangedSinceApproval } from '@/modules/accounting/services/payroll/pspLineRules';
 
 export function respondIfRunKindUnsupported(res: NextApiResponse, err: unknown): boolean {
   if (!isRunKindUnsupported(err)) return false;
@@ -15,9 +15,9 @@ export function respondIfRunKindUnsupported(res: NextApiResponse, err: unknown):
   return true;
 }
 
-/** Wave 6 PSP: a component a personal service provider cannot carry (pspComponentGuard), refused before any write: 409. */
+/** Wave 6 PSP: a component a PSP cannot carry, or a reopened month's changed PSP treatment (pspComponentGuard), refused before any write: 409. */
 export function respondIfPspComponentRefused(res: NextApiResponse, err: unknown): boolean {
-  if (!(err instanceof PspComponentRefused)) return false;
+  if (!(err instanceof PspComponentRefused) && !(err instanceof PspStatusChangedSinceApproval)) return false;
   apiResponse.conflict(res, err.message, { code: err.code });
   return true;
 }

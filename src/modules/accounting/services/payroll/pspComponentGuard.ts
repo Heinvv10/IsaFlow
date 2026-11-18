@@ -7,7 +7,8 @@
  */
 import type { DbRow, TxSql } from '@/lib/neon';
 import { sql } from '@/lib/neon';
-import { PspComponentRefused, pspRefusalMessage, pspRefusedKind, type PspRefusedKind } from './pspLineRules';
+import { IRP3C_MARKER, PspComponentRefused, PspStatusChangedSinceApproval, pspRefusalMessage, pspRefusedKind, type PspRefusedKind } from './pspLineRules';
+import { pspLineFlag } from './payrollOutsideTables';
 
 const PSP = 'personal_service_provider';
 
@@ -43,6 +44,15 @@ export async function assertPspRunComponents(
        AND ec.superseded_at IS NULL
        AND ec.effective_from <= ${period.end}::date AND (ec.effective_to IS NULL OR ec.effective_to >= ${period.start}::date)
     UNION ALL
+    -- L3: an approved IRP3(c) fixed-amount directive in force in the period (G21 p. 16 issues a PSP an IRP3(b)). UNVERIFIED.
+    SELECT e.employee_number, 'Directive ' || COALESCE(d.directive_number, d.id::text), ${IRP3C_MARKER}, 'directive'
+      FROM payroll_employees e
+      JOIN tax_directives d ON d.employee_id = e.id AND d.company_id = e.company_id
+     WHERE e.company_id = ${companyId}::uuid AND e.tax_status = ${PSP}
+       AND e.id::text = ANY(${[...employeeIds]}::text[])
+       AND d.status = 'approved' AND d.directive_type = 'fixed_amount'
+       AND d.effective_date <= ${period.end}::date AND COALESCE(d.expiry_date, 'infinity'::date) >= ${period.start}::date
+    UNION ALL
     SELECT e.employee_number, 'Loan ' || COALESCE(l.loan_number, l.id::text), 'LOAN', 'deduction'
       FROM payroll_employees e
       JOIN payroll_loans l ON l.employee_id = e.id AND l.company_id = e.company_id AND l.status = 'active'
@@ -59,4 +69,26 @@ export async function assertPspRunComponents(
   }
   if (byEmployee.size === 0) return;
   throw new PspComponentRefused([...byEmployee].map(([who, items]) => pspRefusalMessage(`Employee ${who}`, items)).join(' '));
+}
+
+/**
+ * M2: a REOPENED run (reopened_at set) is not recalculated under a different PSP treatment than its approved lines carry
+ * (flat_psp or not, read from each stored line's own flag): 409 PSP_STATUS_CHANGED_SINCE_APPROVAL, naming the employees,
+ * before any write. A run never approved recalculates freely (its month is costed whole under the status of the day).
+ */
+export async function assertReopenedRunKeepsPspTreatment(
+  companyId: string, runId: string, employeeIds: readonly string[], db: TxSql = sql,
+): Promise<void> {
+  const rows = (await db`
+    SELECT e.employee_number
+      FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
+      JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid AND h.reopened_at IS NOT NULL
+       AND l.employee_id::text = ANY(${[...employeeIds]}::text[])
+       AND COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) <> (e.tax_status = ${PSP})
+     ORDER BY e.employee_number
+  `) as DbRow[];
+  if (rows.length === 0) return;
+  throw new PspStatusChangedSinceApproval(rows.map((r) => String(r.employee_number)));
 }

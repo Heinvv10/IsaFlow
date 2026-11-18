@@ -17,7 +17,10 @@ import componentsRoute from '../../pages/api/payroll/employees/[id]/components';
 import reconciliationRoute from '../../pages/api/payroll/emp501/reconciliation';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
-import { PspComponentRefused } from '@/modules/accounting/services/payroll/pspLineRules';
+import { PspComponentRefused, PspStatusChangedSinceApproval } from '@/modules/accounting/services/payroll/pspLineRules';
+import { insertDirective } from './w5-dr.helpers';
+import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
+import yearEndRoute from '../../pages/api/payroll/year-end/status';
 import { listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { getPayslips } from '@/modules/accounting/services/payroll/payslipModel';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
@@ -50,6 +53,7 @@ afterAll(async () => {
   vi.useRealTimers();
   try {
     await pool.query('DELETE FROM payroll_loans WHERE company_id = ANY($1)', [fixtures.map((f) => f.company)]);
+    await pool.query('DELETE FROM tax_directives WHERE company_id = ANY($1)', [fixtures.map((f) => f.company)]);
     await pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = ANY($1)', [fixtures.map((f) => f.approver)]);
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [extraUsers]);
     await cleanSeveranceFixtures(pool, fixtures);
@@ -69,7 +73,7 @@ const toPsp = (f: SeveranceFixture, id: string, entity: 'company' | 'trust') =>
   updatePayrollEmployee(id, f.company, { taxStatus: 'personal_service_provider', pspEntityType: entity });
 
 describe('M3/M4 at assignment: the real route answers 409, no row written', () => {
-  it.each([['4001', 'deduction', 'company'], ['4030', 'deduction', 'trust'], ['3802', 'earning', 'trust'], ['LOAN', 'deduction', 'company']] as const)(
+  it.each([['4001', 'deduction', 'company'], ['4030', 'deduction', 'trust'], ['3802', 'earning', 'trust'], ['LOAN', 'deduction', 'company'], ['3701', 'earning', 'trust']] as const)(
     '%s (%s) on a PSP %s', async (code, type, entity) => {
       const f = await seedEmployee(pool, fixtures, `psp assign ${code}`, 30_000);
       const psp = await addEmployee(pool, f, `psp-as-${code}`, PAY);
@@ -125,7 +129,8 @@ describe('a PSP trust in March, an employee from April', () => {
     f = await seedEmployee(pool, fixtures, 'psp switch filings', 30_000);
     who = await addEmployee(pool, f, 'psp-switch', PAY);
     const travel = await component(f, '3701', 'earning');
-    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 5000, '2020-01-01')`, [who, travel]);
+    // A PSP may not carry a 3701 (L4), so the allowance is the employee months' (April on).
+    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 5000, '2026-04-01')`, [who, travel]);
     const medical = await component(f, '4005', 'deduction');
     await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 3000, '2020-01-01')`, [who, medical]);
     const bonus = await component(f, '3605', 'earning');
@@ -134,6 +139,9 @@ describe('a PSP trust in March, an employee from April', () => {
     await toPsp(f, who, 'trust');
     march = await newRun(pool, f, 3);
     await calculatePayrollRun(march, f.company);
+    // A March PSP line carrying a 3701 (as one costed before L4 refused it would): the allowance filing must still skip it.
+    await pool.query(`UPDATE payroll_run_lines SET component_breakdown = component_breakdown || jsonb_build_array(jsonb_build_object(
+      'sarsSourceCode', '3701', 'amount', 7000, 'isTaxable', true, 'componentId', $3::text)) WHERE run_id = $1 AND employee_id = $2`, [march, who, travel]);
     await approve(march);
     warned = (await updatePayrollEmployee(who, f.company, { taxStatus: 'employee' }))?.warnings;
     const april = await newRun(pool, f, 4);
@@ -172,9 +180,9 @@ describe('a PSP trust in March, an employee from April', () => {
     expect(out.statusCode).toBe(200);
     const body = out.body as unknown as { data: { rows: Array<{ month: number; pspPaye: number; irp5Paye: number; emp201Paye: number }>; runWarnings: string[] } };
     const mar = body.data.rows.find((r) => r.month === 3)!;
-    // 45% x (40 000 + 80% of the 5 000 travel allowance + the 10 000 bonus: Fourth Schedule para 1 "remuneration", before any
-    // deduction, the 3 000 of medical aid included).
-    expect(mar.pspPaye).toBe(24_300);
+    // 45% x (40 000 + the 10 000 bonus): the payment before any deduction, the 3 000 of medical aid included.
+    expect(mar.pspPaye).toBe(22_500);
+    expect([mar.status, (mar as { unexplainedVariance?: number }).unexplainedVariance]).toEqual(['explained_psp', 0]);
     expect(mar.emp201Paye - mar.irp5Paye).toBeCloseTo(mar.pspPaye, 2);
     expect(body.data.runWarnings.some((w) => w.includes('TSB-psp-switch') && w.includes('personal service provider'))).toBe(true);
   });
@@ -184,7 +192,8 @@ describe('a PSP trust in March, an employee from April', () => {
     const out = await asViewer(reconciliationRoute as Route, 'GET', '/api/payroll/emp501/reconciliation?taxYear=2027', undefined, { query: { taxYear: '2027' } });
     expect(out.statusCode).toBe(200);
     const body = out.body as unknown as { data: { rows: Array<Record<string, unknown>>; runWarnings: string[] } };
-    expect(body.data.rows.every((r) => !('pspPaye' in r))).toBe(true);
+    expect(body.data.rows.every((r) => !('pspPaye' in r) && !('unexplainedVariance' in r) && r.status !== 'explained_psp')).toBe(true);
+    expect((body.data as unknown as { totalPspPaye: number }).totalPspPaye).toBe(22_500);
     const text = JSON.stringify(body.data.runWarnings);
     expect(text).not.toMatch(/TSB-psp-switch|Extra/);
     expect(body.data.runWarnings.filter((w) => w.includes('personal service provider pay (1 payee)'))).toHaveLength(1);
@@ -211,5 +220,62 @@ describe('L-a: a Login-as session may not move the PSP status, entity or other p
     const real = await f.call(employeeRoute as Route, 'PATCH', url, f.employee, { body: { taxStatus: 'personal_service_provider', pspEntityType: 'company' } });
     expect(real.statusCode).toBe(200);
     expect((await row()).tax_status).toBe('personal_service_provider');
+  });
+});
+
+describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
+  it('L3: an approved IRP3(c) on a PSP is refused at calculate by name (409 class), nothing written', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp irp3c', 30_000);
+    const who = await addEmployee(pool, f, 'psp-irp3c', PAY);
+    await toPsp(f, who, 'company');
+    await insertDirective(pool, f.company, who, { type: 'fixed_amount', amount: 1000, number: 'IRP3C-1' });
+    const run = await newRun(pool, f, 3);
+    const err = await calculatePayrollRun(run, f.company).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(PspComponentRefused);
+    expect((err as Error).message).toContain('Directive IRP3C-1 (IRP3(c) directive)');
+    expect(Number((await pool.query('SELECT count(*) FROM payroll_run_lines WHERE run_id = $1', [run])).rows[0]!.count)).toBe(0);
+  });
+
+  it('M2: a reopened month approved as an employee refuses to recalculate as a PSP (and back), named; switched back, it recalculates', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp reopen', 30_000);
+    const who = await addEmployee(pool, f, 'psp-reopen', PAY);
+    const march = await newRun(pool, f, 3);
+    await calculatePayrollRun(march, f.company);
+    await approve(march);
+    await toPsp(f, who, 'trust');
+    await reopenPayrollRun({ runId: march, companyId: f.company, userId: f.admin, reason: 'reopen after a PSP switch' });
+    const before = await pool.query('SELECT paye FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [march, who]);
+    const err = await calculatePayrollRun(march, f.company).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(PspStatusChangedSinceApproval);
+    expect((err as Error).message).toContain('This month was approved under a different tax status; switch the status back to recalculate it');
+    expect((err as Error).message).toContain('TSB-psp-reopen');
+    expect((await pool.query('SELECT paye FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [march, who])).rows).toEqual(before.rows);
+    await updatePayrollEmployee(who, f.company, { taxStatus: 'employee' });
+    await expect(calculatePayrollRun(march, f.company)).resolves.toBeTruthy();
+  });
+
+  it('M1: the year-end checklist leaves PSP PAYE off the IRP5 total, names it apart, and skips the PSP\'s readiness', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp yearend', 30_000);
+    const who = await addEmployee(pool, f, 'psp-ye', PAY);
+    await pool.query("UPDATE payroll_employees SET tax_number = NULL WHERE id = $1", [who]); // would be a readiness error for an employee
+    await toPsp(f, who, 'company');
+    const march = await newRun(pool, f, 3);
+    await calculatePayrollRun(march, f.company);
+    await approve(march);
+    const out = await f.call(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    const data = (out.body as unknown as { data: { emp501: { totalVariance: number; pspPaye: number; unexplainedVariance: number; balanced: boolean };
+      readiness: { errors: number }; runWarnings: string[] } }).data;
+    expect([data.emp501.pspPaye, data.emp501.totalVariance, data.emp501.unexplainedVariance, data.emp501.balanced]).toEqual([10_800, 10_800, 0, false]);
+    // The same company with no PSP: the PSP (no tax number) adds no readiness error.
+    const c = await seedEmployee(pool, fixtures, 'psp yearend control', 30_000);
+    const cm = await newRun(pool, c, 3);
+    await calculatePayrollRun(cm, c.company);
+    await approve(cm);
+    const control = await c.call(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    expect(data.readiness.errors).toBe((control.body as unknown as { data: { readiness: { errors: number } } }).data.readiness.errors);
+    expect(data.runWarnings.some((w) => w.includes('TSB-psp-ye'))).toBe(true);
+    const viewer = await (await viewerOf(f))(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    expect(JSON.stringify(viewer.body)).not.toMatch(/TSB-psp-ye|Extra/);
+    expect(JSON.stringify(viewer.body)).toContain('(1 payee)');
   });
 });
