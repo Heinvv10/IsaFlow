@@ -14,6 +14,8 @@ export const PAT_SCOPES = [
   'read:reports',
   'read:contacts',
   'write:contacts',
+  'read:items',
+  'write:items',
   'read:vat',
   'write:vat',
   'write:company',

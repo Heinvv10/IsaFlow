@@ -813,6 +813,11 @@ describe('write-tool manifest invariants', () => {
       set_budget_drivers: { ...KEY },
       set_three_way_assumptions: { ...KEY },
       submit_budget_for_review: { ...KEY },
+      // Item master (Phase A): each refuses a missing required argument before any read or write (itemWriteTools.test.ts).
+      bulk_upsert_items: { ...KEY },
+      update_item: { ...KEY },
+      deactivate_item: { ...KEY },
+      upsert_item_category: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

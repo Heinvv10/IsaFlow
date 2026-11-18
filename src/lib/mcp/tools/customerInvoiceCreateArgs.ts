@@ -18,6 +18,8 @@ export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   description: string;
   quantity?: number;
   unitPrice: number;
+  /** The catalogue item (migration 1002), when the line names one. */
+  itemId?: string;
 }
 
 export interface ParsedCustomerInvoice {
@@ -43,7 +45,8 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     description: { type: 'string' },
     quantity: { type: 'number', exclusiveMinimum: 0 },
     unit_price: { type: 'number', minimum: 0 },
-    gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the default sales account.' },
+    gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the item\'s sales account (when item_id is given) or the default sales account.' },
+    item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line credits the item\'s sales account. An inactive item is refused.' },
     project_id: {
       type: 'string',
       description: 'Job (a `projects` id — what Project Profitability reads) the line\'s revenue belongs to. '
@@ -129,10 +132,12 @@ export function parseCustomerInvoiceInput(
     }
     const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
     if (typeof coding === 'string') return coding;
+    const itemId = readCodingId(o.item_id);
+    if (itemId === undefined) return `items[${i}].item_id must be a UUID`;
     const dims = parseDimensionRefs(o, `items[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
-    items.push({ description, unitPrice, quantity, ...coding });
+    items.push({ description, unitPrice, quantity, ...coding, ...(itemId ? { itemId } : {}) });
   }
   const projectId = readCodingId(args.project_id);
   if (projectId === undefined) return 'project_id must be a UUID';

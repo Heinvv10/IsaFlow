@@ -21,6 +21,7 @@ Add the MCP server `https://app.isaflow.co.za/api/mcp` in your assistant, then s
 - Write permissions are **not** limited to drafts. Several make real changes straight away, without `write:post`. For example:
   - **`write:contacts`** can create and edit customers and suppliers, including **supplier banking details**.
   - **`write:accounts`** can create and edit your **chart of accounts**.
+  - **`write:items`** can create, change and retire **items** (prices, categories, and the accounts a purchase order, bill, invoice or quote line defaults to).
   - **`write:invoices`** can raise or cancel credit notes, which reduce what customers owe you.
   - **`write:vat`** can lock VAT periods.
 - Read the description of each permission on the sign-in screen and only tick the ones the assistant needs.

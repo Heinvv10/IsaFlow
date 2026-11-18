@@ -77,7 +77,7 @@ beforeEach(() => {
 describe('DEFAULT_MCP_SCOPES', () => {
   it('is read scopes plus offline_access, never a write scope', () => {
     expect(DEFAULT_MCP_SCOPES).toEqual([
-      'read:reports', 'read:invoices', 'read:contacts', 'read:bank-tx',
+      'read:reports', 'read:invoices', 'read:contacts', 'read:items', 'read:bank-tx',
       'read:vat', 'read:payroll', 'read:practice', 'offline_access',
     ]);
     expect(DEFAULT_MCP_SCOPES.some((s) => s.startsWith('write:'))).toBe(false);
@@ -89,10 +89,10 @@ const ALL_WRITE_SCOPES = OAUTH_SCOPES.filter((s) => s.startsWith('write:'));
 describe('OFFERED_MCP_SCOPES', () => {
   it('is the read baseline, every write scope, then offline_access', () => {
     expect(OFFERED_MCP_SCOPES).toEqual([
-      'read:reports', 'read:invoices', 'read:contacts', 'read:bank-tx',
+      'read:reports', 'read:invoices', 'read:contacts', 'read:items', 'read:bank-tx',
       'read:vat', 'read:payroll', 'read:practice',
       'write:invoices', 'write:bank-tx', 'write:journals', 'write:accounts',
-      'write:contacts', 'write:vat', 'write:company', 'write:budgets', 'write:practice', 'write:payroll', 'write:post',
+      'write:contacts', 'write:items', 'write:vat', 'write:company', 'write:budgets', 'write:practice', 'write:payroll', 'write:post',
       'offline_access',
     ]);
   });

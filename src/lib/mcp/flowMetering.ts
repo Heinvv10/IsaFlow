@@ -36,6 +36,7 @@ import { MAX_INVOICES } from './tools/writeBulkInvoices';
 import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
 import { RECURRING_JOURNAL_FLOW_OPERATIONS } from './tools/recurringJournalToolSet';
 import { BUDGET_FLOW_OPERATIONS } from './tools/budgetToolSet';
+import { ITEM_FLOW_OPERATIONS } from './tools/itemToolSet';
 import {
   getFlowCost,
   type FlowOperationCode,
@@ -181,7 +182,6 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // carries no meter. Same answer as bulk_allocate_bank_transactions, which
   // posts N journals for the same reason: N times nothing.
   run_depreciation: null,
-  list_items: null,
   stock_valuation: null,
   supplier_statement: null,
   job_cost_report: null,
@@ -361,6 +361,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   delete_draft_credit_note: null,
   ...RECURRING_JOURNAL_FLOW_OPERATIONS,
   ...BUDGET_FLOW_OPERATIONS,
+  // Item master: free, like the other master data (tools/itemToolSet.ts).
+  ...ITEM_FLOW_OPERATIONS,
   // Registering an asset: POST /api/accounting/assets carries no meter, so neither does the tool.
   create_fixed_asset: null,
   // The undo of a registration: a correction, free like cancel_customer_invoice.

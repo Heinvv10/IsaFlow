@@ -34,6 +34,10 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   // step with PAT_SCOPE_META['write:contacts'] — consentScopeCopy.test.ts
   // asserts it.
   'write:contacts': 'Create and edit your customers and suppliers, including supplier banking details',
+  'read:items': 'Read your item catalogue (products, services, prices, categories)',
+  // Names the default accounts: they decide where a document line posts when it names the item. Keep in step with
+  // PAT_SCOPE_META['write:items'] — consentScopeCopy.test.ts asserts it.
+  'write:items': 'Create and edit your item catalogue, including the accounts items default to on documents',
   'read:vat': 'Read your VAT status',
   // Deliberately separate from write:post: neither lock_vat_period nor
   // mark_vat_declared_elsewhere posts a journal — the honest description of

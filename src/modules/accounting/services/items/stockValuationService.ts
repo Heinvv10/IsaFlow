@@ -7,9 +7,9 @@
  * that is actually used. This service reads the third, and says so, because a
  * valuation built on either of the empty two would confidently return zero.
  *
- * `stock_movements` and `stock_levels` HAVE NO `company_id` COLUMN. They are
- * tenant-scopable only by joining `products`, which is what every query here
- * does — the join is the tenant boundary, so it is an INNER join and the
+ * `stock_movements` and `stock_levels` gained their own `company_id` in migration 1002 (backfilled
+ * from the product; legacy rows of a company-less product stay NULL). Every query here still
+ * scopes by joining `products`, the model that holds data — the join is the tenant boundary, so it is an INNER join and the
  * predicate lives in WHERE. A row whose product carries a NULL `company_id`
  * (the column is nullable) belongs to no tenant and is DISCLOSED — outside the
  * completeness identity, since it is not in this company's universe — rather

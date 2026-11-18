@@ -114,6 +114,7 @@ export const KIND_SCOPE: Record<ExternalRefKind, string> = {
   bank_transaction: 'read:bank-tx',
   supplier: 'read:contacts',
   customer: 'read:contacts',
+  item: 'read:items',
 };
 
 export const findByExternalRefTool: McpTool = {
@@ -123,7 +124,7 @@ export const findByExternalRefTool: McpTool = {
     + `kind: ${EXTERNAL_REF_KINDS.join(', ')}, or a Sage code (${Object.keys(EXTERNAL_REF_KIND_ALIASES).join(', ')}; ret/cret = supplier/customer credit notes). `
     + 'Returns found: false, or the live match (record) plus any superseded (cancelled, reversed or deleted) rows carrying the same reference. '
     + 'Only records created or imported with external_ref are found; older loads that put the Sage id in a description are not. '
-    + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts).',
+    + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts, read:items for item). For an item, number is its code and status is active or inactive.',
   // Per kind, the scope of that kind's own list tool (KIND_SCOPE); the registry checks none.
   scope: null,
   write: false,

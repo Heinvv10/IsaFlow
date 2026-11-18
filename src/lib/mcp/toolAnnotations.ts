@@ -77,6 +77,11 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'set_bank_account_default_dimensions',
   'set_supplier_default_dimensions',
   'sync_bank_dimensions',
+  // Catalogue master data: an upsert or update replaces a price or default account; a deactivation retires the item.
+  'bulk_upsert_items',
+  'update_item',
+  'deactivate_item',
+  'upsert_item_category',
   // Budget amounts, notes and the human-gated moves replace state (restore undoes the latest amount write once).
   'add_budget_note',
   'delete_budget_version',

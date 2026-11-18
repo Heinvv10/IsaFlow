@@ -123,11 +123,19 @@ export function parseSupplierLines(
       accountIds.push(value);
     }
 
+    let itemId: string | undefined;
+    if (o.item_id !== undefined && o.item_id !== null) {
+      if (typeof o.item_id !== 'string' || castableArgError({ item_id: o.item_id }, { uuid: ['item_id'] })) {
+        return `invalid lines[${i}].item_id`;
+      }
+      itemId = o.item_id;
+    }
+
     const dims = parseDimensionRefs(o, `lines[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
 
-    items.push({ description, quantity, unitPrice, taxRate, glAccountId });
+    items.push({ description, quantity, unitPrice, taxRate, glAccountId, ...(itemId ? { itemId } : {}) });
   }
 
   return { items, accountIds, dimensionRefs };

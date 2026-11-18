@@ -19,7 +19,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
 export const EXTERNAL_REF_KINDS = [
-  'supplier_invoice', 'customer_invoice', 'credit_note', 'journal', 'bank_transaction', 'supplier', 'customer',
+  'supplier_invoice', 'customer_invoice', 'credit_note', 'journal', 'bank_transaction', 'supplier', 'customer', 'item',
 ] as const;
 export type ExternalRefKind = (typeof EXTERNAL_REF_KINDS)[number];
 
@@ -31,6 +31,7 @@ export const EXTERNAL_REF_KIND_ALIASES: Record<string, { kind: ExternalRefKind; 
   cret: { kind: 'credit_note', creditNoteType: 'customer' },
   bank: { kind: 'bank_transaction' },
   je: { kind: 'journal' },
+  item: { kind: 'item' },
 };
 
 export interface ExternalRefMatch {
@@ -102,6 +103,13 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         SELECT id, name AS number, NULL::TEXT AS status, NULL::DATE AS date, NULL::NUMERIC AS total_amount, external_document_number,
                (deleted_at IS NULL) AS live
         FROM customers
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
+    case 'item':
+      // The catalogue entry (migration 1002): number = its code. Unique per (company, system, ref), so at most one row.
+      return (await sql`
+        SELECT id, code AS number, CASE WHEN is_active THEN 'active' ELSE 'inactive' END AS status, NULL::DATE AS date,
+               NULL::NUMERIC AS total_amount, external_document_number, (deleted_at IS NULL) AS live
+        FROM items
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
   }
 }

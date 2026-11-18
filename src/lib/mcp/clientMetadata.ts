@@ -103,6 +103,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'reconcile_fixed_assets',
   'run_depreciation',
   'list_items',
+  'get_item',
+  'list_item_categories',
   'stock_valuation',
   'supplier_statement',
   'job_cost_report',
@@ -235,6 +237,10 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'tag_journal_lines',
   'reverse_dimension_tag_batch',
   'sync_bank_dimensions',
+  'bulk_upsert_items',
+  'update_item',
+  'deactivate_item',
+  'upsert_item_category',
 ] as const;
 
 export function appOrigin(): string {

@@ -1,18 +1,17 @@
 /**
- * MCP tools: list_items, stock_valuation, supplier_statement.
+ * MCP tools: stock_valuation, supplier_statement. (list_items moved to itemReadTools.test.ts with the item master, Phase A.)
  *
  * The load-bearing properties:
  *   - stock_valuation must not present R0 as a valuation somebody computed.
  *     Every movement in these books is a purchase carrying total_cost 0.00, so
  *     stock has been received and never valued, and the report has to say that
  *     rather than return a plausible-looking zero.
- *   - stock_movements has no company_id of its own. A movement whose product
+ *   - (before migration 1002 stock_movements had no company_id of its own.) A movement whose product
  *     has no tenant must not be attributed to the caller, and must not vanish.
  *   - supplier_statement runs the OTHER WAY to the customer one.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/modules/accounting/services/items/itemService', () => ({ listItems: vi.fn() }));
 vi.mock('@/modules/accounting/services/items/stockValuationService', () => ({
   getStockValuation: vi.fn(),
 }));
@@ -20,14 +19,9 @@ vi.mock('@/modules/accounting/services/ap/supplierStatementService', () => ({
   fetchSupplierStatementData: vi.fn(),
 }));
 
-import { listItems } from '@/modules/accounting/services/items/itemService';
 import { getStockValuation } from '@/modules/accounting/services/items/stockValuationService';
 import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';
-import {
-  listItemsTool,
-  stockValuationTool,
-  supplierStatementTool,
-} from '@/lib/mcp/tools/inventoryAndAp';
+import { stockValuationTool, supplierStatementTool } from '@/lib/mcp/tools/inventoryAndAp';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -98,66 +92,19 @@ const SUPPLIER_STATEMENT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(listItems).mockResolvedValue([]);
   vi.mocked(getStockValuation).mockResolvedValue(VALUATION);
   vi.mocked(fetchSupplierStatementData).mockResolvedValue(SUPPLIER_STATEMENT);
 });
 
 describe('registration', () => {
-  it('all three are registered, mirrored, and read-only', () => {
-    for (const n of ['list_items', 'stock_valuation', 'supplier_statement']) {
+  it('both are registered, mirrored, and read-only', () => {
+    for (const n of ['stock_valuation', 'supplier_statement']) {
       expect(MCP_TOOLS.map((t) => t.name)).toContain(n);
       expect(CLIENT_MCP_TOOL_NAMES).toContain(n);
     }
-    for (const t of [listItemsTool, stockValuationTool, supplierStatementTool]) {
+    for (const t of [stockValuationTool, supplierStatementTool]) {
       expect(t.write).toBe(false);
     }
-  });
-});
-
-describe('list_items', () => {
-  it('returns a sound envelope for an empty catalogue rather than a bare []', async () => {
-    const env = json(await listItemsTool.handler({}, ctx));
-    expect(env.rows).toEqual([]);
-    expect(env.rowsTotal).toBe(0);
-    expect(env.truncated).toBe(false);
-    expect(env.completenessFault).toBeUndefined();
-  });
-
-  it('says in its description that the catalogue is separate from stock', () => {
-    // An empty result here means nothing has been catalogued, not that there is
-    // no stock. A reader who conflates the two will conclude the wrong thing.
-    expect(listItemsTool.description).toMatch(/products/i);
-    expect(listItemsTool.description).toMatch(/stock_valuation/);
-  });
-
-  it('takes the company from the context, never from args', async () => {
-    await listItemsTool.handler({ company_id: OTHER }, ctx);
-    expect(vi.mocked(listItems).mock.calls[0]![0]).toBe(COMPANY);
-  });
-
-  it('drops an out-of-range enum value instead of passing it to the service', async () => {
-    // additionalProperties: false and a JSON Schema enum are ADVISORY — nothing
-    // in this server validates against the schema — so an agent can send
-    // anything. It must not reach a service that types the argument as a
-    // literal union and builds a SQL fragment from it.
-    await listItemsTool.handler({ type: "physical' OR '1'='1", active: 'maybe' }, ctx);
-    const filters = vi.mocked(listItems).mock.calls[0]![1]!;
-    expect(filters.type).toBeUndefined();
-    expect(filters.active).toBeUndefined();
-  });
-
-  it('passes a valid enum value through', async () => {
-    await listItemsTool.handler({ type: 'service', active: 'true' }, ctx);
-    const filters = vi.mocked(listItems).mock.calls[0]![1]!;
-    expect(filters.type).toBe('service');
-    expect(filters.active).toBe('true');
-  });
-
-  it('refuses a malformed category_id before it reaches a cast', async () => {
-    const res = await listItemsTool.handler({ category_id: 'abc' }, ctx);
-    expect(res.isError).toBe(true);
-    expect(listItems).not.toHaveBeenCalled();
   });
 });
 

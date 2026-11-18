@@ -13,6 +13,7 @@ import { withSourceEditorStamp } from './sourceContentEditor';
 import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { shownPosition } from '@/lib/lineNumbers';
 import { quoteLineAmount, quoteTotals, taxRateProblem, withQuoteTaxRates } from './quoteLineTax';
+import { applyItemDefaultsToAccountIdLines } from '../items/itemLineDefaults';
 
 type Row = DbRow;
 
@@ -26,6 +27,8 @@ export interface QuoteLine {
   taxRate: number;
   lineTotal: number;
   accountId: string | null;
+  /** The catalogue item the line is for (migration 1002). */
+  itemId: string | null;
 }
 
 export interface Quote {
@@ -61,7 +64,7 @@ interface QuoteInput {
   expiryDate?: string;
   notes?: string;
   terms?: string;
-  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number | null; accountId?: string; lineNo?: number }[];
+  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number | null; accountId?: string; itemId?: string | null; lineNo?: number }[];
 }
 
 function mapQuote(r: Row): Quote {
@@ -85,6 +88,7 @@ function mapLine(r: Row): QuoteLine {
     description: String(r.description), quantity: Number(r.quantity),
     unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate),
     lineTotal: Number(r.amount), accountId: r.gl_account_id != null ? String(r.gl_account_id) : null,
+    itemId: r.item_id != null ? String(r.item_id) : null,
   };
 }
 
@@ -185,8 +189,10 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   // R-067: before insertWithReservedNumber, which writes the company's counter.
   // convertToInvoice copies this client_id onto the invoice verbatim.
   await assertCustomerInCompany(companyId, input.clientId);
-  await assertValidLines(companyId, input.lines);
-  const lines = await withQuoteTaxRates(companyId, input.lines);
+  // Migration 1002: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
+  const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
+  await assertValidLines(companyId, itemLines);
+  const lines = await withQuoteTaxRates(companyId, itemLines);
   const { subtotal, taxAmount, total } = quoteTotals(lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
 
@@ -208,8 +214,8 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
         const l = lines[i];
         if (!l) continue;
         await sql`
-          INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
-          VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null})
+          INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id, item_id)
+          VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null}, ${l.itemId || null}::UUID)
         `;
       }
       return { id: quoteId, quoteNumber: number };
@@ -224,8 +230,10 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
-  await assertValidLines(companyId, input.lines);
-  const lines = await withQuoteTaxRates(companyId, input.lines);
+  // Migration 1002: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
+  const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
+  await assertValidLines(companyId, itemLines);
+  const lines = await withQuoteTaxRates(companyId, itemLines);
   const { subtotal, taxAmount, total } = quoteTotals(lines);
 
   await withSourceEditorStamp(companyId, { kind: 'quote', id }, editedBy, async () => {
@@ -242,8 +250,8 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
     const l = lines[i];
     if (!l) continue;
     await sql`
-      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
-      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null})
+      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id, item_id)
+      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null}, ${l.itemId || null}::UUID)
     `;
   }
   });

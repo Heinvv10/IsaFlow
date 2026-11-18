@@ -19,7 +19,7 @@ import { createQuote, LineValidationError } from '@/modules/accounting/services/
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
 import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
-import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, castableArgError, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './customerInvoiceCreateArgs';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
 
@@ -27,6 +27,7 @@ interface LineIn {
   description: string;
   quantity?: number;
   unitPrice: number;
+  itemId?: string;
 }
 
 function parseLines(raw: unknown): LineIn[] | null {
@@ -40,7 +41,7 @@ function parseLines(raw: unknown): LineIn[] | null {
     if (!description || !Number.isFinite(unitPrice)) return null;
     const qtyRaw = o.quantity === undefined ? 1 : Number(o.quantity);
     if (!Number.isFinite(qtyRaw)) return null;
-    lines.push({ description, unitPrice, quantity: qtyRaw });
+    lines.push({ description, unitPrice, quantity: qtyRaw, ...(typeof o.item_id === 'string' ? { itemId: o.item_id } : {}) });
   }
   return lines;
 }
@@ -54,6 +55,7 @@ const LINE_ITEMS_SCHEMA = {
       description: { type: 'string' },
       quantity: { type: 'number', exclusiveMinimum: 0 },
       unit_price: { type: 'number', minimum: 0 },
+      item_id: { type: 'string', description: 'Catalogue item (list_items). With no account of its own the line takes the item\'s sales account. An inactive item is refused.' },
       // The FNO defaults from the customer; a project under another FNO is refused.
       ...DIMENSION_LINE_PROPERTIES,
     },
@@ -158,6 +160,11 @@ export const createDraftQuoteTool: McpTool = {
     if (!customerName) return toolError('customer_name is required');
     const items = parseLines(args.items);
     if (!items) return toolError('items must be a non-empty array of {description, unit_price, quantity?}');
+    for (const [i, line] of (args.items as Record<string, unknown>[]).entries()) {
+      if (line.item_id !== undefined && (typeof line.item_id !== 'string' || castableArgError({ item_id: line.item_id }, { uuid: ['item_id'] }))) {
+        return toolError(`invalid items[${i}].item_id`);
+      }
+    }
     try {
       const quote = await createQuote(
         ctx.companyId,
@@ -171,6 +178,7 @@ export const createDraftQuoteTool: McpTool = {
             description: l.description,
             quantity: l.quantity ?? 1,
             unitPrice: l.unitPrice,
+            ...(l.itemId ? { itemId: l.itemId } : {}),
           })),
         },
         ctx.userId,

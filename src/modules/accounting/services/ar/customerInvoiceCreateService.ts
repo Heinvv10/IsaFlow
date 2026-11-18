@@ -28,6 +28,7 @@ import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { dueDateForContact } from '../core/paymentTermsResolver';
 import { dueDateSourceOf } from '../shared/dueDateSource';
+import { applyItemLineDefaults } from '../items/itemLineDefaults';
 
 type Row = DbRow;
 
@@ -40,6 +41,8 @@ export interface DraftInvoiceLineInput {
   /** Revenue account and job (migration 874). Optional; read through parseLineCoding. */
   glAccountId?: string | null;
   projectId?: string | null;
+  /** The catalogue item the line is for (migration 1002); its sales account is the default when no glAccountId. */
+  itemId?: string | null;
   /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
   cc1Id?: string;
   cc2Id?: string;
@@ -179,12 +182,14 @@ export async function createDraftCustomerInvoice(
   await assertCustomerInCompany(companyId, clientId);
   // Brief §5.4/§5.5: CC1 from the line's CC2, defaulting to the customer's FNO; a
   // conflict is refused here, before the first write. No query when no line names a dimension.
-  const items = await deriveRevenueDimensions(companyId, clientId, input.items, (i) => `Line ${i + 1}`)
+  const derivedItems = await deriveRevenueDimensions(companyId, clientId, input.items, (i) => `Line ${i + 1}`)
     .then(async (derived) => { await assertDocumentDimensions(companyId, derived); return derived; })
     .catch((err: unknown) => {
       if (isDimensionRefusal(err)) throw new InvoiceLineValidationError(err.message);
       throw err;
     });
+  // Migration 1002: a line naming a catalogue item (this company's, active) and no account takes the item's sales account.
+  const items = await applyItemLineDefaults(companyId, derivedItems, 'sales', (i) => `items[${i}]`);
 
   const priced = priceDraftLines(items);
 
@@ -267,13 +272,14 @@ export async function createDraftCustomerInvoice(
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-        gl_account_id, project_id, cc1_id, cc2_id, bu_id, line_position
+        gl_account_id, project_id, cc1_id, cc2_id, bu_id, line_position, item_id
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${price},
         ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
         ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
         ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID,
-        ${i} -- the entry order (migration 956); created_at stays NOW(), which the approval digest relies on
+        ${i}, -- the entry order (migration 956); created_at stays NOW(), which the approval digest relies on
+        ${item.itemId || null}::UUID
       )
     `;
   }

@@ -27,6 +27,7 @@
  * this tool invented.
  */
 import type { McpTool } from '../types';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
@@ -75,6 +76,7 @@ const SUPPLIER_LINE_SCHEMA = {
     unit_price: { type: 'number', minimum: 0, description: 'NET of VAT' },
     tax_rate: { type: 'number', minimum: 0, maximum: 100 },
     gl_account_id: { type: 'string', description: 'Expense GL account UUID' },
+    item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line posts to the item\'s purchases account. An inactive item is refused.' },
     ...DIMENSION_LINE_PROPERTIES,
   },
   required: ['description', 'quantity', 'unit_price'],
@@ -96,6 +98,8 @@ const SUPPLIER_LINE_SCHEMA = {
  */
 export function elementError(index: number, err: unknown, fallback: string): unknown {
   if (err instanceof MissingSystemAccountError) return err;
+  // A line's item (migration 1002) refused: keep the registered refusal, named by element, so the agent sees which one to fix.
+  if (err instanceof ItemLineRefusal) return new ItemLineRefusal(`invoices[${index}]: ${err.message}`);
   return new Error(`invoices[${index}]: ${safeErrorText(err, fallback)}`, { cause: err });
 }
 

@@ -31,6 +31,14 @@ export const SCOPE_REMEDIATION: Partial<Record<PatScope, string>> = {
     + 'connector (or mint a new personal access token) and include "Write contacts" — the grant '
     + 'that covers creating and editing customers and suppliers, including supplier banking '
     + 'details. Existing permissions are unaffected and nothing else needs to change.',
+  'read:items': 'This connection cannot read the item catalogue. '
+    + 'read:items is a new grant that connections authorised before it do not hold (list_items used to sit under Read reports), so '
+    + 're-authorise the connector (or mint a new personal access token) and include "Read items". '
+    + 'Existing permissions are unaffected and nothing else needs to change.',
+  'write:items': 'This connection cannot create or edit items. '
+    + 'write:items is a new grant that no existing connection holds, so re-authorise the connector '
+    + '(or mint a new personal access token) and include "Write items" — the grant that covers creating, editing and '
+    + 'deactivating catalogue items and categories. Existing permissions are unaffected and nothing else needs to change.',
   // lock_vat_period and mark_vat_declared_elsewhere moved off write:post onto
   // this dedicated scope (item 10, VAT-gaps) — every connection authorised
   // before this change lacks it, even ones that already hold write:post.

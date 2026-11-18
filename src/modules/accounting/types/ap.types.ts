@@ -87,6 +87,8 @@ export interface SupplierInvoiceItem {
   vatClassification?: VatType;
   lineTotal: number;
   glAccountId?: string;
+  /** The catalogue item the line is for (migration 1002); its purchases account is the default when no glAccountId. */
+  itemId?: string;
   projectId?: string;
   costCenterId?: string;
   /** CC1 (FNO) / CC2 (project) / BU, posted onto this line's expense leg (migration 870). */
@@ -154,6 +156,8 @@ export interface SupplierInvoiceItemInput {
   taxRate?: number;
   vatClassification?: VatType;
   glAccountId?: string;
+  /** The catalogue item the line is for (migration 1002); its purchases account is the default when no glAccountId. */
+  itemId?: string;
   projectId?: string;
   costCenterId?: string;
   cc1Id?: string;

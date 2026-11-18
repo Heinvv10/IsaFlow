@@ -73,6 +73,15 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     // account number is what a payment run pays into.
     desc: 'Create and edit customers and suppliers, including a supplier\'s bank name, account number and branch code. Posts nothing to the ledger and cannot delete a contact.',
   },
+  'read:items': {
+    label: 'Read items',
+    desc: 'The item catalogue: products and services with their codes, prices, categories and default accounts',
+  },
+  'write:items': {
+    label: 'Write items',
+    // Default accounts are named because they decide where a document line posts when it names the item.
+    desc: 'Create, edit and deactivate catalogue items and their categories, including the sales and purchases accounts a document line defaults to, and put an item on a purchase order, bill, invoice or quote line. Posts nothing to the ledger and cannot delete an item.',
+  },
   'read:vat': {
     label: 'Read VAT status',
     desc: 'Current VAT201 period summary and VAT return status',

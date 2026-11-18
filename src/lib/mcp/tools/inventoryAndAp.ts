@@ -1,5 +1,6 @@
 /**
- * MCP read tools: item master, stock valuation, and the supplier statement.
+ * MCP read tools: stock valuation and the supplier statement. (`list_items` and the rest of the item master
+ * moved to `itemReadTools.ts` in Phase A, docs/design/items-inventory-po-mcp.md.)
  *
  * `stock_valuation` has to be read with its own description in hand. Three
  * parallel inventory models live in this schema and only one holds data:
@@ -13,7 +14,6 @@
  * credit note from every statement ever sent.
  */
 import type { McpTool } from '../types';
-import { listItems } from '@/modules/accounting/services/items/itemService';
 import { getStockValuation } from '@/modules/accounting/services/items/stockValuationService';
 import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';
 import { buildEnvelope, figureBasis, isDetailLevel } from '../contracts';
@@ -23,98 +23,18 @@ import { fmtDate } from '@/lib/fmtDate';
 
 const NO_LEDGER_ROWS = '1970-01-01T00:00:00.000Z';
 
-const ITEM_TYPES = ['physical', 'service'] as const;
-const ACTIVE_VALUES = ['true', 'false'] as const;
-
-/**
- * Narrow an agent-supplied string to a literal union, or drop it.
- *
- * `additionalProperties: false` and a JSON Schema `enum` are advisory here —
- * nothing in this server validates against the schema — so an out-of-range
- * value must not reach a service that types the argument as a union.
- */
-function enumArg<T extends string>(
-  args: Record<string, unknown>,
-  key: string,
-  allowed: readonly T[],
-): T | undefined {
-  const raw = strArg(args, key);
-  return raw !== undefined && (allowed as readonly string[]).includes(raw) ? (raw as T) : undefined;
-}
-
 function detailOf(args: Record<string, unknown>): DetailLevel {
   const raw = strArg(args, 'detail');
   return raw && isDetailLevel(raw) ? raw : 'standard';
 }
-
-export const listItemsTool: McpTool = {
-  name: 'list_items',
-  description:
-    'List the item master — the products and services that can go on an invoice, quote or purchase order: code, description, type, unit, cost price and selling price. ' +
-    'This is the `items` catalogue, which is SEPARATE from the `products` table that stock movements are recorded against. It is empty on every company in these books, so an empty result means nothing has been catalogued rather than that the search matched nothing. Use stock_valuation for what is physically on hand. ' +
-    'It lists both active and inactive items by default; pass active to narrow. Soft-deleted items never appear. Prices are the catalogue defaults, not what any particular document was actually billed at. Results are capped at 500 rows and there is no cursor — narrow with q or category_id if you hit the cap.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      q: { type: 'string', description: 'Matches item code or description.' },
-      type: { type: 'string', enum: ['physical', 'service'] },
-      active: { type: 'string', enum: ['true', 'false'] },
-      category_id: { type: 'string', description: 'Item category UUID.' },
-      detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const guard = guardCastableArgs(args, { uuid: ['category_id'] });
-    if (guard) return guard;
-
-    const detail = detailOf(args);
-    const items = await listItems(ctx.companyId, {
-      q: strArg(args, 'q'),
-      type: enumArg(args, 'type', ITEM_TYPES),
-      active: enumArg(args, 'active', ACTIVE_VALUES),
-      category_id: strArg(args, 'category_id'),
-    });
-
-    const rows = items.map((i) => ({
-      id: String(i.id),
-      code: String(i.code ?? ''),
-      description: String(i.description ?? ''),
-      item_type: String(i.item_type ?? ''),
-      unit: i.unit == null ? null : String(i.unit),
-      category_name: i.category_name == null ? null : String(i.category_name),
-      cost_price: Number(i.cost_price) || 0,
-      selling_price: Number(i.selling_price) || 0,
-      is_active: i.is_active !== false,
-    }));
-
-    return ok(buildEnvelope({
-      rows: detail === 'summary' ? [] : rows,
-      rowsTotal: rows.length,
-      // universeTotal omitted deliberately. These rows ARE the population —
-      // nothing is filtered out of a wider candidate set and excludedRows is
-      // always empty, so `rowsTotal + 0 === rowsTotal` could not fail whatever
-      // the query did. An absent claim is honest; one that cannot fail reads
-      // as a passed verification. CONTRACTS.md §1.
-      detail,
-      as_at: fmtDate(new Date()),
-      // The item master is a catalogue, not a ledger — there is nothing honest
-      // to pin it to, and now() would prove nothing.
-      posted_through: NO_LEDGER_ROWS,
-      excludedRows: [],
-    }));
-  },
-};
 
 export const stockValuationTool: McpTool = {
   name: 'stock_valuation',
   description:
     'Quantity on hand and value per product as at a date, derived from stock movements: inbound movements add, everything else subtracts, and value is the cost recorded ON each movement. ' +
     'READ THIS BEFORE TRUSTING THE TOTAL. Every stock movement in these books is a purchase carrying total_cost 0.00, so stock has been received and never valued — the report returns a real quantity against a zero value and flags each such product with unvalued: true rather than presenting R0 as a valuation somebody computed. ' +
-    'It reads the products/stock_movements model, which is the one that holds data. The items and stock_items catalogues are separate and empty; list_items shows the first of those. ' +
-    'stock_movements and stock_levels have NO company_id column of their own, so this report is tenant-scoped by joining products. Movements whose product carries no company_id belong to no tenant and are NOT attributed to you. Their EXISTENCE is disclosed in excludedRows as product_has_no_company; their number and value are withheld on purpose, because that query cannot be scoped to you and any figure it returned would be computed from rows that may belong to other tenants. Stocktake movements record an absolute quantity rather than a change and are excluded from quantity on hand as stocktake_count_not_a_delta. universeTotal counts YOUR products; neither disclosure inflates it. ' +
+    'It reads the products/stock_movements model, which is the one that holds data. The items and stock_items catalogues are separate; list_items shows the first of those, and a new stock model is built on it in later phases (docs/design/items-inventory-po-mcp.md). ' +
+    'stock_movements and stock_levels carry their own company_id since migration 1002 (backfilled from the product), but this report still scopes by joining YOUR products, which is the model that holds data. Movements whose product carries no company_id belong to no tenant and are NOT attributed to you (row level security also hides them from a tenant session, so for a tenant this disclosure fires only where the rows are visible). Their EXISTENCE is disclosed in excludedRows as product_has_no_company; their number and value are withheld on purpose, because that query cannot be scoped to you and any figure it returned would be computed from rows that may belong to other tenants. Stocktake movements record an absolute quantity rather than a change and are excluded from quantity on hand as stocktake_count_not_a_delta. universeTotal counts YOUR products; neither disclosure inflates it. ' +
     'It is not a stock ledger and does not show individual movements, does not apply FIFO, weighted-average or any other costing method beyond the cost written on each movement, and is not reconciled to any GL inventory account.',
   scope: 'read:reports',
   write: false,

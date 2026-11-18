@@ -76,6 +76,7 @@ export const createSupplierInvoiceTool: McpTool = {
             unit_price: { type: 'number', minimum: 0, description: 'NET of VAT' },
             tax_rate: { type: 'number', minimum: 0, maximum: 100 },
             gl_account_id: { type: 'string', description: 'Expense GL account UUID; defaults to the company default expense account' },
+            item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line posts to the item\'s purchases account. An inactive item is refused.' },
             ...DIMENSION_LINE_PROPERTIES,
           },
           required: ['description', 'quantity', 'unit_price'],
