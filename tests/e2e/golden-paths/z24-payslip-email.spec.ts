@@ -147,6 +147,10 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await card.getByRole('button', { name: 'Email payslips' }).click();
   const dialog = page.getByRole('dialog', { name: 'Email payslips?' });
   await expect(dialog).toContainText('40-bit RC4');
+  // The modal fades and zooms in (~300 ms): axe run mid-animation reads blended colours and flags the Cancel button
+  // (measured: 1.12:1 at 40 ms, 2.98:1 at 120 ms; 11.9:1 settled, 11.3:1 hovered). Wait for the finite animations to end.
+  await page.evaluate(() => Promise.all(document.getAnimations()
+    .filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime ?? Infinity)).map((a) => a.finished)));
   if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-confirm-${theme}.png` });
   expect(await seriousAxe(page), `axe ${theme} confirm`).toEqual([]);
   await dialog.getByRole('button', { name: 'Email payslips' }).click();
