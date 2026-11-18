@@ -189,8 +189,9 @@ export async function assertFrequencyCostable(
     const reasons = termsReasons(await unsupportedTerms(companyId, employeeIds, period.start, period.end), frequency);
     if (reasons.length > 0) throw new PayFrequencyRefusedError(400, reasons);
   }
-  await refuseOtherFrequencyOverlap(companyId, run, employeeIds);
+  // A mid-year change first: no acknowledgement of a straddle can make it payable (payrollFrequencyStraddle).
   await refuseMixedFrequencyYear(companyId, frequency, getTaxYear(period.month, period.year), employeeIds);
+  await refuseOtherFrequencyOverlap(companyId, run, employeeIds);
 }
 
 /** A final line this tax year (by the run's EMP201 month) at another frequency: 409, change at the start of a tax year. */
