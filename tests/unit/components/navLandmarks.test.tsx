@@ -13,6 +13,9 @@ vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRe
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: null, logout: vi.fn() }) }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('next/image', () => ({ default: () => null }));
+// The cog's menu holds the theme and density toggles, which need their providers (settingsMenuDisplay.test.tsx).
+vi.mock('@/components/layout/ThemeToggle', () => ({ ThemeToggle: () => null }));
+vi.mock('@/components/ui/TableDensityToggle', () => ({ TableDensityToggle: () => null }));
 
 import { AccountingNav } from '@/components/accounting/AccountingNav';
 import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
@@ -67,7 +70,7 @@ describe('nav landmarks', () => {
 describe('settings cog', () => {
   it('is current on a settings page and marks that page in its panel', () => {
     at('/accounting/user-access');
-    render(<SettingsMenu />);
+    render(<SettingsMenu displayClassName="hidden lg:block" />);
     const cog = screen.getByRole('button', { name: 'Settings' });
     expect(cog.getAttribute('aria-current')).toBe('true');
     fireEvent.click(cog);
@@ -76,7 +79,7 @@ describe('settings cog', () => {
   });
 
   it('is not current on the dashboard', () => {
-    render(<SettingsMenu />);
+    render(<SettingsMenu displayClassName="hidden lg:block" />);
     expect(screen.getByRole('button', { name: 'Settings' }).getAttribute('aria-current')).toBeNull();
   });
 });
@@ -86,9 +89,9 @@ describe('mobile drawer', () => {
     render(<DrawerNav />);
     fireEvent.click(screen.getByRole('button', { name: 'Banking' }));
     expect(screen.queryByRole('link', { name: 'Banking home' })).toBeNull();
-    // One row above the sections opens Transactions; the Transactions section stays closed.
+    // One row above the sections opens Transactions (the daily link); the Transactions section stays closed.
     const toTransactions = screen.getAllByRole('link').filter((a) => a.getAttribute('href') === '/accounting/bank-transactions');
-    expect(toTransactions.map((a) => a.textContent)).toEqual(['Transactions']);
+    expect(toTransactions.map((a) => a.textContent)).toEqual(['Transaction List']);
   });
 
   it('opens Sales on "Invoices" once: no "Sales home" beside the daily link to the same page', () => {

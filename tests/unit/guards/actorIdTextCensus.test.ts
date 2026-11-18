@@ -46,6 +46,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'fileId', 'holder.account.id', 'pay.employeeIds',
   // wave 6 EFa: a tax return version's row id
   'v.id',
+  // wave 6 FQc: a payroll component (the frequency refusal) and the run whose payslip year to date is read
+  'componentId', 'run.id', 'run.runId ?? null',
   // wave 6 VR: the VAT201 version a settlement is posted against
   'basis.version.id', 'version.id',
   // entity-change log cursors
@@ -76,7 +78,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollRunReopen.ts`]: { 78: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
-    121: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
+    122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
   },
   [`${S}payroll/taxDirectiveApprover.ts`]: {
     32: 'SELECT requested_by::text AS requested_by, approvers_at_create FROM tax_directives WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid',
@@ -87,8 +89,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     209: 'bank_account_id, created_by',
   },
   [`${S}payroll/taxDirectiveService.ts`]: {
-    88: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
-    193: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
+    91: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
+    196: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
     93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
@@ -126,7 +128,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
   [`${S}payroll/payrollRunHeaders.ts`]: { 123: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
-  [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
+  [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 234: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
     127: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",

@@ -4,10 +4,12 @@
  * A take-on writes company-wide state — an opening trial balance, a migration
  * session and its step flags — that no supported API fully removes (reversing
  * the journal leaves the session and its flags). So the spec never runs the
- * wizard in Demo: it runs it in ONE dedicated company, found by name and
+ * wizard in the suite's own company: it runs it in ONE dedicated company, found by name and
  * created on first use through the self-serve onboarding route
- * (POST /api/onboarding/complete-setup, entity 'other', standard chart), and
- * reused forever, like the payroll sandbox month and the 0GP fixture masters.
+ * (POST /api/onboarding/complete-setup, entity 'other', standard chart; the request is
+ * helpers/sandboxSetup.ts), and reused forever, like the payroll sandbox month and the 0GP
+ * fixture masters. The post-deploy verify user's provisioner (scripts/deploy/verifyCompany) makes
+ * it ahead, through the same request, and flags it is_demo, so the spec finds it.
  *
  * One company per environment, never one per run: a per-run company could
  * only be soft-deleted (admin DELETE sets status='deleted'; the row and its
@@ -19,16 +21,17 @@
  *
  * Switching is per request context: POST /api/auth/switch-company sets the
  * active_company_id cookie of the context that called it, nothing server-side,
- * so the shared golden session file other specs load still points at Demo.
+ * so the shared golden session file other specs load still points at the suite's own company.
  */
 import { expect, type BrowserContext } from '@playwright/test';
 import { ApiError, type Api } from './_api';
 import { failOnManifestRace, retryDropped } from '../helpers/droppedConnection';
 import { resetHostedOnboardingLimit } from './helpers/hostedOnboardingLimit';
+import { MIGRATION_SANDBOX_ONBOARDING_ID, sandboxSetupBody, type SandboxSpec } from './helpers/sandboxSetup';
+import { MIGRATION_SANDBOX_NAME } from '../../../scripts/deploy/verifyCompany/identity';
 
-export const MIGRATION_SANDBOX_NAME = '0GP Golden Migration Sandbox';
-/** Fixed onboarding key: a repeat create returns the same company (migration 895). */
-const MIGRATION_SANDBOX_ONBOARDING_ID = '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+export { MIGRATION_SANDBOX_NAME };
+export type { SandboxSpec };
 
 interface UserCompanies {
   items: Array<{ companyId: string; companyName: string }>;
@@ -39,9 +42,6 @@ export async function activeCompanyId(api: Api): Promise<string> {
   return (await api.get<UserCompanies>('/api/accounting/companies?action=user-companies')).activeCompanyId;
 }
 
-/** A dedicated sandbox company: found by name, created on first use through self-serve onboarding under a fixed key. */
-export interface SandboxSpec { name: string; onboardingId: string }
-
 export async function findOrCreateSandbox(api: Api, spec: SandboxSpec): Promise<string> {
   const find = async () => {
     const uc = await api.get<UserCompanies>('/api/accounting/companies?action=user-companies');
@@ -50,14 +50,7 @@ export async function findOrCreateSandbox(api: Api, spec: SandboxSpec): Promise<
   const found = await find();
   if (found) return found;
   await resetHostedOnboardingLimit();
-  const setup = await api.postRaw('/api/onboarding/complete-setup', {
-    requestKey: spec.onboardingId,
-    entityType: 'other', // the one entity with no proof document to upload
-    coaTemplate: 'isaflow_standard',
-    company: { name: spec.name, vatPeriod: 'bi-monthly', vatNumber: '4000000000' },
-    people: [],
-    documents: [],
-  });
+  const setup = await api.postRaw('/api/onboarding/complete-setup', sandboxSetupBody(spec));
   // 409: the key's company exists but was deactivated or soft-deleted, so the
   // finder above skips it and the key cannot create a second one.
   expect(setup.status, setup.status === 409

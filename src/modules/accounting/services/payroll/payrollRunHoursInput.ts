@@ -6,6 +6,7 @@
  * Salary component, a quantity out of range, an amount the column cannot hold. The calculation, the write and a
  * second calculation then share one savepoint (writeRunRow), as for any amount of the grid.
  */
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -47,16 +48,16 @@ export async function setRunHours(
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new PayrollRunInputRefusedError(404, 'Payroll run not found');
 
-  const period = { year: Number(run.period_year), month: Number(run.period_month) };
+  const period = runPeriodOf(run); // wave 6 FQc: a weekly run's own dates
   await assertRunEditable(companyId, runId, run, period);
-  const employee = (await listPayrollRunEmployees(companyId, period)).find((e) => e.id === employeeId);
+  const employee = (await listPayrollRunEmployees(companyId, period, payFrequencyOf(run.pay_frequency))).find((e) => e.id === employeeId);
   if (!employee) throw refuse('This employee is not on this run.');
   const name = `${employee.firstName} ${employee.lastName}`.trim();
   const unit = unitOf(employee);
   const editable = await listEditableComponents(companyId);
   // Anchored on the component the employee's existing hours row sits on (so a later second 3601 earning does not move it, and
   // an ambiguous company can still edit and clear what is there); the company's hours component only when there is none.
-  const anchorNow = async () => anchorOf((await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period)))
+  const anchorNow = async () => anchorOf((await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period), period.start))
     .filter((c) => c.quantity != null && editable.some((e) => e.id === c.component.id)).map((c) => c.component.id));
   const anchor = await anchorNow();
   if (anchor.duplicate) throw new PayrollRunInputRefusedError(409, `${name} has more than one row recording hours or days this month. Keep one on the employee page.`);

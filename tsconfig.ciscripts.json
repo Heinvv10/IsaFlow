@@ -28,6 +28,11 @@
     "scripts/seed-payroll-data.ts",
     "scripts/seed-practice-data.ts",
     "scripts/lib/demoReseed/*.ts",
+    "scripts/deploy/*.ts",
+    "scripts/deploy/verifyCompany/*.ts",
+    "scripts/ci/golden/slotConfig.ts",
+    "scripts/ci/golden/slotEnvFile.ts",
+    "scripts/ci/golden/slotVerify.ts",
     "next-env.d.ts"
   ],
   "exclude": ["node_modules"]
