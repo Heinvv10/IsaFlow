@@ -57,4 +57,34 @@ describe('golden global setup', () => {
     script.answer = (p): Answer => (p.includes('user-companies') ? { status: 200, body: { data: { activeCompanyId: 'd', items: [] } } } : { status: 200, body: { data: [] } });
     await expect(globalSetup(config('http://localhost:3101'))).rejects.toThrow(/company has no system account for \[receivable, default_revenue, vat_output, payable, vat_input, default_expense\]/);
   });
+
+  describe('approver failure message', () => {
+    const home = { companyId: 'c1', companyName: 'Deploy Verification', isDemo: true };
+    const sandbox = { companyId: 'c2', companyName: '0GP Golden Migration Sandbox', isDemo: true };
+    /** The verify login passes; the approver's (the second user-companies read) is answered by `approver`. */
+    const withApprover = (approver: Answer) => {
+      process.env.E2E_APPROVER_EMAIL = 'approver@isaflow.co.za';
+      process.env.E2E_APPROVER_PASSWORD = 'y'.repeat(12);
+      let reads = 0;
+      script.answer = (p): Answer => {
+        if (p.includes('user-companies')) return ++reads === 1 ? { status: 200, body: { data: { activeCompanyId: 'c1', items: [home] } } } : approver;
+        if (p.includes('chart-of-accounts')) return { status: 200, body: { data: [{ id: 'a', isSystemAccount: true }] } };
+        return { status: 404, body: null };
+      };
+    };
+
+    it('a problem with no full stop is closed before "No spec runs", and joined problems never run together', async () => {
+      withApprover({ status: 200, body: { data: { items: [home, sandbox] } } });
+      const err = await globalSetup(config('http://localhost:3101')).then(() => null, (e: Error) => e);
+      expect(err?.message).toBe('golden-paths: the approver login\'s companies are ["Deploy Verification", "0GP Golden Migration Sandbox"]; they must be exactly '
+        + '["Deploy Verification"] (is_demo). No spec runs: re-run scripts/deploy/provision-verify-company.sh or fix the approver\'s memberships.');
+    });
+
+    it('a problem that already ends in a full stop gets no second one', async () => {
+      withApprover({ status: 403, body: null });
+      const err = await globalSetup(config('http://localhost:3101')).then(() => null, (e: Error) => e);
+      expect(err?.message).toMatch(/the app refused the session\. No spec runs: re-run /);
+      expect(err?.message).not.toMatch(/\.\./);
+    });
+  });
 });

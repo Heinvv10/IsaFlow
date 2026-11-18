@@ -20,7 +20,7 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { loginGolden } from './helpers/goldenLogin';
 import { readGoldenSlot } from './helpers/goldenSlot';
-import { approverProblems, suitePreconditionProblems, type SuiteGet } from './helpers/suitePreconditions';
+import { approverFailure, approverProblems, suitePreconditionProblems, type SuiteGet } from './helpers/suitePreconditions';
 import { budgetYearWarning, budgetYears, isVerifyLogin, startMonthOf } from './helpers/verifyCompany';
 
 export const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
@@ -41,7 +41,7 @@ async function verifyApprover(baseURL: string): Promise<void> {
     const login = await actx.post('/api/auth/login', { data: { email, password } });
     if (login.status() !== 200) throw new Error(`golden-paths: the approver login failed: ${login.status()}`);
     const problems = await approverProblems(getIn(actx), baseURL);
-    if (problems.length > 0) throw new Error(`${problems.join('; ')} No spec runs: re-run scripts/deploy/provision-verify-company.sh or fix the approver's memberships.`);
+    if (problems.length > 0) throw new Error(approverFailure(problems, 're-run scripts/deploy/provision-verify-company.sh or fix the approver\'s memberships.'));
   } finally {
     await actx.dispose();
   }

@@ -89,3 +89,7 @@ export async function approverProblems(get: SuiteGet, baseUrl: string): Promise<
   if (session) return [`golden-paths: ${session}.`];
   return approverCompanyProblems(dataOf<{ items?: UserCompany[] }>(res.body)?.items ?? []).map((p) => `golden-paths: ${p}`);
 }
+
+/** The approver's problems as one sentence ending in `remedy`: each one's own full stop is dropped first, so none runs into the next or into "No spec runs". */
+export const approverFailure = (problems: string[], remedy: string): string =>
+  `${problems.map((p) => p.replace(/[.;\s]+$/, '')).join('; ')}. No spec runs: ${remedy}`;
