@@ -38,7 +38,8 @@ export type AccountingEntityType =
   | 'supplier_payment'
   | 'customer_invoice'
   | 'customer_payment'
-  | 'credit_note';
+  | 'credit_note'
+  | 'purchase_order';
 
 export type DocumentEntityType = ProcurementEntityType | AccountingEntityType;
 

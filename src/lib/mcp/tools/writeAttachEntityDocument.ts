@@ -2,7 +2,7 @@
  * MCP write tool: attach_entity_document — file a supporting document (a
  * supplier's tax invoice, a remittance, a credit note scan) against an
  * accounting document: supplier_invoice, customer_invoice, credit_note,
- * supplier_payment or customer_payment. Posts nothing, so no requiresPost.
+ * supplier_payment, customer_payment or purchase_order. Posts nothing, so no requiresPost.
  *
  * This is the entity store (procurement_documents, what the bill and invoice
  * screens show and list_documents reads with entity_type/entity_id). A BANK
@@ -39,7 +39,7 @@ const MAX_NOTES = 1000;
 export const attachEntityDocumentTool: McpTool = {
   name: 'attach_entity_document',
   description:
-    'Attach a supporting document to ANY accounting document, named by entity_type and entity_id: supplier_invoice, customer_invoice, credit_note, supplier_payment, customer_payment, or bank_transaction (a bank line). ' +
+    'Attach a supporting document to ANY accounting document, named by entity_type and entity_id: supplier_invoice, customer_invoice, credit_note, supplier_payment, customer_payment, purchase_order, or bank_transaction (a bank line). ' +
     'Use this for a supplier\'s tax invoice on a bill, a remittance on a receipt, a credit note scan, a slip on a bank line. A bank transaction is routed to its own store for you (it needs write:bank-tx as well as write:invoices, takes PDF, JPEG or PNG only, and keeps no document_type or notes); attach_document does the same for a bank line named by its statement reference. ' +
     'content is the file as base64 (a data: URL is also accepted). Accepts PDF, JPEG, PNG, DOCX, XLSX; maximum 2 MB of file bytes per call. ' +
     'The declared mime_type is checked against the file\'s real bytes and refused on mismatch. ' +
@@ -51,10 +51,10 @@ export const attachEntityDocumentTool: McpTool = {
     type: 'object',
     properties: {
       entity_type: { type: 'string', enum: [...DOCUMENT_ENTITY_TYPES] },
-      entity_id: { type: 'string', description: 'UUID of the bill, invoice, credit note, payment or bank transaction.' },
+      entity_id: { type: 'string', description: 'UUID of the bill, invoice, credit note, payment, purchase order or bank transaction.' },
       document_type: {
         type: 'string', enum: [...VALID_DOCUMENT_TYPES],
-        description: 'Default "invoice" for invoices and bills, "credit_note_doc" for credit notes, "proof_of_payment" for payments.',
+        description: 'Default "invoice" for invoices and bills, "credit_note_doc" for credit notes, "proof_of_payment" for payments, "purchase_order" for purchase orders.',
       },
       file_name: { type: 'string', description: 'e.g. "SIV0005104 FTTX 48I01087.pdf"' },
       mime_type: { type: 'string', enum: [...ALLOWED_MIME_TYPES] },
@@ -148,6 +148,7 @@ function defaultDocumentType(entityType: AccountingEntityType): string {
     case 'credit_note': return 'credit_note_doc';
     case 'supplier_payment':
     case 'customer_payment': return 'proof_of_payment';
+    case 'purchase_order': return 'purchase_order';
     default: return 'invoice';
   }
 }

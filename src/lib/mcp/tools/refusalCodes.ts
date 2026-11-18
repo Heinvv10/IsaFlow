@@ -213,6 +213,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',
+  'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',

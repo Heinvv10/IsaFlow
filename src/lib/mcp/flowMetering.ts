@@ -90,6 +90,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_missing_documents: null,
   list_proofs_of_payment: null,
   list_supplier_invoices: null,
+  list_purchase_orders: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.
   // Pricing it would discourage the check that prevents a stale rule silently
@@ -306,6 +307,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Same for the entity store: the app's document upload is unmetered.
   attach_entity_document: null,
   // The two-step upload is the same attachment, so free too.
+  // A purchase order is a commitment: it posts nothing and bills nothing, so loading POs is free (a pricing decision
+  // for the owner; the bulk invoice creates are priced per element because invoices are what the Flows meter counts).
+  bulk_create_purchase_orders: null,
   create_upload_urls: null,
   finalize_uploads: null,
 

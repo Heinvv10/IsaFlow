@@ -24,6 +24,7 @@ export const VALID_ENTITY_TYPES = [
   'customer_invoice',
   'customer_payment',
   'credit_note',
+  'purchase_order',
 ] as const;
 
 export const VALID_DOCUMENT_TYPES = [
@@ -33,6 +34,7 @@ export const VALID_DOCUMENT_TYPES = [
   'credit_note_doc',
   'invoice',
   'receipt',
+  'purchase_order',
   'other',
 ] as const;
 
@@ -89,6 +91,7 @@ export async function verifyEntityOwnership(entityId: string, companyId: string)
     UNION ALL SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     LIMIT 1
   `;
   return !!owner;
@@ -121,6 +124,9 @@ export async function verifyEntityOwnershipTyped(
       break;
     case 'credit_note':
       rows = await sql`SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'purchase_order':
+      rows = await sql`SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
       break;
     default:
       return false;

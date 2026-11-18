@@ -20,6 +20,7 @@ import type { DbRow } from '@/lib/neon';
 
 export const EXTERNAL_REF_KINDS = [
   'supplier_invoice', 'customer_invoice', 'credit_note', 'journal', 'bank_transaction', 'supplier', 'customer',
+  'purchase_order',
 ] as const;
 export type ExternalRefKind = (typeof EXTERNAL_REF_KINDS)[number];
 
@@ -31,6 +32,7 @@ export const EXTERNAL_REF_KIND_ALIASES: Record<string, { kind: ExternalRefKind; 
   cret: { kind: 'credit_note', creditNoteType: 'customer' },
   bank: { kind: 'bank_transaction' },
   je: { kind: 'journal' },
+  po: { kind: 'purchase_order' },
 };
 
 export interface ExternalRefMatch {
@@ -90,6 +92,13 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
                -- A feed line the bank withdrew never posted: listed as superseded, never the live copy.
                (feed_state IS DISTINCT FROM 'removed') AS live
         FROM bank_transactions
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
+    case 'purchase_order':
+      // A cancelled PO is superseded; a closed one (billed in full) is still the live copy.
+      return (await sql`
+        SELECT id, po_number AS number, status, order_date AS date, total AS total_amount, external_document_number,
+               (status IS DISTINCT FROM 'cancelled') AS live
+        FROM purchase_orders
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'supplier':
       return (await sql`

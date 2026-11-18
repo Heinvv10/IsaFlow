@@ -114,14 +114,16 @@ export const KIND_SCOPE: Record<ExternalRefKind, string> = {
   bank_transaction: 'read:bank-tx',
   supplier: 'read:contacts',
   customer: 'read:contacts',
+  purchase_order: 'read:invoices',
 };
 
 export const findByExternalRefTool: McpTool = {
   name: 'find_by_external_ref',
   description:
     'Look up IsaFlow records by a source system\'s own id, e.g. a Sage document id, before creating it again. '
-    + `kind: ${EXTERNAL_REF_KINDS.join(', ')}, or a Sage code (${Object.keys(EXTERNAL_REF_KIND_ALIASES).join(', ')}; ret/cret = supplier/customer credit notes). `
+    + `kind: ${EXTERNAL_REF_KINDS.join(', ')}, or a Sage code (${Object.keys(EXTERNAL_REF_KIND_ALIASES).join(', ')}; ret/cret = supplier/customer credit notes; po = purchase orders). `
     + 'Returns found: false, or the live match (record) plus any superseded (cancelled, reversed or deleted) rows carrying the same reference. '
+    + 'A cancelled purchase order is listed as superseded (bulk_create_purchase_orders still will not create it again). '
     + 'Only records created or imported with external_ref are found; older loads that put the Sage id in a description are not. '
     + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts).',
   // Per kind, the scope of that kind's own list tool (KIND_SCOPE); the registry checks none.

@@ -42,6 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
   approved: 'bg-teal-500/20 text-teal-400',
   partially_received: 'bg-amber-500/20 text-amber-400',
   received: 'bg-green-500/20 text-green-400',
+  closed: 'bg-slate-500/20 text-slate-400',
   cancelled: 'bg-gray-500/20 text-gray-500',
 };
 

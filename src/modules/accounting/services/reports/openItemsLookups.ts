@@ -14,7 +14,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import type { AccountingEntityType } from '@/types/procurement/document.types';
+import type { DocumentedEntityType } from '@/modules/accounting/services/core/documentPresenceSql';
 import { entityIdsWithDocuments } from '@/modules/accounting/services/core/documentQueryService';
 import { str } from './glLineExportRows';
 
@@ -86,7 +86,7 @@ export async function creditNoteDimensions(
 /** Ids, per entity type, that hold at least one active document. Sequential: one pg client per request. */
 export async function documentsOnFile(
   companyId: string,
-  byType: ReadonlyArray<readonly [AccountingEntityType, readonly string[]]>,
+  byType: ReadonlyArray<readonly [DocumentedEntityType, readonly string[]]>,
 ): Promise<Set<string>> {
   const out = new Set<string>();
   for (const [type, ids] of byType) {
