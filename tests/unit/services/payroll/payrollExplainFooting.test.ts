@@ -245,7 +245,7 @@ describe('the lines the review named', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 5000), earning('3605', 2_000_000), deduction('4006', 100_000)] }));
     const m = stepsByKey(l.explanations.paye);
     const capLeft = m.get('paye.offAnnual.capLeft')!.amount!;
-    expect(capLeft).toBeCloseTo(430_000 / F - 5000, 6); // the 2026/27 cap for one period (÷ F, AN), less the R5 000 off periodic pay
+    expect(capLeft).toBeCloseTo(430_000 / 12 - 5000, 6); // the 2026/27 cap for one period (÷ 12, a statutory ratio), less the R5 000 off periodic pay
     expect(-m.get('paye.offAnnual')!.amount!).toBeCloseTo(capLeft, 6);
     expectRecomputes(l);
   });

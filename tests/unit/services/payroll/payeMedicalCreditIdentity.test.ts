@@ -9,7 +9,8 @@
  * credit (R3 part 2, Hein 2026-10-23) may lower.
  *
  * Wave-6 AN (PAYROLL_CALCULATION_VERSION 13) regenerated the golden (`PAYE_GOLDEN_WRITE=1`): days-based
- * annualisation (365 ÷ 30.4166, ruling 5) moves PAYE on 352 of the 1 154 rows by 1c to 14c and nothing else; a
+ * annualisation (365 ÷ 30.4166, ruling 5; the medical credits stay monthly amounts, n ÷ 12, coordinator ruling
+ * 2026-11-17) moves PAYE on 325 of the 1 154 rows by 1c to 14c and nothing else; a
  * golden written with the monthly factor set back to 12 equalled the previous file on every row but the 29 65+ rows
  * the additional credit lowers. So the golden now holds the 65+ rows with that credit, and the rows below give the
  * hand figures with and without it.
@@ -57,13 +58,14 @@ describe('R3: PAYE is unchanged by recording the medical credit', () => {
   });
 
   // Hand figures, first period, R20 000, member only (one beneficiary), fees R1 500 a month. Under AN (F = 365 ÷
-  // 30.4166) the annual equivalent is 20 000 x F = 240 000.53 and the fees a year 1 500 x F = 18 000.04; a month is
-  // the year's tax ÷ F. (Under x12, as R3 wrote them: 925.25 -> 801.37, 654.50 -> 530.62, 1 032.08 -> 896.22.)
-  // 2027: MTC 4 512, AMTC 33,3% x (18 000.04 - 13 536) = 1 486.525; tax(240 000.53) = 43 200.09.
-  //   66: 43 200.09 - 17 820 - 9 765 - 4 512 = 11 103.09 (925.26 a month); - 1 486.525 -> 801.38.
-  //   76: 11 103.09 - 3 249 = 7 854.09 (654.51); - 1 486.525 -> 530.63.
-  // 2026: MTC 4 368, AMTC 33,3% x (18 000.04 - 13 104) = 1 630.381; tax(240 000.53) = 42 678 + 26% x 2 900.53.
-  //   66: 43 432.14 - 17 235 - 9 444 - 4 368 = 12 385.14 (1 032.09); - 1 630.381 -> 896.23.
+  // 30.4166) the annual equivalent is 20 000 x F = 240 000.53, and a month is the tax after rebates ÷ F less the credits
+  // ÷ 12 (monthly amounts: fees a year 1 500 x 12 = 18 000). (Under x12, as R3 wrote them: 925.25 -> 801.37,
+  // 654.50 -> 530.62, 1 032.08 -> 896.22.)
+  // 2027: MTC 4 512, AMTC 33,3% x (18 000 - 13 536) = 1 486.512; tax(240 000.53) = 43 200.09.
+  //   66: (43 200.09 - 17 820 - 9 765) ÷ F - 4 512 ÷ 12 = 925.26 a month; - 1 486.512 ÷ 12 -> 801.38.
+  //   76: (15 615.09 - 3 249) ÷ F - 376 = 654.51; - 123.876 -> 530.63.
+  // 2026: MTC 4 368, AMTC 33,3% x (18 000 - 13 104) = 1 630.368; tax(240 000.53) = 42 678 + 26% x 2 900.53.
+  //   66: (43 432.14 - 17 235 - 9 444) ÷ F - 364 = 1 032.09; - 135.864 -> 896.23.
   it.each([
     ['2027 age 66 ben 1 salary 20000 bonus 0 first period', 925.26, 801.38],
     ['2027 age 76 ben 1 salary 20000 bonus 0 first period', 654.51, 530.63],

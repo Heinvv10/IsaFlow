@@ -7,9 +7,10 @@
  *
  * Employees A and C are a real employer's payroll (numbers only) against what
  * its Sage payroll deducted: A 12 440.51 a month, C 4 681.01 then 1 886.49.
- * IsaFlow's 12 440.49 / 4 681.00 / 1 886.48 differ by Sage's day-based
- * annualisation, which shows on employees with no retirement fund or medical
- * aid as well (see the PR).
+ * Under × 12 IsaFlow had 12 440.49 / 4 681.00 / 1 886.48; wave-6 AN annualises
+ * by days as Sage does (365 ÷ 30.4166, ruling 5) and now matches each to the
+ * cent: A 12 440.51 in March (April 12 440.50 and May 12 440.51, the year to
+ * date rounding a cent each way), C 4 681.01 then 1 886.49.
  *
  * Also the assign_employee_component date fix: a once-off dated the 1st is
  * stored on the 1st and paid in its month (it was stored a day early in SAST).
@@ -104,16 +105,16 @@ afterAll(async () => {
 });
 
 describe('PAYE 4c: the deduction month by month', () => {
-  it('employee A: R60 000, RA R2 708.59, four beneficiaries: 12 440.49 a month; 4006 on the certificate', async () => {
+  it('employee A: R60 000, RA R2 708.59, four beneficiaries: 12 440.51 (Sage) a month, to the cent cumulatively; 4006 on the certificate', async () => {
     const f = await employee('P4c employee A', 60_000, 4);
     await annuity(f, 2_708.59, '2026-03-01');
     const months = [];
     for (const month of [3, 4, 5]) months.push(await pay(f, 2026, month));
-    expect(months.map(m => m.paye)).toEqual([12_440.49, 12_440.49, 12_440.49]);
+    expect(months.map(m => m.paye)).toEqual([12_440.51, 12_440.5, 12_440.51]);
     // taxable_income is remuneration before the deduction (review #891: never negative); the deduction is its own column.
     expect(months[2]).toMatchObject({ periodic: 60_000, taxable: 60_000, contributions: 2_708.59, deduction: 2_708.59 });
-    // Paid through payroll: 60 000 − 2 708.59 − 12 440.49 − UIF 177.12.
-    expect(months[2]!.net).toBe(44_673.8);
+    // Paid through payroll: 60 000 − 2 708.59 − 12 440.51 − UIF 177.12.
+    expect(months[2]!.net).toBe(44_673.78);
     const expectedTaxable = 171_874.23;
     expect(await summaryTaxable(f)).toBe(expectedTaxable);
     expect((await getIrp5EmployeeTotals(f.company, 2027)).rows[0]!.taxableIncome).toBe(expectedTaxable);
@@ -127,13 +128,13 @@ describe('PAYE 4c: the deduction month by month', () => {
     expect(lines.some(l => /^4(001|003),/.test(l))).toBe(false);
   });
 
-  it('employee C: April without RA, then RA R1 055.83 and four beneficiaries from May: 4 681.00, 1 886.48', async () => {
+  it('employee C: April without RA, then RA R1 055.83 and four beneficiaries from May: 4 681.01, 1 886.49 (Sage, AN)', async () => {
     const f = await employee('P4c employee C', 30_000, 0);
     const april = await pay(f, 2026, 4);
     await annuity(f, 1_055.83, '2026-05-01');
     await pool.query('UPDATE payroll_employees SET medical_aid_main_member = true, medical_aid_dependants_count = 3 WHERE id = $1', [f.employee]);
     const may = await pay(f, 2026, 5);
-    expect([april.paye, may.paye]).toEqual([4_681, 1_886.48]);
+    expect([april.paye, may.paye]).toEqual([4_681.01, 1_886.49]);
     expect([april.contributions, may.contributions]).toEqual([0, 1_055.83]);
   });
 
@@ -143,7 +144,8 @@ describe('PAYE 4c: the deduction month by month', () => {
     await setSalary(pool, f, 2026, 6, 40_000);
     const months = [];
     for (const month of [3, 4, 5, 6]) months.push(await pay(f, 2026, month));
-    expect(months.map(m => m.paye)).toEqual([1_125, 1_125, 1_125, 3_735]);
+    // AN: 1 125.0037 a month to date (tax after rebates on the AE ÷ F), so April rounds up a cent and May back.
+    expect(months.map(m => m.paye)).toEqual([1_125, 1_125.01, 1_125, 3_735]);
     expect(months.map(m => m.deduction)).toEqual([5_500, 5_500, 5_500, 11_000]);
   });
 });
@@ -154,11 +156,15 @@ describe('PAYE 4c: the year to date resets on 1 March, and each year takes its o
     await annuity(f, 50_000, '2026-02-01');
     const february = await pay(f, 2026, 2);
     const march = await pay(f, 2026, 3);
-    // 2026: 2 400 000 − 350 000 = 2 050 000: 644 489 + 45% × 233 000 = 749 339 − 17 235 = 732 104 ÷ 12.
-    expect([february.deduction, february.paye]).toEqual([29_166.67, 61_008.67]);
-    // 2027, February not in its year to date: 2 400 000 − 430 000 = 1 970 000: 707 469 − 17 820 = 689 649 ÷ 12.
-    // With February carried over it would be 53 932.83 (n = 2, deduction 71 666.67 to date).
-    expect([march.deduction, march.paye]).toEqual([35_833.33, 57_470.75]);
+    // 2026: 2 400 000 − 350 000 = 2 050 000: 644 489 + 45% × 233 000 = 749 339 − 17 235 = 732 104 ÷ 12 = 61 008.67 (× 12).
+    // AN: the AE is 200 000 × F = 2 400 005.26, the cap on its scale 350 000 × F ÷ 12 = 350 000.77: 4.49 more taxed at
+    // 45% (732 106.02), ÷ F = 61 008.70.
+    expect([february.deduction, february.paye]).toEqual([29_166.67, 61_008.7]);
+    // 2027, February not in its year to date: 2 400 000 − 430 000 = 1 970 000: 707 469 − 17 820 = 689 649 ÷ 12 = 57 470.75
+    // (× 12). AN: the cap on the AE's scale is 430 000.94, so 4.32 more taxed at 45% (689 650.94), ÷ F = 57 470.79; the
+    // deduction recorded is still the cap × 1 ÷ 12 (a statutory period ratio).
+    // With February carried over it would be 53 932.83 (n = 2, deduction 71 666.67 to date; × 12).
+    expect([march.deduction, march.paye]).toEqual([35_833.33, 57_470.79]);
   });
 });
 

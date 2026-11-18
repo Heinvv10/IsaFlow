@@ -1,7 +1,7 @@
 /**
  * The annualisation factor F of the cumulative PAYE (payeCumulative.ts): AE = remuneration to date × F ÷ n, and the
- * liability to date, the retirement cap to date and the medical fees a year are weighted n ÷ F. One source for every
- * frequency (wave-6 AN).
+ * tax after rebates on it is weighted n ÷ F. Statutory period ratios stay n ÷ 12 (coordinator ruling 2026-11-17): the
+ * s11F cap to date (G21 p. 10) and the medical credits, a monthly amount. One source for every frequency (wave-6 AN).
  *
  * VENDOR PARITY, NOT A SARS RULE (wave-6 ruling 5, Hein 2026-11-15). No SARS guide prescribes days-based
  * annualisation: PAYE-GEN-01-G21 (2027) Rev 1 p. 8 (Fourth Schedule para 9(1)/(2)) gives AE = remuneration × periods
@@ -29,6 +29,15 @@ const FACTORS: Record<PayFrequency, number> = {
 /** F for a pay frequency: periods' worth of pay in a year. */
 export function annualisationFactor(frequency: PayFrequency): number {
   return FACTORS[frequency];
+}
+
+/**
+ * The statutory periods in a year for a factor: 12 for the monthly days factor, else the factor itself (26, 52). The
+ * period ratios statute fixes (the s11F cap to date, G21 p. 10; the s6A credit "in respect of each month", and s6B's
+ * three times it) use this, never F (coordinator ruling 2026-11-17): a monthly amount × 12 ÷ P a period.
+ */
+export function periodsInYear(factor: number): number {
+  return factor === FACTORS.monthly ? 12 : factor;
 }
 
 /** How a factor reads in an explanation: "365 ÷ 30.4166" for the monthly one, else the number (26, 52). */

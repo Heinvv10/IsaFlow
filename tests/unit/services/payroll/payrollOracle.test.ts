@@ -120,8 +120,6 @@ describe('payroll oracle fixtures', () => {
     'offcycle-termination-leave-after-regular': 'OC',
     'psp-company-27pct': 'PSP',
     'psp-trust-45pct': 'PSP',
-    // AN (wave-6 ruling 5): 7c from the SARS ×12 figure, over the 5c tolerance cap; a ruled departure, never closed.
-    'ra-annual-cap-binds-2027': 'PARITY',
     'ri-overtime-10h-at-1-5x': 'RI',
     'ri-reimbursive-1000km-at-prescribed-3703': 'RI',
     'ri-reimbursive-above-prescribed-3702-3722': 'RI',

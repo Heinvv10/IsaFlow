@@ -11,8 +11,9 @@
  * medical aid beneficiaries, back-solved from the employer's Sage PAYE
  * (12 440.51 × 12 = 149 286.12 against 164 405.89 before credits: 15 119.77 a
  * year ≈ 1 260 a month = 2 × 376 + 2 × 254, four people). Sage's nett pay is
- * 60 000 − 12 440.51 − 177.12 = 47 382.37; IsaFlow's PAYE is 12 440.49 (the
- * 2c is Sage's annualisation, see the PR), so its net pay is 47 382.39.
+ * 60 000 − 12 440.51 − 177.12 = 47 382.37. Under wave-6 AN (Sage's 365 ÷ 30.4166,
+ * ruling 5) IsaFlow's March is Sage's to the cent, 12 440.51 and 47 382.37 (× 12
+ * gave 12 440.49 and 47 382.39); April, cumulative, is 12 440.50 and 47 382.38.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -110,7 +111,7 @@ describe('POST /api/payroll/components: paidOutsidePayroll', () => {
 });
 
 describe('a private RA in the run', () => {
-  it('employee A: PAYE 12 440.49, net pay 47 382.39, no 2175 line, 4006 on the certificate', async () => {
+  it('employee A: PAYE 12 440.51, net pay 47 382.37 (Sage, AN), no 2175 line, 4006 on the certificate', async () => {
     const ra = (await pool.query<{ id: string }>(
       `SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Private RA'`, [f.company])).rows[0]!.id;
     const assigned = await f.call(assignRoute as Route, 'POST', `/api/payroll/employees/${f.employee}/components`, f.employee,
@@ -128,7 +129,7 @@ describe('a private RA in the run', () => {
         `SELECT l.paye::float8 AS paye, l.net_pay::float8 AS net, l.retirement_contributions::float8 AS contributions, h.journal_entry_id AS journal
            FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id WHERE l.run_id = $1`, [id])).rows[0]!);
     }
-    expect(paid.map(p => [p.paye, p.net, p.contributions])).toEqual([[12_440.49, 47_382.39, 2_708.59], [12_440.49, 47_382.39, 2_708.59]]);
+    expect(paid.map(p => [p.paye, p.net, p.contributions])).toEqual([[12_440.51, 47_382.37, 2_708.59], [12_440.5, 47_382.38, 2_708.59]]);
     const april = await journal(paid[1]!.journal);
     expect(april.debit).toBe(april.credit);
     expect(april.byCode['2175']).toBeUndefined();
@@ -154,7 +155,7 @@ describe('a private RA in the run', () => {
     const march = await journal(paid[0]!.journal);
     const viaPayroll = await journal(other.journal);
     expect(viaPayroll.debit).toBe(viaPayroll.credit);
-    expect([other.paye, other.net]).toEqual([12_440.49, 44_673.8]);
+    expect([other.paye, other.net]).toEqual([12_440.51, 44_673.78]);
     expect(viaPayroll.byCode['2175']).toBe(2_708.59);
     expect(r2(march.byCode['1110']! - viaPayroll.byCode['1110']!)).toBe(2_708.59);
     expect(viaPayroll.debit).toBe(march.debit);

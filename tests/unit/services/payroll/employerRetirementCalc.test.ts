@@ -57,10 +57,10 @@ describe('an employer pension contribution: a fringe benefit and a deemed contri
     expect(line.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_BENEFIT_NOT_DEEMED');
   });
 
-  it('the R430 000 a year cap binds on the total too (R430 000 ÷ F = R35 833.25 a month, AN)', () => {
+  it('the R430 000 a year cap binds on the total too (R35 833.33 a month: a statutory period ratio, ÷ 12 under AN too)', () => {
     const high = run([salary(200_000), ee('4001', 30_000), er('3817', 0.1)]);
     expect(high.retirementContributions).toBe(50_000);
-    expect(high.retirementDeduction).toBe(35_833.25); // 430 000 ÷ (365 ÷ 30.4166); × 12: 35 833.33
+    expect(high.retirementDeduction).toBe(35_833.33);
   });
 });
 

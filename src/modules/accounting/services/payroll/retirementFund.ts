@@ -70,10 +70,12 @@ export function allowedRetirementDeduction(annualContributions: number, annualRe
 }
 
 /** allowedRetirementDeduction with its three limits, for the explanation (payrollExplain), which never recomputes them. */
-export function retirementDeductionLimits(annualContributions: number, annualRemuneration: number, taxYear: number): {
+export function retirementDeductionLimits(annualContributions: number, annualRemuneration: number, taxYear: number, capScale = 1): {
   contributions: number; shareOfRemuneration: number; cap: number; allowed: number;
 } {
-  const cap = getTaxYearConfig(taxYear).retirementDeductionCap;
+  // capScale puts the statutory cap on the scale of the figures compared with it: F ÷ 12 for payeCumulative's annual
+  // equivalents (wave-6 AN), so that weighted n ÷ F it is the cap × n ÷ 12 the statute allows.
+  const cap = getTaxYearConfig(taxYear).retirementDeductionCap * capScale;
   const shareOfRemuneration = RETIREMENT_DEDUCTION_RATE * Math.max(0, annualRemuneration);
   return { contributions: annualContributions, shareOfRemuneration, cap, allowed: Math.max(0, Math.min(annualContributions, shareOfRemuneration, cap)) };
 }
