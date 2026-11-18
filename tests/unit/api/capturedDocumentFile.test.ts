@@ -11,6 +11,10 @@ const linked = vi.fn();
 vi.mock('@/modules/accounting/services/capture/capturedAttachmentLinks', () => ({
   isBankLinkedCapturedDocument: (...a: unknown[]) => linked(...a),
 }));
+const settledSource = vi.fn();
+vi.mock('@/modules/accounting/services/bank/settledDocumentService', () => ({
+  isSettledCapturedDocument: (...a: unknown[]) => settledSource(...a),
+}));
 vi.mock('@/lib/documentStorage', () => ({ fetchRawBytes: (...a: unknown[]) => fetchRaw(...a) }));
 vi.mock('@/lib/supabaseStorage', () => ({ CapturedDocumentMissingError: class extends Error {} }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -37,7 +41,7 @@ async function call(query: Record<string, unknown>, method = 'GET'): Promise<Res
 }
 const raw = (buffer: Buffer) => ({ buffer, hash: 'h', storedHash: 'h', size: buffer.length, fileType: 'application/pdf' });
 
-beforeEach(() => { fetchRaw.mockReset(); linked.mockReset().mockResolvedValue(true); });
+beforeEach(() => { fetchRaw.mockReset(); linked.mockReset().mockResolvedValue(true); settledSource.mockReset().mockResolvedValue(false); });
 
 describe('captured-document-file', () => {
   it('serves the bytes of this company\'s document as an inert download', async () => {
@@ -92,5 +96,24 @@ describe('captured-document-file', () => {
 
   it('allows a response the size of the largest captured document', () => {
     expect(config.api.responseLimit).toBe('12mb');
+  });
+});
+
+describe('captured-document-file for settled-document evidence', () => {
+  it('serves the source document of a bill / invoice one of the company\'s bank lines settles', async () => {
+    linked.mockResolvedValue(false);
+    settledSource.mockResolvedValue(true);
+    fetchRaw.mockResolvedValue(raw(Buffer.from('%PDF-1.7\n...')));
+    const r = await call({ id: ID });
+    expect(settledSource).toHaveBeenCalledWith('co-1', ID);
+    expect(r.code).toBe(200);
+    expect(r.headers['Content-Type']).toBe('application/octet-stream');
+  });
+
+  it('is a 404, reading no bytes, for a document that is neither linked nor settled', async () => {
+    linked.mockResolvedValue(false);
+    const r = await call({ id: ID });
+    expect(r.code).toBe(404);
+    expect(fetchRaw).not.toHaveBeenCalled();
   });
 });
