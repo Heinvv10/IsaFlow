@@ -14,6 +14,7 @@ import { join } from 'path';
 import { Api } from './_api';
 import { switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
+import { settleAnimations } from './helpers/settleAnimations';
 import { THEMES, settle } from '../helpers/themeSpec';
 
 const evidenceDir = process.env.RETURN_EVIDENCE_DIR;
@@ -116,7 +117,7 @@ test('a tax field drills to lines that sum to the field; axe clean (read-only)',
       await page.getByTestId(`vat201-field-${p.field}`).getByTestId('vat201-field-drill').click();
       await expect(drawer.getByTestId('return-drill-lines')).toBeVisible({ timeout: 60_000 });
       await settle(page);
-      await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+      await settleAnimations(page);
       await expectNoSeriousA11yViolations(page, { key: `z17-drill-${theme}-${width}`, baseline: { pages: {} } });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `page scrolls sideways at ${width}`).toBeLessThanOrEqual(0);
@@ -199,7 +200,7 @@ test('EMP201 PAYE drills to the pay runs and employee lines it sums; axe clean (
         expect(href).toMatch(/^\/payroll\/runs\/[0-9a-f-]{36}$/);
       }
       await settle(page);
-      await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+      await settleAnimations(page);
       await expectNoSeriousA11yViolations(page, { key: `z17-emp201-${theme}-${width}`, baseline: { pages: {} } });
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `emp201-drill-${theme}-${width}.png`) });
     }

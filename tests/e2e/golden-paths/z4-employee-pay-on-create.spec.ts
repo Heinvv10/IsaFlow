@@ -21,6 +21,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { settleAnimations } from './helpers/settleAnimations';
 import { retryDropped } from '../helpers/droppedConnection';
 
 // Signed in as the wave-6 QA user (E2E_ADMIN_* = its login, see helpers/w6QaUser.ts) the spec works in that user's one
@@ -55,6 +56,7 @@ async function snapField(page: Page, name: string, theme: string): Promise<void>
 }
 
 async function expectAxeClean(page: Page): Promise<void> {
+  await settleAnimations(page); // the drawer animates in; axe mid-animation reads blended colours
   const results = await new AxeBuilder({ page }).analyze();
   const bad = results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
