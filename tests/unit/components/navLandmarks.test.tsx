@@ -91,7 +91,7 @@ describe('mobile drawer', () => {
     expect(screen.queryByRole('link', { name: 'Banking home' })).toBeNull();
     // One row above the sections opens Transactions (the daily link); the Transactions section stays closed.
     const toTransactions = screen.getAllByRole('link').filter((a) => a.getAttribute('href') === '/accounting/bank-transactions');
-    expect(toTransactions.map((a) => a.textContent)).toEqual(['Bank Transactions']);
+    expect(toTransactions.map((a) => a.textContent)).toEqual(['Transaction List']);
   });
 
   it('opens Sales on "Invoices" once: no "Sales home" beside the daily link to the same page', () => {

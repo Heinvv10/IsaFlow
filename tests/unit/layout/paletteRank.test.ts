@@ -33,9 +33,8 @@ describe('rankPages', () => {
   it('a label match carries no "also" hint', () => {
     expect(pageResult(rankPages(index, 'income statement', 1)[0]!, 'income statement').aliases).toBeUndefined();
   });
-  // The daily links were renamed (Customer List, Supplier List, Employee List, Bank Transactions); the old labels were
-  // aliases of these pages. Each query keeps master's top result. "bank transactions" is the label of the report and,
-  // since the rename, an alias of the Banking page: a page's own name outranks another page's alias at the same match.
+  // The daily links were renamed (Customer List, Supplier List, Employee List, Transaction List); the old labels were
+  // aliases of these pages. Each query keeps master's top result (paletteRenameDrift.test.ts checks every query).
   it.each([
     ['customers', '/accounting/customers'],
     ['suppliers', '/accounting/suppliers'],

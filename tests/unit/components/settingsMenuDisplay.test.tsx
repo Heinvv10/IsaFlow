@@ -91,6 +91,20 @@ describe('Settings cog: display toggles', () => {
     expect(document.activeElement).toBe(within(panel).getAllByRole('menuitem')[0]);
   });
 
+  it('opened with the mouse, focus stays where it was: nothing in the popover is focused', () => {
+    const panel = openCog(false);
+    expect(panel.contains(document.activeElement)).toBe(false);
+  });
+
+  it('the cog names the popover it controls while open, and nothing when closed', () => {
+    render(<TableDensityProvider><SettingsMenu displayClassName="hidden lg:block" /></TableDensityProvider>);
+    expect(cog().hasAttribute('aria-controls')).toBe(false);
+    fireEvent.click(cog(), { detail: 1 });
+    const panel = screen.getByRole('group', { name: 'Settings' });
+    expect(panel.id).not.toBe('');
+    expect(cog().getAttribute('aria-controls')).toBe(panel.id);
+  });
+
   it('Escape closes it and puts focus back on the cog', () => {
     openCog(true);
     fireEvent.keyDown(document, { key: 'Escape' });

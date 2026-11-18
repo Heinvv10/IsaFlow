@@ -35,6 +35,22 @@ describe('drawer daily links', () => {
     expect(rows).toEqual(tab.links!.map((l) => l.label));
   });
 
+  // Pinned so a change is a conscious one. Versus base 521682f65d: Customer List, Supplier List and Employee List are new
+  // rows (base hid a daily link named like its section), and Banking's first row was the landing row "Transactions".
+  // With every section open, each list page has two links: its daily row and its section row.
+  it.each([
+    ['sales', 'Sales', ['Invoices', 'Quotes', 'Receipts', 'Credit Notes', 'Customer List', '+ Add a Customer'], '/accounting/customers'],
+    ['purchases', 'Purchases', ['Invoices', 'Payments', 'Purchase Orders', 'Credit Notes', 'Supplier List', '+ Add a Supplier'], '/accounting/suppliers'],
+    ['payroll', 'Payroll', ['Pay Runs', 'Employee List', 'Leave', '+ New Payroll Run'], '/payroll/employees'],
+    ['banking', 'Banking', ['Transaction List', 'Reconcile', 'Transfers', 'Import Statement'], '/accounting/bank-transactions'],
+  ] as const)('%s: exactly these rows above the sections, and two links to its list page', (id, label, rows, listHref) => {
+    render(<DrawerNav />);
+    expect(moduleRows(id, label)).toEqual(rows);
+    const region = document.getElementById(`drawer-nav-${id}`)!;
+    for (let b = region.querySelector<HTMLElement>(':scope > div > button[aria-expanded="false"]'); b; b = region.querySelector(':scope > div > button[aria-expanded="false"]')) fireEvent.click(b);
+    expect(region.querySelectorAll(`a[href="${listHref}"]`)).toHaveLength(2);
+  });
+
   it('a synthetic module: a daily link whose page (and even whose name) a section lists still shows; the landing row only when no daily link opens it', () => {
     h.tabs = [
       { id: 'things', label: 'Things', href: '/things', links: [{ label: 'Things', href: '/things' }, { label: 'Widgets', href: '/widgets' }],
