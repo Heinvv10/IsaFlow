@@ -237,3 +237,27 @@ Production deploy is a separate step that needs Hein's approval and happens afte
 - The bank table in top mode at narrow widths was not measured (the page had not finished loading when the capture ran); sidebar-mode numbers are above.
 - Create new items were tested by keyboard, not by click.
 - No tests have been run and no code has been changed.
+
+## 9. What changed while building (18 Nov 2026)
+
+This section records where the work departed from sections 4 and 5. The sections above are left as written.
+
+**Workstream A was split in two.**
+
+- PR #1597 carries the bank work only: A1, A2 and A4. The description floor is 100px, not the 200px in the A4 row: at 160px and above, Spent, Received and Actions were pushed off screen in sidebar mode at 1366px. The description wraps to two lines instead.
+- A5 and A6 moved to their own branch, `fix/supplier-invoice-lines-20261118`, after review found a layout flip loop, a wrong CC1 and thin tests in the first version. The line items now stack below a measured width and return to a table 24px above it. CC1 is shown read-only from the server's own derivation.
+- The customer invoice page only had its width cap raised. Its line table is still cramped.
+
+**Workstream B changed after viewing it in a browser.**
+
+- B1 is not in PR #1603. With the section bar removed, the hover fly-outs became the only route to sibling pages, and they are cut off at 768px height (Sales > Transactions loses "Receipt Auto-Match" and "Adjustments"; Reports > Transactional loses "Change History"). The bar was restored.
+- **Decided 18 Nov 2026 (Hein):** patch the fly-outs first (branch `fix/nav-flyouts-on-screen-20261118`), then remove the bar in a follow-up PR. The removal code exists at commit `3c2ee62dc1`.
+- B2, B3 and B5 are in PR #1603 as planned.
+- The four daily links are named Customer List, Supplier List, Employee List and Transaction List. The Ctrl+K ranking code is unchanged; only searches for the start or initials of those four names give a different top result.
+
+**Known and left alone.**
+
+- Sidebar mode at 1366px or narrower with CC1, CC2 and BU all shown scrolls sideways with no hint.
+- "N" opens Create new over an open popover or dialog.
+- At 768px the header wraps and the user menu opens off the left edge.
+- Four menu labels are used twice (Invoices and Credit Notes under both Sales and Purchases, and two more listed in `tests/unit/nav/menuLabelCollisions.test.ts`).
