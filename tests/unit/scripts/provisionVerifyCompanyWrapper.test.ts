@@ -62,6 +62,9 @@ describe('provision-verify-company.sh', () => {
     }
     expect(run(env, null, [], lines('A=1', 'E2E_VERIFY_EMAIL=x@y', 'E2E_VERIFY_PASSWORD=p')).got).toMatchObject({ JWT: '', ANON: '' });
     expect(run(env, null, [], lines('A=1', '  E2E_VERIFY_PENDING_PASSWORD=indented')).got).toMatchObject({ JWT: '', ANON: '' }); // column 0 only, as the readers
+    for (const key of ['E2E_VERIFY_PENDING_PASSWORD', 'E2E_VERIFY_APPROVER_PENDING_PASSWORD']) {
+      expect(run(env, null, [], lines('A=1', `${key}=`)).got).toMatchObject({ JWT: '', ANON: '' }); // an empty pending line is no pending password
+    }
     expect(run(env, null, [], lines('E2E_VERIFY_PENDING_PASSWORD=wait')).got.ARGS).toContain('--env-file');
   });
 

@@ -51,8 +51,8 @@ beforeEach(() => {
   envFile = join(dir, 'deploy.env');
   vi.stubEnv('GOTRUE_URL', 'http://gotrue.test/auth/v1');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
-  delete process.env.JWT_SECRET; // a PLAIN run: the wrapper hands these over only when a sign-out is needed
-  delete process.env.SUPABASE_ANON_KEY;
+  vi.stubEnv('JWT_SECRET', undefined); // a PLAIN run: the wrapper hands these over only when a sign-out is needed
+  vi.stubEnv('SUPABASE_ANON_KEY', undefined);
   stubGoTrue();
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });

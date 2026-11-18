@@ -54,13 +54,13 @@ DB_URL="$(clean "$(owner_database_url_for "$PROD_ENV" $SUDO || true)")"
 GOTRUE="$(env_value GOTRUE_URL)"
 KEY="$(env_value SUPABASE_SERVICE_ROLE_KEY)"
 # JWT_SECRET and SUPABASE_ANON_KEY are needed only to sign a login out of GoTrue after its password CHANGES for a login published
-# before: a --reset-password, or a plain re-run that resumes one (the env file then holds a *_PENDING_PASSWORD line). Read and handed
+# before: a --reset-password, or a plain re-run that resumes one (the env file then holds a *_PENDING_PASSWORD line with a value). Read and handed
 # over for those runs alone, so an ordinary run never has them in its environment. The CLI refuses, before changing anything, a run
 # that needs a sign-out and lacks them.
 ENVF="${PROVISION_ENV_FILE:-/home/hein/isaflow-deploy.env}"
 JWT=""; ANON=""; NEED_SIGNOUT=0
 for arg in "$@"; do [ "$arg" = "--reset-password" ] && NEED_SIGNOUT=1; done
-grep -qE '^E2E_VERIFY_(APPROVER_)?PENDING_PASSWORD=' "$ENVF" 2>/dev/null && NEED_SIGNOUT=1
+grep -qE '^E2E_VERIFY_(APPROVER_)?PENDING_PASSWORD=.' "$ENVF" 2>/dev/null && NEED_SIGNOUT=1
 if [ "$NEED_SIGNOUT" = "1" ]; then JWT="$(env_value JWT_SECRET)"; ANON="$(env_value SUPABASE_ANON_KEY)"; fi
 for pair in "OWNER_DATABASE_URL/DATABASE_URL:$DB_URL" "GOTRUE_URL:$GOTRUE" "SUPABASE_SERVICE_ROLE_KEY:$KEY"; do
   [ -n "${pair#*:}" ] || { echo "ERROR: ${pair%%:*} not found in ${OWNER_ENV_FILE:-/etc/isaflow/owner.env} or $PROD_ENV" >&2; exit 1; }
