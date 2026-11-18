@@ -91,10 +91,9 @@ describe('storedUnitPrice', () => {
     expect(storedUnitPrice(1000, 123450)).toBe(1.2345);
   });
 
-  it('picks a neighbouring price when the nearest does not round back, and never refuses', () => {
-    // 81139.99 / 15000 = 5.40933267 -> 5.409333 gives 81139.995 -> .00; 5.409332 gives 81139.98.
-    const u = storedUnitPrice(15000, 8113999);
-    expect(Math.abs(Math.round(15000 * u * 100) - 8113999)).toBeLessThanOrEqual(1);
+  it('stores the nearest price and never refuses, even where it cannot round back exactly', () => {
+    // 81139.99 / 15000 = 5.40933267 -> 5.409333 (x 15000 = 81139.995: a half cent off, the documented bound).
+    expect(storedUnitPrice(15000, 8113999)).toBe(5.409333);
     expect(storedUnitPrice(3_000_000, 100)).toBe(0);
   });
 });

@@ -108,4 +108,12 @@ describe('PoLineItemsEditor rows', () => {
     expect(screen.getByRole('combobox', { name: 'Line 1 CC1' }).textContent).toBe('FT Fibertime');
     expect(screen.getByRole('combobox', { name: 'Line 2 CC1' }).textContent).toBe('VF Velocity');
   });
+
+  it('takes an imported line\'s six-decimal effective unit price without a step mismatch', () => {
+    render(<form><PoLineItemsEditor items={[{ ...line('k1', 'Thirds', ''), quantity: '3', unit_price: '33.333333' }]} accounts={[]}
+      storedLabels={{}} onAdd={() => {}} onRemove={() => {}} onUpdate={() => {}} /></form>);
+    const price = screen.getByLabelText('Line 1 unit price') as HTMLInputElement;
+    expect(price.validity.stepMismatch).toBe(false);
+    expect(price.checkValidity()).toBe(true);
+  });
 });

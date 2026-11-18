@@ -15,9 +15,9 @@
  * (`expected`), each one sent must equal the sum to the cent, or the PO is refused naming both figures.
  *
  * The STORED unit price is the line's effective ex-VAT price, net / quantity to 6 decimals (`storedUnitPrice`, po_items
- * NUMERIC(19,6) since 1001), so line_total = round(quantity x unit_price) for the PO line. At 10 000 units and more no
- * 6-decimal price may round back exactly; the nearest is stored and the product can differ from line_total by up to a
- * cent. The stored line_total is what every PO figure reads; the app's edit and a bill's copy re-derive from the price.
+ * NUMERIC(19,6) since 1001), so line_total = round(quantity x unit_price) for the PO line up to about 10 000 units.
+ * Past that the nearest 6-decimal price is stored and quantity x price can differ from line_total by up to
+ * quantity x R0.0000005 (R0.50 at a million units). The stored line_total is what every PO figure reads; the app's edit and a bill's copy re-derive from the price.
  */
 
 export interface ImportLineMoney {
@@ -77,16 +77,9 @@ export function lineCents(line: ImportLineMoney, inclusive: boolean): LineCents 
 /** Six decimals: the precision po_items.unit_price keeps. */
 const round6 = (v: number): number => Math.round(Number((v * 1e6).toPrecision(15))) / 1e6;
 
-/**
- * The effective unit price stored for a line: the 6-decimal price whose product with the quantity rounds to the line
- * amount (the nearest price, or a neighbour a millionth away), else the nearest price (only at 10 000+ units).
- */
+/** The effective unit price stored for a line: the nearest 6-decimal price to line amount / quantity. Never refused. */
 export function storedUnitPrice(quantity: number, netCents: number): number {
-  const unit = round6(netCents / 100 / quantity);
-  for (const candidate of [unit, round6(unit + 1e-6), round6(unit - 1e-6)]) {
-    if (candidate >= 0 && cents(quantity * candidate) === netCents) return candidate;
-  }
-  return unit;
+  return round6(netCents / 100 / quantity);
 }
 
 export function poCents(lines: readonly LineCents[]): PoCents {
