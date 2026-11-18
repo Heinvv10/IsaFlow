@@ -186,8 +186,11 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // #1578 round 2, coordinator ruling: bound it first, then tax the AE less it). Past P periods (a 27th fortnight, a 53rd
   // week, a 13th line) a deduction under the cap is recorded and taxed in full; one at the cap stops at the cap both ways.
   const unboundedToDate = (offPeriodic * periods) / F;
-  const periodicToDate = Math.min(unboundedToDate, capToDate);
-  const offPeriodicTaxed = periodicToDate < unboundedToDate ? (periodicToDate * F) / periods : offPeriodic;
+  // With a tolerance: at the cap, n ÷ F and the cap's n ÷ P meet up to floating-point noise, which is not a bound
+  // (review #1578 round 3: the drawer showed a spurious "bounded" step on ordinary months at the cap).
+  const deductionBounded = unboundedToDate - capToDate > 1e-6;
+  const periodicToDate = deductionBounded ? capToDate : unboundedToDate;
+  const offPeriodicTaxed = deductionBounded ? (capToDate * F) / periods : offPeriodic;
   const offAnnualLimits = {
     // On the year's scale, as the cap and the contributions to date are (review #1578 L2): the part off periodic pay over a
     // whole year is offPeriodic × P ÷ F, so a year's deduction is D exactly (with F = P, deduction − offPeriodic as before).
@@ -197,7 +200,8 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const offAnnual = Math.max(0, Math.min(offAnnualLimits.deductionLeft, offAnnualLimits.annualPayments,
     offAnnualLimits.contributionsLeft, offAnnualLimits.capLeft));
   const taxedAE = Math.max(0, annualEquivalent - offPeriodicTaxed);
-  const donationSpill = (Math.max(0, offPeriodic - annualEquivalent) * periods) / F;
+  // What the AE could not bear of the deduction it was taxed less (review #1578 round 3: the bounded figure, not offPeriodic).
+  const donationSpill = (Math.max(0, offPeriodicTaxed - annualEquivalent) * periods) / F;
   const annualAll = Math.max(0, annualBefore + annualNow - offAnnual - donationSpill);
   const annualEarlier = Math.max(0, annualBefore - offAnnual - donationSpill);
 
@@ -216,7 +220,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,
     annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, annualCap: limits.cap, offPeriodicCeiling,
     offPeriodic, offAnnual, donationSpill, offAnnualLimits, hasPeriodic, capPeriods: Math.max(capPeriods, 1), capToDate, deductionOffPeriodicToDate: periodicToDate,
-    taxedAnnualEquivalent: taxedAE, offPeriodicTaxed,
+    taxedAnnualEquivalent: taxedAE, offPeriodicTaxed, deductionBounded,
     annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, afterRebatesToDate, creditsOnAEToDate: mtcOnAE + amtcOnAE,
     liability, ytdTablePaye: ytd.tablePaye, due, annualDue,
   });

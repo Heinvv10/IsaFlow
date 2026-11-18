@@ -155,7 +155,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
     ]));
   }
   if (t.annualDeduction > 0 || t.contributionsToDate > 0) steps.push(retirementStep(input));
-  if (t.offPeriodicTaxed !== t.offPeriodic) {
+  if (t.deductionBounded) {
     steps.push({
       key: 'paye.retirement.toDate', label: 'The deduction off periodic pay to date, bounded by the cap to date', amount: t.deductionOffPeriodicToDate,
       formula: `the lesser of ${r(t.offPeriodic)} × ${t.periods} ÷ (${annualisationFactorWords(t.factor)}) and the cap to date ${r(t.capToDate)}`,

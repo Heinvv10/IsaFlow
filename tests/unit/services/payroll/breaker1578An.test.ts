@@ -1,7 +1,7 @@
 /** Breaker probe for PR 1578 (AN). Drives calculatePayrollLine month by month; compares to an independent hand model. */
 import { describe, it, expect } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import { expectRecomputes } from './payrollExplainRecompute.helpers';
+import { expectRecomputes, stepsByKey } from './payrollExplainRecompute.helpers';
 import type { PayeYearToDate, PayrollLineInput, EmployeeComponent } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const F = 365 / 30.4166;
@@ -51,7 +51,7 @@ function engine(months: M[], dob: string, ben: number, start = { year: 2026, mon
   let ytd: PayeYearToDate = { periods: 0, retirementCapPeriods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0,
     medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0, donations: 0, donationReceipted: 0, donationBase: 0, donationDeduction: 0,
     sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0, sdlDonationDeduction: 0 };
-  const out: { paye: number; mtc: number; amtc: number; ded: number; recompute: unknown }[] = [];
+  const out: { paye: number; mtc: number; amtc: number; ded: number; recompute: unknown; bounded: boolean }[] = [];
   months.forEach((m, i) => {
     const mm = ((start.month - 1 + i) % 12) + 1; const yy = start.year + Math.floor((start.month - 1 + i) / 12);
     const components = [comp('s', '3601', 'earning', m.salary)];
@@ -67,7 +67,8 @@ function engine(months: M[], dob: string, ben: number, start = { year: 2026, mon
     const line = calculatePayrollLine(input);
     let rec: unknown = 'ok';
     try { expectRecomputes(line); } catch (e) { rec = String(e); }
-    out.push({ paye: line.paye.monthlyPaye, mtc: line.medicalCredit, amtc: line.additionalMedicalCredit, ded: line.retirementDeduction, recompute: rec });
+    out.push({ paye: line.paye.monthlyPaye, mtc: line.medicalCredit, amtc: line.additionalMedicalCredit, ded: line.retirementDeduction, recompute: rec,
+      bounded: stepsByKey(line.explanations.paye).has('paye.retirement.toDate') });
     ytd = { ...ytd, periods: ytd.periods + 1, retirementCapPeriods: (ytd.retirementCapPeriods ?? 0) + 1, periodicTaxable: r2(ytd.periodicTaxable + line.periodicTaxable),
       annualPayments: r2(ytd.annualPayments + line.annualTaxable), tablePaye: r2(ytd.tablePaye + line.paye.monthlyPaye),
       medicalCredit: r2(ytd.medicalCredit + line.medicalCredit), additionalMedicalCredit: r2(ytd.additionalMedicalCredit + line.additionalMedicalCredit),
@@ -99,11 +100,20 @@ describe('PR 1578 breaker', () => {
   it('S7 terminated after 7 months', () => { const m = Array.from({ length: 7 }, () => ({ salary: 60_000, fees: 2_500, ra: 5_000 })); const rows = rep('S7', engine(m, '1986-01-01', 2), hand(m, 40, 2)); expect(rows.every(r => r.engPaye === r.handPaye && r.rec === 'ok')).toBe(true); });
   it('S8 65+ low earner, AMTC binds', () => { const m = year({ salary: 18_000, fees: 6_000 }); const rows = rep('S8', engine(m, '1958-01-01', 2), hand(m, 69, 2)); expect(rows.every(r => r.engPaye === r.handPaye && r.engAmtc === r.handAmtc && r.engMtc === r.handMtc && r.rec === 'ok')).toBe(true); });
 });
+describe('PR 1578 round 3: no spurious bound at the cap', () => {
+  it('S10 twelve months at the cap (R200 000, RA R50 000): no line\'s drawer shows the bounded step, and the year deducts R430 000', () => {
+    const e = engine(Array.from({ length: 12 }, () => ({ salary: 200_000, ra: 50_000 })), '1986-01-01', 0);
+    expect(e.map(x => x.bounded)).toEqual(Array(12).fill(false));
+    expect(Math.round(e.reduce((t, x) => t + x.ded, 0) * 100)).toBe(43_000_000);
+  });
+});
+
 describe('PR 1578 round 2: a 13th line at the cap', () => {
   it('S9 13 lines at R200 000 with a R50 000 RA: each explanation recomputes, and the deduction stops at the cap', () => {
     const m = Array.from({ length: 13 }, () => ({ salary: 200_000, ra: 50_000 }));
     const e = engine(m, '1986-01-01', 0);
     expect(e.map(x => x.recompute)).toEqual(Array(13).fill('ok'));
+    expect(e.map(x => x.bounded)).toEqual([...Array(12).fill(false), true]); // only the 13th line is bounded
     expect(Math.round(e.reduce((t, x) => t + x.ded, 0) * 100)).toBe(43_000_000);
   });
 });
