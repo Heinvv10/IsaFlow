@@ -10,6 +10,7 @@ import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { refuseOnceOffSpan } from './payrollOnceOffGuard';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
 import { judgeDbFactor, judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -101,7 +102,9 @@ function dayOf(value: string, field: string): string {
  * 0-1) makes the row a share of retirement-funding income, costed per run (rfi.ts): amount must then be 0, and only a
  * retirement contribution (4001 / 4003 / 4006 deduction, 3817 / 3825 / 3828 earning) may carry it (judgePercentOfRfi).
  * `dbMemberCategoryFactor` (DBF, a fraction 0-1) makes it an employer's defined-benefit contribution valued per para 12D(3)
- * in each run (definedBenefitFund.ts): amount 0, recurring, 3817 / 3825 only, never with percentOfRfi (judgeDbFactor).
+ * in each run (definedBenefitFund.ts): amount 0, recurring, 3817 / 3825 only, never with percentOfRfi (judgeDbFactor). Setting
+ * one is refused to a platform-admin Login-as session (R-032; assertNotImpersonating, before any read or write): the factor
+ * is a tax valuation input taken from the fund's certificate, recorded under the name of the person who set it.
  */
 export async function assignComponentToEmployee(
   companyId: string,
@@ -115,6 +118,7 @@ export async function assignComponentToEmployee(
   percentOfRfi: number | null = null,
   dbMemberCategoryFactor: unknown = null,
 ): Promise<EmployeeComponentAssignment> {
+  if (dbMemberCategoryFactor !== null) await assertNotImpersonating();
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied

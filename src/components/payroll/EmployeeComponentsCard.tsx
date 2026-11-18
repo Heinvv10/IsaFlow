@@ -26,6 +26,8 @@ export interface Assignment {
   amount: number;
   /** RF: a share of retirement-funding income the run costs (amount is then 0); null or absent for a plain amount. */
   percentOfRfi?: number | null;
+  /** DBF: a defined-benefit fund member category factor the run values per para 12D(3) (amount is then 0); null or absent otherwise. */
+  dbMemberCategoryFactor?: number | null;
   effectiveFrom: string;
   effectiveTo: string | null;
   isRecurring: boolean;
@@ -52,6 +54,20 @@ interface Props {
 
 const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
 const label = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'; // as FieldFrame's, beside the DateFields
+
+/** A percent or defined-benefit row stores amount 0 (the run costs it): say how it is costed, never "R 0.00". */
+function amountText(a: Assignment): string {
+  if (a.dbMemberCategoryFactor != null) return `factor ${Number(a.dbMemberCategoryFactor.toFixed(4))} (para 12D)`;
+  if (a.percentOfRfi != null) return `${Number((a.percentOfRfi * 100).toFixed(2))}% of RFI`;
+  return formatCurrency(a.amount);
+}
+function amountTitle(a: Assignment): string | undefined {
+  if (a.dbMemberCategoryFactor != null) {
+    return 'Defined-benefit fund: valued by each pay run as the fund member category factor x retirement-funding income, less the '
+      + 'employee\'s own contributions to the fund (para 12D(3))';
+  }
+  return a.percentOfRfi != null ? 'Costed by each pay run on the earnings that count as retirement-funding income' : undefined;
+}
 
 export function EmployeeComponentsCard({
   components,
@@ -165,10 +181,7 @@ export function EmployeeComponentsCard({
                     </span>
                   )}
                 </td>
-                <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]"
-                  title={a.percentOfRfi != null ? 'Costed by each pay run on the earnings that count as retirement-funding income' : undefined}>
-                  {a.percentOfRfi != null ? `${Number((a.percentOfRfi * 100).toFixed(2))}% of RFI` : formatCurrency(a.amount)}
-                </td>
+                <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]" title={amountTitle(a)}>{amountText(a)}</td>
                 <td className="py-2 pl-6 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveFrom)}</td>
                 <td className="py-2 pl-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveTo)}</td>
                 <td className="py-2 text-right">

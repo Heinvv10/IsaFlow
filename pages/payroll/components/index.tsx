@@ -188,7 +188,7 @@ export default function PayComponentsPage() {
                 )}
                 {employerFund && (
                   <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
-                    title="Taxed as a non-cash benefit and deemed paid by the employee into the s11F deduction. Ticked (only defined-contribution components): the benefit is the employer's contribution itself (para 12D(2)). Untick for a defined-benefit or mixed pension or provident fund: each employee's assignment then carries the fund member category factor from the fund's certificate (para 12D(3)-(4)).">
+                    title="Records the fund type only; it does not set the value. Either way the contribution is a non-cash taxable benefit, deemed paid by the employee for the s11F deduction. Each employee's assignment sets the value: an amount or a % of RFI is the employer's contribution itself (a defined-contribution fund, para 12D(2)); a fund member category factor from the fund's certificate is valued per para 12D(3) (a defined-benefit or mixed fund, set on the employee's Defined-benefit fund contributions card)">
                     <input type="checkbox" checked={definedContribution} onChange={e => setDefinedContribution(e.target.checked)} />
                     Defined-contribution (money purchase) fund
                   </label>

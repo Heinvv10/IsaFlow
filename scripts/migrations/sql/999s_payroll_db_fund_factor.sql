@@ -1,9 +1,11 @@
 -- 999s: Defined-benefit fund member category factor on an assignment (wave 6, PR DBF).
 --
 -- An employer's contribution to a DEFINED-BENEFIT pension or provident fund is a taxable fringe benefit valued not at the
--- contribution paid but per the Seventh Schedule para 12D(3): X = A x B - C (A the fund member category factor, B the
--- employee's retirement-funding income for the period, C the employee's own contributions to the fund; read from the Sage
--- Payroll Tax Pocket Guide 2025-2026 s7.12.2, the Act itself not fetched). The run values X (definedBenefitFund.ts) and
+-- contribution paid but per the Seventh Schedule para 12D(3): X = (A x B) - C (A the fund member category factor on the
+-- fund's certificate, 12D(4); B the employee's retirement-funding income; C the employee's own contributions, excluding
+-- additional voluntary contributions and buy-back: the Act's symbol definitions; the formula is an image in the Act, its
+-- form read from the Sage Payroll Tax Pocket Guide 2025-2026 s7.12.2: UNVERIFIED). A defined-contribution-only category
+-- is the contribution itself (12D(2)) and carries no factor. The run values X (definedBenefitFund.ts) and
 -- treats it as the employer's non-cash 3817 / 3825 benefit deemed paid by the employee into s11F (G21 (2027) p. 10).
 --
 --   payroll_employee_components.db_member_category_factor: A, as a fraction (0.12 = 12%), more than 0 and at most 1.

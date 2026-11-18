@@ -22,6 +22,7 @@ import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCar
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { EmployeeFringeBenefitsCard } from '@/components/payroll/EmployeeFringeBenefitsCard';
 import { EmployeeRfiContributionsCard } from '@/components/payroll/EmployeeRfiContributionsCard';
+import { EmployeeDbFundCard } from '@/components/payroll/EmployeeDbFundCard';
 import { EmployeePayslipsCard } from '@/components/payroll/EmployeePayslipsCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -135,6 +136,7 @@ export default function EmployeeDetailPage() {
             </div>
 
             {employeeId && mayWrite && <EmployeeRfiContributionsCard employeeId={employeeId} refreshKey={assignments.length} onChanged={() => void d.reload()} onEnd={d.endAssignment} onEditDates={d.editAssignmentDates} />}
+            {employeeId && mayWrite && <EmployeeDbFundCard employeeId={employeeId} refreshKey={assignments.length} onChanged={() => void d.reload()} onEnd={d.endAssignment} onEditDates={d.editAssignmentDates} />}
 
             {employeeId && (
               <CostCentreAssignmentCard

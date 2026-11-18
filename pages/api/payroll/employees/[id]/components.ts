@@ -24,6 +24,7 @@ import {
 import { updateEmployeeComponentDates } from '@/modules/accounting/services/payroll/payrollComponentDateEdit';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -72,12 +73,13 @@ async function handler(
         isRecurring !== false, // default true
         { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
         percentOfRfi === undefined || percentOfRfi === null ? null : (percentOfRfi as number),
-        dbMemberCategoryFactor === undefined ? null : dbMemberCategoryFactor,
+        dbMemberCategoryFactor === undefined || dbMemberCategoryFactor === null ? null : dbMemberCategoryFactor,
       );
       res.status(201).json({ success: true, data: assignment });
       return;
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      if (respondIfImpersonationForbidden(res, err)) return;
       throw err;
     }
   }
