@@ -394,8 +394,10 @@
    {"line":113,"text":"JOIN payroll_run_headers c ON c.id = ${runId}::uuid AND c.company_id = p.company_id","class":"S","owner":"FQb1","why":"the current run, by id (its order key)"}
   ],
   "src/modules/accounting/services/payroll/payrollYearToDate.ts": [
-   {"line":88,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"R","owner":"FQc","why":"the year-to-date month bound :120 (F2)"},
-   {"line":252,"text":"FROM payroll_run_headers h","class":"R","owner":"FQc","why":"later-periods warning keyed by month (F2, :258)"}
+   {"line":92,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"R","owner":"FQc","why":"the year-to-date month bound :123 (F2)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollLaterPeriodsWarnings.ts": [
+   {"line":23,"text":"FROM payroll_run_headers h","class":"R","owner":"FQc","why":"later-periods warning keyed by month (F2, :27; moved out of payrollYearToDate.ts by AN's split)"}
   ],
   "src/modules/accounting/services/payroll/payrollYearToDateGate.ts": [
    {"line":121,"text":"FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"},

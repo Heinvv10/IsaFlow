@@ -182,6 +182,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
         sdlApplicable: 2_200_000, sdlLeviable: 1_870_000, sdlRetirementDeduction: 330_000,
       }),
     });
+    // The cap to date stays a statutory period ratio under AN (n ÷ 12, coordinator ruling 2026-11-17): exactly R430 000.
     expect(r.sdlLeviable).toBe(100_000);
     expect(r.sdl).toBe(1_000);
   });
@@ -252,7 +253,8 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(withSdl.map(r => r.retirementDeduction)).toEqual(payeOnly.map(r => r.retirementDeduction));
     expect(withSdl.map(r => r.netPay)).toEqual(payeOnly.map(r => r.netPay));
     // PAYE as 4c computes it (PAYE-GEN-01-G21 (2027) Rev 1 p. 10-11), pinned: R5 500 then R2 500 deducted, none after.
-    expect(withSdl.map(r => [r.paye.monthlyPaye, r.netPay])).toEqual([[1_125, 10_697.88], [1_665, 18_157.88], [2_115, 17_707.88]]);
+    // AN (F = 365 / 30.4166): month 2 is 1 665.01 (× 12: 1 665.00).
+    expect(withSdl.map(r => [r.paye.monthlyPaye, r.netPay])).toEqual([[1_125, 10_697.88], [1_665.01, 18_157.87], [2_115, 17_707.88]]);
     // Pay R60 000 less the R8 000 PAYE finally allowed = R52 000 leviable.
     expect(withSdl.map(r => r.sdlLeviable)).toEqual([14_500, 17_500, 20_000]);
     expect(totalLeviable(withSdl)).toBe(52_000);

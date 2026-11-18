@@ -26,7 +26,6 @@ const ALLOWED: Record<string, string> = {
   'src/modules/accounting/services/gl/controlAccountService.ts': 'resolves which accounts are control accounts; sums nothing',
   'src/modules/accounting/services/gl/integrityChecks/accountChecks.ts': 'chart-of-accounts shape checks, not a VAT figure',
   'src/modules/accounting/services/gl/integrityChecks/vatChecks.ts': 'per bank-line displayed-vs-posted code check; the clearing journal has no bank line',
-  'src/modules/accounting/services/gl/journalVatLockGuard.ts': 'post-time guard: refusing a clearing journal into a locked period is conservative, not a figure',
   'src/modules/accounting/services/gl/nonControlPostingAccounts.ts': 'account eligibility lists, sums nothing',
   'src/modules/accounting/services/gl/reclassification/planGuards.ts': 'account reclassification guards, sums nothing',
   'src/modules/accounting/services/reports/vat201NilRatedSupplies.ts': 'reads zero_rated/exempt CODED lines; every clearing-journal line is uncoded',
