@@ -41,7 +41,8 @@
 --      transaction-local list of journals written since their last check. Measured (fixture PG16, box load ~100),
 --      deferred check of one born-posted journal as a non-superuser at 500 / 2 000 / 5 000 lines: once per line
 --      46 / 586 / 3 857 ms (O(n^2)); deduped 5 / 7 / 17 ms, with the 5 000-line INSERT itself 167 ms against 146 ms
---      for an exempt superuser. 8 000 lines: see the PR body.
+--      for an exempt superuser. 8 000 lines (breaker L1: 11.2 s before): check 22 / 26 ms, INSERT 363 / 449 ms
+--      against 246 / 243 ms exempt (the added per-row line-set and list triggers).
 --
 -- DEMO. The Demo company (00000000-0000-0000-0000-000000000001) is exempt from the GL DELETE rules only (a posted
 -- entry's delete, a posted line's delete): the Demo reseed wipes and rebuilds its ledger, and the app pool can become
