@@ -1,28 +1,19 @@
 /**
- * BankTxAttachmentsModal
- *
- * View, upload, and delete file attachments (receipts, invoices, PDFs) for a
- * single bank transaction. Files are stored as base64 data URLs in the
- * bank_transaction_attachments table (suitable for small receipts ≤ 2 MB).
- *
- * Props:
- *   bankTransactionId     — UUID of the target bank transaction
- *   transactionDescription — Optional label shown in the modal header
- *   openFirst             — Open the first viewable file once the list has loaded
- *   onCountChange         — Told the file count after every successful load and remove
- *   onClose               — Dismiss callback
+ * BankTxAttachmentsModal: view, upload and delete a bank transaction's own attachments (base64 data URLs in
+ * bank_transaction_attachments, ≤ 2 MB), and below them, read-only, the documents of the bills / invoices the line
+ * settles (SettledEvidenceList). Props are documented on the interface.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { X, Paperclip, Upload, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
-import { type Attachment, MAX_BYTES, ACCEPT, ACCEPTED_MIME, readFileAsDataUrl, attachmentTotal } from './bankTxAttachmentHelpers';
+import { type Attachment, isSettled, MAX_BYTES, ACCEPT, ACCEPTED_MIME, readFileAsDataUrl, attachmentTotal } from './bankTxAttachmentHelpers';
 import { BankTxAttachmentRow } from './BankTxAttachmentRow';
 import { AttachmentViewer } from './AttachmentViewer';
 import { previewKind } from './attachmentPreview';
-import { useFocusTrap } from '@/components/ui/useFocusTrap';
+import { SettledEvidenceList } from './bankTx/SettledEvidenceList';
+import { BankTxModalShell, UPLOAD_RELEASE_MS, useModalBusy } from '@/components/accounting/bank-transactions/BankTxModalShell';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,16 +32,18 @@ interface Props {
 // 🟢 WORKING: Attachment list + upload modal for bank transactions
 export function BankTxAttachmentsModal({ bankTransactionId, transactionDescription, openFirst, onCountChange, onClose }: Props) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Read-only documents of the bills / invoices the line settles (include_settled=1), after its own; the ref feeds counts.
+  const [settled, setSettled] = useState<Attachment[]>([]);
+  const settledCount = useRef(0);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [viewIndex, setViewIndex] = useState<number | null>(null);
-  // Tab stays in, Escape closes, focus returns to the opener. Off while the viewer replaces the list (the viewer has
-  // its own); back on when it closes, which also takes focus back into the list: the View button that opened the
-  // viewer unmounted with the list, so the viewer cannot return focus to it.
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef, viewIndex === null, onClose);
+  // The list renders in the shared shell (BankTxModalShell: Tab stays in, Escape closes, focus returns). While the viewer
+  // replaces the list the shell is unmounted (the viewer has its own trap) and a fresh one takes focus into the list when
+  // the viewer closes: the View button that opened the viewer unmounted with the list.
+  const locked = useModalBusy(uploading || deletingId !== null, UPLOAD_RELEASE_MS);
   // Refs, so a parent's inline callback does not re-create fetchAttachments (and re-fetch) on every render.
   const countRef = useRef(onCountChange);
   useEffect(() => { countRef.current = onCountChange; });
@@ -68,24 +61,27 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
     if (!keepList) setLoading(true);
     try {
       const res = await apiFetch(
-        `/api/accounting/bank-tx-attachments?bankTransactionId=${encodeURIComponent(bankTransactionId)}`,
+        `/api/accounting/bank-tx-attachments?bankTransactionId=${encodeURIComponent(bankTransactionId)}&include_settled=1`,
       );
       await assertOk(res, 'Could not load attachments');
       const json = await res.json() as { success: boolean; data: Attachment[] };
       if (!json.success) throw new ApiEnvelopeError('Could not load attachments');
-      listRef.current = json.data;
-      setAttachments(json.data);
-      totalRef.current = attachmentTotal(res, json.data.length);
+      const own = json.data.filter(a => !isSettled(a));
+      listRef.current = own;
+      setAttachments(own);
+      setSettled(json.data.filter(isSettled));
+      settledCount.current = json.data.length - own.length;
+      totalRef.current = attachmentTotal(res, own.length);
       setTotal(totalRef.current);
-      // Only a successful read reports a count: a failed one must not clear the row's highlight.
-      countRef.current?.(totalRef.current);
+      // Only a successful read reports a count (a failed one must not clear the row's highlight): both kinds, as the grid's.
+      countRef.current?.(totalRef.current + settledCount.current);
       // A refresh changed the list behind any open viewer, so its index no longer names the same file. Only the
       // opening load may open the viewer; a ref, as the prop follows the count and must not re-create this callback.
       if (keepList) setViewIndex(null);
       else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url, a.content_type) !== 'none')) setViewIndex(0);
     } catch {
       // A failed refresh keeps the list it has: "No attachments yet" would be false, and the row keeps its count.
-      if (!keepList) { listRef.current = []; setAttachments([]); }
+      if (!keepList) { listRef.current = []; setAttachments([]); setSettled([]); }
       setViewIndex(null);
       notify.error('Could not load attachments');
     } finally {
@@ -96,7 +92,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   useEffect(() => { void fetchAttachments(); }, [fetchAttachments]);
 
   // The viewer steps through the files it can show; the list keeps every file.
-  const viewable = attachments.filter(a => previewKind(a.file_url, a.content_type) !== 'none');
+  const viewable = [...attachments, ...settled].filter(a => previewKind(a.file_url, a.content_type) !== 'none');
 
   // ── Upload ─────────────────────────────────────────────────────────────────
   const handleUpload = useCallback(async (file: File) => {
@@ -175,7 +171,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       setViewIndex(null);
       totalRef.current = Math.max(0, totalRef.current - 1);
       setTotal(totalRef.current);
-      countRef.current?.(totalRef.current);
+      countRef.current?.(totalRef.current + settledCount.current);
       if (olderExist) void fetchAttachments(true); // the next-older rows now fit: show them
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));
@@ -189,10 +185,8 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   if (viewIndex !== null && viewable[viewIndex]) {
     return <AttachmentViewer attachments={viewable} startIndex={viewIndex} onClose={() => setViewIndex(null)} />;
   }
-  // Into document.body: AppLayout's main column is `relative z-0`, so in place the top nav drew over the backdrop.
-  if (typeof document === 'undefined') return null;
-  return createPortal(
-    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 outline-none" role="dialog" aria-modal="true" aria-label="Attachments">
+  return (
+    <BankTxModalShell label="Attachments" onClose={onClose} busy={locked} className="p-4">
       <div
         className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[85vh]"
         onClick={e => e.stopPropagation()}
@@ -209,7 +203,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
             )}
           </div>
           <button
-            onClick={onClose}
+            onClick={onClose} disabled={locked}
             aria-label="Close attachments"
             className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
           >
@@ -265,7 +259,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-xs">Loading…</span>
             </div>
-          ) : attachments.length === 0 ? (
+          ) : attachments.length === 0 && settled.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 gap-2 text-[var(--ff-text-tertiary)]">
               <AlertCircle className="h-5 w-5" />
               <span className="text-xs">No attachments yet</span>
@@ -281,6 +275,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
               <BankTxAttachmentRow key={att.id} att={att} deleting={deletingId === att.id}
                 onView={() => setViewIndex(viewable.indexOf(att))} onDelete={() => void handleDelete(att)} />
             ))}
+            <SettledEvidenceList items={settled} onView={a => setViewIndex(viewable.indexOf(a))} />
             </>
           )}
         </div>
@@ -291,14 +286,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
             {total > attachments.length ? `${total} attachments` : `${attachments.length} attachment${attachments.length !== 1 ? 's' : ''}`}
           </span>
           <button
-            onClick={onClose}
+            onClick={onClose} disabled={locked}
             className="px-4 py-1.5 rounded text-xs border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"
           >
             Close
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </BankTxModalShell>
   );
 }

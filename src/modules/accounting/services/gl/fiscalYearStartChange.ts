@@ -28,6 +28,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '../../types/gl.types';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { isLockContention } from '../core/lockContention';
+import { CompanySettingsStaleError, loadedStartMonth } from './financialYearStartGuard';
 import { mapFiscalPeriodRow } from './fiscalYearCreateService';
 import { generateFiscalYearForDate } from './fiscalYearGenerator';
 import { normaliseStartMonth } from './fiscalYearCalendar';
@@ -91,10 +93,12 @@ export async function countPostedJournals(companyId: string): Promise<number> {
 }
 
 /** companies.financial_year_start, normalised (NULL and 0 are March) as every reader takes it; null: no such company. */
-async function readDeclaredStartMonth(companyId: string, lock: boolean): Promise<number | null> {
-  const rows = (lock
+async function readDeclaredStartMonth(companyId: string, lock: 'none' | 'no-key' | 'update'): Promise<number | null> {
+  const rows = (lock === 'update'
     ? await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID FOR UPDATE`
-    : await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
+    : lock === 'no-key'
+      ? await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID FOR NO KEY UPDATE`
+      : await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
   return rows.length === 0 ? null : normaliseStartMonth(rows[0]!.financial_year_start);
 }
 
@@ -188,33 +192,52 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
 }
 
 /**
- * Called before a company row's financial_year_start is written. Returns true
- * when the month really changes, and the caller must rebuild the periods after
- * its UPDATE.
+ * Called before a company row's financial_year_start is written, with the
+ * month the caller asks for and the month it LOADED (financialYearStartGuard).
+ * Returns true when the month really changes, and the caller must rebuild the
+ * periods after its UPDATE. Every refusal comes before anything is written (a
+ * caller's 4xx still commits).
  *
- * - Absent, or the same month (normalised: NULL and 0 are March): false, WITHOUT
- *   a row lock. Every settings save sends the month, and a FOR UPDATE on
- *   companies would stall every FK insert on the company (journals, invoices)
- *   until the request commits. The same month never touches the periods, even
- *   when they start in another month: realigning an existing company is a
- *   per-company decision (Hein, 2026-10-22), not a side effect of a save.
- * - A change: refused before anything is written (a caller's 4xx still
- *   commits, so it runs first) for an invalid month, a company other than the
- *   active one, a posted journal (FinancialYearStartLockedError) or periods
- *   otherwise in use (FiscalPeriodsInUseError). Otherwise true, holding
- *   FOR UPDATE on the company row from before the counts to the commit: an FK
- *   insert (a close run, a journal) cannot land between the count and the rebuild.
+ * - Absent: false, no lock and no judgement; the UPDATE keeps the row's month.
+ * - Sent without a usable loaded month: FinancialYearStartLoadedMissingError (400).
+ * - The same month as the row: the row is locked FOR NO KEY UPDATE (what the
+ *   caller's UPDATE takes anyway; FK inserts, FOR KEY SHARE, pass) and must
+ *   still hold the loaded month, else CompanySettingsStaleError (409). The
+ *   periods are never touched, even when they start in another month:
+ *   realigning is a per-company decision (Hein, 2026-10-22).
+ * - A change: the year-registry advisory lock, then the row FOR UPDATE, held to
+ *   the commit so no FK insert (a journal, an AFS document, a budget) can land
+ *   between the counts and the rebuild; NO KEY UPDATE would let them. On it: the
+ *   stale check (409), then the counts, a posted journal
+ *   (FinancialYearStartLockedError) or periods otherwise in use
+ *   (FiscalPeriodsInUseError), BEFORE any period lock: a company with a year to
+ *   close always has both, so a live year-end close (periods held, then a
+ *   journal INSERT that needs FOR KEY SHARE on this row) is never waited on
+ *   while this row is held (PR #1551 review, 40P01). Then the periods, in
+ *   (fiscal_year, period_number, id) order, bounded (5 s, RowLockTimeoutError,
+ *   503): the caller's UPDATE fires the trigger that writes years, and a close
+ *   holds its period and then its year. Then the counts again, for a close or a
+ *   first journal that landed while it waited.
  */
-export async function assertFinancialYearStartChange(companyId: string, requested: unknown): Promise<boolean> {
+export async function assertFinancialYearStartChange(
+  companyId: string, requested: unknown, loaded: unknown,
+): Promise<boolean> {
   if (requested === undefined || requested === null) return false;
   // A real integer only: Number() would read true as 1 and [6] as 6. The settings page sends a number.
   if (typeof requested !== 'number' || !Number.isInteger(requested) || requested < 1 || requested > 12) {
     throw new InvalidFinancialYearStartError(requested);
   }
   const month = requested;
+  const expected = loadedStartMonth(loaded);
 
-  const unlocked = await readDeclaredStartMonth(companyId, false);
-  if (unlocked === null || unlocked === month) return false; // no row: the UPDATE finds nothing either
+  const unlocked = await readDeclaredStartMonth(companyId, 'none');
+  if (unlocked === null) return false; // no row: the UPDATE finds nothing either
+  if (unlocked === month) {
+    const held = await readDeclaredStartMonth(companyId, 'no-key');
+    if (held === null) return false;
+    if (held !== expected || held !== month) throw new CompanySettingsStaleError();
+    return false;
+  }
   if (als.getStore()?.companyId !== companyId) throw new FinancialYearStartScopeError();
 
   // A start-month change rebuilds the year registry, as a change of year end does: take that change's
@@ -225,10 +248,25 @@ export async function assertFinancialYearStartChange(companyId: string, requeste
     () => new RowLockTimeoutError('The financial years'),
   );
   // Lock, then decide again on what the lock now protects.
-  const locked = await readDeclaredStartMonth(companyId, true);
-  if (locked === null || locked === month) return false;
+  const locked = await readDeclaredStartMonth(companyId, 'update');
+  if (locked === null) return false;
+  if (locked !== expected) throw new CompanySettingsStaleError();
+  if (locked === month) return false;
+  await refuseIfInUse(companyId);
+  await withRowLockBudget(
+    () => sql`
+      SELECT id FROM fiscal_periods WHERE company_id = ${companyId}::UUID
+       ORDER BY fiscal_year, period_number, id FOR UPDATE
+    `,
+    () => new RowLockTimeoutError('The fiscal periods'),
+    { isTimeout: isLockContention },
+  );
+  await refuseIfInUse(companyId);
+  return true;
+}
+
+async function refuseIfInUse(companyId: string): Promise<void> {
   const lock = await financialYearStartLock(companyId);
   if (lock?.reason === 'posted') throw new FinancialYearStartLockedError(lock.postedJournals);
   if (lock) throw new FiscalPeriodsInUseError(lock.references);
-  return true;
 }
