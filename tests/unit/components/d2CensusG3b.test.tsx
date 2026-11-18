@@ -89,11 +89,11 @@ describe('sales order detail: confirm action and reload', () => {
 
 describe('bank reconciliation detail: GL lines', () => {
   const recon = { id: 'r1', bankAccountId: 'ba1', bankAccountName: 'D2 Recon Bank', statementDate: '2026-09-01', status: 'in_progress', difference: 5 };
-  const entries = { entries: [{ id: 'je1', entryDate: '2026-09-01', entryNumber: 'D2-JE-1', description: 'e',
-    lines: [{ id: 'l1', glAccountId: 'ba1', debit: 50, credit: 0, description: 'D2 GL line text' }] }] };
+  const glPage = { lines: [{ id: 'l1', debit: 50, credit: 0, description: 'D2 GL line text', entryDate: '2026-09-01',
+    entryNumber: 'D2-JE-1' }], total: 1, truncated: false };
   const mount = async (gl: Respond) => {
     route.query = { reconId: 'r1' };
-    answer(u => (u.includes('journal-entries') ? gl() : u.includes('bank-reconciliations') ? ok(recon) : ok({ transactions: [] })));
+    answer(u => (u.includes('bank-reconciliation-gl-lines') ? gl() : u.includes('bank-reconciliations') ? ok(recon) : ok({ transactions: [] })));
     render(<ReconciliationDetailPage />);
   };
   it('400: shows the server message', async () => { await mount(bad); expect(await screen.findByText(MSG)).toBeTruthy(); });
@@ -103,7 +103,7 @@ describe('bank reconciliation detail: GL lines', () => {
     expectNoRawJsonError();
   });
   it('200: lists the unmatched GL lines', async () => {
-    await mount(() => ok(entries));
+    await mount(() => ok(glPage));
     expect(await screen.findByText('D2 GL line text')).toBeTruthy();
     expect(screen.queryByText(MSG)).toBeNull();
   });

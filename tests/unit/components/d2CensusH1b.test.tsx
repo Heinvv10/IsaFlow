@@ -59,11 +59,11 @@ function script(fails: Match, answer: () => Response, rest: (url: string) => unk
 describe('bank reconciliation detail', () => {
   const recon = { id: 'r1', bankAccountId: 'ba1', bankAccountName: 'D2 Business Account', statementDate: '2026-01-31', status: 'open', difference: 5 };
   const tx = { id: 't1', description: 'D2 bank line', amount: 5, status: 'imported', transactionDate: '2026-01-01' };
-  const rest = (u: string) => (u.includes('bank-reconciliations') ? recon : u.includes('bank-transactions') ? { transactions: [tx] } : { entries: [] });
+  const rest = (u: string) => (u.includes('bank-reconciliations') ? recon : u.includes('bank-transactions') ? { transactions: [tx] } : { lines: [], total: 0, truncated: false });
   const cases: Array<[string, Match, RegExp]> = [
     ['reconciliation', u => u.includes('bank-reconciliations'), /Could not load the reconciliation - try again/],
     ['transactions', u => u.includes('bank-transactions'), /Could not load the reconciliation transactions - try again/],
-    ['ledger lines', u => u.includes('journal-entries'), /Could not load the bank ledger lines - try again/],
+    ['ledger lines', u => u.includes('bank-reconciliation-gl-lines'), /Could not load the bank ledger lines - try again/],
   ];
   describe.each(cases)('%s', (_n, fails, plain) => {
     it('400: the server message is shown', async () => {

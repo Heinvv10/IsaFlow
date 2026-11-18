@@ -43,7 +43,7 @@ describe('bank-reconciliation detail page', () => {
     const u = String(url);
     if (u.includes('bank-reconciliations?id=')) return ok(RECON(difference));
     if (u.includes('bank-transactions?reconciliation_id=')) return ok({ transactions: [] });
-    if (u.includes('journal-entries?')) return ok({ entries: [] });
+    if (u.includes('bank-reconciliation-gl-lines?')) return ok({ lines: [], total: 0, truncated: false });
     return ok({});
   });
   it.each([0.01, -0.01])('offers no Complete button at %s', async (difference) => {
