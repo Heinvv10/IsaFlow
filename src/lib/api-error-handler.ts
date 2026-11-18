@@ -121,7 +121,7 @@ export function withErrorHandler(
           stack: error instanceof Error ? error.stack : undefined,
           duration: `${duration}ms`,
           sentryCaptured: error instanceof Error, // captured just below; the log bridge must not send it twice
-        });
+        }, error instanceof Error ? undefined : 'API handler threw a non-Error value');
 
         if (process.env.SENTRY_ENABLED === 'true' && error instanceof Error) {
           Sentry.captureException(error);

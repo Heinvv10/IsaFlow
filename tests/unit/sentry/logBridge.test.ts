@@ -77,6 +77,30 @@ describe('fingerprint', () => {
   });
 });
 
+describe('review findings', () => {
+  it('two different errors under one log message are not merged or rate-limited together', () => {
+    const a = new Error('db down'); const b = new TypeError('other bug');
+    forwardLogError({ message: 'Failed to load', component: 'X', data: { error: a } });
+    forwardLogError({ message: 'Failed to load', component: 'X', data: { error: b } });
+    expect(m.captureException).toHaveBeenCalledTimes(2);
+    expect(scope.setFingerprint.mock.calls[0][0]).toContain('{{ default }}');
+  });
+  it('finds an Error nested one level down, or passed as data itself', () => {
+    const e = new Error('deep');
+    forwardLogError({ message: 'nested lookup', data: { details: { err: e } } });
+    forwardLogError({ message: 'direct lookup', data: e });
+    expect(m.captureException).toHaveBeenCalledTimes(2);
+  });
+  it('drops the bare default "error" message with no Error (junk shared issue)', () => {
+    forwardLogError({ message: 'error', component: 'API', data: { type: 'error' } });
+    expect(m.withScope).not.toHaveBeenCalled();
+  });
+  it('redacts emails in a message sent without an Error', () => {
+    forwardLogError({ message: 'Failed for user a.b@example.co.za', data: {} });
+    expect(m.captureMessage.mock.calls[0][0]).not.toContain('example.co.za');
+  });
+});
+
 describe('rate limit', () => {
   it('one event per fingerprint per minute', () => {
     vi.useFakeTimers();
