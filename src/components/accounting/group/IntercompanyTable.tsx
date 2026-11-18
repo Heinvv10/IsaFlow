@@ -65,6 +65,7 @@ export function IntercompanyTable({ transactions, loading, matchSelection, onTog
                       <input
                         type="checkbox"
                         checked={isSelected}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={() => onToggleSelect(tx.id)}
                         className="rounded border-[var(--ff-border-light)]"
                       />

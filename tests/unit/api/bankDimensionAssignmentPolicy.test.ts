@@ -82,4 +82,20 @@ describe('bank saved-dimension assignment policy', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mocks.sql).not.toHaveBeenCalled();
   });
+
+  // The grid's saveDimensions (bankTxSaveActions.ts) sends null for every dimension the row does not carry, so
+  // picking one CC on a fresh row posts one id and two nulls, and clearing the last one posts three nulls.
+  it.each([
+    ['one picked, two never set', { cc1Id: CC1, cc2Id: null, buId: null }, { cc1Id: CC1 }],
+    ['all three cleared', { cc1Id: null, cc2Id: null, buId: null }, {}],
+  ])('accepts the grid payload: %s', async (_name, sent, checked) => {
+    mocks.assertJournalAnalysisDimensions.mockResolvedValueOnce(undefined);
+    const req = request();
+    req.body = { action: 'save_dimensions', bankTransactionId: TX, ...sent };
+    const res = response();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mocks.assertJournalAnalysisDimensions).toHaveBeenCalledWith(COMPANY, [checked]);
+    expect(mocks.sql).toHaveBeenCalled();
+  });
 });

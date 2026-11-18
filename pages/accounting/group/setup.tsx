@@ -13,6 +13,8 @@ import { GroupMappingTab } from '@/components/accounting/group/GroupMappingTab';
 import type { CompanyGroup, GroupMember, GroupAccount, CoaMapping, SimpleCompany, GroupSetupTab, UserCompanyRow } from '@/components/accounting/group/types';
 import { toSimpleCompanies } from '@/components/accounting/group/types';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { useCompany } from '@/contexts/CompanyContext';
+import { useLiveActiveCompanyId } from '@/components/accounting/group/useLiveActiveCompanyId';
 
 const TABS: { key: GroupSetupTab; label: string; icon: typeof Layers }[] = [
   { key: 'details', label: 'Group Details', icon: Users },
@@ -23,6 +25,8 @@ const TABS: { key: GroupSetupTab; label: string; icon: typeof Layers }[] = [
 export default function GroupSetupPage() {
   const [activeTab, setActiveTab] = useState<GroupSetupTab>('details');
   const afterDelay = useTimeoutOnce();
+  // Live: another tab that switches company changes the server's active company under this one.
+  const activeCompanyId = useLiveActiveCompanyId(useCompany().activeCompany?.id ?? null);
   const [group, setGroup] = useState<CompanyGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -236,6 +240,7 @@ export default function GroupSetupPage() {
                 group={group}
                 members={members}
                 userCompanies={userCompanies}
+                activeCompanyId={activeCompanyId}
                 onGroupChange={setGroup}
                 onMembersRefresh={refreshMembers}
                 onGroupRefresh={fetchGroup}

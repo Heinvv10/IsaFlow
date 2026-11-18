@@ -8,7 +8,7 @@ export const purchasesTab: Tab = {
     { label: 'Payments', href: '/accounting/supplier-payments' },
     { label: 'Purchase Orders', href: '/accounting/purchase-orders' },
     { label: 'Credit Notes', href: '/accounting/supplier-credit-notes' },
-    { label: 'Suppliers', href: '/accounting/suppliers' },
+    { label: 'Supplier List', href: '/accounting/suppliers' },
   ],
   topItems: [
     { label: 'Add a Supplier', href: '/accounting/suppliers/new' },

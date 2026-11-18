@@ -21,6 +21,7 @@ import { Api } from './_api';
 import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { settleAnimations } from './helpers/settleAnimations';
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Payslip Email Sandbox';
@@ -136,7 +137,7 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await expect(field).toBeEnabled({ timeout: 60_000 });
   await field.fill(ADDRESS);
   await page.getByRole('button', { name: 'Save email' }).click();
-  await expect(page.getByText('Payslip email saved.')).toBeVisible();
+  await expect(page.getByText('Payslip email saved.')).toBeVisible({ timeout: 30_000 }); // the PUT took 4-7 s on a loaded runner
   if (EVIDENCE_DIR) await field.screenshot({ path: `${EVIDENCE_DIR}/employee-email-field-${theme}.png` });
 
   await page.goto(`/payroll/runs/${runId}`, { waitUntil: 'domcontentloaded' });
@@ -147,6 +148,7 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await card.getByRole('button', { name: 'Email payslips' }).click();
   const dialog = page.getByRole('dialog', { name: 'Email payslips?' });
   await expect(dialog).toContainText('40-bit RC4');
+  await settleAnimations(page); // axe mid-fade-in reads blended colours (the Cancel button at 1.12:1)
   if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-confirm-${theme}.png` });
   expect(await seriousAxe(page), `axe ${theme} confirm`).toEqual([]);
   await dialog.getByRole('button', { name: 'Email payslips' }).click();
@@ -163,6 +165,7 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await settle(page);
   for (const width of [1568, 390]) {
     await page.setViewportSize({ width, height: 1000 });
+    await settle(page); // a resize can start a layout or colour transition; measure the settled page
     if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-${theme}-${width}.png`, fullPage: true });
     expect(await seriousAxe(page), `axe ${theme} ${width}`).toEqual([]);
   }

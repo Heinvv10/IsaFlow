@@ -103,8 +103,8 @@ export interface EmployeeComponent {
   employerFundAsCash?: boolean;
 }
 
-export type { OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
-import type { PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
+export type { EtiMonthParts, LineCadence, OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
+import type { EtiMonthParts, LineCadence, PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
 
 export interface PayeInput {
   annualTaxableIncome: number;
@@ -140,8 +140,12 @@ export interface ValidationResult {
   message: string;
   field?: string;
   deepLink?: string;
-  /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
+  /** PAYE_LATER_PERIODS_APPROVED only: the later periods it names, for people (YYYY-MM; a weekly run's YYYY-MM-DD start). */
   periods?: string[];
+  /** PAYE_LATER_PERIODS_APPROVED only (wave 6 FQc): the later runs' ids. The approval gate matches on these. */
+  runs?: string[];
+  /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
+  etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
   treatment?: 'flat_25' | 'none' | 'directive';
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
@@ -184,6 +188,8 @@ export interface PayrollLineInput {
   regularPayDirective?: RegularPayDirectiveState;
   /** The employee's garnishee orders for the period (payrollGarnisheeRun; GA); absent = none. Taken from net pay last. */
   garnisheeOrders?: GarnisheeOrderInput[];
+  /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
+  cadence?: LineCadence;
 }
 
 export interface ComponentBreakdownItem {

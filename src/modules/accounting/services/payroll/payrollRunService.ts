@@ -11,7 +11,7 @@ import {
   isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
-import type { PayrollEmployee, PayrollLineResult, PayrollPeriod } from './payrollTypes';
+import type { LineCadence, PayrollEmployee, PayrollLineResult, PayrollPeriod } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
@@ -26,7 +26,10 @@ import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { withEtiPriorMonths } from './etiPriorEmployment';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { payFrequencyOf } from './payrollFrequency';
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
+import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
+import { loadLineCadences } from './payrollRunCadence';
+import { assertPreparerSupported } from './payrollPreparerGuard';
 import { loadRunGarnisheeOrders, replaceRunGarnisheeDeductions } from './payrollGarnisheeRun';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
@@ -52,10 +55,10 @@ export async function calculatePayrollRun(
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
   }
-  const period: PayrollPeriod = {
-    month: Number(run.period_month),
-    year: Number(run.period_year),
-  };
+  // Wave 6 HYb: the preparer this calculation records must be one R-035 approval can carry (payrollPreparerGuard).
+  await assertPreparerSupported(companyId, preparedBy ?? (run.created_by == null ? null : String(run.created_by)));
+  // A weekly or fortnightly run carries its own dates (wave 6 FQc): its reads, population and pro-rata follow them.
+  const period: PayrollPeriod = runPeriodOf(run);
   const taxYear = getTaxYear(period.month, period.year);
   // Refuse an unloaded tax year here, before applyRunLoans commits loan
   // deductions and before any line is built. UnsupportedTaxYearError is a
@@ -71,6 +74,9 @@ export async function calculatePayrollRun(
   // Wave 6 FQa: a run, employee or assignment this release cannot cost is refused here, before the first write
   // (listSeveranceOnlyRunEmployees below frees reversed payments; applyRunLoans commits loan deductions).
   await assertRunKindSupported(companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
+  // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
+  const frequencyRun = frequencyRunOf(run);
+  if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -95,6 +101,9 @@ export async function calculatePayrollRun(
   // Earlier periods of the tax year, for the cumulative PAYE (PAYE 4a follow-ups G4).
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
   const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
+  // A weekly or fortnightly line's UIF and ETI month to date (payrollRunCadence); none for a monthly run.
+  const cadences = !frequencyRun ? new Map<string, LineCadence>()
+    : await loadLineCadences(companyId, runId, frequencyRun, population.map(p => p.employee));
   // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
   const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
@@ -116,7 +125,7 @@ export async function calculatePayrollRun(
     onWithheld: (w) => withheld.push(w),
     judgePay: (employeeId, applications) => judgeLoanApplications({
       basis: preparedByEmployee.get(employeeId), applications, loanComponents, period, taxYear,
-      ytd: ytdByEmployee.get(employeeId), garnisheeOrders: garnishees.get(employeeId),
+      ytd: ytdByEmployee.get(employeeId), cadence: cadences.get(employeeId), garnisheeOrders: garnishees.get(employeeId),
     }),
     onPayBlocked: (employeeId, applications, rawNet) => blockedLoans.set(employeeId, { applications, rawNet }),
   });
@@ -136,6 +145,7 @@ export async function calculatePayrollRun(
       ytd: ytdByEmployee.get(employee.id),
       notEmployedInPeriod: onlySeverance,
       regularPayDirective,
+      cadence: cadences.get(employee.id),
       garnisheeOrders: onlySeverance ? undefined : garnishees.get(employee.id),
     });
     garnisheeLines.push({ employeeId: employee.id, garnishees: line.garnishees });
