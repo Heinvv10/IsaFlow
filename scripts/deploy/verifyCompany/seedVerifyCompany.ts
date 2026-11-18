@@ -3,7 +3,7 @@
  * user (so every gate, trigger, numbering rule and posting path runs, as scripts/ci/golden-hosted/seed-demo-app.ts does for
  * the hosted CI Demo, whose seeders this reuses). Only what the 24 specs that run in production read: customers and an
  * employee on a basic salary, approved customer and supplier invoices, the 0GP-Golden-Supplier, some posted journals,
- * bank statement rows and an original budget version (the two budget specs skip a company without one). Smaller than
+ * bank statement rows, a cost-of-sales account and an original budget version (the two budget specs skip a company without them). Smaller than
  * the CI Demo: no spec that runs in production measures volume.
  *
  * Idempotent per block: a block whose records are all there is skipped, one with none is made, and one with some is a
@@ -20,6 +20,7 @@ import { CUSTOMER_INVOICES, FIXTURE_SUPPLIER, seedCustomerInvoices, seedFixtureS
 export const VERIFY_COUNTS: SeedCounts = { suppliers: 4, invoices: 12, journals: 6, bankRows: 40, customers: 4 };
 
 const BUDGET_VERSION_NAME = 'Deploy Verification original';
+const COST_OF_SALES = { accountCode: '5150', accountName: 'Cost of Sales', accountType: 'expense', accountSubtype: 'cost_of_sales', normalBalance: 'debit' } as const;
 
 export interface Block {
   name: string;
@@ -76,6 +77,13 @@ export const BLOCKS: Block[] = [
     have: count(`SELECT count(*) AS n FROM bank_transactions WHERE company_id = $1::uuid AND description LIKE 'DEMO-BNK %'`),
     expected: VERIFY_COUNTS.bankRows,
     run: ({ api, months, now }) => seedBankRows(api, months, now.toISOString().slice(0, 10), VERIFY_COUNTS),
+  },
+  {
+    // The seeded chart has no cost-of-sales line, which z-budget-drivers' precheck needs (it skips without one).
+    name: 'cost of sales account',
+    have: count(`SELECT count(*) AS n FROM gl_accounts WHERE company_id = $1::uuid AND account_code = '${COST_OF_SALES.accountCode}'`),
+    expected: 1,
+    run: async ({ api }) => { await api.post('/api/accounting/chart-of-accounts', COST_OF_SALES); },
   },
   {
     // v-budget-workspace and z-budget-drivers skip (not fail) a company whose year has no budget version; the year with
