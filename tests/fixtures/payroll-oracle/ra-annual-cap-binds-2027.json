@@ -47,5 +47,17 @@
     "sdl": 3641.67,
     "eti": 0,
     "net": 192352.13
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 4,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 147470.79
+    },
+    "net": {
+      "cents": 4,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 192352.09
+    }
   }
 }

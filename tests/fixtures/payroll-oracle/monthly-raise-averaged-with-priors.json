@@ -115,5 +115,17 @@
     "paye": 4579.0,
     "uifEmployee": 177.12,
     "net": 25243.88
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 3,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 4579.03
+    },
+    "net": {
+      "cents": 3,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 25243.85
+    }
   }
 }
