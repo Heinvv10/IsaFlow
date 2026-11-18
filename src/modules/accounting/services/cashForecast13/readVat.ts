@@ -4,7 +4,7 @@
  *   - the open period: box 11 accrued from its start to today, plus the budget's settlement for the period
  *     pro rata to the days still to run (an estimate); no budget → accrued only, flagged;
  *   - a period not yet started: the budget's settlement (an estimate); no budget → no line, flagged.
- * Payable (≥ 0) is paid on the calendar due date (already weekend-shifted). A refund is an inflow on the
+ * Payable (≥ 0) is paid on the calendar due date (already moved back off weekends and public holidays). A refund is an inflow on the
  * three-way's timing rule (vatSchedule.vatSettleMonth: period end + `refundLagMonths`), dated the last day of
  * that month because the rule is month-grain.
  */

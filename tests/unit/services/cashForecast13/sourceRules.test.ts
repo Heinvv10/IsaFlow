@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { arItems, medianDaysLate, overdueSummary, type OpenArInvoice } from '@/modules/accounting/services/cashForecast13/arExpected';
-import { payDatesInHorizon } from '@/modules/accounting/services/cashForecast13/payDates';
+import { payDateOf, payDatesInHorizon } from '@/modules/accounting/services/cashForecast13/payDates';
 import { recurringItems, type RecurringTemplateRow } from '@/modules/accounting/services/cashForecast13/recurringItems';
 import { toCents } from '@/modules/accounting/services/cashForecast13/lines';
 
@@ -72,21 +72,35 @@ describe('cash13 AR expected dates', () => {
 });
 
 describe('cash13 pay dates', () => {
-  it('pay day 25 in each month of the horizon, a weekend moved back to Friday', () => {
-    // 2027-01-25 is a Monday; 2026-12-25 is a Friday; 2027-04-25 is a Sunday (outside a Nov horizon).
-    expect(payDatesInHorizon(25, '2026-11-18', '2027-02-14', new Set())).toEqual(['2026-11-25', '2026-12-25', '2027-01-25']);
+  it('pay day 25 in each month of the horizon, a weekend or public holiday moved back to the previous business day', () => {
+    // 2027-01-25 is a Monday; 2026-12-25 is a Friday AND Christmas (back to Thursday 24th); 2027-04-25 is a Sunday.
+    expect(payDatesInHorizon(25, '2026-11-18', '2027-02-14', new Set())).toEqual(['2026-11-25', '2026-12-24', '2027-01-25']);
     expect(payDatesInHorizon(25, '2027-04-01', '2027-06-30', new Set())).toEqual(['2027-04-23', '2027-05-25', '2027-06-25']);
+  });
+
+  it('a pay day on a public holiday goes back: 25 Dec 2026 (Fri) -> 24 Dec; 16 Dec 2026 (Wed, Reconciliation) -> 15 Dec', () => {
+    expect(payDateOf(25, '2026-12')).toBe('2026-12-24');
+    expect(payDateOf(16, '2026-12')).toBe('2026-12-15');
+    expect(payDateOf(25, '2027-12')).toBe('2027-12-24'); // Saturday
+    expect(payDateOf(1, '2027-01')).toBe('2026-12-31'); // New Year's Day, back across the year end
   });
 
   it('skips this month when the pay day has passed, or when the month is already paid', () => {
     expect(payDatesInHorizon(15, '2026-11-18', '2027-02-14', new Set())[0]).toBe('2026-12-15');
-    expect(payDatesInHorizon(25, '2026-11-18', '2027-02-14', new Set(['2026-11']))[0]).toBe('2026-12-25');
+    expect(payDatesInHorizon(25, '2026-11-18', '2027-02-14', new Set(['2026-11']))[0]).toBe('2026-12-24');
   });
 
   it('last working day, and a day past a short month clamps to its last day first', () => {
     // 2027-01-31 is a Sunday → Friday 29th; 2027-02-28 is a Sunday → Friday 26th.
     expect(payDatesInHorizon('last_working_day', '2027-01-04', '2027-04-04', new Set())).toEqual(['2027-01-29', '2027-02-26', '2027-03-31']);
     expect(payDatesInHorizon(31, '2027-02-01', '2027-02-28', new Set())).toEqual(['2027-02-26']);
+  });
+
+  it('last working day of December and of a month ending on Easter weekend', () => {
+    expect(payDateOf('last_working_day', '2026-12')).toBe('2026-12-31'); // Thursday, no holiday
+    expect(payDateOf('last_working_day', '2027-12')).toBe('2027-12-31'); // Friday
+    // 31 Mar 2024 is Easter Sunday: Good Friday 29 Mar is a holiday, so Thursday 28 Mar.
+    expect(payDateOf('last_working_day', '2024-03')).toBe('2024-03-28');
   });
 });
 

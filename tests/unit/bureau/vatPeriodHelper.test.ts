@@ -26,7 +26,7 @@ describe('expectedVatPeriodAsOf', () => {
 
   it('wraps across the year boundary', () => {
     const p = expectedVatPeriodAsOf('odd', new Date('2026-01-10T00:00:00Z'));
-    expect(p).toEqual({ periodStart: '2025-10-01', periodEnd: '2025-11-30', dueDate: '2025-12-25' });
+    expect(p).toEqual({ periodStart: '2025-10-01', periodEnd: '2025-11-30', dueDate: '2025-12-24' }); // Thu 25 Dec (Christmas) → Wed 24 Dec
   });
 
   it('includes a period whose end day matches asOf exactly', () => {

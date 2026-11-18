@@ -11,7 +11,7 @@ import { appToday } from '@/modules/accounting/services/reports/dueByDateService
 import { addDaysISO } from '@/lib/dateUtils';
 import { clearRateLimitCache } from '@/lib/rateLimit';
 import type { CashForecast13 } from '@/modules/accounting/services/cashForecast13/types';
-import { backToFriday } from '@/modules/bureau/services/vatPeriodHelper';
+import { previousBusinessDay } from '@/modules/bureau/services/vatPeriodHelper';
 import { buildWeeks, weekIndexOf } from '@/modules/accounting/services/cashForecast13/weeks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { monthsFrom } from './helpers/budgetGridFixture';
@@ -194,7 +194,7 @@ describe('GET /api/accounting/cash-forecast-13', () => {
     // Last month's EMP201 is pending here. Due before today it is assumed paid (review H1): listed, not forecast;
     // due today or later it is forecast at its run's declaration (R1 800).
     const prevRef = `EMP201:${prevMonth[0]}-${pad(prevMonth[1]!)}-01`;
-    const prevDue = backToFriday(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 7);
+    const prevDue = previousBusinessDay(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 7);
     if (prevDue < today) {
       expect(emp.items.map((i) => i.ref)).not.toContain(prevRef);
       expect(f.warnings.find((w) => w.code === 'sars_past_due_assumed_paid')?.message).toContain(`EMP201 ${prevMonth[0]}-${pad(prevMonth[1]!)}-01`);

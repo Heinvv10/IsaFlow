@@ -1,9 +1,9 @@
 /**
- * Weekend rule for the bureau compliance engine (TAA s244): a statutory due
- * date on a Saturday or Sunday moves BACK to the Friday, for every deadline
- * type, matching the SARS page's calendar (sarsTaxPeriodsService). Public
- * holidays are not shifted (no holiday calendar). CIPC is not a SARS
- * deadline; it gets the same shift for safety.
+ * Weekend and public-holiday rule for the bureau compliance engine (TAA s244): a
+ * statutory due date on a Saturday, Sunday or SA public holiday moves BACK to the
+ * previous business day, for every deadline type, matching the SARS page's
+ * calendar (sarsTaxPeriodsService). CIPC is not a SARS deadline; it gets the
+ * same shift for safety.
  */
 import { describe, it, expect } from 'vitest';
 import { upcomingObligations, type EngineConfig } from '@/modules/bureau/services/complianceCalendarEngine';
@@ -30,6 +30,17 @@ describe('bureau engine — weekend due dates move back to Friday', () => {
   it('VAT: Sunday 25 Oct 2026 → Friday 23 Oct (Cat A Aug–Sep)', () => {
     const items = upcomingObligations(cfg({ vat: { enabled: true, period: 'bi-monthly', alignment: 'odd' } }), utc(2026, 9, 1));
     expect(dues(items, 'vat')).toEqual(['2026-10-23']);
+  });
+
+  it('VAT: Friday 25 Dec 2026 (Christmas) -> Thursday 24 Dec (Cat A Oct–Nov)', () => {
+    const items = upcomingObligations(cfg({ vat: { enabled: true, period: 'bi-monthly', alignment: 'odd' } }), utc(2026, 11, 2));
+    expect(dues(items, 'vat')).toEqual(['2026-12-24']);
+  });
+
+  it('EMP201: Friday 7 Apr 2023 (Good Friday) -> Thursday 6 Apr', () => {
+    const items = dues(upcomingObligations(cfg({ emp201Enabled: true }), utc(2023, 3, 20)), 'emp201');
+    expect(items).toContain('2023-04-06');
+    expect(items).not.toContain('2023-04-07');
   });
 
   it('EMP501 annual: Sunday 31 May 2026 → Friday 29 May', () => {

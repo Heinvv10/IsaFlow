@@ -3,7 +3,7 @@
  * Pure computations — no DB calls. Returns SA VAT and PAYE periods,
  * and a static compliance event calendar.
  */
-import { backToFriday, lastDayOf, vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
+import { previousBusinessDay, lastDayOf, vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
 
 export interface TaxPeriod {
   type: 'VAT' | 'PAYE';
@@ -58,8 +58,9 @@ interface VatFilingPeriod { start: string; end: string; dueDate: string; label: 
  * source of truth for SARS categories): 'odd' = Category A (ends Jan/Mar/...),
  * 'even' = Category B (ends Feb/Apr/...), 'monthly' = Category C.
  * A non-vendor ('none') has none. Due on the 25th of the month after the end,
- * moved back to the Friday when that is a weekend. Public holidays are not
- * shifted (no holiday calendar); eFiling's later deadline is not shown.
+ * moved back to the previous business day when that is a weekend or public
+ * holiday (TAA s244; ad hoc gazetted days are not known); eFiling's later
+ * deadline is not shown.
  */
 function vatFilingPeriods(year: number, alignment: VatAlignment, setting: VatSetting): VatFilingPeriod[] {
   if (setting === 'none') return [];
@@ -68,7 +69,7 @@ function vatFilingPeriods(year: number, alignment: VatAlignment, setting: VatSet
     const endMonth = Number(q.to.slice(5, 7));
     const dueYear = endMonth === 12 ? endYear + 1 : endYear;
     const dueMonth = endMonth === 12 ? 1 : endMonth + 1;
-    return { start: q.from, end: q.to, dueDate: backToFriday(dueYear, dueMonth, 25), label: q.label };
+    return { start: q.from, end: q.to, dueDate: previousBusinessDay(dueYear, dueMonth, 25), label: q.label };
   });
 }
 
@@ -99,7 +100,7 @@ export function getTaxPeriods(year?: number, alignment: VatAlignment = 'odd', se
       type: 'PAYE',
       periodStart: `${y}-${pad(m)}-01`,
       periodEnd: `${y}-${pad(m)}-${pad(lastDay)}`,
-      dueDate: backToFriday(dueYear, dueM, 7),
+      dueDate: previousBusinessDay(dueYear, dueM, 7),
       label: `EMP201 — ${payeMonthNames[m - 1]} ${y}`,
     });
   }
@@ -135,7 +136,7 @@ export function getComplianceCalendar(year?: number, alignment: VatAlignment = '
     const dueMonth = m + 1;
     const dueYear = dueMonth > 12 ? y + 1 : y;
     const dueM = dueMonth > 12 ? 1 : dueMonth;
-    const dueDate = backToFriday(dueYear, dueM, 7);
+    const dueDate = previousBusinessDay(dueYear, dueM, 7);
     events.push({
       eventType: 'EMP201_DUE',
       dueDate,
@@ -146,13 +147,13 @@ export function getComplianceCalendar(year?: number, alignment: VatAlignment = '
     });
   }
 
-  const emp501Annual = backToFriday(y, 5, 31);
-  const emp501Interim = backToFriday(y, 10, 31);
+  const emp501Annual = previousBusinessDay(y, 5, 31);
+  const emp501Interim = previousBusinessDay(y, 10, 31);
   const febEnd = (fy: number) => `${fy}-02-${pad(lastDayOf(fy, 2))}`;
   events.push({ eventType: 'EMP501_DUE', dueDate: emp501Annual, periodStart: `${y - 1}-03-01`, periodEnd: febEnd(y), description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(emp501Annual) });
   events.push({ eventType: 'EMP501_DUE', dueDate: emp501Interim, periodStart: `${y}-03-01`, periodEnd: `${y}-08-31`, description: `EMP501 Interim Reconciliation (Mar–Aug ${y}) — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(emp501Interim) });
-  const irp6First = backToFriday(y, 8, 31);
-  const irp6Second = backToFriday(y + 1, 2, lastDayOf(y + 1, 2));
+  const irp6First = previousBusinessDay(y, 8, 31);
+  const irp6Second = previousBusinessDay(y + 1, 2, lastDayOf(y + 1, 2));
   events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6First, periodStart: `${y}-03-01`, periodEnd: `${y}-08-31`, description: `IRP6 First Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6First) });
   events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6Second, periodStart: `${y}-03-01`, periodEnd: febEnd(y + 1), description: `IRP6 Second Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6Second) });
 

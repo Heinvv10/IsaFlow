@@ -1,22 +1,22 @@
 /**
  * ONE VAT201 due-date rule: the 25th of the month after the period ends,
- * moved back to the Friday on a weekend (TAA s244; public holidays not
- * shifted). vatPeriodHelper owns it; the cockpit (bureauVatSignal), the
+ * moved back to the previous business day on a weekend or public holiday
+ * (TAA s244). vatPeriodHelper owns it; the cockpit (bureauVatSignal), the
  * compliance engine and the SARS page calendar must all agree.
  */
 import { describe, it, expect } from 'vitest';
-import { backToFriday, expectedVatPeriodAsOf, type VatAlignment, type VatCadence } from '@/modules/bureau/services/vatPeriodHelper';
+import { previousBusinessDay, expectedVatPeriodAsOf, type VatAlignment, type VatCadence } from '@/modules/bureau/services/vatPeriodHelper';
 import { shapeVatDue } from '@/modules/bureau/services/bureauVatSignal';
 import type { CompanyMeta } from '@/modules/bureau/services/bureauWorkAggregatorService';
 import { getComplianceCalendar } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
 
 const utc = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
-describe('backToFriday (vatPeriodHelper)', () => {
+describe('previousBusinessDay (vatPeriodHelper)', () => {
   it('Saturday → Friday, Sunday → Friday, weekday unchanged', () => {
-    expect(backToFriday(2026, 4, 25)).toBe('2026-04-24');
-    expect(backToFriday(2026, 10, 25)).toBe('2026-10-23');
-    expect(backToFriday(2026, 6, 25)).toBe('2026-06-25');
+    expect(previousBusinessDay(2026, 4, 25)).toBe('2026-04-24');
+    expect(previousBusinessDay(2026, 10, 25)).toBe('2026-10-23');
+    expect(previousBusinessDay(2026, 6, 25)).toBe('2026-06-25');
   });
 });
 
@@ -54,5 +54,11 @@ describe('vatPeriodHelper agrees with the SARS page calendar', () => {
     }
     expect(helperDues.length).toBe(sars.size);
     expect(helperDues).toEqual([...sars.values()]);
+  });
+});
+
+describe('expectedVatPeriodAsOf — public-holiday due date', () => {
+  it('Cat A Oct–Nov 2026: Friday 25 Dec (Christmas) -> Thursday 24 Dec', () => {
+    expect(expectedVatPeriodAsOf('odd', utc('2026-12-01'))).toEqual({ periodStart: '2026-10-01', periodEnd: '2026-11-30', dueDate: '2026-12-24' });
   });
 });

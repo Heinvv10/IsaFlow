@@ -17,15 +17,16 @@
  *   2nd payment: last day of the year-end month (leap-aware).
  * - CIPC annual return: last day of the anniversary month (always at or
  *   before the true 30-business-day rule, so the simplification is safe).
- * - Weekends (TAA s244): every due date above that falls on a Saturday or
- *   Sunday moves BACK to the Friday — VAT, EMP201, EMP501, IRP6, and CIPC
- *   (not a SARS deadline; shifted for safety). Public holidays are not
- *   shifted (no holiday calendar). Same rule as the SARS page's calendar
- *   (sarsTaxPeriodsService); eFiling's later VAT deadline is not shown.
+ * - Weekends and public holidays (TAA s244): every due date above that falls
+ *   on a Saturday, Sunday or SA public holiday moves BACK to the previous
+ *   business day — VAT, EMP201, EMP501, IRP6, and CIPC (not a SARS deadline;
+ *   shifted for safety). Days gazetted ad hoc (elections) are not known. Same
+ *   rule as the SARS page's calendar (sarsTaxPeriodsService); eFiling's later
+ *   VAT deadline is not shown.
  */
 
 import { MONTHS, formatPeriod } from './bureauWorkTypes';
-import { backToFriday } from './vatPeriodHelper';
+import { previousBusinessDay } from './vatPeriodHelper';
 
 export type ObligationKind =
   | 'vat'
@@ -93,9 +94,9 @@ export function upcomingObligations(
     const y = Math.floor(total / 12);
     const m = (total % 12) + 1;
 
-    // EMP201 — 7th of month m covers payroll month m-1 (weekends pull back)
+    // EMP201 — 7th of month m covers payroll month m-1 (weekends and public holidays pull back)
     if (config.emp201Enabled) {
-      const due = backToFriday(y, m, 7);
+      const due = previousBusinessDay(y, m, 7);
       if (inWindow(due)) {
         const p = prevMonth(y, m);
         items.push({ kind: 'emp201', task: 'EMP201 due', detail: formatPeriod(p.m, p.y), dueDate: due });
@@ -113,7 +114,7 @@ export function upcomingObligations(
       const periodEndIso = iso(y, m, lastDay(y, m));
       if (endsHere && periodEndIso > todayIso) {
         const dueMonth = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
-        const due = backToFriday(dueMonth.y, dueMonth.m, 25);
+        const due = previousBusinessDay(dueMonth.y, dueMonth.m, 25);
         if (inWindow(due)) {
           const detail =
             config.vat.period === 'monthly'
@@ -127,13 +128,13 @@ export function upcomingObligations(
     // EMP501 — interim due 31 Oct, annual due 31 May
     if (config.emp501Enabled) {
       if (m === 10) {
-        const due = backToFriday(y, 10, 31);
+        const due = previousBusinessDay(y, 10, 31);
         if (inWindow(due)) {
           items.push({ kind: 'emp501', task: 'EMP501 reconciliation due', detail: `Interim Mar–Aug ${y}`, dueDate: due });
         }
       }
       if (m === 5) {
-        const due = backToFriday(y, 5, 31);
+        const due = previousBusinessDay(y, 5, 31);
         if (inWindow(due)) {
           items.push({ kind: 'emp501', task: 'EMP501 reconciliation due', detail: `Annual Mar ${y - 1}–Feb ${y}`, dueDate: due });
         }
@@ -144,14 +145,14 @@ export function upcomingObligations(
     if (config.provisionalTax.enabled) {
       const ye = config.provisionalTax.yearEndMonth;
       if (m === ye) {
-        const due = backToFriday(y, m, lastDay(y, m));
+        const due = previousBusinessDay(y, m, lastDay(y, m));
         if (inWindow(due)) {
           items.push({ kind: 'provisional_tax', task: 'Provisional tax (IRP6) due', detail: `2nd payment FY${y}`, dueDate: due });
         }
       }
       const firstMonth = ((ye + 5) % 12) + 1; // 6 months before year end, wrapping
       if (m === firstMonth) {
-        const due = backToFriday(y, m, lastDay(y, m));
+        const due = previousBusinessDay(y, m, lastDay(y, m));
         if (inWindow(due)) {
           // FY label = calendar year of the year-end that follows this 1st payment
           const fyEndYear = firstMonth < ye ? y : y + 1;
@@ -163,7 +164,7 @@ export function upcomingObligations(
     // CIPC annual return — last day of the anniversary month
     if (config.cipc.enabled && config.cipc.anniversaryMonth) {
       if (m === config.cipc.anniversaryMonth) {
-        const due = backToFriday(y, m, lastDay(y, m));
+        const due = previousBusinessDay(y, m, lastDay(y, m));
         if (inWindow(due)) {
           items.push({ kind: 'cipc_annual_return', task: 'CIPC annual return due', detail: `Anniversary month ${MONTHS[m - 1]}`, dueDate: due });
         }

@@ -73,6 +73,12 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
     expect(e).toMatchObject({ id: 'm1', status: 'completed', sarsReference: 'REF-9', filedBy: 'Willie', filedAt: '2026-03-05T08:00:00.000Z' });
   });
 
+  it('a mark made before a holiday shift still matches: EMP201 Mar 2023 now due Thu 6 Apr, stored due date Fri 7 Apr (Good Friday)', async () => {
+    serve([{ id: 'm3', event_type: 'EMP201_DUE', due_date: '2023-04-07', period_start: '2023-03-01', period_end: '2023-03-31', status: 'completed' }]);
+    const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2023), 'EMP201_DUE', '2023-03-31');
+    expect(e).toMatchObject({ id: 'm3', status: 'completed', dueDate: '2023-04-06' });
+  });
+
   it('a mark does not match another period of the same type that shares its stored due date', async () => {
     // Stored due date is January's (6 Feb), but the mark is February's period.
     serve([{ id: 'm2', event_type: 'EMP201_DUE', due_date: '2026-02-06', period_start: '2026-02-01', period_end: '2026-02-28', status: 'completed' }]);

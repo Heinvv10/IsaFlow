@@ -40,7 +40,7 @@ describe('cash13 payroll', () => {
     const items = payrollItems(read, 25, TODAY, END, warnings);
     expect(items.map((i) => [i.date, i.amountCents, i.ref])).toEqual([
       ['2026-11-25', -950_000, 'nov:2026-11-25'],
-      ['2026-12-25', -950_000, 'nov:2026-12-25'],
+      ['2026-12-24', -950_000, 'nov:2026-12-24'],
       ['2027-01-25', -950_000, 'nov:2027-01-25'],
     ]);
     // October's run paid on 2026-10-23 (25th is a Sunday) is not forecast, and is listed.
@@ -52,7 +52,7 @@ describe('cash13 payroll', () => {
     const nov = toMonthlyRun(row({ id: 'nov', period_month: 11, total_net: '9500.00' }));
     const dec = toMonthlyRun(row({ id: 'dec', period_month: 12, total_net: '9800.00' }));
     const items = payrollItems({ latest: dec, runs: [dec, nov], unsupportedFrequency: false }, 25, TODAY, END, []);
-    expect(items.map((i) => [i.date, i.amountCents])).toEqual([['2026-11-25', -950_000], ['2026-12-25', -980_000], ['2027-01-25', -980_000]]);
+    expect(items.map((i) => [i.date, i.amountCents])).toEqual([['2026-11-25', -950_000], ['2026-12-24', -980_000], ['2027-01-25', -980_000]]);
   });
 
   it('a pay date already passed this month is not forecast again; a paid month is skipped', () => {
@@ -60,7 +60,7 @@ describe('cash13 payroll', () => {
     const read: PayrollRead = { latest: oct, runs: [oct], unsupportedFrequency: false };
     expect(payrollItems(read, 15, TODAY, END, []).map((i) => i.date)).toEqual(['2026-12-15', '2027-01-15', '2027-02-15'].filter((d) => d <= END));
     const nov = { ...toMonthlyRun(row({ id: 'n', period_month: 11 })), status: 'paid' };
-    expect(payrollItems({ latest: nov, runs: [nov, oct], unsupportedFrequency: false }, 25, TODAY, END, [])[0]!.date).toBe('2026-12-25');
+    expect(payrollItems({ latest: nov, runs: [nov, oct], unsupportedFrequency: false }, 25, TODAY, END, [])[0]!.date).toBe('2026-12-24');
   });
 
   it('a net pay of zero or less gives no line; no run gives no line', () => {

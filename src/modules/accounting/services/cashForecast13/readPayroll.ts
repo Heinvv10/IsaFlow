@@ -2,7 +2,7 @@
  * Payroll for the forecast (ruling 2026-11-16; review L3). Only REGULAR MONTHLY runs (`run_kind = 'regular'`,
  * `pay_frequency = 'monthly'`, migration 999a) with status approved or paid count; a weekly or fortnightly
  * regular run is warned `payroll_frequency_unsupported`, never guessed as monthly.
- *   - Each pay date (the pay day of a month, back to Friday) from today to the horizon end pays that month's
+ *   - Each pay date (the pay day of a month, back to the previous business day) from today to the horizon end pays that month's
  *     own run net when the month has an approved run, else the latest run's `total_net`. A paid month is not paid again.
  *   - A pay date BEFORE today is assumed paid, as a past SARS due date is (H1): nothing in the app sets a run
  *     to 'paid', so "approved and past its pay date" is how every paid run looks. The recent ones (pay date in
