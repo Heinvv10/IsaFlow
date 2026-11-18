@@ -30,6 +30,10 @@ export interface NonCashBenefitFiling {
   /** SARS income source code the benefit is certified under, e.g. '3801'. */
   sourceCode: string;
   amount: number;
+  /** DBF: what the employer paid a fund under this code when it differs from the benefit (4472 / 4473; BRS p. 103). */
+  employerPaid?: number;
+  /** DBF: what the employer paid for a para 12D(6) member, reported as 4585 / 4586 (BRS p. 105-106), not 4472 / 4473. */
+  retiredMemberPaid?: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -51,7 +55,11 @@ export async function listRunNonCashBenefits(
   const rows = (await sql`
     SELECT l.employee_id,
            regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS source_code,
-           SUM((item->>'amount')::numeric)::numeric AS amount
+           SUM((item->>'amount')::numeric)::numeric AS amount,
+           SUM(COALESCE((item->>'dbEmployerContribution')::numeric, (item->>'amount')::numeric))
+             FILTER (WHERE item->>'dbMemberRetired' IS DISTINCT FROM 'true')::numeric AS employer_paid,
+           SUM((item->>'dbEmployerContribution')::numeric) FILTER (WHERE item->>'dbMemberRetired' = 'true')::numeric AS retired_paid,
+           bool_or(item ? 'dbEmployerContribution') AS has_db
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
@@ -69,9 +77,13 @@ export async function listRunNonCashBenefits(
   const out = new Map<string, NonCashBenefitFiling[]>();
   for (const r of rows) {
     const amount = round2(Number(r.amount));
-    if (amount <= 0) continue; // BRS: no negative amounts, and a nil field is left out
+    // DBF: a defined-benefit fund's payment is kept even when the benefit X is nil (4472 / 4473, or 4585 / 4586).
+    const employerPaid = r.has_db === true ? round2(Number(r.employer_paid ?? 0)) : undefined;
+    const retiredMemberPaid = r.has_db === true ? round2(Number(r.retired_paid ?? 0)) : undefined;
+    if (amount <= 0 && !((employerPaid ?? 0) > 0 || (retiredMemberPaid ?? 0) > 0)) continue; // BRS: no negatives; a nil field is left out
     const key = String(r.employee_id);
-    out.set(key, [...(out.get(key) ?? []), { sourceCode: String(r.source_code), amount }]);
+    out.set(key, [...(out.get(key) ?? []), { sourceCode: String(r.source_code), amount: Math.max(0, amount),
+      ...(employerPaid !== undefined ? { employerPaid } : {}), ...(retiredMemberPaid ? { retiredMemberPaid } : {}) }]);
   }
   return out;
 }

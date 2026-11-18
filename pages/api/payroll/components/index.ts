@@ -88,7 +88,9 @@ async function handler(
     const refused = data.paidOutsidePayroll ? paidOutsidePayrollRefusal(componentType, code) : null;
     if (refused) return apiResponse.badRequest(res, refused);
 
-    const component = await createComponent(companyId, data);
+    // DBF: stored, so a defined-benefit component is then assigned only with its factor (payrollAssignmentWriteGuard).
+    const fund = fundType === 'defined_contribution' || fundType === 'defined_benefit' ? { fundType } as const : {};
+    const component = await createComponent(companyId, { ...data, ...fund });
     return apiResponse.created(res, component);
   }
 

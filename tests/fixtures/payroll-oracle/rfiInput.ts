@@ -6,7 +6,8 @@
  * (markNonCashEmployerBenefits); costRfi then costs it (rfi.costPercentOfRfi). The case's `rfiBase` must equal the RFI the
  * engine derives (a mismatch throws, so a fixture cannot drift from the rule).
  * DBF: `dbMemberCategoryFactor` (a fraction, 0.12 = 12%) adds the employer's defined-benefit pension earning (3817) carrying that
- * factor, the case's 3601 earnings counting as RFI; costRfi values it as a run does (definedBenefitFund.costDefinedBenefitFund). UIF and SDL are levied on the benefit (the run sets
+ * factor, the case's 3601 earnings counting as RFI and its 4001 deductions marked as the compulsory contribution to that fund
+ * (C; db_fund_member_contribution, #1571 round 2); the employer's payment is not in the case (amount 0); costRfi values it as a run does (definedBenefitFund.costDefinedBenefitFund). UIF and SDL are levied on the benefit (the run sets
  * both flags, employerContributions.ts: UI Contributions Act s1; G21 p. 11); the case's UIF is at the ceiling either way.
  */
 import { costPercentOfRfi } from '@/modules/accounting/services/payroll/rfi';
@@ -23,7 +24,8 @@ export function withEmployerRetirement(components: EmployeeComponent[], unmodell
   const flagged = components.map((c) => (c.component.componentType === 'earning' && c.component.sarsSourceCode === '3601'
     ? { ...c, component: { ...c.component, countsAsRfi: true } } : c));
   if (pct === undefined) {
-    return [...flagged, {
+    const marked = flagged.map((c) => (c.component.componentType === 'deduction' && c.component.sarsSourceCode === '4001' ? { ...c, dbFundMemberContribution: true } : c));
+    return [...marked, {
       component: {
         id: 'oracle-er-db-pension', name: 'Employer defined-benefit pension', sarsSourceCode: '3817', componentType: 'earning',
         isTaxable: true, isUifApplicable: true, isSdlApplicable: true,

@@ -26,7 +26,10 @@ const employee: PayrollEmployee = {
 const salary = (n: number): EmployeeComponent => ({ component: comp('3601', { countsAsRfi: true }), amount: n });
 const ee = (code: string, n: number, over: Partial<EmployeeComponent> = {}): EmployeeComponent =>
   ({ component: comp(code, { componentType: 'deduction', isUifApplicable: false, isSdlApplicable: false }), amount: n, ...over });
-const db = (code: string, factor: number): EmployeeComponent => ({ component: comp(code), amount: 0, dbMemberCategoryFactor: factor });
+const db = (code: string, factor: number, paid = 0, over: Partial<EmployeeComponent> = {}): EmployeeComponent =>
+  ({ component: comp(code), amount: paid, dbMemberCategoryFactor: factor, ...over });
+/** The employee's compulsory contribution to the defined-benefit fund: C counts these rows only (#1571 round 2). */
+const own = (code: string, n: number, over: Partial<EmployeeComponent> = {}): EmployeeComponent => ee(code, n, { dbFundMemberContribution: true, ...over });
 
 /** As a run assembles a line (prepareRunComponents): fund benefits marked non-cash, then RFI rows and defined-benefit rows costed. */
 const assemble = (components: EmployeeComponent[], warnings: ValidationResult[] = []) => withRfiCosted(markNonCashEmployerBenefits(components), warnings);
@@ -39,28 +42,30 @@ const line = (components: EmployeeComponent[]) => {
 describe('X = A x B - C [Seventh Schedule para 12D(3), via Sage Pocket Guide 2025-2026 s7.12.2]', () => {
   it('values the row from the factor, RFI and the matching employee contribution, and records all three', () => {
     const warnings: ValidationResult[] = [];
-    const out = assemble([salary(30_000), ee('4001', 2_250), db('3817', 0.12)], warnings);
+    const out = assemble([salary(30_000), own('4001', 2_250), db('3817', 0.12, 2_700)], warnings);
     // 0.12 x 30 000 - 2 250 = 1 350 (oracle case db-fund-12d-category-factor).
-    expect(out[2]).toMatchObject({ amount: 1_350, isNonCash: true, dbMemberCategoryFactor: 0.12, rfiBase: 30_000, dbEmployeeContribution: 2_250 });
+    // The row's stored amount is what the employer pays the fund (2 700); costing keeps it apart from X.
+    expect(out[2]).toMatchObject({ amount: 1_350, isNonCash: true, dbMemberCategoryFactor: 0.12, rfiBase: 30_000, dbEmployeeContribution: 2_250, dbEmployerContribution: 2_700 });
     expect(warnings.map((w) => [w.code, w.severity])).toEqual([['DB_FUND_FACTOR_UNVERIFIED', 'warning']]);
     expect(warnings[0]!.message).toContain('12% of retirement-funding income');
   });
 
   it('C is the employee\'s contribution as costed this run, a percent_of_rfi row included (costed first)', () => {
-    const out = assemble([salary(20_000), ee('4001', 0, { percentOfRfi: 0.075 }), db('3817', 0.2)]);
+    const out = assemble([salary(20_000), own('4001', 0, { percentOfRfi: 0.075 }), db('3817', 0.2)]);
     // C = 7.5% x 20 000 = 1 500; X = 0.2 x 20 000 - 1 500 = 2 500.
     expect(out[2]).toMatchObject({ amount: 2_500, dbEmployeeContribution: 1_500 });
   });
 
-  it('a provident fund (3825) is reduced by the 4003 contributions only, not a 4001', () => {
-    const out = costDefinedBenefitFund([salary(20_000), ee('4001', 1_000), ee('4003', 600), db('3825', 0.1)], []);
+  it('a provident fund (3825) is reduced by the marked 4003 contributions only, not a 4001', () => {
+    const out = costDefinedBenefitFund([salary(20_000), own('4001', 1_000), own('4003', 600), db('3825', 0.1)], []);
     expect(out[3]).toMatchObject({ amount: 1_400, dbEmployeeContribution: 600 });
   });
 
   it('is nil, with a warning, when the employee pays more than A x B', () => {
     const warnings: ValidationResult[] = [];
-    const out = costDefinedBenefitFund([salary(10_000), ee('4001', 1_500), db('3817', 0.1)], warnings);
-    expect(out[2]!.amount).toBe(0);
+    const out = costDefinedBenefitFund([salary(10_000), own('4001', 1_500), db('3817', 0.1, 1_200)], warnings);
+    // X nil, but the employer still pays the fund its 1 200 (GL 2175, 4472).
+    expect(out[2]).toMatchObject({ amount: 0, dbEmployerContribution: 1_200 });
     expect(warnings.map((w) => w.code)).toEqual(['DB_FUND_FACTOR_UNVERIFIED', 'DB_FUND_BENEFIT_NIL']);
   });
 
@@ -85,19 +90,45 @@ describe('X = A x B - C [Seventh Schedule para 12D(3), via Sage Pocket Guide 202
     expect(warnings).toEqual([]);
   });
 
-  it('para 12D(6): on a line that pays a pension or annuity (a retired member) the factor row is nil, with an error', () => {
-    for (const code of ['3603', '3610', '3653', '3660']) {
-      const warnings: ValidationResult[] = [];
-      const out = costDefinedBenefitFund([salary(20_000), { component: comp(code), amount: 5_000 }, db('3817', 0.12)], warnings);
-      expect(out[2]!.amount).toBe(0);
-      expect(warnings.map((w) => [w.code, w.severity])).toEqual([['DB_FUND_RETIRED_MEMBER', 'error']]);
-    }
+  it('C is the MARKED rows only: a voluntary contribution or another fund\'s 4001 is not C (para 12D(3) "C")', () => {
+    const out = costDefinedBenefitFund([salary(20_000), own('4001', 1_500), ee('4001', 1_000), db('3817', 0.4)], []);
+    expect(out[3]).toMatchObject({ amount: 6_500, dbEmployeeContribution: 1_500 });
+  });
+
+  it('4001 deductions with none marked: an error naming the fix (blocks approval); a line with none is non-contributory', () => {
+    const warnings: ValidationResult[] = [];
+    costDefinedBenefitFund([salary(20_000), ee('4001', 1_500), db('3817', 0.4)], warnings);
+    expect(warnings.filter((w) => w.severity === 'error').map((w) => [w.code, w.message.startsWith('Code 3817: mark the employee\'s compulsory contribution')]))
+      .toEqual([['DB_FUND_MEMBER_CONTRIBUTION_UNMARKED', true]]);
+    const none: ValidationResult[] = [];
+    expect(costDefinedBenefitFund([salary(20_000), db('3817', 0.4)], none)[1]).toMatchObject({ amount: 8_000, dbEmployeeContribution: 0 });
+    expect(none.filter((w) => w.severity === 'error')).toEqual([]);
+  });
+
+  it('two factor rows of the same kind subtract C once (refused at assignment; the run never double-counts)', () => {
+    const out = costDefinedBenefitFund([salary(20_000), own('4001', 1_500), db('3817', 0.2), db('3817', 0.2)], []);
+    expect([out[2]!.amount, out[3]!.amount]).toEqual([2_500, 4_000]);
+  });
+
+  it('para 12D(6): a retired member\'s row (db_member_retired) has no value, keeps the payment, and says 4585', () => {
+    const warnings: ValidationResult[] = [];
+    const out = costDefinedBenefitFund([salary(20_000), db('3817', 0.12, 2_000, { dbMemberRetired: true })], warnings);
+    expect(out[1]).toMatchObject({ amount: 0, dbEmployerContribution: 2_000, dbMemberRetired: true });
+    expect(warnings.map((w) => [w.code, w.severity])).toEqual([['DB_FUND_MEMBER_RETIRED', 'warning']]);
+    expect(warnings[0]!.message).toMatch(/reported as 4585/);
+  });
+
+  it('an active member paid a 3610 annuity on the same line is valued as usual (no pension-code proxy)', () => {
+    const warnings: ValidationResult[] = [];
+    const out = costDefinedBenefitFund([salary(20_000), { component: comp('3610'), amount: 3_000 }, own('4001', 1_500), db('3817', 0.4)], warnings);
+    expect(out[3]!.amount).toBe(6_500);
+    expect(warnings.filter((w) => w.severity === 'error')).toEqual([]);
   });
 });
 
 describe('the s11F cap binds on the employee\'s and the deemed defined-benefit contribution together [G21 (2027) p. 10]', () => {
   // Oracle case db-fund-12d-s11f-cap-binds: X = 0.40 x 20 000 - 1 500 = 6 500; 1 500 + 6 500 = 8 000 > 27.5% x 26 500 = 7 287.50.
-  const l = line([salary(20_000), ee('4001', 1_500), db('3817', 0.4)]);
+  const l = line([salary(20_000), own('4001', 1_500), db('3817', 0.4)]);
 
   it('deducts 7 287.50, not the 8 000 contributed', () => {
     expect(l.retirementContributions).toBe(8_000);
@@ -136,7 +167,9 @@ describe('dbFactorRefusal: where a factor may go (the service judges it before t
   it('refuses a retirement annuity, a deduction, an amount, a once-off and a factor out of range', () => {
     expect(dbFactorRefusal({ ...ok, code: '3828' })).toMatch(/retirement annuity/);
     expect(dbFactorRefusal({ ...ok, componentType: 'deduction', code: '4001' })).toMatch(/3817/);
-    expect(dbFactorRefusal({ ...ok, amount: 100 })).toMatch(/amount 0/);
+    expect(dbFactorRefusal({ ...ok, amount: 100 })).toBeNull(); // what the employer pays the fund (#1571 H)
+    expect(dbFactorRefusal({ ...ok, amount: -1 })).toMatch(/0 or more/);
+    expect(dbFactorRefusal({ ...ok, fundType: 'defined_contribution' })).toMatch(/defined-contribution fund/);
     expect(dbFactorRefusal({ ...ok, isRecurring: false })).toMatch(/recurring/);
     for (const factor of [0, -0.1, 1.2, 0.12345, Number.NaN, '0.12']) expect(dbFactorRefusal({ ...ok, factor })).toMatch(/fraction/);
   });

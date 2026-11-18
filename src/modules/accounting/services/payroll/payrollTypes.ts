@@ -104,6 +104,12 @@ export interface EmployeeComponent {
   dbMemberCategoryFactor?: number | null;
   /** Set by costDefinedBenefitFund: C, the employee's own contributions to that fund the value was reduced by. */
   dbEmployeeContribution?: number;
+  /** DBF: on a factor row, para 12D(6) (retired / a deceased member's dependant or nominee): no value, reported as 4585 / 4586. */
+  dbMemberRetired?: boolean;
+  /** DBF: on a 4001 / 4003 deduction, the compulsory contribution to the defined-benefit fund (C counts these rows only). */
+  dbFundMemberContribution?: boolean;
+  /** Set by costDefinedBenefitFund: what the employer pays the fund (the row's stored amount); `amount` becomes the fringe X. */
+  dbEmployerContribution?: number;
 }
 
 export type { OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
@@ -224,6 +230,9 @@ export interface ComponentBreakdownItem {
   /** DBF (migration 999s): a defined-benefit row, as costed: amount = max(0, round2(factor x rfiBase - dbEmployeeContribution)). */
   dbMemberCategoryFactor?: number;
   dbEmployeeContribution?: number;
+  /** DBF: the contribution the employer pays the fund (GL 2175, IRP5 4472 / 4473, or 4585 / 4586 when dbMemberRetired). */
+  dbEmployerContribution?: number;
+  dbMemberRetired?: true;
 }
 
 export type { PayeYearToDate } from './payrollTypesYtd';

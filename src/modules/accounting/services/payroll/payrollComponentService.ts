@@ -53,7 +53,7 @@ export async function getEmployeeComponents(
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
-      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.percent_of_rfi, pec.employer_fund_as_cash, pec.db_member_category_factor,
+      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.percent_of_rfi, pec.employer_fund_as_cash, pec.db_member_category_factor, pec.db_member_retired, pec.db_fund_member_contribution,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
     FROM payroll_employee_components pec
@@ -112,8 +112,10 @@ export async function getEmployeeComponents(
     quantityUnit: r.quantity_unit == null ? null : (String(r.quantity_unit) as QuantityUnit),
     // A percent row's amount is 0 in the table: the run costs it on the line's RFI (payrollRunComponents.withRfiCosted).
     percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
-    // DBF: likewise 0 in the table; the run values it per para 12D(3) (payrollRunComponents.withRfiCosted, definedBenefitFund.ts).
+    // DBF: amount is what the employer pays the fund; the run values the fringe X per para 12D(3) (definedBenefitFund.ts).
     ...(r.db_member_category_factor == null ? {} : { dbMemberCategoryFactor: Number(r.db_member_category_factor) }),
+    ...(r.db_member_retired === true ? { dbMemberRetired: true } : {}),
+    ...(r.db_fund_member_contribution === true ? { dbFundMemberContribution: true } : {}),
     // RF opt-out: an assignment migration 975 found keeps the cash treatment (employerContributions.ts).
     ...(r.employer_fund_as_cash === true ? { employerFundAsCash: true } : {}),
   }));
@@ -130,7 +132,8 @@ export class PaidOutsidePayrollRefusedError extends Error {
 /** A new component: earnings and deductions only, the types the calculator processes (employer contributions are refused). */
 export async function createComponent(
   companyId: string,
-  data: Omit<PayrollComponent, 'id' | 'componentType'> & { componentType: 'earning' | 'deduction' },
+  // DBF: fundType is stored (fund_type, 999s) for an employer fund contribution, as componentRfiRefusal judged it.
+  data: Omit<PayrollComponent, 'id' | 'componentType'> & { componentType: 'earning' | 'deduction'; fundType?: 'defined_contribution' | 'defined_benefit' },
 ): Promise<PayrollComponent> {
   // A boolean or absent: anything else ("true", 1) would read as false and the contribution come out of net pay.
   const flag: unknown = data.paidOutsidePayroll;
@@ -142,10 +145,10 @@ export async function createComponent(
   const rows = (await sql`
     INSERT INTO payroll_components (
       company_id, name, sars_source_code, component_type,
-      is_taxable, is_uif_applicable, is_sdl_applicable, paid_outside_payroll, counts_as_rfi
+      is_taxable, is_uif_applicable, is_sdl_applicable, paid_outside_payroll, counts_as_rfi, fund_type
     ) VALUES (
       ${companyId}::uuid, ${data.name}, ${data.sarsSourceCode}, ${data.componentType},
-      ${data.isTaxable}, ${data.isUifApplicable}, ${data.isSdlApplicable}, ${paidOutsidePayroll}, ${data.countsAsRfi === true}
+      ${data.isTaxable}, ${data.isUifApplicable}, ${data.isSdlApplicable}, ${paidOutsidePayroll}, ${data.countsAsRfi === true}, ${data.fundType ?? null}
     )
     RETURNING *
   `) as Row[];

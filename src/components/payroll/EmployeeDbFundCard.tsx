@@ -1,8 +1,10 @@
 /**
  * EmployeeDbFundCard (wave 6 DBF): the employer's defined-benefit pension or provident fund contributions (3817 / 3825
  * earnings) set by the fund member category factor, with Edit dates and End on each, and a form to add one. Each run values
- * such a row per the Seventh Schedule para 12D(3): factor x retirement-funding income, less the employee's own contributions
- * to the fund (definedBenefitFund.ts). The factor is the value on the fund's certificate for the employee's category
+ * such a row per the Seventh Schedule para 12D(3): factor x retirement-funding income, less the employee's compulsory
+ * contributions to the fund, marked below (EmployeeDbFundContributionMarks; definedBenefitFund.ts). Each row also says what
+ * the employer pays the fund (its amount: GL 2175, IRP5 4472 / 4473), and may be a para 12D(6) member (retired, or a
+ * deceased member's dependant or nominee: no value, 4585 / 4586). The factor is the value on the fund's certificate for the employee's category
  * (para 12D(4)); the payroll never derives it. A defined-contribution fund (para 12D(2)) is entered as an amount or a % of
  * RFI instead. Shown only to the roles that may write pay detail (owner, admin, manager: the page's `mayWrite`, and the
  * route's withPayrollDetailAccess); the server also refuses a factor from a Login-as session (assignComponentToEmployee).
@@ -14,12 +16,13 @@ import { DateField } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatCurrency } from '@/utils/formatters';
 import { AssignmentDatesEditor } from './AssignmentDatesEditor';
+import { contributionRows, EmployeeDbFundContributionMarks, type ContributionRow } from './EmployeeDbFundContributionMarks';
 
 interface CatalogueRow { id: string; name: string; sarsSourceCode: string; componentType: string }
-export interface DbAssignmentRow {
-  id: string; componentId: string; componentName: string; effectiveFrom: string; effectiveTo: string | null;
-  dbMemberCategoryFactor?: number | null;
+export interface DbAssignmentRow extends ContributionRow {
+  componentId: string; dbMemberCategoryFactor?: number | null; dbMemberRetired?: boolean;
 }
 interface Props {
   employeeId: string;
@@ -41,6 +44,12 @@ export function isDbEligible(c: CatalogueRow): boolean {
   return c.componentType === 'earning' && ['3817', '3825'].includes(c.sarsSourceCode.trim());
 }
 
+/** "2200" or "2 200.50" → 2200.5; null unless it is an amount of 0 or more in cents. */
+export function parseRand(text: string): number | null {
+  const t = text.replace(/\s/g, '');
+  return /^\d+(\.\d{1,2})?$/.test(t) ? Number(t) : null;
+}
+
 /** "0.12" → 0.12; null unless it is a number above 0 and at most 1 with at most four decimals. */
 export function parseFactor(text: string): number | null {
   const t = text.trim();
@@ -55,6 +64,8 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
   const [error, setError] = useState('');
   const [componentId, setComponentId] = useState<string | null>(null);
   const [factorText, setFactorText] = useState('');
+  const [paidText, setPaidText] = useState('');
+  const [retired, setRetired] = useState(false);
   const [from, setFrom] = useState<string | null>(todayInSast());
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,14 +87,17 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
 
   const rows = (all ?? []).filter((r) => r.dbMemberCategoryFactor != null);
   const factor = parseFactor(factorText);
+  const paid = parseRand(paidText);
   const add = async () => {
-    if (!componentId || factor == null || !from) return;
+    if (!componentId || factor == null || paid == null || !from) return;
     setSaving(true);
     setError('');
     try {
-      const res = await apiFetch(url, { method: 'POST', body: JSON.stringify({ componentId, amount: 0, dbMemberCategoryFactor: factor, effectiveFrom: from, isRecurring: true }) });
+      const res = await apiFetch(url, { method: 'POST', body: JSON.stringify({ componentId, amount: paid, dbMemberCategoryFactor: factor, dbMemberRetired: retired, effectiveFrom: from, isRecurring: true }) });
       await assertOk(res, ADD_FAILED);
       setFactorText('');
+      setPaidText('');
+      setRetired(false);
       setComponentId(null);
       await load();
       onChanged?.();
@@ -113,7 +127,7 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
             <li key={r.id}>
               <div className="flex items-center gap-2">
                 <span className="flex-1"><span className="font-medium">{r.componentName}</span>: factor {Number(Number(r.dbMemberCategoryFactor).toFixed(4))},
-                  from {formatDisplayDate(r.effectiveFrom)}{r.effectiveTo ? ` to ${formatDisplayDate(r.effectiveTo)}` : ''}</span>
+                  employer pays {formatCurrency(r.amount)}{r.dbMemberRetired ? ', retired or dependant/nominee member (para 12D(6))' : ''}, from {formatDisplayDate(r.effectiveFrom)}{r.effectiveTo ? ` to ${formatDisplayDate(r.effectiveTo)}` : ''}</span>
                 {onEditDates && <button type="button" className={ICON} aria-label={`Edit dates for ${r.componentName}`} title="Edit dates"
                   onClick={() => setEditingId(editingId === r.id ? null : r.id)}><CalendarRange className="h-4 w-4" /></button>}
                 {onEnd && !r.effectiveTo && <button type="button" className={ICON} aria-label={`End ${r.componentName}`} title="End"
@@ -127,7 +141,8 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
           ))}
         </ul>
       )}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_15rem_12rem_auto] sm:items-end">
+      {all !== null && rows.length > 0 && <EmployeeDbFundContributionMarks url={url} rows={contributionRows(all, todayInSast())} onChanged={async () => { await load(); onChanged?.(); }} />}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_14rem_11rem_11rem_auto] lg:items-end">
         <Select id="db-component" label="Employer fund contribution" value={componentId} options={options} onChange={setComponentId}
           placeholder={options.length ? 'Select a 3817 or 3825 component…' : 'No 3817 or 3825 component'} />
         <div>
@@ -135,14 +150,24 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
           <input id="db-factor" inputMode="decimal" className={INPUT} value={factorText} onChange={(e) => setFactorText(e.target.value)}
             placeholder="0.12" aria-describedby="db-factor-help" aria-invalid={factorText.trim() !== '' && factor == null} />
         </div>
+        <div>
+          <label htmlFor="db-paid" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Employer pays the fund (R a month)</label>
+          <input id="db-paid" inputMode="decimal" className={INPUT} value={paidText} onChange={(e) => setPaidText(e.target.value)}
+            placeholder="2200" aria-invalid={paidText.trim() !== '' && paid == null} />
+        </div>
         <DateField label="Effective from" required value={from} onChange={(iso, v) => setFrom(v.valid ? iso : null)} />
-        <button type="button" onClick={() => void add()} disabled={saving || !componentId || factor == null || !from}
+        <button type="button" onClick={() => void add()} disabled={saving || !componentId || factor == null || paid == null || !from}
           className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
         </button>
       </div>
+      <label className="mt-2 flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+        <input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} />
+        Retired or dependant/nominee member (para 12D(6)): no taxable value; the payment is reported as 4585 / 4586
+      </label>
       <p id="db-factor-help" className="mt-2 text-xs text-[var(--ff-text-secondary)]">
-        {factorText.trim() !== '' && factor == null ? 'Enter a fraction above 0 and at most 1, to four decimals. ' : ''}{FACTOR_HELP}
+        {factorText.trim() !== '' && factor == null ? 'Enter a fraction above 0 and at most 1, to four decimals. ' : ''}
+        {paidText.trim() !== '' && paid == null ? 'Enter what the employer pays the fund, in rand and cents (0 if nothing). ' : ''}{FACTOR_HELP}
       </p>
     </section>
   );

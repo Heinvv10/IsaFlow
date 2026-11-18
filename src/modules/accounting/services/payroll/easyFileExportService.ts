@@ -49,7 +49,7 @@ import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
-import { employerFundContributionFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
+import { employerFundContributionFields, retiredMemberFundFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -195,6 +195,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     ...employerFund,
     // 4582 (BRS p. 105): mandatory with 3701 / 3802, kept inside 20-80% of them (allowanceCertificateFields).
     emp.paye4582 !== undefined ? formatField(4582, emp.paye4582, 'N') : null,
+    ...retiredMemberFundFields(emp.fringeBenefits ?? []), // DBF: 4585 / 4586, para 12D(6) members (BRS p. 105-106)
     '9999,9999',
   ];
   const record = withDeductionTotal(lines.filter((l): l is string => l !== null));

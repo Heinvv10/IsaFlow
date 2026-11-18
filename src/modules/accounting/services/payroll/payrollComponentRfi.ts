@@ -74,9 +74,9 @@ export function componentRfiRefusal(c: { componentType: string; code: string; is
 export async function judgeDbFactor(tx: TxSql, companyId: string, componentId: string,
   a: { factor: unknown; percentOfRfi: number | null; amount: number; isRecurring: boolean }): Promise<void> {
   const row = ((await tx`
-    SELECT component_type, sars_source_code FROM payroll_components WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
+    SELECT component_type, sars_source_code, fund_type FROM payroll_components WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[])[0];
-  const refused = row ? dbFactorRefusal({ ...a, componentType: String(row.component_type), code: String(row.sars_source_code) })
+  const refused = row ? dbFactorRefusal({ ...a, componentType: String(row.component_type), code: String(row.sars_source_code), fundType: row.fund_type == null ? null : String(row.fund_type) })
     : 'That pay component was not found in this company';
   if (refused) throw new EmployeeComponentRefused(refused);
 }

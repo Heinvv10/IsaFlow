@@ -2,7 +2,8 @@
  * Employee Component Assignment API
  * GET    /api/payroll/employees/:id/components          - List assignments
  * POST   /api/payroll/employees/:id/components          - Assign a component
- * PATCH  /api/payroll/employees/:id/components?aid=...  - Edit an assignment's dates (open or ended)
+ * PATCH  /api/payroll/employees/:id/components?aid=...  - Edit an assignment's dates (open or ended), or, with
+ *                                                         { dbFundMemberContribution }, mark a 4001 / 4003 as the DB fund contribution
  * DELETE /api/payroll/employees/:id/components?aid=...  - End an assignment
  */
 
@@ -25,6 +26,7 @@ import { updateEmployeeComponentDates } from '@/modules/accounting/services/payr
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { DbFactorConflict, setDbFundMemberContribution } from '@/modules/accounting/services/payroll/definedBenefitAssignment';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -45,7 +47,7 @@ async function handler(
 
   // POST — assign a component to the employee
   if (req.method === 'POST') {
-    const { componentId, amount, effectiveFrom, effectiveTo, isRecurring, percentOfRfi, dbMemberCategoryFactor } = req.body as {
+    const { componentId, amount, effectiveFrom, effectiveTo, isRecurring, percentOfRfi, dbMemberCategoryFactor, dbMemberRetired } = req.body as {
       componentId?: string;
       amount?: number;
       effectiveFrom?: string;
@@ -56,6 +58,8 @@ async function handler(
       /** DBF: the fund member category factor on the fund's certificate (para 12D(4); 0.12 = 12%), for a defined-benefit or mixed
        *  category only, with amount 0; judged by the service before the write. A defined-contribution row sends an amount instead (12D(2)). */
       dbMemberCategoryFactor?: unknown;
+      /** DBF: a para 12D(6) member (retired, or a deceased member's dependant or nominee); only with the factor. */
+      dbMemberRetired?: unknown;
     };
 
     if (!componentId) return apiResponse.badRequest(res, 'componentId is required');
@@ -74,12 +78,31 @@ async function handler(
         { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
         percentOfRfi === undefined || percentOfRfi === null ? null : (percentOfRfi as number),
         dbMemberCategoryFactor === undefined || dbMemberCategoryFactor === null ? null : dbMemberCategoryFactor,
+        dbMemberRetired === undefined || dbMemberRetired === null ? false : dbMemberRetired,
       );
       res.status(201).json({ success: true, data: assignment });
       return;
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      if (err instanceof DbFactorConflict) return apiResponse.conflict(res, err.message);
       if (respondIfImpersonationForbidden(res, err)) return;
+      throw err;
+    }
+  }
+
+  // PATCH with { dbFundMemberContribution }: mark the 4001 / 4003 deduction as the DB fund contribution (DBF, C in para 12D(3)).
+  if (req.method === 'PATCH' && req.body && typeof req.body === 'object' && 'dbFundMemberContribution' in req.body) {
+    const { aid } = req.query;
+    if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
+    try {
+      const changed = await setDbFundMemberContribution(companyId, aid, (req.body as { dbFundMemberContribution: unknown }).dbFundMemberContribution,
+        { userId: req.user.id, userEmail: req.user.email, channel: 'rest' });
+      if (!changed) return apiResponse.notFound(res, 'Component assignment');
+      return apiResponse.success(res, { updated: aid });
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      if (respondIfImpersonationForbidden(res, err)) return;
+      if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
   }

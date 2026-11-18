@@ -57,14 +57,14 @@ const label = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300';
 
 /** A percent or defined-benefit row stores amount 0 (the run costs it): say how it is costed, never "R 0.00". */
 function amountText(a: Assignment): string {
-  if (a.dbMemberCategoryFactor != null) return `factor ${Number(a.dbMemberCategoryFactor.toFixed(4))} (para 12D)`;
+  if (a.dbMemberCategoryFactor != null) return `factor ${Number(a.dbMemberCategoryFactor.toFixed(4))} (para 12D), ${formatCurrency(a.amount)} paid`;
   if (a.percentOfRfi != null) return `${Number((a.percentOfRfi * 100).toFixed(2))}% of RFI`;
   return formatCurrency(a.amount);
 }
 function amountTitle(a: Assignment): string | undefined {
   if (a.dbMemberCategoryFactor != null) {
-    return 'Defined-benefit fund: valued by each pay run as the fund member category factor x retirement-funding income, less the '
-      + 'employee\'s own contributions to the fund (para 12D(3))';
+    return 'Defined-benefit fund: the employer pays the fund the amount shown; each pay run values the taxable benefit as the fund member '
+      + 'category factor x retirement-funding income, less the employee\'s compulsory contributions to the fund (para 12D(3))';
   }
   return a.percentOfRfi != null ? 'Costed by each pay run on the earnings that count as retirement-funding income' : undefined;
 }

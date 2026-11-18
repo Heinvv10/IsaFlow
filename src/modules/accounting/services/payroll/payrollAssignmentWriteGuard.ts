@@ -11,8 +11,10 @@ import { fmtDate } from '@/lib/fmtDate';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import type { PaidPeriod } from './payrollComponentPaidMonths';
 import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
+import { refuseDbComponentWithoutFactor } from './definedBenefitAssignment';
 
-export interface AssignmentWrite { employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean }
+/** `dbFactor`: the row carries a defined-benefit factor (DBF); a defined_benefit component without one is refused on every path. */
+export interface AssignmentWrite { employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean; dbFactor?: boolean }
 export interface WriteGuardOptions { paid?: PaidPeriod[]; named?: boolean; overlap?: boolean }
 
 async function refuseOverlap(tx: TxSql, companyId: string, a: AssignmentWrite): Promise<void> {
@@ -38,6 +40,7 @@ export async function refuseAssignmentWrite(
   tx: TxSql, companyId: string, a: AssignmentWrite, opts: WriteGuardOptions = {},
 ): Promise<void> {
   try {
+    await refuseDbComponentWithoutFactor(tx, companyId, a.componentId, a.dbFactor === true);
     if (!a.recurring) {
       refuseOnceOffSpan(a.from, a.to);
       await refuseOnceOffInPaidMonth(tx, companyId, a.from, a.to, null, opts.paid);

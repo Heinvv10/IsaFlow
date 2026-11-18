@@ -32,8 +32,11 @@ export interface RetirementContributions {
 
 const field = (code: number, amount: number): string | null => (Math.floor(amount) > 0 ? formatField(code, amount, 'N') : null);
 
-/** A certificate's non-cash income by code (payrollNonCashFiling.NonCashBenefitFiling). */
-export interface CertifiedBenefit { sourceCode: string; amount: number }
+/**
+ * A certificate's non-cash income by code (payrollNonCashFiling.NonCashBenefitFiling). DBF: `employerPaid` is what the
+ * employer paid a defined-benefit fund when that differs from the benefit; `retiredMemberPaid`, its para 12D(6) payments.
+ */
+export interface CertifiedBenefit { sourceCode: string; amount: number; employerPaid?: number; retiredMemberPaid?: number }
 
 /** Benefit code → [the employee's contribution code it is deemed into, the employer's contribution code] (BRS p. 55, 101-103). */
 const EMPLOYER_FUND_CODES: ReadonlyArray<[string, keyof Omit<RetirementContributions, 'donations4030'>, number]> = [
@@ -55,11 +58,24 @@ export function withDeemedEmployerContributions(r: RetirementContributions | und
 const EMPLOYER_CONTRIBUTION_FIELDS: ReadonlyArray<[string, number]> = [['3817', 4472], ['3825', 4473], ['3810', 4474], ['3828', 4475]];
 
 /**
- * The employer's own contribution codes in code order, each equal to its benefit; none without a value: 4472 / 4473 / 4475
- * (pension, provident, RA; RF) and 4474, the medical scheme contribution (V13.1 rule "3810 must equal 4474"; FB).
+ * The employer's own contribution codes in code order; none without a value: 4472 / 4473 / 4475 (pension, provident, RA;
+ * RF) and 4474, the medical scheme contribution (V13.1 rule "3810 must equal 4474"; FB). Each equals its benefit, except a
+ * defined-benefit fund's (DBF): 4472 / 4473 are the "contributions paid" (BRS V25.3.0 p. 103), `employerPaid`, excluding
+ * 4585 / 4586, while 3817 / 3825 carry the para 12D(3) value.
  */
 export function employerFundContributionFields(fringe: readonly CertifiedBenefit[]): string[] {
-  return EMPLOYER_CONTRIBUTION_FIELDS.map(([code, employer]) => field(employer, benefitTotal(fringe, code))).filter((l): l is string => l !== null);
+  const paid = (code: string): number => fringe.filter((f) => f.sourceCode === code).reduce((n, f) => n + (f.employerPaid ?? f.amount), 0);
+  return EMPLOYER_CONTRIBUTION_FIELDS.map(([code, employer]) => field(employer, paid(code))).filter((l): l is string => l !== null);
+}
+
+/**
+ * DBF: 4585 / 4586, the employer's pension / provident contributions for a member who retired from the fund, or for a
+ * deceased member's dependants or nominees, the "no value" members of para 12D(6) (BRS V25.3.0 p. 105-106); with 4472 / 4473
+ * nil, 3817 / 4001 (3825 / 4003) must be nil (p. 54). After 4582, in code order; none without a value.
+ */
+export function retiredMemberFundFields(fringe: readonly CertifiedBenefit[]): string[] {
+  const paid = (code: string): number => fringe.filter((f) => f.sourceCode === code).reduce((n, f) => n + (f.retiredMemberPaid ?? 0), 0);
+  return [field(4585, paid('3817')), field(4586, paid('3825'))].filter((l): l is string => l !== null);
 }
 
 

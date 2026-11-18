@@ -20,7 +20,8 @@ export async function runEmployerNonCash(companyId: string, runId: string): Prom
            COALESCE(SUM(x.amount) FILTER (WHERE x.code = '3810'), 0) AS employer_medical,
            COALESCE(SUM(x.amount) FILTER (WHERE x.code IN ('3817', '3825', '3828')), 0) AS employer_retirement
       FROM (
-        SELECT l.employee_id, (item->>'amount')::numeric AS amount,
+        -- DBF: a defined-benefit row's amount is the fringe X; the fund is paid dbEmployerContribution (definedBenefitFund.ts).
+        SELECT l.employee_id, COALESCE((item->>'dbEmployerContribution')::numeric, (item->>'amount')::numeric) AS amount,
                regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS code
           FROM payroll_run_lines l
           JOIN payroll_run_headers h ON h.id = l.run_id

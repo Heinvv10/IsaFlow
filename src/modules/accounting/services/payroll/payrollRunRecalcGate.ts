@@ -5,6 +5,7 @@
  *     than PAYROLL_CALCULATION_VERSION: its lines were read under other rules.
  *   - components_changed_after_calculation: an employee on the run had an assignment's dates changed (Edit dates,
  *     End, cancel, the pay-run grid: audit_log entity payroll_employee_component; a removal by its metadata) after calculation.
+ *   - db_fund_unsettled (DBF): a line carries DB_FUND_MEMBER_CONTRIBUTION_UNMARKED or DB_FUND_FACTOR_WRONG_CODE;
  *   - fringe_benefit_not_applied: a line carries FRINGE_BENEFIT_NOT_APPLIED or MEDICAL_BENEFIT_NOT_TAXABLE (wave 5 FB), or
  *     RETIREMENT_BENEFIT_NOT_TAXABLE (wave 5 RF: a non-taxable 3817 / 3825 / 3828) as an error.
  *   - components_changed_after_calculation also covers a component's counts_as_rfi switched after calculation (audit entity
@@ -173,6 +174,23 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       code: 'fringe_benefit_not_applied',
       detail: `${untaxed.map((r) => String(r.employee_number)).join(', ')}: a fringe benefit (company vehicle, or an employer medical or retirement fund contribution coded 3810, 3817, 3825 or 3828) is not on the payslip `
         + 'or is not taxable, so PAYE is understated. Fix the component or the vehicle record (see the line\'s validation message) and recalculate.',
+    };
+  }
+  // DBF: a defined-benefit fund valued on an unknown C (no 4001 / 4003 marked as the fund contribution) or on the wrong code.
+  const dbUnsettled = (await sql`
+    SELECT e.employee_number
+    FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id
+    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND jsonb_path_exists(l.validation_results, '$[*] ? (@.severity == "error" && (@.code == "DB_FUND_MEMBER_CONTRIBUTION_UNMARKED" || @.code == "DB_FUND_FACTOR_WRONG_CODE"))')
+    ORDER BY 1
+  `) as DbRow[];
+  if (dbUnsettled.length > 0) {
+    return {
+      code: 'db_fund_unsettled',
+      detail: `${dbUnsettled.map((r) => String(r.employee_number)).join(', ')}: a defined-benefit fund contribution cannot be valued: mark the employee's `
+        + 'compulsory contribution to this fund (employee profile, Defined-benefit fund contributions), or move the factor to the 3817 / 3825 component, then recalculate.',
     };
   }
   // A run of the month costed on an SDL decision the month, judged now, no longer gives (payrollSdlMonthGate, wave 6 FQb1).
