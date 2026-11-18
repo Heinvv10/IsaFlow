@@ -85,7 +85,7 @@ export function WarningsList({ warnings }: { warnings: readonly ForecastWarning[
                 <details className="mt-1 text-xs text-ink-muted">
                   <summary className="cursor-pointer">Show the {t.items.length} returns</summary>
                   <ul className="mt-1 list-none space-y-0.5 pl-0 tabular-nums">
-                    {t.items.map((line, j) => <li key={j}>{line}</li>)}
+                    {t.items.map((line) => <li key={line}>{line}</li>)}
                   </ul>
                 </details>
               )}
