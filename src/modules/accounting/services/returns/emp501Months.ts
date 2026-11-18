@@ -21,10 +21,13 @@ import type { DbRow } from '@/lib/neon';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
+import { conflictsOutsideReturn, monthName, monthsName, rowName } from './emp501LegacyConflicts';
 import { mapVersion } from './returnVersionStore';
 import type { ReturnVersion } from './returnVersionTypes';
 
 export interface MonthTotals { paye: number; uif: number; sdl: number }
+
+export { monthName, monthsName, rowName };
 
 /** A legacy EMP201 submission: the months (YYYY-MM) it covers inside the period, and its stored totals if any. */
 export interface LegacyEmp201 {
@@ -76,18 +79,6 @@ export interface Emp501Filings {
 const ZERO: MonthTotals = { paye: 0, uif: 0, sdl: 0 };
 export const cents = (n: number): number => Math.round(n * 100) / 100;
 const add = (a: MonthTotals, b: MonthTotals): MonthTotals => ({ paye: cents(a.paye + b.paye), uif: cents(a.uif + b.uif), sdl: cents(a.sdl + b.sdl) });
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-/** 'June 2025' for '2025-06'. */
-export const monthName = (ym: string): string => `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
-/** 'March 2025 to April 2025 (reference X)': a legacy row by its own span and reference. */
-export function rowName(r: Pick<LegacyEmp201, 'start' | 'end' | 'reference'>): string {
-  const span = [r.start.slice(0, 7), r.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i);
-  return `${monthsName(span)} (reference ${r.reference ?? 'none'})`;
-}
-
-/** 'March 2025' or 'March 2025 to April 2025'. */
-export const monthsName = (ms: string[]): string => (ms.length <= 1 ? monthName(ms[0] ?? '') : `${monthName(ms[0]!)} to ${monthName(ms[ms.length - 1]!)}`);
-
 /** YYYY-MM -> what the certificates carry for the month: final run lines, plus standalone directive PAYE to an employee. */
 async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<Map<string, MonthTotals>> {
   const rows = (await sql`
@@ -169,6 +160,7 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
   // A month two legacy rows file is a conflict (review #1568 round 5): refused, never resolved by picking one.
   const conflicts = [...byMonth.entries()].filter(([, rs]) => rs.length > 1).map(([month, rs]) =>
     `${[...rs].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)).map(rowName).join(' and ')} both file ${monthName(month)}`);
+  conflicts.push(...await conflictsOutsideReturn(companyId, p, [...rows.values()]));
   const legacyByMonth = new Map([...byMonth.entries()].map(([m, rs]) => [m, rs[0]!]));
   for (const row of rows.values()) {
     row.filedAgain = [...versions.keys()].some((m) => m >= row.start.slice(0, 7) && m <= row.end.slice(0, 7));
