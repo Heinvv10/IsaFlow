@@ -665,6 +665,9 @@ describe('write-tool manifest invariants', () => {
       attach_document: { ...KEY },
       // Refuses on the missing entity_type before any lookup; behaviour in attachEntityDocumentTool.test.ts.
       attach_entity_document: { ...KEY },
+      // Both refuse on the missing files / upload_ids before any lookup; behaviour in uploadUrlTools.test.ts.
+      create_upload_urls: { ...KEY },
+      finalize_uploads: { ...KEY },
       // Refuses on the missing reconciliation_id before any lookup; behaviour
       // in bankReconciliationTools.test.ts.
       cancel_bank_reconciliation: { ...KEY },
