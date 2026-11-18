@@ -59,7 +59,12 @@ async function send(body: unknown, key: string, fallback: string): Promise<{ dat
       return 'ambiguous'; // a dropped connection, or our own timeout: the first send may have committed
     }
     if (AMBIGUOUS_STATUS.has(res.status)) return 'ambiguous';
-    if (res.status === 409 && STILL_RUNNING.test(await res.clone().text().catch(() => ''))) return 'ambiguous';
+    if (res.status === 409) {
+      // "Still being processed" is resent; a 409 whose body cannot be read (stalled past the deadline) may be that too.
+      let refusal: string;
+      try { refusal = await res.clone().text(); } catch { return 'ambiguous'; }
+      if (STILL_RUNNING.test(refusal)) return 'ambiguous';
+    }
     await assertOk(res, fallback); // a definitive refusal throws, with the server's sentence
     let text: string;
     try { text = await res.text(); } catch { return 'ambiguous'; } // a body cut off, or stalled past the deadline

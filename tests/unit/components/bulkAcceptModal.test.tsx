@@ -758,3 +758,33 @@ describe('review round 2: busy, the outcome region, focus on every phase change'
     expect(document.activeElement).toBe(mine);
   });
 });
+
+describe('review round 3: a stalled 409 and a repeated partial undo', () => {
+  const RUN = { runId: 'run-1', posted: [{ txId: 'a', journalEntryId: 'j' }], refused: [], totalPosted: 1 };
+  const PARTIAL = { reversed: 0, skipped: 1, skippedBy: { reconciled: 1, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 }, undone: false, handOffsets: [] };
+
+  it('a 409 whose body stalls past the deadline is ambiguous (resent, then "may have posted"), not a refusal', async () => {
+    CONFIRM_RETRY.timeoutMs = 40;
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockImplementation(async (_u, init) => new Response(new ReadableStream({
+      start(c) { init?.signal?.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError'))); },
+    }), { status: 409 }));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    expect(await screen.findByText(/may have posted/, undefined, { timeout: 3000 })).toBeTruthy();
+    expect(vi.mocked(apiFetch).mock.calls.filter(([, i]) => i?.method === 'POST')).toHaveLength(3);
+  });
+
+  it('the same partial undo answered twice is put in the live region afresh, so it is announced again', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(ok(PREVIEW)).mockResolvedValueOnce(ok(RUN)).mockResolvedValueOnce(ok(PARTIAL)).mockResolvedValueOnce(ok(PARTIAL));
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo batch' }));
+    const region = screen.getByTestId('bulk-outcome');
+    await waitFor(() => expect(region.textContent).toMatch(/Not undone: 1 on a reconciliation/));
+    const first = region.firstChild;
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo the rest of the batch' }));
+    await waitFor(() => expect(region.firstChild).not.toBe(first));
+    expect(region.textContent).toMatch(/Not undone: 1 on a reconciliation/);
+  });
+});
+

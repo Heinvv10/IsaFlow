@@ -16,7 +16,7 @@ export interface BulkCount { n: number; more: boolean }
 export function useBulkCount(bankAccountId: string | null, active: boolean, refreshKey: unknown, now: () => number = Date.now) {
   // The last count per account survives a tab switch away and back: the count shown is always the wanted account's own.
   const [counts, setCounts] = useState<Record<string, BulkCount | null>>({});
-  const [force, setForce] = useState(0);
+  const [force, setForce] = useState(0); // invalidate() bumps it so the effect below schedules the read (with no gap left)
   const wanted = active ? bankAccountId : null;
   const wantedRef = useRef(wanted);
   wantedRef.current = wanted;
@@ -28,8 +28,6 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   const seq = useRef(0);
   const latest = useRef(new Map<string, number>()); // the newest read's seq, per account
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const forced = useRef(0);
-  const bypass = useRef<string | null>(null); // a batch was just posted or undone on THIS account: its next read ignores the gap
 
   const read = useCallback((account: string) => {
     const mine = ++seq.current; // only read() bumps seq
@@ -54,8 +52,8 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
   const schedule = useCallback((account: string) => {
     if (timer.current) clearTimeout(timer.current);
     const at = last.current.get(account);
-    const wait = bypass.current !== account && at !== undefined ? Math.max(0, at + MIN_GAP_MS - now()) : 0;
-    timer.current = setTimeout(() => { timer.current = null; if (bypass.current === account) bypass.current = null; if (wantedRef.current === account) read(account); }, wait);
+    const wait = at !== undefined ? Math.max(0, at + MIN_GAP_MS - now()) : 0; // invalidate() deletes `at`: read at once
+    timer.current = setTimeout(() => { timer.current = null; if (wantedRef.current === account) read(account); }, wait);
   }, [now, read]);
 
   useEffect(() => {
@@ -65,7 +63,6 @@ export function useBulkCount(bankAccountId: string | null, active: boolean, refr
       // within the gap still shows N.
       return;
     }
-    if (force !== forced.current) { forced.current = force; bypass.current = wanted; }
     if (flight.current?.account === wanted) { dirty.current = true; return; } // lands on its own; a trailing read follows
     schedule(wanted);
   }, [wanted, refreshKey, force, schedule]);

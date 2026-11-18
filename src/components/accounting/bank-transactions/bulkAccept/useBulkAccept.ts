@@ -17,6 +17,8 @@ export interface BulkAcceptState {
   refreshing: boolean;
   confirmed: BulkConfirmed | null;
   undone: BulkUndone | null;
+  /** How many undo answers have arrived: the outcome region re-announces an answer identical to the last. */
+  undoAnswers: number;
   /** Lines of the previewed page by id, so the result can name the lines it refused. */
   names: Map<string, string>;
   error: string;
@@ -29,7 +31,7 @@ export interface BulkAcceptState {
 }
 
 const START: BulkAcceptState = {
-  phase: 'idle', preview: null, refreshing: false, confirmed: null, undone: null, names: new Map(), error: '', retrying: false, tokenDead: false, changed: false,
+  phase: 'idle', preview: null, refreshing: false, confirmed: null, undone: null, undoAnswers: 0, names: new Map(), error: '', retrying: false, tokenDead: false, changed: false,
 };
 
 export function useBulkAccept(bankAccountId: string | null) {
@@ -85,7 +87,7 @@ export function useBulkAccept(bankAccountId: string | null) {
       if (undoKey.current?.runId !== runId) undoKey.current = { runId, key: newRequestKey() };
       const undone = await undoBulk(runId, undoKey.current.key, () => patch({ retrying: true }));
       undoKey.current = null; // answered: the next undo of this run (the rest of a partial one) is a new request
-      if (mine === seq.current) setState((s) => ({ ...s, phase: 'result', retrying: false, undone, changed: true }));
+      if (mine === seq.current) setState((s) => ({ ...s, phase: 'result', retrying: false, undone, undoAnswers: s.undoAnswers + 1, changed: true }));
     } catch (err) {
       // A refusal the server answered spent the key; only an unresolved send keeps it for the next click.
       if (!(err instanceof WriteUnresolvedError)) undoKey.current = null;

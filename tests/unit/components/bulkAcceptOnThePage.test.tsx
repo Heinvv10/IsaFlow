@@ -2,6 +2,7 @@
  * z30 regression, on the REAL bank-transactions page: after Confirm answers 200 the dialog stays on "Posted 3 lines" and the
  * page does not remount (the button's count is not read again, the page's mount requests are not repeated).
  */
+import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -84,4 +85,16 @@ describe('the real bank-transactions page with a bulk accept in progress', () =>
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     expect(count(/GET \/api\/accounting\/bank-transactions\?/)).toBe(listReads);
   });
+
+  it('under StrictMode (reactStrictMode is on) Done after a batch still reloads the page', async () => {
+    render(<StrictMode><BankTransactionsPage /></StrictMode>);
+    fireEvent.click(await screen.findByRole('button', { name: /Accept 3 high-confidence suggestions/ }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
+    await screen.findByTestId('bulk-result');
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    const listReads = count(/GET \/api\/accounting\/bank-transactions\?/);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(count(/GET \/api\/accounting\/bank-transactions\?/)).toBeGreaterThan(listReads));
+  });
 });
+

@@ -21,7 +21,7 @@ const lineCount = (n: number) => `${n} line${n === 1 ? '' : 's'}`;
 
 export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, returnFocus }: Props) {
   const { state, load, confirm, undo, reset, handOffDecided } = useBulkAccept(bankAccountId);
-  const { phase, preview, refreshing, confirmed, undone, names, error, tokenDead, retrying, changed } = state;
+  const { phase, preview, refreshing, confirmed, undone, undoAnswers, names, error, tokenDead, retrying, changed } = state;
   useEffect(() => { if (open) void load(); else reset(); }, [open, load, reset]);
   const working = phase === 'confirming' || phase === 'undoing';
   // A confirm or undo in flight cannot be closed over: its answer (what posted, the batch to undo) would be lost.
@@ -66,7 +66,8 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
   // The page's one modal shell (WP7). `busy` is the raw in-flight flag, not useModalBusy's 30 s release: the confirm and undo
   // bound their own wait (CONFIRM_RETRY, then "may have posted"), and closing over one in flight would lose its answer.
   // Focus lands on a control that is always enabled, never on a disabled Confirm: `data-autofocus` (Cancel) on open, and the
-  // effect above when a phase change took focus away.
+  // effect above when a phase change took focus away. Accepted trade-off: Done has focus right after Confirm, so a second
+  // Enter closes the result; the outcome has already been said in the live region.
   return (
     <BankTxModalShell label={title} onClose={close} busy={working} closeOnBackdrop returnFocus={returnFocus}>
       <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] shadow-2xl">
@@ -111,7 +112,10 @@ export function BulkAcceptModal({ open, bankAccountId, onClose, onChanged, retur
               {canUndo && !undone && <p className="mt-3 text-xs text-[var(--ff-text-tertiary)]">Undo reverses exactly this batch. It stays available later under Auto-post runs.</p>}
             </div>
           )}
-          <p role="status" aria-live="polite" data-testid="bulk-outcome" className={undone && outcome ? 'mt-3 text-sm text-emerald-300' : 'sr-only'}>{outcome}</p>
+          <p role="status" aria-live="polite" data-testid="bulk-outcome" className={undone && outcome ? 'mt-3 text-sm text-emerald-300' : 'sr-only'}>
+            {/* A new node per undo answer: the same partial answer twice is inserted again, so it is announced again. */}
+            <span key={undoAnswers}>{outcome}</span>
+          </p>
           {showResult && confirmed?.runId && undone && undone.handOffsets.length > 0 && (
             <ul aria-label="Lines a later journal may already correct" className="mt-2 space-y-2">
               {(undone.handOffsets as unknown as HandOffset[]).map((o) => (

@@ -425,3 +425,60 @@ describe('review round 2: the dialog\'s own account after a flip', () => {
   });
 });
 
+describe('review round 3: what invalidate clears, and focus behind an open dialog', () => {
+  const POSTED = { runId: 'r', posted: [0, 1, 2].map((i) => ({ txId: `id-${i}`, journalEntryId: `j${i}` })), refused: [], totalPosted: 3 };
+
+  it('a count read still in flight when the batch posts never lands its old number', async () => {
+    let resolveOld!: (r: Response) => void;
+    const old = new Promise<Response>((r) => { resolveOld = r; });
+    let gets = 0;
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => {
+      if (init?.method === 'POST') return ok(POSTED);
+      gets += 1;
+      if (gets === 1) return old; // a slow count, read before the batch
+      return gets === 2 ? ok(preview(3)) : new Promise<Response>(() => undefined); // 2: the dialog's preview; 3: the re-read hangs
+    });
+    render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept high-confidence suggestions' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    resolveOld(ok(preview(3))); // read before the batch, answered after it
+    await waitFor(() => expect(gets).toBe(3)); // its trailing re-read has started: the old answer has been handled
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(screen.queryByRole('button', { name: /Accept 3/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Accept high-confidence suggestions' })).toBeTruthy();
+  });
+
+  it('after Done the label does not show the old number while the new count is read', async () => {
+    let gets = 0;
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => {
+      if (init?.method === 'POST') return ok(POSTED);
+      gets += 1;
+      return gets <= 2 ? ok(preview(3)) : new Promise<Response>(() => undefined); // the read after the batch hangs
+    });
+    render(<BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept 3 high-confidence suggestions' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirm and post 3/ }));
+    await screen.findByTestId('bulk-result');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(gets).toBe(3));
+    expect(screen.getByRole('button', { name: 'Accept high-confidence suggestions' })).toBeTruthy();
+  });
+
+  it('the count landing 0 while the dialog is open does not pull focus to the grid behind it', async () => {
+    let resolveCount!: (r: Response) => void;
+    const slow = new Promise<Response>((r) => { resolveCount = r; });
+    let gets = 0;
+    vi.mocked(apiFetch).mockImplementation(async () => { gets += 1; return gets === 1 ? slow : ok(preview(2)); });
+    render(<><div role="group" aria-label="Bank transactions grid" tabIndex={0} data-testid="grid" /><BulkAcceptButton bankAccountId="b1" active onChanged={vi.fn()} /></>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept high-confidence suggestions' }));
+    await screen.findByRole('button', { name: /Confirm and post 2/ });
+    (document.activeElement as HTMLElement | null)?.blur(); // focus on the body, e.g. after a click on plain text
+    resolveCount(ok(preview(0)));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Accept .*high-confidence/ })).toBeNull());
+    expect(document.activeElement).not.toBe(screen.getByTestId('grid'));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+});
+

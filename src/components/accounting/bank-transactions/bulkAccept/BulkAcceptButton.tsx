@@ -24,9 +24,10 @@ export function BulkAcceptButton({ bankAccountId, active, onChanged, refreshKey 
   // The button went away (the count reached 0) while focus was on it, or on nothing after the dialog closed: the grid takes it.
   const wasHidden = useRef(hidden);
   useEffect(() => {
-    if (hidden && !wasHidden.current && (!document.activeElement || document.activeElement === document.body)) grid()?.focus();
+    // Never behind an open dialog: its own focus handling (and the shell's return on close) owns focus then.
+    if (hidden && !wasHidden.current && !open && (!document.activeElement || document.activeElement === document.body)) grid()?.focus();
     wasHidden.current = hidden;
-  }, [hidden]);
+  }, [hidden, open]);
 
   const label = count ? `Accept ${count.n}${count.more ? '+' : ''} high-confidence suggestion${count.n === 1 && !count.more ? '' : 's'}` : 'Accept high-confidence suggestions';
   // ONE tree position for the dialog, whether or not the trigger shows: a dialog that moved between two positions would be
