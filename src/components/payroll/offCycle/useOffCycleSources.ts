@@ -6,7 +6,16 @@
 import { useEffect, useState } from 'react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
-export interface RegularRunOption { id: string; periodYear: number; periodMonth: number }
+export interface RegularRunOption { id: string; periodYear: number; periodMonth: number; runDate?: string | null; periodEnd?: string | null }
+
+/** The last day an off-cycle run of this month may be paid: the day before its regular run's pay date (review #1575 carry 1). */
+export function lastOffCyclePayDay(r: RegularRunOption): string {
+  const closing = r.runDate ?? r.periodEnd
+    ?? `${monthKey(r)}-${String(new Date(r.periodYear, r.periodMonth, 0).getDate()).padStart(2, '0')}`;
+  const [y, m, d] = closing.slice(0, 10).split('-').map(Number) as [number, number, number];
+  const prev = new Date(y, m - 1, d - 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+}
 export interface PersonOption { employeeId: string; label: string }
 export interface ComponentOption { id: string; name: string }
 

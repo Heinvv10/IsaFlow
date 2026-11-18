@@ -10,6 +10,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withTransaction: vi.f
 import { judgeOffCycleShape, OffCycleRunRefusedError, type OffCycleRunInput } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { offCyclePayDateRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
 import { runJournalDescriptionOf } from '@/modules/accounting/services/payroll/payrollJournalDescription';
+import { lastOffCyclePayDay } from '@/components/payroll/offCycle/useOffCycleSources';
 
 const E1 = '11111111-1111-4111-8111-111111111111';
 const E2 = '22222222-2222-4222-8222-222222222222';
@@ -75,5 +76,13 @@ describe('the journal names the off-cycle kind (FQc\'s run-keyed description, ad
       .toBe('Payroll run 2026-11 bonus, paid 2026-11-28');
     expect(runJournalDescriptionOf(hdr({ run_kind: 'off_cycle', off_cycle_reason: 'termination', run_date: '2026-11-20' })))
       .toBe('Payroll run 2026-11 termination, paid 2026-11-20');
+  });
+});
+
+describe('the form\'s last pay day: the day before the regular run\'s pay date (review #1575 carry 1)', () => {
+  it('reads run_date, else period_end, else the month end', () => {
+    expect(lastOffCyclePayDay({ id: 'r', periodYear: 2026, periodMonth: 11, runDate: '2026-11-25', periodEnd: '2026-11-30' })).toBe('2026-11-24');
+    expect(lastOffCyclePayDay({ id: 'r', periodYear: 2026, periodMonth: 11, runDate: null, periodEnd: '2026-11-30' })).toBe('2026-11-29');
+    expect(lastOffCyclePayDay({ id: 'r', periodYear: 2027, periodMonth: 3, runDate: null, periodEnd: null })).toBe('2027-03-30');
   });
 });

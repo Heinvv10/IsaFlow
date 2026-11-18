@@ -14,7 +14,7 @@ import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { todayInSast } from '@/lib/saDateParser';
 import { ArrowLeft, Gift, Loader2 } from 'lucide-react';
-import { monthKey, monthLabel, useOffCycleSources, useRunPeople } from '@/components/payroll/offCycle/useOffCycleSources';
+import { lastOffCyclePayDay, monthKey, monthLabel, useOffCycleSources, useRunPeople } from '@/components/payroll/offCycle/useOffCycleSources';
 
 type Reason = 'bonus' | 'termination';
 const REASONS = [{ value: 'bonus', label: 'Bonus (annual payment)' }, { value: 'termination', label: 'Termination pay-outs' }];
@@ -39,10 +39,8 @@ export default function NewOffCycleRunPage() {
     [reason, onRun, leavers, run],
   );
   const picked = people.filter((p) => chosen[p.employeeId]);
-  // The run's last calendar day, from its year and month alone (no time zone: day 0 of the next month is this month's last).
-  const lastDay = run
-    ? `${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}-${String(new Date(run.periodYear, run.periodMonth, 0).getDate()).padStart(2, '0')}`
-    : undefined;
+  // The last pay day allowed: the day before the regular run's pay date (it closed the month's UIF and ETI).
+  const lastDay = run ? lastOffCyclePayDay(run) : undefined;
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -105,7 +103,9 @@ export default function NewOffCycleRunPage() {
             <DateField id="oc-date" label="Pay date" required value={runDate} onChange={(iso) => setRunDate(iso)}
               minDate={run && lastDay && today <= lastDay ? (today > `${monthKey(run)}-01` ? today : `${monthKey(run)}-01`) : undefined}
               maxDate={lastDay} disabled={!run || !lastDay || today > lastDay} resetKey={runId ?? ''}
-              helperText={run && lastDay && today > lastDay ? 'That month has ended: an off-cycle run is paid today or later, inside its month.' : 'In the run\'s month, today or later.'} />
+              helperText={run && lastDay && today > lastDay
+                ? 'Too late for that month: an off-cycle run is paid today or later, before the regular run\'s pay date.'
+                : `Today or later, and before the regular run's pay date (by ${lastDay ?? 'its month end'}).`} />
             {reason === 'bonus' && (
               <Select id="oc-component" label="Bonus earning (SARS 3605)" required value={componentId}
                 options={components.map((c) => ({ value: c.id, label: c.name }))} emptyText="No annual-payment (3605) earning: add one under Pay components"

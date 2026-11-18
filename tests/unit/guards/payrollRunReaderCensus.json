@@ -538,7 +538,8 @@
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
    {"line":33,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the run being reopened, by id"},
-   {"line":34,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"EXISTS-style list of every final off-cycle run of the reopened regular run's month and frequency: correct with several runs a month"}
+   {"line":34,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"EXISTS-style list of every final off-cycle run of the reopened regular run's month and frequency: correct with several runs a month"},
+   {"line":60,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS-style: any calculated-or-later regular MONTHLY run of the month paid on or before the off-cycle pay date (review #1575 carry 1); the 999a regular-period key allows one, and ORDER BY + LIMIT 1 only names the earliest pay date in the refusal"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
    {"line":51,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed, by id"},
