@@ -108,7 +108,6 @@ function withOneAutoPostRule(lock: Record<string, unknown> | null | 'timeout' = 
   ]);
   periodStatusMock.mockResolvedValue('open'); // pre-flight passes
 }
-  createMock.mockResolvedValue({ id: 'je-draft-1', status: 'draft' });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -133,5 +132,26 @@ describe('applyRules — zero-amount candidate', () => {
 
     expect(createMock).not.toHaveBeenCalled();
     expect(result.applied).toBe(0);
+  });
+
+  it.each([['sub-cent', 0.004], ['non-numeric', 'abc'], ['null', null]])(
+    'skips a %s amount line', async (_n, amount) => {
+      withOneAutoPostRule();
+      findTxsMock.mockResolvedValue([{ id: 'tx-0', transaction_date: '2026-08-13', amount, description: 'X' }]);
+      await applyRules(COMPANY, BANK_GL, USER);
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
+  it('skips the zero line and still posts the non-zero line after it', async () => {
+    withOneAutoPostRule();
+    findTxsMock.mockResolvedValue([
+      { id: 'tx-0', transaction_date: '2026-08-13', amount: 0, description: 'PROOF OF PMT EMAIL' },
+      { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'PROOF OF PMT EMAIL' },
+    ]);
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(result.applied).toBe(1);
   });
 });
