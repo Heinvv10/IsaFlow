@@ -171,6 +171,9 @@ describe('the row marker', () => {
     expect(marked.getAttribute('data-queried')).toBe('true');
     cleanup();
     show(base);
-    expect(screen.getByRole('button', { name: /Ask client on WhatsApp/ }).getAttribute('data-queried')).toBeNull();
+    // Without a query the action is not marked: it is a plain item of the row's More actions menu (WP4b).
+    expect(screen.queryByRole('button', { name: /Client already asked/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions, WOOLWORTHS' }));
+    expect(screen.getByRole('menuitem', { name: 'Ask client on WhatsApp' }).getAttribute('data-queried')).toBeNull();
   });
 });

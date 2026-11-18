@@ -38,28 +38,29 @@ function line(dateOfBirth: Date, month: number, year: number) {
 describe('age rebate is decided at the end of the tax year', () => {
   it('turns 65 in January 2027: secondary rebate from March 2026', () => {
     const dob = new Date(1962, 0, 15);
-    expect(line(dob, 3, 2026)).toBe(6_871);       // (110 037 - 17 820 - 9 765) / 12
-    expect(line(dob, 10, 2026)).toBe(6_871);
-    expect(line(dob, 1, 2027)).toBe(6_871);
+    // AN (F = 365 / 30.4166): R40 000 × F = 480 001.05, gross tax 110 037.33; a month is the year ÷ F (x 12: 6 871.00).
+    expect(line(dob, 3, 2026)).toBe(6_871.01);    // (110 037.33 - 17 820 - 9 765) / F
+    expect(line(dob, 10, 2026)).toBe(6_871.01);
+    expect(line(dob, 1, 2027)).toBe(6_871.01);
   });
 
   it('turns 65 on 28 Feb 2027, the last day: still qualifies for the year', () => {
-    expect(line(new Date(1962, 1, 28), 3, 2026)).toBe(6_871);
+    expect(line(new Date(1962, 1, 28), 3, 2026)).toBe(6_871.01);
   });
 
   it('turns 65 on 1 Mar 2027, the first day of the next year: no secondary rebate', () => {
-    expect(line(new Date(1962, 2, 1), 3, 2026)).toBe(7_684.75);   // (110 037 - 17 820) / 12
+    expect(line(new Date(1962, 2, 1), 3, 2026)).toBe(7_684.76);   // (110 037.33 - 17 820) / F
   });
 
   it('turns 75 in February 2027: tertiary rebate from March 2026', () => {
-    expect(line(new Date(1952, 1, 20), 3, 2026)).toBe(6_600.25);  // (110 037 - 30 834) / 12
+    expect(line(new Date(1952, 1, 20), 3, 2026)).toBe(6_600.26);  // (110 037.33 - 30 834) / F
   });
 
   it('is 74 at year end: secondary only', () => {
-    expect(line(new Date(1952, 2, 5), 3, 2026)).toBe(6_871);
+    expect(line(new Date(1952, 2, 5), 3, 2026)).toBe(6_871.01);
   });
 
   it('under 65 at year end: primary rebate only', () => {
-    expect(line(new Date(1990, 5, 1), 3, 2026)).toBe(7_684.75);
+    expect(line(new Date(1990, 5, 1), 3, 2026)).toBe(7_684.76);
   });
 });

@@ -23,6 +23,8 @@ import { profitAndLossTool } from './tools/reportsProfitAndLoss';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { attachEntityDocumentTool } from './tools/writeAttachEntityDocument';
+import { createUploadUrlsTool } from './tools/writeCreateUploadUrls';
+import { finalizeUploadsTool } from './tools/writeFinalizeUploads';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
 import { listUnappliedPaymentsTool } from './tools/supplierPayments';
@@ -328,6 +330,9 @@ export const MCP_TOOLS = [
   setOpeningBalanceTool,
   attachDocumentTool,
   attachEntityDocumentTool,
+  // Two-step attach with no bytes in the call: URLs first, then verify + write. Post nothing.
+  createUploadUrlsTool,
+  finalizeUploadsTool,
   cancelBankReconciliationTool,
   // Reopening posts nothing but undoes a sign-off, so requiresPost (as reopen_fiscal_period).
   reopenBankReconciliationTool,

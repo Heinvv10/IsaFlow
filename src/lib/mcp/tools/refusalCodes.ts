@@ -294,6 +294,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_PAID',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
+  'UPLOAD_STAGE_LOCK_TIMEOUT', // mcpUploadIntentStore.stageUploadBytes: a held row / busy upload pool; nothing staged, PUT again
   'UIF_DECLARATION_NOT_SUBMITTED', // uifPaymentService: names only the declaration's status; raised before any write (route answers 409)
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // latter: outside 1900..2199; the registry savepoint rolls back

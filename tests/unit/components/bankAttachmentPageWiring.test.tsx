@@ -79,7 +79,9 @@ describe('the bank transactions page', () => {
   it('opens the list, not the viewer, from a plain paperclip', async () => {
     serve([file('a1', 'slip.png')]);
     render(<BankTransactionsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Attachments, .*NO FILES/ }));
+    // A New row without files keeps its paperclip in the row's More actions menu (WP4b).
+    fireEvent.click(await screen.findByRole('button', { name: /^More actions, .*NO FILES/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Attachments' }));
     expect(await screen.findByRole('dialog', { name: 'Attachments' })).toBeTruthy();
     await screen.findByRole('button', { name: 'View slip.png' });
     expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();

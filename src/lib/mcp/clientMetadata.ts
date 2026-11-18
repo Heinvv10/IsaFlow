@@ -162,6 +162,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'set_opening_balance',
   'attach_document',
   'attach_entity_document',
+  'create_upload_urls',
+  'finalize_uploads',
   'cancel_bank_reconciliation',
   'reopen_bank_reconciliation',
   'create_job_category',
