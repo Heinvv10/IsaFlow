@@ -126,7 +126,7 @@ export function GarnisheeOrdersCard({ employeeId }: { employeeId: string }) {
                 </span>
               ) : (
                 <button type="button" onClick={() => setEnding({ id: o.id, date: todayInSast(), reason: '' })}
-                  className="text-sm text-brand-600 underline dark:text-brand-400">End</button>
+                  className="text-sm text-[var(--ff-brand-eyebrow)] underline">End</button>
               ))}
             </li>
           ))}
