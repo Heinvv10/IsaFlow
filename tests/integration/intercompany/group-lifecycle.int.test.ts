@@ -1,5 +1,5 @@
 /**
- * Intercompany (1000): a group connection lives only while both companies are current members of one ACTIVE group.
+ * Intercompany (1000 + 1002): a group connection lives only while both companies are current members of one ACTIVE group.
  * The helper answers for a party only; a company leaving, a group deleted by the real deleteGroup service, or a membership
  * removed revokes the connection (system stamp); the system path cannot be forged; the guards refuse the writes of a
  * connection whose group has gone, whatever reached them (the revoking triggers are switched off to get there).

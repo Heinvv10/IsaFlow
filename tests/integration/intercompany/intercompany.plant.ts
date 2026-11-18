@@ -1,4 +1,4 @@
-/** Rows the intercompany (1000) suites plant: through the guards where the guards are what is tested, with one off where a fixture needs it. */
+/** Rows the intercompany (1000 + 1002) suites plant: through the guards where the guards are what is tested, with one off where a fixture needs it. */
 import type { Pool } from 'pg';
 import { U } from './intercompany.fixture';
 import { asAppUser, asOwner, pairOf, withoutTrigger } from './intercompany.session';

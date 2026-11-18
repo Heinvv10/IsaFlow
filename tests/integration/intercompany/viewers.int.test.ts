@@ -1,5 +1,5 @@
 /**
- * Intercompany (1000): a viewer reads and writes nothing. Every app_user write on connections, sides and keys needs a write
+ * Intercompany (1000 + 1002): a viewer reads and writes nothing. Every app_user write on connections, sides and keys needs a write
  * role in the company it acts as (messages and links have their own suites); the same statement by a writer succeeds.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Intercompany (1000) messages: a viewer sends and handles nothing, and an accepted message that creates a document
+ * Intercompany (1000 + 1002) messages: a viewer sends and handles nothing, and an accepted message that creates a document
  * names that document in the receiving company.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';

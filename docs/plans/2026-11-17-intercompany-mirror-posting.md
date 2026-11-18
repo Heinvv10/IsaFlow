@@ -79,7 +79,7 @@ the sender's own data only; the sender never reads the receiver's ledger.
 
 ## Revised after P1 review (2026-11-17)
 
-These supersede the Data model above wherever they differ (migration 1000 carries them).
+These supersede the Data model above wherever they differ (migrations 1000 and 1002 carry them).
 
 - **Pair-level agreement.** `settlement_mode`, `cutover_date` and `interest_rate_pct` live on `intercompany_connections`, not on a
   side: they are one agreement between the two companies. A group connection's change needs a write role in BOTH companies (service and
@@ -107,7 +107,8 @@ These supersede the Data model above wherever they differ (migration 1000 carrie
 
 ### Round 2 (2026-11-18)
 
-- **Migration prefix.** `1000_intercompany_connections.sql` (master took 999p; 999q-999y are in other open PRs).
+- **Migration.** Round 1 is `1000_intercompany_connections.sql` (master took 999p). Round 2 is a FORWARD migration, `1002_intercompany_round2.sql` (1001 is another open PR's): 1000 may reach prod before round 2 merges, so it is never edited. 1002 adds no column and drops none, replaces function bodies and indexes, is idempotent, and backfills rows 1000 may hold (stale group connections are revoked, revoked connections release their links).
+- **A revoked connection releases its customer and supplier links** (registered definer `intercompany_release_links`, trigger on the connection's status), so the per-company unique indexes never hold a customer or supplier on a dead connection; re-activating does not restore them (the checklist shows them undone). The other side settings are kept.
 - **Viewers read only.** Every app_user write on the five tables needs `intercompany_user_can_write(<acting company>)` in the table's
   guard: a connection's status (revoke, accept, re-activate), a side, a message's sending or handling, a link's insert, confirmation or
   unlink, a key. P2's auto-accept worker therefore runs with the claims of a write-role user of the RECEIVER (it sets

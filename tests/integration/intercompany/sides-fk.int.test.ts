@@ -1,5 +1,5 @@
 /**
- * Intercompany (1000): a side's references (customer, supplier, accounts, centres, unit) are ON DELETE SET NULL. The
+ * Intercompany (1000 + 1002): a side's references (customer, supplier, accounts, centres, unit) are ON DELETE SET NULL. The
  * foreign key's own UPDATE of the side runs one trigger level down and must pass whatever the connection's state, so a
  * hard delete (the soft-delete purge, a migration rollback) is never blocked by a revoked connection. The same UPDATE
  * written by a user does not pass.
@@ -56,7 +56,9 @@ describe.each([['an active', false], ['a revoked', true]])('hard-deleting what %
     const row = await side();
     expect(row[column]).toBeNull();
     for (const [, , otherKey, otherColumn] of HARD_DELETES.filter((h) => h[3] !== column)) {
-      expect(row[otherColumn], otherColumn).toBe(ids[otherKey]);
+      // a revoked connection has already released its customer and supplier links (1002)
+      const released = revoked && (otherColumn === 'customer_id' || otherColumn === 'supplier_id');
+      expect(row[otherColumn], otherColumn).toBe(released ? null : ids[otherKey]);
     }
   });
 
@@ -91,9 +93,9 @@ describe('the same UPDATE written by a user is not a foreign key action', () => 
       expect(await outcome(q, 'UPDATE intercompany_connection_sides SET customer_id = NULL WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
     });
     await asOwner(pool, U.ab, co.A, async (q) => {
-      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET supplier_id = NULL WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
+      expect(await outcome(q, 'UPDATE intercompany_connection_sides SET loan_account_id = NULL WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
     });
-    expect((await side()).supplier_id).toBe(ids.supplier);
+    expect((await side()).loan_account_id).toBe(ids.loan);
   });
 
   it('a nested UPDATE that changes more than references going to NULL is not let through (a test trigger one level down, rolled back)', async () => {

@@ -1,5 +1,5 @@
 /**
- * Intercompany P1 (1000): the two halves of every tenant policy, the connection-key table, and the side-options
+ * Intercompany P1 (1000 + 1002): the two halves of every tenant policy, the connection-key table, and the side-options
  * route. Every policy is `<party column> = app.current_company_id() AND <party column> IN (auth.user_companies())`:
  * a session of a company is not enough, the user must also BELONG to it, so a user who is a member of nothing (or of
  * another company) with the company id forged to A's sees nothing of A's and changes nothing.

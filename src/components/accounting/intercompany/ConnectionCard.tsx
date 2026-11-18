@@ -96,7 +96,7 @@ export function ConnectionCard({ connection, options, canEdit, onChanged, onNoti
         <SideForm connection={connection} options={options} onSaved={(c) => { onChanged(c); onNotice('Settings saved', true); }}
           onError={(m) => onNotice(m, false)} />
       )}
-      {!live && <p className="text-xs text-ink-muted">This connection was revoked. Its settings are kept and return if it is reconnected.</p>}
+      {!live && <p className="text-xs text-ink-muted">This connection was revoked. Its customer and supplier links were released; your other settings are kept and return if it is reconnected.</p>}
     </section>
   );
 }

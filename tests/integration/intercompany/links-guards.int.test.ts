@@ -1,5 +1,5 @@
 /**
- * Intercompany (1000) links, the rules a review found missing: a viewer links nothing, a pairing is not confirmed after the
+ * Intercompany (1000 + 1002) links, the rules a review found missing: a viewer links nothing, a pairing is not confirmed after the
  * connection is revoked (it can still be unlinked), the confirmer's own document must exist in the confirmer's company, a
  * pending pairing holds no slot (a partner cannot squat a document), a message has one mirror link, and the mirror match
  * is NULL-safe.
@@ -162,14 +162,14 @@ describe('a message has one mirror link', () => {
 });
 
 describe('the mirror match is NULL-safe', () => {
-  it('a payment message accepted with no target cannot be mirror-linked to arbitrary documents', async () => {
-    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
-    await asAppUser(pool, ownerOf(co.B), co.B, (q) => q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]), true);
-    const args = mirrorArgs(id, co.A, m, crypto.randomUUID(), crypto.randomUUID());
-    await asAppUser(pool, ownerOf(co.B), co.B, async (q) => { expect(await outcome(q, LINK, args)).toBe(R.mirrorDocs); });
+  it.each([['A to B'], ['B to A']])('a payment message accepted with no target cannot be mirror-linked to arbitrary documents (%s)', async (direction) => {
+    const [from, to] = direction === 'A to B' ? [co.A, co.B] : [co.B, co.A];
+    const m = await plantMessage(pool, id, from, to, { kind: 'payment', user: ownerOf(from) });
+    await asAppUser(pool, ownerOf(to), to, (q) => q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]), true);
     const src = (await pool.query('SELECT source_doc_id FROM intercompany_messages WHERE id = $1', [m])).rows[0].source_doc_id as string;
-    await asAppUser(pool, ownerOf(co.B), co.B, async (q) => {
-      expect(await outcome(q, LINK, mirrorArgs(id, co.A, m, src, crypto.randomUUID()))).toBe(R.mirrorDocs);
+    await asAppUser(pool, ownerOf(to), to, async (q) => {
+      expect(await outcome(q, LINK, mirrorArgs(id, from, m, crypto.randomUUID(), crypto.randomUUID()))).toBe(R.mirrorDocs);
+      expect(await outcome(q, LINK, mirrorArgs(id, from, m, src, crypto.randomUUID()))).toBe(R.mirrorDocs);
     });
   });
 });

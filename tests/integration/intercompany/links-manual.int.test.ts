@@ -1,5 +1,5 @@
 /**
- * Intercompany (1000) manual pairings: pending until the other party confirms, the inserter's document in its own company,
+ * Intercompany (1000 + 1002) manual pairings: pending until the other party confirms, the inserter's document in its own company,
  * either party may unlink. Trigger-level rules are tested as the table owner so the trigger's own refusal is what is asserted.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';

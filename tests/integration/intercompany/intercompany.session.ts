@@ -1,4 +1,4 @@
-/** Sessions for the intercompany (1000) suites: app_user as withAuth opens one, the table owner, and the exact refusal of a statement. */
+/** Sessions for the intercompany (1000 + 1002) suites: app_user as withAuth opens one, the table owner, and the exact refusal of a statement. */
 import type { Pool, PoolClient } from 'pg';
 
 async function open(pool: Pool, user: string | null, company: string, role: 'app_user' | null): Promise<PoolClient> {
