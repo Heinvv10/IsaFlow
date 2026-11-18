@@ -62,6 +62,10 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
     rollbacks: 0, unreadable: 1,
     reason: `boundedPoolRead: ${PASSES_TEXT_ON} (one fixed SELECT of each caller: the Login-as session record and the stash row, #1371), inside BEGIN READ ONLY; it rolls back with rollbackFailed`,
   },
+  'src/modules/accounting/services/core/mcpUploadIntentStore.ts': {
+    rollbacks: 0, unreadable: 2,
+    reason: 'stageUploadBytes: STAGE_SQL, one fixed module constant, on its own transaction and on a test seam\'s client; it rolls back with rollbackFailed',
+  },
   'src/lib/auth/routeAdminPool.ts': {
     rollbacks: 0, unreadable: 1,
     reason: `routeAdminQuery: ${PASSES_TEXT_ON} (one fixed statement of its callers', S-07e part B); it rolls back with rollbackFailed`,

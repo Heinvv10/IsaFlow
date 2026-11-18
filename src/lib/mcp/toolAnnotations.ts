@@ -18,6 +18,8 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'bulk_create_customer_invoices',
   'attach_document',
   'attach_entity_document',
+  'create_upload_urls',
+  'finalize_uploads',
   'create_job_category',
   'create_work_item',
   'log_time_entry',
