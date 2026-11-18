@@ -126,7 +126,8 @@ test('a weekly run: frequency on the employee, created per period from the page,
     await page.goto(`/payroll/runs/${runId}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: `Payroll Run — Week ${formatPeriodRange(week.periodStart, week.periodEnd)}` }))
       .toBeVisible({ timeout: 60_000 });
-    await page.getByRole('button', { name: 'Calculate' }).click();
+    // A run already calculated by an earlier execution says Recalculate.
+    await page.getByRole('button', { name: /^(Calculate|Recalculate)$/ }).click();
     await expect(page.getByText(`${WEEKLY.firstName} ${WEEKLY.lastName}`).first()).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText(`${MONTHLY.firstName} ${MONTHLY.lastName}`)).toHaveCount(0);
     await snap(page, 'weekly-run-calculated', 'session-theme');
