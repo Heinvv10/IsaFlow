@@ -1,7 +1,7 @@
 /**
  * Intercompany (1002): a company leaving a group while a connection is being created, re-activated or messaged on the strength
  * of the group (READ COMMITTED: the check would be stale by the time the writer commits). One lock protocol (1002 header):
- * deciders take the topology row FOR SHARE (intercompany_in_one_group), changers FOR UPDATE (the revoking trigger). The changer
+ * deciders take the pair's company lock rows FOR SHARE (intercompany_in_one_group), changers FOR UPDATE (the revoking trigger). The changer
  * waits for the writer and then revokes what it created; a writer that comes second sees the change and is refused.
  * Two real connections per test. (Two changes at once: group-race-serial; rows and revokes: group-race-rows.)
  */

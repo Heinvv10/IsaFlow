@@ -8,9 +8,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { asAppUser, cleanup, co, party, plantConnection, plantSide, R, setup, U, wipeConnections } from './intercompany.helpers';
+import { asAppUser, cleanup, co, party, plantConnection, plantDocument, plantSide, R, setup, U, wipeConnections } from './intercompany.helpers';
 import { makeRace } from './group-race.helpers';
-import { LINK, acceptedMessage, linkRow, mirrorArgs } from './links.helpers';
+import { LINK, acceptedMessage, high, linkRow, low, mirrorArgs, ownerOf, pairing } from './links.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -96,6 +96,32 @@ describe('a message send, a link insert and a revoke at the same moment', () => 
     const r = await serialised(inFlight(U.a, co.A, MANUAL_REVOKE, [id]), (c) => c.query(LINK, mirrorArgs(id, co.A, m, src, tgt)), openSession(U.b, co.B));
     expect(r.waited).toBe(true);
     expect(r.second).toBe('23514: documents are linked only on an active connection');
+  }, 30000);
+});
+
+describe('confirming a pending pairing and a revoke at the same moment', () => {
+  const CONFIRM = "UPDATE intercompany_document_links SET confirmed_by_b = 'x' WHERE id = $1";
+  async function pending() {
+    const id = await plantConnection(pool, co.A, co.B);
+    const [a, b] = [await plantDocument(pool, 'customer_invoice', low()), await plantDocument(pool, 'supplier_invoice', high())];
+    const link = await asAppUser(pool, ownerOf(low()), low(), async (q) => (await q.query(LINK, pairing(id, a, b))).rows[0].id as string, true);
+    return { id, link };
+  }
+
+  it('the confirmation in flight first: a manual revoke waits for it (the link is activated while the connection is active)', async () => {
+    const { id, link } = await pending();
+    const r = await serialised(inFlight(ownerOf(high()), high(), CONFIRM, [link]), revokeByA(id), openSession(U.a, co.A), undefined, true);
+    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect((await linkRow(pool, link)).status).toBe('active');
+    expect((await connection(id)).status).toBe('revoked');
+  }, 30000);
+
+  it('the revoke in flight first: the confirmation waits for it, then is refused (no active link on a revoked connection)', async () => {
+    const { id, link } = await pending();
+    const r = await serialised(inFlight(U.a, co.A, MANUAL_REVOKE, [id]), (c) => c.query(CONFIRM, [link]), openSession(ownerOf(high()), high()));
+    expect(r.waited).toBe(true);
+    expect(r.second).toBe('23514: a link is confirmed only on an active connection');
+    expect((await linkRow(pool, link)).status).toBe('pending_confirmation');
   }, 30000);
 });
 

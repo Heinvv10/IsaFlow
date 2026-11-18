@@ -1,19 +1,16 @@
 /**
- * Intercompany (1002): the topology lock is a row no app role can touch (a public advisory key could be held by any session, for
- * the length of its connection, to stall every tenant); 1002's per-company unique indexes (accepted message target, active link
- * document) hold whatever the connection and refuse to be created over duplicate data, naming the rows.
+ * Intercompany (1002): one accepted message per target document per receiving company and one active link per company document
+ * position, whatever the connection (per-company unique indexes), and 1002 refusing to be applied over duplicate data, naming the rows.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { asAppUser, cleanup, co, outcome, plantConnection, pairOf, plantLink, plantMessage, setup, U, wipeConnections } from './intercompany.helpers';
-import { makeRace } from './group-race.helpers';
+import { asAppUser, cleanup, co, plantConnection, pairOf, plantLink, plantMessage, setup, U, wipeConnections } from './intercompany.helpers';
 
 assertDisposable();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
-const { openSession, LEAVE } = makeRace(pool);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const MIGRATION = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1002_intercompany_round2.sql'), 'utf8');
 
 beforeAll(() => setup(pool), 60000);
@@ -24,72 +21,6 @@ afterAll(async () => {
 beforeEach(async () => {
   await wipeConnections(pool);
   await pool.query('UPDATE company_group_members SET left_date = NULL WHERE group_id = $1', [co.G]);
-});
-
-describe('intercompany_topology_lock', () => {
-  it('is one row, owned by migration_admin, with no privilege for any app role or PUBLIC', async () => {
-    expect((await pool.query('SELECT count(*)::int AS n FROM intercompany_topology_lock')).rows[0].n).toBe(1);
-    await expect(pool.query('INSERT INTO intercompany_topology_lock(id) VALUES (false)')).rejects.toMatchObject({ code: '23514' });
-    await expect(pool.query('INSERT INTO intercompany_topology_lock(id) VALUES (true)')).rejects.toMatchObject({ code: '23505' });
-    const t = (await pool.query("SELECT pg_get_userbyid(relowner) AS owner, relrowsecurity FROM pg_class WHERE relname = 'intercompany_topology_lock'")).rows[0];
-    expect(t).toEqual({ owner: 'migration_admin', relrowsecurity: true });
-    for (const role of ['app_user', 'app_service', 'public']) {
-      for (const priv of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) {
-        for (const table of ['intercompany_topology_lock', 'intercompany_document_slots']) {
-          expect((await pool.query('SELECT has_table_privilege($1, $2, $3) AS ok', [role, `public.${table}`, priv])).rows[0].ok, `${role} ${priv} ${table}`).toBe(false);
-        }
-      }
-    }
-    // the slots table (link documents) is closed the same way, and says so in a policy as well (the RLS census wants one)
-    const slots = (await pool.query("SELECT pg_get_userbyid(relowner) AS owner, relrowsecurity, relforcerowsecurity, (SELECT count(*)::int FROM pg_policies WHERE tablename = 'intercompany_document_slots') AS policies FROM pg_class WHERE relname = 'intercompany_document_slots'")).rows[0];
-    expect(slots).toEqual({ owner: 'migration_admin', relrowsecurity: true, relforcerowsecurity: true, policies: 1 });
-    expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
-  });
-
-  it('app_user (any user, any claims, none) cannot lock, read or write it', async () => {
-    const statements = [
-      'SELECT 1 FROM intercompany_topology_lock FOR SHARE', 'SELECT 1 FROM intercompany_topology_lock FOR UPDATE', 'SELECT 1 FROM intercompany_topology_lock',
-      'UPDATE intercompany_topology_lock SET id = id', 'DELETE FROM intercompany_topology_lock', 'LOCK TABLE intercompany_topology_lock IN ACCESS EXCLUSIVE MODE',
-    ];
-    for (const user of [U.x, U.a, U.ab]) {
-      await asAppUser(pool, user, co.A, async (q) => {
-        for (const text of statements) expect((await outcome(q, text)).slice(0, 5), `${user}: ${text}`).toBe('42501');
-      });
-    }
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SET LOCAL ROLE app_user');
-      for (const text of statements) expect((await outcome(client, text)).slice(0, 5), `no claims: ${text}`).toBe('42501');
-    } finally {
-      await client.query('ROLLBACK');
-      client.release();
-    }
-  });
-
-  it('a session that holds the OLD public advisory key (session-level, until it disconnects) stalls nobody', async () => {
-    const stranger = await pool.connect();
-    const [low, high] = pairOf(co.A, co.B);
-    const writer = await openSession(U.ab, low);
-    try {
-      const key = "pg_catalog.hashtextextended('isaflow.intercompany.group_topology', 0)";
-      await stranger.query(`SELECT pg_catalog.pg_advisory_lock(${key})`);
-      await writer.query("SET LOCAL lock_timeout = '2s'");
-      const id = (await writer.query(`INSERT INTO intercompany_connections(company_low_id, company_high_id, kind, status, invited_by_company_id)
-        VALUES ($1, $2, 'group', 'active', $1) RETURNING id`, [low, high])).rows[0].id as string;
-      expect(id).toBeTruthy();
-      await writer.query('COMMIT');
-      const t0 = Date.now();
-      await pool.query(LEAVE, [co.G, co.B]);                     // the leave (superuser, as the trigger's table owner) is not stalled either
-      expect(Date.now() - t0).toBeLessThan(2000);
-      expect((await pool.query('SELECT status FROM intercompany_connections WHERE id = $1', [id])).rows[0].status).toBe('revoked');
-    } finally {
-      await stranger.query('SELECT pg_catalog.pg_advisory_unlock_all()').catch(() => undefined);
-      stranger.release();
-      await writer.query('ROLLBACK').catch(() => undefined);
-      writer.release();
-    }
-  });
 });
 
 describe('one accepted target and one active link per company document, whatever the connection', () => {

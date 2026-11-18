@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import {
-  asAppUser, cleanup, co, outcome, plantConnection, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
+  asAppUser, asOwner, cleanup, co, outcome, plantConnection, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
 } from './intercompany.helpers';
 import { LINK, linkRow, mirrorArgs } from './links.helpers';
 
@@ -211,6 +211,10 @@ describe('intercompany_message_documents_ok answers the receiver only', () => {
     expect(await ok(U.a, co.A, m)).toBe(false);          // the sender's session
     expect(await ok(U.ab, co.A, m)).toBe(false);
     expect(await ok(U.c, co.C, m)).toBe(false);
+    // the session company is a GUC any session can set: it makes nobody the receiver
+    expect(await ok(U.x, co.B, m)).toBe(false);
+    expect(await ok(U.c, co.B, m)).toBe(false);
+    await asOwner(pool, null, co.B, async (q) => { expect((await q.query('SELECT public.intercompany_message_documents_ok($1) AS ok', [m])).rows[0].ok).toBe(false); });
     expect(await ok(U.b, co.B, crypto.randomUUID())).toBe(false);
     const pending = await plantMessage(pool, id, co.A, co.B, { kind: 'interest_invoice' });      // no target yet
     expect(await ok(U.b, co.B, pending)).toBe(false);
