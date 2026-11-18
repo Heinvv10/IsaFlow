@@ -76,16 +76,40 @@ export function planItems(files: string[], contrastSource: string): Item[] {
   return items;
 }
 
-/** Contiguous split: an item goes to the chunk its midpoint (in cumulative seconds) falls in. */
+/**
+ * Contiguous split in suite order that makes the LONGEST chunk as short as it can be (a min-max linear partition; among
+ * equal maxima, the most even by sum of squares). The old midpoint rule (an item went to the chunk its cumulative
+ * midpoint fell in) let one added spec shift a boundary and leave the chunks 1.34x apart (z30 + z32, 18 Nov). While there
+ * are at least as many items as chunks every chunk gets one; with fewer, the trailing chunks are empty.
+ */
 export function splitItems(items: Item[], chunks: number): Item[][] {
   if (!Number.isInteger(chunks) || chunks < 1) throw new Error(`golden chunk plan: chunks must be a positive integer, got ${chunks}`);
-  const total = items.reduce((s, i) => s + i.seconds, 0);
   const out: Item[][] = Array.from({ length: chunks }, () => []);
-  let before = 0;
-  for (const item of items) {
-    const k = Math.min(chunks - 1, Math.floor(((before + item.seconds / 2) / total) * chunks));
-    out[k]!.push(item);
-    before += item.seconds;
+  const n = items.length;
+  const parts = Math.min(chunks, n);
+  if (parts === 0) return out;
+  const pre = [0];
+  for (const item of items) pre.push(pre[pre.length - 1]! + item.seconds);
+  type Cost = { max: number; sq: number; cut: number };
+  // best[k][j]: the first j items in k non-empty chunks, and where the last of them starts.
+  const best: Array<Array<Cost | undefined>> = Array.from({ length: parts + 1 }, () => new Array<Cost | undefined>(n + 1));
+  best[0]![0] = { max: 0, sq: 0, cut: 0 };
+  for (let k = 1; k <= parts; k++) {
+    for (let j = k; j <= n - (parts - k); j++) {
+      for (let i = k - 1; i < j; i++) {
+        const prev = best[k - 1]![i];
+        if (!prev) continue;
+        const s = pre[j]! - pre[i]!;
+        const c: Cost = { max: Math.max(prev.max, s), sq: prev.sq + s * s, cut: i };
+        const cur = best[k]![j];
+        if (!cur || c.max < cur.max || (c.max === cur.max && c.sq < cur.sq)) best[k]![j] = c;
+      }
+    }
+  }
+  for (let k = parts, j = n; k >= 1; k--) {
+    const i = best[k]![j]!.cut;
+    out[k - 1] = items.slice(i, j);
+    j = i;
   }
   return out;
 }
