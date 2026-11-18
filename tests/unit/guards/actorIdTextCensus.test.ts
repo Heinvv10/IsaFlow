@@ -111,10 +111,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     34: 'approved_by: string | null;',
   },
   [`${S}reports/vatReturnsList.ts`]: {
-    54: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
+    58: 'submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,',
   },
   [`${S}reports/vatSubmissionService.ts`]: {
-    202: 'sars_reference, submitted_by, journal_entry_id, return_version_id',
+    199: 'sars_reference, submitted_by, journal_entry_id,',
   },
 };
 
@@ -133,7 +133,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 212: '${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)' },
+  [`${S}reports/vatSubmissionService.ts`]: { 210: '${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)' },
 };
 
 /** file:line -> why an actor value is still cast to uuid there. */
