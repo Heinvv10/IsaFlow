@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { ReconciliationBalances } from '@/components/accounting/bank/ReconciliationBalances';
 import { NotReviewedChip, ReconUnreviewedNotice } from '@/components/accounting/bank/ReconUnreviewed';
+import { ReconGlLinesPanel } from '@/components/accounting/bank/ReconGlLinesPanel';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { formatCurrency } from '@/utils/formatters';
@@ -36,22 +37,14 @@ function TxStatusBadge({ status }: { status: string }) {
   );
 }
 
-interface GLLine {
-  id: string;
-  debit: number;
-  credit: number;
-  description: string;
-  entryDate: string;
-  entryNumber: string;
-}
-
 export default function ReconciliationDetailPage() {
   const router = useRouter();
   const reconId = router.query.reconId as string;
 
   const [recon, setRecon] = useState<BankReconciliation | null>(null);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
-  const [glLines, setGlLines] = useState<GLLine[]>([]);
+  // Bumped on every load: the GL panel reads its list again (after a match, unmatch, exclude or auto-match).
+  const [glReload, setGlReload] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -81,36 +74,9 @@ export default function ReconciliationDetailPage() {
       const loadedTransactions: BankTransaction[] = txData.transactions || [];
       setTransactions(loadedTransactions);
 
-      // Load unmatched GL lines for this bank account
-      if (reconData?.bankAccountId) {
-        const glRes = await apiFetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`); await assertOk(glRes, 'Could not load the bank ledger lines - try again');
-        const glJson = await glRes.json();
-        const entries = glJson.data?.entries || glJson.entries || [];
-        const lines: GLLine[] = [];
-        for (const entry of entries) {
-          if (entry.lines) {
-            for (const line of entry.lines) {
-              if (line.glAccountId === reconData.bankAccountId || line.gl_account_id === reconData.bankAccountId) {
-                lines.push({
-                  id: line.id,
-                  debit: Number(line.debit || 0),
-                  credit: Number(line.credit || 0),
-                  description: line.description || entry.description || '',
-                  entryDate: entry.entryDate || entry.entry_date || '',
-                  entryNumber: entry.entryNumber || entry.entry_number || '',
-                });
-              }
-            }
-          }
-        }
-        // Filter out already matched
-        const matchedLineIds = new Set(
-          loadedTransactions.filter(t => t.matchedJournalLineId).map(t => t.matchedJournalLineId)
-        );
-        setGlLines(lines.filter(l => !matchedLineIds.has(l.id)));
-      }
+      setGlReload(k => k + 1);
     } catch (err) {
-      setRecon(null); setTransactions([]); setGlLines([]);
+      setRecon(null); setTransactions([]);
       setError(apiErrorMessage(err, 'Could not load the reconciliation - try again'));
     } finally {
       setIsLoading(false);
@@ -435,45 +401,8 @@ export default function ReconciliationDetailPage() {
             </div>
 
             {/* GL Journal Lines */}
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-              <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-                <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                  GL Lines ({glLines.length} unmatched)
-                </h3>
-              </div>
-              <div className="max-h-[500px] overflow-y-auto">
-                {glLines.length === 0 ? (
-                  <p className="p-4 text-sm text-[var(--ff-text-tertiary)]">No unmatched GL lines</p>
-                ) : (
-                  <div className="divide-y divide-[var(--ff-border-light)]">
-                    {glLines.map(line => {
-                      const amount = line.debit > 0 ? line.debit : -line.credit;
-                      return (
-                        <div
-                          key={line.id}
-                          onClick={() => !isCompleted && setSelectedGl(line.id === selectedGl ? null : line.id)}
-                          className={`px-4 py-2 text-sm cursor-pointer transition-colors ${
-                            selectedGl === line.id ? 'bg-blue-500/10' : 'hover:bg-[var(--ff-bg-primary)]'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[var(--ff-text-primary)] truncate">{line.description || '—'}</p>
-                              <p className="text-xs text-[var(--ff-text-tertiary)]">
-                                {line.entryNumber} | {formatDisplayDate(line.entryDate)}
-                              </p>
-                            </div>
-                            <span className={`tabular-nums text-sm ml-2 ${amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                              {formatCurrency(amount)}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
+            <ReconGlLinesPanel reconciliationId={reconId} reloadKey={glReload} completed={isCompleted}
+              selectedId={selectedGl} onSelect={setSelectedGl} />
           </div>
         </div>
       </div>

@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Plus, Loader2, Save } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   CompanyGroup, GroupMember, SimpleCompany,
@@ -13,11 +13,14 @@ import {
 } from './types';
 import { GroupMembersSection } from './GroupMembersSection';
 import { createGroupBody, updateGroupBody } from './groupRequests';
+import { isActiveCompany, switchToAdd } from './groupActiveCompany';
 
 interface Props {
   group: CompanyGroup | null;
   members: GroupMember[];
   userCompanies: SimpleCompany[];
+  /** The company the user is working in (a new group's holding company, and a member row, are written with it active). */
+  activeCompanyId: string | null;
   onGroupChange: (g: CompanyGroup) => void;
   onMembersRefresh: () => Promise<void>;
   onGroupRefresh: () => Promise<void>;
@@ -25,7 +28,7 @@ interface Props {
 }
 
 export function GroupDetailsTab({
-  group, members, userCompanies,
+  group, members, userCompanies, activeCompanyId,
   onGroupChange, onMembersRefresh, onGroupRefresh, onFlash,
 }: Props) {
   const [saving, setSaving] = useState(false);
@@ -45,12 +48,12 @@ export function GroupDetailsTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createGroupBody(createForm)),
       });
-      if (!res.ok) throw new Error('Create failed');
+      await assertOk(res, 'Could not create the group - try again');
       onFlash('Group created', 'success');
       await onGroupRefresh();
     } catch (e) {
       log.error('Group details operation failed', { error: e }, 'group');
-      onFlash('Failed to create group', 'error');
+      onFlash(apiErrorMessage(e, 'Could not create the group - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -70,11 +73,11 @@ export function GroupDetailsTab({
           financialYearStart: group.financialYearStart,
         })),
       });
-      if (!res.ok) throw new Error('Update failed');
+      await assertOk(res, 'Could not save the group - try again');
       onFlash('Group updated', 'success');
     } catch (e) {
       log.error('Group details operation failed', { error: e }, 'group');
-      onFlash('Failed to update group', 'error');
+      onFlash(apiErrorMessage(e, 'Could not save the group - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -102,7 +105,11 @@ export function GroupDetailsTab({
               onChange={e => setCreateForm({ ...createForm, holdingCompanyId: e.target.value })}
             >
               <option value="">-- Select --</option>
-              {userCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {userCompanies.map(c => (
+                <option key={c.id} value={c.id} disabled={!isActiveCompany(c.id, activeCompanyId)}>
+                  {isActiveCompany(c.id, activeCompanyId) ? c.name : switchToAdd(c.name, !!activeCompanyId)}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -181,6 +188,7 @@ export function GroupDetailsTab({
         group={group}
         members={members}
         availableCompanies={availableCompanies}
+        activeCompanyId={activeCompanyId}
         onRefresh={onMembersRefresh}
         onFlash={onFlash}
       />

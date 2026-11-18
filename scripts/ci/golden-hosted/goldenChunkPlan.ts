@@ -39,6 +39,7 @@ export const FILE_SECONDS: Readonly<Record<string, number>> = {
   'z4-employee-pay-on-create.spec.ts': 65, 'z5-employee-bank-details.spec.ts': 41, 'z6-payrun-review-grid.spec.ts': 38,
   'z7-undo-drawers.spec.ts': 116, 'z9-employee-readiness.spec.ts': 99,
   'z22-admin-console.spec.ts': 70, // hosted: 62 s (run 43605704335, without System Health) plus a margin
+  'z30-bank-bulk-accept.spec.ts': 37, // hosted: 34.5 s and 40.3 s with its warm-up (runs 44261035241, 44249027688)
 };
 /** Mean seconds per o-theme-contrast screen, same runs. */
 export const CONTRAST_SECONDS: Readonly<Record<string, number>> = {
