@@ -11,7 +11,6 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { isBankAllocationRefusal } from './bankAllocationRefusal';
-import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import {
@@ -22,6 +21,7 @@ import { BankMatchUnavailableError } from './bankTxStatusMutations';
 import { refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import type { AutoMatchResult } from '../../types/bank.types';
 import { importerHeldMatchPairs } from './bankLineImporterGate';
+import { reconcilableGlLineWhere } from './bankReconcilableGlLines';
 import type { DbRow } from '@/types/db';
 
 export async function autoMatchTransactions(
@@ -55,25 +55,13 @@ export async function autoMatchTransactions(
             WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID AND r.status = 'in_progress')))
       ORDER BY transaction_date`) as DbRow[];
     if (bankTxRows.length === 0) return { matched: 0, unmatched: 0, candidates: [] };
+    // The GL side: ONE definition, shared with the reconciliation screen's manual-match list (bankReconcilableGlLines).
     const glRows = (await sql`
       SELECT jl.id, jl.debit, jl.credit, jl.description,
         je.entry_date, je.entry_number, je.source_document_id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.gl_account_id = ${bankAccountId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-        -- D11 round 5: only journals that STAND (not reversed out of the ledger): matchTransaction refuses a line on a
-        -- reversed chain, which answered 400 with the earlier matches committed behind it.
-        AND ${journalStandsUnbrokenFragment('je.id', companyId)}
-        -- company_id on the subquery: unscoped it read every tenant's rows.
-        AND jl.id NOT IN (
-          SELECT matched_journal_line_id FROM bank_transactions
-          WHERE matched_journal_line_id IS NOT NULL
-            AND company_id = ${companyId}::UUID)
-        AND (${sessionId}::UUID IS NULL OR je.entry_date <= (SELECT r.statement_date
-          FROM bank_reconciliations r
-          WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID AND r.status = 'in_progress'))
+      WHERE ${reconcilableGlLineWhere(companyId, bankAccountId, sessionId)}
       ORDER BY je.entry_date`) as DbRow[];
     const bankTxs = bankTxRows.map((r: DbRow) => ({
       id: String(r.id), amount: Number(r.amount), transactionDate: String(r.transaction_date),
