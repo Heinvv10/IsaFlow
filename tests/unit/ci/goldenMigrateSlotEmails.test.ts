@@ -3,6 +3,8 @@ import { appendFileSync, chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { rewriteEnvFiles } from '../../../scripts/ci/golden/slotEmailEnv';
+import { knownAccounts } from '../../../scripts/ci/golden/slotEmailPlan';
 import { main, type Io } from '../../../scripts/ci/golden/migrate-slot-emails';
 import { EXPECTED_GOTRUE_URL } from '../../../scripts/ci/golden/slotConfig';
 import { fakes, newWorld, type World } from '../../helpers/slotEmailWorld';
@@ -12,7 +14,7 @@ const OLD1 = 'golden-slot-1@isaflow.dev';
 const NEW1 = 'golden-slot-1@isaflow.co.za';
 
 describe('migrate-slot-emails main', () => {
-  let dir: string; let ciEnv: string; let secrets: string; let ws: string; let w: World; let said: string[]; let connected: string[];
+  let dir: string; let outside: string; let ciEnv: string; let deployEnv: string; let secrets: string; let ws: string; let w: World; let said: string[]; let connected: string[];
   const f = (...p: string[]): string => join(dir, ...p);
   const put = (path: string, text: string, mode = 0o600): void => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, text, { mode }); };
   const ciText = (over: Record<string, string> = {}): string => Object.entries({
@@ -24,12 +26,13 @@ describe('migrate-slot-emails main', () => {
     return { processEnv: {}, say: (l) => said.push(l), connect: async (u) => { connected.push(u); return x.db; }, useGoTrue: () => (wrap ? wrap(x.gt) : x.gt) };
   };
   const run = (extra: string[] = [], world = w, io = mkIo(world)) =>
-    main(['--env-file', ciEnv, '--secrets-dir', secrets, '--workspace-root', ws, ...extra], io);
+    main(['--env-file', ciEnv, '--deploy-env-file', deployEnv, '--secrets-dir', secrets, '--workspace-root', ws, '--allowed-root', dir, ...extra], io);
   const read = (p: string): string => readFileSync(p, 'utf8');
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'slot-email-')); ciEnv = f('ci.env'); secrets = f('secrets'); ws = f('ws'); w = newWorld(); said = []; connected = [];
+    dir = mkdtempSync(join(tmpdir(), 'slot-email-')); outside = mkdtempSync(join(tmpdir(), 'slot-email-outside-')); ciEnv = f('ci.env'); deployEnv = f('deploy.env'); secrets = f('secrets'); ws = f('ws'); w = newWorld(); said = []; connected = [];
     put(ciEnv, ciText());
+    put(deployEnv, 'E2E_ADMIN_EMAIL=reporting-qa@isaflow.dev\nE2E_APPROVER_EMAIL=reporting-qa-approver@isaflow.dev\n');
     put(f('secrets', 'isaflow-dev-golden-qa.env'), 'GOLDEN_QA_W6_EMAIL=golden-qa-w6@isaflow.dev\nGOLDEN_QA_W6_PASSWORD=w6pw\n');
     put(f('secrets', 'isaflow-reporting-qa.env'), 'E2E_ADMIN_EMAIL=reporting-qa@isaflow.dev\n');
     put(f('secrets', 'notes.txt'), `GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
@@ -40,7 +43,7 @@ describe('migrate-slot-emails main', () => {
     put(f('ws', 'IsaFlow_wt', 'b', 'sub', '.env.local'), `GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
     put(f('ws', 'Other', '.env.local'), `GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
   });
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); });
 
   const untouched = (): void => {
     expect(w.log).toEqual(['end']);
@@ -56,7 +59,7 @@ describe('migrate-slot-emails main', () => {
       ['a stray word', ['apply']],
       ['--apply with --dry-run', ['--apply', '--dry-run']],
       ['a flag given twice', ['--apply', '--apply']],
-      ['--allow-unrecognised without --apply', ['--allow-unrecognised']],
+      ['--allow-unrecognised without --apply', ['--allow-unrecognised', '/x']],
     ])('refuses %s, before connecting or writing anything', async (_l, extra) => {
       await expect(run(extra)).rejects.toThrow(/argument|--/);
       expect(connected).toEqual([]);
@@ -67,6 +70,9 @@ describe('migrate-slot-emails main', () => {
     it.each([
       ['a value flag with no value', ['--secrets-dir']],
       ['--env-file with no value', ['--env-file']],
+      ['--deploy-env-file with no value', ['--deploy-env-file']],
+      ['--allowed-root with no value', ['--allowed-root']],
+      ['--allow-unrecognised with no value', ['--apply', '--allow-unrecognised']],
       ['a value flag followed by another flag', ['--workspace-root', '--apply']],
     ])('refuses %s', async (_l, argv) => {
       await expect(main(argv, mkIo(w))).rejects.toThrow(/needs a value/);
@@ -84,7 +90,8 @@ describe('migrate-slot-emails main', () => {
       expect(out).toContain(`${f('ws', 'IsaFlow-a', '.env.local')}: would rewrite GOLDEN_SLOT_1_EMAIL, GOLDEN_SLOT_2_EMAIL`);
       expect(out).toContain(`${f('secrets', 'isaflow-reporting-qa.env')}: would rewrite E2E_ADMIN_EMAIL`);
       expect(out).toContain(`${f('ws', 'IsaFlow_wt', 'b', '.env.local')}: would rewrite GOLDEN_SLOT_3_EMAIL`);
-      expect(out).toContain('env files checked: 5'); // the CI file, two secrets files, one checkout, one worktree: the symlinked copy is the CI file
+      expect(out).toContain('env files checked: 6'); // the CI file, the deploy file, two secrets files, one checkout, one worktree: the symlinked copy is the CI file
+      expect(out).toContain(`${deployEnv}: would rewrite E2E_ADMIN_EMAIL, E2E_APPROVER_EMAIL`);
       expect(out.split(`${ciEnv}: would rewrite`).length - 1).toBe(1);
       expect(out).not.toContain(f('ws', 'Other'));
       expect(out).not.toContain(f('ws', 'IsaFlow_wt', 'b', 'sub'));
@@ -118,6 +125,7 @@ describe('migrate-slot-emails main', () => {
       expect(read(f('ws', 'IsaFlow-a', '.env.local'))).toBe('export GOLDEN_SLOT_1_EMAIL="golden-slot-1@isaflow.co.za"\r\nGOLDEN_SLOT_2_EMAIL=\'golden-slot-2@isaflow.co.za\'\r\n');
       expect(read(f('secrets', 'isaflow-dev-golden-qa.env'))).toBe('GOLDEN_QA_W6_EMAIL=golden-qa-w6@isaflow.co.za\nGOLDEN_QA_W6_PASSWORD=w6pw\n');
       expect(read(f('secrets', 'isaflow-reporting-qa.env'))).toBe('E2E_ADMIN_EMAIL=reporting-qa@isaflow.co.za\n');
+      expect(read(deployEnv)).toBe('E2E_ADMIN_EMAIL=reporting-qa@isaflow.co.za\nE2E_APPROVER_EMAIL=reporting-qa-approver@isaflow.co.za\n');
       expect(read(f('ws', 'IsaFlow_wt', 'b', '.env.local'))).toBe('GOLDEN_SLOT_3_EMAIL=golden-slot-3@isaflow.co.za\n');
       // Not discovered: not *.env, not directly under a worktree, not an IsaFlow* directory.
       expect(read(f('ws', 'IsaFlow_wt', 'b', 'sub', '.env.local'))).toContain(OLD1);
@@ -197,10 +205,25 @@ describe('migrate-slot-emails main', () => {
       expect(said.join('\n')).toMatch(/REFUSED.*--allow-unrecognised/);
     });
 
-    it('--allow-unrecognised migrates the rest and leaves those lines as written', async () => {
-      expect(await run(['--apply', '--allow-unrecognised'])).toBe(0);
+    it('--allow-unrecognised <file> migrates the rest and leaves that file\'s lines as written', async () => {
+      expect(await run(['--apply', '--allow-unrecognised', f('ws', 'IsaFlow-a', '.env.local')])).toBe(0);
       expect(w.gotrue.get('g1')).toBe(NEW1);
       expect(read(f('ws', 'IsaFlow-a', '.env.local'))).toBe(`GOLDEN_SLOT_1_EMAIL=${NEW1}\nSMTP_FROM=IsaFlow <noreply@isaflow.dev>\n# was stranger@isaflow.dev\n`);
+    });
+
+    it('--allow-unrecognised silences only the file it names: a second offending file still refuses', async () => {
+      put(f('ws', 'IsaFlow_wt', 'b', '.env.local'), 'GOLDEN_SLOT_3_EMAIL=golden-slot-3@isaflow.dev\nOTHER=a <x@isaflow.dev>\n');
+      expect(await run(['--apply', '--allow-unrecognised', f('ws', 'IsaFlow-a', '.env.local')])).toBe(1);
+      untouched();
+      expect(said.join('\n')).toContain(`${f('ws', 'IsaFlow_wt', 'b', '.env.local')}: still mentions`);
+      said = []; w.log.length = 0;
+      expect(await run(['--apply', '--allow-unrecognised', f('ws', 'IsaFlow-a', '.env.local'), '--allow-unrecognised', f('ws', 'IsaFlow_wt', 'b', '.env.local')])).toBe(0);
+      expect(w.gotrue.get('g1')).toBe(NEW1);
+    });
+
+    it('--allow-unrecognised names a scanned file: any other path is refused before anything runs', async () => {
+      await expect(run(['--apply', '--allow-unrecognised', f('ws', 'Other', '.env.local')])).rejects.toThrow(/not a scanned env file/);
+      untouched();
     });
 
     it('an unreadable file counts as unrecognised (it may hold an old address)', async () => {
@@ -211,6 +234,36 @@ describe('migrate-slot-emails main', () => {
       expect(said.join('\n')).toContain(`${f('ws', 'IsaFlow-a', '.env.local')}: cannot be read`);
       chmodSync(f('ws', 'IsaFlow-a', '.env.local'), 0o600);
       expect(w.gotrue.get('g1')).toBe(OLD1);
+    });
+  });
+
+  describe('files outside the allowed root', () => {
+    const target = (): string => join(outside, 'elsewhere.env');
+    beforeEach(() => {
+      put(target(), `GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+      mkdirSync(f('ws', 'IsaFlow-out'), { recursive: true });
+      symlinkSync(target(), f('ws', 'IsaFlow-out', '.env.local'));
+    });
+
+    it('rewriteEnvFiles never writes through a symlink that resolves outside the root', () => {
+      expect(rewriteEnvFiles([f('ws', 'IsaFlow-out', '.env.local')], knownAccounts(), dir)).toEqual([]);
+      expect(read(target())).toBe(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+      expect(rewriteEnvFiles([f('ws', 'IsaFlow-a', '.env.local')], knownAccounts(), dir).length).toBe(1);
+    });
+
+    it('is reported by path in a dry run, and --apply refuses before any write', async () => {
+      expect(await run()).toBe(0);
+      expect(said.join('\n')).toContain(`${f('ws', 'IsaFlow-out', '.env.local')}: resolves outside ${dir}, will not be written`);
+      said = []; w.log.length = 0;
+      expect(await run(['--apply'])).toBe(1);
+      untouched();
+      expect(read(target())).toBe(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+    });
+
+    it('with --allow-unrecognised <that file> the rest migrates and the outside file is still not written', async () => {
+      expect(await run(['--apply', '--allow-unrecognised', f('ws', 'IsaFlow-out', '.env.local')])).toBe(0);
+      expect(w.gotrue.get('g1')).toBe(NEW1);
+      expect(read(target())).toBe(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
     });
   });
 

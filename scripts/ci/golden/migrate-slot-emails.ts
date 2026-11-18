@@ -5,22 +5,24 @@
  *
  *   bun scripts/ci/golden/migrate-slot-emails.ts                 # dry run (the default): prints the plan, writes nothing
  *   bun scripts/ci/golden/migrate-slot-emails.ts --apply         # does it
- *   options: --env-file <path> (config source, default /home/hein/isaflow-ci.env), --secrets-dir <dir> (default ~/.secrets),
- *            --workspace-root <dir> (default /home/hein/Workspace), --allow-unrecognised (with --apply only)
+ *   options: --env-file <path> (config source, default /home/hein/isaflow-ci.env), --deploy-env-file <path> (default
+ *            /home/hein/isaflow-deploy.env), --secrets-dir <dir> (default ~/.secrets), --workspace-root <dir> (default
+ *            /home/hein/Workspace), --allowed-root <dir> (default /home/hein: no file resolving elsewhere is written),
+ *            --allow-unrecognised <file> (with --apply only; repeatable; accepts that one scanned file's problem)
  *
  * Any other argument, a flag missing its value, or a repeated one is refused before anything runs.
  *
  * For each known account (slotEmailPlan.ts knownAccounts) it changes the GoTrue email (admin API), the `users` row (exactly
  * one row, else rolled back) and, for slots, the slot company's contact email, all on isaflow_dev. After EACH account's commit
- * it rewrites, in every env file found (slotEmailEnv.ts: the CI env file, ~/.secrets/*.env, every IsaFlow* checkout's and
+ * it rewrites, in every env file found (slotEmailEnv.ts: the CI env file, the deploy env file, ~/.secrets/*.env, every IsaFlow* checkout's and
  * IsaFlow_wt worktree's .env.local), each line whose WHOLE value is that account's old address (an `export ` prefix, quotes and
  * CRLF are kept; mode, owner, group and symlinks too). Only paths and key names are printed, never a value. Idempotent: an
  * account already on the new address has no steps, and a re-run still rewrites its env keys.
  *
  * Refusals, all before any write: a conflict (the new address held by another GoTrue user, a users row that disagrees with
  * GoTrue) stops the database and GoTrue steps (keys of accounts already migrated are still rewritten); a line in a scanned file
- * that still mentions @isaflow.dev but cannot be rewritten (unknown address, half-quoted, in a comment, an unreadable file)
- * refuses --apply unless --allow-unrecognised is given. Old-domain addresses no code knows are listed and never touched.
+ * that still mentions @isaflow.dev but cannot be rewritten (unknown address, half-quoted, in a comment, an unreadable file, a
+ * file that resolves outside the allowed root) refuses --apply unless --allow-unrecognised names that file. Old-domain addresses no code knows are listed and never touched.
  * Production `users` rows for these GoTrue ids, if any, are not touched (this script has no production access).
  *
  * Run it BEFORE provision-slots.ts / provision-w6-qa.ts: those now create the @isaflow.co.za addresses, which would otherwise
@@ -29,7 +31,7 @@
  * Same guards and sources as provision-slots.ts: only isaflow_dev (by url and by current_database()), only the GoTrue pinned
  * in slotConfig.ts (shared with production), GOTRUE_URL / SUPABASE_SERVICE_ROLE_KEY / the database url from the env or the env file.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
@@ -40,6 +42,8 @@ import { assertConnectedToDev, assertDevDatabaseUrl, assertGoTrueUrl, parseEnvFi
 
 const DEFAULT_ENV_FILE = '/home/hein/isaflow-ci.env';
 const DEFAULT_WORKSPACE_ROOT = '/home/hein/Workspace';
+const DEFAULT_DEPLOY_ENV_FILE = '/home/hein/isaflow-deploy.env';
+const DEFAULT_ALLOWED_ROOT = '/home/hein';
 const PRODUCTION_NOTE = 'note: production `users` rows for these GoTrue ids, if any, keep the old address (not touched: this script has no production access)';
 
 export interface Io {
@@ -79,30 +83,44 @@ export async function main(argv: string[], io: Io): Promise<number> {
     for (const e of unknown.gotrue) io.say(`UNKNOWN GoTrue account on the old domain, untouched: ${e}`);
     for (const e of unknown.users) io.say(`UNKNOWN users row on the old domain, untouched: ${e}`);
 
-    const paths = discoverEnvFiles({ envFile, secretsDir: args.secretsDir ?? join(homedir(), '.secrets'), workspaceRoot: args.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT });
-    const scans = scanEnvFiles(paths, accounts);
+    const allowedRoot = args.allowedRoot ?? DEFAULT_ALLOWED_ROOT;
+    const paths = discoverEnvFiles({
+      envFile, deployEnvFile: args.deployEnvFile ?? DEFAULT_DEPLOY_ENV_FILE, secretsDir: args.secretsDir ?? join(homedir(), '.secrets'),
+      workspaceRoot: args.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT,
+    });
+    const scans = scanEnvFiles(paths, accounts, allowedRoot);
+    const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
+    const allowedReal = new Set(args.allowUnrecognised.map(real));
+    const scannedReal = new Set(scans.map((x) => real(x.path)));
+    for (const a of args.allowUnrecognised) if (!scannedReal.has(real(a))) throw new Error(`--allow-unrecognised ${a}: not a scanned env file (see the "env files checked" list of a dry run)`);
     io.say(`env files checked: ${scans.length}`);
-    let unrecognised = 0;
-    for (const { path, unreadable, rewrite } of scans) {
-      if (unreadable) { io.say(`${path}: cannot be read; it may hold an old address`); unrecognised++; continue; }
-      if (rewrite!.changedKeys.length) io.say(`${path}: ${args.apply ? 'will rewrite' : 'would rewrite'} ${rewrite!.changedKeys.join(', ')}`);
-      if (rewrite!.unrecognised.length) { io.say(`${path}: still mentions the old domain, would not be rewritten: ${rewrite!.unrecognised.join(', ')}`); unrecognised += rewrite!.unrecognised.length; }
+    const blocked: string[] = [];
+    for (const { path, unreadable, outside, rewrite } of scans) {
+      let problem = false;
+      if (unreadable) { io.say(`${path}: cannot be read; it may hold an old address`); problem = true; }
+      if (outside) { io.say(`${path}: resolves outside ${allowedRoot}, will not be written`); problem = true; }
+      if (rewrite) {
+        if (rewrite.changedKeys.length && !outside) io.say(`${path}: ${args.apply ? 'will rewrite' : 'would rewrite'} ${rewrite.changedKeys.join(', ')}`);
+        if (rewrite.unrecognised.length) { io.say(`${path}: still mentions the old domain, would not be rewritten: ${rewrite.unrecognised.join(', ')}`); problem = true; }
+      }
+      if (problem && !allowedReal.has(real(path))) blocked.push(path);
     }
+    const unrecognised = blocked.length;
     io.say(PRODUCTION_NOTE);
     const conflict = plans.some((p) => p.action === 'conflict');
 
     if (!args.apply) {
-      if (unrecognised) io.say('--apply will refuse until those lines are fixed by hand, or with --allow-unrecognised (they are then left as written)');
+      if (unrecognised) io.say('--apply will refuse until those files are fixed by hand, or each is named with --allow-unrecognised <file> (it is then left as written)');
       if (conflict) io.say('REFUSED: a conflict above; --apply would write nothing to the database or GoTrue');
       io.say('dry run: nothing written');
       return conflict ? 1 : 0;
     }
-    if (unrecognised && !args.allowUnrecognised) {
-      io.say('REFUSED: lines above still mention the old domain and cannot be rewritten; nothing was written. Fix them by hand, or pass --allow-unrecognised');
+    if (unrecognised) {
+      io.say(`REFUSED: ${blocked.join(', ')} cannot be fully rewritten (see above); nothing was written. Fix by hand, or name each with --allow-unrecognised <file>`);
       return 1;
     }
     const rewriteKeys = (p: AccountPlan): void => {
-      for (const c of rewriteEnvFiles(paths, [p.account])) io.say(`${c.path}: rewrote ${c.keys.join(', ')}`);
+      for (const c of rewriteEnvFiles(paths, [p.account], allowedRoot)) io.say(`${c.path}: rewrote ${c.keys.join(', ')}`);
     };
     if (conflict) io.say('REFUSED: a conflict above; nothing is written to the database or GoTrue');
     for (const p of plans) {

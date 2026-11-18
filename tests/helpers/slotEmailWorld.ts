@@ -15,8 +15,8 @@ export interface World {
 }
 export const newWorld = (): World => ({
   dbName: 'isaflow_dev', log: [],
-  gotrue: new Map([['g1', 'golden-slot-1@isaflow.dev'], ['g2', 'golden-slot-2@isaflow.dev'], ['g3', 'golden-slot-3@isaflow.dev'], ['gw', 'golden-qa-w6@isaflow.dev'], ['gr', 'reporting-qa@isaflow.dev'], ['gx', 'stranger@isaflow.dev'], ['ga', 'admin@isaflow.co.za']]),
-  users: new Map([['g1', 'golden-slot-1@isaflow.dev'], ['g2', 'golden-slot-2@isaflow.dev'], ['g3', 'golden-slot-3@isaflow.dev'], ['gw', 'golden-qa-w6@isaflow.dev'], ['gr', 'reporting-qa@isaflow.dev'], ['ux', 'orphan@isaflow.dev']]),
+  gotrue: new Map([['g1', 'golden-slot-1@isaflow.dev'], ['g2', 'golden-slot-2@isaflow.dev'], ['g3', 'golden-slot-3@isaflow.dev'], ['gw', 'golden-qa-w6@isaflow.dev'], ['gr', 'reporting-qa@isaflow.dev'], ['gp', 'reporting-qa-approver@isaflow.dev'], ['gx', 'stranger@isaflow.dev'], ['ga', 'admin@isaflow.co.za']]),
+  users: new Map([['g1', 'golden-slot-1@isaflow.dev'], ['g2', 'golden-slot-2@isaflow.dev'], ['g3', 'golden-slot-3@isaflow.dev'], ['gw', 'golden-qa-w6@isaflow.dev'], ['gr', 'reporting-qa@isaflow.dev'], ['gp', 'reporting-qa-approver@isaflow.dev'], ['ux', 'orphan@isaflow.dev']]),
   companies: [{ id: slotCompanyId(1), email: 'golden-slot-1@isaflow.dev' }, { id: slotCompanyId(2), email: 'golden-slot-2@isaflow.dev' }, { id: '11111111-0000-4000-8000-000000000001', email: 'golden-slot-1@isaflow.dev' }, { id: slotCompanyId(3), email: 'golden-slot-3@isaflow.dev' }],
 });
 

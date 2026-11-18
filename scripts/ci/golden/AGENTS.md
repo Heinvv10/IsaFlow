@@ -134,12 +134,17 @@ self-approves, set or not (its sandbox company is not the approver's); a refusal
   `bun scripts/ci/golden/migrate-slot-emails.ts` moves them IN PLACE (same GoTrue id; GoTrue email, `users` row (exactly one),
   slot companies' contact email) and is a DRY RUN unless `--apply` is given; any unknown or misspelt argument is refused.
   After each account's commit it rewrites every line whose whole value is that account's old address in the CI env file,
-  `~/.secrets/*.env` and each `.env.local` directly under `/home/hein/Workspace/IsaFlow*/` and `IsaFlow_wt/*/` (`export `, quotes,
+  `/home/hein/isaflow-deploy.env`, `~/.secrets/*.env` and each `.env.local` directly under `/home/hein/Workspace/IsaFlow*/` and `IsaFlow_wt/*/` (`export `, quotes,
   CRLF, mode and symlinks kept; paths and key names printed, never values). A line that still mentions `@isaflow.dev` and
-  cannot be rewritten refuses `--apply` unless `--allow-unrecognised`. A conflict refuses the database and GoTrue writes;
+  cannot be rewritten, an unreadable file, or a file whose realpath is outside `/home/hein` (never written: a symlink into
+  `/home/velo`, say) refuses `--apply` unless `--allow-unrecognised <file>` names that file (repeatable; it silences only that file). A conflict refuses the database and GoTrue writes;
   old-domain addresses no code knows are listed, never touched; production `users` rows for these ids are not touched.
   Run it BEFORE `provision-slots.ts` (which would otherwise create the new addresses as fresh accounts). Same guards as the
   provisioner (isaflow_dev, pinned GoTrue).
+  Runbook: the run rewrites peer worktrees' `.env.local` files, which makes their `next dev` servers reload, so run it at a quiet
+  time (no golden job on a runner, few dev servers up). If a run dies between GoTrue changing and the database COMMIT, or
+  between an account and its env keys, just run it again: the plan reads the real state (GoTrue already on the new address, `users`
+  row or env key still on the old one) and does only what is left.
 - **Cutover grace (temporary):** until the migration has run and no env file holds a legacy address, `readGoldenSlot`
   (`tests/e2e/golden-paths/helpers/goldenSlot.ts`) and the rubric harness (`tests/e2e/rubric/_rubricGuard.ts` logins and session
   check, `_rubricDb.ts` lookups) accept each login under both addresses via `loginAliases` in `slotConfig.ts`. Follow-up

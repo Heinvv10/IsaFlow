@@ -121,36 +121,44 @@ export function formatPlan(p: AccountPlan): string {
 
 export interface MigrationArgs {
   apply: boolean;
-  allowUnrecognised: boolean;
+  /** Files whose unrecognised lines (or unwritable path) the operator accepts; each silences only itself. */
+  allowUnrecognised: string[];
   envFile?: string;
+  deployEnvFile?: string;
   secretsDir?: string;
   workspaceRoot?: string;
+  /** No env file is written unless its realpath is under this directory (default /home/hein). */
+  allowedRoot?: string;
 }
 
 /**
  * The command line, strictly: an unknown argument, a repeated one, a value flag with no value and `--apply` together with
  * `--dry-run` are all refused (a misspelt `--dryrun` must never fall through to a run that writes). No argument at all, or
- * `--dry-run`, is a dry run; writing needs `--apply`.
+ * `--dry-run`, is a dry run; writing needs `--apply`. `--allow-unrecognised <file>` is the one repeatable flag.
  */
 export function parseMigrationArgs(argv: readonly string[]): MigrationArgs {
-  const out: MigrationArgs = { apply: false, allowUnrecognised: false };
+  const out: MigrationArgs = { apply: false, allowUnrecognised: [] };
   const seen = new Set<string>();
-  const valueFlags: Record<string, 'envFile' | 'secretsDir' | 'workspaceRoot'> = { '--env-file': 'envFile', '--secrets-dir': 'secretsDir', '--workspace-root': 'workspaceRoot' };
+  const valueFlags: Record<string, 'envFile' | 'deployEnvFile' | 'secretsDir' | 'workspaceRoot' | 'allowedRoot'> = {
+    '--env-file': 'envFile', '--deploy-env-file': 'deployEnvFile', '--secrets-dir': 'secretsDir', '--workspace-root': 'workspaceRoot', '--allowed-root': 'allowedRoot',
+  };
+  const valueOf = (flag: string, i: number): string => {
+    const v = argv[i];
+    if (v === undefined || v.startsWith('--')) throw new Error(`argument ${flag} needs a value`);
+    return v;
+  };
   let dryRun = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (seen.has(a)) throw new Error(`argument ${a} given twice`);
+    if (a !== '--allow-unrecognised' && seen.has(a)) throw new Error(`argument ${a} given twice`);
     seen.add(a);
     if (a === '--apply') out.apply = true;
     else if (a === '--dry-run') dryRun = true;
-    else if (a === '--allow-unrecognised') out.allowUnrecognised = true;
-    else if (valueFlags[a]) {
-      const v = argv[++i];
-      if (v === undefined || v.startsWith('--')) throw new Error(`argument ${a} needs a value`);
-      out[valueFlags[a]!] = v;
-    } else throw new Error(`unknown argument "${a}" (expected --apply, --dry-run, --allow-unrecognised, --env-file, --secrets-dir, --workspace-root)`);
+    else if (a === '--allow-unrecognised') { const v = valueOf(a, ++i); if (!out.allowUnrecognised.includes(v)) out.allowUnrecognised.push(v); }
+    else if (valueFlags[a]) out[valueFlags[a]!] = valueOf(a, ++i);
+    else throw new Error(`unknown argument "${a}" (expected --apply, --dry-run, --allow-unrecognised <file>, --env-file, --deploy-env-file, --secrets-dir, --workspace-root, --allowed-root)`);
   }
   if (out.apply && dryRun) throw new Error('arguments --apply and --dry-run contradict each other');
-  if (out.allowUnrecognised && !out.apply) throw new Error('argument --allow-unrecognised only makes sense with --apply');
+  if (out.allowUnrecognised.length && !out.apply) throw new Error('argument --allow-unrecognised only makes sense with --apply');
   return out;
 }

@@ -27,12 +27,20 @@ export async function withDevDb<T>(databaseUrl: string, use: (db: Client) => Pro
 }
 
 // Lookups go by loginAliases (cutover grace: the account may still be on its legacy @isaflow.dev address; follow-up
-// drop-legacy-email-grace, see slotConfig.ts).
+// drop-legacy-email-grace, see slotConfig.ts). Two addresses can mean two accounts (a stranger's row on the legacy address),
+// so each lookup first requires EXACTLY ONE user across the aliases, and never picks or grants to a second one.
+async function assertOneUser(db: Queryable, label: string, aliases: string[]): Promise<void> {
+  const { rows } = await db.query<{ id: string }>('SELECT id::text AS id FROM users WHERE lower(email) = ANY($1::text[])', [aliases]);
+  if (rows.length === 0) throw new RubricGuardError(`no user matches ${label} (${aliases.join(' / ')})`);
+  if (rows.length > 1) throw new RubricGuardError(`${rows.length} users match ${label} (${aliases.join(' / ')}); exactly one is required`);
+}
+
 /**
  * The company the requester's one login opens in: the sandbox named `sandboxName` once it exists, else their default
  * company. Read here so each run logs in once per user (login allows 10 attempts per email per 15 minutes).
  */
 export async function startingCompany(db: Queryable, sandboxName: string): Promise<string> {
+  await assertOneUser(db, 'the requester', loginAliases(REQUESTER_EMAIL));
   const { rows } = await db.query<{ company_id: string }>(
     `SELECT cu.company_id FROM company_users cu
      JOIN users u ON u.id::text = cu.user_id JOIN companies c ON c.id = cu.company_id
@@ -51,6 +59,7 @@ export async function startingCompany(db: Queryable, sandboxName: string): Promi
  */
 export async function insertApprover(db: Queryable, sandbox: { id: string; name: string }, email = APPROVER_EMAIL):
   Promise<{ role: string; added: boolean }> {
+  await assertOneUser(db, 'the approver', loginAliases(email.toLowerCase()));
   const inserted = await db.query(
     `INSERT INTO company_users (company_id, user_id, role, is_default)
      SELECT c.id, u.id::text, 'admin', false
