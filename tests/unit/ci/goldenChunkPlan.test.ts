@@ -93,6 +93,13 @@ describe('golden chunk plan mechanics', () => {
     }
   });
 
+  it('cuts where the longest run is shortest, not at the midpoints (one more spec cannot tip the balance)', () => {
+    const w = (secs: number[]) => secs.map((seconds, i) => ({ kind: 'file' as const, name: `f${i}.spec.ts`, seconds }));
+    expect(splitItems(w([10, 10, 10, 30]), 2).map((c) => c.reduce((t, i) => t + i.seconds, 0))).toEqual([30, 30]);
+    expect(splitItems(w([40, 1, 1, 1, 1, 40]), 3).map((c) => c.reduce((t, i) => t + i.seconds, 0))).toEqual([40, 4, 40]);
+    expect(splitItems(w([5, 5]), 3).map((c) => c.length)).toEqual([1, 1, 0]);
+  });
+
   it('makes one invocation per run of the same kind, with the screens in a --grep', () => {
     const inv = toInvocations(items);
     expect(inv).toEqual([

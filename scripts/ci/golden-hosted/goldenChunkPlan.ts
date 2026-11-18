@@ -76,16 +76,38 @@ export function planItems(files: string[], contrastSource: string): Item[] {
   return items;
 }
 
-/** Contiguous split: an item goes to the chunk its midpoint (in cumulative seconds) falls in. */
+/**
+ * Contiguous split into `chunks` runs, the cut points chosen so the longest run is as short as possible (and, among
+ * those, the shortest as long as possible): an exact linear-partition DP over cumulative seconds, so one more spec never
+ * tips a chunk past the balance bound the way a midpoint rule can. More chunks than items leaves the last ones empty.
+ */
 export function splitItems(items: Item[], chunks: number): Item[][] {
   if (!Number.isInteger(chunks) || chunks < 1) throw new Error(`golden chunk plan: chunks must be a positive integer, got ${chunks}`);
-  const total = items.reduce((s, i) => s + i.seconds, 0);
+  const n = items.length;
+  const parts = Math.min(chunks, n);
+  const pre = [0];
+  for (const item of items) pre.push(pre[pre.length - 1]! + item.seconds);
+  // best[j][i]: [longest, -shortest] of the first i items in j runs; cut[j][i]: where run j starts.
+  const best: Array<Array<[number, number] | null>> = Array.from({ length: parts + 1 }, () => Array<[number, number] | null>(n + 1).fill(null));
+  const cut: number[][] = Array.from({ length: parts + 1 }, () => Array<number>(n + 1).fill(0));
+  best[0]![0] = [0, -Infinity];
+  for (let j = 1; j <= parts; j += 1) {
+    for (let i = j; i <= n; i += 1) {
+      for (let p = j - 1; p < i; p += 1) {
+        const prev = best[j - 1]![p];
+        if (!prev) continue;
+        const run = pre[i]! - pre[p]!;
+        const cand: [number, number] = [Math.max(prev[0], run), Math.max(prev[1], -run)];
+        const cur = best[j]![i];
+        if (!cur || cand[0] < cur[0] || (cand[0] === cur[0] && cand[1] < cur[1])) { best[j]![i] = cand; cut[j]![i] = p; }
+      }
+    }
+  }
   const out: Item[][] = Array.from({ length: chunks }, () => []);
-  let before = 0;
-  for (const item of items) {
-    const k = Math.min(chunks - 1, Math.floor(((before + item.seconds / 2) / total) * chunks));
-    out[k]!.push(item);
-    before += item.seconds;
+  for (let j = parts, i = n; j >= 1; j -= 1) {
+    const p = cut[j]![i]!;
+    out[j - 1] = items.slice(p, i);
+    i = p;
   }
   return out;
 }
