@@ -77,9 +77,10 @@ export function planItems(files: string[], contrastSource: string): Item[] {
 }
 
 /**
- * Contiguous split into `chunks` runs, the cut points chosen so the longest run is as short as possible (and, among
- * those, the shortest as long as possible): an exact linear-partition DP over cumulative seconds, so one more spec never
- * tips a chunk past the balance bound the way a midpoint rule can. More chunks than items leaves the last ones empty.
+ * Contiguous split into `chunks` runs by a linear-partition DP over cumulative seconds: the longest run is minimised
+ * exactly; the tie-break toward a longer shortest run is best-effort (the DP keeps one state per prefix, so it can miss
+ * the best shortest run among equal longest ones). A midpoint rule let one more spec tip a chunk past the balance bound.
+ * More chunks than items leaves the last ones empty.
  */
 export function splitItems(items: Item[], chunks: number): Item[][] {
   if (!Number.isInteger(chunks) || chunks < 1) throw new Error(`golden chunk plan: chunks must be a positive integer, got ${chunks}`);
