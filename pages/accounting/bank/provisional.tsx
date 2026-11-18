@@ -123,7 +123,7 @@ export default function ProvisionalEntriesPage() {
             <span className="text-sm text-[var(--ff-text-secondary)]">Days outstanding:</span>
             {(['all', '3', '5', '7'] as DaysFilter[]).map(f => (
               <button key={f} onClick={() => setDaysFilter(f)}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${daysFilter === f ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:border-amber-500/40'}`}>
+                className={`px-3 py-1.5 max-lg:min-h-11 max-lg:min-w-11 rounded text-xs font-medium transition-colors ${daysFilter === f ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:border-amber-500/40'}`}>
                 {f === 'all' ? 'All' : `≥${f} days`}
               </button>
             ))}
@@ -144,8 +144,21 @@ export default function ProvisionalEntriesPage() {
               <p className="text-[var(--ff-text-secondary)] text-sm leading-relaxed">No provisional entries awaiting evidence. The system posts bank transactions here when a supplier match is confident but no slip is attached yet. Import a statement to see this in action.</p>
             </div>
           ) : (
+            <>
+            {/* The sortable header row is hidden on cards, so phones and tablets sort from here. */}
+            <label className="flex items-center gap-2 mb-3 text-xs text-[var(--ff-text-secondary)] lg:hidden">
+              Sort by
+              <select aria-label="Sort by" value={`${sortKey}:${sortDir}`}
+                onChange={ev => { const [k, d] = ev.target.value.split(':'); setSortKey(k as SortKey); setSortDir(d as SortDir); }}
+                className="ff-select text-sm py-2 px-3 min-h-11">
+                {([['daysOutstanding', 'Days out'], ['transactionDate', 'Bank date'], ['amount', 'Amount'], ['predictedSupplierName', 'Predicted supplier']] as const).flatMap(([k, l]) => [
+                  <option key={`${k}:desc`} value={`${k}:desc`}>{l} (high to low)</option>,
+                  <option key={`${k}:asc`} value={`${k}:asc`}>{l} (low to high)</option>,
+                ])}
+              </select>
+            </label>
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
+              <table className="table-cards w-full text-sm lg:min-w-[800px]">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs uppercase">
                     <th className={`${TH} cursor-pointer select-none`} onClick={() => toggleSort('transactionDate')}><span className="flex items-center gap-1">Bank Date <SI col="transactionDate" /></span></th>
@@ -161,23 +174,23 @@ export default function ProvisionalEntriesPage() {
                   {filtered.map(e => (
                     <tr key={e.jeId} id={`tx-${e.bankTxId}`}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">{formatDate(e.transactionDate)}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] max-w-[200px]">
+                      <td data-label="Bank date" className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">{formatDate(e.transactionDate)}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)] lg:max-w-[200px]">
                         <span className="line-clamp-2 text-xs">{e.description || '—'}</span>
                         <span className="block text-[var(--ff-text-tertiary)] text-xs">{e.bankAccountName}</span>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-xs">{formatRandAbs(e.amount)}</td>
-                      <td className="px-4 py-3">
+                      <td data-label="Amount (R)" className="px-4 py-3 text-right tabular-nums text-xs">{formatRandAbs(e.amount)}</td>
+                      <td data-label="Predicted supplier" className="px-4 py-3">
                         {e.predictedSupplierName
-                          ? <div className="flex items-center gap-2 flex-wrap"><Link href={`/accounting/suppliers/${e.predictedSupplierId}`} className="text-xs text-blue-400 hover:underline">{e.predictedSupplierName}</Link><ConfBadge v={e.predictionConfidence} /></div>
+                          ? <div className="flex items-center gap-2 flex-wrap"><Link href={`/accounting/suppliers/${e.predictedSupplierId}`} className="text-xs text-blue-400 hover:underline max-lg:inline-flex max-lg:min-h-11 max-lg:items-center">{e.predictedSupplierName}</Link><ConfBadge v={e.predictionConfidence} /></div>
                           : <span className="text-[var(--ff-text-tertiary)] text-xs">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{e.glAccountName ?? '—'}</td>
-                      <td className="px-4 py-3 text-center"><DaysBadge d={e.daysOutstanding} /></td>
-                      <td className="px-4 py-3">
+                      <td data-label="Predicted GL" className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{e.glAccountName ?? '—'}</td>
+                      <td data-label="Days out" className="px-4 py-3 text-center"><DaysBadge d={e.daysOutstanding} /></td>
+                      <td data-label="Actions" className="px-4 py-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <button onClick={() => setAttachJeId(e.jeId)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors"><Paperclip className="h-3.5 w-3.5" />Attach evidence</button>
-                          <button onClick={() => setDismissJeId(e.jeId)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"><X className="h-3.5 w-3.5" />Dismiss</button>
+                          <button onClick={() => setAttachJeId(e.jeId)} className="flex items-center gap-1 px-2 py-1 max-lg:min-h-11 max-lg:px-3 rounded text-xs font-medium bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors"><Paperclip className="h-3.5 w-3.5" />Attach evidence</button>
+                          <button onClick={() => setDismissJeId(e.jeId)} className="flex items-center gap-1 px-2 py-1 max-lg:min-h-11 max-lg:px-3 rounded text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"><X className="h-3.5 w-3.5" />Dismiss</button>
                         </div>
                       </td>
                     </tr>
@@ -185,6 +198,7 @@ export default function ProvisionalEntriesPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>
