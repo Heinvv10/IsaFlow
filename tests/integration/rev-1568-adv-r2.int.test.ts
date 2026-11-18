@@ -195,6 +195,15 @@ describeIfDb('PR #1568 round 2 adversarial', () => {
     expect(await emp501Versions(rf)).toHaveLength(0);
   });
 
+  it('D2c: a lump sum to no employee in a month with a run: the month\'s match names the PAYE no certificate carries', async () => {
+    const rf = await company('D2C');
+    const alice = await employee(rf, 'Alice');
+    await run2(rf, 3, [[alice, 30_000, 4_000]]);
+    await standalone(rf, null, '2025-03-20', 18_000);
+    await fileEmp201(rf, 3); // declares 4000 + 18000
+    expect((await readiness(rf)).emp201Mismatches).toEqual(['March 2025: PAYE 22000.00 filed, 4000.00 on the certificates']);
+  });
+
   it('D4 (control): EMP201 v1 filed, payroll corrected, amended, v2 finalised and filed: the EMP501 finalises with the corrected totals', async () => {
     const rf = await company('D4');
     const alice = await employee(rf, 'Alice');
