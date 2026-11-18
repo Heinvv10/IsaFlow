@@ -27,7 +27,7 @@ export interface PayrollRunSummary {
   employeeCount: number;
   /** The GL entry posted at approval, still set after reopenPayrollRun. */
   journalEntryId: string | null;
-  /** Migration 999a. This release creates and costs only monthly regular runs (payrollRunKindGuard). */
+  /** Migration 999a. This release creates and costs regular runs: monthly, weekly and fortnightly (payrollRunKindGuard). */
   /** 'unsupported': a value a later release added; the run lists, and the guard refuses to act on it. */
   payFrequency: PayFrequency | UnsupportedValue;
   runKind: RunKind | UnsupportedValue;

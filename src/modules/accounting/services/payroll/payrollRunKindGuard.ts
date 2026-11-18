@@ -1,7 +1,7 @@
 /**
  * The forward-compat guard (wave 6 FQa, grill F3/F4/F8/F28). This release costs, approves, posts, reopens and prints
- * only MONTHLY REGULAR runs of employees whose tax status and assignments it knows. Later wave-6 releases add weekly
- * and fortnightly runs, off-cycle runs, personal service providers, defined-benefit factors, overtime multipliers,
+ * only REGULAR runs (monthly; weekly and fortnightly since FQd) of employees whose tax status and assignments it
+ * knows. Later wave-6 releases add off-cycle runs, personal service providers, defined-benefit factors, overtime multipliers,
  * travel km and garnishee orders. If production is rolled back to this release (code only, never migrations), this
  * guard is what stops it costing those rows as if they were ordinary: it refuses, naming why, before any write.
  *
@@ -27,6 +27,9 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 
 export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'payslip' | 'emp201' | 'irp5' | 'bank_file';
+
+/** The pay frequencies this release costs (wave 6 FQd added weekly and fortnightly). */
+export const SUPPORTED_FREQUENCIES = ['monthly', 'weekly', 'fortnightly'] as const;
 
 /** The tax statuses this release costs (migration 967; PSP adds personal_service_provider). */
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor'] as const;
@@ -131,8 +134,9 @@ export async function assertRunKindSupported(
 /** The reasons, from the guard's one row. Exported for the unit tests of each clause's wording and action set. */
 export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[] {
   const reasons: RunKindReason[] = [];
-  if (row.pay_frequency !== 'monthly') {
-    reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly runs are supported` });
+  // Wave 6 FQd lifts the clause for weekly and fortnightly regular runs; any other frequency still fails closed.
+  if (!(SUPPORTED_FREQUENCIES as readonly unknown[]).includes(row.pay_frequency)) {
+    reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly, weekly and fortnightly runs are supported` });
   }
   if (row.run_kind !== 'regular') {
     const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
