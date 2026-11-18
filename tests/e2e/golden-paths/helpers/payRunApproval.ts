@@ -35,7 +35,8 @@ export const APPROVER_HINT =
   + '(an owner/admin of the same company, not the E2E_ADMIN user, without MFA) in /home/hein/isaflow-deploy.env, or export them. '
   + 'The refusal can also mean self-approval enforcement changed or the approver roster did.';
 
-export type PayRunClearance = 'cleared' | 'self-approval-refused';
+/** 'two-person-gate-proved': self-approval was refused (SELF_APPROVAL_FORBIDDEN) and the second user then approved. */
+export type PayRunClearance = 'cleared' | 'self-approval-refused' | 'two-person-gate-proved';
 
 // selfApprove ignores E2E_APPROVER_*, so APPROVER_HINT's advice cannot help a spec that sets it.
 export const SELF_APPROVE_HINT =
@@ -70,9 +71,12 @@ async function activeCompanyId(api: Api): Promise<string> {
  * `selfApprove` ignores E2E_APPROVER_* (a spec working in a company the approver does not belong to, e.g. z6's sandbox).
  * `reportSelfRefusal` returns 'self-approval-refused' instead of throwing when no approver is configured and the suite
  * user may not approve their own request; the request stays pending. A configured approver who is refused always throws.
+ * `proveSelfRefusal`: with an approver configured, the suite user first TRIES to approve their own request and must be
+ * refused (SELF_APPROVAL_FORBIDDEN); if it is allowed the company is not the two-member company this run needs and the call
+ * throws. The post-deploy verify company has two members, so h-payroll-run proves the gate there.
  */
 export async function clearPayRunApproval(
-  api: Api, baseURL: string, runId: string, opts: { selfApprove?: boolean; reportSelfRefusal?: boolean } = {},
+  api: Api, baseURL: string, runId: string, opts: { selfApprove?: boolean; reportSelfRefusal?: boolean; proveSelfRefusal?: boolean } = {},
 ): Promise<PayRunClearance> {
   const approver = opts.selfApprove ? null : readApprover(process.env); // before any write: a bad config fails first
   if (approver && approver.email.toLowerCase() === (process.env.E2E_ADMIN_EMAIL ?? '').toLowerCase()) {
@@ -92,10 +96,20 @@ export async function clearPayRunApproval(
     }
   }
 
+  if (opts.proveSelfRefusal) {
+    const refused = await approve(api, decision).then(() => false, (err: unknown) => {
+      if (err instanceof SelfApprovalRefused) return true;
+      throw err;
+    });
+    if (!refused) {
+      throw new Error('R-035 two-person gate: the suite user approved their own pay run although a second approver (E2E_APPROVER_*) is configured. '
+        + 'Self-approval must be refused while another member can decide: the company, its approver role or enforcement is wrong.');
+    }
+  }
   const second = await Api.loginAs(baseURL, { ...approver, companyId: await activeCompanyId(api) });
   try {
     await approve(second, decision);
-    return 'cleared';
+    return opts.proveSelfRefusal ? 'two-person-gate-proved' : 'cleared';
   } finally {
     await second.dispose();
   }

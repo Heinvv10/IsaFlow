@@ -275,6 +275,8 @@ export async function adminUpdateUser(
     email?: string;
     password?: string;
     user_metadata?: Record<string, unknown>;
+    /** Admin-only: a user cannot write it (user_metadata they can). */
+    app_metadata?: Record<string, unknown>;
     // When true, an admin-initiated email change skips GoTrue's secure-email-
     // change double-confirm and switches the login email immediately.
     email_confirm?: boolean;

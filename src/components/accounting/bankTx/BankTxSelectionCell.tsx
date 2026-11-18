@@ -151,7 +151,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                         onClick={() => pick(suggested)}
                         className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 data-[active]:ring-1 data-[active]:ring-teal-400 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
                       >
-                        {suggested.code && <span className="font-id text-teal-700 dark:text-teal-400 w-10 shrink-0">{suggested.code}</span>}
+                        {suggested.code && <span className="font-id text-teal-700 dark:text-teal-400 min-w-10 shrink-0">{suggested.code}</span>}
                         <span className="text-teal-700 dark:text-teal-300 truncate font-medium">{suggested.name}</span>
                       </button>
                     </>
@@ -165,7 +165,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                     onClick={() => pick(o)}
                     className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] data-[active]:bg-[var(--ff-bg-primary)] data-[active]:ring-1 data-[active]:ring-teal-400 text-xs flex items-center gap-2"
                   >
-                    {o.code && <span className="font-id text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
+                    {o.code && <span className="font-id text-[var(--ff-text-tertiary)] min-w-10 shrink-0">{o.code}</span>}
                     <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
                   </button>
                   );
