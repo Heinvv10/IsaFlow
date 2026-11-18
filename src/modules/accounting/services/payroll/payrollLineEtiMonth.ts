@@ -6,9 +6,12 @@
  * So a weekly or fortnightly line claims nothing on its own: it records its parts (ETI_MONTH_PENDING), and the month's
  * last regular run of that frequency (by pay date; payFrequencyPeriods.closesPayMonth) claims the month on the month's
  * remuneration and hours, its own plus those parts.
- * UNVERIFIED by FQc (not read against the document): the Guide to the ETI Issue 5 s2.4 pp. 15-18 wording that weekly
- * and fortnightly pay counts in the month it is paid or payable, and whether a SARS ruling lets an employer align the ETI
- * "month" with its pay weeks. IsaFlow uses the calendar month of the pay date either way, so no election is read.
+ * CAUTION, UNVERIFIED: G05 Rev 17 has no weekly or fortnightly section (it names "hourly, weekly or monthly" only for the
+ * minimum-wage basis of code 7003, s19), and SARS's "How does the ETI work" page says only that the incentive is
+ * calculated and claimed "on a monthly basis". Summing a month's weekly runs on the last one is FQc's reading of that,
+ * not a SARS example. Not read: the Guide to the ETI Issue 5 s2.4 wording, and any ruling letting an employer align the
+ * ETI "month" with its pay weeks (a "BGR 47" was claimed and could not be found). IsaFlow uses the calendar month of the
+ * pay date, so no election is read.
  * NAMED LIMITS: the parts are read from the month's FINAL runs (a run not yet approved when the closing run is
  * calculated is not in it; the year-to-date gate refuses that approval order); a run reopened after the month closed
  * moves the month's figure only when the closing run is recalculated.
