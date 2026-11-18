@@ -26,16 +26,18 @@ const sideMode = (page: Page) => page.addInitScript(() => localStorage.setItem('
 test.describe('390 x 844', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  for (const [name, button] of [
-    ['Create new', { name: /create new/i }],
-    ['Settings', { name: /settings/i }],
-    ['Account and display settings', { name: 'Account and display settings' }],
+  // The popup each button opens. The Settings popover is a group (Display toggles + the menu of pages): its inner
+  // menu scrolls inside it, so the popover, not the menu, is what must fit the screen.
+  for (const [name, button, popup] of [
+    ['Create new', { name: /create new/i }, ['menu', 'Create new']],
+    ['Settings', { name: /settings/i }, ['group', 'Settings']],
+    ['Account and display settings', { name: 'Account and display settings' }, ['group', 'Account and display settings']],
   ] as const) {
     test(`the ${name} menu opens inside the screen`, async ({ page }) => {
       await page.goto(INVOICES);
       await ready(page);
       await page.locator('header').getByRole('button', button).first().click();
-      const menu = page.locator('[role="menu"], [role="group"][aria-label="Account and display settings"]').last();
+      const menu = page.getByRole(popup[0], { name: popup[1], exact: true });
       await expect(menu).toBeVisible();
       const box = (await menu.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
