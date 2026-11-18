@@ -43,9 +43,16 @@ function definition(file: string, fn: string): string {
 const OLD_CONTENT = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_content');
 const OLD_DIGEST = definition('874_customer_invoice_line_revenue_coding.sql', 'approval_document_digest');
 const OLD_AUTHORS = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_authors');
-/** 951's pay_run wrappers; only these three functions, never the rest of 951 (it stamps payroll rows database-wide). */
-const CURRENT_APPROVAL_WRAPPERS = ['approval_document_digest', 'approval_document_authors', 'approval_request_document_facts']
-  .map((fn) => definition('951_pay_run_approval.sql', fn));
+/**
+ * The pay_run wrappers as they stand today: only these three functions, never the rest of their migrations (951 stamps
+ * payroll rows database-wide). approval_document_authors was last re-created by 999w (prepared_by is TEXT there, and
+ * 951's body no longer compiles against it).
+ */
+const CURRENT_APPROVAL_WRAPPERS = ([
+  ['951_pay_run_approval.sql', 'approval_document_digest'],
+  ['999w_actor_ids_text.sql', 'approval_document_authors'],
+  ['951_pay_run_approval.sql', 'approval_request_document_facts'],
+] as const).map(([file, fn]) => definition(file, fn));
 
 /** The migration, in one transaction as apply-migrations runs it; returns its notices. */
 async function migrate(): Promise<string[]> {

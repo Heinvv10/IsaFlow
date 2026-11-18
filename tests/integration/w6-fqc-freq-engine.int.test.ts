@@ -11,8 +11,8 @@
  *  - PAYE_LATER_PERIODS_APPROVED names the later RUN, and the gate clears on it (review #1507 B2b);
  *  - the reversal guard finds an unlinked weekly or off-cycle journal's run by its run-keyed description.
  *
- * FQx (migration 999p) drops payroll_run_headers' per-month unique; FQc merges first, so each case drops it inside its
- * own transaction and rolls everything back (w6-fqb1.helpers twoRunsInMonth): no other suite sees it gone.
+ * FQx (migration 999y) dropped payroll_run_headers' per-month unique, so several runs share a month. Each case runs in
+ * its own transaction and rolls everything back (w6-fqb1.helpers twoRunsInMonth).
  * The run-kind guard (FQa) still refuses weekly runs until FQd lifts its frequency clause, so it is stubbed here; its
  * own suites are payrollRunKindGuard*.test.ts. payrollFrequencyGuard (FQc's refusals) runs for real.
  */
