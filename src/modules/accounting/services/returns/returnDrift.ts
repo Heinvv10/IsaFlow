@@ -36,6 +36,8 @@ export interface ReturnVersionView extends ReturnVersion {
   drift: ReturnDrift | null;
   /** The VAT period lock behind this version has been unlocked outside the lifecycle. */
   lockRemoved: boolean;
+  /** Warnings its filing went ahead with, from the filing's audit row (wave 6 EFa: PRN_NOT_CROSS_CHECKED). */
+  filingWarnings: string[];
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -120,18 +122,34 @@ async function removedLocks(companyId: string, versions: ReturnVersion[]): Promi
   return new Set(rows.map((r) => String(r.id)));
 }
 
+/** The PRN warnings recorded on the filing audit rows of these versions (fileReturn's metadata.prnNotCrossChecked). */
+async function filingWarnings(companyId: string, versions: ReturnVersion[]): Promise<Map<string, string[]>> {
+  const ids = versions.filter((v) => v.status !== 'finalised').map((v) => v.id);
+  if (ids.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT entity_id::TEXT AS id, changes #>> '{metadata,prnNotCrossChecked}' AS warning FROM audit_log
+    WHERE company_id = ${companyId}::UUID AND entity_type = 'tax_return_version' AND entity_id = ANY(${ids}::UUID[])
+      AND changes #>> '{metadata,prnNotCrossChecked}' IS NOT NULL
+  `) as DbRow[];
+  const out = new Map<string, string[]>();
+  for (const r of rows) out.set(String(r.id), [...(out.get(String(r.id)) ?? []), String(r.warning)]);
+  return out;
+}
+
 export async function listVersions(
   companyId: string, form: ReturnForm, start: string, end: string,
 ): Promise<{ versions: ReturnVersionView[]; vatReturn: VatReturnRecord | null }> {
   const versions = await listVersionRows(companyId, form, start, end);
   const live = versions.find((v) => v.status !== 'superseded');
   const removed = await removedLocks(companyId, versions);
+  const warned = await filingWarnings(companyId, versions);
   const view: ReturnVersionView[] = [];
   for (const v of versions) {
     view.push({
       ...v,
       drift: v === live ? await driftOf(companyId, v) : null,
       lockRemoved: v.vatPeriodLockId !== null && removed.has(v.vatPeriodLockId),
+      filingWarnings: warned.get(v.id) ?? [],
     });
   }
   const vatReturn = form === 'VAT201'

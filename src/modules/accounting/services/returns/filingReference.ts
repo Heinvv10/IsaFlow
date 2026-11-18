@@ -12,8 +12,10 @@
  * (7xxxxxxxxx LC YYMM 000). Until a real EMP201 PRN confirms one, both are accepted.
  *
  * assertFilingReferenceIsTheCompanys adds the company's facts: the PRN's tax reference must be the company's own VAT
- * number or PAYE reference when a well-formed one is recorded (10 digits starting 4 or 7; a malformed or missing one
- * cannot be judged, so it does not block filing), and a PRN already recorded on another period's return is refused.
+ * number or PAYE reference when a well-formed one is recorded (10 digits starting 4 or 7), and a PRN already recorded
+ * on another period's return is refused. A recorded number that is not a valid SARS number cannot be judged: the filing
+ * goes ahead with a named warning (PRN_NOT_CROSS_CHECKED, coordinator ruling), which the filing's audit row keeps and
+ * the versions drawer shows. No number recorded at all is not warned about.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -51,14 +53,25 @@ export function parseFilingReference(form: ReturnForm, raw: string): string {
   return value;
 }
 
-/** Refuses a well-formed PRN that is not this company's (400) or already names another period's return (409). */
-export async function assertFilingReferenceIsTheCompanys(companyId: string, v: ReturnVersion, prn: string): Promise<void> {
+export const PRN_NOT_CROSS_CHECKED = 'PRN_NOT_CROSS_CHECKED';
+export interface FilingWarning { code: typeof PRN_NOT_CROSS_CHECKED; message: string }
+
+/**
+ * Refuses a well-formed PRN that is not this company's (400) or already names another period's return (409). Returns
+ * the warning when the company's recorded number is not a valid SARS number, so the PRN was not cross-checked.
+ */
+export async function assertFilingReferenceIsTheCompanys(
+  companyId: string, v: ReturnVersion, prn: string,
+): Promise<FilingWarning | null> {
   const shape = PRN[v.formType];
+  // EMP501: a submission reference, not a PRN: nothing to cross-check and no warning (shape.number null).
   const rows = shape.number === null ? []
     : (await sql`SELECT vat_number, paye_reference_number FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
   const recorded = shape.number === null ? undefined : rows[0]?.[shape.number];
-  const digits = typeof recorded === 'string' ? recorded.replace(/\D/g, '') : '';
-  if (digits.length === 10 && digits[0] === prn[0] && prn.slice(0, 10) !== digits) {
+  const text = typeof recorded === 'string' ? recorded.trim() : '';
+  const digits = text.replace(/[\s-]/g, '');
+  const valid = /^\d{10}$/.test(digits) && digits[0] === prn[0];
+  if (valid && prn.slice(0, 10) !== digits) {
     throw new ReturnRefusal(400, `This PRN starts with ${prn.slice(0, 10)}, but the company's ${shape.name} is ${digits}. `
       + `Type the PRN eFiling shows on this company's ${v.formType}.`, 'FILING_REFERENCE_TAX_NUMBER');
   }
@@ -72,4 +85,8 @@ export async function assertFilingReferenceIsTheCompanys(companyId: string, v: R
     throw new ReturnRefusal(409, `This PRN is already recorded on the return for ${String(reused[0].period_start)} to `
       + `${String(reused[0].period_end)}. Each period's return has its own PRN.`, 'FILING_REFERENCE_REUSED');
   }
+  return text !== '' && !valid ? {
+    code: PRN_NOT_CROSS_CHECKED,
+    message: `The company ${shape.name} on file is not a valid SARS number; the PRN was not cross-checked.`,
+  } : null;
 }
