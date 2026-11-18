@@ -4,7 +4,7 @@
  *   EMP501 — ANNUAL reconciliation due 31 May, INTERIM (Mar–Aug) due 31 Oct;
  *   IRP6   — 1st payment 31 Aug, 2nd payment the last day of February (leap-aware).
  * An EMP201 / EMP501 / IRP6 due date on a Saturday or Sunday moves back to the
- * Friday (TAA s244; no holiday calendar).
+ * Friday, and one on a public holiday to the last business day before it (TAA s244).
  */
 import { describe, it, expect } from 'vitest';
 import { getComplianceCalendar, getTaxPeriods } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
@@ -51,6 +51,11 @@ describe('EMP201 weekend shift', () => {
 
   it('a weekday 7th is unchanged (7 Apr 2026 is a Tuesday)', () => {
     expect(ofType(2026, 'EMP201_DUE').find((e) => e.description.includes('March 2026'))!.dueDate).toBe('2026-04-07');
+  });
+
+  it('a public-holiday 7th moves back to the last business day: 7 Apr 2023 (Good Friday) -> Thursday 6 Apr', () => {
+    expect(ofType(2023, 'EMP201_DUE').find((e) => e.description.includes('March 2023'))!.dueDate).toBe('2023-04-06');
+    expect(getTaxPeriods(2023, 'odd').filter((p) => p.type === 'PAYE')[2]!.dueDate).toBe('2023-04-06');
   });
 
   it('getTaxPeriods PAYE due dates follow the same rule', () => {

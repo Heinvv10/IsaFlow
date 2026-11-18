@@ -2,13 +2,13 @@
  * BankTxFilters — the bank transactions toolbar (WP4b). One row: Refresh (always mounted: focus goes there when the
  * selection bar unmounts), Smart Categorize and New Transaction — or, while rows are ticked, the contextual selection
  * bar in their place (they move to the top of More; the bar then sticks to the top of the list) — the More menu
- * (Import / Export / Export all / Recon report), then search, the tab's status filter, the Filters toggle, the column toggles
+ * (Import / Export / Export all / Recon report) and the bulk-accept trigger (New tab, hidden while rows are ticked), then search, the tab's status filter, the Filters toggle, the column toggles
  * and the row range. The less-used filters (dates, amounts, sort, spent/received, allocation type, suggestion) fold into
  * a second row behind "Filters": open by default on a wide screen (>= 1536px) or while one of them narrows the list, so
  * at 1366px the list starts high enough to show eight rows.
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Loader2, RefreshCw, Search, Zap, Plus, SlidersHorizontal } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
@@ -127,6 +127,11 @@ export interface BankTxFiltersProps {
   onToggleBU: () => void;
   /** Drops the ticked rows (the selection bar's Clear selection). */
   onClearSelection: () => void;
+  /**
+   * The bulk-accept control (WP6), in the actions group after More. Rendered at ONE place in both modes so its dialog is
+   * never remounted; it hides its own trigger while rows are ticked (the bar needs the room), so ticking moves nothing.
+   */
+  bulkAccept?: ReactNode;
 }
 
 export function BankTxFilters(p: BankTxFiltersProps) {
@@ -190,6 +195,7 @@ export function BankTxFilters(p: BankTxFiltersProps) {
         {/* With a selection the page actions the bar displaced are in More, so nothing is out of reach. */}
         <BankTxMoreMenu selectedBank={selectedBank} onExport={p.onExport} onExportAll={p.onExportAll} onDownloadReport={p.onDownloadReport}
           pageActions={selecting ? { onApplyRules, applyDisabled, smartRunning } : undefined} />
+        {p.bulkAccept}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">

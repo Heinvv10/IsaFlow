@@ -13,7 +13,7 @@
  * reach the grid's hotkeys, which post.
  */
 
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Drawer } from '@/components/ui/Drawer';
 import type { BankTx } from '@/components/accounting/BankTxTable';
@@ -46,6 +46,18 @@ interface Props {
 
 export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing = false, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, pageSize, children }: Props) {
   const loading = isLoading || (!error && empty && pastEnd);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const hadRows = useRef(false);
+  const showsRows = !loading && !error && !empty;
+  const showsEmpty = !loading && !error && empty;
+  // The last row was accepted: the grid that held the keyboard focus is gone, so the empty state takes it (not <body>).
+  useEffect(() => {
+    if (showsRows) hadRows.current = true;
+    else if (showsEmpty && hadRows.current) {
+      hadRows.current = false;
+      if (!document.activeElement || document.activeElement === document.body) frameRef.current?.focus();
+    }
+  }, [showsRows, showsEmpty]);
   return (
     <>
       {relinkFailed && (
@@ -61,8 +73,8 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing
       {/* Announced politely when a reload of the SAME list starts; present before it does, so the change is heard. */}
       <span role="status" aria-live="polite" className="sr-only" data-testid="bank-tx-updating">{refreshing ? 'Updating…' : ''}</span>
       {/* While it reloads the rows stay (no flash) but take no mouse input: a click would land on a row that is about to change. */}
-      <div data-testid="bank-tx-list-frame" style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}
-        aria-busy={refreshing || undefined} className={refreshing ? 'pointer-events-none opacity-70 transition-opacity' : undefined}>
+      <div data-testid="bank-tx-list-frame" ref={frameRef} tabIndex={-1} style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}
+        aria-busy={refreshing || undefined} className={refreshing ? 'outline-none pointer-events-none opacity-70 transition-opacity' : 'outline-none'}>
         {loading ? (
           <BankTxLoading rows={pageSize} />
         ) : error ? (
