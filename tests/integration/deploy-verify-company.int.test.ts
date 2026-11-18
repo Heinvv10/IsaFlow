@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { ensureUserAndCompany, type DbOutcome, type UserIds } from '../../scripts/deploy/verifyCompany/provisionDb';
 import { APPROVER_LOGIN, APPROVER_ROLE, VERIFY_COMPANY_NAME, VERIFY_LOGIN } from '../../scripts/deploy/verifyCompany/identity';
-import { releaseRunLock, tryRunLock } from '../../scripts/deploy/verifyCompany/lock';
+import { LOCK_NAME, releaseRunLock, tryRunLock } from '../../scripts/deploy/verifyCompany/lock';
 import { buildBlocks } from '../../scripts/deploy/verifyCompany/seedBlocks';
 import { companyProblems } from '../../scripts/deploy/verifyCompany/readiness';
 import { readSlotReport } from '../../scripts/ci/golden/slotVerify';
@@ -113,7 +113,12 @@ describeIfDb('the Deploy Verification company database step', () => {
     expect(Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n)).toBe(named);
   }, 120_000);
 
-  it('two runs at once make ONE company: the second waits for the first transaction, then finds its company', async () => {
+  it('two runs at once make ONE company: the second waits for the first transaction (row locks and the advisory lock), then finds its company', async () => {
+    // The users rows already exist (committed by an earlier step), as on a re-run that finds no company.
+    for (const [id, who] of [[ids.verify, VERIFY_LOGIN], [ids.approver, APPROVER_LOGIN]] as const) {
+      await pool.query(`INSERT INTO users (id, email, first_name, last_name, role, is_active) VALUES ($1, $2, 'T', 'T', 'accountant', true)`, [id, who.email]);
+      await pool.query(`INSERT INTO user_preferences (user_id, key, value) VALUES ($1, 'setup-guide-first-seen', '2026-01-01T00:00:00.000Z'), ($1, 'onboarding_tour_completed', 'true')`, [id]);
+    }
     const a = await pool.connect();
     const b = await pool.connect();
     try {
@@ -129,12 +134,29 @@ describeIfDb('the Deploy Verification company database step', () => {
       await b.query('COMMIT');
       expect(firstOut.companyCreated).toBe(true);
       expect(secondOut).toMatchObject({ companyId: firstOut.companyId, companyCreated: false, userCreated: false, approverCreated: false, approverJoined: false });
+      expect(firstOut).toMatchObject({ userCreated: false, approverCreated: false });
       expect(Number((await pool.query(`SELECT count(*) AS n FROM companies WHERE name = $1`, [VERIFY_COMPANY_NAME])).rows[0].n)).toBe(1);
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
       await b.query('ROLLBACK').catch(() => undefined);
       a.release();
       b.release();
+    }
+  }, 120_000);
+
+  it('the database step holds the transaction advisory lock from its first statement to COMMIT (its own guarantee: other waits here come from row locks)', async () => {
+    const a = await pool.connect();
+    try {
+      await a.query('BEGIN');
+      await ensureUserAndCompany(a, ids, TODAY);
+      const held = async () => Number((await a.query(
+        `SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted AND objid = hashtext($1)::oid`, [LOCK_NAME])).rows[0].n);
+      expect(await held()).toBe(1);
+      await a.query('COMMIT');
+      expect(await held()).toBe(0);
+    } finally {
+      await a.query('ROLLBACK').catch(() => undefined);
+      a.release();
     }
   }, 120_000);
 
