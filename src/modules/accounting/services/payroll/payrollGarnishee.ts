@@ -21,6 +21,13 @@
  *    line carrying one warns GARNISHEE_ADMINISTRATION_UNVERIFIED.
  *  - Within the limit and within net pay, orders are taken by kind (maintenance first, s29(3)), then by the order's
  *    priority (lower first), then oldest first: the court's own division (s65J(1A)(c)(iii)) is entered as instalments.
+ *  - Commission (3606) is not in the base: a commission-only employee's attachment limit is R0. A line with an
+ *    attachment and commission warns GARNISHEE_BASE_EXCLUDES_COMMISSION (UNVERIFIED vs s65J(1A)(b)); the base is not
+ *    widened (rev #1574 L1).
+ *  - Part month: an order in force for any day of the run's period takes its full monthly instalment; nothing is
+ *    pro-rated for an order that starts or ends inside the period (rev #1574 L2).
+ *  - Monthly runs only: a weekly or fortnightly run with an order in force is refused (payrollRunKindGuard
+ *    `garnishee_frequency`) until instalments are pro-rated per run.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode } from './payeAnnualPayment';
@@ -66,6 +73,9 @@ export class GarnisheeOrderRefusal extends Error {
 /** s65J(1A)(a). Kept as a named constant so a mutation test can switch the limit off. */
 export const EMOLUMENT_ATTACHMENT_SHARE = 0.25;
 const BASIC_SALARY_CODE = '3601';
+/** Commission (IRP5 3606): outside the base this release reads (rev #1574 L1, a named limit; the base is not widened). */
+const COMMISSION_CODE = '3606';
+export const GARNISHEE_BASE_EXCLUDES_COMMISSION = 'GARNISHEE_BASE_EXCLUDES_COMMISSION';
 
 const cents = (n: number): number => Math.round(n * 100);
 const KIND_ORDER: Record<GarnisheeKind, number> = { maintenance: 0, emolument_attachment: 1, administration: 2 };
@@ -133,6 +143,16 @@ export function applyGarnishees(input: {
     deductions.push({
       orderId: order.id, kind: order.kind, reference: order.reference, creditorName: order.creditorName,
       requested: requested / 100, amount: take / 100,
+    });
+  }
+  const attached = deductions.some((d) => d.kind === 'emolument_attachment');
+  const commission = input.components.some((c) => c.component.componentType === 'earning'
+    && normaliseSarsCode(c.component.sarsSourceCode) === COMMISSION_CODE && c.amount > 0);
+  if (attached && commission) {
+    warnings.push({
+      code: GARNISHEE_BASE_EXCLUDES_COMMISSION, severity: 'warning',
+      message: 'garnishee base excludes commission (UNVERIFIED vs s65J(1A)(b)): the 25% limit is taken on basic salary (3601) '
+        + 'only, so commission on this line does not raise it. Check the order against the employee\'s pay terms.',
     });
   }
   return { deductions, total: deductions.reduce((s, d) => s + cents(d.amount), 0) / 100, warnings };

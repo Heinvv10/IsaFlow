@@ -179,7 +179,9 @@ describe('garnishee orders', () => {
     } finally { c.release(); }
     const refused = await a.api.approve(run7);
     expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
-    expect(a.msg(refused)).toMatch(/EAO 7\/2026 now owes R\s?3[\s,]?000\.00 but this run deducts R\s?3[\s,]?500\.00/);
+    // L4 (rev #1574): the order is named by creditor and instalment, never by the court reference.
+    expect(a.msg(refused)).toMatch(/order to Acme Credit \(R\s?2[\s,]?000\.00 a month\) now owes R\s?3[\s,]?000\.00 but this run deducts R\s?3[\s,]?500\.00/);
+    expect(a.msg(refused)).not.toContain('EAO 7/2026');
     expect((await a.header(run7)).status).toBe('calculated');
     expect((await orderRows(a)).find((o) => o.id === id)!.balance).toBe(3000);
     expect((await a.api.calculate(run7)).statusCode).toBe(200);
@@ -225,5 +227,31 @@ describe('garnishee orders', () => {
     await expect(a.pool.query(
       `INSERT INTO payroll_garnishee_deductions (company_id, run_id, order_id, employee_id, requested, amount) VALUES ($1, $2, $3, $4, 1, 1)`,
       [b.company, runB, attachment, empB])).rejects.toThrow(/not this company/);
+    // L2: 'satisfied' needs a balance of exactly nil; an open-ended order (no balance) can never be satisfied.
+    const open = (await orderRows(b)).find((o) => o.balance === null && o.status === 'active')!;
+    await expect(b.pool.query("UPDATE payroll_garnishee_orders SET status = 'satisfied' WHERE id = $1", [open.id]))
+      .rejects.toThrow(/payroll_garnishee_orders_satisfied/);
+  });
+
+  it('L3: as app_user, an active order\'s end date moves only in the UPDATE that ends it', async () => {
+    const active = (await orderRows(a)).find((o) => o.status === 'active')!;
+    const c = await a.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
+      await c.query('SAVEPOINT s');
+      await expect(c.query("UPDATE payroll_garnishee_orders SET end_date = '2026-12-31' WHERE id = $1", [active.id]))
+        .rejects.toThrow(/end date changes only when it is ended/);
+      await c.query('ROLLBACK TO SAVEPOINT s');
+      const ended = await c.query(
+        "UPDATE payroll_garnishee_orders SET status = 'ended', end_date = '2026-12-31', end_reason = 'Court rescinded it' WHERE id = $1 RETURNING ended_by",
+        [active.id]);
+      expect(ended.rows[0]!.ended_by).toBe(a.admin);
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      c.release();
+    }
   });
 });

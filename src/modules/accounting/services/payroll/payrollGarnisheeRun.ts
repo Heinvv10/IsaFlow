@@ -3,11 +3,14 @@
  * and restored at reopen.
  *
  *  - calculate (payrollRunService): loadRunGarnisheeOrders gives each employee's orders in force for the run's period
- *    (active, started on or before the period's end, not ended before its start, balance not nil) to the calculator,
+ *    (active, or ended on or after the period's start: an end date is the last day the order runs, so ending an order
+ *    with a future date, or reopening its last month, keeps that month's instalment; started on or before the period's
+ *    end; balance not nil; satisfied orders never) to the calculator,
  *    and replaceRunGarnisheeDeductions records what each line took. The balance is NEVER moved here.
  *  - approve (payrollApprovalService): judgeGarnisheeBalances runs with the reads, before the first write, and refuses a
  *    run whose deduction is more than an order still owes (another approval moved the balance since this run was
- *    costed: recalculate). applyRunGarnishees, after the header is approved, marks the run's deductions applied and
+ *    costed), or whose orders changed since it was costed (an order entered after calculation that is in force for the
+ *    period, or one ended after calculation with an end date before the period): recalculate. applyRunGarnishees, after the header is approved, marks the run's deductions applied and
  *    sets each order's balance to its total debt less what is applied (an order reaching nil is 'satisfied').
  *  - reopen (payrollRunReopen): restoreRunGarnishees, after the header leaves 'approved', unmarks them and puts the
  *    balance back ('satisfied' returns to 'active').
@@ -33,7 +36,7 @@ export async function loadRunGarnisheeOrders(
     SELECT id::text AS id, employee_id::text AS employee_id, kind, reference, creditor_name, instalment, balance, priority, created_at
       FROM payroll_garnishee_orders
      WHERE company_id = ${companyId}::uuid AND employee_id::text = ANY(${[...employeeIds]}::text[])
-       AND status = 'active' AND start_date <= ${day(periodEnd)}::date
+       AND status IN ('active', 'ended') AND start_date <= ${day(periodEnd)}::date
        AND (end_date IS NULL OR end_date >= ${day(periodStart)}::date)
        AND (balance IS NULL OR balance > 0)
   `) as DbRow[];
@@ -71,7 +74,7 @@ export async function replaceRunGarnisheeDeductions(
  */
 export async function judgeGarnisheeBalances(companyId: string, runId: string): Promise<void> {
   const rows = (await sql`
-    SELECT o.reference, o.balance, o.status, d.amount
+    SELECT o.creditor_name, o.instalment, o.balance, o.status, d.amount
       FROM payroll_garnishee_deductions d
       JOIN payroll_garnishee_orders o ON o.id = d.order_id AND o.company_id = d.company_id
      WHERE d.run_id = ${runId}::uuid AND d.company_id = ${companyId}::uuid AND NOT d.balance_applied
@@ -80,10 +83,30 @@ export async function judgeGarnisheeBalances(companyId: string, runId: string): 
   `) as DbRow[];
   const over = rows.filter((r) => r.balance != null && Number(r.amount) > Number(r.balance));
   if (over.length > 0) {
-    throw new PayrollApprovalRefusedError(`Garnishee order ${over.map((r) => `${String(r.reference)} now owes ${formatMoney(Number(r.balance))} `
+    throw new PayrollApprovalRefusedError(`${over.map((r) => `The garnishee order to ${orderName(r)} now owes ${formatMoney(Number(r.balance))} `
       + `but this run deducts ${formatMoney(Number(r.amount))}`).join('; ')}. Another approval changed the balance: recalculate the run.`);
   }
+  // Orders entered or ended since the run was costed, that change which orders the run's period takes (the loader's
+  // own rule): the run still holds the old deductions. Employees on the run's lines; the run's calculation stamp.
+  const stale = (await sql`
+    SELECT o.creditor_name, o.instalment, (o.created_at > h.calculated_at) AS entered
+      FROM payroll_run_headers h
+      JOIN payroll_garnishee_orders o ON o.company_id = h.company_id
+       AND o.employee_id IN (SELECT l.employee_id FROM payroll_run_lines l WHERE l.run_id = h.id)
+     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid AND h.calculated_at IS NOT NULL
+       AND ((o.created_at > h.calculated_at AND o.status <> 'satisfied' AND o.start_date <= h.period_end
+             AND (o.end_date IS NULL OR o.end_date >= h.period_start))
+         OR (o.ended_at > h.calculated_at AND o.end_date < h.period_start))
+     ORDER BY o.created_at, o.id
+  `) as DbRow[];
+  if (stale.length > 0) {
+    throw new PayrollApprovalRefusedError(`${stale.map((r) => `The garnishee order to ${orderName(r)} was ${r.entered ? 'entered' : 'ended'}`)
+      .join('; ')} after this run was calculated, so the run still holds the old garnishee deductions: recalculate the run, then approve it.`);
+  }
 }
+
+/** An order as the refusals name it: its creditor and instalment, never the court reference (rev #1574 L4). */
+const orderName = (r: DbRow): string => `${String(r.creditor_name)} (${formatMoney(Number(r.instalment))} a month)`;
 
 /** After the header is approved: the run's deductions move their orders' balances. Returns the orders moved. */
 export async function applyRunGarnishees(companyId: string, runId: string): Promise<number> {

@@ -1,9 +1,9 @@
 /**
  * POST /api/payroll/employees/[id]/garnishee-orders/[orderId]  { endDate, reason }  end a garnishee order (wave 6 GA).
  *
- * Runs whose period starts after `endDate` no longer deduct; a run that already deducted keeps its deduction, and its
+ * Runs whose period starts after `endDate` no longer deduct (the end date is the order's last day); a run that already deducted keeps its deduction, and its
  * approval still moves the balance. Payroll-detail roles, a person's own session, never Login-as. Judged before any
- * write: another company's order is 404, an ended one 409. Every response is no-store.
+ * write: another company's order is 404, an ended one 409. Every response is no-store; the log masks the reason.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -12,7 +12,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
-import { EndOrderBody, garnisheeWriter, respondIfGarnisheeRefused, UUID } from '@/lib/payrollGarnisheeApi';
+import { EndOrderBody, GARNISHEE_LOG_MASK, garnisheeWriter, respondIfGarnisheeRefused, UUID } from '@/lib/payrollGarnisheeApi';
 import { endGarnisheeOrder } from '@/modules/accounting/services/payroll/payrollGarnisheeOrders';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,4 +34,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: GARNISHEE_LOG_MASK })));

@@ -16,6 +16,9 @@ import { getClientIp } from '@/lib/rateLimit';
 import { GARNISHEE_KINDS, GarnisheeOrderRefusal } from '@/modules/accounting/services/payroll/payrollGarnishee';
 import type { GarnisheeActor } from '@/modules/accounting/services/payroll/payrollGarnisheeOrders';
 
+/** The body keys the routes' request log never shows (rev #1574 M1): the court order, the creditor, the money, the reason. */
+export const GARNISHEE_LOG_MASK = ['reference', 'creditorName', 'instalment', 'totalDebt', 'reason'] as const;
+
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The actor of a garnishee-order write, or null once a refusal has been sent. */

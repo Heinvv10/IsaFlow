@@ -5,7 +5,7 @@
  *
  * Payroll-detail roles (owner, admin, manager). POST: a person's own session, never Login-as (payrollGarnisheeApi).
  * Judged before any write; a company's first order also creates its garnishee payable account (payrollGarnisheeAccount).
- * Another company's employee is 404. Every response is no-store.
+ * Another company's employee is 404. Every response is no-store. The request log masks the order (GARNISHEE_LOG_MASK).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -15,7 +15,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
-import { CreateOrderBody, garnisheeWriter, respondIfGarnisheeRefused, UUID } from '@/lib/payrollGarnisheeApi';
+import { CreateOrderBody, GARNISHEE_LOG_MASK, garnisheeWriter, respondIfGarnisheeRefused, UUID } from '@/lib/payrollGarnisheeApi';
 import { createGarnisheeOrder, listGarnisheeOrders } from '@/modules/accounting/services/payroll/payrollGarnisheeOrders';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -39,4 +39,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)))));
+export default withAuth(withNoStore(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: GARNISHEE_LOG_MASK })));

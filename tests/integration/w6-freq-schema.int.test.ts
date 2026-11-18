@@ -273,4 +273,25 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
       for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
     });
   });
+
+  it('garnishee_frequency (rev #1574): a weekly run with an employee whose order is in force is refused costing, until pro-rating', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2188', 'GA freq', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC2', 'Cred', 100, '2020-01-01', $3, 'x')`,
+      [A, monthlyEmp, acct]);
+      await c.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+    }, async () => {
+      for (const action of ['calculate', 'approve', 'post'] as const) {
+        expect(clauses(await refusal(action)), action).toContain('garnishee_frequency');
+      }
+      for (const action of ['reopen', 'payslip'] as const) {
+        expect(clauses(await refusal(action)), action).not.toContain('garnishee_frequency');
+      }
+    });
+    // The same order on the monthly run: no garnishee clause (the run is the monthly one again outside the rolled-back tx).
+    expect(clauses(await refusal('calculate'))).not.toContain('garnishee_frequency');
+  });
 });

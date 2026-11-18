@@ -53,6 +53,17 @@ describe('applyGarnishees', () => {
     expect(r.warnings).toEqual([]);
   });
 
+  it('named limit: commission is outside the base, and a line with an attachment and commission says so (rev #1574 L1)', () => {
+    const r = applyGarnishees({ orders: [order({ instalment: 2000 })], components: [comp('3606', 30000)], netPayBefore: 24000 });
+    expect(r.total).toBe(0);
+    expect(r.warnings.map((w) => w.code)).toContain('GARNISHEE_BASE_EXCLUDES_COMMISSION');
+    expect(r.warnings.find((w) => w.code === 'GARNISHEE_BASE_EXCLUDES_COMMISSION')!.message).toMatch(/^garnishee base excludes commission \(UNVERIFIED vs s65J\(1A\)\(b\)\)/);
+    const plain = applyGarnishees({ orders: [order({ instalment: 2000 })], components: salary, netPayBefore: 17707.88 });
+    expect(plain.warnings.map((w) => w.code)).not.toContain('GARNISHEE_BASE_EXCLUDES_COMMISSION');
+    const maintenanceOnly = applyGarnishees({ orders: [order({ kind: 'maintenance', instalment: 2000 })], components: [comp('3606', 30000)], netPayBefore: 24000 });
+    expect(maintenanceOnly.warnings.map((w) => w.code)).not.toContain('GARNISHEE_BASE_EXCLUDES_COMMISSION');
+  });
+
   it('basic salary excludes overtime and allowances [s65J(1A)(b)]', () => {
     expect(basicSalaryOf([comp('3601', 10000), comp('3607', 4000), comp('3701', 2000), comp('4001', 500, 'deduction')])).toBe(10000);
     const r = applyGarnishees({ orders: [order({ instalment: 3000 })], components: [comp('3601', 10000), comp('3607', 4000)], netPayBefore: 12000 });

@@ -114,7 +114,7 @@ export function GarnisheeOrdersCard({ employeeId }: { employeeId: string }) {
                 <span className="block text-xs text-[var(--ff-text-secondary)]">
                   {STATUS_LABEL[o.status]} · {o.startDate} to {o.endDate ?? 'open'} · priority {o.priority}
                   {o.totalDebt !== null && ` · owes ${formatCurrency(o.balance ?? 0)} of ${formatCurrency(o.totalDebt)}`}
-                  {o.deducted > o.applied && ` · ${formatCurrency(o.deducted - o.applied)} on runs not yet approved`}
+                  {o.pending > 0 && ` · ${formatCurrency(o.pending)} on runs not yet approved`}
                 </span>
               </span>
               {o.status !== 'ended' && (ending?.id === o.id ? (

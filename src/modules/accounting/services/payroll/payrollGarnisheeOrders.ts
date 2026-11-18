@@ -42,9 +42,11 @@ export interface GarnisheeOrder extends GarnisheeOrderInputFields {
   endReason: string | null;
   payableAccountId: string;
   createdAt: string;
-  /** What runs have deducted for it, and how much of that their approvals applied to the balance. */
+  /** Deducted by approved or paid runs (rev #1574 L3), how much of that is applied to the balance, and what runs that
+   *  are calculated but not yet approved hold for it (not cancelled ones). */
   deducted: number;
   applied: number;
+  pending: number;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -77,7 +79,7 @@ function mapOrder(r: DbRow): GarnisheeOrder {
     startDate: day(r.start_date)!, endDate: day(r.end_date), priority: Number(r.priority), status: r.status as GarnisheeOrder['status'],
     endReason: r.end_reason == null ? null : String(r.end_reason), payableAccountId: String(r.payable_account_id),
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-    deducted: Number(r.deducted ?? 0), applied: Number(r.applied ?? 0),
+    deducted: Number(r.deducted ?? 0), applied: Number(r.applied ?? 0), pending: Number(r.pending ?? 0),
   };
 }
 
@@ -93,7 +95,13 @@ export async function listGarnisheeOrders(companyId: string, employeeId: string)
   if (!(await employeeIsThisCompanys(companyId, employeeId))) return null;
   const rows = (await sql`
     SELECT o.*,
-           COALESCE((SELECT sum(d.amount) FROM payroll_garnishee_deductions d WHERE d.order_id = o.id AND d.company_id = o.company_id), 0) AS deducted,
+           COALESCE((SELECT sum(d.amount) FROM payroll_garnishee_deductions d
+                       JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
+                      WHERE d.order_id = o.id AND d.company_id = o.company_id AND h.status IN ('approved', 'paid')), 0) AS deducted,
+           COALESCE((SELECT sum(d.amount) FROM payroll_garnishee_deductions d
+                       JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
+                      WHERE d.order_id = o.id AND d.company_id = o.company_id
+                        AND h.status NOT IN ('approved', 'paid', 'cancelled')), 0) AS pending,
            COALESCE((SELECT sum(d.amount) FROM payroll_garnishee_deductions d
                       WHERE d.order_id = o.id AND d.company_id = o.company_id AND d.balance_applied), 0) AS applied
       FROM payroll_garnishee_orders o
@@ -150,7 +158,7 @@ export async function endGarnisheeOrder(
   const found = (await sql`
     SELECT status, start_date FROM payroll_garnishee_orders
      WHERE id = ${orderId}::uuid AND company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid
-     FOR UPDATE
+     FOR NO KEY UPDATE
   `) as DbRow[];
   const row = found[0];
   if (!row) throw new GarnisheeOrderRefusal(404, 'ORDER_NOT_FOUND', 'Garnishee order not found.');

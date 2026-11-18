@@ -20,7 +20,8 @@
 --                   balance starts at total_debt.
 --   orders update   the order's facts never change; balance always equals total_debt less the deductions applied to
 --                   it, so a balance can be moved only by applying or restoring a deduction, never written freely;
---                   'ended' stamps ended_by / ended_at from the session and the clock.
+--                   'ended' stamps ended_by / ended_at from the session and the clock; the end date and the end
+--                   facts change only in the UPDATE that ends the order; satisfied means a balance of exactly nil.
 --   deductions      insert: the order and the run are this company's, the employee is the order's, the run is not
 --                   approved, paid or cancelled, and balance_applied starts false. Update: only balance_applied, true
 --                   only while the run is approved, false only while it is not. Delete: only an unapplied deduction of
@@ -70,7 +71,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_garnishee_orders (
   CONSTRAINT payroll_garnishee_orders_debt_and_balance CHECK ((total_debt IS NULL) = (balance IS NULL) AND (balance IS NULL OR balance <= total_debt)),
   CONSTRAINT payroll_garnishee_orders_dates CHECK (end_date IS NULL OR end_date >= start_date),
   CONSTRAINT payroll_garnishee_orders_ended CHECK ((status = 'ended') = (ended_by IS NOT NULL AND ended_at IS NOT NULL AND end_reason IS NOT NULL)),
-  CONSTRAINT payroll_garnishee_orders_satisfied CHECK (status <> 'satisfied' OR balance = 0)
+  CONSTRAINT payroll_garnishee_orders_satisfied CHECK (status <> 'satisfied' OR (balance IS NOT NULL AND balance = 0))
 );
 COMMENT ON TABLE public.payroll_garnishee_orders IS
   'Garnishee orders on an employee (999z, wave 6 GA). balance = total_debt less the deductions applied at approval (trigger-held).';
@@ -128,6 +129,11 @@ BEGIN
   IF OLD.status = 'ended' AND (NEW.status, NEW.end_date, NEW.end_reason, NEW.ended_by, NEW.ended_at)
        IS DISTINCT FROM (OLD.status, OLD.end_date, OLD.end_reason, OLD.ended_by, OLD.ended_at) THEN
     RAISE EXCEPTION 'payroll_garnishee_orders: an ended order is final' USING ERRCODE = 'check_violation';
+  END IF;
+  -- An order that is not ended keeps its end date and has no end facts: they are set only by the UPDATE that ends it.
+  IF OLD.status <> 'ended' AND NEW.status <> 'ended' AND (NEW.end_date, NEW.end_reason, NEW.ended_by, NEW.ended_at)
+       IS DISTINCT FROM (OLD.end_date, OLD.end_reason, OLD.ended_by, OLD.ended_at) THEN
+    RAISE EXCEPTION 'payroll_garnishee_orders: an order''s end date changes only when it is ended' USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.total_debt IS NOT NULL THEN
     SELECT COALESCE(sum(d.amount), 0) INTO applied FROM public.payroll_garnishee_deductions d

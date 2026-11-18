@@ -17,6 +17,9 @@
  * Lifted: the garnishee clauses (an active order refused costing; a deduction on the run refused every action), by GA
  * (migration 999z), which costs, approves, posts and reopens garnishee orders. A rollback past GA reaches a release that
  * still has them.
+ * Added by GA (review of #1574): `garnishee_frequency`. A garnishee instalment is monthly and is taken once per run, so
+ * a weekly or fortnightly run would take it four or two times a month. Such a run is refused costing while an employee
+ * on it has an order in force, until pro-rating is built. The weekly lift (FQc) removes `frequency`, never this clause.
  *
  * KNOWN LIMIT (wave 6 EF review): `tax_status` and the employee-frequency clause are judged on the employee's CURRENT
  * row, not as at the run. An employee moved to weekly after a monthly run makes that old run refuse (fails closed), and
@@ -31,7 +34,7 @@ export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'paysl
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor'] as const;
 
 export type RunKindClause =
-  | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment';
+  | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment' | 'garnishee_frequency';
 
 export interface RunKindReason {
   clause: RunKindClause;
@@ -100,7 +103,13 @@ export async function assertRunKindSupported(
           AND c.effective_from <= r.period_end AND (c.effective_to IS NULL OR c.effective_to >= r.period_start)
           AND (to_jsonb(c) ->> 'db_member_category_factor' IS NOT NULL
                OR to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
-               OR to_jsonb(c) ->> 'quantity_unit' = 'km')) AS odd_assignments
+               OR to_jsonb(c) ->> 'quantity_unit' = 'km')) AS odd_assignments,
+      (SELECT array_agg(DISTINCT p.employee_number) FROM people p
+         JOIN payroll_garnishee_orders g ON g.employee_id = p.id AND g.company_id = r.company_id
+        WHERE r.pay_frequency IS DISTINCT FROM 'monthly'
+          AND g.status IN ('active', 'ended') AND g.start_date <= r.period_end
+          AND (g.end_date IS NULL OR g.end_date >= r.period_start)
+          AND (g.balance IS NULL OR g.balance > 0)) AS garnishee_off_month
       FROM run r
   `) as DbRow[];
   const row = rows[0];
@@ -127,6 +136,9 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   }
   if (COSTING.has(action) && names(row.odd_assignments)) {
     reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with a defined-benefit factor, an overtime multiplier or travel km` });
+  }
+  if (COSTING.has(action) && names(row.garnishee_off_month)) {
+    reasons.push({ clause: 'garnishee_frequency', detail: `employees ${names(row.garnishee_off_month)} have garnishee orders, whose monthly instalments are not yet pro-rated for a ${String(row.pay_frequency)} run` });
   }
   return reasons;
 }
