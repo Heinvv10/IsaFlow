@@ -179,6 +179,50 @@ describeIfDb('PR #1568 adversarial: EMP501 vs the EMP201s filed for its months',
     expect(r.status).toBe(200);
   });
 
+  // EFb's additions (round 1): each guard on its own, so no other guard masks it in a mutation run.
+  it('H1 alone: the certificate PAYE changed under an unchanged run header (no EMP201 drift): refused naming the month and the difference', async () => {
+    const rf = await company('H1A');
+    const alice = await employee(rf, 'Alice');
+    const runId = await run(rf, 3, [[alice, 30_000, 4_000]]);
+    await sql`UPDATE payroll_run_headers SET total_uif = 354.24, total_sdl = 300 WHERE id = ${runId}::UUID`;
+    await fileEmp201(rf, 3);
+    await sql`UPDATE payroll_run_lines SET paye = 9000 WHERE run_id = ${runId}::UUID`; // the header, its stamp and plan hash unchanged
+    const g = await callRoute(returns, rf.fx.companyId, rf.admin.token, 'GET', INTERIM);
+    expect((g.body as { data: { readiness: Row } }).data.readiness).toMatchObject({ driftedEmp201Months: [], unfiledEmp201Months: [] });
+    const r = await finaliseEmp501(rf);
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(r.body)).toContain('March 2025: PAYE 4000.00 filed, 9000.00 on the certificates');
+    expect(await emp501Versions(rf)).toHaveLength(0);
+  });
+
+  it('drift alone: the March EMP201 no longer matches the payroll (header PAYE moved), the certificates still equal it: refused as drifted', async () => {
+    const rf = await company('DRA');
+    const alice = await employee(rf, 'Alice');
+    const runId = await run(rf, 3, [[alice, 30_000, 4_000]]);
+    await sql`UPDATE payroll_run_headers SET total_uif = 354.24, total_sdl = 300 WHERE id = ${runId}::UUID`;
+    await fileEmp201(rf, 3);
+    await sql`UPDATE payroll_run_headers SET total_paye = 4500 WHERE id = ${runId}::UUID`; // the EMP201 reads the header; the lines are unchanged
+    const g = await callRoute(returns, rf.fx.companyId, rf.admin.token, 'GET', INTERIM);
+    expect((g.body as { data: { readiness: Row } }).data.readiness).toMatchObject({ emp201Mismatches: [], driftedEmp201Months: ['2025-03'] });
+    expect((await finaliseEmp501(rf)).status).toBe(409);
+    expect(await emp501Versions(rf)).toHaveLength(0);
+  });
+
+  it('H2 legacy: the March EMP201 filed through the lifecycle, then amended (no current version): its own submission does not count as a legacy filing', async () => {
+    const rf = await company('H2L');
+    const alice = await employee(rf, 'Alice');
+    const runId = await run(rf, 3, [[alice, 30_000, 4_000]]);
+    await sql`UPDATE payroll_run_headers SET total_uif = 354.24, total_sdl = 300 WHERE id = ${runId}::UUID`;
+    await fileEmp201(rf, 3);
+    const v1 = ((await sql`SELECT id FROM tax_return_versions WHERE company_id = ${rf.fx.companyId}::UUID AND form_type = 'EMP201'`) as Row[])[0]!.id;
+    const am = await callRoute(amend, rf.fx.companyId, rf.admin.token, 'POST', { form: 'emp201' }, { versionId: v1, reason: 'PAYE corrected' });
+    expect(am.status, JSON.stringify(am.body)).toBe(200);
+    expect(await sql`SELECT status FROM sars_submissions WHERE company_id = ${rf.fx.companyId}::UUID AND form_type = 'EMP201'`)
+      .toEqual([{ status: 'submitted' }]); // premise: the amended filing's own row still reads as submitted
+    const g = await callRoute(returns, rf.fx.companyId, rf.admin.token, 'GET', INTERIM);
+    expect((g.body as { data: { readiness: Row } }).data.readiness).toMatchObject({ unfiledEmp201Months: ['2025-03'] });
+  });
+
   it('C1 (control): a clean finalise shows no drift on the GET right after, and the file downloads twice to the same bytes', async () => {
     const rf = await company('C1');
     const a = await employee(rf, 'Alice');
