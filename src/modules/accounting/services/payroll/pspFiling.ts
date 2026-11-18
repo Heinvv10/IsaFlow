@@ -13,6 +13,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { pspLineFlag } from './payrollOutsideTables';
 import { payeTaxYearBounds, payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
@@ -121,8 +122,7 @@ export async function pspEntityChangeWarning(
      ORDER BY h.period_year, h.period_month
   `) as DbRow[];
   if (rows.length === 0) return null;
-  const months = rows.map((r) => new Date(Number(r.period_year), Number(r.period_month) - 1, 1)
-    .toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' }));
+  const months = rows.map((r) => formatDisplayMonthYearLong(new Date(Number(r.period_year), Number(r.period_month) - 1, 1)));
   return `The personal service provider's entity moved from ${before} to ${after}. ${months.join(', ')} ${months.length === 1 ? 'was' : 'were'} `
     + `approved as a ${before} and keep${months.length === 1 ? 's' : ''} that rate; a reopen of ${months.length === 1 ? 'it' : 'any of them'} `
     + `refuses to recalculate it as a ${after}. If the entity was recorded wrongly: set it back, recalculate, and correct it in the current month.`;
