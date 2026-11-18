@@ -20,6 +20,10 @@ describe('BankAccountCard on touch', () => {
     expect(edit.className).toContain('max-lg:inline-flex');
     // Below lg the 44px pencil and History button must not overlap (pencil 56-100px, History 12-56px from the right).
     expect(edit.className).toContain('max-lg:right-14');
+    // Visible on hover:none devices at any width (iPad landscape), not only below lg.
+    expect(edit.className).toContain('[@media(hover:none)]:opacity-100');
+    // Header gutter keeps the 44px buttons clear of the Active/Inactive badge.
+    expect((edit.parentElement as HTMLElement).className).toContain('max-lg:pt-14');
     expect(edit.parentElement?.querySelector('div.absolute')?.className).toContain('max-lg:right-3');
     expect(screen.getByRole('link', { name: /View Transactions/ }).className).toContain('max-lg:min-h-11');
     expect(screen.getByRole('button', { name: /History of/ }).className).toContain('max-lg:h-11');
