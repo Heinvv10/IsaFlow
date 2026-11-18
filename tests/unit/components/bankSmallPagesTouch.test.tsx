@@ -16,6 +16,11 @@ describe('BankAccountCard on touch', () => {
     // Hover-only on desktop; a phone has no hover, so below lg it is always visible.
     expect(edit.className).toContain('max-lg:opacity-100');
     expect(edit.className).toContain('max-lg:h-11');
+    expect(edit.className).toContain('max-lg:w-11');
+    expect(edit.className).toContain('max-lg:inline-flex');
+    // Below lg the 44px pencil and History button must not overlap (pencil 56-100px, History 12-56px from the right).
+    expect(edit.className).toContain('max-lg:right-14');
+    expect(edit.parentElement?.querySelector('div.absolute')?.className).toContain('max-lg:right-3');
     expect(screen.getByRole('link', { name: /View Transactions/ }).className).toContain('max-lg:min-h-11');
     expect(screen.getByRole('button', { name: /History of/ }).className).toContain('max-lg:h-11');
   });
