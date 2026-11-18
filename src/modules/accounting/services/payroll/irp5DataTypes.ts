@@ -37,7 +37,7 @@ export interface Irp5EmployeeTotals {
    * grossSalary + these is the remuneration.
    */
   fringeBenefits: NonCashBenefitFiling[];
-  /** Cash allowances the certificate shows under their own code (3701, whole rand), INSIDE grossSalary (payrollAllowanceFiling). */
+  /** Cash allowances the certificate shows under their own code (3701; reimbursive travel 3702 / 3703 / 3722; whole rand), INSIDE grossSalary (payrollAllowanceFiling). */
   cashAllowances: NonCashBenefitFiling[];
   /** 4582: the part of 3701 + 3802 PAYE was withheld on (BRS V25.3.0 p. 105); null when the employee has neither. */
   paye4582: number | null;

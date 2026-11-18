@@ -35,7 +35,8 @@
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
  *   - Fixed-rate PAYE directives
- *   - Allowances 3702-3713 (paid as cash, so in 3601; 3701 is certified under its own code, payrollAllowanceFiling); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
+ *   - Allowances 3704-3713 (paid as cash, so in 3601; 3701 and the reimbursive travel 3702 / 3703 / 3722 are certified under their own
+ *     codes, payrollAllowanceFiling, with 3696 beside a 3703); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
@@ -132,6 +133,19 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
   return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
 }
 
+/**
+ * 3696, "the sum of all income amounts indicated as non-taxable", is mandatory with 3703 (BRS V25.3.0 p. 51). Written only
+ * beside a 3703, as the sum of the certified (whole-rand) values of the codes p. 51 lists that this file can carry (3922,
+ * 3622 and 3835 count only under thresholds, and the file does not write them as non-taxable). The 3699 total is still
+ * not written (see the header).
+ */
+const NON_TAXABLE_3696 = new Set(['3602', '3703', '3714', '3815', '3821', '3822', '3830', '3832', '3834', '3908']);
+function nonTaxable3696(emp: EmployeeInput): string | null {
+  const fields = [...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? []), ...(emp.lumpSums ?? [])];
+  if (!fields.some(f => f.sourceCode === '3703' && f.amount >= 1)) return null;
+  return formatField(3696, fields.filter(f => NON_TAXABLE_3696.has(f.sourceCode) && f.amount >= 1).reduce((t, f) => t + Math.floor(f.amount), 0), 'N');
+}
+
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
   const birth3080 = birthDate3080(emp);
@@ -179,6 +193,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
     ...[...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),
+    nonTaxable3696(emp),
     ...retirement.beforeMedical,
     ...medical.fees,
     ...retirement.afterMedical,

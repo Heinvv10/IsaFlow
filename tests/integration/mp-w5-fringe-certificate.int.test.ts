@@ -134,7 +134,7 @@ describe('4582 counts only what the band sum counts', () => {
   });
   it('a non-taxable 3701 and a hand-assigned cash 3802 add nothing to the PAYE portion', async () => {
     const m = await listRunAllowanceFiling(company, { start: '2026-03-01', end: '2027-02-28' }, f2);
-    expect(m.get(f2)).toEqual({ cash3701: 1000, taxableCash3701: 0, vehicle3802: 0, payeIncluded: 0, legacyLines: 0 });
+    expect(m.get(f2)).toEqual({ cash3701: 1000, taxableCash3701: 0, vehicle3802: 0, payeIncluded: 0, legacyLines: 0, travel3702: 0, travel3703: 0, travel3722: 0 });
   });
   it('the cash 3701 under R1 is not certified as 3701 and its cents stay in 3601', async () => {
     await pool.query("UPDATE payroll_run_lines SET component_breakdown = $2::jsonb WHERE run_id = $1 AND employee_id = $3", [runId, JSON.stringify([item('3601', 34_999.4), item('3701', 0.6, { payeInclusionRate: 0.8, payeIncludedAmount: 0.48 })]), f2]);

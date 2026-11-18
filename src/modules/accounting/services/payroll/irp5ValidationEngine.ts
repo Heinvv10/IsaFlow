@@ -248,6 +248,7 @@ export function validateCertificateTaxFields(lines: string[]): ValidationMessage
   const reason = field.get('4150');
   medicalFieldRules(field, err);
   birthDateRules(field, err);
+  travelFieldRules(field, err);
   if (field.get('3015') === 'IT3(a)') {
     if (reason == null) err('IT3A_WITHOUT_REASON_CODE', 'An IT3(a) needs a reason code for non-deduction of tax (4150).');
     else if (!/^(0?[2-9]|10)$/.test(reason)) err('IT3A_INVALID_REASON_CODE', `Reason code 4150 must be 02 to 10, not ${reason}.`);
@@ -272,4 +273,16 @@ export function highestSeverity(msgs: ValidationMessage[]): ValidationSeverity |
   if (msgs.some((m) => m.severity === 'warning')) return 'warning';
   if (msgs.length > 0) return 'info';
   return null;
+}
+
+/** Reimbursive travel on one certificate (BRS V25.3.0 p. 50, 51; V23.0.0 the same). */
+function travelFieldRules(field: Map<string, string>, err: (code: string, message: string) => void): void {
+  const travelBeside = ['3701', '3702', '3722'].filter(c => field.has(c));
+  if (field.has('3703') && travelBeside.length > 0) {
+    err('TRAVEL_3703_WITH_OTHER_TRAVEL', `Code 3703 must not be on a certificate with ${travelBeside.join(', ')}: its value belongs in 3702.`);
+  }
+  if (Number(field.get('3722') ?? 0) > 0 && !(Number(field.get('3702') ?? 0) > 0)) {
+    err('TRAVEL_3722_WITHOUT_3702', 'Code 3722 (travel above the prescribed rate) needs code 3702 above nil.');
+  }
+  if (field.has('3703') && !field.has('3696')) err('NON_TAXABLE_3696_MISSING', 'Code 3703 needs the non-taxable income total 3696.');
 }

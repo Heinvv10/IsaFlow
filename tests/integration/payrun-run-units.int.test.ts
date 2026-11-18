@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
+import { listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -128,6 +129,16 @@ describe('travel: km x the rate a km, split at the prescribed R4.95 (tax year 20
     const l = await line(state.nov);
     expect(l.taxable).toBe(20000);
     expect(item(l, '3703')).toMatchObject([{ amount: 4000, isTaxable: false }]);
+  });
+
+  it('the approved run reaches the certificate: 3702 4 950 and 3722 1 050 for company A only (BRS V25.3.0 p. 86, 90)', async () => {
+    expect((await units(state.nov, { kind: 'travel', quantity: 1000, ratePerKm: 6 })).statusCode).toBe(200);
+    const { planHash } = (await fx.preview(state.nov)).body.data! as { planHash: string };
+    const approved = await fx.doApprove(state.nov, planHash);
+    expect(approved.statusCode, JSON.stringify(approved.body)).toBe(200);
+    const year = { start: '2026-03-01', end: '2027-02-28' };
+    expect((await listRunAllowanceFiling(state.coA, year)).get(state.employee)).toMatchObject({ travel3702: 4950, travel3703: 0, travel3722: 1050 });
+    expect((await listRunAllowanceFiling(fx.coB, year)).size).toBe(0);
   });
 
   it('refuses km with no rate a km, and a rate above R100', async () => {

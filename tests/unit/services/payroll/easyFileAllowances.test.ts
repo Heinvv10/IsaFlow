@@ -14,7 +14,7 @@ const base: EmployeeInput = {
   idNumber: '9001015009087', taxNumber: '0123456789', employmentStartDate: '20250301', employmentEndDate: null, periodsInYoA: 12,
   grossSalary3601: 360_000, paye4102: 54_000, uifEmployee: 177.12, uifEmployer: 177.12, sdl4142: 3_600,
 };
-const filing = (cash3701: number, vehicle3802: number, payeIncluded: number, legacyLines = 0, taxableCash3701 = cash3701) => ({ cash3701, taxableCash3701, vehicle3802, payeIncluded, legacyLines });
+const filing = (cash3701: number, vehicle3802: number, payeIncluded: number, legacyLines = 0, taxableCash3701 = cash3701) => ({ cash3701, taxableCash3701, vehicle3802, payeIncluded, legacyLines, travel3702: 0, travel3703: 0, travel3722: 0 });
 
 describe('allowanceCertificateFields', () => {
   it('R30 000 + R5 000 travel at 80%: 3701 5 000 and 4582 4 000', () => {
