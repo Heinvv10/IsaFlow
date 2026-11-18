@@ -6,7 +6,11 @@
  * lock first (rev #1574 security delta L1), as calculate, approve and reopen do: an order committed while a run is
  * being calculated would otherwise carry a created_at before that run's calculated_at and slip past the stale-order
  * refusal at approval. Lock order: payroll approval lock, then the role-write lock (a first order's payable), then the
- * order row. No payroll path takes the role-write lock, and no role-write path takes the approval lock: no cycle. Entering a company's first order creates its garnishee
+ * order row. No payroll path takes the role-write lock, and no role-write path takes the approval lock, so a request
+ * through these routes makes no cycle. ONE REMAINS (review #1574 breaker round 3): an MCP batch that writes the chart
+ * (role-write lock) and then, in the same transaction, calculates, approves or enters an order (approval lock) takes
+ * them in the other order. Postgres breaks that cycle with 40P01 after deadlock_timeout and the victim gets the typed,
+ * retryable refusal: the residual ordering case documented in gl/systemRoleWriteLock.ts. Entering a company's first order creates its garnishee
  * payable account in the same transaction, under the company's role-write lock (payrollGarnisheeAccount, F13). An
  * order's facts never change once entered (the 999z trigger); a wrong order is ended and entered again. Its balance
  * moves only when a run that deducted from it is approved or reopened (payrollGarnisheeRun).

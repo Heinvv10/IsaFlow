@@ -8,7 +8,8 @@
  *  - (c) the race: an order written (by any writer, here raw SQL) while a calculation runs. The 999z trigger takes the
  *    company's payroll approval lock, which calculate holds, so the calculation waits for the uncommitted order and
  *    then takes it: the order is never missed. (The breaker's original (c) had the calculation run past it.)
- *  - (d) ending an order waits while a calculation holds the company's payroll approval lock (mirrors rev1574 B4).
+ *  - (d) ending an order with raw SQL (so only the 999z trigger takes the lock, not the route) waits while a
+ *    calculation holds the company's payroll approval lock.
  * Disposable DB only (rig -> assertDisposable).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -37,6 +38,17 @@ const order = async (id: string) => (await a.pool.query(
   'SELECT balance::float8 AS balance, status FROM payroll_garnishee_orders WHERE id = $1', [id])).rows[0];
 const body = (o: Record<string, unknown>) => ({ kind: 'maintenance', reference: 'X', creditorName: 'Cred', instalment: 900, totalDebt: null,
   startDate: '2026-01-01', endDate: null, priority: 10, ...o });
+
+/** Wait (at most 10s) until some backend is blocked on an advisory lock: the write under test has reached the lock. */
+const advisoryWaiter = async (): Promise<boolean> => {
+  for (let i = 0; i < 100; i += 1) {
+    const n = (await a.pool.query(
+      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND wait_event = 'advisory'")).rows[0]!.n;
+    if (n > 0) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+};
 
 beforeAll(async () => { a = await rig('rev1574-r2'); await a.setup(); }, 120_000);
 afterAll(async () => {
@@ -126,7 +138,7 @@ describe('rev-1574 round 2', () => {
         start_date, priority, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'RACE', 'Race creditor', 800, NULL, NULL, '2026-07-01', 10, $3, 'x')`,
         [a.company, emp, payable]);
       calc = a.api.calculate(run7).finally(() => { calcSettled = true; });
-      await new Promise((r) => setTimeout(r, 1500));
+      expect(await advisoryWaiter(), 'the calculation never waited on the order\'s lock').toBe(true);
       expect(calcSettled, 'the calculation ran past an uncommitted order').toBe(false);
       await c.query('COMMIT');
     } finally {
@@ -141,27 +153,37 @@ describe('rev-1574 round 2', () => {
     expect(ap.statusCode, a.msg(ap)).toBe(200);
   });
 
-  it('(d) ending an order waits while another transaction holds the company\'s payroll approval lock', async () => {
+  it('(d) ending an order with raw SQL waits while another transaction holds the company\'s payroll approval lock (the trigger\'s lock)', async () => {
     const emp = (await a.employee(20000)).employee;
     const made = await post(emp, body({ reference: 'END-LOCK' }));
     expect(made.statusCode).toBe(201);
     const id = String(made.body.data!.id);
     const holder = await a.pool.connect();
+    const writer = await a.pool.connect();
     let settled = false;
-    let ended: Promise<Res> | null = null;
+    let ended: Promise<unknown> | null = null;
     try {
       await holder.query('BEGIN');
       await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [payrollApprovalLockScope(a.company)]);
-      ended = end(emp, id, { endDate: '2026-09-30', reason: 'Order discharged in September' }).finally(() => { settled = true; });
-      await new Promise((r) => setTimeout(r, 1500));
+      await writer.query('BEGIN');
+      await writer.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated' })]);
+      // Raw SQL, not the route: nothing but the 999z trigger takes the approval lock for this end.
+      ended = writer.query(
+        "UPDATE payroll_garnishee_orders SET status = 'ended', end_date = '2026-09-30', end_reason = 'Order discharged in September' WHERE id = $1",
+        [id]).finally(() => { settled = true; });
+      expect(await advisoryWaiter(), 'the end never waited on the approval lock').toBe(true);
       expect(settled, 'the order was ended while a calculation held the lock').toBe(false);
-      expect((await order(id)).status).toBe('active');
     } finally {
       await holder.query('COMMIT').catch(() => undefined);
       holder.release();
     }
-    const res = await ended!;
-    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    try {
+      await ended!;
+      await writer.query('COMMIT');
+    } finally {
+      await writer.query('ROLLBACK').catch(() => undefined);
+      writer.release();
+    }
     expect((await order(id)).status).toBe('ended');
   });
 });
