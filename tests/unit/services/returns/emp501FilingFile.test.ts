@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { buildIrp5File, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { emp501FileOf } from '@/modules/accounting/services/returns/emp501FilingFile';
 import { canonical, storeEmployee } from '@/modules/accounting/services/returns/emp501Figures';
@@ -37,6 +37,9 @@ function throughJsonb<T>(v: T): T {
   return shuffle(JSON.parse(JSON.stringify(v))) as T;
 }
 
+const TZ = process.env.TZ;
+afterEach(() => { process.env.TZ = TZ; });
+
 const version = (figures: Record<string, unknown>) => ({ formType: 'EMP501' as const, figures: throughJsonb(figures) });
 
 describe('emp501FileOf', () => {
@@ -57,7 +60,8 @@ describe('emp501FileOf', () => {
     expect(f.filename).toBe('IRP5_2025_2026_7123456789_08.irp5');
   });
 
-  it('a date of birth is stored as its calendar day and rebuilds the bytes the Date gave at finalise', () => {
+  it('a date of birth is stored as its calendar day and rebuilds the bytes the Date gave at finalise (TZ west of UTC)', () => {
+    process.env.TZ = 'America/Los_Angeles';
     const withDob = { ...employee, dateOfBirth: new Date(1990, 0, 1) };
     const atFinalise = buildIrp5File({ employer, employees: [withDob] });
     expect(atFinalise.split('\r\n')).toContain('3080,19900101');
@@ -67,7 +71,8 @@ describe('emp501FileOf', () => {
     expect(f.body).toBe(atFinalise);
   });
 
-  it('a stored day gives 3080 = that day whatever the process TZ (run under TZ=UTC too)', () => {
+  it.each(['America/Los_Angeles', 'Africa/Johannesburg', 'UTC'])('a stored day gives 3080 = that day in TZ %s (a UTC parse shifts it west of UTC)', (tz) => {
+    process.env.TZ = tz;
     const f = emp501FileOf(version({ taxYear: 2026, kind: 'annual', employer, employees: [{ ...employee, dateOfBirth: '1990-01-01' }] }));
     expect(f.body.split('\r\n')).toContain('3080,19900101');
   });
