@@ -18,8 +18,11 @@ that are idempotent on `external_ref`.
 | Purchase orders | `purchase_orders` + `po_items`: bills already link through `supplier_invoice_items.po_item_id`, budget "committed" reads them, and they carry cc1/cc2/bu | `supplier_purchase_orders`: **retired in Phase B** (Hein, 18 Nov). Its rows migrate into `purchase_orders` and its UI points at the canonical table. |
 
 The tenant gap: `stock_movements` and `stock_levels` have no `company_id` and no RLS. Phase A adds `company_id`, backfills
-it from `products.company_id`, adds `CHECK (company_id IS NOT NULL) NOT VALID` so every new row must carry one, validates
-it when no orphans remain, and gives both tables the same RLS policies as `items`. `po_items` gets the same treatment in Phase B.
+it from `products.company_id`, adds a BEFORE INSERT trigger (SECURITY INVOKER) that fills a missing `company_id` from the row's
+product, and gives both tables the same RLS policies as `items`. Tenant scope is therefore trigger + RLS; there is no NOT NULL
+CHECK (a movement of a product with no company stays NULL, and only a superuser or owner can write one: master's valuation
+tests do). A row's `item_id` must belong to its company: a composite FK on `stock_movements`, a trigger on the four line tables.
+`po_items` gets the same treatment in Phase B.
 
 ## Phase A — item master
 

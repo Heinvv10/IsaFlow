@@ -43,6 +43,7 @@ export function validateCategoryInput(raw: Record<string, unknown>): CategoryChe
   }
   if (raw.is_active !== undefined && typeof raw.is_active !== 'boolean') return { ok: false, reason: 'is_active must be true or false' };
   if (ref && !system) return { ok: false, reason: 'external_system is required with external_ref (e.g. "sage")' };
+  if (system && !ref) return { ok: false, reason: 'external_ref is required with external_system: sending the system alone would change the category\'s identity' };
   const unknown = Object.keys(raw).find((k) => !CATEGORY_KEYS.includes(k));
   if (unknown) return { ok: false, reason: `${unknown} is not a category field` };
   return {

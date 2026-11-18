@@ -206,3 +206,21 @@ describe('planItemRows: the line guards\' account rules (account_not_allowed)', 
     expect(planned[0]!.outcome).toBe('unchanged');
   });
 });
+
+describe('planItemRows: a change of the (system, ref) identity is checked for uniqueness', () => {
+  it('an identity another item holds is a per-row refusal even when only one half is sent (defence in depth behind the validator)', () => {
+    const a = stored({ id: 'a', code: 'A', externalSystem: 'sage', externalRef: 'R1' });
+    const other = stored({ id: 'b', code: 'B', externalSystem: 'pastel', externalRef: 'R1' });
+    const ctx = ctxOf([a, other]);
+    const { refusals, planned } = planItemRows([{ index: 0, fields: { externalSystem: 'pastel' }, targetId: 'a' }], ctx);
+    expect(planned).toEqual([]);
+    expect(refusals).toEqual([expect.objectContaining({ index: 0, code: 'external_ref_in_use' })]);
+  });
+
+  it('a free identity is a plain update, and re-sending the item\'s own identity is unchanged', () => {
+    const a = stored({ id: 'a', code: 'A', externalSystem: 'sage', externalRef: 'R1' });
+    const ctx = ctxOf([a]);
+    expect(planItemRows([row(0, { external_system: 'pastel', external_ref: 'R9' }, 'a')], ctx).planned[0]).toMatchObject({ outcome: 'updated', changed: ['external_system', 'external_ref'] });
+    expect(planItemRows([row(0, { external_system: 'sage', external_ref: 'R1' }, 'a')], ctx).planned[0]).toMatchObject({ outcome: 'unchanged' });
+  });
+});

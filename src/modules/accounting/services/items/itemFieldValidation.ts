@@ -97,7 +97,9 @@ export function validateItemFields(row: Record<string, unknown>): FieldCheck {
     if (isCheck(v)) return v;
     f.externalSystem = v.toLowerCase();
   }
+  // The pair is the item's identity: one half alone would re-key it (sage/R1 -> pastel/R1) or match nothing, so both or neither.
   if (f.externalRef && !f.externalSystem) return bad('invalid_field', 'external_system is required with external_ref (e.g. "sage")');
+  if (f.externalSystem && !f.externalRef) return bad('invalid_field', 'external_ref is required with external_system: sending the system alone would change the item\'s identity');
 
   const enums: Array<[string, keyof ItemFields, readonly string[]]> = [
     ['item_type', 'itemType', ITEM_TYPES], ['vat_on_sales', 'vatOnSales', ITEM_VAT_TYPES],

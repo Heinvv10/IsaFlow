@@ -122,3 +122,10 @@ describe('item VAT (deriveTax)', () => {
     expect((await applyItemLineDefaults(COMPANY, [{}], 'purchase', label, { deriveTax: true }))[0]).toEqual({});
   });
 });
+
+describe('an empty item_id is no item (never reaches a ::UUID cast)', () => {
+  it('applyItemLineDefaults turns "" into null, with and without a named item in the batch', async () => {
+    expect(await applyItemLineDefaults(COMPANY, [{ itemId: '' }], 'sales', label)).toEqual([{ itemId: null }]);
+    expect((await applyItemLineDefaults(COMPANY, [{ itemId: '' }, { itemId: ITEM }], 'sales', label))[0]).toEqual({ itemId: null });
+  });
+});

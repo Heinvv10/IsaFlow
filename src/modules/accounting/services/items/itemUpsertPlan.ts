@@ -179,6 +179,14 @@ export function planItemRows(rows: PlanInputRow[], ctx: UpsertContext): ItemPlan
       match = refHit ?? codeHit;
     }
     if (match?.deleted) { refuse('item_deleted', 'the matching item has been deleted'); continue; }
+    // ANY change to the item's (system, ref) identity needs the uniqueness check, in the dry run as in the live call: the
+    // identity the item would hold after this row must not belong to another item.
+    if (match) {
+      const sys = f.externalSystem ?? match.externalSystem;
+      const ref = f.externalRef ?? match.externalRef;
+      const holder = sys && ref && (sys !== match.externalSystem || ref !== match.externalRef) ? ctx.byRef.get(refKey(sys, ref)) : undefined;
+      if (holder && holder.id !== match.id) { refuse('external_ref_in_use', 'that external reference belongs to another item'); continue; }
+    }
     if (match) {
       const prior = targeted.get(match.id);
       if (prior !== undefined) { refuse('duplicate_in_request', `row ${prior} already addresses this item`); continue; }

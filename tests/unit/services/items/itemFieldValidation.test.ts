@@ -58,9 +58,10 @@ describe('validateItemFields', () => {
     expect(refused({ code: 'X', description: 'd'.repeat(256) })).toMatchObject({ code: 'invalid_field' });
   });
 
-  it('needs an external_system with an external_ref', () => {
+  it('needs the external_system AND the external_ref together (one half alone would re-key the item)', () => {
     expect(refused({ code: 'X', external_ref: '42' })).toMatchObject({ code: 'invalid_field' });
-    expect(validateItemFields({ code: 'X', external_system: 'sage' })).toMatchObject({ ok: true });
+    expect(refused({ code: 'X', external_system: 'sage' })).toMatchObject({ code: 'invalid_field', reason: expect.stringMatching(/external_ref is required with external_system/) });
+    expect(validateItemFields({ code: 'X', external_system: 'sage', external_ref: '42' })).toMatchObject({ ok: true });
   });
 
   it('takes the category by exactly one of id, code or name', () => {

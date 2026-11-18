@@ -31,6 +31,12 @@
 --                         NOT VALID when no FK on that column references items yet, and VALIDATEs it when no orphan row
 --                         exists (otherwise it says so in a NOTICE and leaves it NOT VALID). A column that exists with a
 --                         type other than uuid stops the migration.
+--   same-company guard    an item named by a row must belong to the row's company, which a plain FK on items(id) does not
+--                         check. stock_movements: a composite FK (company_id, item_id) -> items(company_id, id) on a new
+--                         unique index items_company_id_id_key (NOT VALID, validated when clean; a NULL company_id, an
+--                         orphan row only a superuser can write, skips it). The four line tables have no company_id of their
+--                         own, so a BEFORE INSERT OR UPDATE OF item_id trigger (SECURITY INVOKER, line_item_same_company)
+--                         compares the item's company with the line's header's. Rows written before 1005 are not rechecked.
 --
 -- ORDER. The backfill runs BEFORE row level security is switched on, so it sees every row.
 --
@@ -45,6 +51,13 @@
 --   are unchanged. The items CHECK refuses only a tracked service, which old code never writes (the column is new).
 --
 -- Rollback (down SQL; roll the code back first, and only while no row uses what is dropped):
+--   ALTER TABLE public.stock_movements DROP CONSTRAINT IF EXISTS stock_movements_company_item_fkey;
+--   DROP INDEX IF EXISTS public.items_company_id_id_key;
+--   DROP TRIGGER IF EXISTS po_items_item_company ON public.po_items;
+--   DROP TRIGGER IF EXISTS supplier_invoice_items_item_company ON public.supplier_invoice_items;
+--   DROP TRIGGER IF EXISTS customer_invoice_items_item_company ON public.customer_invoice_items;
+--   DROP TRIGGER IF EXISTS customer_quote_lines_item_company ON public.customer_quote_lines;
+--   DROP FUNCTION IF EXISTS public.line_item_same_company();
 --   DROP TRIGGER IF EXISTS stock_movements_fill_company ON public.stock_movements;
 --   DROP TRIGGER IF EXISTS stock_levels_fill_company ON public.stock_levels;
 --   DROP FUNCTION IF EXISTS public.stock_row_fill_company();
@@ -212,3 +225,59 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- ── an item named by a row belongs to the row's company ─────────────────────────────────────────────────────────
+CREATE UNIQUE INDEX IF NOT EXISTS items_company_id_id_key ON public.items (company_id, id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.stock_movements'::regclass AND conname = 'stock_movements_company_item_fkey') THEN
+    ALTER TABLE public.stock_movements ADD CONSTRAINT stock_movements_company_item_fkey
+      FOREIGN KEY (company_id, item_id) REFERENCES public.items (company_id, id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.stock_movements sm WHERE sm.company_id IS NOT NULL AND sm.item_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM public.items i WHERE i.id = sm.item_id AND i.company_id = sm.company_id)) THEN
+    ALTER TABLE public.stock_movements VALIDATE CONSTRAINT stock_movements_company_item_fkey;
+  ELSE
+    RAISE NOTICE '1005: stock_movements has row(s) naming another company''s item; stock_movements_company_item_fkey stays NOT VALID';
+  END IF;
+END $$;
+
+-- The line tables carry no company_id: the item's company is compared with the header's. SECURITY INVOKER, so the item is
+-- read under the caller's row level security (another company's item is invisible to a tenant session: refused).
+CREATE OR REPLACE FUNCTION public.line_item_same_company() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_header uuid;
+  v_item uuid;
+BEGIN
+  IF NEW.item_id IS NULL THEN RETURN NEW; END IF;
+  -- IF branches, not one CASE: plpgsql plans a whole expression, and NEW has only the fields of ITS table.
+  IF TG_TABLE_NAME = 'po_items' THEN
+    SELECT company_id INTO v_header FROM public.purchase_orders WHERE id = NEW.purchase_order_id;
+  ELSIF TG_TABLE_NAME = 'supplier_invoice_items' THEN
+    SELECT company_id INTO v_header FROM public.supplier_invoices WHERE id = NEW.supplier_invoice_id;
+  ELSIF TG_TABLE_NAME = 'customer_invoice_items' THEN
+    SELECT company_id INTO v_header FROM public.customer_invoices WHERE id = NEW.invoice_id;
+  ELSIF TG_TABLE_NAME = 'customer_quote_lines' THEN
+    SELECT company_id INTO v_header FROM public.customer_quotes WHERE id = NEW.quote_id;
+  END IF;
+  SELECT i.company_id INTO v_item FROM public.items i WHERE i.id = NEW.item_id;
+  IF v_item IS NULL OR v_header IS NULL OR v_item <> v_header THEN
+    RAISE EXCEPTION '%: item_id names an item that is not the document''s company''s', TG_TABLE_NAME USING ERRCODE = 'foreign_key_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS po_items_item_company ON public.po_items;
+CREATE TRIGGER po_items_item_company BEFORE INSERT OR UPDATE OF item_id ON public.po_items
+  FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();
+DROP TRIGGER IF EXISTS supplier_invoice_items_item_company ON public.supplier_invoice_items;
+CREATE TRIGGER supplier_invoice_items_item_company BEFORE INSERT OR UPDATE OF item_id ON public.supplier_invoice_items
+  FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();
+DROP TRIGGER IF EXISTS customer_invoice_items_item_company ON public.customer_invoice_items;
+CREATE TRIGGER customer_invoice_items_item_company BEFORE INSERT OR UPDATE OF item_id ON public.customer_invoice_items
+  FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();
+DROP TRIGGER IF EXISTS customer_quote_lines_item_company ON public.customer_quote_lines;
+CREATE TRIGGER customer_quote_lines_item_company BEFORE INSERT OR UPDATE OF item_id ON public.customer_quote_lines
+  FOR EACH ROW WHEN (NEW.item_id IS NOT NULL) EXECUTE FUNCTION public.line_item_same_company();

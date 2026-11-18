@@ -59,6 +59,7 @@ export async function resolveEditLineItems<T extends EditLine>(
       return { ...l, itemId: c.itemId, glAccountId: c.glAccountId, ...(c.taxRate !== l.taxRate ? { taxRate: c.taxRate } : {}), ...(c.vatClassification !== l.vatClassification ? { vatClassification: c.vatClassification } : {}) };
     }
     if (l.itemId === null) return l;
+    if (l.itemId === '') return { ...l, itemId: null }; // "" is no item, not an id to cast
     return typeof l.itemId === 'string' ? { ...l, itemId: l.itemId.toLowerCase() } : (inherited[i] ? { ...l, itemId: inherited[i] } : l);
   });
 }

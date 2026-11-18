@@ -373,3 +373,19 @@ describe('review fixes', () => {
     expect(selects().at(-1)).toMatch(/FOR UPDATE/);
   });
 });
+
+describe('external identity (breaker)', () => {
+  const ID = 'bbbbbbbb-0000-4000-8000-000000000001';
+  it('a system without a ref is refused on a bulk row, update_item and upsert_item_category: the dry run does not say "updated"', async () => {
+    vi.mocked(loadUpsertContext).mockResolvedValue(upsertCtx([stored({ id: ID, code: 'A', externalSystem: 'sage', externalRef: 'R1' })]));
+    for (const dry_run of [true, false]) {
+      const bulk = await call('bulk_upsert_items', { items: [{ code: 'A', external_system: 'pastel' }], dry_run, idempotency_key: `i1-${dry_run}` });
+      expect(body(bulk).refusals[0]).toMatchObject({ index: 0, code: 'invalid_field' });
+      const one = await call('update_item', { item_id: ID, external_system: 'pastel', dry_run, idempotency_key: `i2-${dry_run}` });
+      expect(one.content[0]!.text).toMatch(/^invalid_field: external_ref is required with external_system/);
+      const cat = await call('upsert_item_category', { name: 'Optics', external_system: 'pastel', dry_run, idempotency_key: `i3-${dry_run}` });
+      expect(cat.content[0]!.text).toMatch(/^invalid_field: external_ref is required with external_system/);
+    }
+    expect(itemWrites()).toEqual([]);
+  });
+});

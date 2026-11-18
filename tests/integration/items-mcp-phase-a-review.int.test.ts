@@ -13,6 +13,8 @@ import { Pool } from 'pg';
 import purchaseOrders from '../../pages/api/accounting/purchase-orders';
 import purchaseOrderDetail from '../../pages/api/accounting/purchase-orders/[id]';
 import quotesAction from '../../pages/api/accounting/customer-quotes-action';
+import quotesRoute from '../../pages/api/accounting/customer-quotes';
+import invoiceDetail from '../../pages/api/accounting/customer-invoices-detail';
 import itemsRoute from '../../pages/api/accounting/items';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { as, cleanupWorld, itemsWorld, type ItemsWorld } from './helpers/itemsWorld';
@@ -171,6 +173,7 @@ describe('migration 1005 re-applies and repairs', () => {
     const inv = String((await A.ok('create_draft_invoice', { customer_id: w.a.customer, items: [{ description: 'orphan', unit_price: 1 }] })).id);
     await inTx(async (q) => {
       await q('ALTER TABLE customer_invoice_items DROP CONSTRAINT customer_invoice_items_item_id_fkey');
+      await q('DROP TRIGGER customer_invoice_items_item_company ON customer_invoice_items'); // the migration re-creates it
       await q('UPDATE customer_invoice_items SET item_id = gen_random_uuid() WHERE invoice_id = $1', [inv]);
       await q(MIGRATION);
       expect(await fk(q, 'customer_invoice_items')).toEqual([{ convalidated: false }]);
@@ -180,6 +183,7 @@ describe('migration 1005 re-applies and repairs', () => {
   it('stops, naming the column, when item_id exists with another type', async () => {
     await inTx(async (q) => {
       await q('ALTER TABLE po_items DROP CONSTRAINT po_items_item_id_fkey');
+      await q('DROP TRIGGER po_items_item_company ON po_items');
       await q('ALTER TABLE po_items ALTER COLUMN item_id TYPE TEXT');
       await expect(q(MIGRATION)).rejects.toThrow(/po_items\.item_id is text \(expected uuid\)/);
     });
@@ -359,5 +363,60 @@ describe('1005 does not add warehouses.location_type (Phase C adds it)', () => {
   it('the column is absent and the migration text does not create it', async () => {
     expect((await pool.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'warehouses' AND column_name = 'location_type'`)).rowCount).toBe(0);
     expect(MIGRATION).not.toMatch(/location_type/);
+  });
+});
+
+describe('an item named by a row belongs to the row\'s company (breaker)', () => {
+  let bItem: string;
+  beforeAll(async () => {
+    bItem = String(((await as(pool, w.b).ok('bulk_upsert_items', { items: [{ code: 'X-B', description: 'b item' }] })).rows as Array<{ id: string }>)[0]!.id);
+  });
+
+  it('as app_user, a stock movement in company A that names company B\'s item is refused by the composite FK', async () => {
+    const product = String((await pool.query(`INSERT INTO products (company_id, code, name) VALUES ($1, 'IR-XT', 'IR-XT') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
+    await expect(asAppUser(w.a.u.homeCompanyId, w.a.u.userId, (q) => q(
+      `INSERT INTO stock_movements (company_id, product_id, item_id, movement_type, quantity) VALUES ($1, $2, $3, 'purchase', 1)`, [w.a.u.homeCompanyId, product, bItem],
+    ))).rejects.toThrow(/stock_movements_company_item_fkey/);
+    await asAppUser(w.a.u.homeCompanyId, w.a.u.userId, (q) => q(
+      `INSERT INTO stock_movements (company_id, product_id, item_id, movement_type, quantity) VALUES ($1, $2, $3, 'purchase', 1)`, [w.a.u.homeCompanyId, product, itemId]));
+  });
+
+  it('the four line tables refuse another company\'s item on INSERT-time and UPDATE-time alike', async () => {
+    const inv = String((await A.ok('create_draft_invoice', { customer_id: w.a.customer, items: [{ description: 'l', unit_price: 1 }] })).id);
+    const bill = String((await A.ok('create_supplier_invoice', { supplier_id: w.a.supplier, invoice_number: 'XCO-1', invoice_date: '2026-11-10', lines: [{ description: 'l', quantity: 1, unit_price: 1 }] })).id);
+    const quote = String((await A.ok('create_draft_quote', { customer_name: 'X', items: [{ description: 'l', unit_price: 1 }] }) as { id: string }).id);
+    const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'l', quantity: 1, unitPrice: 1, taxRate: 15 }] }, '/api/accounting/purchase-orders');
+    const poId = String((po.body.data as { id: string }).id);
+    for (const [table, fkCol, id] of [['customer_invoice_items', 'invoice_id', inv], ['supplier_invoice_items', 'supplier_invoice_id', bill],
+      ['customer_quote_lines', 'quote_id', quote], ['po_items', 'purchase_order_id', poId]] as const) {
+      await expect(pool.query(`UPDATE ${table} SET item_id = $2 WHERE ${fkCol} = $1`, [id, bItem]), table).rejects.toThrow(/not the document's company's/);
+      await pool.query(`UPDATE ${table} SET item_id = $2 WHERE ${fkCol} = $1`, [id, itemId]); // its own company's item is fine
+      expect((await pool.query(`SELECT item_id FROM ${table} WHERE ${fkCol} = $1`, [id])).rows, table).toEqual([{ item_id: itemId }]);
+    }
+  });
+
+  it('both guards are SECURITY INVOKER', async () => {
+    expect((await pool.query(`SELECT proname, prosecdef FROM pg_proc WHERE proname IN ('line_item_same_company', 'stock_row_fill_company') ORDER BY 1`)).rows)
+      .toEqual([{ proname: 'line_item_same_company', prosecdef: false }, { proname: 'stock_row_fill_company', prosecdef: false }]);
+  });
+});
+
+describe('an empty item_id on the REST draft edits (breaker)', () => {
+  it('PO PUT and quote PUT take "" as no item (stored NULL, not a 500); the invoice PUT refuses it (4xx)', async () => {
+    const po = await callRoute(purchaseOrders, w.a.u, { supplierId: w.a.supplier, items: [{ description: 'e', quantity: 1, unitPrice: 1, taxRate: 15, itemId }] }, '/api/accounting/purchase-orders');
+    const poId = String((po.body.data as { id: string }).id);
+    const put = await callRoute(purchaseOrderDetail, w.a.u, { items: [{ description: 'e', quantity: 1, unit_price: 1, tax_rate: 15, item_id: '' }] }, `/api/accounting/purchase-orders/${poId}`, 'PUT', { id: poId });
+    expect(put.status, JSON.stringify(put.body)).toBe(200);
+    expect((await pool.query('SELECT item_id FROM po_items WHERE purchase_order_id = $1', [poId])).rows).toEqual([{ item_id: null }]);
+
+    const quote = String((await A.ok('create_draft_quote', { customer_name: 'E', items: [{ description: 'e', unit_price: 1, item_id: itemId }] }) as { id: string }).id);
+    const qput = await callRoute(quotesRoute, w.a.u, { id: quote, customerName: 'E', lines: [{ description: 'e', quantity: 1, unitPrice: 1, taxRate: 15, itemId: '' }] }, '/api/accounting/customer-quotes', 'PUT');
+    expect(qput.status, JSON.stringify(qput.body)).toBe(200);
+    expect((await pool.query('SELECT item_id FROM customer_quote_lines WHERE quote_id = $1', [quote])).rows).toEqual([{ item_id: null }]);
+
+    const inv = String((await A.ok('create_draft_invoice', { customer_id: w.a.customer, items: [{ description: 'e', unit_price: 1, item_id: itemId }] })).id);
+    const iput = await callRoute(invoiceDetail, w.a.u, { id: inv, items: [{ description: 'e', quantity: 1, unitPrice: 1, itemId: '' }] }, '/api/accounting/customer-invoices-detail', 'PUT');
+    expect(iput.status).toBeGreaterThanOrEqual(400);
+    expect(iput.status).toBeLessThan(500);
   });
 });

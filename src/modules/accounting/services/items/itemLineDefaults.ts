@@ -62,7 +62,7 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
   opts: ItemDefaultOptions = {},
 ): Promise<T[]> {
   const named = lines.flatMap((l, i) => (l.itemId === undefined || l.itemId === null || l.itemId === '' ? [] : [{ id: l.itemId, i }]));
-  if (named.length === 0) return [...lines];
+  if (named.length === 0) return lines.map((l) => (l.itemId === '' ? { ...l, itemId: null } : l));
   for (const { id, i } of named) {
     if (typeof id !== 'string' || !UUID_RE.test(id)) throw new ItemLineRefusal(`${label(i)}.item_id must be a UUID`);
   }
@@ -97,7 +97,8 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
     }
   }
   return lines.map((l) => {
-    if (l.itemId === undefined || l.itemId === null || l.itemId === '') return l;
+    if (l.itemId === '') return { ...l, itemId: null }; // an empty string is "no item": never reaches a ::UUID cast
+    if (l.itemId === undefined || l.itemId === null) return l;
     const item = byId.get(l.itemId.toLowerCase())!;
     const fallback = kind === 'purchase' ? item.purchases_account_id : item.sales_account_id;
     const vat = opts.deriveTax && (l.taxRate === undefined || l.taxRate === null)

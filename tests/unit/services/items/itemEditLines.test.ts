@@ -107,3 +107,10 @@ describe('item VAT on an edit', () => {
     expect(out[2]!.taxRate).toBeUndefined();
   });
 });
+
+describe('an empty item_id on a draft edit', () => {
+  it('is no item: it clears like null instead of being cast to a uuid', async () => {
+    const out = await resolveEditLineItems(COMPANY, 'purchase', [line({ itemId: '' })], [stored(ITEM_A)], label);
+    expect(out[0]!.itemId).toBeNull();
+  });
+});
