@@ -193,18 +193,33 @@ export async function findActiveVatLock(
  * submitVATReturn), dated on the FIRST day of the locked period, when the period ending the day before has a live
  * (finalised or filed) VAT201 version, i.e. the period it settles. It clears the control accounts for the previous
  * period, and every VAT201, lock snapshot and drift reader excludes that source (vatEntryMembership), so it changes no
- * figure of the locked return. Any other source, any other date, or no finalised previous period: refused as before.
+ * figure of the locked return. Its LINES must be a clearing too (round-2 review L2): no line carries a vat_type, and
+ * every line is on a VAT control account (vat_output / vat_input) or a net-VAT account (2130, or a payables account:
+ * resolveNetVatAccount's 2130 or its 'payable' fallback). Any other source, date, lines, or no finalised previous
+ * period: refused as before.
  */
 export async function settlementClearingExempt(
-  companyId: string, date: string, lock: ActiveVatLock, source: string | null | undefined, q: SqlExec = sql,
+  companyId: string, date: string, lock: ActiveVatLock, source: string | null | undefined,
+  lines: readonly VatLineRef[], q: SqlExec = sql,
 ): Promise<boolean> {
   if (source !== VAT_SUBMISSION_CLEARING_SOURCE || lock.periodStart !== date) return false;
+  if (lines.length === 0 || lines.some((l) => l.vatType != null)) return false;
   const rows = (await q`
     SELECT 1 FROM tax_return_versions
     WHERE company_id = ${companyId}::UUID AND form_type = 'VAT201' AND status IN ('finalised', 'filed')
       AND period_end = ${date}::DATE - 1
     LIMIT 1`) as Row[];
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+  const ids = [...new Set(lines.map((l) => l.glAccountId))];
+  const accounts = (await q`
+    SELECT id, account_code, account_subtype FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])`) as Row[];
+  const clearing = (a: Row) => {
+    const canon = canonicalSubtype(a.account_subtype == null ? null : String(a.account_subtype));
+    return String(a.account_code) === '2130' || canon === 'payable'
+      || (canon !== null && (VAT_TAX_SUBTYPES as readonly string[]).includes(canon));
+  };
+  return accounts.length === ids.length && accounts.every(clearing);
 }
 
 /**
@@ -229,7 +244,7 @@ export async function assertJournalVatPeriodOpen(
   const lock = await findActiveVatLock(companyId, date, q);
   if (!lock) return;
   if (await journalMovesVatFigure(companyId, lines, q)) {
-    if (await settlementClearingExempt(companyId, date, lock, source, q)) return;
+    if (await settlementClearingExempt(companyId, date, lock, source, lines, q)) return;
     throw new VatPeriodLockedError(date, lock);
   }
 }

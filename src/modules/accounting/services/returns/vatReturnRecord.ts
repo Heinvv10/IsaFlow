@@ -10,7 +10,7 @@ export interface VatFigures { outputTax: number; inputTax: number; netVat: numbe
 
 const cents = (n: unknown): number => Math.round((Number.isFinite(Number(n)) ? Number(n) : 0) * 100) / 100;
 const ledgerGapOf = (g: Record<string, unknown>) => ({
-  ledgerNetVat: cents(g.ledgerNetVat), reportNetVat: cents(g.reportNetVat), reason: String(g.reason),
+  netVat: cents(g.netVat), ledgerNetVat: cents(g.ledgerNetVat), reportNetVat: cents(g.reportNetVat), reason: String(g.reason),
 });
 
 /**
@@ -28,7 +28,7 @@ export async function getVatReturnRecord(
            (ARRAY_AGG(vr.sars_reference ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS sars_reference,
            MAX(vr.submitted_at) AS submitted_at,
            (ARRAY_AGG(v.version_no ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC))[1] AS return_version_no,
-           (ARRAY_AGG(jsonb_build_object('ledgerNetVat', vr.ledger_gap_ledger_net, 'reportNetVat', vr.ledger_gap_report_net,
+           (ARRAY_AGG(jsonb_build_object('netVat', vr.net_vat, 'ledgerNetVat', vr.ledger_gap_ledger_net, 'reportNetVat', vr.ledger_gap_report_net,
               'reason', vr.ledger_gap_reason) ORDER BY vr.submitted_at DESC NULLS LAST, vr.id DESC)
               FILTER (WHERE vr.ledger_gap_reason IS NOT NULL))[1] AS ledger_gap
     FROM vat_returns vr

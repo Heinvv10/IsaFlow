@@ -50,8 +50,9 @@ export function ReturnVersionsDrawer({ open, onClose, form, versions, vatReturn,
         )}
         {vatReturn?.ledgerGap && (
           <p className="break-words text-xs text-[var(--ff-text-secondary)]" data-testid="settlement-ledger-gap">
-            Settled although the VAT control accounts (net VAT {formatMoney(vatReturn.ledgerGap.ledgerNetVat)}) differ
-            from the VAT201 ({formatMoney(vatReturn.ledgerGap.reportNetVat)}). Reason: {vatReturn.ledgerGap.reason}
+            Settled although the VAT control accounts and the VAT201 differ. Period figures: control accounts net
+            VAT {formatMoney(vatReturn.ledgerGap.ledgerNetVat)}, VAT201 {formatMoney(vatReturn.ledgerGap.reportNetVat)};
+            this settlement posted net VAT {formatMoney(vatReturn.ledgerGap.netVat)}. Reason: {vatReturn.ledgerGap.reason}
           </p>
         )}
         {newestFirst.map((v) => {

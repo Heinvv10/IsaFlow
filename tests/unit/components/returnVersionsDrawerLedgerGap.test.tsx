@@ -16,11 +16,11 @@ const settlement = {
 const drawer = (ledgerGap: unknown) => render(<ReturnVersionsDrawer open onClose={() => undefined} form="VAT201"
   versions={[V1] as never} vatReturn={{ ...settlement, ledgerGap } as never} nameOf={() => 'Olive Owner'} />);
 
-it('a settlement over a ledger gap: both net VAT figures and the reason', () => {
-  drawer({ ledgerNetVat: 5340, reportNetVat: 5385, reason: 'A cancelled credit note is still posted' });
+it('a top-up over a ledger gap: the period figures labelled as such, next to what this settlement posted, and the reason', () => {
+  drawer({ netVat: 1500, ledgerNetVat: 5340, reportNetVat: 5385, reason: 'A cancelled credit note is still posted' });
   const gap = screen.getByTestId('settlement-ledger-gap').textContent ?? '';
-  expect(gap).toMatch(/5[\s,]?340\.00/);
-  expect(gap).toMatch(/5[\s,]?385\.00/);
+  expect(gap).toMatch(/Period figures: control accounts net\s+VAT R\s?5[\s,]?340\.00, VAT201 R\s?5[\s,]?385\.00/);
+  expect(gap).toMatch(/this settlement posted net VAT R\s?1[\s,]?500\.00/);
   expect(gap).toContain('Reason: A cancelled credit note is still posted');
 });
 

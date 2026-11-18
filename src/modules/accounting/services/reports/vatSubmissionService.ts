@@ -53,6 +53,24 @@ import { ReturnRefusal } from '../returns/returnVersionTypes';
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
 
+/**
+ * The settlement row's INSERT. Two settlements of one version racing past settlementBasis both post a journal; the
+ * second INSERT then hits uq_vat_returns_period_settlement. That is "already settled" (409), not a raw database error,
+ * and the route's savepoint rolls back the loser's journal with it (round 2 L1).
+ */
+async function insertSettlementRow(insert: () => Promise<unknown>, periodStart: string, periodEnd: string): Promise<Row[]> {
+  try {
+    return (await insert()) as Row[];
+  } catch (err) {
+    const e = err as { code?: unknown; constraint?: unknown };
+    if (e.code === '23505' && e.constraint === 'uq_vat_returns_period_settlement') {
+      throw new ReturnRefusal(409, `VAT return for ${periodStart}–${periodEnd} has just been settled by another request.`,
+        'VAT_ALREADY_SETTLED');
+    }
+    throw err;
+  }
+}
+
 export { nextDayISO } from './vatSubmissionSupport';
 export { listVATReturns, type ListVATReturnsOptions, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
 
@@ -95,16 +113,12 @@ export async function submitVATReturn(
     input.acknowledgeLedgerGap);
 
   // 2. Post only what the period has not settled yet: the whole return the first time, the difference after an amend
-  //    (a top-up linked to the new version). Nothing left to settle is "already submitted".
+  //    (a top-up linked to the new version). An amend that moved no tax figure leaves nothing to post: a NIL top-up
+  //    row still records that vN was settled (no journal, zero figures), so the period reads as submitted (round 2 M).
   const totalOutputTax = cents(ledger.totalOutputTax - basis.prior.outputTax);
   const totalInputTax = cents(ledger.totalInputTax - basis.prior.inputTax);
   const netVat = cents(totalOutputTax - totalInputTax); // positive = payable, negative = refund
   const topUp = basis.prior.count > 0;
-  if (topUp && Math.abs(totalOutputTax) <= 0.005 && Math.abs(totalInputTax) <= 0.005) {
-    throw new ReturnRefusal(409,
-      `VAT return for ${periodStart}–${periodEnd} has already been submitted in full: version `
-      + `${basis.version.versionNo} has nothing left to settle.`, 'VAT_ALREADY_SETTLED');
-  }
 
   log.info('VAT return figures', { companyId, periodStart, periodEnd, totalOutputTax, totalInputTax, netVat }, 'accounting');
 
@@ -192,7 +206,7 @@ export async function submitVATReturn(
 
   // 6. Insert vat_returns record
   const absNetVat = netVat; // signed: positive = payable, negative = refund
-  const rows = (await sql`
+  const rows = await insertSettlementRow(() => sql`
     INSERT INTO vat_returns (
       company_id, period_start, period_end, status,
       total_output_tax, total_input_tax, net_vat,
@@ -213,7 +227,7 @@ export async function submitVATReturn(
       ${basis.version.id}::UUID
     )
     RETURNING *
-  `) as Row[];
+  `, periodStart, periodEnd);
 
   const record = mapRow(rows[0]!);
   log.info('VAT return record created', { id: record.id, netVat }, 'accounting');

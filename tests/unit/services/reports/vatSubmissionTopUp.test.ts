@@ -100,9 +100,27 @@ describe('submitVATReturn: settled-once, drift and the top-up (VR)', () => {
     expect(rec).toMatchObject({ totalOutputTax: 1500, totalInputTax: 0, netVat: 1500, returnVersionId: V2 });
   });
 
-  it('nothing left to settle after an amend: 409 VAT_ALREADY_SETTLED, no journal', async () => {
+  it('an amend that moved no tax figure: a NIL top-up row for the new version, no journal (round 2 M)', async () => {
     arrange([1500, 0], 1500, [1500, 0, 1]);
-    expect(await refusal(submitVATReturn(CO, P, USER))).toMatchObject({ status: 409, refusalCode: 'VAT_ALREADY_SETTLED' });
+    const rec = await submitVATReturn(CO, P, USER);
     expect(createJournalEntry).not.toHaveBeenCalled();
+    expect(rec).toMatchObject({ totalOutputTax: 0, totalInputTax: 0, netVat: 0, returnVersionId: V2 });
+    expect(rec.journalEntryId).toBeUndefined();
+  });
+
+  it('the loser of a race on the settlement index: 409 VAT_ALREADY_SETTLED, not a raw database error (round 2 L1)', async () => {
+    arrange([3000, 0], 3000, [0, 0, 0]);
+    vi.mocked(sql).mockReset();
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'acc-2130' }] as never)
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'uq_vat_returns_period_settlement' }));
+    expect(await refusal(submitVATReturn(CO, P, USER))).toMatchObject({ status: 409, refusalCode: 'VAT_ALREADY_SETTLED' });
+  });
+
+  it('any other unique violation is not dressed up as "already settled"', async () => {
+    arrange([3000, 0], 3000, [0, 0, 0]);
+    vi.mocked(sql).mockReset();
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'acc-2130' }] as never)
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'some_other_key' }));
+    expect(await refusal(submitVATReturn(CO, P, USER))).not.toMatchObject({ refusalCode: 'VAT_ALREADY_SETTLED' });
   });
 });
