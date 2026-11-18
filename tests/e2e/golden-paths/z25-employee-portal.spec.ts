@@ -115,7 +115,7 @@ async function portalPages(page: Page, theme: string): Promise<{ accepted: unkno
   await page.getByLabel('Type it again').fill('correct horse battery');
   await page.getByRole('button', { name: 'Set password and sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Hello, Zola Portal' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole('link', { name: 'Download payslip for October 2026' })).toHaveAttribute('href', '/api/employee-portal/payslips/00000000-0000-4000-8000-000000000025');
+  await expect(page.getByRole('link', { name: 'Download PDF for October 2026' })).toHaveAttribute('href', '/api/employee-portal/payslips/00000000-0000-4000-8000-000000000025');
   await expect(page.getByRole('table').nth(1)).toContainText('Annual');
   await shoot(page, 'employee-portal-home', theme);
 

@@ -9,6 +9,7 @@ import { Money } from '@/components/ui/Money';
 import { PortalShell } from '@/components/employeePortal/PortalShell';
 import { portalCall, PortalCallError } from '@/components/employeePortal/portalFetch';
 import { apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface Me { employeeName: string; employeeNumber: string; employer: string }
 interface Slip { runId: string; periodYear: number; periodMonth: number; runDate: string | null; netPay: number }
@@ -35,14 +36,22 @@ export default function EmployeePortalHome() {
   }, [router]);
 
   async function signOut(): Promise<void> {
-    await portalCall('/api/employee-portal/logout', 'Could not sign out.', { method: 'POST', body: {} }).catch(() => undefined);
-    await router.replace('/employee-portal/login');
+    try {
+      await portalCall('/api/employee-portal/logout', 'Could not sign out.', { method: 'POST', body: {} });
+    } catch (err) {
+      // The cookie expires on its own; the employee leaves the page either way.
+      log.warn('Employee portal sign-out failed', { error: err instanceof Error ? err.message : String(err) }, 'employeePortal');
+    } finally {
+      await router.replace('/employee-portal/login');
+    }
   }
 
+  const loading = !error && (slips === null || leave === null);
   return (
     <PortalShell title={me ? `Hello, ${me.employeeName}` : 'Your payslips'} employer={me?.employer}
       actions={<Button variant="secondary" size="sm" onClick={() => void signOut()}>Sign out</Button>}>
       {error && <p role="alert" className="mb-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
+      {loading && <p role="status" className="mb-4 text-sm text-gray-600 dark:text-gray-300">Loading your payslips and leave…</p>}
       <section aria-labelledby="slips" className="mb-8">
         <h2 id="slips" className="mb-2 text-lg font-semibold">Payslips</h2>
         {slips?.length === 0 && (
@@ -53,15 +62,23 @@ export default function EmployeePortalHome() {
         )}
         {slips && slips.length > 0 && (
           <table className="w-full text-left text-sm">
-            <thead><tr><th className={cell}>Month</th><th className={`${cell} text-right`}>Net pay</th><th className={cell}><span className="sr-only">Download</span></th></tr></thead>
+            <caption className="sr-only">Your payslips, newest first</caption>
+            <thead>
+              <tr>
+                <th scope="col" className={cell}>Month</th>
+                <th scope="col" className={`${cell} text-right`}>Net pay</th>
+                <th scope="col" className={cell}><span className="sr-only">Download</span></th>
+              </tr>
+            </thead>
             <tbody>
               {slips.map((s) => (
                 <tr key={s.runId}>
                   <td className={cell}>{MONTHS[s.periodMonth - 1]} {s.periodYear}</td>
                   <td className={`${cell} text-right`}><Money amount={s.netPay} /></td>
                   <td className={`${cell} text-right`}>
-                    <a className="font-medium text-teal-700 underline dark:text-teal-400" href={`/api/employee-portal/payslips/${s.runId}`}
-                      aria-label={`Download payslip for ${MONTHS[s.periodMonth - 1]} ${s.periodYear}`}>Download PDF</a>
+                    <a className="font-medium text-teal-700 underline dark:text-teal-400" href={`/api/employee-portal/payslips/${s.runId}`}>
+                      Download PDF<span className="sr-only"> for {MONTHS[s.periodMonth - 1]} {s.periodYear}</span>
+                    </a>
                   </td>
                 </tr>
               ))}
@@ -74,7 +91,14 @@ export default function EmployeePortalHome() {
         {leave?.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-300">No leave balances recorded for this year.</p>}
         {leave && leave.length > 0 && (
           <table className="w-full text-left text-sm">
-            <thead><tr><th className={cell}>Leave</th><th className={`${cell} text-right`}>Taken</th><th className={`${cell} text-right`}>Balance (days)</th></tr></thead>
+            <caption className="sr-only">Your leave balances this year, in days</caption>
+            <thead>
+              <tr>
+                <th scope="col" className={cell}>Leave</th>
+                <th scope="col" className={`${cell} text-right`}>Taken</th>
+                <th scope="col" className={`${cell} text-right`}>Balance (days)</th>
+              </tr>
+            </thead>
             <tbody>
               {leave.map((l) => (
                 <tr key={l.leaveType}><td className={cell}>{l.leaveType}</td><td className={`${cell} text-right`}>{l.taken}</td><td className={`${cell} text-right`}>{l.balance}</td></tr>

@@ -25,5 +25,7 @@ export async function portalCall<T>(url: string, failure: string, init?: { metho
     throw new PortalCallError(failed?.error?.message ?? failure, res.status, typeof details?.reason === 'string' ? details.reason : undefined, details);
   }
   const json = (await res.json().catch(() => null)) as { data?: T } | null;
-  return json?.data as T;
+  // A 2xx without the envelope's data is a failure too (review #1576 L3), never an empty page that looks right.
+  if (json?.data === undefined) throw new PortalCallError(failure, res.status);
+  return json.data;
 }

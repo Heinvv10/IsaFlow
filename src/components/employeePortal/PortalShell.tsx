@@ -1,12 +1,18 @@
-/** The employee portal's page frame (wave 6 SS): no staff navigation, both themes, phone width first. */
+/**
+ * The employee portal's page frame (wave 6 SS): no staff navigation, both themes, phone width first.
+ * The document title is one constant (review #1576 M1): `title` may name the employee and goes in the page body only,
+ * never in <title>, which browser history, tab sync and any script reading document.title would carry.
+ */
 import type { ReactNode } from 'react';
 import Head from 'next/head';
+
+export const PORTAL_DOCUMENT_TITLE = 'Your payslips - IsaFlow employee portal';
 
 export function PortalShell({ title, employer, actions, children }: { title: string; employer?: string; actions?: ReactNode; children: ReactNode }) {
   return (
     <>
       <Head>
-        <title>{`${title} - IsaFlow employee portal`}</title>
+        <title>{PORTAL_DOCUMENT_TITLE}</title>
         <meta name="robots" content="noindex" />
       </Head>
       <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">

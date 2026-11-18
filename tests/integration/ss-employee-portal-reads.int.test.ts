@@ -6,6 +6,7 @@
  *    another company's run, are the same 404; the PDF is theirs alone;
  *  - a reopened run's slip disappears from the list and its PDF is 404; re-approved, it is back;
  *  - a final slip not frozen at its current approval (PS3 snapshot missing or stale) is neither listed nor served;
+ *  - a run the render's run-kind guard refuses is not listed (the PDF would 404); no final slip is an empty list;
  *  - leave balances are the employee's own only;
  *  - every answer is no-store, and nothing answers without a portal session.
  *
@@ -119,6 +120,25 @@ describe('employee portal reads', () => {
       await setStatus('approved');
     }
     expect(await runs(jars.two!)).toEqual([run2, run1]);
+  });
+
+  it('a run the payslip render refuses (run-kind guard) is not listed, so no listed slip 404s (review #1576 L1)', async () => {
+    // One on run 1 now paid weekly: the 'payslip' guard refuses run 1 (employee_frequency), for everyone on it.
+    await a.pool.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1", [emp.one]);
+    try {
+      expect((await getSlip(jars.two!, run1)).statusCode).toBe(404);
+      expect(await runs(jars.two!)).toEqual([run2]);
+    } finally {
+      await a.pool.query("UPDATE payroll_employees SET pay_frequency = 'monthly' WHERE id = $1", [emp.one]);
+    }
+    expect(await runs(jars.two!)).toEqual([run2, run1]);
+  });
+
+  it('an employee with no final slip gets an empty list, not an error', async () => {
+    const three = await person(a, 'three@example.invalid', 'Three');
+    const jar = await onboard(a, three, '198.18.1.3');
+    const res = await portal(list, 'GET', jar);
+    expect([res.statusCode, res.body.data]).toEqual([200, []]);
   });
 
   it('a final slip whose details were not frozen at this approval (a run approved before PS3) is not shown', async () => {

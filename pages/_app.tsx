@@ -12,6 +12,7 @@ import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
+import { isTrackedPath } from '@/modules/analytics/isTrackedPath';
 import { isSharePath } from '@/lib/paths/isSharePath';
 import { ShellTitle } from '@/components/layout/ShellTitle';
 import { dmSans } from '@/lib/fonts';
@@ -113,7 +114,7 @@ export default function App({ Component, pageProps }: AppProps) {
             print render: the headless browser's navigation is a PDF export,
             not a person visiting a page, and recording it puts a synthetic
             pageview in the analytics for every export. */}
-        {!sharePage && !printRender && <TrackerScript />}
+        {isTrackedPath(router.pathname) && !printRender && <TrackerScript />}
         <UndoAnnouncer />
         <Toaster
           position="top-right"

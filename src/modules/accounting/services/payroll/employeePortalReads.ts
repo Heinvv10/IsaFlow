@@ -7,15 +7,15 @@
  * details frozen at that approval (PS3's snapshot of the run's CURRENT approval; payslipModel `detailsAsAt`), the
  * rule PE's email follows (DETAILS_NOT_FROZEN): a run approved before PS3 went live is not shown. A reopened run is
  * not final, so its slip leaves the list and its PDF is 404 at once; after re-approval the new slip shows.
- * Regular monthly runs only: the payslip render refuses other kinds (payrollRunKindGuard), so they are not listed.
+ * Regular monthly runs only, and each listed run must pass the same run-kind guard the PDF render runs
+ * (assertRunKindSupported 'payslip'; review #1576 L1), so the list never shows a slip whose download would 404.
  */
 import { sql } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { getPayslips, PayslipNotFound } from './payslipModel';
 import { buildPayslipPdf, payslipFilename } from './payslipPdf';
-import { RunKindUnsupportedError } from './payrollRunKindGuard';
+import { assertRunKindSupported, isRunKindUnsupported, RunKindUnsupportedError } from './payrollRunKindGuard';
 import { snapshotIsThisApproval } from './payslipSnapshot';
-import { listLeaveBalances } from './payrollLeaveService';
 import { todaySast } from './employeePortalWindow';
 
 export interface OwnPayslip { runId: string; periodYear: number; periodMonth: number; runDate: string | null; netPay: number }
@@ -38,10 +38,26 @@ export async function listOwnPayslips(companyId: string, employeeId: string): Pr
        AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly'
      ORDER BY h.period_year DESC, h.period_month DESC
   `) as ListRow[];
-  return rows.filter((r) => snapshotIsThisApproval(r.snapshot_approved_at, r.approved_at_us)).map((r) => ({
-    runId: r.run_id, periodYear: Number(r.period_year), periodMonth: Number(r.period_month),
-    runDate: r.run_date == null ? null : String(r.run_date).slice(0, 10), netPay: Number(r.net_pay),
-  }));
+  const shown: OwnPayslip[] = [];
+  for (const r of rows.filter((x) => snapshotIsThisApproval(x.snapshot_approved_at, x.approved_at_us))) {
+    if (!(await renderable(companyId, r.run_id))) continue;
+    shown.push({
+      runId: r.run_id, periodYear: Number(r.period_year), periodMonth: Number(r.period_month),
+      runDate: r.run_date == null ? null : String(r.run_date).slice(0, 10), netPay: Number(r.net_pay),
+    });
+  }
+  return shown;
+}
+
+/** Whether the payslip render would accept this run (the guard ownPayslipPdf meets through getPayslips). */
+async function renderable(companyId: string, runId: string): Promise<boolean> {
+  try {
+    await assertRunKindSupported(companyId, runId, 'payslip');
+    return true;
+  } catch (err) {
+    if (isRunKindUnsupported(err)) return false;
+    throw err;
+  }
 }
 
 /** The employee's own final slip on that run as a PDF, or null (not theirs, not final, not frozen: one 404). */
@@ -58,7 +74,27 @@ export async function ownPayslipPdf(companyId: string, employeeId: string, runId
 
 export interface OwnLeaveBalance { leaveType: string; year: number; accrued: number; taken: number; pending: number; balance: number }
 
+interface LeaveRow {
+  company_id: string; employee_id: string; leave_type: string; balance_year: number;
+  accrued: string | number; taken: string | number; pending: string | number; balance: string | number;
+}
+
+/**
+ * The employee's own leave balances for the year, filtered by company AND employee in the SQL (review #1576 M2: no
+ * read of the whole company's leave), and again on the rows, so a query edit cannot widen what is returned.
+ * Its own statement, not payrollLeaveService.listLeaveBalances (439 lines; spec §1 rule 4: SS does not grow it).
+ */
 export async function ownLeaveBalances(companyId: string, employeeId: string, year = Number(todaySast().slice(0, 4))): Promise<OwnLeaveBalance[]> {
-  return (await listLeaveBalances(companyId, year)).filter((b) => b.employeeId === employeeId && b.companyId === companyId)
-    .map((b) => ({ leaveType: b.leaveTypeName, year: b.balanceYear, accrued: b.accrued, taken: b.taken, pending: b.pending, balance: b.balance }));
+  const rows = (await sql`
+    SELECT plb.company_id::text AS company_id, plb.employee_id::text AS employee_id, plt.name AS leave_type, plb.balance_year,
+           plb.accrued, plb.taken, plb.pending, plb.balance
+      FROM payroll_leave_balances plb
+      JOIN payroll_leave_types plt ON plt.id = plb.leave_type_id
+     WHERE plb.company_id = ${companyId}::uuid AND plb.employee_id = ${employeeId}::uuid AND plb.balance_year = ${year}
+     ORDER BY plt.name
+  `) as LeaveRow[];
+  return rows.filter((r) => r.company_id === companyId && r.employee_id === employeeId).map((r) => ({
+    leaveType: r.leave_type, year: Number(r.balance_year), accrued: Number(r.accrued), taken: Number(r.taken),
+    pending: Number(r.pending), balance: Number(r.balance),
+  }));
 }
