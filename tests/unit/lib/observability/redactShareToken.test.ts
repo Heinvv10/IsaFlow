@@ -8,6 +8,12 @@ describe('redactShareToken', () => {
     expect(redactShareToken(`/share/${TOKEN}`)).toBe('/share/[token]');
   });
 
+  it('redacts an MCP upload token in /api/mcp/uploads/<token>', () => {
+    expect(redactShareToken(`/api/mcp/uploads/${TOKEN}`)).toBe('/api/mcp/uploads/[token]');
+    expect(redactShareToken(`https://app.isaflow.co.za/api/mcp/uploads/${TOKEN}?x=1`))
+      .toBe('https://app.isaflow.co.za/api/mcp/uploads/[token]?x=1');
+  });
+
   it('redacts a token passed as a query parameter', () => {
     expect(redactShareToken(`/api/share?token=${TOKEN}`)).toBe('/api/share?token=[token]');
   });
