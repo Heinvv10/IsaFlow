@@ -12,6 +12,7 @@ import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYea
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { runOrderKeySql } from './payrollRunOrder';
+import { monthOrderRefusal } from './payrollMonthOrderGate';
 
 /** The blocker approval raises (null when current), and advisories it does not refuse for. */
 export interface YearToDateJudgement {
@@ -120,6 +121,14 @@ export interface YearToDateJudgement {
  * Read-only; under the gate's company approval lock. Null when current.
  */
 export async function judgeYearToDate(companyId: string, runId: string): Promise<YearToDateJudgement> {
+  // Pay order inside the run's EMP201 month first (review #1575 H1): a later run of the month is never cleared by the
+  // PAYE_LATER_PERIODS_APPROVED warning, which is judged below for the other months only.
+  const inMonth = await monthOrderRefusal(companyId, runId);
+  const judged = await judgeAcrossMonths(companyId, runId);
+  return { blocker: inMonth ?? judged.blocker, advisories: judged.advisories };
+}
+
+async function judgeAcrossMonths(companyId: string, runId: string): Promise<YearToDateJudgement> {
   const rows = (await sql`
     WITH tax_year AS (
       SELECT make_date(CASE WHEN h.period_month >= ${PAYE_TAX_YEAR_START_MONTH} THEN h.period_year ELSE h.period_year - 1 END, ${PAYE_TAX_YEAR_START_MONTH}, 1) AS start

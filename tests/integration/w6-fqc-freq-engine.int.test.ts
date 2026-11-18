@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropTenants, seedTenant, twoRunsInMonth, type Tenant } from './w6-fqb1.helpers';
+import { WEEKS, approve, line, seedWeekly, weeklyRun } from './w6-fqc.helpers';
 
 vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
@@ -42,60 +43,6 @@ let A: Tenant;
 let B: Tenant;
 /** The case's transaction-bound client (twoRunsInMonth): every raw write goes on it, so the rollback takes it away. */
 let c: PoolClient;
-
-/** June 2026's four weeks, Saturday to Friday, paid on the Friday (period_end: no app code writes run_date). */
-const WEEKS = [['2026-05-30', '2026-06-05'], ['2026-06-06', '2026-06-12'], ['2026-06-13', '2026-06-19'], ['2026-06-20', '2026-06-26']] as const;
-
-interface People { young: string; big: string; salary: string; extra: string }
-
-/** A weekly company: GL accounts, Basic Salary (3601) and a once-off 3602, a young ETI employee and an R6 000 a week one. */
-async function seedWeekly(c: PoolClient, t: Tenant): Promise<People> {
-  for (const [code, type] of [['5200', 'expense'], ['1110', 'asset'], ['2140', 'liability'], ['2150', 'liability'], ['2160', 'liability'], ['2175', 'liability']] as const) {
-    await c.query(
-      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
-       VALUES ($1, $2, $3, $4, $5, 1, $6, $7) ON CONFLICT DO NOTHING`,
-      [t.company, code, `FQc ${code}`, type, type === 'liability' ? 'credit' : 'debit', code === '1110' ? 'bank' : null, code === '1110']);
-  }
-  const comp = async (name: string, code: string) => String((await c.query(
-    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type) VALUES ($1, $2, $3, 'earning') RETURNING id`,
-    [t.company, name, code])).rows[0].id);
-  const salary = await comp('Basic Salary', '3601');
-  const extra = await comp('Overtime', '3602');
-  const employee = async (num: string, born: string, start: string, idNumber: string | null, weekly: number) => {
-    const id = String((await c.query(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number,
-         id_number, hours_per_week, medical_aid_main_member, pay_frequency)
-       VALUES ($1, $2, 'Wanda', $2, $3::date, $4::date, '0123456789', $5, 40, false, 'weekly') RETURNING id`,
-      [t.company, num, start, born, idNumber])).rows[0].id);
-    await c.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, $4::date)`,
-      [id, salary, weekly, start]);
-    return id;
-  };
-  // A valid SA ID matching the date of birth (ETI Act s6(b)); 24 in June 2026, employed since September 2025.
-  const young = await employee('FQC-YOUNG', '2002-05-20', '2025-09-01', '0205205009082', 1500);
-  const big = await employee('FQC-BIG', '1980-01-01', '2020-01-01', null, 6000);
-  return { young, big, salary, extra };
-}
-
-async function weeklyRun(c: PoolClient, t: Tenant, [start, end]: readonly [string, string], month = 6): Promise<string> {
-  return String((await c.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, pay_frequency, period_start, period_end)
-     VALUES ($1, $2, 2026, 'draft', 'weekly', $3::date, $4::date) RETURNING id`, [t.company, month, start, end])).rows[0].id);
-}
-
-async function approve(c: PoolClient, runId: string): Promise<void> {
-  // As approvePayrollRun leaves it: approved with its approval time (the year to date reads final runs).
-  await c.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = clock_timestamp() WHERE id = $1`, [runId]);
-}
-
-interface Line { gross: number; paye: number; uif: number; eti: number; codes: string[] }
-async function line(c: PoolClient, runId: string, employee: string): Promise<Line> {
-  const r = (await c.query(
-    `SELECT gross_pay::float8 AS gross, paye::float8 AS paye, uif_employee::float8 AS uif, eti::float8 AS eti,
-            ARRAY(SELECT v->>'code' FROM jsonb_array_elements(validation_results) v) AS codes
-       FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [runId, employee])).rows[0];
-  return r as Line;
-}
 
 beforeAll(async () => {
   A = await seedTenant(pool, 'W6 FQc A');
@@ -217,30 +164,30 @@ describe('what a weekly run refuses this wave (payrollFrequencyGuard)', () => {
   });
 });
 
-describe('the later-runs warning names runs, and the gate clears on them (review #1507 B2b)', () => {
-  it('week 2 recalculated after week 3 was approved: the warning names week 3\'s run, and approving week 2 is not refused for it', async () => {
+describe('the later-runs warning names runs, and the gate clears on them across months only (review #1507 B2b, #1575 H1)', () => {
+  it('June week 4 recalculated after July week 1 was approved: the warning names the July run, and the gate clears on it', async () => {
     const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
       const a = await seedWeekly(c, A);
       const ids: string[] = [];
-      for (const week of WEEKS.slice(0, 3)) {
-        const id = await weeklyRun(c, A, week);
+      for (const [week, month] of [...WEEKS.map((w) => [w, 6] as const), [['2026-06-27', '2026-07-03'] as const, 7] as const]) {
+        const id = await weeklyRun(c, A, week, month);
         await calculatePayrollRun(id, A.company);
         await approve(c, id);
         ids.push(id);
       }
-      // Week 2 reopened and recalculated while week 3 stays approved.
-      await c.query(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1`, [ids[1]]);
-      const before = (await judgeYearToDate(A.company, ids[1]!)).blocker?.code ?? null;
-      await calculatePayrollRun(ids[1]!, A.company);
+      // June week 4 reopened and recalculated while July week 1 stays approved.
+      await c.query(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1`, [ids[3]]);
+      const before = (await judgeYearToDate(A.company, ids[3]!)).blocker?.code ?? null;
+      await calculatePayrollRun(ids[3]!, A.company);
       const warning = (await c.query(
         `SELECT v FROM payroll_run_lines l, jsonb_array_elements(l.validation_results) v
-          WHERE l.run_id = $1 AND l.employee_id = $2 AND v->>'code' = 'PAYE_LATER_PERIODS_APPROVED'`, [ids[1], a.big])).rows[0]?.v;
-      const after = (await judgeYearToDate(A.company, ids[1]!)).blocker?.code ?? null;
+          WHERE l.run_id = $1 AND l.employee_id = $2 AND v->>'code' = 'PAYE_LATER_PERIODS_APPROVED'`, [ids[3], a.big])).rows[0]?.v;
+      const after = (await judgeYearToDate(A.company, ids[3]!)).blocker?.code ?? null;
       return { ids, before, warning, after };
     });
     expect(got.before).toBe('paye_year_to_date_stale');
-    expect(got.warning?.runs).toEqual([got.ids[2]]);
-    expect(got.warning?.periods).toEqual(['2026-06-13']);
+    expect(got.warning?.runs).toEqual([got.ids[4]]);
+    expect(got.warning?.periods).toEqual(['2026-06-27']);
     expect(got.after).toBeNull();
   });
 });

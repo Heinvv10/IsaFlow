@@ -5,7 +5,10 @@
  *    (uifEngine; UIC Act s6(1)(a)). Rebuilt from each line's breakdown as the calculator built it: the earnings flagged
  *    UIF-applicable, at their PAYE share where they carry one (payeIncludedAmount). A weekly or fortnightly line has no
  *    fringe benefit (refused, §0a.11), so every such share is stored;
- *  - ETI: their ETI parts (ETI_MONTH_PENDING), when this run closes the month (payrollLineEtiMonth).
+ *  - ETI: their ETI parts (ETI_MONTH_PENDING), when this run closes the month for the employee (payrollLineEtiMonth):
+ *    a REGULAR run whose next pay date falls in a later month, or the regular run whose period holds the employee's end
+ *    date (their last run of the month; review #1575 M3). An off-cycle run never closes the month: its line records
+ *    pending parts (review #1575 H2).
  * A monthly run gets no cadence: its lines are costed exactly as before.
  * NAMED LIMIT: an earning's type is read from today's payroll_components (as payrollYearToDate reads it); a component
  * deleted since counts nothing.
@@ -16,7 +19,9 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { runIsBeforeSql } from './payrollRunOrder';
 import { closesPayMonth, payDateOf } from './payFrequencyPeriods';
 import { addEtiMonthParts, ETI_MONTH_PENDING, NO_ETI_PARTS } from './payrollLineEtiMonth';
-import type { EtiMonthParts, LineCadence, PayFrequency, PayrollPeriod } from './payrollTypes';
+import type { FrequencyRun } from './payrollFrequencyGuard';
+import { isoOfDate } from './payFrequencyPeriods';
+import type { EtiMonthParts, LineCadence } from './payrollTypes';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -32,13 +37,21 @@ function partsOf(raw: unknown): EtiMonthParts | null {
 /** By employee id (every id given gets one); empty for a monthly run. */
 export async function loadLineCadences(
   companyId: string, runId: string,
-  run: { frequency: PayFrequency; period: PayrollPeriod; runDate: string | null },
-  employeeIds: string[],
+  run: FrequencyRun,
+  employees: Array<{ id: string; endDate?: Date | null }>,
 ): Promise<Map<string, LineCadence>> {
   const { frequency, period } = run;
+  const employeeIds = employees.map((e) => e.id);
   if (frequency === 'monthly' || !period.start || !period.end || employeeIds.length === 0) return new Map();
   const payDate = payDateOf(period, run.runDate) ?? period.end;
-  const closes = closesPayMonth(frequency, payDate);
+  const regular = (run.runKind ?? 'regular') === 'regular';
+  const closes = regular && closesPayMonth(frequency, payDate);
+  // The employee's last run of the month: the regular run whose period holds their end date (M3).
+  const leaves = (endDate?: Date | null) => {
+    if (!regular || !endDate) return false;
+    const end = isoOfDate(endDate);
+    return end >= period.start! && end <= period.end!;
+  };
   const rows = (await sql`
     SELECT l.employee_id::text AS employee_id,
            COALESCE(SUM(u.base), 0)::float8 AS uif_base,
@@ -67,14 +80,14 @@ export async function loadLineCadences(
      GROUP BY l.employee_id
   `) as DbRow[];
   const earlier = new Map(rows.map((r) => [String(r.employee_id), r]));
-  return new Map(employeeIds.map((id) => {
+  return new Map(employees.map(({ id, endDate }) => {
     const r = earlier.get(id);
     const parts = ((r?.eti_parts ?? []) as unknown[]).map(partsOf);
     const cadence: LineCadence = {
       frequency, periodStart: period.start!, periodEnd: period.end!,
       uifMonthToDate: round2(Number(r?.uif_base ?? 0)),
       // A part that cannot be read makes the month's hours unknown (never a full month): no ETI is claimed on guesses.
-      etiMonthToDate: closes
+      etiMonthToDate: closes || leaves(endDate)
         ? parts.reduce<EtiMonthParts>((t, p) => addEtiMonthParts(t, p ?? { ...NO_ETI_PARTS, ordinaryHours: null }), NO_ETI_PARTS)
         : null,
     };

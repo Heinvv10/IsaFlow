@@ -26,8 +26,8 @@ import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { withEtiPriorMonths } from './etiPriorEmployment';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { dateColumnOf, payFrequencyOf, runPeriodOf } from './payrollFrequency';
-import { assertFrequencyCostable } from './payrollFrequencyGuard';
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
+import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
 import { loadLineCadences } from './payrollRunCadence';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
@@ -70,11 +70,9 @@ export async function calculatePayrollRun(
   // Wave 6 FQa: a run, employee or assignment this release cannot cost is refused here, before the first write
   // (listSeveranceOnlyRunEmployees below frees reversed payments; applyRunLoans commits loan deductions).
   await assertRunKindSupported(companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
-  const runDate = dateColumnOf(run.run_date);
   // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
-  if (payFrequency !== 'unsupported') {
-    await assertFrequencyCostable(companyId, { frequency: payFrequency, period, runDate }, employees.map((e) => e.id));
-  }
+  const frequencyRun = frequencyRunOf(run);
+  if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -99,8 +97,8 @@ export async function calculatePayrollRun(
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
   const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
   // A weekly or fortnightly line's UIF and ETI month to date (payrollRunCadence); none for a monthly run.
-  const cadences = payFrequency === 'unsupported' ? new Map<string, LineCadence>()
-    : await loadLineCadences(companyId, runId, { frequency: payFrequency, period, runDate }, population.map(p => p.employee.id));
+  const cadences = !frequencyRun ? new Map<string, LineCadence>()
+    : await loadLineCadences(companyId, runId, frequencyRun, population.map(p => p.employee));
   // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
   const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 

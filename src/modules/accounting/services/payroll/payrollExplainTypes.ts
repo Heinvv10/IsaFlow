@@ -73,6 +73,11 @@ export interface LineExplanations {
   uif: FigureExplanation;
   sdl: FigureExplanation;
   eti: FigureExplanation;
+  /**
+   * A weekly or fortnightly line's share of its period worked, as it was costed (wave 6 FQc, review #1575 M2): the year to
+   * date counts this, not a share re-read from the employee's dates as they stand. Absent on a monthly line (always 1).
+   */
+  periodShare?: number;
 }
 
 /** "2026/27" for tax year 2027 (1 March 2026 to 28 February 2027). */

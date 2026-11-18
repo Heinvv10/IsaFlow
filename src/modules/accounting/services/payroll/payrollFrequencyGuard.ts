@@ -1,9 +1,11 @@
 /**
  * What a weekly or fortnightly run refuses this wave (wave 6 FQc), judged at calculate before any write (and, for the
  * terms, where they are assigned: assertFrequencyTermsAssignable).
- *  - Fringe benefits (a vehicle or travel benefit, a 3810 medical contribution, a percent-of-RFI fund row), loans
- *    (3801) and regular-pay directives (IRP3(b)/(c)) on a weekly or fortnightly employee: §0a.11 (Hein 2026-11-16),
- *    support in wave 7. 400, naming the employees.
+ *  - Fringe benefits (a vehicle or travel benefit, any 38xx component and 3701, a percent-of-RFI fund row), loans (3801)
+ *    and regular-pay directives (IRP3(b)/(c), in force in the run's window) on a weekly or fortnightly employee: §0a.11
+ *    (Hein 2026-11-16), support in wave 7. 400, naming the employees.
+ *  - An off-cycle run at a weekly or fortnightly frequency: off-cycle runs are monthly only (coordinator ruling, review
+ *    #1575 M1; OC). 400. payrollRunOrder's key relies on it: a monthly off-cycle run never sits among a month's weeks.
  *  - A run whose EMP201 month is not its pay date's month: employees' tax is declared for the month it is deducted in
  *    (Fourth Schedule para 2(1)); the run's period_year/month must be its pay date's. 409.
  *  - An employee whose tax year already has a final line at another frequency: n and F would mix two frequencies, so
@@ -13,13 +15,15 @@
  * `status`, code PAY_FREQUENCY_REFUSED; MCP: payrollRefusalCodes), before any write.
  */
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import type { RunKindReason } from './payrollRunKindGuard';
 import { emp201MonthOf, payDateOf } from './payFrequencyPeriods';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { getTaxYear } from './taxTables';
 import type { PayFrequency, PayrollPeriod } from './payrollTypes';
+import { dateColumnOf, payFrequencyOf, runPeriodOf } from './payrollFrequency';
 
 export class PayFrequencyRefusedError extends Error {
   readonly code = 'PAY_FREQUENCY_REFUSED';
@@ -55,13 +59,14 @@ async function unsupportedTerms(companyId: string, employeeIds: string[], from: 
            JOIN payroll_components pc ON pc.id = c.component_id AND pc.company_id = ${companyId}::uuid
           WHERE c.employee_id = p.id AND c.superseded_at IS NULL
             AND c.effective_from <= ${to}::date AND (c.effective_to IS NULL OR c.effective_to >= ${from}::date)
-            AND (c.percent_of_rfi IS NOT NULL OR regexp_replace(pc.sars_source_code, '\\s', '', 'g') IN ('3810', '3801')))
+            AND (c.percent_of_rfi IS NOT NULL OR regexp_replace(pc.sars_source_code, '\\s', '', 'g') ~ '^(38[0-9]{2}|3701)$'))
       ) AS fringe,
       (SELECT array_agg(DISTINCT p.employee_number) FROM people p JOIN payroll_loans pl
           ON pl.employee_id = p.id AND pl.company_id = ${companyId}::uuid AND pl.status = 'active') AS loans,
       (SELECT array_agg(DISTINCT p.employee_number) FROM people p JOIN tax_directives d
           ON d.employee_id = p.id AND d.company_id = ${companyId}::uuid AND d.status = 'approved'
-         AND d.directive_type IN ('fixed_percentage', 'fixed_amount') AND d.effective_date <= ${to}::date) AS directives
+         AND d.directive_type IN ('fixed_percentage', 'fixed_amount') AND d.effective_date <= ${to}::date
+         AND (d.expiry_date IS NULL OR d.expiry_date >= ${from}::date)) AS directives
   `) as DbRow[];
   return rows[0] ?? {};
 }
@@ -71,19 +76,33 @@ function termsReasons(row: DbRow, frequency: string): RunKindReason[] {
   const say = (what: string, v: unknown) => {
     if (names(v)) reasons.push({ clause: 'frequency_terms', detail: `employees ${names(v)} have ${what}, which a ${frequency} run cannot cost yet (support comes in a later release)` });
   };
-  say('a fringe benefit (a vehicle or travel benefit, a 3810 medical contribution or a percent-of-RFI fund row)', row.fringe);
+  say('a fringe benefit (a vehicle or travel benefit, a 38xx or 3701 component, or a percent-of-RFI fund row)', row.fringe);
   say('an active loan', row.loans);
   say('a regular-pay tax directive (IRP3(b) or IRP3(c))', row.directives);
   return reasons;
 }
 
+/** What the guard reads of a run. `runKind` absent: regular. */
+export interface FrequencyRun { frequency: PayFrequency; period: PayrollPeriod; runDate: string | null; runKind?: string }
+
+/** A payroll_run_headers row (SELECT * shape) as the guard reads it: the one mapping calculate and its MCP dry run share. */
+export function frequencyRunOf(row: Record<string, unknown>): FrequencyRun | null {
+  const frequency = payFrequencyOf(row.pay_frequency);
+  if (frequency === 'unsupported') return null;
+  return { frequency, period: runPeriodOf(row), runDate: dateColumnOf(row.run_date), runKind: String(row.run_kind ?? 'regular') };
+}
+
 /** At calculate, before any write. `employeeIds`: the run's population. */
 export async function assertFrequencyCostable(
   companyId: string,
-  run: { frequency: PayFrequency; period: PayrollPeriod; runDate: string | null },
+  run: FrequencyRun,
   employeeIds: string[],
 ): Promise<void> {
   const { frequency, period } = run;
+  if (frequency !== 'monthly' && run.runKind === 'off_cycle') {
+    throw new PayFrequencyRefusedError(400, [{ clause: 'frequency_terms', detail: `it is an off-cycle run at a ${frequency} frequency: `
+      + 'bonus and termination runs are monthly only' }]);
+  }
   if (frequency !== 'monthly' && period.start && period.end) {
     const payDate = payDateOf(period, run.runDate) ?? period.end;
     const due = emp201MonthOf(payDate);
@@ -117,8 +136,8 @@ export async function assertFrequencyCostable(
  * Where a weekly or fortnightly employee's terms are written (a loan, a fringe benefit, a component, a directive):
  * refused before the write when the employee is not monthly. No-op for a monthly employee.
  */
-export async function assertFrequencyTermsAssignable(companyId: string, employeeId: string, what: string): Promise<void> {
-  const rows = (await sql`
+export async function assertFrequencyTermsAssignable(companyId: string, employeeId: string, what: string, db: TxSql = sql): Promise<void> {
+  const rows = (await db`
     SELECT employee_number, pay_frequency FROM payroll_employees WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[];
   const e = rows[0];
@@ -137,16 +156,37 @@ export async function assertFrequencyChangeAllowed(companyId: string, employeeId
   await assertFrequencyCostable(companyId, { frequency: to, period: { year, month }, runDate: null }, [employeeId]);
 }
 
-/** A component assignment (assignComponentToEmployee): only a percent-of-RFI row, a 3810 or a 3801 is refused. */
+/** Fringe benefits (38xx) and the travel allowance (3701): costed on monthly rules only (review #1575 L1). */
+const FRINGE_CODE = /^(38\d{2}|3701)$/;
+
+/**
+ * A component assignment, by any writer (assignComponentToEmployee, applyPackageToEmployee, the batch post, the pay-run
+ * grid, the date edit; review #1575 M5): only a percent-of-RFI row, a 38xx or a 3701 is refused.
+ */
 export async function assertComponentAssignableAtFrequency(
-  companyId: string, employeeId: string, componentId: string, percentOfRfi: number | null,
+  companyId: string, employeeId: string, componentId: string, percentOfRfi: number | null, db: TxSql = sql,
 ): Promise<void> {
-  const rows = (await sql`
+  const rows = (await db`
     SELECT regexp_replace(sars_source_code, '\\s', '', 'g') AS code FROM payroll_components
      WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[];
   const code = String(rows[0]?.code ?? '');
-  if (percentOfRfi === null && code !== '3810' && code !== '3801') return;
+  if (percentOfRfi === null && !FRINGE_CODE.test(code)) return;
   await assertFrequencyTermsAssignable(companyId, employeeId, percentOfRfi !== null
-    ? 'a percent-of-RFI fund contribution' : code === '3810' ? 'a 3810 medical fringe benefit' : 'a 3801 loan benefit');
+    ? 'a percent-of-RFI fund contribution' : `a ${code} fringe benefit or allowance`, db);
+}
+
+/**
+ * assertComponentAssignableAtFrequency for the writers that answer EmployeeComponentRefused as a 400 (the package, batch
+ * and date-edit routes; the pay-run grid maps it to its own 400): the same refusal, in that class.
+ */
+export async function refuseComponentAtFrequency(
+  db: TxSql, companyId: string, employeeId: string, componentId: string, percentOfRfi: number | null,
+): Promise<void> {
+  try {
+    await assertComponentAssignableAtFrequency(companyId, employeeId, componentId, percentOfRfi, db);
+  } catch (err) {
+    if (isPayFrequencyRefused(err)) throw new EmployeeComponentRefused(err.message);
+    throw err;
+  }
 }

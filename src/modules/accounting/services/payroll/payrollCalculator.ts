@@ -206,7 +206,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.
   const explanations = explainPayrollLine({
-    taxYear, periodDate,
+    taxYear, periodDate, ...(cadence.frequency === 'monthly' ? {} : { periodShare: cadence.periodShare }), // FQc M2
     paye: {
       treatment: treatment.paye, classification, earningParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
       medicalFees: { total: medicalSchemeFees, employee: employeeMedicalFees, employer: employerMedicalFees },

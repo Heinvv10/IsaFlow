@@ -35,6 +35,7 @@ import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { refuseOnceOffInPaidMonth, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
 import type { PayrollPeriod } from './payrollTypes';
 import { legacyFlips, live, shiftDay, type Sibling } from './payrollComponentLegacySupersede';
+import { refuseComponentAtFrequency } from './payrollFrequencyGuard';
 import {
   assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidNote, paidPeriodChanged, paidPeriodsOf, paidRemedy, periodLabel, windowOf,
   type AssignmentWindow,
@@ -102,12 +103,18 @@ export async function changeAssignmentDates(
   return withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     const target = ((await tx`
-      SELECT pec.id, pec.employee_id, pec.component_id
+      SELECT pec.id, pec.employee_id, pec.component_id, pec.percent_of_rfi
       FROM payroll_employee_components pec
       JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
       WHERE pec.id = ${assignmentId}::uuid
     `) as DbRow[])[0];
     if (!target) return false;
+    // Wave 6 FQc (review #1575 M5): new dates on a row a weekly or fortnightly run cannot cost are refused too. Ending or
+    // cancelling one is not: that is how such a row is taken off the employee.
+    if (change.kind === 'edit') {
+      await refuseComponentAtFrequency(tx, companyId, String(target.employee_id), String(target.component_id),
+        target.percent_of_rfi == null ? null : Number(target.percent_of_rfi));
+    }
     const rows = (await tx`
       SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
              (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end

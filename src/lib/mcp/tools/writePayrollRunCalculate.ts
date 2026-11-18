@@ -2,6 +2,8 @@
  * MCP write tool calculate_pay_run (costing a pay run). Split out of writePayrollRun.ts (which re-exports it, and
  * whose header explains why costing is re-runnable and approving is not) to keep that file under the 300-line cap.
  */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import type { McpTool } from '../types';
 import {
   calculatePayrollRun,
@@ -22,7 +24,8 @@ import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
-import { assertFrequencyCostable, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
+import { assertFrequencyCostable, frequencyRunOf, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
+import { runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 /** The run, as every tool here reports it. */
@@ -82,13 +85,13 @@ export const calculatePayRunTool: McpTool = {
       // population (read-only).
       if (!refusal) {
         try {
-          const employees = await listPayrollRunEmployees(ctx.companyId, { year: run.periodYear, month: run.periodMonth }, run.payFrequency);
+          // The run's own period and frequency, read from its row as calculatePayrollRun reads it (wave 6 FQc, review #1575 L2).
+          const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${ctx.companyId}::uuid`) as DbRow[])[0] ?? {};
+          const employees = await listPayrollRunEmployees(ctx.companyId, runPeriodOf(row), run.payFrequency);
           await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
           // Wave 6 FQc: then the frequency guard, as the live call runs it (a mid-year frequency change refuses a monthly run too).
-          if (run.payFrequency !== 'unsupported') {
-            await assertFrequencyCostable(ctx.companyId, { frequency: run.payFrequency, period: { year: run.periodYear, month: run.periodMonth }, runDate: null },
-              employees.map((e) => e.id));
-          }
+          const frequencyRun = frequencyRunOf(row);
+          if (frequencyRun) await assertFrequencyCostable(ctx.companyId, frequencyRun, employees.map((e) => e.id));
         } catch (err) {
           if (isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
           throw err;

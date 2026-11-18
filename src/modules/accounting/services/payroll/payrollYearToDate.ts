@@ -92,7 +92,9 @@ export async function loadPayeYearToDate(
              -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
              NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables,
              -- The share of the period employed (FQc; payFrequencyPeriods.periodShareOf, four decimals truncated): 1 a month.
+             -- The share the line was costed with (stored, review #1575 M2); a line from before it, re-read from today's dates.
              CASE WHEN h.pay_frequency = 'monthly' OR h.period_start IS NULL OR h.period_end IS NULL THEN 1::numeric
+                  WHEN jsonb_typeof(l.explanation->'periodShare') = 'number' THEN (l.explanation->>'periodShare')::numeric
                   ELSE floor(GREATEST(0, LEAST(h.period_end, COALESCE(e.end_date, h.period_end)) - GREATEST(h.period_start, e.start_date) + 1)
                          * 10000.0 / (h.period_end - h.period_start + 1)) / 10000 END AS share
       FROM payroll_run_lines l

@@ -9,6 +9,9 @@
  *   3. the regular run before an off-cycle run   (a bonus or termination run supplements its period's regular run);
  *   4. created_at                                the run opened first comes first;
  *   5. id                                        a deterministic last resort only.
+ * ORDERING DEPENDENCY (review #1575 M1): an off-cycle run spans its calendar month (period_start the 1st), so key 1 puts it
+ * before every week of that month whatever its pay date. That is right only because off-cycle runs are monthly only:
+ * payrollFrequencyGuard refuses an off-cycle run at a weekly or fortnightly frequency. Lift that and this key must change.
  * For a monthly company with one run a month it orders exactly as (period_year, period_month) did. Wave 6 FQc moved the
  * year to date, the later-periods warning, the YTD gate and the payslip year to date onto this key together (spec F2):
  * "earlier" is runIsBeforeSql (the row key below that run's), never a month comparison.
