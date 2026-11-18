@@ -2,7 +2,11 @@
  * Garnishee orders on an employee (wave 6 GA): list, enter, end. The routes (pages/api/payroll/employees/[id]/
  * garnishee-orders*) admit payroll-detail roles (owner, admin, manager), a person's own session, never Login-as.
  *
- * Every refusal is judged before the first write (spec rule 12). Entering a company's first order creates its garnishee
+ * Every refusal is judged before the first write (spec rule 12). Create and end take the company's payroll approval
+ * lock first (rev #1574 security delta L1), as calculate, approve and reopen do: an order committed while a run is
+ * being calculated would otherwise carry a created_at before that run's calculated_at and slip past the stale-order
+ * refusal at approval. Lock order: payroll approval lock, then the role-write lock (a first order's payable), then the
+ * order row. No payroll path takes the role-write lock, and no role-write path takes the approval lock: no cycle. Entering a company's first order creates its garnishee
  * payable account in the same transaction, under the company's role-write lock (payrollGarnisheeAccount, F13). An
  * order's facts never change once entered (the 999z trigger); a wrong order is ended and entered again. Its balance
  * moves only when a run that deducted from it is approved or reopened (payrollGarnisheeRun).
@@ -11,6 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { ensureGarnisheePayable } from './payrollGarnisheeAccount';
+import { lockCompanyPayrollApprovals } from './payrollRunLock';
 import { GARNISHEE_KINDS, GarnisheeOrderRefusal, type GarnisheeKind } from './payrollGarnishee';
 
 export { GarnisheeOrderRefusal };
@@ -118,6 +123,8 @@ export async function createGarnisheeOrder(
   if (!(await employeeIsThisCompanys(companyId, employeeId))) {
     throw new GarnisheeOrderRefusal(404, 'EMPLOYEE_NOT_FOUND', 'Employee not found.');
   }
+  // Waits (at most 5s, then 503 retry) for an in-flight calculation, approval or reopen of this company's payroll.
+  await lockCompanyPayrollApprovals(null, companyId);
   // First write: the payable (created only for the company's first order), then the order, in one transaction.
   const payable = await ensureGarnisheePayable(companyId);
   const rows = (await sql`
@@ -155,6 +162,7 @@ export async function endGarnisheeOrder(
   const reason = input.reason.trim();
   if (reason.length < 5 || reason.length > 500) throw new GarnisheeOrderRefusal(400, 'INVALID_REASON', 'Say why the order ends (5 to 500 characters).');
   if (!isRealDate(input.endDate)) throw new GarnisheeOrderRefusal(400, 'INVALID_ORDER', 'The end date must be a real date, YYYY-MM-DD.');
+  await lockCompanyPayrollApprovals(null, companyId); // as createGarnisheeOrder: before the order row
   const found = (await sql`
     SELECT status, start_date FROM payroll_garnishee_orders
      WHERE id = ${orderId}::uuid AND company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid

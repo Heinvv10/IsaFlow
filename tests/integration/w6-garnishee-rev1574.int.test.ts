@@ -4,12 +4,15 @@
  *  - B1 / B1b (H1/H2): an end date is the order's last day: a future end date keeps deducting, and reopening the
  *    order's last month keeps its instalment;
  *  - B2: an order entered after the run was calculated refuses approval (recalculate), and a recalculation clears it;
- *  - B3: an order ended after calculation, with an end date before the run's period, refuses approval the same way.
+ *  - B3: an order ended after calculation, with an end date before the run's period, refuses approval the same way;
+ *  - B4 (security delta L1): entering an order waits for the company's payroll approval lock, which calculate,
+ *    approve and reopen hold, so an order can never be committed in the middle of a calculation.
  * Disposable DB only (rig -> assertDisposable).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import orders from '../../pages/api/payroll/employees/[id]/garnishee-orders/index';
 import endOrder from '../../pages/api/payroll/employees/[id]/garnishee-orders/[orderId]';
+import { payrollApprovalLockScope } from '../../src/modules/accounting/services/payroll/payrollRunLock';
 import { rig, type Res, type Route } from './brkr.helpers';
 
 type R = Awaited<ReturnType<typeof rig>>;
@@ -81,7 +84,7 @@ describe('rev-1574 breaker', () => {
     expect(await mine()).toEqual([{ amount: 700 }]);
   });
 
-  it('B2: an order entered after the run was calculated is approved past, with no refusal and no deduction', async () => {
+  it('B2: an order entered after the run was calculated refuses approval (recalculate); a recalculation then takes it', async () => {
     const emp3 = (await a.employee(20000)).employee;
     const run6 = await a.calculatedRun(6);
     const made = await post(emp3, {
@@ -89,7 +92,7 @@ describe('rev-1574 breaker', () => {
       startDate: '2026-06-01', endDate: null, priority: 10,
     });
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
-    // An assignment change after calculation refuses approval (components_changed_after_calculation); an order does not.
+    // Like an assignment change after calculation (components_changed_after_calculation), the new order refuses approval.
     const before = await a.header(run6);
     const ap = await a.api.approve(run6);
     expect(ap.statusCode, 'approval should refuse: an order for June was entered after June was costed').toBe(400);
@@ -125,5 +128,28 @@ describe('rev-1574 breaker', () => {
     const again = await a.api.approve(run7);
     expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
     expect(await mine()).toEqual([]);
+  });
+
+  it('B4: entering an order waits while another transaction holds the company\'s payroll approval lock', async () => {
+    const emp5 = (await a.employee(20000)).employee;
+    const holder = await a.pool.connect();
+    let settled = false;
+    let made: Promise<Res> | null = null;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [payrollApprovalLockScope(a.company)]);
+      made = post(emp5, {
+        kind: 'maintenance', reference: 'MC 13/2026', creditorName: 'Lock creditor', instalment: 300, totalDebt: null,
+        startDate: '2026-01-01', endDate: null, priority: 10,
+      }).finally(() => { settled = true; });
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(settled, 'the order was written while a calculation held the lock').toBe(false);
+      expect((await a.pool.query('SELECT 1 FROM payroll_garnishee_orders WHERE employee_id = $1', [emp5])).rows).toEqual([]);
+    } finally {
+      await holder.query('COMMIT').catch(() => undefined);
+      holder.release();
+    }
+    const res = await made!;
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(201);
   });
 });

@@ -7,6 +7,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -29,7 +30,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     return apiResponse.success(res, await endGarnisheeOrder(companyId, id, orderId, parsed.data, actor));
   } catch (err) {
-    if (respondIfGarnisheeRefused(res, err)) return;
+    if (respondIfLockTimeout(res, err) || respondIfGarnisheeRefused(res, err)) return;
     throw err;
   }
 }
