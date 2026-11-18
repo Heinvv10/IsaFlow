@@ -9,7 +9,8 @@
  * refresh can land between two reads, so the figures that must agree are compared with expect.poll).
  *  - the card's balance is the labelled ledger ("Ledger R…"), with no glyph-only number (no check mark or delta sign);
  *  - the page has no "GL Balance" label (the old widget's name for a figure that was not the ledger);
- *  - the statement panel's balance row is a money figure or says why there is none, never a bare "—";
+ *  - the statement panel (behind the summary line's "Details", WP4b) has a balance row that is a money figure or says why
+ *    there is none, never a bare "—";
  *  - Allocated + Suggested + Unallocated + Excluded equals the strip's data-posted-lines;
  *  - when an account has provisional lines, "incl. n provisional" opens the Provisional tab.
  * Every optional element is guarded with count() (instant), never with an auto-waiting read, so an absent element
@@ -63,7 +64,11 @@ test('bank transactions: labelled ledger, honest statement panel, tiles that sum
     expect((await card.textContent()) ?? '').not.toMatch(/[✓Δ]/);
   }
 
-  // The statement panel: a figure, or the reason there is none, or "no statement yet" — never a bare dash.
+  // The statement panel: a figure, or the reason there is none, or "no statement yet" — never a bare dash. It is folded
+  // behind the summary line's "Details" (WP4b).
+  const details = strip.getByRole('button', { name: 'Details', exact: true });
+  await details.click();
+  await expect(details).toHaveAttribute('aria-expanded', 'true');
   const panel = page.getByTestId('bank-statement-panel');
   await expect(panel).toBeVisible();
   const closing = panel.getByTestId('statement-closing');
@@ -76,7 +81,7 @@ test('bank transactions: labelled ledger, honest statement panel, tiles that sum
   await expect(panel.getByText('—', { exact: true })).toHaveCount(0);
 
   // The tiles sum to the posted lines. Polled: a summary refresh can land between the reads.
-  const value = async (id: string) => Number(await page.getByTestId(id).locator('p').first().textContent());
+  const value = async (id: string) => Number(await page.getByTestId(id).getAttribute('data-count'));
   await expect.poll(async () => {
     const sum = (await value('tile-allocated')) + (await value('tile-suggested')) + (await value('tile-unallocated')) + (await value('tile-excluded'));
     return sum - Number(await strip.getAttribute('data-posted-lines'));
@@ -86,6 +91,8 @@ test('bank transactions: labelled ledger, honest statement panel, tiles that sum
   const provisional = page.getByTestId('tile-provisional-link');
   if (await provisional.count() > 0) {
     await provisional.click();
-    await expect(page.getByTestId('bank-tx-tab-provisional')).toHaveAttribute('aria-current', 'page');
+    // The tabs are role="tab": the open one is aria-selected (this read aria-current, which a tab never carries, and
+    // failed wherever the account had provisional lines).
+    await expect(page.getByTestId('bank-tx-tab-provisional')).toHaveAttribute('aria-selected', 'true');
   }
 });

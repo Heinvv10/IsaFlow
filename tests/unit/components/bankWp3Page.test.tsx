@@ -4,7 +4,7 @@
  * selection, "N filters active - Clear" names what narrows the list (and so does the empty state), and the AI poll
  * reloads silently (no skeleton) and with the latest loader.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
@@ -34,6 +34,7 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import BankTransactionsPage from '../../../pages/accounting/bank-transactions/index';
+import { BankTxSelectionBar } from '@/components/accounting/bank-transactions/BankTxSelectionBar';
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 const row = (id: string) => ({ id, description: id, amount: -10, transactionDate: '2026-06-01', status: 'imported' });
@@ -44,7 +45,7 @@ const call = (obj: Record<string, unknown>, name: string, ...args: unknown[]) =>
 const selectedProp = () => [...(cap.table.selectedIds as Set<string>)].sort();
 /** The list frame's busy mark: set while the SAME list reloads (its rows stay mounted), clear once the latest load ends. */
 const frameBusy = () => screen.getByTestId('bank-tx-list-frame').getAttribute('aria-busy');
-const bar = () => screen.getByTestId('bank-tx-selected-count').textContent;
+const bar = () => screen.getByTestId('bank-tx-selection-live').textContent;
 
 let list: (url: string) => Response | Promise<Response>;
 beforeEach(() => {
@@ -62,7 +63,7 @@ afterEach(cleanup);
 
 async function loaded() {
   render(<BankTransactionsPage />);
-  await screen.findByTestId('bank-tx-selection-bar');
+  await screen.findByTestId('bank-tx-selection-live');
   await waitFor(() => expect((cap.table.transactions as unknown[] | undefined)?.length).toBe(3));
 }
 
@@ -109,7 +110,8 @@ describe('selection', () => {
   it('Clear selection empties it', async () => {
     await loaded();
     await call(cap.table, 'onToggleSelect', 'p1a');
-    fireEvent.click(screen.getByTestId('bank-tx-selection-clear'));
+    // Clear selection is on the toolbar's contextual selection bar (WP4b).
+    await call(cap.filters, 'onClearSelection');
     expect(bar()).toBe('0 selected');
   });
 });
@@ -243,24 +245,32 @@ describe('overlapping loads: the LATEST load ends the skeleton, silent or not', 
     await act(async () => { pendingVisible.forEach(r => r()); }); // the stale visible one resolving changes nothing
     expect(await screen.findByText(/tick failed|Could not load transactions/)).toBeTruthy();
     expect(frameBusy()).toBeNull();
-    expect(screen.getByTestId('bank-tx-selected-count').textContent).toBe('0 selected'); // and no stale rows left to tick
+    expect(screen.getByTestId('bank-tx-selection-live').textContent).toBe('0 selected'); // and no stale rows left to tick
   });
 });
 
-describe('the review bar waits for the other bulk operations', () => {
-  it('while a bulk Delete runs, "Mark Selected as Reviewed" is disabled and aria-busy', async () => {
+describe('Mark as Reviewed waits for the other bulk operations', () => {
+  it('there is no floating "Mark Selected as Reviewed" over the rows (WP4b): it is on the selection bar', async () => {
+    await loaded();
+    await call(cap.table, 'onToggleSelect', 'p1a');
+    expect(screen.queryByRole('button', { name: /Mark Selected as Reviewed/ })).toBeNull();
+    expect(cap.filters.onBulkAccept).toBeTypeOf('function');
+  });
+
+  it('while a bulk Delete runs, the selection bar\'s Mark as Reviewed is disabled', async () => {
     vi.stubGlobal('confirm', () => true);
     await loaded();
     await call(cap.table, 'onToggleSelect', 'p1a');
-    const reviewBtn = () => screen.getByRole('button', { name: /Mark Selected as Reviewed/ }) as HTMLButtonElement;
-    expect(reviewBtn().disabled).toBe(false);
     let release!: () => void;
     const prev = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation(async (u, i) => String(u).includes('bank-transactions-action')
       ? new Promise<Response>(r => { release = () => r(ok({ deleted: 1 })); }) : prev(u, i));
     await act(async () => { void (cap.filters.onBatchDelete as () => void)(); });
-    await waitFor(() => expect(reviewBtn().disabled).toBe(true));
-    expect(reviewBtn().getAttribute('aria-busy')).toBe('true');
+    await waitFor(() => expect((cap.filters.busy as ReadonlySet<string>).has('delete')).toBe(true));
+    const fn = vi.fn();
+    const bar = render(<BankTxSelectionBar count={1} showActions busy={cap.filters.busy as ReadonlySet<string>}
+      onBulkAccept={fn} onBatchAccept={fn} onBatchDelete={fn} onToggleBatchEdit={fn} onClear={fn} />);
+    expect(within(bar.container).getByRole('button', { name: 'Mark as Reviewed' })).toBeDisabled();
     await act(async () => { release(); });
   });
 });

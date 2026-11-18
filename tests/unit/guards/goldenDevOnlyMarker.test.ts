@@ -69,6 +69,7 @@ describe('golden dev-only marker', () => {
       'z11-kit-select', 'z12-bank-tx-selects', 'z13-invoice-preview-unsaved', 'z15-density', 'z16-return-lifecycle', 'z17-return-drill', 'z19-native-selects',
       'z18-explain', 'z20-budgets-three-way', 'z20-comments', 'z21-ask', 'z29-pre-validation',
       'z28-late-claims', 'z26-salary-bank-file', 'z24-payslip-email', 'z31-bank-tx-modal-a11y', 'z27-filing-files',
+      'z32-bank-tx-layout',
     ].sort());
   });
 });
