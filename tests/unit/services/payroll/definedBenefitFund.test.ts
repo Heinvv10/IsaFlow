@@ -123,6 +123,17 @@ describe('X = A x B - C [Seventh Schedule para 12D(3), via Sage Pocket Guide 202
     expect(warnings[0]!.message).toMatch(/reported as 4585/);
   });
 
+  it('para 12D(6) with a 4001 on the line: a warning naming BRS p.54 "4001 must be zero" (UNVERIFIED); never an error, so calculate goes on', () => {
+    const warnings: ValidationResult[] = [];
+    const out = costDefinedBenefitFund([salary(20_000), ee('4001', 1_500), db('3817', 0.12, 2_000, { dbMemberRetired: true })], warnings);
+    expect(out[2]).toMatchObject({ amount: 0, dbEmployerContribution: 2_000 });
+    expect(warnings.map((w) => [w.code, w.severity])).toEqual([['DB_FUND_MEMBER_RETIRED', 'warning'], ['DB_FUND_RETIRED_MEMBER_4001', 'warning']]);
+    expect(warnings[1]!.message).toMatch(/BRS p\.54: "4001 must be zero" when 4585 is above nil and 4472 is nil.*UNVERIFIED/);
+    const provident: ValidationResult[] = [];
+    costDefinedBenefitFund([salary(20_000), ee('4001', 900), db('3825', 0.12, 2_000, { dbMemberRetired: true })], provident);
+    expect(provident.map((w) => w.code)).toEqual(['DB_FUND_MEMBER_RETIRED']); // a 4001 is not the provident fund's 4003
+  });
+
   it('an active member paid a 3610 annuity on the same line is valued as usual (no pension-code proxy)', () => {
     const warnings: ValidationResult[] = [];
     const out = costDefinedBenefitFund([salary(20_000), { component: comp('3610'), amount: 3_000 }, own('4001', 1_500), db('3817', 0.4)], warnings);

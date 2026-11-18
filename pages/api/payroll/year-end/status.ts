@@ -27,6 +27,7 @@ import {
   validateEmployeeIrp5,
   type ComponentConfig,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { listRetiredMemberWith4001, retiredMember4001Message } from '@/modules/accounting/services/payroll/definedBenefitReadiness';
 import { countSeverity, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
 
 export type { YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusTypes';
@@ -45,6 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows } =
     await readYearEndStatusRows(companyId, taxYear);
 
+  const retired4001 = await listRetiredMemberWith4001(companyId, bounds);
   const employeesWithSeveranceDirective = new Set(
     directiveRows.map((r) => String(r.employee_id)),
   );
@@ -106,6 +108,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       componentCodes: codesByEmployee.get(String(emp.id)) ?? [],
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
     }, taxYear);
+    // DBF: a para 12D(6) member with 4001 / 4003 (BRS p. 54) cannot be certified (definedBenefitReadiness).
+    if (retired4001.has(String(emp.id))) msgs.push(retiredMember4001Message(`${String(emp.first_name)} ${String(emp.last_name)}`.trim()));
     readinessErrors += countSeverity(msgs, 'error');
     readinessWarnings += countSeverity(msgs, 'warning');
     if (totalGross > 0 && countSeverity(msgs, 'error') === 0 && countSeverity(msgs, 'warning') === 0) {

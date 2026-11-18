@@ -106,12 +106,20 @@ export function costDefinedBenefitFund(components: readonly EmployeeComponent[],
       return { ...c, amount: 0 };
     }
     const paid = round2(c.amount);
+    const ownRows = components.filter((d) => d.component.componentType === 'deduction' && normaliseSarsCode(d.component.sarsSourceCode) === own);
     if (c.dbMemberRetired === true) {
       warnings.push({ code: 'DB_FUND_MEMBER_RETIRED', severity: 'warning',
         message: `${c.component.name}: a retired member, or a deceased member's dependant or nominee (para 12D(6)): no taxable value. The employer's ${formatMoney(paid)} is reported as ${own === '4001' ? '4585' : '4586'}.` });
+      // BRS V25.3.0 p. 54: with 4585 above nil and 4472 nil, 4001 must be zero (4586 / 4473 / 4003 alike). Calculate goes on;
+      // the IRP5 readiness check refuses the certificate (definedBenefitReadiness). UNVERIFIED.
+      if (ownRows.some((d) => d.amount > 0)) {
+        warnings.push({ code: 'DB_FUND_RETIRED_MEMBER_4001', severity: 'warning',
+          message: `${c.component.name}: a para 12D(6) member also has ${own} contributions on this line. BRS p.54: "${own} must be zero" when `
+            + `${own === '4001' ? '4585' : '4586'} is above nil and ${own === '4001' ? '4472' : '4473'} is nil, so the year's IRP5 will not be ready. `
+            + `End the ${own} assignment, or clear the retired flag. UNVERIFIED.` });
+      }
       return { ...c, dbMemberCategoryFactor: factor, amount: 0, dbEmployerContribution: paid, dbMemberRetired: true };
     }
-    const ownRows = components.filter((d) => d.component.componentType === 'deduction' && normaliseSarsCode(d.component.sarsSourceCode) === own);
     const marked = ownRows.filter((d) => d.dbFundMemberContribution === true);
     if (marked.length === 0 && ownRows.some((d) => d.amount > 0)) {
       warnings.push({ code: 'DB_FUND_MEMBER_CONTRIBUTION_UNMARKED', severity: 'error',

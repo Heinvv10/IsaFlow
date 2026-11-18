@@ -16,6 +16,8 @@ import assignments from '../../pages/api/payroll/employees/[id]/components';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
+import irp5Summary from '../../pages/api/payroll/irp5/summary';
+import yearEndStatus from '../../pages/api/payroll/year-end/status';
 import { assignEmployeeComponentTool } from '../../src/lib/mcp/tools/writeEmployees';
 import { employerFundContributionFields } from '../../src/modules/accounting/services/payroll/easyFileRetirementFields';
 import { getIrp5EmployeeTotals } from '../../src/modules/accounting/services/payroll/irp5DataService';
@@ -28,11 +30,13 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const A = crypto.randomUUID();
 const B = crypto.randomUUID();
+const C = crypto.randomUUID(); // a para 12D(6) member with a 4001 (BRS p. 54 readiness)
 const owner = crypto.randomUUID();
 const approver = crypto.randomUUID();
 const tokens: Record<string, string> = {};
 const call = routeCaller(tokens, { user: owner, company: A });
 const callB = routeCaller(tokens, { user: owner, company: B });
+const callC = routeCaller(tokens, { user: owner, company: C });
 const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 const emp: Record<string, string> = {};
@@ -63,28 +67,28 @@ const lineOf = async (runId: string) => (await pool.query<Line>(
      FROM payroll_run_lines WHERE run_id = $1`, [runId])).rows[0]!;
 
 beforeAll(async () => {
-  for (const [co, name, salary] of [[A, 'DBF A', 20_000], [B, 'DBF B', 200_000]] as const) {
+  for (const [co, name, salary] of [[A, 'DBF A', 20_000], [B, 'DBF B', 200_000], [C, 'DBF C', 20_000]] as const) {
     await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, name]);
     await seedPayrollCompany(pool, co, salary);
     // The fund's RFI is the basic salary (migration 975's rule for a 3601; the seed writes the component after 975 ran).
     await pool.query("UPDATE payroll_components SET counts_as_rfi = true WHERE company_id = $1 AND sars_source_code = '3601'", [co]);
     emp[co] = (await pool.query<{ id: string }>('SELECT id FROM payroll_employees WHERE company_id = $1', [co])).rows[0]!.id;
   }
-  for (const co of [A, B]) {
+  for (const co of [A, B, C]) {
     await pool.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
       VALUES ($1, '2175', 'Other Employee Deductions Payable', 'liability', 'credit', 1)`, [co]);
   }
   for (const u of [owner, approver]) {
     await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [u, `${u}@example.invalid`]);
     tokens[u] = await sign(u);
-    for (const co of [A, B]) await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [co, u]);
+    for (const co of [A, B, C]) await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [co, u]);
   }
 });
 
 afterAll(async () => {
   try {
-    await pool.query("DELETE FROM audit_log WHERE company_id = ANY($1) AND entity_type IN ('payroll_component', 'payroll_employee_component')", [[A, B]]);
-    await cleanPayrollCompanies(pool, [A, B]);
+    await pool.query("DELETE FROM audit_log WHERE company_id = ANY($1) AND entity_type IN ('payroll_component', 'payroll_employee_component')", [[A, B, C]]);
+    await cleanPayrollCompanies(pool, [A, B, C]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [[owner, approver]]);
   } finally { await pool.end(); }
 });
@@ -244,5 +248,35 @@ describe('the approval gate and the run grid', () => {
     const before = await assignmentRows(A);
     await expect(w(null)).rejects.toMatchObject({ status: 400 });
     expect(await assignmentRows(A)).toBe(before);
+  });
+});
+
+describe('para 12D(6) member with a 4001: warned at calculate, refused at IRP5 readiness by name (BRS p. 54)', () => {
+  it('C, October: the retired row has no value and reports 4585; the line warns DB_FUND_RETIRED_MEMBER_4001; calculate is not refused', async () => {
+    const dbC = String((await create(C, { name: 'Employer DB pension', sarsSourceCode: '3817', componentType: 'earning', fundType: 'defined_benefit' })).body.data!.id);
+    const penC = String((await create(C, { name: 'Pension', sarsSourceCode: '4001', componentType: 'deduction' })).body.data!.id);
+    expect((await assign(C, { componentId: dbC, amount: 2000, dbMemberCategoryFactor: 0.12, dbMemberRetired: true })).statusCode).toBe(201);
+    expect((await assign(C, { componentId: penC, amount: 1500 })).statusCode).toBe(201);
+    const runC = await calculatedRun(callC, 10, { company: C });
+    const line = await lineOf(runC);
+    expect(line.component_breakdown.find((b) => b.sarsSourceCode === '3817')).toMatchObject({ amount: 0, dbEmployerContribution: 2000, dbMemberRetired: true });
+    expect(line.validation_results.map((v) => v.code)).toEqual(expect.arrayContaining(['DB_FUND_MEMBER_RETIRED', 'DB_FUND_RETIRED_MEMBER_4001']));
+    expect((await approveRun(callC, runC)).status).toBe(200);
+    const fringe = (await getIrp5EmployeeTotals(C, 2027, { employeeId: emp[C] })).rows[0]!.fringeBenefits;
+    expect(fringe).toEqual([{ sourceCode: '3817', amount: 0, employerPaid: 0, retiredMemberPaid: 2000 }]);
+  });
+
+  it('the IRP5 summary names the employee with IRP5_DB_RETIRED_MEMBER_4001 (error); the year-end status counts it; A has none', async () => {
+    const name = (await pool.query<{ n: string }>("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [emp[C]])).rows[0]!.n;
+    const sum = await callC(irp5Summary as Route, 'GET', '/api/payroll/irp5/summary', undefined, { company: C, query: { taxYear: '2027' } });
+    expect(sum.statusCode).toBe(200);
+    const row = (sum.body.data as { employees: Array<{ employeeId: string; status: string; messages: Array<{ code: string; severity: string; message: string }> }> })
+      .employees.find((e) => e.employeeId === emp[C])!;
+    const msg = row.messages.find((m) => m.code === 'IRP5_DB_RETIRED_MEMBER_4001');
+    expect([msg?.severity, msg?.message.startsWith(`${name}: a retired defined-benefit fund member`), msg?.message.includes('"4001 must be zero"')]).toEqual(['error', true, true]);
+    const status = await callC(yearEndStatus as Route, 'GET', '/api/payroll/year-end/status', undefined, { company: C, query: { taxYear: '2027' } });
+    expect((status.body.data as { readiness: { errors: number } }).readiness.errors).toBeGreaterThanOrEqual(1);
+    const sumA = await call(irp5Summary as Route, 'GET', '/api/payroll/irp5/summary', undefined, { company: A, query: { taxYear: '2027' } });
+    expect(JSON.stringify(sumA.body.data)).not.toContain('IRP5_DB_RETIRED_MEMBER_4001');
   });
 });

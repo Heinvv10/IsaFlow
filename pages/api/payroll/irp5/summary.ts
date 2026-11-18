@@ -28,6 +28,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import {
   listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import { listRetiredMemberWith4001, retiredMember4001Message } from '@/modules/accounting/services/payroll/definedBenefitReadiness';
 
 type Row = DbRow;
 
@@ -80,7 +81,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   // Employees, payroll aggregates, both component lookups, and severance-
   // directive presence all fan out in parallel.
-  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee, unflaggedFringe] = await Promise.all([
+  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee, unflaggedFringe, retired4001] = await Promise.all([
     sql`
       SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date
       FROM   payroll_employees
@@ -137,6 +138,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
     listRunNonCashBenefits(companyId, bounds),
     listRunUnflaggedFringe(companyId, bounds),
+    listRetiredMemberWith4001(companyId, bounds),
   ]);
 
   const employeesWithSeveranceDirective = new Set(
@@ -189,6 +191,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       messages.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross',
         message: unflaggedFringeWarning(`${String(emp.first_name)} ${String(emp.last_name)}`.trim(), inCash) });
     }
+    // DBF: a para 12D(6) member with 4001 / 4003 (BRS p. 54), refused by name.
+    if (retired4001.has(String(emp.id))) messages.push(retiredMember4001Message(`${String(emp.first_name)} ${String(emp.last_name)}`.trim()));
 
     return {
       employeeId: String(emp.id),

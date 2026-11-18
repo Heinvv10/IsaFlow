@@ -31,7 +31,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
         WHERE id = ${companyId}::uuid
       ` as Promise<DbRow[]>,
       sql`
-        SELECT id, id_number, tax_number
+        SELECT id, id_number, tax_number, first_name, last_name
         FROM   payroll_employees
         WHERE  company_id = ${companyId}::uuid
       ` as Promise<DbRow[]>,
