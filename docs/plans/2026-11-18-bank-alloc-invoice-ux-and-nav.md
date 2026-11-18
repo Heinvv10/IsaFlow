@@ -59,18 +59,23 @@ Description is the only column without a fixed width, so it absorbs all the sque
 
 **Production is behind master (checked 18 Nov 2026).** Production runs `bb88e0a0c6`; master is 75 commits ahead. One of those is PR #1552 (bank layout: the eight row icons become a single "..." menu, 206px down to 66px), merged 17 Nov and not yet live. So part of what Hein saw is already fixed on master and ships with the next deploy. The numbers above are production; on master, before this branch, Description at his width with CC and BU shown is about 182px.
 
-**After this branch (dev build, CC1, CC2 and BU columns shown):**
+**After this branch (dev build, measured 18 Nov 2026):**
 
-| Viewport | Nav mode | Description | Table fits without inner scroll |
-|---|---|---|---|
-| 1920 | top | 539 | yes |
-| 1627 | top | 246 | yes |
-| 1366 | top | 160 | yes |
-| 1280 | top | 160 | no, scrolls inside its card (1240 in 1200) |
-| 1627 | sidebar | 160 | yes |
-| 1366 | sidebar | 160 | no (1240 in 1030) |
+| Viewport | Nav mode | CC1/CC2/BU shown | Description | Table fits without inner scroll |
+|---|---|---|---|---|
+| 1920 | top | yes | 571 | yes |
+| 1627 | top | yes | 278 | yes |
+| 1366 | top | yes | 100 | yes |
+| 1280 | top | yes | 100 | yes |
+| 1366 | sidebar | no | 100 | yes |
+| 1280 | sidebar | no | 100 | yes |
+| 1366 | sidebar | yes | 100 | no (1159 in 1030) |
 
-Description wraps to two lines and never drops under 160px; the row height stays 41px. The page itself never scrolls sideways.
+- Description wraps to two lines on desktop widths and never drops under 100px; row height stays 41px. Below `lg` the card layout is unchanged.
+- A first version used a 160px floor. Review showed it pushed Spent, Received and Actions off screen in sidebar mode at 1280 and 1366, so the floor was lowered until the table fits wherever it fitted before.
+- Sidebar mode at 1366 or narrower with all three dimension columns on does not fit; it did not fit before this branch either. There is no on-screen hint that the table scrolls sideways there. Left as a follow-up.
+
+**Split (18 Nov 2026, agreed with Hein):** the supplier invoice line layout and read-only CC1 moved out of this branch to `fix/supplier-invoice-lines-20261118` after review found a layout flip loop, a wrong CC1 in a common case and thin tests. This branch (PR #1597) carries the bank fixes only: A1, A2, A4.
 
 ### 3.4 Supplier invoice line items: confirmed
 

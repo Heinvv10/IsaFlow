@@ -65,14 +65,14 @@ export function BankTxTable(props: BankTxTableProps) {
                   aria-label="Select all transactions on this page" />
               </th>
               <th className={`${TH} w-24`}>Date</th>
-              <th className={`${TH} lg:min-w-[10rem]`}>Description</th>
-              <th className={`${TH} w-28 lg:min-w-[5rem]`}>Notes</th>
+              <th className={`${TH} lg:min-w-[6.25rem]`}>Description</th>
+              <th className={`${TH} w-24 lg:min-w-[3.5rem]`}>Notes</th>
               <th className={`${TH} w-24`}>Type</th>
               <th className={`${TH} w-52 lg:min-w-[9rem]`}>Selection</th>
               {/* Always rendered. Deriving its presence from the loaded rows made the
                   column appear and vanish between pages depending on which rows
                   happened to be rule-allocated. */}
-              <th className={`${TH} w-24 lg:min-w-[4.5rem]`}>Rule</th>
+              <th className={`${TH} w-20 lg:min-w-[3.5rem]`}>Rule</th>
               <th className={`${TH} w-24`}>VAT</th>
               {showCC && <th className={`${TH} w-24`}>CC1</th>}
               {showCC && <th className={`${TH} w-24`}>CC2</th>}
