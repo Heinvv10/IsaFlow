@@ -5,7 +5,8 @@
  *  - M2b: changing the address (PE's route) ends a pending invitation and an active login, sessions included;
  *  - L1 (login CSRF): login, accept and logout refuse anything but a same-origin JSON POST, before any write;
  *  - L2 (timing): sign-in always runs MAX_CANDIDATES bcrypt compares;
- *  - L2 (audit): an invite or revoke whose audit row fails writes nothing;
+ *  - L2 (audit): an invite or revoke whose audit row fails writes nothing; a mailer that throws after the write
+ *    leaves both the login and its audit row;
  *  - M (settings): a manager or a Login-as PUT is refused, the setting unchanged and nothing audited;
  *  - L3: the session check passes on app_service (the production read path), and refuses there as on the superuser;
  *  - L4: a login row pairing one company with another company's employee is refused by the database.
@@ -21,7 +22,7 @@ import { rig } from './brkr.helpers';
 import { audits, loginAs, putEmail } from './pe-payslip-email.helpers';
 import {
   captured, cleanup, doAccept, doLogin, doMe, invite, lastToken, person, portal, portalRoutes, putSetting, readAccess, reason,
-  revoke, SAME_ORIGIN, setPlatform, type R,
+  revoke, SAME_ORIGIN, setPlatform, throwNext, type R,
 } from './ss-employee-portal.helpers';
 
 vi.hoisted(() => { process.env.PORTAL_JWT_SECRET ??= 'ss-employee-portal-secret-for-tests-0123456789abcdef'; });
@@ -156,6 +157,17 @@ describe('employee portal, review round 1', () => {
     } finally {
       await a.pool.query('ALTER TABLE audit_log DROP CONSTRAINT ss_review_no_portal_audit');
     }
+  });
+
+  it('L2: a mailer that throws after the write leaves the login row AND its audit row (one transaction, committed)', async () => {
+    const emp = await person(a, 'mailer-crash@example.invalid');
+    const before = await audits(a, 'employee_portal_access');
+    throwNext.count = 1;
+    expect((await invite(a, emp)).statusCode).toBe(500);
+    // The request's own transaction rolled back (500); the login and its audit, written together on migration_admin,
+    // did not. An audit written on the request's pool would be gone with it.
+    expect([await status(emp), await audits(a, 'employee_portal_access')]).toEqual(['invited', before + 1]);
+    expect((await invite(a, emp)).statusCode).toBe(200);
   });
 
   it('M: a manager or a Login-as cannot change the company setting; nothing changes and nothing is audited', async () => {
