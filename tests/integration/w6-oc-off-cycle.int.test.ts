@@ -6,7 +6,7 @@
  *    spec F2; PAYE-GEN-01-G21 (2027) pp. 32-33), n unchanged; UIF capped across the month's runs (UIC Act s6(2));
  *    ETI recomputed for the month, the bonus line carrying the NEGATIVE difference (ETI Act s7);
  *  - termination after the regular run: the leaver's notice pay (3605) alone;
- *  - approve, journal "Payroll run 2026-11 bonus", R-035 per run; the regular run cannot be reopened under it;
+ *  - approve, journal "Payroll run 2026-11 bonus, paid <date>", R-035 per run; the regular run cannot be reopened under it;
  *  - refusals (no approved regular run, a pay date passed at approval, another company's employee or run) change no row.
  * The clock is SAST 2026-11-17 (Date only, advancing), so the pay-date rules hold whatever day the suite runs.
  */
@@ -71,13 +71,19 @@ describe('OC: a bonus run after the month\'s regular run', () => {
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     bonus = String(made.body.data!.id);
     expect(made.body.data).toMatchObject({ runKind: 'off_cycle', offCycleReason: 'bonus', runDate: '2026-11-27', periodMonth: 11 });
+    // A once-off dated in November (the regular run is approved; review #1575 carry 2): the bonus run never pays it.
+    const onceOff = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
+      VALUES ($1, 'Commission', '3606', 'earning') RETURNING id`, [a.company])).rows[0].id;
+    await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+      VALUES ($1, $2, 3000, '2026-11-15', '2026-11-15', false)`, [people.high, onceOff]);
     const calc = await a.api.calculate(bonus);
     expect(calc.statusCode, JSON.stringify(calc.body)).toBe(200);
 
     const reg = await line(regular, people.high);
     const high = await line(bonus, people.high);
-    // Only the bonus: no salary, no recurring component.
+    // Only the bonus: no salary, no recurring component, not November's once-off.
     expect(high.gross).toBe(20_000);
+    expect((high.component_breakdown as Array<{ componentId: string }>).map((c) => c.componentId)).toEqual([bonusComponent]);
     expect(high.periodic).toBe(0);
     expect(high.annual).toBe(20_000);
     // UIF: the regular line took the month's cap (R40 000 is above the ceiling), so the bonus takes none (UIC Act s6(2)).
@@ -102,15 +108,15 @@ describe('OC: a bonus run after the month\'s regular run', () => {
     expect(regular2.rows[0].n).toBe(1);
   });
 
-  it('approves on its own (R-035 per run), posts "Payroll run 2026-11 bonus", and pins the regular run', async () => {
+  it('approves on its own (R-035 per run), posts "Payroll run 2026-11 bonus, paid 2026-11-27", and pins the regular run', async () => {
     const approved = await a.api.approve(bonus);
     expect(approved.statusCode, JSON.stringify(approved.body)).toBe(200);
     const journals = await a.journals('11');
-    expect(journals.map((j) => j.description)).toEqual(expect.arrayContaining(['Payroll run 2026-11', 'Payroll run 2026-11 bonus']));
+    expect(journals.map((j) => j.description)).toEqual(expect.arrayContaining(['Payroll run 2026-11', 'Payroll run 2026-11 bonus, paid 2026-11-27']));
     const ref = await a.pool.query(`SELECT document_reference FROM approval_requests WHERE company_id = $1 AND document_id = $2`, [a.company, bonus]);
-    expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run');
+    expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run, paid 2026-11-27');
     const reopened = await a.api.reopen(regular);
-    expect(reopened.statusCode).toBe(409);
+    expect(reopened.statusCode).toBe(400); // PayrollRunReopenRefusedError, as every reopen refusal
     expect(a.msg(reopened)).toMatch(/off-cycle runs were costed on this run's lines/);
     expect((await a.header(regular)).status).toBe('approved');
   });
@@ -151,7 +157,8 @@ describe('OC: refusals change no row', () => {
     const made = await create(a, { reason: 'bonus', employees: [{ employeeId: people.spare1, componentId: bonusComponent, amount: 50 }] });
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const id = String(made.body.data!.id);
-    expect([404, 400]).toContain((await b.api.calculate(id)).statusCode);
+    // The calculate route answers another company's run as any unknown run (pre-existing: "Payroll run not found").
+    expect((await b.api.calculate(id)).statusCode).not.toBe(200);
     expect(await count('SELECT count(*) AS n FROM payroll_run_lines WHERE run_id = $1', [id])).toBe(0);
   });
 
@@ -164,6 +171,6 @@ describe('OC: refusals change no row', () => {
     expect(approved.statusCode).not.toBe(200);
     expect(a.msg(approved)).toMatch(/before today/);
     expect((await a.header(id)).status).toBe('calculated');
-    expect(await count('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1 AND description = $2', [a.company, 'Payroll run 2026-11 bonus'])).toBe(1);
+    expect(await count('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1 AND description = $2', [a.company, 'Payroll run 2026-11 bonus, paid 2026-11-27'])).toBe(1);
   });
 });

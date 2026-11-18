@@ -109,8 +109,12 @@ export interface KnownGap {
   parity?: true;
 }
 
-/** A gap's closer: the wave-6 PR that closes it, or a PR number. */
-export const CLOSER = /^(UF|FQc|OC|PSP|DBF|RI|GA|#\d+)\b/;
+/**
+ * A gap's closer: the wave-6 PR that closes it, or a PR number. "AN ruling 5" names a ruled departure of AN's days-based
+ * annualisation that is over the 5c tolerance cap: it never closes, and its reason must say so (OC re-judged the one
+ * such gap, offcycle-termination-leave-after-regular).
+ */
+export const CLOSER = /^(UF|FQc|OC|PSP|DBF|RI|GA|AN ruling 5|#\d+)\b/;
 
 export function loadCases(): OracleCase[] {
   const files = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json') && !(LIST_FILES as readonly string[]).includes(f)).sort();
@@ -151,7 +155,7 @@ export function gapListProblems(cases: readonly OracleCase[], gaps: readonly Kno
     }
     if (!g.reason || g.reason.length < 20) problems.push(`${g.case}: reason missing`);
     if (!g.closedBy || g.closedBy.length < 5) problems.push(`${g.case}: closedBy missing`);
-    else if (g.parity !== true && !CLOSER.test(g.closedBy)) problems.push(`${g.case}: closedBy must start with a closing PR (UF, FQc, OC, PSP, DBF, RI, GA or #n) or the gap be parity: true`);
+    else if (g.parity !== true && !CLOSER.test(g.closedBy)) problems.push(`${g.case}: closedBy must start with a closing PR (UF, FQc, OC, PSP, DBF, RI, GA, 'AN ruling 5' or #n) or the gap be parity: true`);
   }
   const unverifiedIds = new Set<string>();
   for (const u of unverified) {

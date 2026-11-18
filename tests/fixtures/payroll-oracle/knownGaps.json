@@ -25,23 +25,12 @@
     "closedBy": "GA (wave 6): garnishee orders."
   },
   {
-    "case": "offcycle-bonus-after-regular-g21",
-    "engineActual": {
-      "uifEmployee": 148,
-      "uifEmployer": 148
-    },
-    "reason": "PAYE matches. UIF is costed per line, so the bonus run levies 1% of R14 800 although October's regular run already reached the month's R17 712 ceiling.",
-    "closedBy": "OC (wave 6): off-cycle runs, the month's UIF ceiling across runs."
-  },
-  {
     "case": "offcycle-termination-leave-after-regular",
     "engineActual": {
-      "uifEmployee": 100,
-      "uifEmployer": 100,
       "paye": 2192.06
     },
-    "reason": "PAYE is 6c above the ×12 figure (ruling 5: AN 365/30.4166 over G21 p. 8 ×12; over the 5c cap, so pinned here, and that part never closes: a ruled departure). UIF is costed per line, so the termination run levies 1% of R10 000 although June's regular run already reached the month's ceiling. OC re-judges this pin when it costs off-cycle runs (its PAYE part under AN included); it is re-judged, not deleted.",
-    "closedBy": "OC (wave 6): termination runs, the month's UIF ceiling across runs."
+    "reason": "Re-judged by OC (wave 6): the UIF part closed (the termination run levies UIF only on the room June's regular line left under the month's ceiling: none, UIC Act s6(2)). PAYE stays 6c above the x12 figure: AN's days-based AE (20 000 x 365/30.4166 = 240 000.79) puts 0.79 more of the R10 000 in the 26% band above R245 100 than x12 does (0.79 x 8% = 6c). That is ruling 5 (AN 365/30.4166 over G21 p. 8 x12), over the 5c tolerance cap, so it stays pinned here and never closes.",
+    "closedBy": "AN ruling 5 (wave 6): a ruled departure from G21 p. 8 x12; never closes. Re-judged by OC, not deleted."
   },
   {
     "case": "psp-company-27pct",
