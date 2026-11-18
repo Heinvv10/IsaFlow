@@ -9,7 +9,7 @@
  *    after its month's closing regular run (the monthly regular run, once calculated: its pay date is run_date, else
  *    period_end) is refused with 409. That regular run settled the month's UIF month to date and closed its ETI, so a
  *    payment after it falls after the month's close. Pay the off-cycle run before the regular run's pay date.
- *  - Reopen of a REGULAR run: refused while a final off-cycle run of its month and frequency exists. The off-cycle
+ *  - Reopen of a run: refused while a final off-cycle run later in its month and frequency exists. The off-cycle
  *    line's PAYE, UIF and ETI were costed on this run's line (the month's annual equivalent, the month's UIF cap and
  *    ETI), so changing it would leave those figures wrong. Reopen the off-cycle run first.
  */
@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
 import { payRunFinalSql } from './payRunFinalSql';
+import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
 
 /** Why this off-cycle run cannot be approved today; null when it can (or it is not off-cycle). */
@@ -30,21 +31,52 @@ export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unk
     : null;
 }
 
-/** Why this regular run cannot be reopened (a final off-cycle run of its month rests on it); null when it can. */
+/**
+ * Why this run cannot be reopened: a FINAL off-cycle run later in its month (same frequency, after it in pay order)
+ * was costed on its lines (review #1620 M1: a regular run, or an earlier off-cycle run). Null when it can.
+ */
 export async function laterOffCycleRefusal(companyId: string, runId: string): Promise<string | null> {
   const rows = (await sql`
     SELECT o.id, o.off_cycle_reason
       FROM payroll_run_headers me
       JOIN payroll_run_headers o
         ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month
-       AND o.pay_frequency = me.pay_frequency AND o.run_kind = 'off_cycle'
-     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid AND me.run_kind = 'regular'
+       AND o.pay_frequency = me.pay_frequency AND o.run_kind = 'off_cycle' AND o.id <> me.id
+     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid
        AND ${sql.unsafe(payRunFinalSql('o'))}
+       AND ${runOrderKeySql('me')} < ${runOrderKeySql('o')}
      ORDER BY o.created_at, o.id
   `) as DbRow[];
   if (rows.length === 0) return null;
   const runs = rows.map((r) => `the ${String(r.off_cycle_reason)} run ${String(r.id)}`).join(', ');
   return `This month's approved off-cycle runs were costed on this run's lines (${runs}). Reopen ${rows.length === 1 ? 'it' : 'them'} first.`;
+}
+
+/**
+ * Why this off-cycle run cannot be approved on the lines it was calculated on (review #1620 M1): an earlier run of its
+ * month (same frequency, before it in pay order, with lines) is not final, or was approved after this run was
+ * calculated (reopened and approved again). Either way the line's month (UIF room, ETI, the AE) is stale: approve
+ * that run, then recalculate this one. Null when it can, or when the run is not off-cycle.
+ */
+export async function offCycleBasisRefusal(companyId: string, run: DbRow, db: TxSql = sql): Promise<string | null> {
+  if (run.run_kind !== 'off_cycle') return null;
+  const rows = (await db`
+    SELECT o.run_kind, o.off_cycle_reason, ${sql.unsafe(payRunFinalSql('o'))} AS final,
+           (me.calculated_at IS NULL OR o.approved_at > me.calculated_at) AS newer
+      FROM payroll_run_headers me
+      JOIN payroll_run_headers o
+        ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month
+       AND o.pay_frequency = me.pay_frequency AND o.id <> me.id AND o.status NOT IN ('draft', 'cancelled')
+     WHERE me.id = ${String(run.id)}::uuid AND me.company_id = ${companyId}::uuid
+       AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}
+     ORDER BY ${runOrderKeySql('o')}
+  `) as DbRow[];
+  const name = (r: DbRow) => (r.run_kind === 'off_cycle' ? `${String(r.off_cycle_reason)} run` : 'regular run');
+  const open = rows.find((r) => r.final !== true);
+  if (open) return `The month's ${name(open)} is not approved, and this run is costed on it: approve it, then recalculate this run.`;
+  const newer = rows.find((r) => r.newer === true);
+  if (newer) return `The month's ${name(newer)} was approved again after this run was calculated: recalculate this run, then approve it.`;
+  return null;
 }
 
 /**
@@ -56,12 +88,12 @@ export async function offCycleAfterCloseRefusal(
 ): Promise<string | null> {
   if (payDate === null) return 'This off-cycle run has no pay date. Create it again with one.';
   const rows = (await db`
-    SELECT to_char(COALESCE(h.run_date, h.period_end), 'YYYY-MM-DD') AS pay_date
+    SELECT to_char(${runPayDateSql('h')}, 'YYYY-MM-DD') AS pay_date
       FROM payroll_run_headers h
      WHERE h.company_id = ${companyId}::uuid AND h.period_year = ${period.year} AND h.period_month = ${period.month}
        AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly' AND h.status IN ('calculated', 'approved', 'paid')
-       AND COALESCE(h.run_date, h.period_end) <= ${payDate}::date
-     ORDER BY COALESCE(h.run_date, h.period_end)
+       AND ${runPayDateSql('h')} <= ${payDate}::date
+     ORDER BY ${runPayDateSql('h')}
      LIMIT 1
   `) as DbRow[];
   if (!rows[0]) return null;

@@ -22,7 +22,7 @@ import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { offCyclePayDateRefusal } from './payrollOffCycleGates';
+import { offCycleBasisRefusal, offCyclePayDateRefusal } from './payrollOffCycleGates';
 import { freezePayslipDetails } from './payslipSnapshot';
 
 
@@ -100,6 +100,8 @@ export async function approvePayrollRun(
   await assertRunKindSupported(companyId, runId, 'approve');
   const payDate = offCyclePayDateRefusal(locked); // wave 6 OC: never approved after its pay date
   if (payDate) throw new PayrollApprovalRefusedError(payDate);
+  const basis = await offCycleBasisRefusal(companyId, locked); // wave 6 OC: costed on the month's runs as they stand
+  if (basis) throw new PayrollApprovalRefusedError(basis);
   if (locked.journal_entry_id != null) {
     await lockRunJournalForApproval(runId, companyId, String(locked.journal_entry_id));
   }

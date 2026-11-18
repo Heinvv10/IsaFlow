@@ -16,6 +16,11 @@
   "src/modules/accounting/services/payroll/payrollMonthOrderGate.ts": [
    "SELECT h.*, ${runOrderKeySql('h')} AS run_key, to_char(h.period_start, 'YYYY-MM-DD') AS label,"
   ],
+  "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
+   "AND ${runOrderKeySql('me')} < ${runOrderKeySql('o')}",
+   "AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}",
+   "ORDER BY ${runOrderKeySql('o')}"
+  ],
   "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
    "AND ${runOrderKeySql('o')} < ${runOrderKeySql('me')}"
   ],
@@ -538,8 +543,10 @@
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleGates.ts": [
    {"line":33,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the run being reopened, by id"},
-   {"line":34,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"EXISTS-style list of every final off-cycle run of the reopened regular run's month and frequency: correct with several runs a month"},
-   {"line":60,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS-style: any calculated-or-later regular MONTHLY run of the month paid on or before the off-cycle pay date (review #1575 carry 1); the 999a regular-period key allows one, and ORDER BY + LIMIT 1 only names the earliest pay date in the refusal"}
+   {"line":34,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a list of every final off-cycle run of the reopened run's month and frequency AFTER it in pay order (runOrderKeySql; review #1620 M1): correct with several runs a month"},
+   {"line":66,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being approved, by id (review #1620 M1)"},
+   {"line":67,"text":"JOIN payroll_run_headers o","class":"S","owner":"OC","why":"a list of every non-draft run of the month and frequency BEFORE it in pay order (runOrderKeySql): each must be final and approved before it was calculated"},
+   {"line":92,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS-style: any calculated-or-later regular MONTHLY run of the month paid on or before the off-cycle pay date (review #1575 carry 1); the 999a regular-period key allows one, and ORDER BY + LIMIT 1 only names the earliest pay date in the refusal"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts": [
    {"line":51,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed, by id"},

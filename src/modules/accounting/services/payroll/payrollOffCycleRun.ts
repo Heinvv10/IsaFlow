@@ -17,6 +17,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { todayInSast } from '@/lib/saDateParser';
 import { payRunFinalSql } from './payRunFinalSql';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
@@ -75,7 +76,8 @@ export function judgeOffCycleShape(input: OffCycleRunInput, today: string): void
     }
     if (typeof e.componentId !== 'string' || !UUID.test(e.componentId)) throw bad('each bonus needs its annual-payment component');
     const a = e.amount;
-    if (typeof a !== 'number' || !Number.isFinite(a) || a <= 0 || a > MAX_BONUS || Math.round(a * 100) !== a * 100) {
+    // Whole cents within float error (1.15 * 100 is 114.99999999999999), as payrollEmployeeTerms judges an amount.
+    if (typeof a !== 'number' || !Number.isFinite(a) || a <= 0 || a > MAX_BONUS || Math.abs(a * 100 - Math.round(a * 100)) > 1e-6) {
       throw bad('each bonus amount must be more than nil, in rand and cents');
     }
   }
@@ -136,6 +138,7 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
 }
 
 export async function createOffCycleRun(companyId: string, input: OffCycleRunInput, createdBy: string | null): Promise<PayrollRunSummary> {
+  await assertNotImpersonating(); // R-032 L5 / rule 14: a money-moving write, never under Login-as; before any read or write
   judgeOffCycleShape(input, todayInSast());
   const { period, reason, runDate, employees } = input;
   return await withTransaction(async (tx) => {
@@ -154,7 +157,7 @@ export async function createOffCycleRun(companyId: string, input: OffCycleRunInp
     for (const e of employees) {
       await tx`
         INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)
-        VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount ?? null}, ${createdBy})
+        VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount == null ? null : Math.round(e.amount * 100) / 100}, ${createdBy})
       `;
     }
     log.info('Off-cycle payroll run created', { companyId, runId: String(run.id), reason, employees: employees.length }, 'payrollOffCycleRun');

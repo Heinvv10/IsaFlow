@@ -23,11 +23,20 @@ import { sql } from '@/lib/neon';
 
 const ALIAS = /^[a-z_][a-z0-9_]*$/;
 
+/** Key 3, a run's pay date: run_date, else period_end (as text, for a caller's own fragment). */
+const payDateOf = (alias: string): string => `COALESCE(${alias}.run_date, ${alias}.period_end)`;
+
 const columns = (alias: string, fn: string): string => {
   if (!ALIAS.test(alias)) throw new Error(`${fn}: not an SQL alias: ${alias}`);
-  return `${alias}.period_start, (${alias}.run_kind <> 'regular'), COALESCE(${alias}.run_date, ${alias}.period_end), `
+  return `${alias}.period_start, (${alias}.run_kind <> 'regular'), ${payDateOf(alias)}, `
     + `${alias}.created_at, ${alias}.id`;
 };
+
+/** The pay date (key 3) of the header aliased `alias`: the one definition of a run's pay date in SQL. */
+export function runPayDateSql(alias: string) {
+  if (!ALIAS.test(alias)) throw new Error(`runPayDateSql: not an SQL alias: ${alias}`);
+  return sql.unsafe(payDateOf(alias));
+}
 
 /** The row value (the five keys above) of the header aliased `alias`, for ORDER BY or a row comparison. */
 export function runOrderKeySql(alias: string) {

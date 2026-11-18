@@ -42,6 +42,12 @@ describe('the request shape', () => {
     expect(refused(bonus({ runDate: '2026-12-01' }))).toMatch(/must be in 2026-11/);
     expect(refused(bonus({ runDate: '2026-11-16' }))).toMatch(/has passed/);
   });
+  it('an amount in rand and cents passes whatever its float error; a third decimal is refused (review #1620 H1)', () => {
+    for (const amount of [0.07, 1.15, 4.35, 8.2, 1_000.1, 99_999.99]) {
+      expect(() => judgeOffCycleShape(bonus({ employees: [{ employeeId: E1, componentId: C1, amount }] }), TODAY), String(amount)).not.toThrow();
+    }
+    expect(refused(bonus({ employees: [{ employeeId: E1, componentId: C1, amount: 1.155 }] }))).toMatch(/rand and cents/);
+  });
   it('the reason, the employees and the amounts', () => {
     expect(refused(bonus({ reason: 'leave' as never }))).toMatch(/reason/);
     expect(refused(bonus({ employees: [] }))).toMatch(/at least one/);

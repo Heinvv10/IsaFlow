@@ -2,7 +2,7 @@
  * Off-cycle payroll runs (wave 6 OC)
  * POST /api/payroll/runs/off-cycle  - Create a bonus or termination run beside a month's approved regular run
  *   body { month, year, reason: 'bonus' | 'termination', runDate: 'YYYY-MM-DD',
- *          employees: [{ employeeId, componentId?, amount? }] }   (write roles only)
+ *          employees: [{ employeeId, componentId?, amount? }] }   (write roles only; refused under Login-as, 403)
  * Every refusal is judged before the first write (payrollOffCycleRun): 400 malformed, 409 not allowed now.
  */
 import type { NextApiResponse } from 'next';
@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import {
   createOffCycleRun, OffCycleRunRefusedError, type OffCycleEmployeeInput,
 } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
@@ -33,6 +34,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }, (req as CompanyAuthedRequest).user?.id ?? null);
     return apiResponse.created(res, run);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return; // 403: a Login-as session creates no pay run (rule 14)
     if (err instanceof OffCycleRunRefusedError) {
       return err.status === 400
         ? apiResponse.badRequest(res, err.message, { code: err.code })
