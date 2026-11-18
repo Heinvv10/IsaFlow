@@ -27,8 +27,11 @@ export function contributionRows(all: readonly ContributionRow[], today: string)
 export function EmployeeDbFundContributionMarks({ url, rows, onChanged }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
+  // Shown at once while the PATCH runs; dropped when the reload brings the stored value (or the change is refused).
+  const [pending, setPending] = useState<Record<string, boolean>>({});
   const toggle = async (r: ContributionRow, marked: boolean) => {
     setBusy(r.id);
+    setPending((p) => ({ ...p, [r.id]: marked }));
     setError('');
     try {
       const res = await apiFetch(`${url}?aid=${encodeURIComponent(r.id)}`, { method: 'PATCH', body: JSON.stringify({ dbFundMemberContribution: marked }) });
@@ -37,6 +40,7 @@ export function EmployeeDbFundContributionMarks({ url, rows, onChanged }: Props)
     } catch (err) {
       setError(apiErrorMessage(err, FAILED));
     } finally {
+      setPending((p) => { const { [r.id]: _done, ...rest } = p; return rest; });
       setBusy(null);
     }
   };
@@ -53,7 +57,7 @@ export function EmployeeDbFundContributionMarks({ url, rows, onChanged }: Props)
           {rows.map((r) => (
             <li key={r.id}>
               <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-                <input type="checkbox" checked={r.dbFundMemberContribution === true} disabled={busy !== null}
+                <input type="checkbox" checked={pending[r.id] ?? r.dbFundMemberContribution === true} disabled={busy !== null}
                   onChange={(e) => void toggle(r, e.target.checked)} />
                 <span>{r.componentName} ({(r.sarsSourceCode ?? '').trim()}): {r.percentOfRfi != null ? `${Number((r.percentOfRfi * 100).toFixed(2))}% of RFI` : formatCurrency(r.amount)},
                   from {formatDisplayDate(r.effectiveFrom)}</span>

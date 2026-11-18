@@ -70,7 +70,7 @@ it('holds Add until the factor is valid, then posts it with amount 0 and recurri
   expect(screen.getByText(/Enter a fraction above 0 and at most 1/)).toBeTruthy();
   fireEvent.change(input, { target: { value: '0.12' } });
   expect(add.disabled).toBe(true); // what the employer pays is required (0 if nothing)
-  fireEvent.change(screen.getByLabelText('Employer pays the fund (R a month)'), { target: { value: '2 200' } });
+  fireEvent.change(screen.getByLabelText('Employer pays (R a month)'), { target: { value: '2 200' } });
   fireEvent.click(screen.getByRole('checkbox', { name: /Retired or dependant\/nominee member \(para 12D\(6\)\)/ }));
   await waitFor(() => expect(add.disabled).toBe(false));
   fireEvent.click(add);
@@ -90,7 +90,7 @@ it('shows the server\'s refusal (a Login-as session, a wrong component) and keep
   fireEvent.click(screen.getByRole('combobox'));
   fireEvent.click(await screen.findByText('Employer DB pension (3817)'));
   fireEvent.change(screen.getByLabelText('DB fund member category factor'), { target: { value: '0.12' } });
-  fireEvent.change(screen.getByLabelText('Employer pays the fund (R a month)'), { target: { value: '0' } });
+  fireEvent.change(screen.getByLabelText('Employer pays (R a month)'), { target: { value: '0' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   expect((await screen.findByRole('alert')).textContent).toBe('Could not add the defined-benefit contribution - try again');
   expect((screen.getByLabelText('DB fund member category factor') as HTMLInputElement).value).toBe('0.12');
@@ -112,6 +112,7 @@ it('marks the employee\'s 4001 as the compulsory fund contribution (PATCH dbFund
   const boxes = Array.from(group.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
   expect(boxes.map((b) => b.closest('label')!.textContent!.split(':')[0])).toEqual(['Pension (4001)', 'Pension AVC (4001)']);
   fireEvent.click(boxes[0]!);
+  expect(boxes[0]!.checked).toBe(true); // shown at once while the PATCH runs
   await waitFor(() => expect(apiFetch.mock.calls.some(([, i]) => i?.method === 'PATCH')).toBe(true));
   const [url, init] = apiFetch.mock.calls.find(([, i]) => i?.method === 'PATCH')!;
   expect([url, JSON.parse(init.body)]).toEqual(['/api/payroll/employees/e1/components?aid=p', { dbFundMemberContribution: true }]);

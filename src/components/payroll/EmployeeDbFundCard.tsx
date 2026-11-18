@@ -151,7 +151,7 @@ export function EmployeeDbFundCard({ employeeId, refreshKey = 0, onChanged, onEn
             placeholder="0.12" aria-describedby="db-factor-help" aria-invalid={factorText.trim() !== '' && factor == null} />
         </div>
         <div>
-          <label htmlFor="db-paid" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Employer pays the fund (R a month)</label>
+          <label htmlFor="db-paid" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Employer pays (R a month)</label>
           <input id="db-paid" inputMode="decimal" className={INPUT} value={paidText} onChange={(e) => setPaidText(e.target.value)}
             placeholder="2200" aria-invalid={paidText.trim() !== '' && paid == null} />
         </div>
