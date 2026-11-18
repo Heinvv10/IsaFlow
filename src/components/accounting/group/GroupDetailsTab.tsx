@@ -48,12 +48,12 @@ export function GroupDetailsTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createGroupBody(createForm)),
       });
-      await assertOk(res, 'Failed to create group');
+      await assertOk(res, 'Could not create the group - try again');
       onFlash('Group created', 'success');
       await onGroupRefresh();
     } catch (e) {
       log.error('Group details operation failed', { error: e }, 'group');
-      onFlash(apiErrorMessage(e, 'Failed to create group'), 'error');
+      onFlash(apiErrorMessage(e, 'Could not create the group - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -73,11 +73,11 @@ export function GroupDetailsTab({
           financialYearStart: group.financialYearStart,
         })),
       });
-      await assertOk(res, 'Failed to update group');
+      await assertOk(res, 'Could not save the group - try again');
       onFlash('Group updated', 'success');
     } catch (e) {
       log.error('Group details operation failed', { error: e }, 'group');
-      onFlash(apiErrorMessage(e, 'Failed to update group'), 'error');
+      onFlash(apiErrorMessage(e, 'Could not save the group - try again'), 'error');
     } finally {
       setSaving(false);
     }

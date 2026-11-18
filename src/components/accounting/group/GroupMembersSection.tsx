@@ -40,13 +40,13 @@ export function GroupMembersSection({ group, members, availableCompanies, active
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(addMemberBody(group.id, newMember)),
       });
-      await assertOk(res, 'Failed to add member');
+      await assertOk(res, 'Could not add the member - try again');
       onFlash('Member added', 'success');
       setShowAddMember(false);
       setNewMember({ companyId: '', ownershipPct: 100, consolidationMethod: 'full' });
       await onRefresh();
     } catch (err) {
-      onFlash(apiErrorMessage(err, 'Failed to add member'), 'error');
+      onFlash(apiErrorMessage(err, 'Could not add the member - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -60,12 +60,12 @@ export function GroupMembersSection({ group, members, availableCompanies, active
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updateMemberBody(group.id, memberId, editMember)),
       });
-      await assertOk(res, 'Failed to update member');
+      await assertOk(res, 'Could not update the member - try again');
       onFlash('Member updated', 'success');
       setEditingMemberId(null);
       await onRefresh();
     } catch (err) {
-      onFlash(apiErrorMessage(err, 'Failed to update member'), 'error');
+      onFlash(apiErrorMessage(err, 'Could not update the member - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -78,11 +78,11 @@ export function GroupMembersSection({ group, members, availableCompanies, active
         removeMemberQuery(group.id, memberId),
         { method: 'DELETE' },
       );
-      await assertOk(res, 'Failed to remove member');
+      await assertOk(res, 'Could not remove the member - try again');
       onFlash('Member removed', 'success');
       await onRefresh();
     } catch (err) {
-      onFlash(apiErrorMessage(err, 'Failed to remove member'), 'error');
+      onFlash(apiErrorMessage(err, 'Could not remove the member - try again'), 'error');
     }
   };
 

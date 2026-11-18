@@ -90,7 +90,7 @@ describe('the server\'s refusal reaches the user (not a generic "Failed to …")
     const onFlash = section();
     fetchMock.mockImplementation(async () => new Response('', { status: 500 }));
     fireEvent.click(rowOf('Here Co').querySelector('button[title="Remove"]')!);
-    await waitFor(() => expect(onFlash).toHaveBeenCalledWith('Failed to remove member', 'error'));
+    await waitFor(() => expect(onFlash).toHaveBeenCalledWith('Could not remove the member - try again', 'error'));
   });
 });
 
