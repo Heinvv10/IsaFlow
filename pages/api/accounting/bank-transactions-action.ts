@@ -110,9 +110,9 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('save_dimensions'),
     bankTransactionId: UUID,
-    cc1Id: UUID.optional(),
-    cc2Id: UUID.optional(),
-    buId: UUID.optional(),
+    cc1Id: UUID.nullish(), // null = "none": the grid sends it for each dimension a row lacks, and to clear one
+    cc2Id: UUID.nullish(),
+    buId: UUID.nullish(),
   }),
   z.object({ action: z.literal('reverse'), bankTransactionId: UUID, expectedJournalEntryId: UUID.optional() }),
 ]);
@@ -238,7 +238,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
       case 'save_dimensions': {
         const saved = await saveBankTxDimensions(companyId, body.bankTransactionId,
-          { cc1Id: body.cc1Id, cc2Id: body.cc2Id, buId: body.buId }, userId);
+          { cc1Id: body.cc1Id ?? undefined, cc2Id: body.cc2Id ?? undefined, buId: body.buId ?? undefined }, userId);
         if (!saved) return apiResponse.notFound(res, 'Bank transaction', body.bankTransactionId);
         return apiResponse.success(res, { saved: true });
       }
