@@ -1,7 +1,7 @@
 /**
  * Wave 6 FQc, review #1575 (payroll breaker B1-B7 and round 2 G1-G5, rulings H1-H2, M1-M3, M5) on real Postgres, two tenants where it
- * matters. Each case drops the per-month unique in its own transaction and rolls back (w6-fqb1.helpers twoRunsInMonth;
- * FQx, migration 999p, drops it for good after FQc merges). The FQa run-kind guard is stubbed until FQd lifts its
+ * matters. Each case runs in its own transaction and rolls back (w6-fqb1.helpers twoRunsInMonth; FQx, migration 999y,
+ * dropped the per-month unique, so several runs share a month). The FQa run-kind guard is stubbed until FQd lifts its
  * frequency clause; payrollFrequencyGuard and the gates run for real.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -274,7 +274,7 @@ describe('round 2 (G1-G5): the month-order gate', () => {
       const inMonthReopenedOnly = await monthOrderRefusal(A.company, may);
       await calculatePayrollRun(may, A.company);
       return { inMonth: (await monthOrderRefusal(A.company, may))?.code ?? null, inMonthBefore: inMonthReopenedOnly?.code ?? null, whole: await gate(may) };
-    }, { keepMonthKey: true });
+    });
     expect(got.inMonth).toBeNull();
   });
 
