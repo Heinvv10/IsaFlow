@@ -3,7 +3,7 @@ import { appendFileSync, chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { rewriteEnvFiles } from '../../../scripts/ci/golden/slotEmailEnv';
+import { assertTempUnderTest, rewriteEnvFiles } from '../../../scripts/ci/golden/slotEmailEnv';
 import { knownAccounts } from '../../../scripts/ci/golden/slotEmailPlan';
 import { main, type Io } from '../../../scripts/ci/golden/migrate-slot-emails';
 import { EXPECTED_GOTRUE_URL } from '../../../scripts/ci/golden/slotConfig';
@@ -67,15 +67,20 @@ describe('migrate-slot-emails main', () => {
       expect(read(ciEnv)).toContain(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
     });
 
-    it.each([
-      ['a value flag with no value', ['--secrets-dir']],
-      ['--env-file with no value', ['--env-file']],
-      ['--deploy-env-file with no value', ['--deploy-env-file']],
-      ['--allowed-root with no value', ['--allowed-root']],
-      ['--allow-unrecognised with no value', ['--apply', '--allow-unrecognised']],
-      ['a value flag followed by another flag', ['--workspace-root', '--apply']],
-    ])('refuses %s', async (_l, argv) => {
-      await expect(main(argv, mkIo(w))).rejects.toThrow(/needs a value/);
+    // Every main() call below passes temp paths for all four env options (the flag under test goes last, without its value):
+    // a test must never fall back to the real default paths.
+    const tempFlags = (except: string): string[] => Object.entries({ '--env-file': ciEnv, '--deploy-env-file': deployEnv, '--secrets-dir': secrets, '--workspace-root': ws })
+      .filter(([k]) => k !== except).flat();
+    it.each<[string, () => string[]]>([
+      ['--secrets-dir with no value', () => [...tempFlags('--secrets-dir'), '--secrets-dir']],
+      ['--env-file with no value', () => [...tempFlags('--env-file'), '--env-file']],
+      ['--deploy-env-file with no value', () => [...tempFlags('--deploy-env-file'), '--deploy-env-file']],
+      ['--workspace-root with no value', () => [...tempFlags('--workspace-root'), '--workspace-root']],
+      ['--allowed-root with no value', () => [...tempFlags(''), '--allowed-root']],
+      ['--allow-unrecognised with no value', () => ['--apply', ...tempFlags(''), '--allow-unrecognised']],
+      ['a value flag followed by another flag', () => [...tempFlags('--workspace-root'), '--workspace-root', '--apply']],
+    ])('refuses %s', async (_l, build) => {
+      await expect(main(build(), mkIo(w))).rejects.toThrow(/needs a value/);
       expect(connected).toEqual([]);
       expect(w.log).toEqual([]);
     });
@@ -283,6 +288,39 @@ describe('migrate-slot-emails main', () => {
       expect(await run(['--apply', '--allow-unrecognised', f('ws', 'IsaFlow-out', '.env.local')])).toBe(0);
       expect(w.gotrue.get('g1')).toBe(NEW1);
       expect(read(target())).toBe(`GOLDEN_SLOT_1_EMAIL=${OLD1}\n`);
+    });
+  });
+
+  describe('the test-run guard (no test may touch a real env file)', () => {
+    it.each([
+      ['an env file', ['--env-file', '/home/hein/isaflow-ci.env']],
+      ['a secrets dir', ['--secrets-dir', '/home/hein/.secrets']],
+      ['a workspace root', ['--workspace-root', '/home/hein/Workspace']],
+      ['a deploy env file', ['--deploy-env-file', '/home/hein/isaflow-deploy.env']],
+    ])('main refuses %s outside the temp dir before reading or connecting (dry run: a removed guard would only read)', async (_l, extra) => {
+      const base: Record<string, string> = { '--env-file': ciEnv, '--deploy-env-file': deployEnv, '--secrets-dir': secrets, '--workspace-root': ws };
+      const argv = Object.entries({ ...base, [extra[0]!]: extra[1]! }).flat();
+      await expect(main(argv, mkIo(w))).rejects.toThrow(/refusing under vitest/);
+      expect(connected).toEqual([]);
+    });
+
+    it('main with no path options at all (all real defaults) refuses, dry run', async () => {
+      await expect(main([], mkIo(w))).rejects.toThrow(/refusing under vitest/);
+      expect(connected).toEqual([]);
+    });
+
+    it('rewriteEnvFiles refuses a path outside the temp dir, even one that does not exist', () => {
+      expect(() => rewriteEnvFiles(['/home/hein/.no-such-dir/x.env'], knownAccounts(), '/home/hein')).toThrow(/refusing under vitest/);
+    });
+
+    it('assertTempUnderTest: temp paths and a missing temp path pass, the real home and a symlink out of temp refuse, and it is inert outside a test run', () => {
+      expect(() => assertTempUnderTest([ciEnv, f('not-yet')], true)).not.toThrow();
+      expect(() => assertTempUnderTest(['/home/hein/isaflow-ci.env'], true)).toThrow(/outside/);
+      expect(() => assertTempUnderTest(['/tmp-evil/x'], true)).toThrow(/outside/);
+      expect(() => assertTempUnderTest(['/home/hein/isaflow-ci.env'], false)).not.toThrow();
+      mkdirSync(f('ws', 'lnk'), { recursive: true });
+      symlinkSync('/home', f('ws', 'lnk', 'home'));
+      expect(() => assertTempUnderTest([f('ws', 'lnk', 'home')], true)).toThrow(/outside/);
     });
   });
 

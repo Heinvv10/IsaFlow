@@ -5,9 +5,26 @@
  * Only the lines' key names and the file paths are ever reported, never a value.
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { planEnvRewrite, type EnvRewrite, type KnownAccount } from './slotEmailPlan';
 import { writeEnvFileAtomic } from './slotEnvFile';
+
+/**
+ * Test safety net. Under vitest (`VITEST` set) every path this script reads as an env file or writes must resolve (symlinks
+ * followed) under the OS temp directory: a test that forgot a path option would otherwise fall back to the real default
+ * (/home/hein/isaflow-ci.env, ~/.secrets, every checkout's .env.local) and rewrite real logins, as one did on 2026-11-18.
+ * A path that does not exist is judged as written. Outside a test run this does nothing.
+ */
+export function assertTempUnderTest(paths: string[], underTest: boolean = Boolean(process.env.VITEST)): void {
+  if (!underTest) return;
+  const root = realpathSync(tmpdir());
+  for (const p of paths) {
+    let real: string;
+    try { real = realpathSync(p); } catch { real = resolve(p); }
+    if (real !== root && !real.startsWith(`${root}/`)) throw new Error(`refusing under vitest: ${p} is outside ${root}; a test must pass temp paths for every env option`);
+  }
+}
 
 export interface EnvDirs { envFile: string; deployEnvFile: string; secretsDir: string; workspaceRoot: string }
 
@@ -66,6 +83,7 @@ export function scanEnvFiles(paths: string[], accounts: KnownAccount[], allowedR
 export function rewriteEnvFiles(paths: string[], accounts: KnownAccount[], allowedRoot: string): Array<{ path: string; keys: string[] }> {
   const changed: Array<{ path: string; keys: string[] }> = [];
   for (const path of paths) {
+    assertTempUnderTest([path]);
     if (!isUnderRoot(path, allowedRoot)) continue;
     let text: string;
     try { text = readFileSync(path, 'utf8'); } catch { continue; }

@@ -36,7 +36,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
 import { applyPlan, findUnknownLegacy, readAccountState, realGoTrueOps, type Db, type GoTrueOps } from './slotEmailApply';
-import { discoverEnvFiles, rewriteEnvFiles, scanEnvFiles } from './slotEmailEnv';
+import { assertTempUnderTest, discoverEnvFiles, rewriteEnvFiles, scanEnvFiles } from './slotEmailEnv';
 import { formatPlan, knownAccounts, parseMigrationArgs, planAccount, type AccountPlan } from './slotEmailPlan';
 import { assertConnectedToDev, assertDevDatabaseUrl, assertGoTrueUrl, parseEnvFile } from './slotConfig';
 
@@ -58,6 +58,10 @@ export interface Io {
 export async function main(argv: string[], io: Io): Promise<number> {
   const args = parseMigrationArgs(argv);
   const envFile = args.envFile ?? DEFAULT_ENV_FILE;
+  const deployEnvFile = args.deployEnvFile ?? DEFAULT_DEPLOY_ENV_FILE;
+  const secretsDir = args.secretsDir ?? join(homedir(), '.secrets');
+  const workspaceRoot = args.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
+  assertTempUnderTest([envFile, deployEnvFile, secretsDir, workspaceRoot]);
   if (!existsSync(envFile)) throw new Error(`env file ${envFile} not found`);
   const fileEnv = parseEnvFile(readFileSync(envFile, 'utf8'));
   const get = (k: string): string | undefined => io.processEnv[k] || fileEnv[k] || undefined;
@@ -84,10 +88,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     for (const e of unknown.users) io.say(`UNKNOWN users row on the old domain, untouched: ${e}`);
 
     const allowedRoot = args.allowedRoot ?? DEFAULT_ALLOWED_ROOT;
-    const paths = discoverEnvFiles({
-      envFile, deployEnvFile: args.deployEnvFile ?? DEFAULT_DEPLOY_ENV_FILE, secretsDir: args.secretsDir ?? join(homedir(), '.secrets'),
-      workspaceRoot: args.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT,
-    });
+    const paths = discoverEnvFiles({ envFile, deployEnvFile, secretsDir, workspaceRoot });
     const scans = scanEnvFiles(paths, accounts, allowedRoot);
     const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
     const allowedReal = new Set(args.allowUnrecognised.map(real));
