@@ -93,6 +93,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/ci/golden-hosted/seed-demo.sql', // seeds the throwaway database of a hosted Golden Paths run (psql), never a shared one
+    'scripts/deploy/verifyCompany/provisionDb.ts', // flags the new Deploy Verification company is_demo (entity_change_capture records it); additive, idempotent, one company
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
