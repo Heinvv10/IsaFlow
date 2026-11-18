@@ -15,9 +15,7 @@ const USER_A = '11111111-1111-1111-1111-111111111112';
 const USER_B = '22222222-2222-2222-2222-222222222222';
 const ACC = { sal: 'aaaaaaaa-0000-0000-0000-0000000002a1', bank: 'aaaaaaaa-0000-0000-0000-0000000002a2', paye: 'aaaaaaaa-0000-0000-0000-0000000002a3' };
 const EMP = ['aaaaaaaa-0000-0000-0000-0000000002e1', 'aaaaaaaa-0000-0000-0000-0000000002e2'];
-const YEAR = 2100 + Math.floor(Math.random() * 800);
-let month = 0;
-
+const YEAR = 2100 + Math.floor(Math.random() * 800); let month = 0;
 beforeAll(async () => {
   await su.query(`DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fz_pg_ns') THEN CREATE ROLE fz_pg_ns NOLOGIN NOSUPERUSER INHERIT BYPASSRLS; END IF;
@@ -33,16 +31,11 @@ beforeAll(async () => {
     ($2, $1, 'E1', 'Ann', 'One', '2025-01-01'), ($3, $1, 'E2', 'Bob', 'Two', '2025-01-01') ON CONFLICT DO NOTHING`, [A, EMP[0], EMP[1]]);
 }, 60_000);
 afterAll(async () => {
-  await su.query('DELETE FROM payroll_run_headers WHERE company_id = $1', [A]);
-  await su.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1)', [[A, DEMO]]);
-  await su.query('DELETE FROM payroll_employees WHERE company_id = $1', [A]);
-  await su.query('DELETE FROM gl_accounts WHERE company_id = $1', [A]);
-  await su.query('DELETE FROM company_users WHERE company_id = ANY($1)', [[A, B]]);
-  await su.query('DELETE FROM companies WHERE id = ANY($1)', [[A, B]]);
-  await su.query('DELETE FROM users WHERE id = ANY($1)', [[USER_A, USER_B]]);
+  for (const [table, col, ids] of [['payroll_run_headers', 'company_id', [A]], ['gl_journal_entries', 'company_id', [A]],
+    ['payroll_employees', 'company_id', [A]], ['gl_accounts', 'company_id', [A]], ['company_users', 'company_id', [A, B]],
+    ['companies', 'id', [A, B]], ['users', 'id', [USER_A, USER_B]]] as const) await su.query(`DELETE FROM ${table} WHERE ${col} = ANY($1)`, [ids]);
   await su.end();
 });
-
 type Who = 'app_user' | 'postgres' | 'app_user_tenant_b';
 async function as(who: Who, fn: (c: PoolClient) => Promise<unknown>): Promise<void> {
   const c = await su.connect();
@@ -80,7 +73,6 @@ async function finalRun(status: 'approved' | 'calculated' = 'approved'): Promise
 const journal = async (je: string) => one(`SELECT e.status, count(l.id)::int AS n, COALESCE(sum(l.debit),0)::text AS dr, COALESCE(sum(l.credit),0)::text AS cr
   FROM gl_journal_entries e LEFT JOIN gl_journal_lines l ON l.journal_entry_id = e.id WHERE e.id = $1 GROUP BY e.status`, [je]);
 const INTACT = { status: 'posted', n: 3, dr: '1000.00', cr: '1000.00' };
-
 describe('999n breaker round 2: refused', () => {
   for (const who of ['app_user', 'postgres'] as const) {
     it(`N1 [${who}]: posted -> NULL, rewrite R1000 -> R1, NULL -> posted is refused at the first step`, async () => {
@@ -222,6 +214,25 @@ describe('999n breaker round 2: refused', () => {
       await expect(c.query('UPDATE gl_journal_lines SET journal_entry_id = $2 WHERE id = $1', [line, legacy])).rejects.toThrow(/moves only between draft journals/);
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
+  for (const who of ['app_user_tenant_b', 'postgres'] as const) {
+    it(`F1 [${who}]: a B-company line sitting in A's posted journal cannot have its amount edited`, async () => {
+      const ja = await mkJournal('2026-03-18', 'manual');
+      const c = await su.connect();
+      try {
+        await c.query('BEGIN');
+        const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+          VALUES ($1, 'FZ-F1', 'FZ B', 'expense', 'debit') RETURNING id`, [B])).rows[0].id;
+        // A legacy cross-company line (no app path writes one now; the PR body's census counts them in production).
+        const line = (await c.query(`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+          VALUES ($1, $2, 0, 0, $3) RETURNING id`, [ja, acct, B])).rows[0].id;
+        await c.query(`SET LOCAL ROLE ${who === 'postgres' ? 'fz_pg_ns' : 'app_user'}`);
+        if (who !== 'postgres') await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: USER_B, role: 'authenticated' })]);
+        await expect(c.query('UPDATE gl_journal_lines SET debit = 4444 WHERE id = $1', [line]))
+          .rejects.toThrow(who === 'postgres' ? /amounts are frozen/ : /cannot see/);
+      } finally { await c.query('ROLLBACK'); c.release(); }
+      expect(await journal(ja)).toEqual(INTACT);
+    });
+  }
   it('M1b: a line move re-checks both journals at COMMIT (second line of defence, the move rule switched off)', async () => {
     const ja = await mkJournal('2026-03-16', 'manual');
     const c = await su.connect();

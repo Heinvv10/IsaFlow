@@ -33,6 +33,7 @@
 --   3. gl_journal_lines of a posted or reversed journal keep debit, credit, journal_entry_id and company_id. Any line
 --      moves between journals only when both are drafts of its own company that the caller can see (round 3, M1:
 --      tenant B moved its draft line into A's posted journal); both journals are queued for rule 4 on a move.
+--      A line whose journal the caller cannot see takes no UPDATE of those columns (round 4, F1: fails closed).
 --      gl_account_id and the dimensions stay writable: account merge and the VAT late-claim split move gl_account_id
 --      on posted lines, and tagging moves cc1/cc2/bu (writer census, PR body). A posted or reversed journal takes no
 --      added or removed line (breaker H2) unless it was created in this transaction (created_at = now(); year-end and
@@ -306,6 +307,11 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
+  -- The line's own journal is read as the caller and fails closed (breaker round 4, F1: a B-company line sitting in
+  -- A's posted journal looked "not posted" to B's RLS-filtered read, so B could edit its amount).
+  IF NOT EXISTS (SELECT 1 FROM public.gl_journal_entries e WHERE e.id = OLD.journal_entry_id) THEN
+    RAISE EXCEPTION 'gl_journal_lines: a line whose journal the caller cannot see cannot be changed' USING ERRCODE = '23514';
+  END IF;
   IF public.gl_journal_is_posted(OLD.journal_entry_id)
      OR (NEW.journal_entry_id IS DISTINCT FROM OLD.journal_entry_id AND public.gl_journal_is_posted(NEW.journal_entry_id)) THEN
     RAISE EXCEPTION 'gl_journal_lines: a posted journal''s amounts are frozen (reverse it instead)' USING ERRCODE = '23514';
@@ -571,11 +577,19 @@ CREATE OR REPLACE TRIGGER trg_gl_jl_mark_unchecked
   EXECUTE FUNCTION public.gl_jl_mark_unchecked();
 ALTER TABLE public.gl_journal_lines ENABLE ALWAYS TRIGGER trg_gl_jl_mark_unchecked;
 
--- PG has no CREATE OR REPLACE for a constraint trigger, and DROP TRIGGER IF EXISTS would take ACCESS EXCLUSIVE on
--- gl_journal_lines even when there is nothing to drop. So it is created only when absent (a static statement, no
--- dynamic SQL); a re-run keeps the existing one, whose definition is this one.
+-- PG has no CREATE OR REPLACE for a constraint trigger. An existing one is replaced (DROP + CREATE) only when its
+-- definition differs from this one, e.g. a database holding an earlier 999n without the UPDATE OF journal_entry_id
+-- event; DROP TRIGGER takes ACCESS EXCLUSIVE on gl_journal_lines, so an unchanged re-run skips both (static
+-- statements, no dynamic SQL).
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+              WHERE t.tgrelid = 'public.gl_journal_lines'::regclass AND t.tgname = 'trg_gl_jl_posted_balanced'
+                AND ((t.tgtype & 16) = 0  -- no UPDATE event (TRIGGER_TYPE_UPDATE)
+                     OR t.tgattr::text IS DISTINCT FROM (SELECT a.attnum::text FROM pg_catalog.pg_attribute a
+                          WHERE a.attrelid = 'public.gl_journal_lines'::regclass AND a.attname = 'journal_entry_id'))) THEN
+    DROP TRIGGER trg_gl_jl_posted_balanced ON public.gl_journal_lines;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
                   WHERE tgrelid = 'public.gl_journal_lines'::regclass AND tgname = 'trg_gl_jl_posted_balanced') THEN
     CREATE CONSTRAINT TRIGGER trg_gl_jl_posted_balanced
