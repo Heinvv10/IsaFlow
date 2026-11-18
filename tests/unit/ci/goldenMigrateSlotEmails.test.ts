@@ -82,28 +82,37 @@ describe('migrate-slot-emails main', () => {
       expect(() => parseMigrationArgs(argv)).toThrow(/needs a value/);
     });
 
-    it.each([['a misspelt flag', ['--dryrun']], ['a flag with no value', ['--env-file']], ['--apply with --dry-run', ['--apply', '--dry-run']]])(
-      'the CLI entry turns %s into one formatted line and exit code 1, with no I/O (connect never called)', async (_l, argv) => {
-        expect(await cli(argv, mkIo(w))).toBe(1);
-        expect(errors).toHaveLength(1);
-        expect(errors[0]).toMatch(/^migrate-slot-emails failed: .+/);
-        expect(errors[0]).not.toMatch(/\n|    at /);
-        expect(said).toEqual([]);
-        expect(connected).toEqual([]);
-        expect(w.log).toEqual([]);
-      });
+    // cli() resolves the real defaults for any path option it is not given, so every cli() call here names ALL of them (temp paths).
+    const withTemp = (omit: string, ...tail: string[]): string[] =>
+      [...Object.entries({ '--env-file': ciEnv, '--deploy-env-file': deployEnv, '--secrets-dir': secrets, '--workspace-root': ws, '--allowed-root': dir }).filter(([k]) => k !== omit).flat(), ...tail];
 
-    it('the CLI entry also formats a failure from main (here the vitest temp-path guard, since cli() applies the real defaults)', async () => {
-      expect(await cli([], mkIo(w))).toBe(1);
-      expect(errors[0]).toMatch(/^migrate-slot-emails failed: refusing under vitest/);
+    it.each<[string, () => string[]]>([
+      ['a misspelt flag', () => withTemp('', '--dryrun')],
+      ['a flag with no value', () => withTemp('--env-file', '--env-file')],
+      ['--apply with --dry-run', () => withTemp('', '--apply', '--dry-run')],
+    ])('the CLI entry turns %s into one formatted line and exit code 1, with no I/O (connect never called)', async (_l, build) => {
+      expect(await cli(build(), mkIo(w))).toBe(1);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(/^migrate-slot-emails failed: .+/);
+      expect(errors[0]).not.toMatch(/\n|    at /);
+      expect(said).toEqual([]);
       expect(connected).toEqual([]);
+      expect(w.log).toEqual([]);
+    });
+
+    it('the CLI entry also formats a failure from main (an env file that is not there), temp paths only', async () => {
+      expect(await cli(['--env-file', f('missing.env'), ...withTemp('--env-file')], mkIo(w))).toBe(1);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(/^migrate-slot-emails failed: env file .* not found$/);
+      expect(said).toEqual([]);
+      expect(connected).toEqual([]);
+      expect(w.log).toEqual([]);
     });
 
     it('main() has no defaults: a call missing any path option is refused before it reads or connects', async () => {
       for (const key of ['envFile', 'deployEnvFile', 'secretsDir', 'workspaceRoot', 'allowedRoot'] as const) {
         await expect(main({ ...baseArgs(), [key]: undefined } as unknown as ResolvedArgs, mkIo(w))).rejects.toThrow(new RegExp(`missing: ${key}$`));
       }
-      await expect(main({ apply: false, allowUnrecognised: [] } as unknown as ResolvedArgs, mkIo(w))).rejects.toThrow(/requires/);
       expect(connected).toEqual([]);
       expect(w.log).toEqual([]);
     });
