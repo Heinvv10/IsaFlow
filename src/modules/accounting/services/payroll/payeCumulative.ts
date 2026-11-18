@@ -176,14 +176,18 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // What can come off the annual equivalent: itself, plus the periodic donations a year the deduction's base added back.
   const offPeriodicCeiling = annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0);
   const offPeriodic = Math.min(deduction, offPeriodicCeiling);
-  // Weighted n ÷ F as the liability is, but never past a year's worth (min(n, P)): at P periods it is the year's D.
-  const periodicToDate = (offPeriodic * Math.min(periods, P)) / F;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
   // A STATUTORY PERIOD RATIO, NOT AN ANNUALISATION (coordinator ruling 2026-11-17: statute over unproven parity): the cap
   // to date is cap × n ÷ 12 (G21 (2027) Rev 1 p. 10, "the same ratio as the period ... bears to a whole year"), never ÷ F,
   // so twelve months reach exactly R430 000. Pinned by payeAnnualisation.test.ts ("twelve equal months at the cap").
   const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * ratio(Math.max(capPeriods, 1)));
+  // The deduction off periodic pay to date: weighted n ÷ F as the liability is, but never past the cap to date (review
+  // #1578 round 2, coordinator ruling: bound it first, then tax the AE less it). Past P periods (a 27th fortnight, a 53rd
+  // week, a 13th line) a deduction under the cap is recorded and taxed in full; one at the cap stops at the cap both ways.
+  const unboundedToDate = (offPeriodic * periods) / F;
+  const periodicToDate = Math.min(unboundedToDate, capToDate);
+  const offPeriodicTaxed = periodicToDate < unboundedToDate ? (periodicToDate * F) / periods : offPeriodic;
   const offAnnualLimits = {
     // On the year's scale, as the cap and the contributions to date are (review #1578 L2): the part off periodic pay over a
     // whole year is offPeriodic × P ÷ F, so a year's deduction is D exactly (with F = P, deduction − offPeriodic as before).
@@ -192,7 +196,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   };
   const offAnnual = Math.max(0, Math.min(offAnnualLimits.deductionLeft, offAnnualLimits.annualPayments,
     offAnnualLimits.contributionsLeft, offAnnualLimits.capLeft));
-  const taxedAE = Math.max(0, annualEquivalent - offPeriodic);
+  const taxedAE = Math.max(0, annualEquivalent - offPeriodicTaxed);
   const donationSpill = (Math.max(0, offPeriodic - annualEquivalent) * periods) / F;
   const annualAll = Math.max(0, annualBefore + annualNow - offAnnual - donationSpill);
   const annualEarlier = Math.max(0, annualBefore - offAnnual - donationSpill);
@@ -212,7 +216,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,
     annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, annualCap: limits.cap, offPeriodicCeiling,
     offPeriodic, offAnnual, donationSpill, offAnnualLimits, hasPeriodic, capPeriods: Math.max(capPeriods, 1), capToDate, deductionOffPeriodicToDate: periodicToDate,
-    taxedAnnualEquivalent: taxedAE,
+    taxedAnnualEquivalent: taxedAE, offPeriodicTaxed,
     annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, afterRebatesToDate, creditsOnAEToDate: mtcOnAE + amtcOnAE,
     liability, ytdTablePaye: ytd.tablePaye, due, annualDue,
   });

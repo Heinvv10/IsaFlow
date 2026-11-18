@@ -76,7 +76,7 @@ export function annualPaymentsStep(input: PayeExplainInput): ExplainStep {
           key: 'paye.offAnnual.capLeft', label: 'The cap to date, less that part', amount: t.offAnnualLimits.capLeft,
           formula: `${r(t.capToDate)} − ${r(t.deductionOffPeriodicToDate)}`,
           children: [
-            { key: 'paye.offAnnual.capToDate', label: `Cap to date (the s11F annual cap × periods ÷ ${t.periodsInYear})`, amount: t.capToDate },
+            { key: 'paye.offAnnual.capToDate', label: `Cap to date (the s11F annual cap × ${Math.min(t.capPeriods, t.periodsInYear)} ÷ ${t.periodsInYear})`, amount: t.capToDate },
             { key: 'paye.offAnnual.capPeriods', label: 'Periods for the cap (periodic pay or an annual payment)', amount: t.capPeriods, unit: 'count' },
             { key: 'paye.offAnnual.offPeriodicToDate', label: 'The deduction off periodic pay to date', amount: t.deductionOffPeriodicToDate },
           ],

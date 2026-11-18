@@ -99,6 +99,14 @@ describe('PR 1578 breaker', () => {
   it('S7 terminated after 7 months', () => { const m = Array.from({ length: 7 }, () => ({ salary: 60_000, fees: 2_500, ra: 5_000 })); const rows = rep('S7', engine(m, '1986-01-01', 2), hand(m, 40, 2)); expect(rows.every(r => r.engPaye === r.handPaye && r.rec === 'ok')).toBe(true); });
   it('S8 65+ low earner, AMTC binds', () => { const m = year({ salary: 18_000, fees: 6_000 }); const rows = rep('S8', engine(m, '1958-01-01', 2), hand(m, 69, 2)); expect(rows.every(r => r.engPaye === r.handPaye && r.engAmtc === r.handAmtc && r.engMtc === r.handMtc && r.rec === 'ok')).toBe(true); });
 });
+describe('PR 1578 round 2: a 13th line at the cap', () => {
+  it('S9 13 lines at R200 000 with a R50 000 RA: each explanation recomputes, and the deduction stops at the cap', () => {
+    const m = Array.from({ length: 13 }, () => ({ salary: 200_000, ra: 50_000 }));
+    const e = engine(m, '1986-01-01', 0);
+    expect(e.map(x => x.recompute)).toEqual(Array(13).fill('ok'));
+    expect(Math.round(e.reduce((t, x) => t + x.ded, 0) * 100)).toBe(43_000_000);
+  });
+});
 describe('statute x12 deltas', () => {
   it('prints', () => {
     const cases: [string, M[], number, number][] = [
