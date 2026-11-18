@@ -4,14 +4,16 @@
  * 870); the CC1 is derived from the CC2, never picked. The pickers are the
  * customer invoice table's, offering the same active masters.
  */
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { Plus, Tags } from 'lucide-react';
 import { useOverflowX } from '@/hooks/useOverflowX';
 import { useElementWidth } from '@/hooks/useElementWidth';
 import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
-import { billLineFields } from './BillLineFields';
+import { billLineFields, type SupplierLineCoding } from './BillLineFields';
 import { BillLinesCards, BillLinesTable } from './BillLineLayouts';
 import { useCostCentreLadder } from './billLineCc1';
+import { nextStacked } from './billLineLayoutRule';
+import { useLayoutFocusRestore } from '@/hooks/useLayoutFocusRestore';
 
 /** Narrower than this the columns would crush the description, so each line stacks as a card instead of a row. */
 const TABLE_MIN_WIDTH = 820;
@@ -51,20 +53,23 @@ interface Props {
   /** CC2 / BU picker options; without them the Dimensions toggle is not offered. */
   codingOptions?: InvoiceLineCodingOptions;
   /** The supplier's pre-filled CC2 / BU (migration 890) and what the server applies on save; see useSupplierDimensionDefaults. */
-  supplierDefaults?: { cc2Id: string; buId: string; note: string; /** The supplier's default FNO, shown as the CC1 of a line with no project. */ cc1Id?: string };
+  supplierDefaults?: SupplierLineCoding & { note: string };
 }
 
 export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
-  const { attach: attachLines, overflows: linesOverflow } = useOverflowX();
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
   const showDimensions = codingOptions !== undefined
     && (dimensionsToggled ?? lines.some(l => Boolean(l.cc2Id) || Boolean(l.buId)));
   const ladder = useCostCentreLadder(showDimensions);
-  const { attach: attachWidth, width } = useElementWidth();
-  const attachRegion = useCallback((el: HTMLElement | null) => { attachLines(el); attachWidth(el); }, [attachLines, attachWidth]);
-  // Stack once the region cannot hold the columns (width 0 = not measured / no layout: keep the table).
-  const stacked = width > 0 && width < (showDimensions ? TABLE_MIN_WIDTH_DIMENSIONS : TABLE_MIN_WIDTH);
+  // The width is read from a box that is the same in both layouts (the region inside has a border only as a table),
+  // so what is on show cannot change the reading. billLineLayoutRule adds the margin that stops a swap back.
+  const { attach: attachBox, width } = useElementWidth();
+  const [stacked, setStacked] = useState(false);
+  const nextLayout = nextStacked(stacked, width, showDimensions ? TABLE_MIN_WIDTH_DIMENSIONS : TABLE_MIN_WIDTH);
+  if (nextLayout !== stacked) setStacked(nextLayout);
+  const { attach: attachLines, overflows: linesOverflow } = useOverflowX(stacked);
+  const { onFocus } = useLayoutFocusRestore(stacked);
   const ctx = { glAccounts, onUpdate, onRemove, codingOptions, supplierDefaults, ladder, showDimensions };
   const rows = lines.map((line, i) => ({ key: line.key, f: billLineFields(line, i, ctx) }));
   return (
@@ -109,14 +114,16 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
       )}
 
       {!stacked && linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
-      <div
-        ref={attachRegion}
-        className={stacked ? 'mx-5 my-4' : 'rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4'}
-        role="region" aria-label="Invoice lines" tabIndex={0}
-      >
-        {stacked
-          ? <BillLinesCards rows={rows} showDimensions={showDimensions} oneColumn={width < CARD_ONE_COLUMN} />
-          : <BillLinesTable rows={rows} showDimensions={showDimensions} />}
+      <div ref={attachBox} data-lines-box className="mx-5 my-4">
+        <div
+          ref={attachLines} onFocus={onFocus}
+          className={stacked ? '' : 'rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto'}
+          role="region" aria-label="Invoice lines" tabIndex={0}
+        >
+          {stacked
+            ? <BillLinesCards rows={rows} showDimensions={showDimensions} oneColumn={width < CARD_ONE_COLUMN} />
+            : <BillLinesTable rows={rows} showDimensions={showDimensions} />}
+        </div>
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ import { groupBillAccounts } from './billAccountOptions';
 import { formatCurrency } from '@/utils/formatters';
 import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
-import { deriveLineCc1, type LadderCentre } from './billLineCc1';
+import { deriveLineCc1, type CostCentreLadder } from './billLineCc1';
 import type { BillLineItem, GLAccount } from './BillLineItemsTable';
 
 export const billInput =
@@ -52,13 +52,29 @@ export function nonSupplyReason(line: BillLineItem, glAccounts: GLAccount[]): No
   return classifyNonSupplyAccount(account?.accountName ?? '');
 }
 
+/** The supplier's pre-filled CC2 / BU, and its default FNO (CC1), as the bill table gets them. */
+export interface SupplierLineCoding {
+  cc2Id: string;
+  buId: string;
+  /** The supplier's default FNO, applied by the server to a line that names no CC1 or CC2. */
+  cc1Id?: string;
+}
+
+/** What a line shows beside its CC2: a lookup still loading or failed is never presented as "no CC1". */
+export function cc1Text(ladder: CostCentreLadder, line: BillLineItem, supplier?: SupplierLineCoding): string {
+  if (ladder.status === 'failed') return 'CC1: could not be loaded';
+  if (ladder.status !== 'ready') return 'CC1: loading…';
+  const cc1 = deriveLineCc1(line, ladder.index, supplier ?? {});
+  return `CC1: ${cc1 ? `${cc1.label}${cc1.note ? ` (${cc1.note})` : ''}` : '—'}`;
+}
+
 export interface LineFieldsContext {
   glAccounts: GLAccount[];
   onUpdate: (key: string, field: keyof BillLineItem, value: string | number) => void;
   onRemove: (key: string) => void;
   codingOptions?: InvoiceLineCodingOptions;
-  supplierDefaults?: { cc2Id: string; buId: string; cc1Id?: string };
-  ladder: LadderCentre[];
+  supplierDefaults?: SupplierLineCoding;
+  ladder: CostCentreLadder;
   showDimensions: boolean;
 }
 
@@ -70,7 +86,6 @@ export interface LineFields {
 export function billLineFields(line: BillLineItem, index: number, ctx: LineFieldsContext): LineFields {
   const { glAccounts, onUpdate, onRemove, codingOptions, supplierDefaults, ladder, showDimensions } = ctx;
   const reason = nonSupplyReason(line, glAccounts);
-  const cc1 = deriveLineCc1(line, ladder, supplierDefaults?.cc1Id ?? '');
   return {
     description: (
       <input type="text" required value={line.description} placeholder="Item description"
@@ -100,7 +115,7 @@ export function billLineFields(line: BillLineItem, index: number, ctx: LineField
         <CodingPicker label="CC2 project" value={line.cc2Id ?? ''} options={codingOptions.cc2s} all={codingOptions}
           empty={supplierDefaults?.cc2Id ? 'Supplier default' : 'No CC2 project'} onChange={v => onUpdate(line.key, 'cc2Id', v)} />
         <span className="mt-1 block text-xs text-slate-600 dark:text-slate-400 break-words" data-testid="line-cc1">
-          CC1: {cc1 ?? '—'}
+          {cc1Text(ladder, line, supplierDefaults)}
         </span>
       </>
     ) : null,

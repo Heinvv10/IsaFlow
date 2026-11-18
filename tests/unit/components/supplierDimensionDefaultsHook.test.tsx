@@ -126,6 +126,17 @@ describe('useSupplierDimensionDefaults', () => {
     expect(lines()[0]!.cc2Id ?? '').toBe('');
   });
 
+  it('hands the table the held default FNO id, active or not (the table checks it against the ladder), and none without a rule', async () => {
+    serve(
+      on('GET', '/supplier-rules/s1', () => rule({ defaultCc1Id: 'f1' })),
+      on('GET', '/supplier-rules/s2', () => new Response('', { status: 404 })),
+    );
+    const { view } = mount('s1', OFFERED);
+    await waitFor(() => expect(view.result.current.cc1Id).toBe('f1'));
+    view.rerender({ id: 's2', offered: OFFERED });
+    await waitFor(() => expect(view.result.current.cc1Id).toBe(''));
+  });
+
   it('has no defaults for a supplier with no rule', async () => {
     serve(on('GET', '/supplier-rules/s1', () => new Response('', { status: 404 })));
     const { view, lines } = mount('s1', OFFERED);
