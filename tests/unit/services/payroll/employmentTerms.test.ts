@@ -207,7 +207,7 @@ describe('employedShareOfMonth: working days (Monday to Friday)', () => {
     const c = classifyEmployment(terms({ hoursPerWeek: 20, hoursPerDay: 5 }), 2027, { earnings: 500, employedShare: employedShareOfMonth(oct, new Date(2026, 9, 31)) });
     expect(c.kind).toBe('non_standard_flat');
   });
-  it('LIMIT: public holidays are not excluded (no calendar in the repo, none hardcoded): 14 December 2026 counts 16 December as a working day', () => {
+  it('LIMIT: public holidays are not excluded (the calendar in @/lib/saPublicHolidays is not applied here): 14 December 2026 counts 16 December as a working day', () => {
     expect(employedShareOfMonth({ year: 2026, month: 12 }, new Date(2026, 11, 14))).toBeCloseTo(14 / 23, 5);
   });
   it('not employed in the month: 0 (an end before it, a start after it)', () => {

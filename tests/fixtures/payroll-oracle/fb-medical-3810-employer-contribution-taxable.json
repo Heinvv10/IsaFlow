@@ -49,5 +49,17 @@
     "uifEmployer": 177.12,
     "sdl": 250.0,
     "net": 21413.88
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 1,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 3409.01
+    },
+    "net": {
+      "cents": 1,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 21413.87
+    }
   }
 }
