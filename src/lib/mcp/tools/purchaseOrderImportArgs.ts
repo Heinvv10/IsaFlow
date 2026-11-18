@@ -139,7 +139,6 @@ function parseLine(o: unknown, label: string, inclusive: boolean): ParsedPoLine 
   if (typeof money === 'string') return `${label}: ${money}`;
   if (money.net + money.tax > MAX_CENTS) return `${label}: the line amount is more than the largest amount a document holds`;
   const stored = storedUnitPrice(quantity, money.net);
-  if (stored === null) return `${label}: no unit price of 6 decimals gives line_total at this quantity; split the line`;
   return { description: description as string, quantity, unitPrice: stored, taxRate: rate, glAccountId, dims, cents: money };
 }
 

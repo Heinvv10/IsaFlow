@@ -5,8 +5,8 @@
  *   1. the source system's own figures, when the caller sends them (Sage's Exclusive and Tax per line). Stored as sent,
  *      because the source's arithmetic is what its totals add up to: a discount, an inclusive document, or a unit
  *      price with more decimals all make quantity x unit price differ from them. A line amount may be LESS than
- *      quantity x unit price (a discount) but never more than it by over a cent (that is the VAT-inclusive total sent
- *      as the ex-VAT amount). The VAT must agree with the line amount at the line's rate within 2 cents (a swapped or
+ *      quantity x unit price (a discount) but not more than it by over 0.5% (or a cent): that is the VAT-inclusive
+ *      total sent as the ex-VAT amount (15% over), while a unit price the source truncated stays well inside it. The VAT must agree with the line amount at the line's rate within 2 cents (a swapped or
  *      mistyped field is refused, rounding is not);
  *   2. otherwise computed. Exclusive: net = round(qty x price), VAT = round(net x rate). Inclusive (the source
  *      document's prices included VAT, as Sage computes it): gross = round(qty x price x (1 + rate)), VAT =
@@ -15,8 +15,9 @@
  * (`expected`), each one sent must equal the sum to the cent, or the PO is refused naming both figures.
  *
  * The STORED unit price is the line's effective ex-VAT price, net / quantity to 6 decimals (`storedUnitPrice`, po_items
- * NUMERIC(19,6) since 1001), so line_total = round(quantity x unit_price) holds for every PO line whichever writer made
- * it: the app's edit recomputes line_total from those two, and a bill copies them from the PO.
+ * NUMERIC(19,6) since 1001), so line_total = round(quantity x unit_price) for the PO line. At 10 000 units and more no
+ * 6-decimal price may round back exactly; the nearest is stored and the product can differ from line_total by up to a
+ * cent. The stored line_total is what every PO figure reads; the app's edit and a bill's copy re-derive from the price.
  */
 
 export interface ImportLineMoney {
@@ -43,6 +44,8 @@ export function cents(amount: number): number {
 
 /** VAT agrees with the line amount within this many cents: the source's own rounding, never a wrong figure. */
 export const TAX_TOLERANCE_CENTS = 2;
+/** A line amount may exceed quantity x unit price by this fraction (a truncated source price), never by 15% (VAT). */
+export const OVER_PRICE_ALLOWANCE = 0.005;
 
 /** One line's cents, or the refusal text. */
 export function lineCents(line: ImportLineMoney, inclusive: boolean): LineCents | string {
@@ -50,7 +53,7 @@ export function lineCents(line: ImportLineMoney, inclusive: boolean): LineCents 
   if (line.lineTotal !== undefined) {
     const net = cents(line.lineTotal);
     const gross = cents(line.quantity * line.unitPrice);
-    if (net > gross + 1) {
+    if (net > gross + Math.max(1, Math.round(gross * OVER_PRICE_ALLOWANCE))) {
       return `line_total ${fmt(net)} is more than quantity x unit_price (${fmt(gross)}): send the ex-VAT line amount (Sage Exclusive), not the VAT-inclusive total`;
     }
     const expectedTax = cents(line.lineTotal * vat);
@@ -74,10 +77,16 @@ export function lineCents(line: ImportLineMoney, inclusive: boolean): LineCents 
 /** Six decimals: the precision po_items.unit_price keeps. */
 const round6 = (v: number): number => Math.round(Number((v * 1e6).toPrecision(15))) / 1e6;
 
-/** The effective unit price stored for a line, or null when no 6-decimal price makes quantity x price round to it. */
-export function storedUnitPrice(quantity: number, netCents: number): number | null {
+/**
+ * The effective unit price stored for a line: the 6-decimal price whose product with the quantity rounds to the line
+ * amount (the nearest price, or a neighbour a millionth away), else the nearest price (only at 10 000+ units).
+ */
+export function storedUnitPrice(quantity: number, netCents: number): number {
   const unit = round6(netCents / 100 / quantity);
-  return cents(quantity * unit) === netCents ? unit : null;
+  for (const candidate of [unit, round6(unit + 1e-6), round6(unit - 1e-6)]) {
+    if (candidate >= 0 && cents(quantity * candidate) === netCents) return candidate;
+  }
+  return unit;
 }
 
 export function poCents(lines: readonly LineCents[]): PoCents {

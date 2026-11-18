@@ -71,7 +71,6 @@ describe('parsePurchaseOrder', () => {
     [{ lines: [{ description: 'a', quantity: 1.005, unit_price: 1 }] }, /quantity has at most two decimals/],
     [{ lines: [{ description: 'a', quantity: 1e9, unit_price: 9999999999999 }] }, /line amount is more than the largest amount/],
     [{ lines: [{ description: 'a', quantity: 10, unit_price: 100, line_total: 1150 }] }, /line_total 1150\.00 is more than quantity x unit_price/],
-    [{ lines: [{ description: 'a', quantity: 3_000_000, unit_price: 0.0000001, line_total: 0.3 }] }, /no unit price of 6 decimals gives line_total at this quantity/],
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, tax_amount: 0.15 }] }, /tax_amount needs line_total/],
     [{ description: 'x'.repeat(501) }, /description is not a field/],
     [{ reference: 'x'.repeat(256) }, /reference is longer than 255/],

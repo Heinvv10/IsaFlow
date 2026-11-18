@@ -88,7 +88,7 @@ export function PoLineItemsEditor({ items, accounts, storedLabels, onAdd, onRemo
                     onChange={e => onUpdate(idx, 'quantity', e.target.value)} className="ff-input w-full text-sm text-right" />
                 </td>
                 <td className="py-2 pr-2">
-                  <input type="number" required name="unitPrice" min="0" step="0.01" value={item.unit_price} aria-label={`Line ${idx + 1} unit price`}
+                  <input type="number" required name="unitPrice" min="0" step="any" value={item.unit_price} aria-label={`Line ${idx + 1} unit price`}
                     onChange={e => onUpdate(idx, 'unit_price', e.target.value)} className="ff-input w-full text-sm text-right" />
                 </td>
                 <td className="py-2 pr-2">

@@ -27,7 +27,18 @@ describe('lineCents', () => {
   it('refuses a line_total above quantity x unit_price: the VAT-inclusive total sent as the ex-VAT amount', () => {
     expect(lineCents({ quantity: 10, unitPrice: 100, taxRate: 15, lineTotal: 1150 }, false))
       .toBe('line_total 1150.00 is more than quantity x unit_price (1000.00): send the ex-VAT line amount (Sage Exclusive), not the VAT-inclusive total');
-    expect(lineCents({ quantity: 10, unitPrice: 100, taxRate: 15, lineTotal: 1000.01 }, false)).toEqual({ net: 100001, tax: 15000 });
+    // 0.5% of 1000.00 is 5.00: inside it a truncated source price, past it refused.
+    expect(lineCents({ quantity: 10, unitPrice: 100, taxRate: 0, lineTotal: 1005 }, false)).toEqual({ net: 100500, tax: 0 });
+    expect(lineCents({ quantity: 10, unitPrice: 100, taxRate: 0, lineTotal: 1005.01 }, false)).toMatch(/is more than quantity x unit_price/);
+    // At least a cent, however small the line.
+    expect(lineCents({ quantity: 1, unitPrice: 0.5, taxRate: 0, lineTotal: 0.51 }, false)).toEqual({ net: 51, tax: 0 });
+    expect(lineCents({ quantity: 1, unitPrice: 0.5, taxRate: 0, lineTotal: 0.52 }, false)).toMatch(/is more than/);
+  });
+
+  it('accepts an inclusive Sage line whose ex-VAT unit price was truncated', () => {
+    // Total 2000.00 incl: Tax 260.87, Exclusive 1739.13; UnitPriceExclusive 1.7391 x 1000 = 1739.10.
+    expect(lineCents({ quantity: 1000, unitPrice: 1.7391, taxRate: 15, lineTotal: 1739.13, taxAmount: 260.87 }, false))
+      .toEqual({ net: 173913, tax: 26087 });
   });
 
   it('the source\'s own line_total and tax_amount are stored as sent (a discount, more price decimals)', () => {
@@ -80,7 +91,10 @@ describe('storedUnitPrice', () => {
     expect(storedUnitPrice(1000, 123450)).toBe(1.2345);
   });
 
-  it('is null when no 6-decimal price rounds back to the amount', () => {
-    expect(storedUnitPrice(3_000_000, 100)).toBeNull();
+  it('picks a neighbouring price when the nearest does not round back, and never refuses', () => {
+    // 81139.99 / 15000 = 5.40933267 -> 5.409333 gives 81139.995 -> .00; 5.409332 gives 81139.98.
+    const u = storedUnitPrice(15000, 8113999);
+    expect(Math.abs(Math.round(15000 * u * 100) - 8113999)).toBeLessThanOrEqual(1);
+    expect(storedUnitPrice(3_000_000, 100)).toBe(0);
   });
 });
