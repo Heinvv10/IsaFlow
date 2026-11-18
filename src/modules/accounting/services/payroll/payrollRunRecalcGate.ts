@@ -21,6 +21,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { EMPLOYMENT_TERMS_BLOCKING_CODES } from './validationEngine';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
@@ -52,13 +53,14 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
  */
 export async function runLinesRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const head = ((await sql`
-    SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    SELECT period_year, period_month, pay_frequency, period_start, period_end FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   if (!head) return null;
   // The run's lines AND everyone the run would pay now: a hire with pay added after calculation has no line yet.
   const lineIds = ((await sql`SELECT employee_id FROM payroll_run_lines WHERE run_id = ${runId}::uuid`) as DbRow[])
     .map((r) => String(r.employee_id));
-  const population = await listPayrollRunEmployees(companyId, { year: Number(head.period_year), month: Number(head.period_month) });
+  // The run's own period and frequency (wave 6 FQc): a weekly run's population is its week's.
+  const population = await listPayrollRunEmployees(companyId, runPeriodOf(head), payFrequencyOf(head.pay_frequency));
   const ids = [...new Set([...lineIds, ...population.map((e) => e.id)])];
   const changed = (await sql`
     SELECT DISTINCT e.employee_number

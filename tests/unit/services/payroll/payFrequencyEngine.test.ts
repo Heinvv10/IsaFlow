@@ -91,3 +91,22 @@ describe('the run-keyed journal description (OC adopts it for off-cycle runs)', 
     expect(RUN_KEYED_JOURNAL.test('Payroll run 2026-05')).toBe(false);
   });
 });
+
+describe('a frequency refusal reaches a route as its own status (apiRunKindUnsupported)', () => {
+  it('400 for terms a weekly run cannot cost, 409 for the month or a mid-year change, with the code', async () => {
+    const { respondIfRunKindUnsupported } = await import('@/lib/apiRunKindUnsupported');
+    const { PayFrequencyRefusedError } = await import('@/modules/accounting/services/payroll/payrollFrequencyGuard');
+    const res = () => {
+      const r = { statusCode: 0, body: undefined as unknown, status(c: number) { r.statusCode = c; return r; }, json(b: unknown) { r.body = b; return r; },
+        setHeader: () => r };
+      return r;
+    };
+    const a = res();
+    expect(respondIfRunKindUnsupported(a as never, new PayFrequencyRefusedError(400, [{ clause: 'frequency_terms', detail: 'employees E1 have an active loan' }]))).toBe(true);
+    const b = res();
+    respondIfRunKindUnsupported(b as never, new PayFrequencyRefusedError(409, [{ clause: 'frequency_change', detail: 'x' }]));
+    expect([a.statusCode, b.statusCode]).toEqual([400, 409]);
+    expect(JSON.stringify(a.body)).toContain('PAY_FREQUENCY_REFUSED');
+    expect(respondIfRunKindUnsupported(res() as never, new Error('other'))).toBe(false);
+  });
+});

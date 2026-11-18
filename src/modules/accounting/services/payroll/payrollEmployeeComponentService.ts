@@ -121,12 +121,12 @@ export async function assignComponentToEmployee(
     ? null
     : endOfMonthIso(Number(effectiveFromStr.slice(0, 4)), Number(effectiveFromStr.slice(5, 7)));
   if (!isRecurring) refuseOnceOffSpan(effectiveFromStr, effectiveToStr);
-  await assertComponentAssignableAtFrequency(companyId, employeeId, componentId, percentOfRfi); // wave 6 FQc, §0a.11
 
   return withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
+    await assertComponentAssignableAtFrequency(companyId, employeeId, componentId, percentOfRfi); // wave 6 FQc, §0a.11
     await judgeFundAssignment(tx, companyId, componentId);
     if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount, isRecurring);
     await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });

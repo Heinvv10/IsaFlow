@@ -32,6 +32,7 @@ import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYe
 import { refuseReversalAgainstPayRun } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { createLoan } from '@/modules/accounting/services/payroll/payrollLoanService';
+import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { computeAnnualTax, getTaxYearConfig } from '@/modules/accounting/services/payroll/taxTables';
 import { runJournalDescriptionOf } from '@/modules/accounting/services/payroll/payrollJournalDescription';
 
@@ -173,8 +174,14 @@ describe('what a weekly run refuses this wave (payrollFrequencyGuard)', () => {
       const run = await weeklyRun(c, A, WEEKS[0]);
       const calc = await calculatePayrollRun(run, A.company).then(() => null, (e: unknown) => e as { code?: string; status?: number; message: string });
       const lines = Number((await c.query('SELECT COUNT(*) FROM payroll_run_lines WHERE run_id = $1', [run])).rows[0].count);
-      return { created, calc, lines };
+      const medical = String((await c.query(
+        `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type) VALUES ($1, 'Medical (employer)', '3810', 'earning') RETURNING id`,
+        [A.company])).rows[0].id);
+      const assigned = await assignComponentToEmployee(A.company, a.young, medical, 500, '2026-06-01', undefined, true,
+        { userId: A.user, userEmail: null, channel: 'rest' } as never).then(() => null, (e: unknown) => e as { code?: string; status?: number });
+      return { created, calc, lines, assigned };
     });
+    expect(got.assigned).toMatchObject({ code: 'PAY_FREQUENCY_REFUSED', status: 400 });
     expect(got.created).toMatchObject({ code: 'PAY_FREQUENCY_REFUSED', status: 400 });
     expect(got.calc).toMatchObject({ code: 'PAY_FREQUENCY_REFUSED', status: 400 });
     expect(got.calc?.message).toContain('FQC-BIG');

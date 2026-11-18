@@ -71,7 +71,7 @@
    {"line":57,"text":"WHERE company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AND run_kind = 'regular'","class":"S","owner":"FQb2","why":"the final-run filter of the query above (the alias argument names the table); regular monthly runs only, as that row says"}
   ],
   "src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts": [
-   {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"R","owner":"FQc","why":"by run id; the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"S","owner":"FQc","why":"FQc converted (R, F2): by run id; the run's own last day (h.period_end), not its month's"}
   ],
   "src/modules/accounting/services/core/payRunApproverGuard.ts": [
    {"line":86,"text":"LEFT JOIN payroll_run_headers h ON h.id = ar.document_id AND h.company_id = ar.company_id","class":"S","owner":"FQb2","why":"by approval document id"}
@@ -171,7 +171,7 @@
   "src/modules/accounting/services/payroll/payrollBankFileJudge.ts": [
    {"line":48,"text":"FROM payroll_bank_files f JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"the run's live bank files, by run id"},
    {"line":101,"text":"JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"the run's lines, by run id"},
-   {"line":156,"text":"FROM payroll_run_headers h","class":"R","owner":"FQc","why":"by run id (je.id = h.journal_entry_id); the journal description it requires is built from the month, mirroring payrollJournalBuilder: right for a monthly run, regular or off-cycle; weekly/fortnightly descriptions are FQc's"}
+   {"line":156,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"FQc converted (R): by run id; the journal description required is runJournalDescriptionOf the run (its kind and pay date)"}
   ],
   "src/modules/accounting/services/payroll/payrollBankFileService.ts": [
    {"line":62,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"lock and read the run by id"},
@@ -207,9 +207,9 @@
    {"line":66,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"months with a paid run (any run of the month counts)"}
   ],
   "src/modules/accounting/services/payroll/payrollComponentService.ts": [
-   {"line":59,"text":"FROM payroll_employee_components pec","class":"R","owner":"FQc","why":"once-offs read by the month of asOf (date_trunc month): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
-   {"line":79,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"R","owner":"FQc","why":"same query (:59): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
-   {"line":92,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"R","owner":"FQc","why":"same query (:59): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":59,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"},
+   {"line":79,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"},
+   {"line":92,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"}
   ],
   "src/modules/accounting/services/payroll/payrollEmp201Paye.ts": [
    {"line":15,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): EMP201 PAYE summed per month over every run (was a header per month in a Map; EMP501 reconciliation and year-end)"},
@@ -230,7 +230,7 @@
    {"line":101,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"EXISTS over the tax year's final lines at another frequency (any number of runs a month)"}
   ],
   "src/modules/accounting/services/payroll/payrollJournalBuilder.ts": [
-   {"line":84,"text":"FROM payroll_run_headers h","class":"R","owner":"FQc","why":"by run id; journal date, description and reference from the month: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":84,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"FQc converted (R): by run id; description runJournalDescriptionOf the run; entry date and reference stay the EMP201 month's (the period the liability is declared in)"}
   ],
   "src/modules/accounting/services/payroll/payrollJournalChain.ts": [
    {"line":211,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"}
@@ -305,8 +305,8 @@
    {"line":94,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRecurringProRata.ts": [
-   {"line":64,"text":"FROM payroll_employee_components pec","class":"R","owner":"FQc","why":"recurring rows read at the month's 27th/last day: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's (F2)"},
-   {"line":133,"text":"JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"by run id; the run's month passed on as its period (F2): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":64,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (R, F2): the run's own dates (runPeriodOf): read on its last day, the band is its whole period"},
+   {"line":133,"text":"JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQc","why":"FQc converted (R, F2): the run's own dates (runPeriodOf): read on its last day, the band is its whole period"}
   ],
   "src/modules/accounting/services/payroll/payrollRetirementRecord.ts": [
    {"line":65,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"tax-year sum"}
@@ -317,8 +317,8 @@
   "src/modules/accounting/services/payroll/payrollRunDirectiveClaim.ts": [
    {"line":65,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
    {"line":124,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":182,"text":"FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"severance payment dated the month's last day: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
-   {"line":211,"text":"FROM payroll_run_headers h","class":"R","owner":"FQc","why":"leaver before the run = end_date before the month's first day: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":182,"text":"FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQc","why":"FQc converted (R): the run's own dates (h.period_start / h.period_end; a monthly run's month, 999a)"},
+   {"line":211,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"FQc converted (R): the run's own dates (h.period_start / h.period_end; a monthly run's month, 999a)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunDirectiveUses.ts": [
    {"line":37,"text":"INSERT INTO payroll_run_directive_uses (company_id, run_id, employee_id, directive_id, period_year, period_month, judge_date)","class":"S","owner":"FQb1","why":"per run (unique run, employee, directive); judge date falls back to the month end (regular directives on weekly refused, §0a.11)"},
@@ -335,7 +335,7 @@
    {"line":145,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunHoursGate.ts": [
-   {"line":24,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"R","owner":"FQc","why":"leaver test against the month's first day: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
+   {"line":24,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"FQc converted (R): leaver test against the run's first day (h.period_start)"},
    {"line":46,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunKindGuard.ts": [
@@ -368,8 +368,8 @@
    {"line":43,"text":"const ref = `FROM payroll_run_headers order_ref WHERE order_ref.id = ${literal(runId)} AND order_ref.company_id = ${literal(companyId)}`;","class":"S","owner":"FQc","why":"runIsBeforeSql: the reference run, by id and company"}
   ],
   "src/modules/accounting/services/payroll/payrollRunPeriodInputsRead.ts": [
-   {"line":47,"text":"SELECT pec.id FROM payroll_employee_components pec","class":"R","owner":"FQc","why":"once-off run inputs keyed by monthBounds (F2): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
-   {"line":76,"text":"FROM payroll_employee_components pec","class":"R","owner":"FQc","why":"once-off run inputs keyed by monthBounds (F2): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":47,"text":"SELECT pec.id FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-off inputs keyed by the run's own dates (monthBounds uses period start/end)"},
+   {"line":76,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-off inputs keyed by the run's own dates (monthBounds uses period start/end)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunPrepared.ts": [
    {"line":10,"text":"UPDATE payroll_run_headers SET approval_plan_hash = ${approval.planHash}","class":"S","owner":"FQb1","why":"write by run id"}
@@ -381,7 +381,7 @@
   ],
   "src/modules/accounting/services/payroll/payrollRunRecalcGate.ts": [
    {"line":38,"text":"SELECT calculation_version FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":55,"text":"SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"by run id; the population listed for the run's month: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
+   {"line":55,"text":"SELECT period_year, period_month, pay_frequency, period_start, period_end FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQc","why":"FQc converted (R): the population of the run's own period and frequency (runPeriodOf, payFrequencyOf)"},
    {"line":65,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
    {"line":68,"text":"LEFT JOIN payroll_employee_components pec ON pec.id = a.entity_id","class":"S","owner":"FQb1","why":"assignments named by audit rows"},
    {"line":80,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
@@ -402,7 +402,7 @@
   "src/modules/accounting/services/payroll/payrollRunRowWrite.ts": [
    {"line":53,"text":"await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;","class":"S","owner":"FQb1","why":"assignment delete by id"},
    {"line":57,"text":"const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}","class":"S","owner":"FQb1","why":"assignment write by id"},
-   {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)","class":"R","owner":"FQc","why":"a run input written as a once-off over the month (F2: inputs keyed by run): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+   {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)","class":"S","owner":"FQc","why":"FQc converted (R, F2): a run input is a once-off over the run's own dates (monthBounds of runPeriodOf)"}
   ],
   "src/modules/accounting/services/payroll/payrollSdlMonthGate.ts": [
    {"line":31,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"this run, by id"},
