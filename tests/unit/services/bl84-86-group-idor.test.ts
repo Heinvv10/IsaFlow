@@ -208,7 +208,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: 'src', amount: '100', group_id: GROUP_A }] as never) // source SELECT
       .mockResolvedValueOnce([{ id: 'tgt', amount: '100', group_id: GROUP_A }] as never) // target SELECT
-      .mockResolvedValueOnce([] as never); // UPDATE
+      .mockResolvedValueOnce([{ id: 'src' }, { id: 'tgt' }] as never); // UPDATE ... RETURNING id: both rows (999r)
 
     await matchIntercompanyTransactions('src', 'tgt', GROUP_A);
 
@@ -249,7 +249,7 @@ describe('BL-86: matchIntercompanyTransactions — group_id must be in SELECT WH
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: B186_SOURCE_B, amount: '200', group_id: GROUP_A }] as never)
       .mockResolvedValueOnce([{ id: B186_TARGET_B, amount: '200', group_id: GROUP_A }] as never)
-      .mockResolvedValueOnce([] as never);
+      .mockResolvedValueOnce([{ id: B186_SOURCE_B }, { id: B186_TARGET_B }] as never);
 
     await matchIntercompanyTransactions(B186_SOURCE_B, B186_TARGET_B, GROUP_A);
 
