@@ -24,7 +24,7 @@ interface AutoPostRunsResponse {
 }
 
 /** `undoRun`'s result. `undone` is false whenever a line was skipped. */
-interface UndoResult {
+export interface UndoResult {
   reversed: number;
   skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number; creditCeiling: number; changedSinceRun?: number };
   undone: boolean;
@@ -36,7 +36,7 @@ interface UndoResult {
  * each skip reason has its own remedy — pressing Undo again changes nothing
  * for a reconciled or failed line until it is dealt with.
  */
-function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
+export function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
   const reasons = [
     // No reopen exists yet (R-111), so do not send the user to one.
     skippedBy.reconciled > 0
