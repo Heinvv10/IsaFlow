@@ -170,6 +170,7 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await settle(page);
   for (const width of [1568, 390]) {
     await page.setViewportSize({ width, height: 1000 });
+    await settle(page); // a resize can start a layout or colour transition; measure the settled page
     if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-${theme}-${width}.png`, fullPage: true });
     expect(await seriousAxe(page), `axe ${theme} ${width}`).toEqual([]);
   }
