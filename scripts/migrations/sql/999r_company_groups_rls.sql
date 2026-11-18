@@ -74,6 +74,13 @@
 
 SET LOCAL lock_timeout = '5s';
 
+-- company_relationships.deleted_at/deleted_by come from 532_company_relationships_audit, which is on
+-- prod but was never applied to dev (migrationParity's frozen "on prod, untracked on dev" list). The
+-- UPDATE policy below reads deleted_at, so make sure the columns exist; a no-op wherever 532 ran.
+ALTER TABLE company_relationships
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS deleted_by UUID;
+
 -- ── Definer helpers ──────────────────────────────────────────────────────────
 
 -- Groups with a CURRENT member company the caller belongs to (userBelongsToGroup).
