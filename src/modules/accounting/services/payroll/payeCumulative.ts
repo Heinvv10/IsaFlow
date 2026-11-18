@@ -124,6 +124,7 @@
 import { annualTaxAfterCredits, calculatePAYE } from './payeEngine';
 import { retirementDeductionLimits } from './retirementFund';
 import { getTaxYearConfig } from './taxTables';
+import { periodsInYear } from './annualisationFactor';
 import type { CumulativePayeInput, CumulativePayeResult, CumulativePayeTrace } from './payeCumulativeTypes';
 
 export type { CumulativePayeInput, CumulativePayeResult, CumulativePayeTrace } from './payeCumulativeTypes';
@@ -132,12 +133,14 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export function calculateCumulativePaye(input: CumulativePayeInput): CumulativePayeResult {
   const { ytd, factor: F } = input;
+  // P: the statutory periods in a year (12 a month), for the period ratios statute fixes (annualisationFactor.ts).
+  const P = periodsInYear(F);
   const hasPeriodic = input.periodicRemuneration > 0;
   const periods = ytd.periods + (hasPeriodic ? 1 : 0);
   const feesToDate = Math.max(0, ytd.medicalSchemeFees + input.medicalSchemeFees);
   // The credits are statutory amounts a month (s6A "in respect of each month"; s6B's three times the MTC): they stay on
   // twelve months, fees × 12 ÷ n, and come off the liability weighted n ÷ 12, never ÷ F (coordinator ruling 2026-11-17).
-  const annualMedicalSchemeFees = periods > 0 ? (feesToDate * 12) / periods : feesToDate;
+  const annualMedicalSchemeFees = periods > 0 ? (feesToDate * P) / periods : feesToDate;
   const base = {
     ageAtPeriodEnd: input.rebateAge, monthlyMedicalBeneficiaries: input.monthlyMedicalBeneficiaries, taxYear: input.taxYear,
     annualMedicalSchemeFees,
@@ -159,7 +162,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const deductionBase = annualEquivalent + annualise(donations) + annualBefore + annualNow;
   // The statutory cap is a year's amount: on the annual-equivalent scale it is cap × F ÷ 12, so the part off periodic pay
   // (weighted n ÷ F below) reaches cap × n ÷ 12, G21 (2027) Rev 1 p. 10's period ratio (coordinator ruling 2026-11-17).
-  const limits = retirementDeductionLimits(annualisedContributions, deductionBase, input.taxYear, F / 12);
+  const limits = retirementDeductionLimits(annualisedContributions, deductionBase, input.taxYear, F / P);
   const deduction = limits.allowed;
   // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
   // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid), nor
@@ -178,7 +181,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // A STATUTORY PERIOD RATIO, NOT AN ANNUALISATION (coordinator ruling 2026-11-17: statute over unproven parity): the cap
   // to date is cap × n ÷ 12 (G21 (2027) Rev 1 p. 10, "the same ratio as the period ... bears to a whole year"), never ÷ F,
   // so twelve months reach exactly R430 000. Pinned by payeAnnualisation.test.ts ("twelve equal months at the cap").
-  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / 12;
+  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / P;
   const offAnnualLimits = {
     deductionLeft: deduction - offPeriodic, annualPayments: annualBefore + annualNow,
     contributionsLeft: contributions - periodicToDate, capLeft: capToDate - periodicToDate,
@@ -198,8 +201,8 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // (s6A; s6B's three times the MTC) and come off × n ÷ 12, a period ratio (coordinator ruling 2026-11-17), in the
   // order the tax takes them and never past that tax, so a line never records a credit its PAYE did not use.
   const afterRebatesToDate = ((atAE.annualTax + atAE.medicalCreditUsed + atAE.additionalMedicalCreditUsed) * periods) / F;
-  const mtcOnAE = Math.min((atAE.medicalCreditUsed * periods) / 12, afterRebatesToDate);
-  const amtcOnAE = Math.min((atAE.additionalMedicalCreditUsed * periods) / 12, afterRebatesToDate - mtcOnAE);
+  const mtcOnAE = Math.min((atAE.medicalCreditUsed * periods) / P, afterRebatesToDate);
+  const amtcOnAE = Math.min((atAE.additionalMedicalCreditUsed * periods) / P, afterRebatesToDate - mtcOnAE);
   const traceOf = (paid: boolean, liability: number, due: number, annualDue: number): CumulativePayeTrace => ({
     paid, factor: F, periods, ytdPeriodicTaxable: ytd.periodicTaxable, regularTaxable: Math.max(0, input.regularTaxable),
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,

@@ -31,6 +31,15 @@ export function annualisationFactor(frequency: PayFrequency): number {
   return FACTORS[frequency];
 }
 
+/**
+ * The statutory periods in a year for a factor: 12 for the monthly days factor, else the factor itself (26, 52). The
+ * period ratios statute fixes (the s11F cap to date, G21 p. 10; the s6A credit "in respect of each month", and s6B's
+ * three times it) use this, never F (coordinator ruling 2026-11-17): a monthly amount × 12 ÷ P a period.
+ */
+export function periodsInYear(factor: number): number {
+  return factor === FACTORS.monthly ? 12 : factor;
+}
+
 /** How a factor reads in an explanation: "365 ÷ 30.4166" for the monthly one, else the number (26, 52). */
 export function annualisationFactorWords(factor: number): string {
   return factor === FACTORS.monthly ? `${DAYS_PER_YEAR} ÷ ${SAGE_DAYS_PER_MONTH}` : String(factor);
