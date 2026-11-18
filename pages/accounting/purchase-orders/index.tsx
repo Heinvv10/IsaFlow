@@ -20,7 +20,7 @@ interface PO {
 
 const fmt = (n: number) => formatMoney(n);
 
-const TABS = ['all', 'draft', 'submitted', 'approved', 'partially_received', 'received', 'cancelled'] as const;
+const TABS = ['all', 'draft', 'submitted', 'approved', 'partially_received', 'received', 'closed', 'cancelled'] as const;
 
 export default function PurchaseOrdersPage() {
   const [orders, setOrders] = useState<PO[]>([]);
