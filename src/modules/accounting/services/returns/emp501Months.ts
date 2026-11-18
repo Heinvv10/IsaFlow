@@ -11,7 +11,7 @@
  * Certificate totals per month (`monthTotals`): PAYE, UIF and SDL from the final run lines plus the PAYE of standalone
  * payments to an employee (a directive naming no employee is on no certificate). Compared with:
  *  - a filed version, or a one-month legacy row with stored totals: per month;
- *  - a multi-month legacy row with stored totals: once, against the sum of the months it covers;
+ *  - a legacy row with stored totals: once, against the certificates over its WHOLE span, inside the return or not;
  *  - a legacy row without stored totals: not compared (a warning naming why).
  * The period check (emp501Readiness.assertEmp501MatchesFiledEmp201s) sums every filed EMP201 of the period; a legacy
  * row without totals counts as its months' certificate totals, so it adds no difference and hides none.
@@ -29,12 +29,23 @@ export interface MonthTotals { paye: number; uif: number; sdl: number }
 /** A legacy EMP201 submission: the months (YYYY-MM) it covers inside the period, and its stored totals if any. */
 export interface LegacyEmp201 {
   id: string;
+  /** Its submission reference, to name it. */
+  reference: string | null;
+  /** Its own period (YYYY-MM-DD), which may reach outside the return (a Feb-Mar row across the tax-year boundary). */
+  start: string;
+  end: string;
+  /** The months of this return it files (no current version), YYYY-MM. */
   months: string[];
-  /** Null when none were stored, or when the row also covers months outside this return or already filed again. */
-  totals: MonthTotals | null;
-  /** Its own span in months (period_start to period_end). */
+  /** Its own span in months (start to end). */
   span: number;
-  storedTotals: boolean;
+  /** The totals it stored (form_data totalPAYE/UIF/SDL), or null for an older row that stored none. */
+  stored: MonthTotals | null;
+  /** The certificate totals over its WHOLE span, inside the return or not (set when it stored totals). */
+  spanCertificates: MonthTotals | null;
+  /** Its months are all in this return and none was filed again: its stored totals are its share of the period sum. */
+  whole: boolean;
+  /** Some of its months are in this return but were filed again through the lifecycle. */
+  filedAgain: boolean;
 }
 
 export type Emp201Filing =
@@ -65,7 +76,7 @@ export const monthName = (ym: string): string => `${MONTH_NAMES[Number(ym.slice(
 export const monthsName = (ms: string[]): string => (ms.length <= 1 ? monthName(ms[0] ?? '') : `${monthName(ms[0]!)} to ${monthName(ms[ms.length - 1]!)}`);
 
 /** YYYY-MM -> what the certificates carry for the month: final run lines, plus standalone directive PAYE to an employee. */
-async function monthTotals(companyId: string, p: Emp501Period): Promise<Map<string, MonthTotals>> {
+async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<Map<string, MonthTotals>> {
   const rows = (await sql`
     SELECT to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM') AS month,
            COALESCE(SUM(l.paye), 0) AS paye, COALESCE(SUM(l.uif_employee + l.uif_employer), 0) AS uif, COALESCE(SUM(l.sdl), 0) AS sdl
@@ -112,6 +123,7 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
   // Per period month with no current version: the latest legacy row covering it (rows a version names are not legacy).
   const legacy = (await sql`
     SELECT DISTINCT ON (m.month) to_char(m.month, 'YYYY-MM') AS month, s.id, s.period_start::TEXT AS ps, s.period_end::TEXT AS pe,
+           s.submission_reference AS ref,
            s.form_data->'totalPAYE' AS paye, s.form_data->'totalUIF' AS uif, s.form_data->'totalSDL' AS sdl
     FROM generate_series(${p.start}::DATE, ${p.end}::DATE, INTERVAL '1 month') AS m(month)
     JOIN sars_submissions s
@@ -129,18 +141,22 @@ export async function emp501Filings(companyId: string, p: Emp501Period): Promise
     let row = rows.get(id);
     if (!row) {
       const [paye, uif, sdl] = [num(r.paye), num(r.uif), num(r.sdl)];
-      const stored = paye !== null && uif !== null && sdl !== null;
       const [ps, pe] = [String(r.ps), String(r.pe)];
       const span = (Number(pe.slice(0, 4)) - Number(ps.slice(0, 4))) * 12 + Number(pe.slice(5, 7)) - Number(ps.slice(5, 7)) + 1;
-      row = { id, months: [], totals: stored ? { paye: cents(paye), uif: cents(uif), sdl: cents(sdl) } : null, span, storedTotals: stored };
+      const stored = paye !== null && uif !== null && sdl !== null ? { paye: cents(paye), uif: cents(uif), sdl: cents(sdl) } : null;
+      row = { id, reference: r.ref == null ? null : String(r.ref), start: ps, end: pe, months: [], span, stored, spanCertificates: null, whole: false, filedAgain: false };
       rows.set(id, row);
     }
     row.months.push(month);
     legacyByMonth.set(month, row);
   }
-  // A row whose totals cover months this return does not reach as legacy (outside the period, or filed again through
-  // the lifecycle) cannot be compared with the certificates of the months it does: its totals are not used.
-  for (const row of rows.values()) if (row.months.length !== row.span) row.totals = null;
+  for (const row of rows.values()) {
+    row.filedAgain = [...versions.keys()].some((m) => m >= row.start.slice(0, 7) && m <= row.end.slice(0, 7));
+    row.whole = row.months.length === row.span;
+    // Its stored totals are compared with the certificates over its whole span, inside this return or not (round 4):
+    // a row reaching outside the return is never ignored.
+    if (row.stored) row.spanCertificates = [...(await monthTotals(companyId, { start: row.start, end: row.end })).values()].reduce(add, ZERO);
+  }
   const months = [...certificates.keys()].sort().map((month) => {
     const v = versions.get(month);
     const legacyRow = legacyByMonth.get(month);
@@ -187,9 +203,11 @@ export function emp201Mismatches(f: Emp501Filings): string[] {
     if (d.length > 0) out.push(`${monthName(m.month)}: ${d.join(', ')}`);
   }
   for (const row of f.legacyRows) {
-    if (!row.totals || !row.months.some((m) => f.certificates.has(m))) continue;
-    const d = differences(row.totals, certificateTotalsOf(f, row.months));
-    if (d.length > 0) out.push(`${monthsName(row.months)}${row.months.length > 1 ? ' (one EMP201)' : ''}: ${d.join(', ')}`);
+    if (!row.stored || !row.spanCertificates) continue;
+    const d = differences(row.stored, row.spanCertificates);
+    const name = monthsName([row.start.slice(0, 7), row.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i));
+    const label = [row.span > 1 ? 'one EMP201' : null, row.reference ? `reference ${row.reference}` : null].filter(Boolean).join(', ');
+    if (d.length > 0) out.push(`${name}${label ? ` (${label})` : ''}: ${d.join(', ')}`);
   }
   return out;
 }
@@ -198,18 +216,21 @@ export function emp201Mismatches(f: Emp501Filings): string[] {
 export function legacyWarnings(f: Emp501Filings): string[] {
   return f.legacyRows.filter((r) => r.months.some((m) => f.certificates.has(m))).flatMap((r) => {
     const span = r.span > 1 ? `spans ${r.span} months` : null;
-    const what = `EMP201 for ${monthsName(r.months)}`;
-    if (!r.storedTotals) return [`${what} was filed before figures were stored (no stored totals${span ? `; ${span}` : ''}); not cross-checked`];
-    if (!r.totals) return [`${what} ${span ?? 'spans 1 month'}, some of them outside this return or filed again since; not cross-checked`];
+    const what = `EMP201 for ${monthsName([r.start.slice(0, 7), r.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i))}`;
+    if (!r.stored) return [`${what} was filed before figures were stored (no stored totals${span ? `; ${span}` : ''}); not cross-checked`];
+    if (r.filedAgain) return [`${what} ${span ?? 'spans 1 month'}, some of them filed again since; checked as one against all its months' certificates`];
+    if (!r.whole) return [`${what} ${span ?? 'spans 1 month'}, some of them outside this return; checked as one against all its months' certificates`];
     return span ? [`${what} ${span}; checked as one against those months' certificates`] : [];
   });
 }
 
 /**
  * The period's filed EMP201 totals: every filed current version, plus every legacy row at its stored totals, or, with
- * none stored, at its months' certificate totals (it adds no difference and hides none, review #1568 round 3).
+ * none stored or a span reaching outside the return, at its months' certificate totals (review #1568 rounds 3-4).
  */
 export function filedPeriodTotals(f: Emp501Filings): MonthTotals {
   const versions = f.filedVersions.reduce((t, v) => add(t, versionTotals(v)), ZERO);
-  return f.legacyRows.reduce((t, r) => add(t, r.totals ?? certificateTotalsOf(f, r.months)), versions);
+  // A whole row at its stored totals; otherwise its months of this return at their certificates (a row reaching outside
+  // the return is judged over its whole span by emp201Mismatches, so a difference there refuses before this sum).
+  return f.legacyRows.reduce((t, r) => add(t, r.whole && r.stored ? r.stored : certificateTotalsOf(f, r.months)), versions);
 }

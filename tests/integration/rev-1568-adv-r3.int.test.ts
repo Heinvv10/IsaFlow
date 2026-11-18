@@ -170,21 +170,23 @@ describeIfDb('PR #1568 round 3 adversarial: avoiding the period cross-check', ()
     await run2(rf, 4, [[alice, 30_000, 4_000]]);
     await legacyRow(rf, '2025-03-01', '2025-04-30', { totalPAYE: 8000, totalUIF: 708.48, totalSDL: 600 });
     const g = await readiness(rf);
-    expect(g.emp201Mismatches).toEqual(['March 2025 to April 2025 (one EMP201): PAYE 8000.00 filed, 13000.00 on the certificates']);
+    expect(g.emp201Mismatches).toEqual(['March 2025 to April 2025 (one EMP201, reference LEGACY-2025-03-01): PAYE 8000.00 filed, 13000.00 on the certificates']);
     expect(g.warnings).toEqual(["EMP201 for March 2025 to April 2025 spans 2 months; checked as one against those months' certificates"]);
     expect((await finaliseEmp501(rf)).status).toBe(409);
   });
 
-  it('E2c: a two-month legacy EMP201 for months with no pay run, declaring PAYE no certificate carries: the period check refuses', async () => {
+  it('E2c: a two-month legacy EMP201 for months with no pay run, declaring PAYE no certificate carries: refused naming the row', async () => {
     const rf = await company('E2C');
     const alice = await employee(rf, 'Alice');
     await run2(rf, 3, [[alice, 30_000, 4_000]]);
     await fileEmp201(rf, 3);
     await legacyRow(rf, '2025-05-01', '2025-06-30', { totalPAYE: 500, totalUIF: 0, totalSDL: 0 });
-    expect((await readiness(rf)).emp201Mismatches).toEqual([]);
+    // Round 4: the row is judged over its own span (May-June have no certificates), so the readiness names it.
+    expect((await readiness(rf)).emp201Mismatches)
+      .toEqual(['May 2025 to June 2025 (one EMP201, reference LEGACY-2025-05-01): PAYE 500.00 filed, 0.00 on the certificates']);
     const r = await finaliseEmp501(rf);
     expect(r.status).toBe(409);
-    expect(JSON.stringify(r.body)).toContain('PAYE 4500.00 on the filed EMP201s, 4000.00 on the certificates (difference -500.00)');
+    expect(JSON.stringify(r.body)).toContain('PAYE 500.00 filed, 0.00 on the certificates');
   });
 
   it('E1b: a legacy month with no stored totals counts as its certificates: the rest still matches, so the finalise goes ahead with the warning', async () => {
