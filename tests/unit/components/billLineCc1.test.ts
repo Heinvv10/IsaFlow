@@ -65,6 +65,21 @@ describe('deriveLineCc1 follows the server order', () => {
   });
 });
 
+describe('indexLadder: only a real FNO is looked up by its code', () => {
+  // Codes can collide across types: a CC2 coded like an FNO, and a row typed cc1 (the null mapping) whose own code is an
+  // FNO's but which rolls up elsewhere. Listed after the FNO, either would win the code if its guard were dropped.
+  const centre = (id: string, code: string, ccType: string, fnoCode: string | null): LadderCentre =>
+    ({ id, code, name: `Name ${id}`, ccType, fnoCode, isActive: true });
+  const colliding = indexLadder([
+    centre('f1', 'F1', 'cc1', 'F1'), centre('cc2-coded-f1', 'F1', 'cc2', 'F1'), centre('typed-cc1-coded-f1', 'F1', 'cc1', 'F7'),
+    centre('p1', 'P1', 'cc2', 'F1'),
+  ]);
+  it('a CC2 whose FNO is F1 shows the F1 FNO, not a colliding non-FNO row', () => {
+    expect(colliding.fnoByCode.get('F1')?.id).toBe('f1');
+    expect(deriveLineCc1({ cc2Id: 'p1' }, colliding, none)).toEqual(F1);
+  });
+});
+
 describe('ladderFromBody', () => {
   it('reads the master rows, keeping the server fnoCode', () => {
     const body = { items: [{ id: 'a', code: 'A', name: 'An', ccType: 'cc2', isActive: true, fnoCode: 'F', parentId: 'x' }, 7, null] };

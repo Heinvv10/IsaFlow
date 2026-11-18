@@ -77,7 +77,7 @@ describe('nextStacked', () => {
 });
 
 describe('focus across a layout swap', () => {
-  it('keeps focus and text in the description of line 2 when the Dimensions toggle moves the threshold', () => {
+  it('keeps focus, text and caret in the description of line 2 when the window narrows under the user', () => {
     const layout = stubLayout(900);
     mount([line('a', { description: 'first' }), line('b', { description: 'second line' })]);
     layout.set(900);
@@ -86,8 +86,7 @@ describe('focus across a layout swap', () => {
     before.focus();
     before.setSelectionRange(3, 6);
     expect(document.activeElement).toBe(before);
-    fireEvent.click(screen.getByRole('button', { name: 'Dimensions' })); // threshold 820 -> 1060: 900 is now too narrow
-    layout.set(900);
+    layout.set(T - 1); // a resize: the box is now too narrow for the columns, and nothing else moved focus
     expect(mode()).toBe('cards');
     const after = screen.getAllByPlaceholderText('Item description')[1] as HTMLInputElement;
     expect(after).not.toBe(before);
@@ -105,6 +104,18 @@ describe('focus across a layout swap', () => {
     layout.set(1000);
     expect(mode()).toBe('table');
     expect(document.activeElement).toBe(screen.getByLabelText('Line 1 quantity'));
+  });
+
+  it('does not take focus from a control the user tabbed to outside the lines', () => {
+    const layout = stubLayout(900);
+    mount([line('a')]);
+    layout.set(900);
+    (screen.getByPlaceholderText('Item description') as HTMLInputElement).focus();
+    const add = screen.getByRole('button', { name: 'Add Line' });
+    add.focus(); // keyboard focus leaves the lines without a click, so the held field is not forgotten
+    layout.set(500);
+    expect(mode()).toBe('cards');
+    expect(document.activeElement).toBe(add);
   });
 
   it('does not take focus back after the user clicked away', () => {

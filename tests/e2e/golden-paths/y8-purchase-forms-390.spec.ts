@@ -14,7 +14,8 @@ import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const FORMS = [
   { path: '/accounting/purchase-orders/new', title: 'Purchase Order', summary: 'Order Summary', notes: 'Add any notes or delivery instructions…', lines: 'Purchase order lines' },
-  // `stacks`: the bill lines become one card per line when their box is under 820px (1060px with Dimensions), so they never clip or scroll.
+  // `stacks`: the bill lines become one card per line when their box is under 820px (1060px with Dimensions), so they never clip or scroll;
+  // their summary goes under them when beside it they would be cards.
   { path: '/accounting/supplier-invoices/new', title: 'Supplier Invoice', summary: 'Summary', notes: 'Optional notes…', lines: 'Invoice lines', stacks: true },
 ];
 type Form = (typeof FORMS)[number] & { stacks?: boolean };
@@ -113,13 +114,15 @@ for (const form of FORMS) {
     await expect(page.getByText('Scroll sideways to see every column.')).toHaveCount(0);
   });
 
-  test(`${form.title} 1100 px: the lines ${form.stacks ? 'stack as cards (the box is 618px, under 820)' : 'scroll under the summary and say so'}`, async ({ page }) => {
+  test(`${form.title} 1100 px: the lines ${form.stacks ? 'are a table over the full width, the summary under them' : 'scroll under the summary and say so'}`, async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 900 });
     await open(page, form);
     const region = page.getByRole('region', { name: form.lines });
     const remove = region.getByRole('button', { name: 'Remove line 1' });
     if (form.stacks) {
-      await expect(region.getByRole('table'), 'stacked cards, not a table').toHaveCount(0);
+      // Beside the summary the box would be 618px (cards); under it the lines take the full 948px (y8b has the rest).
+      await expect(region.getByRole('table'), 'a table, not stacked cards').toHaveCount(1);
+      expect((await box(summaryCard(page, form))).y, 'summary under the lines').toBeGreaterThanOrEqual((await box(region)).y + (await box(region)).height);
       expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1), 'nothing is clipped').toBe(false);
       await expect(page.getByText('Scroll sideways to see every column.'), 'no hint: there is nothing to scroll').toHaveCount(0);
       const [r, g] = [await box(region), await box(remove)];

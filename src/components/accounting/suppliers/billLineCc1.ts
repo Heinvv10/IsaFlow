@@ -8,7 +8,7 @@
  *  3. otherwise the line's own (or defaulted) CC1 stays.
  * An inactive CC1 is refused on save too, so it is shown marked rather than as fine.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
@@ -64,10 +64,13 @@ export interface CostCentreLadder { status: 'idle' | 'loading' | 'ready' | 'fail
 
 /**
  * Loads the ladder when `enabled` (the Dimensions columns are open) and keeps it: toggling Dimensions off and on
- * does not read it again. A failed read is logged and tried again the next time it is enabled; it never blocks the form.
+ * does not read it again. A failed read is logged and tried again on `retry`, or the next time it is enabled; it
+ * never blocks the form.
  */
-export function useCostCentreLadder(enabled: boolean): CostCentreLadder {
+export function useCostCentreLadder(enabled: boolean): CostCentreLadder & { retry: () => void } {
   const [state, setState] = useState<CostCentreLadder>({ status: 'idle', index: EMPTY_INDEX });
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
   const requested = useRef(false);
   useEffect(() => {
     if (!enabled || requested.current) return undefined;
@@ -81,6 +84,6 @@ export function useCostCentreLadder(enabled: boolean): CostCentreLadder {
         setState((s) => ({ ...s, status: 'failed' }));
       });
     return undefined;
-  }, [enabled]);
-  return state;
+  }, [enabled, attempt]);
+  return { ...state, retry };
 }

@@ -79,7 +79,7 @@ describe.each(LAYOUTS)('line controls in the %s layout', (name, width) => {
   });
 
   it('labels the blank choice of a defaulted CC2 and BU as the supplier default', () => {
-    mount(width, [line('a')], { supplierDefaults: { cc2Id: 'p1', buId: 'b1', note: '' } });
+    mount(width, [line('a')], { supplierDefaults: { cc2Id: 'p1', buId: 'b1', note: '', status: 'ready' } });
     dims();
     expect(screen.getAllByText('Supplier default')).toHaveLength(2);
   });
@@ -91,7 +91,7 @@ describe.each(LAYOUTS)('line controls in the %s layout', (name, width) => {
   });
 
   it('shows the supplier default FNO for a line that names no CC, and the default CC2 FNO ahead of it', async () => {
-    mount(width, [line('a')], { supplierDefaults: { cc2Id: 'p1', buId: '', cc1Id: 'f1', note: '' } });
+    mount(width, [line('a')], { supplierDefaults: { cc2Id: 'p1', buId: '', cc1Id: 'f1', note: '', status: 'ready' } });
     dims();
     await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: F1 Fibre'));
   });
@@ -111,6 +111,42 @@ describe.each(LAYOUTS)('line controls in the %s layout', (name, width) => {
     expect(log.warn).toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('Line 1 quantity'), { target: { value: '4' } });
     expect(onUpdate).toHaveBeenLastCalledWith('a', 'quantity', 4);
+  });
+
+  it('names the description and keeps a quantity step of 0.01', () => {
+    mount(width, [line('a', { quantity: 1.25 })]);
+    expect(screen.getByRole('textbox', { name: 'Line 1 description' })).toBeTruthy();
+    const qty = screen.getByRole('spinbutton', { name: 'Line 1 quantity' }) as HTMLInputElement;
+    // A browser refuses 1.25 on submit under step 1; happy-dom's step check misreads decimals, so the step itself is pinned.
+    expect([qty.step, qty.min, qty.value]).toEqual(['0.01', '0.01', '1.25']);
+  });
+
+  it('is a tab stop only as a table, where it scrolls sideways', () => {
+    mount(width, [line('a')]);
+    expect(screen.getByRole('region', { name: 'Invoice lines' }).getAttribute('tabindex')).toBe(name === 'table' ? '0' : null);
+  });
+
+  it('shows the CC1 read-only: no control is named for it and no edit in the line sets cc1Id', async () => {
+    const { onUpdate } = mount(width, [line('a', { cc2Id: 'p1' })]);
+    dims();
+    await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: F1 Fibre'));
+    const region = screen.getByRole('region', { name: 'Invoice lines' });
+    for (const role of ['textbox', 'combobox', 'spinbutton', 'listbox', 'checkbox'] as const) {
+      expect(within(region).queryAllByRole(role, { name: /CC1|FNO/i }), role).toHaveLength(0);
+    }
+    region.querySelectorAll('input, select, textarea').forEach((el) => fireEvent.change(el, { target: { value: '7' } }));
+    pick('CC2 project', 'P1 Project');
+    pick('BU', 'B1 Unit');
+    expect(onUpdate).toHaveBeenCalled();
+    expect(onUpdate.mock.calls.filter(([, field]) => field === 'cc1Id')).toEqual([]);
+  });
+
+  it.each(['loading', 'failed'] as const)('says the CC1 is unknown, never a value or a dash, while the supplier defaults are %s', async (status) => {
+    mount(width, [line('a'), line('b', { cc2Id: 'p1' })], { supplierDefaults: { cc2Id: '', buId: '', cc1Id: 'f1', note: '', status } });
+    dims();
+    // Line 1 names no CC, so the server applies the supplier's default; line 2's own CC2 decides its FNO.
+    await waitFor(() => expect(screen.getAllByTestId('line-cc1').map((e) => e.textContent))
+      .toEqual(['CC1: unknown, applied on save', 'CC1: F1 Fibre']));
   });
 
   it('marks an inactive FNO as one the server will refuse', async () => {
@@ -133,6 +169,17 @@ describe('the cost-centre ladder is read once', () => {
     await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: F1 Fibre'));
     toggle(); toggle();
     expect(reads()).toBe(1);
+  });
+
+  it('offers Retry when the read fails, and Retry reads it again', async () => {
+    let calls = 0;
+    serve((url) => (url.includes('detail=dimensions') ? (++calls === 1 ? empty500() : ok(LADDER)) : undefined));
+    mount(1200, [line('a', { cc2Id: 'p1' })]);
+    await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: could not be loaded'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading the CC1s' }));
+    await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: F1 Fibre'));
+    expect(calls).toBe(2);
+    expect(screen.queryByRole('button', { name: 'Retry loading the CC1s' })).toBeNull();
   });
 
   it('reads it again after a failure the next time Dimensions opens', async () => {
@@ -164,6 +211,10 @@ describe('stacked cards: one column under 420', () => {
     const g = grids(419);
     expect(g.pair).toContain('grid-cols-1');
     expect(g.amounts).toContain('grid-cols-2');
+  });
+  it('keeps the total at the right edge of the card when the amounts wrap under 420', () => {
+    mount(419, [line('a')]);
+    expect(screen.getByText('Total').parentElement!.className).toContain('col-start-2');
   });
   it('gives the description its own full-width row above the coding', () => {
     mount(500, [line('a')]);

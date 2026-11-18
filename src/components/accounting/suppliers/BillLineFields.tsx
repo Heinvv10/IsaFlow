@@ -13,6 +13,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { deriveLineCc1, type CostCentreLadder } from './billLineCc1';
+import type { SupplierDefaultsStatus } from './useSupplierDimensionDefaults';
 import type { BillLineItem, GLAccount } from './BillLineItemsTable';
 
 export const billInput =
@@ -58,12 +59,18 @@ export interface SupplierLineCoding {
   buId: string;
   /** The supplier's default FNO, applied by the server to a line that names no CC1 or CC2. */
   cc1Id?: string;
+  /** Whether those defaults are known yet for the supplier now picked (useSupplierDimensionDefaults). */
+  status: SupplierDefaultsStatus;
 }
 
-/** What a line shows beside its CC2: a lookup still loading or failed is never presented as "no CC1". */
+/**
+ * What a line shows beside its CC2: a lookup still loading or failed is never presented as "no CC1". A line that
+ * names no CC takes the supplier's defaults on save, so until those are known its CC1 is not either.
+ */
 export function cc1Text(ladder: CostCentreLadder, line: BillLineItem, supplier?: SupplierLineCoding): string {
   if (ladder.status === 'failed') return 'CC1: could not be loaded';
   if (ladder.status !== 'ready') return 'CC1: loading…';
+  if (!line.cc1Id && !line.cc2Id && supplier && supplier.status !== 'ready') return 'CC1: unknown, applied on save';
   const cc1 = deriveLineCc1(line, ladder.index, supplier ?? {});
   return `CC1: ${cc1 ? `${cc1.label}${cc1.note ? ` (${cc1.note})` : ''}` : '—'}`;
 }

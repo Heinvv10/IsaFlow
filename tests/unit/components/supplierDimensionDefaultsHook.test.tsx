@@ -137,6 +137,39 @@ describe('useSupplierDimensionDefaults', () => {
     await waitFor(() => expect(view.result.current.cc1Id).toBe(''));
   });
 
+  it('status: loading until the rule arrives, then ready; ready at once with no supplier; failed on a server error', async () => {
+    let release: (r: Response) => void = () => undefined;
+    serve(
+      on('GET', '/supplier-rules/s1', () => new Promise<Response>((r) => { release = r; })),
+      on('GET', '/supplier-rules/s5', () => new Response('', { status: 500 })),
+    );
+    const { view } = mount('', OFFERED);
+    expect(view.result.current.status).toBe('ready');
+    view.rerender({ id: 's1', offered: OFFERED });
+    expect(view.result.current.status, 'the same render that names the new supplier').toBe('loading');
+    await act(async () => { release(rule({ defaultCc2Id: 'p-active' })); });
+    await waitFor(() => expect(view.result.current.status).toBe('ready'));
+    view.rerender({ id: 's5', offered: OFFERED });
+    await waitFor(() => expect(view.result.current.status).toBe('failed'));
+  });
+
+  it('status: a held project default is not known until the pick-lists are (it is pre-filled only from them)', async () => {
+    serve(
+      on('GET', '/supplier-rules/s1', () => rule({ defaultCc2Id: 'p-active' })),
+      on('GET', '/supplier-rules/s2', () => rule({ defaultCc1Id: 'f1' })),
+    );
+    const { view } = mount('s1', { ...OFFERED, status: 'loading' });
+    await act(async () => { await Promise.resolve(); });
+    expect(view.result.current.status).toBe('loading');
+    view.rerender({ id: 's1', offered: { ...OFFERED, status: 'failed' } });
+    expect(view.result.current.status).toBe('failed');
+    view.rerender({ id: 's1', offered: OFFERED });
+    expect(view.result.current.status).toBe('ready');
+    // A CC1-only default does not wait for the lists: the table reads it from the ladder.
+    view.rerender({ id: 's2', offered: { ...OFFERED, status: 'loading' } });
+    await waitFor(() => expect(view.result.current.status).toBe('ready'));
+  });
+
   it('has no defaults for a supplier with no rule', async () => {
     serve(on('GET', '/supplier-rules/s1', () => new Response('', { status: 404 })));
     const { view, lines } = mount('s1', OFFERED);
@@ -152,7 +185,7 @@ describe('BillLineItemsTable with supplier defaults', () => {
   const line: BillLineItem = { key: 'k', description: 'x', quantity: 1, unitPrice: 1, taxRate: 15, glAccountId: '', cc2Id: 'p-active', buId: '' };
   const table = (note: string) => render(
     <BillLineItemsTable lines={[line]} glAccounts={[]} onAdd={vi.fn()} onUpdate={vi.fn()} onRemove={vi.fn()}
-      codingOptions={options} supplierDefaults={{ cc2Id: 'p-active', buId: '', note }} />,
+      codingOptions={options} supplierDefaults={{ cc2Id: 'p-active', buId: '', note, status: 'ready' }} />,
   );
 
   it('shows the note, and labels the blank choice of a defaulted column as the supplier default', () => {

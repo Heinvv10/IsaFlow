@@ -28,11 +28,14 @@ afterEach(cleanup);
 const closest = (el: Element, part: string): Element | null => (el.className.toString().includes(part) ? el : el.parentElement && closest(el.parentElement, part));
 
 const FORMS = [
-  { name: 'purchase order', page: <NewPurchaseOrderPage />, summary: 'Order Summary', lines: 'Purchase order lines', dateA: /order date/i, dateB: /expected delivery/i },
-  { name: 'supplier invoice', page: <NewSupplierInvoicePage />, summary: 'Summary', lines: 'Invoice lines', dateA: /invoice date/i, dateB: /due date/i },
+  { name: 'purchase order', page: <NewPurchaseOrderPage />, summary: 'Order Summary', lines: 'Purchase order lines', dateA: /order date/i, dateB: /expected delivery/i,
+    beside: 'lg:grid-cols-[1fr_320px]' },
+  // The bill lines need the width: its summary goes beside them only once the form is wide enough (BillLineItemsTable).
+  { name: 'supplier invoice', page: <NewSupplierInvoicePage />, summary: 'Summary', lines: 'Invoice lines', dateA: /invoice date/i, dateB: /due date/i,
+    beside: '[@container(min-width:1232px)]:grid-cols-[1fr_320px]' },
 ];
 
-describe.each(FORMS)('$name form at a narrow width', ({ page, summary, lines, dateA, dateB }) => {
+describe.each(FORMS)('$name form at a narrow width', ({ page, summary, lines, dateA, dateB, beside }) => {
   it('the dates sit in one column until sm', () => {
     render(page);
     const grid = closest(screen.getByRole('textbox', { name: dateA }), 'grid-cols-')!;
@@ -41,14 +44,14 @@ describe.each(FORMS)('$name form at a narrow width', ({ page, summary, lines, da
     expect(grid.className).toContain('sm:grid-cols-2');
   });
 
-  it('the summary stacks under the form until lg, and is sticky only beside it', () => {
+  it('the summary stacks under the form until there is room beside it, and is sticky only from lg', () => {
     render(page);
     const column = closest(screen.getByRole('heading', { name: summary, exact: true }), 'sticky')!;
     expect(column.className).toContain('lg:sticky');
     expect(column.className).not.toMatch(/(^|\s)sticky/);
     const layout = column.parentElement!;
     expect(layout.className).toContain('grid-cols-1');
-    expect(layout.className).toContain('lg:grid-cols-[1fr_320px]');
+    expect(layout.className).toContain(beside);
     expect(column.className).not.toContain('w-72');
   });
 

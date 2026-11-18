@@ -9,8 +9,8 @@ import type { LineFields } from './BillLineFields';
 const th = 'py-2.5 text-xs font-semibold text-ink-muted';
 const cap = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
 
-function Captioned({ text, field, children }: { text: string; field?: string; children: ReactNode }) {
-  return <div data-field={field} className="min-w-0"><span className={cap}>{text}</span>{children}</div>;
+function Captioned({ text, field, className = '', children }: { text: string; field?: string; className?: string; children: ReactNode }) {
+  return <div data-field={field} className={`min-w-0 ${className}`}><span className={cap}>{text}</span>{children}</div>;
 }
 
 export function BillLinesTable({ rows, showDimensions }: { rows: { key: string; f: LineFields }[]; showDimensions: boolean }) {
@@ -71,7 +71,8 @@ export function BillLinesCards({ rows, showDimensions, oneColumn }: {
           <div className={`grid ${oneColumn ? 'grid-cols-2' : 'grid-cols-3'} gap-3`}>
             <Captioned text="Qty" field="qty">{f.qty}</Captioned>
             <Captioned text="Unit Price" field="price">{f.price}</Captioned>
-            <Captioned text="Total">
+            {/* Two columns put the total on a row of its own: under Unit Price, so it still ends at the card's edge. */}
+            <Captioned text="Total" className={oneColumn ? 'col-start-2' : ''}>
               <p className="py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{f.total}</p>
             </Captioned>
           </div>

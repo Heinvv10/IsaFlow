@@ -15,7 +15,12 @@
  * When the supplier changes, a line still holding the previous supplier's
  * default (or nothing) takes the new one; a value the user picked stays.
  * A supplier with no rule (404) has no defaults; a failed read is logged and
- * shows none (the server still applies them on save).
+ * shows none (the server still applies them on save). `status` says whether
+ * what the server will apply to a line that names no CC is known yet: it is
+ * 'loading' from the render that names a new supplier until its rule (and,
+ * for a project default, the pick-lists) arrive, and 'failed' when either
+ * read failed, so the table never shows the previous supplier's CC1 or a
+ * dash in its place.
  */
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
@@ -31,6 +36,20 @@ export interface OfferedMasters { cc2s: CodingOption[]; bus: CodingOption[]; sta
 
 const NONE: SupplierLineDefaults = { cc2Id: '', buId: '' };
 const NO_HELD: HeldDefaults = { cc1Id: '', ...NONE };
+
+/** Whether what the server applies to a line that names no CC is known: see the header. */
+export type SupplierDefaultsStatus = 'loading' | 'failed' | 'ready';
+
+/** The rule read for `supplierId` ('' = none picked). */
+interface RuleRead { supplierId: string; held: HeldDefaults; failed: boolean }
+
+/** Pure: the status for the supplier now picked, given the last rule read and the pick-lists. */
+export function defaultsStatus(read: RuleRead, supplierId: string, offered: OfferedMasters): SupplierDefaultsStatus {
+  if (read.supplierId !== supplierId) return 'loading';
+  if (read.failed) return 'failed';
+  // A project default reaches the lines only through the pick-lists (offeredDefaults); a CC1-only one does not.
+  return read.held.cc2Id ? offered.status : 'ready';
+}
 
 type DimLine = { cc1Id?: string; cc2Id?: string; buId?: string };
 
@@ -81,20 +100,22 @@ export function defaultsNote(held: HeldDefaults, applied: SupplierLineDefaults, 
     + 'to use something else, pick it under Dimensions on the line.';
 }
 
-async function loadHeld(supplierId: string): Promise<HeldDefaults> {
-  if (!supplierId) return NO_HELD;
+async function loadHeld(supplierId: string): Promise<RuleRead> {
+  const none = (failed: boolean): RuleRead => ({ supplierId, held: NO_HELD, failed });
+  if (!supplierId) return none(false);
   try {
     const res = await apiFetch(`/api/accounting/supplier-rules/${supplierId}`);
-    if (res.status === 404) return NO_HELD;
+    if (res.status === 404) return none(false);
     if (!res.ok) {
       log.warn('supplier default dimensions not loaded', { status: res.status }, 'supplier-invoices-new');
-      return NO_HELD;
+      return none(true);
     }
     const json = await res.json() as { data?: { defaultCc1Id?: string | null; defaultCc2Id?: string | null; defaultBuId?: string | null } };
-    return { cc1Id: json.data?.defaultCc1Id ?? '', cc2Id: json.data?.defaultCc2Id ?? '', buId: json.data?.defaultBuId ?? '' };
+    const d = json.data;
+    return { supplierId, failed: false, held: { cc1Id: d?.defaultCc1Id ?? '', cc2Id: d?.defaultCc2Id ?? '', buId: d?.defaultBuId ?? '' } };
   } catch (error) {
     log.warn('supplier default dimensions not loaded', { error }, 'supplier-invoices-new');
-    return NO_HELD;
+    return none(true);
   }
 }
 
@@ -118,14 +139,18 @@ export function useSupplierDimensionDefaults<T extends DimLine>(
   supplierId: string,
   setLines: (update: (prev: T[]) => T[]) => void,
   offered: OfferedMasters,
-): { defaults: SupplierLineDefaults; note: string; /** The held default FNO id ('' none): shown, as the CC1 of a line with no project, by the bill table. */ cc1Id: string } {
-  const [held, setHeld] = useState<HeldDefaults>(NO_HELD);
+): {
+  defaults: SupplierLineDefaults; note: string; status: SupplierDefaultsStatus;
+  /** The held default FNO id ('' none): shown, as the CC1 of a line with no project, by the bill table. */ cc1Id: string;
+} {
+  const [read, setRead] = useState<RuleRead>({ supplierId: '', held: NO_HELD, failed: false });
+  const held = read.held;
   const [defaults, setDefaults] = useState<SupplierLineDefaults>(NONE);
   const applied = useRef<SupplierLineDefaults>(NONE);
 
   useEffect(() => {
     let live = true;
-    void loadHeld(supplierId).then((next) => { if (live) setHeld(next); });
+    void loadHeld(supplierId).then((next) => { if (live) setRead(next); });
     return () => { live = false; };
   }, [supplierId]);
 
@@ -140,5 +165,8 @@ export function useSupplierDimensionDefaults<T extends DimLine>(
   }, [held, cc2s, bus, status, setLines]);
 
   const fnoLabel = useDefaultFnoLabel(held.cc1Id);
-  return { defaults, note: defaultsNote(held, defaults, offered, fnoLabel), cc1Id: held.cc1Id };
+  return {
+    defaults, note: defaultsNote(held, defaults, offered, fnoLabel), cc1Id: held.cc1Id,
+    status: defaultsStatus(read, supplierId, offered),
+  };
 }

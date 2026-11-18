@@ -73,7 +73,8 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
   const ctx = { glAccounts, onUpdate, onRemove, codingOptions, supplierDefaults, ladder, showDimensions };
   const rows = lines.map((line, i) => ({ key: line.key, f: billLineFields(line, i, ctx) }));
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+    <div data-dimensions={showDimensions ? 'open' : 'closed'}
+      className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
           <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">
@@ -106,6 +107,12 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
       {supplierDefaults?.note && (
         <p className="px-5 pt-3 text-xs text-slate-500 dark:text-slate-400">{supplierDefaults.note}</p>
       )}
+      {showDimensions && ladder.status === 'failed' && (
+        <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
+          The CC1s could not be loaded.{' '}
+          <button type="button" onClick={ladder.retry} aria-label="Retry loading the CC1s" className="underline font-medium">Retry</button>
+        </p>
+      )}
       {showDimensions && codingOptions?.error && (
         <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
           {codingOptions.error}{' '}
@@ -118,7 +125,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
         <div
           ref={attachLines} onFocus={onFocus}
           className={stacked ? '' : 'rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto'}
-          role="region" aria-label="Invoice lines" tabIndex={0}
+          role="region" aria-label="Invoice lines" tabIndex={stacked ? undefined : 0}
         >
           {stacked
             ? <BillLinesCards rows={rows} showDimensions={showDimensions} oneColumn={width < CARD_ONE_COLUMN} />
