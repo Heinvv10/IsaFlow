@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ItemFields } from './itemFieldValidation';
+import { ITEM_CODE_SEED, takeCompanyNumberLock } from '../core/numberLock';
 
 export interface ExistingItem {
   id: string;
@@ -68,7 +69,8 @@ export async function loadUpsertContext(
   companyId: string, rows: ItemFields[], extraItemIds: string[] = [],
 ): Promise<UpsertContext> {
   // One batch at a time per company: two concurrent upserts of the same catalogue would otherwise both plan "create".
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`items_upsert:${companyId}`}, 0))`;
+  // The bounded number lock (migration 864): a second batch waits at most 5 s, then 55P03 answers 503 + Retry-After.
+  await takeCompanyNumberLock(companyId, 'items_upsert', ITEM_CODE_SEED);
 
   const codes = [...new Set(rows.map((r) => r.code).filter((c): c is string => !!c))];
   const refs = rows.filter((r) => r.externalSystem && r.externalRef);

@@ -13,7 +13,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { listItemsTool, getItemTool, listItemCategoriesTool } from '@/lib/mcp/tools/itemReadTools';
 import { decodeCursor, encodeCursor } from '@/lib/mcp/contracts';
-import { ACC, COMPANY, OTHER, ctxOf, installFakeSql, sqlMock, type FakeDb } from './itemToolsHarness';
+import { ACC, COMPANY, OTHER, ctxOf, installFakeSql, sqlMock, unscopedCatalogueStatements, type FakeDb } from './itemToolsHarness';
 
 let db: FakeDb;
 const ctx = ctxOf(['read:items']);
@@ -28,6 +28,18 @@ const row = (n: number, over: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => { db = installFakeSql(); });
+
+describe('tenant scoping', () => {
+  it('every statement the read tools send names company_id = the token\'s company', async () => {
+    db.reads.count = [{ n: 1 }];
+    db.reads.items = [row(1)];
+    await listItemsTool.handler({ q: 'x', cursor: encodeCursor({ parts: ['C0', row(0).id] }) }, ctx);
+    for (const args of [{ item_id: row(1).id }, { code: 'C1' }, { external_system: 'sage', external_ref: '1' }]) await getItemTool.handler(args, ctx);
+    await listItemCategoriesTool.handler({}, ctx);
+    expect((sqlMock as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThanOrEqual(6);
+    expect(unscopedCatalogueStatements()).toEqual([]);
+  });
+});
 
 describe('registration', () => {
   it('all three are read-only and need read:items (not read:reports)', () => {
@@ -119,10 +131,14 @@ describe('get_item', () => {
     }
   });
 
-  it('wants exactly one way to name the item', async () => {
-    for (const args of [{}, { item_id: row(1).id, code: 'C1' }, { external_ref: '1' }, { item_id: 'nope' }]) {
-      expect((await getItemTool.handler(args, ctx)).isError, JSON.stringify(args)).toBe(true);
+  it('wants exactly one way to name the item: an item that WOULD be found is not returned for an ambiguous call', async () => {
+    db.reads.items = [row(1)];
+    for (const args of [{}, { item_id: row(1).id, code: 'C1' }, { code: 'C1', external_system: 'sage', external_ref: '1' }, { external_ref: '1' }]) {
+      const r = await getItemTool.handler(args, ctx);
+      expect(r.isError, JSON.stringify(args)).toBe(true);
+      expect(r.content[0]!.text, JSON.stringify(args)).toMatch(/exactly one of|go together/);
     }
+    expect((await getItemTool.handler({ item_id: 'nope' }, ctx)).content[0]!.text).toBe('invalid item_id');
   });
 
   it('answers a miss, and another company\'s item, with the same generic text', async () => {

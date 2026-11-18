@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { mapCategoryRow, type CatalogCategory } from './itemCatalogTypes';
+import { ITEM_CODE_SEED, takeCompanyNumberLock } from '../core/numberLock';
 
 export interface CategoryInput {
   name: string;
@@ -76,7 +77,7 @@ export type CategoryPlan =
 const refuse = (code: string, reason: string): CategoryPlan => ({ refusal: { code, reason } });
 
 export async function planCategoryUpsert(companyId: string, input: CategoryInput): Promise<CategoryPlan> {
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`item_categories_upsert:${companyId}`}, 0))`;
+  await takeCompanyNumberLock(companyId, 'item_categories_upsert', ITEM_CODE_SEED); // bounded (migration 864): 5 s, then 55P03
   const rows = (await sql`
     SELECT * FROM item_categories WHERE company_id = ${companyId}::UUID
       AND (LOWER(name) = LOWER(${input.name}) OR (${input.code ?? null}::TEXT IS NOT NULL AND code = ${input.code ?? null}::TEXT)

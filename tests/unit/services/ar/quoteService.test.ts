@@ -193,6 +193,7 @@ describe('createQuote — writes real customer_quote_lines columns', () => {
         'tax_rate',
         'amount',
         'gl_account_id',
+        'item_id',
       ]);
     }
   });
@@ -284,6 +285,7 @@ describe('updateQuote — re-inserts lines using real columns', () => {
       'tax_rate',
       'amount',
       'gl_account_id',
+      'item_id',
     ]);
     const values = insertLineCall.slice(1);
     expect(values[columns.indexOf('amount')]).toBe(120); // 3 * 40

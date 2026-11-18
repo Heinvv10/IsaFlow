@@ -18,7 +18,7 @@ vi.mock('@/modules/accounting/services/items/itemUpsertContext', async (orig) =>
 import { McpRegistry } from '@/lib/mcp/registry';
 import { loadUpsertContext } from '@/modules/accounting/services/items/itemUpsertContext';
 import { ITEM_WRITE_TOOLS } from '@/lib/mcp/tools/itemToolSet';
-import { ACC, CAT, COMPANY, OTHER, ctxOf, installFakeSql, sqlMock, stored, upsertCtx, type FakeDb } from './itemToolsHarness';
+import { ACC, CAT, COMPANY, OTHER, ctxOf, installFakeSql, sqlMock, stored, unscopedCatalogueStatements, upsertCtx, type FakeDb } from './itemToolsHarness';
 
 let db: FakeDb;
 let registry: McpRegistry;
@@ -298,8 +298,18 @@ describe('upsert_item_category', () => {
   });
 });
 
-it('the fake company is the token\'s: no item statement names another company', async () => {
-  await call('bulk_upsert_items', { items: ROWS, idempotency_key: 'z1' });
+it('every statement the write tools send names company_id = the token\'s company, and none names another', async () => {
+  const ID = 'bbbbbbbb-0000-4000-8000-000000000001';
+  vi.mocked(loadUpsertContext).mockResolvedValue(upsertCtx([stored({ id: ID, code: 'A', description: 'Old' })]));
+  await call('bulk_upsert_items', { items: [...ROWS, { code: 'A', description: 'New' }], idempotency_key: 'z1' });
+  await call('update_item', { item_id: ID, description: 'Newer', idempotency_key: 'z2' });
+  db.reads.deactivate = [{ id: ID, code: 'A', is_active: true }];
+  await call('deactivate_item', { item_id: ID, idempotency_key: 'z3' });
+  db.reads.categories = [{ id: CAT, name: 'Optics', code: 'optics', description: null, is_active: true, external_system: null, external_ref: null }];
+  await call('upsert_item_category', { name: 'Optical', code: 'optics', idempotency_key: 'z4' });
+  await call('upsert_item_category', { name: 'Brand new', code: 'bn', idempotency_key: 'z5' });
+  expect(itemWrites().length).toBeGreaterThanOrEqual(4);
+  expect(unscopedCatalogueStatements()).toEqual([]);
   const values = (sqlMock as unknown as { mock: { calls: unknown[][] } }).mock.calls.flatMap((c) => c.slice(1));
   expect(values).toContain(COMPANY);
   expect(values).not.toContain(OTHER);

@@ -141,15 +141,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    // Migration 1002: a line naming a catalogue item and no account takes the item's purchases account (checked just below).
-    let items = sentItems;
+    let items = sentItems; // migration 1002: a line naming an item and no account takes the item's purchases account (checked below)
     try {
       if (sentItems?.length) items = await applyItemDefaultsToSnakeLines(companyId, sentItems, 'purchase', (n) => `items[${n}]`);
     } catch (err) {
       if (err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       throw err;
     }
-
     // Before the first write: an inactive or foreign account on a replacement
     // line would otherwise land in po_items with nothing to catch it — the
     // same window a GL account merge opens on every other document-line
@@ -256,8 +254,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
              ${lineTax},
              ${item.gl_account_id ?? null},
              ${i},
-             ${dims[i]?.cc1Id ?? null}::UUID, ${dims[i]?.cc2Id ?? null}::UUID, ${dims[i]?.buId ?? null}::UUID,
-             ${item.item_id ?? null}::UUID)
+             ${dims[i]?.cc1Id ?? null}::UUID, ${dims[i]?.cc2Id ?? null}::UUID, ${dims[i]?.buId ?? null}::UUID, ${item.item_id ?? null}::UUID)
         `;
       }
     }

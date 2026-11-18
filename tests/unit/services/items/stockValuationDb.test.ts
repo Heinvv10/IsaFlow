@@ -54,9 +54,14 @@ async function addMovement(
   totalCost: number | null,
   createdAt = '2031-06-01T00:00:00Z',
 ): Promise<void> {
+  // Migration 1002: stock_movements carries its own company_id and a new row must have one (CHECK). A movement of a product
+  // with NO company (the orphan case below) is given the first company's id only to satisfy that; the service's orphan
+  // disclosure judges by the PRODUCT's company_id, which stays NULL.
   await sql`
-    INSERT INTO stock_movements (product_id, movement_type, quantity, total_cost, created_at)
-    VALUES (${productId}::uuid, ${type}, ${quantity}, ${totalCost}, ${createdAt}::timestamptz)
+    INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, total_cost, created_at)
+    VALUES (
+      (SELECT COALESCE(p.company_id, (SELECT id FROM companies ORDER BY created_at LIMIT 1)) FROM products p WHERE p.id = ${productId}::uuid),
+      ${productId}::uuid, ${type}, ${quantity}, ${totalCost}, ${createdAt}::timestamptz)
   `;
 }
 

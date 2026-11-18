@@ -137,6 +137,7 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
       'amount',
       'gl_account_id',
       'cc1_id',
+      'item_id',
     ]);
 
     const values = insertItemCall.slice(1);

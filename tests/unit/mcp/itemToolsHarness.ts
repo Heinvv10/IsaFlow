@@ -76,3 +76,18 @@ export function installFakeSql(): FakeDb {
   });
   return db;
 }
+
+/**
+ * Every statement an item tool sent to the catalogue tables (items, item_categories) that does NOT scope by the token's
+ * company: `company_id = $n` in a WHERE, or company_id as the first INSERT column with the company bound. Row level
+ * security would still hide another company's rows from the app role, so only a text check catches a query that forgot
+ * the predicate the codebase requires on every statement.
+ */
+export function unscopedCatalogueStatements(companyId: string = COMPANY): string[] {
+  const calls = (sqlMock as unknown as { mock: { calls: Array<[ReadonlyArray<string>, ...unknown[]]> } }).mock.calls;
+  return calls
+    .map(([strings, ...values]) => ({ text: strings.join('?'), values }))
+    .filter(({ text }) => /\b(FROM|INTO|UPDATE)\s+(items|item_categories)\b/.test(text) && !text.includes('mcp_tool_calls'))
+    .filter(({ text, values }) => !((/\bcompany_id\s*=\s*\?/.test(text) || /INSERT INTO \w+\s*\(\s*company_id/.test(text)) && values.includes(companyId)))
+    .map(({ text }) => text.replace(/\s+/g, ' ').slice(0, 120));
+}
