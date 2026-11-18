@@ -5,8 +5,9 @@
  * row carries pay_frequency, run_kind 'regular', period_start / period_end, run_date = the pay date, and
  * period_year / period_month = the pay date's month (the EMP201 month; spec FQc).
  *
- * Refused before the insert, under a per-company advisory lock held to the end of the request, so two creates cannot
- * both pass the check:
+ * Refused before the insert, under the company's payroll-approval lock (the one the pay-week PUT takes) held to the end
+ * of the request, with the pay week read under it: two creates cannot both pass the check, and the pay week cannot
+ * change between the read and the insert:
  *   - the same period again: PayrollRunDuplicateError (the regular-period key of 999a also refuses it);
  *   - a period that OVERLAPS a non-cancelled regular run of the same frequency (the pay week was changed between
  *     them): PayrollRunOverlapError, since both runs would pay the overlapping days.
@@ -18,6 +19,7 @@ import { PayrollRunDuplicateError, mapRunRow, type PayrollRunSummary } from './p
 import { resolveRunPeriod, type PeriodFrequency, type RunPeriod } from './payrollPayWeek';
 import { readPayWeekSettings } from './payrollPayWeekSettings';
 import { dateColumnOf } from './payrollFrequency';
+import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 
 export class PayrollRunOverlapError extends Error {
   readonly code = 'PAY_PERIOD_OVERLAP';
@@ -58,10 +60,12 @@ export async function previewPeriodRun(
 export async function createPeriodRun(
   companyId: string, frequency: PeriodFrequency, periodStart: unknown, createdBy?: string,
 ): Promise<PayrollRunSummary> {
-  const period = resolveRunPeriod(frequency, periodStart, await readPayWeekSettings(companyId));
-  log.info('Creating payroll run', { companyId, frequency, periodStart: period.periodStart }, 'payrollRunCreatePeriod');
+  log.info('Creating payroll run', { companyId, frequency }, 'payrollRunCreatePeriod');
   return withTransaction(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_run_create:${companyId}`}, 0))`;
+    // The lock the pay-week PUT takes (setPayWeekSettings): the settings read below cannot change before the insert,
+    // and two creates are serialised too (review #1622 L1).
+    await lockCompanyPayrollForComponentChange(tx, companyId);
+    const period = resolveRunPeriod(frequency, periodStart, await readPayWeekSettings(companyId, tx));
     const refusal = await periodClash(tx, companyId, frequency, period);
     if (refusal) throw refusal;
     const rows = (await tx`

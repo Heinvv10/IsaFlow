@@ -19,6 +19,7 @@ import type { McpTool, McpToolContext } from '../types';
 import { createPayrollRun, PayrollRunDuplicateError } from '@/modules/accounting/services/payroll/payrollRunService';
 import { createPeriodRun, previewPeriodRun, PayrollRunOverlapError } from '@/modules/accounting/services/payroll/payrollRunCreatePeriod';
 import { RunPeriodRefused, type RunPeriod } from '@/modules/accounting/services/payroll/payrollPayWeek';
+import { ComponentDatesLockTimeoutError } from '@/modules/accounting/services/payroll/payrollCompanyLock';
 import { PayrollPlanChangedSinceApprovalError, readApprovedPlan } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
@@ -146,7 +147,8 @@ async function createPeriodPayRun(
     });
   } catch (err) {
     // Refused before the insert (the service's own savepoint), so nothing was written.
-    if (err instanceof PayrollRunDuplicateError || err instanceof PayrollRunOverlapError) return toolError(err.message);
+    if (err instanceof PayrollRunDuplicateError || err instanceof PayrollRunOverlapError || err instanceof RunPeriodRefused
+      || err instanceof ComponentDatesLockTimeoutError) return toolError(err.message);
     throw err;
   }
 }

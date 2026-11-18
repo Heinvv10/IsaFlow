@@ -24,6 +24,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { createPeriodRun, PayrollRunOverlapError } from '@/modules/accounting/services/payroll/payrollRunCreatePeriod';
 import { RunPeriodRefused } from '@/modules/accounting/services/payroll/payrollPayWeek';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -87,6 +88,7 @@ async function createForPeriod(
     if (err instanceof RunPeriodRefused) return apiResponse.badRequest(res, err.message);
     if (err instanceof PayrollRunDuplicateError) return apiResponse.conflict(res, err.message, { reason: 'PAY_PERIOD_EXISTS' });
     if (err instanceof PayrollRunOverlapError) return apiResponse.conflict(res, err.message, { reason: err.code });
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 }
