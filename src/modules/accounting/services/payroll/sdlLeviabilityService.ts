@@ -1,14 +1,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateSDL, isSdlExempt } from './sdlEngine';
+import { isSdlExempt, SDL_RATE } from './sdlEngine';
 import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
 import { contractorLineFlag } from './payrollOutsideTables';
 import { payFrequencyOf } from './payrollFrequency';
 import { periodsInYear } from './annualisationFactor';
-import { runIsBeforeSql, runOrderKeySql } from './payrollRunOrder';
 
 /**
  * Section 4(b) of the Skills Development Levies Act exempts an employer whose
@@ -95,21 +94,18 @@ export async function estimateAnnualRemuneration(
 ): Promise<number> {
   const index = periodIndex(period.year, period.month);
   const windowStart = index - (TRAILING_PERIODS - 1);
-  // A weekly or fortnightly regular run (wave 6 FQd, review #1622 M1): the month's decision is taken once, on the
-  // month's FIRST run of the frequency (pay order), its remuneration annualised by its own periods a year, so the
-  // month's later runs inherit it and the decision cannot move with the number of runs costed so far.
+  // A REGULAR run (wave 6 FQd, review #1622 M1, coordinator ruling): the employer-month is decided ONCE, by the month's
+  // first regular run to be costed, whatever its frequency (inheritedSdlDecision gives every later one that decision).
+  // The deciding run projects the month from its own pay annualised by its own periods a year (12, 26, 52), plus the
+  // month's off-cycle runs, on the trailing history across all frequencies. An off-cycle run keeps the month total.
   const self = ((await sql`
     SELECT pay_frequency, run_kind FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   const frequency = payFrequencyOf(self?.pay_frequency);
-  const periodic = self?.run_kind === 'regular' && (frequency === 'weekly' || frequency === 'fortnightly') ? frequency : null;
+  const regular = self?.run_kind === 'regular';
   const rows = (await sql`
     WITH runs AS (
-      SELECT prh.period_year * 12 + prh.period_month AS idx, ${runOrderKeySql('prh')} AS ord,
-             -- The month's earlier regular run of this run's frequency (pay order): the one that decides a weekly or
-             -- fortnightly month (FQd).
-             (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid AND prh.run_kind = 'regular'
-              AND prh.pay_frequency = ${periodic ?? ''} AND ${runIsBeforeSql('prh', companyId, runId)}) AS earlier_of_month,
+      SELECT prh.period_year * 12 + prh.period_month AS idx, prh.run_kind,
              -- The month's OTHER calculated, approved or paid runs (an off-cycle run beside the regular one): their
              -- remuneration is this month's too, whatever order they were calculated or paid in (wave 6 FQb1).
              (prh.period_year * 12 + prh.period_month = ${index} AND prh.id <> ${runId}::uuid) AS same_month_other,
@@ -138,8 +134,8 @@ export async function estimateAnnualRemuneration(
            COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
            MIN(idx)::int AS first_index,
            COALESCE(SUM(remuneration) FILTER (WHERE same_month_other), 0)::float8 AS month_others,
-           (SELECT COALESCE(SUM(t.remuneration), 0) FROM runs t WHERE t.is_this_run)::float8 AS this_run_stored,
-           (SELECT t.remuneration FROM runs t WHERE t.earlier_of_month ORDER BY t.ord LIMIT 1)::float8 AS first_of_month
+           COALESCE(SUM(remuneration) FILTER (WHERE same_month_other AND run_kind <> 'regular'), 0)::float8 AS month_off_cycle,
+           (SELECT COALESCE(SUM(t.remuneration), 0) FROM runs t WHERE t.is_this_run)::float8 AS this_run_stored
       FROM runs
      WHERE remuneration > 0
   `) as DbRow[];
@@ -164,10 +160,9 @@ export async function estimateAnnualRemuneration(
   // decide differently if one was calculated before the other existed: payrollSdlMonthGate refuses approval until both
   // are recalculated on the same month total.
   const monthOthers = Number(rows[0]?.month_others ?? 0);
-  const firstOfMonth = rows[0]?.first_of_month == null ? null : Number(rows[0].first_of_month);
-  const monthRemuneration = periodic
-    ? ((firstOfMonth ?? current) * periodsInYear(periodic)) / TRAILING_PERIODS
-    : monthOthers + current;
+  const monthOffCycle = Number(rows[0]?.month_off_cycle ?? 0);
+  const perYear = frequency === 'unsupported' ? TRAILING_PERIODS : periodsInYear(frequency);
+  const monthRemuneration = regular ? (current * perYear) / TRAILING_PERIODS + monthOffCycle : monthOthers + current;
   const annual = Math.round(
     ((priorRemuneration + monthRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
@@ -178,7 +173,7 @@ export async function estimateAnnualRemuneration(
   log.info(
     'SDL leviability basis',
     {
-      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers, periodic, firstOfMonth,
+      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers, monthOffCycle, frequency, regular,
       // Which judgement this is: the run's costing, or the approval gate re-judging its month (payrollSdlMonthGate).
       source: currentPeriodRemuneration === 'stored' ? 'approval-gate' : 'calculation',
     },
@@ -188,26 +183,51 @@ export async function estimateAnnualRemuneration(
 }
 
 /**
+ * The employer-month's SDL decision already taken (wave 6 FQd, review #1622 M1, coordinator ruling): for a REGULAR run,
+ * the stored decision (sdl_exempt) of the month's other regular runs that have been costed (calculated, approved or
+ * paid), whatever their frequency; the earliest opened first if they disagree (payrollSdlMonthGate then names the
+ * others). null: none yet (this run decides, estimateAnnualRemuneration), or not a regular run (the month total).
+ */
+export async function inheritedSdlDecision(companyId: string, runId: string): Promise<boolean | null> {
+  const rows = (await sql`
+    SELECT (SELECT bool_or(l.sdl_exempt) FROM payroll_run_lines l WHERE l.run_id = o.id) AS exempt
+      FROM payroll_run_headers me
+      JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year
+       AND o.period_month = me.period_month AND o.id <> me.id AND o.run_kind = 'regular'
+       AND o.status IN ('calculated', 'approved', 'paid')
+     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid AND me.run_kind = 'regular'
+       AND EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = o.id AND l.sdl_exempt IS NOT NULL)
+     ORDER BY o.created_at, o.id
+     LIMIT 1
+  `) as DbRow[];
+  return rows.length === 0 || rows[0]!.exempt == null ? null : rows[0]!.exempt === true;
+}
+
+/**
  * Charge the levy on each line's own leviable remuneration, once the employer's
  * annual remuneration has decided whether it is due at all. Returns the run
  * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
  * with each line so the year to date knows which months were liable), which is
- * why the caller builds them first.
+ * why the caller builds them first. `inherited`: the month's decision already taken
+ * (inheritedSdlDecision), which this run takes as it is.
  */
 export function applySdlToLines(
   lines: SdlLine[],
   annualRemunerationEstimate: number,
   taxYear: number,
+  inherited: boolean | null = null,
 ): number {
   let total = 0;
-  const exempt = isSdlExempt(annualRemunerationEstimate, taxYear);
+  const exempt = inherited ?? isSdlExempt(annualRemunerationEstimate, taxYear);
   for (const line of lines) {
     line.sdlExempt = exempt;
-    line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
+    line.sdl = exempt ? 0 : Math.round(line.sdlLeviable * SDL_RATE * 100) / 100;
     if (line.explanation) {
       line.explanation = {
         ...line.explanation,
-        sdl: withSdlCharge(line.explanation.sdl, taxYear, { annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl }),
+        sdl: withSdlCharge(line.explanation.sdl, taxYear, {
+          annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl, inherited: inherited !== null,
+        }),
       };
     }
     total += line.sdl;

@@ -4,7 +4,8 @@
  * month's later runs inherit it. A steady employer at R520 000 a year (eleven earlier months of R43 333.33) is liable
  * in every week of January 2027: each run carries 1% SDL and approves in order, with no sdl_month_split refusal.
  * Before: weeks 1-2 were judged on the month so far (exempt, SDL R0) and week 3 flipped the month. A later week whose
- * own pay would annualise below the threshold inherits the first week's decision.
+ * own pay would annualise below the threshold inherits the first week's decision. With weekly and monthly staff, the
+ * employer-month is decided by its first costed regular run of either frequency and inherited by the other.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
@@ -18,6 +19,8 @@ import payFrequency from '../../pages/api/payroll/employees/[id]/pay-frequency';
 let weekly: R;
 let fortnightly: R;
 let inherit: R;
+let mixedA: R;
+let mixedB: R;
 const create = (r: R, body: unknown) => r.call(runs as Route, 'POST', '/api/payroll/runs', undefined, { body });
 const putFreq = (r: R, id: string, f: string) =>
   r.call(payFrequency as Route, 'PUT', `/api/payroll/employees/${id}/pay-frequency`, id, { body: { payFrequency: f } });
@@ -47,14 +50,20 @@ beforeAll(async () => {
   weekly = await rig('fqd-sdl-weekly');
   fortnightly = await rig('fqd-sdl-fortnightly');
   inherit = await rig('fqd-sdl-inherit');
+  mixedA = await rig('fqd-sdl-mixed-a');
+  mixedB = await rig('fqd-sdl-mixed-b');
   await weekly.setup();
   await fortnightly.setup();
   await inherit.setup();
-}, 120_000);
+  await mixedA.setup();
+  await mixedB.setup();
+}, 180_000);
 afterAll(async () => {
   await cleanup(weekly);
   await cleanup(fortnightly);
   await cleanup(inherit);
+  await cleanup(mixedA);
+  await cleanup(mixedB);
 });
 
 describe('SDL on a steady payroll at R520 000 a year, decided once for the month', () => {
@@ -103,6 +112,41 @@ describe('SDL on a steady payroll at R520 000 a year, decided once for the month
     expect([...first, ...second]).toEqual([
       { calc: 200, sdl: 100, exempt: false, approve: 200, why: null },
       { calc: 200, sdl: 50, exempt: false, approve: 200, why: null },
+    ]);
+  }, 240_000);
+
+  /**
+   * Weekly wage staff (R10 000 a week: alone it annualises to R520 000, liable) and monthly salaried staff (R5 000:
+   * alone, on the same history, R481 667, exempt) in one company. SDL is one decision per EMPLOYER-month: the month's
+   * first costed regular run decides it, whatever its frequency, and every later run inherits it.
+   */
+  async function mixed(r: R) {
+    const { employee: wage } = await r.employee(10000);
+    expect((await putFreq(r, wage, 'weekly')).statusCode).toBe(200);
+    await r.employee(5000);
+    await history(r);
+    const week = async (s: string) => String((await create(r, { frequency: 'weekly', periodStart: s })).body.data!.id);
+    const month = String((await create(r, { month: 1, year: 2027 })).body.data!.id);
+    return { w1: await week('2026-12-28'), w2: await week('2027-01-04'), month };
+  }
+
+  it('mixed frequencies, a weekly run first: it decides liable; the monthly run and the next week inherit; all approve', async () => {
+    const { w1, w2, month } = await mixed(mixedA);
+    const out = await payInOrder(mixedA, [w1, month, w2]);
+    expect(out).toEqual([
+      { calc: 200, sdl: 100, exempt: false, approve: 200, why: null },
+      { calc: 200, sdl: 50, exempt: false, approve: 200, why: null },
+      { calc: 200, sdl: 100, exempt: false, approve: 200, why: null },
+    ]);
+  }, 240_000);
+
+  it('mixed frequencies, the monthly run first: it decides exempt; both weeks inherit; all approve', async () => {
+    const { w1, w2, month } = await mixed(mixedB);
+    const out = await payInOrder(mixedB, [month, w1, w2]);
+    expect(out).toEqual([
+      { calc: 200, sdl: 0, exempt: true, approve: 200, why: null },
+      { calc: 200, sdl: 0, exempt: true, approve: 200, why: null },
+      { calc: 200, sdl: 0, exempt: true, approve: 200, why: null },
     ]);
   }, 240_000);
 });

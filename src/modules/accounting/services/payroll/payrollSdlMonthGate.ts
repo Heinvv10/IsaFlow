@@ -17,7 +17,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
-import { estimateAnnualRemuneration } from './sdlLeviabilityService';
+import { estimateAnnualRemuneration, inheritedSdlDecision } from './sdlLeviabilityService';
 import { isSdlExempt } from './sdlEngine';
 import { getTaxYear } from './taxTables';
 
@@ -37,7 +37,9 @@ export async function sdlMonthSplitRefusal(companyId: string, runId: string): Pr
   const me = runs.find((r) => r.is_this === true);
   if (!me || !runs.some((r) => r.stored != null)) return null;
   const period = { year: Number(me.period_year), month: Number(me.period_month) };
-  const fresh = isSdlExempt(await estimateAnnualRemuneration(companyId, period, 'stored', runId), getTaxYear(period.month, period.year));
+  // A regular run's month was decided by its first costed regular run (wave 6 FQd): the gate re-judges to that decision.
+  const fresh = await inheritedSdlDecision(companyId, runId)
+    ?? isSdlExempt(await estimateAnnualRemuneration(companyId, period, 'stored', runId), getTaxYear(period.month, period.year));
   const stale = runs.filter((r) => r.stored != null && r.stored !== fresh && r.status !== 'paid');
   if (stale.length === 0) return null;
   const month = `${period.year}-${String(period.month).padStart(2, '0')}`;

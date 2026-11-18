@@ -23,9 +23,6 @@
   "src/modules/accounting/services/payroll/payrollRunQueryService.ts": [
    "ORDER BY (${year}::INT IS NOT NULL AND NOT (h.run_kind = 'regular' AND h.pay_frequency = 'monthly')), ${runOrderKeySql('h')} DESC"
   ],
-  "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
-   "SELECT prh.period_year * 12 + prh.period_month AS idx, ${runOrderKeySql('prh')} AS ord,"
-  ],
   "src/modules/accounting/services/payroll/payrollVarianceService.ts": [
    "AND ${runOrderKeySql('p')} < ${runOrderKeySql('c')}",
    "ORDER BY ${runOrderKeySql('p')} DESC"
@@ -491,7 +488,9 @@
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
    {"line":102,"text":"SELECT pay_frequency, run_kind FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd (review #1622 M1): this run's frequency and kind, by id: a weekly/fortnightly month is decided on its first run"},
-   {"line":132,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b)); FQd (review #1622 M1): a weekly/fortnightly month is decided on its first run in pay order (runOrderKeySql/runIsBeforeSql), annualised by its own periods a year"}
+   {"line":128,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b)); FQd (review #1622 M1): a regular run projects its own pay by its periods a year, plus the month's off-cycle runs"},
+   {"line":194,"text":"FROM payroll_run_headers me","class":"S","owner":"FQb1","why":"FQd (review #1622 M1): this run by id, for its month"},
+   {"line":195,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year","class":"S","owner":"FQb1","why":"FQd (review #1622 M1): the month's other costed regular runs (any frequency): their stored SDL decision, one per employer-month"}
   ],
   "src/modules/accounting/services/payroll/taxDirectiveLeaverUndo.ts": [
    {"line":147,"text":"SELECT h.period_year, h.period_month FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"months with a declarable run; labels"}
