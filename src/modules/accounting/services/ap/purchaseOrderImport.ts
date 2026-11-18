@@ -3,7 +3,9 @@
  * PO0000197..PO0000953), posting nothing. The MCP tool parses, ownership-checks and prices every PO first
  * (`mcp/tools/purchaseOrderImportArgs`); this runs inside the tool's savepoint, so any throw discards the whole batch.
  *
- * Lock order, each taken once, before the first write:
+ * Lock order, each taken once, before the first write. Before any of them the tool's prepare step reads the lines'
+ * accounts FOR SHARE (`documentLineAccountRefusal`, as every document writer does); nothing that holds the locks below
+ * then takes an account row lock, so no cycle. Then:
  *   1. the company budget lock (block policy only, and only when a PO is imported approved): the PO approval's own
  *      first lock (`purchaseOrderApprove`), so this never waits on it in the other order;
  *   2. the company's purchase_order number counter row FOR UPDATE (bounded 5 s -> ROW_LOCK_TIMEOUT): every PO
@@ -40,7 +42,6 @@ export interface ImportPoLine {
   netCents: number;
   taxCents: number;
   glAccountId: string | null;
-  productId: string | null;
   cc1Id: string | null;
   cc2Id: string | null;
   buId: string | null;
@@ -124,6 +125,9 @@ async function replays(companyId: string, items: readonly ImportPo[]): Promise<M
     if (found.totalAmount !== null && Math.round(found.totalAmount * 100) !== p.totals.total) {
       differences.push({ field: 'total', existing: found.totalAmount, requested: r2(p.totals.total) });
     }
+    // The stored status is never changed here: a PO imported open that the source has since billed stays approved
+    // (and committed) until a person closes or cancels it. Saying so is the least a re-run owes the caller.
+    if (found.status !== p.status) differences.push({ field: 'status', existing: found.status, requested: p.status });
     const stored = (await sql`
       SELECT subtotal, tax_amount, total FROM purchase_orders WHERE id = ${found.id}::UUID AND company_id = ${companyId}::UUID
     `) as DbRow[];
@@ -155,13 +159,13 @@ async function insertPo(companyId: string, p: ImportPo, userId: string): Promise
   await sql`
     INSERT INTO po_items (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount,
                           gl_account_id, cc1_id, cc2_id, bu_id, sort_order)
-    SELECT ${id}::UUID, x.product_id, x.description, x.quantity, x.unit_price, x.tax_rate, x.line_total, x.tax_amount,
+    SELECT ${id}::UUID, NULL::UUID, x.description, x.quantity, x.unit_price, x.tax_rate, x.line_total, x.tax_amount,
            x.gl_account_id, x.cc1_id, x.cc2_id, x.bu_id, x.sort_order
-      FROM unnest(${l.map((x) => x.productId)}::UUID[], ${l.map((x) => x.description)}::TEXT[], ${l.map((x) => x.quantity)}::NUMERIC[],
+      FROM unnest(${l.map((x) => x.description)}::TEXT[], ${l.map((x) => x.quantity)}::NUMERIC[],
                   ${l.map((x) => x.unitPrice)}::NUMERIC[], ${l.map((x) => x.taxRate)}::NUMERIC[], ${l.map((x) => r2(x.netCents))}::NUMERIC[],
                   ${l.map((x) => r2(x.taxCents))}::NUMERIC[], ${l.map((x) => x.glAccountId)}::UUID[], ${l.map((x) => x.cc1Id)}::UUID[],
                   ${l.map((x) => x.cc2Id)}::UUID[], ${l.map((x) => x.buId)}::UUID[], ${l.map((_, i) => i)}::INT[])
-        AS x(product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, cc1_id, cc2_id, bu_id, sort_order)
+        AS x(description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, cc1_id, cc2_id, bu_id, sort_order)
   `;
   return id;
 }
@@ -224,7 +228,8 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
     });
   }
 
-  const next = await raiseCounter(companyId, counter.prefix, items.map((p) => p.poNumber));
+  // Only numbers this call wrote: a replay's requested number (which may differ from the stored one) is never minted.
+  const next = await raiseCounter(companyId, counter.prefix, fresh.map((p) => p.poNumber));
   return {
     purchaseOrders: out.sort((a, b) => a.index - b.index),
     counter: { prefix: counter.prefix, next_number: next, raised: next > counter.next },

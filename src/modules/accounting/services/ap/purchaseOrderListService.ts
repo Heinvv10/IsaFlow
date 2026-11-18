@@ -69,21 +69,9 @@ export async function listPurchaseOrdersForMcp(
      LIMIT ${page.limit} OFFSET ${page.offset}
   `) as DbRow[];
   if (rows.length === 0 && page.offset > 0) {
-    // Past the end: the window sums came back with no row to carry them.
-    const agg = (await sql`
-      SELECT count(*)::INT AS n, COALESCE(sum(subtotal), 0) AS s, COALESCE(sum(tax_amount), 0) AS t, COALESCE(sum(total), 0) AS g
-        FROM purchase_orders po
-       WHERE po.company_id = ${companyId}::UUID
-         AND (${f.poNumber}::TEXT IS NULL OR po.po_number = ${f.poNumber})
-         AND (${f.statuses}::TEXT[] IS NULL OR po.status = ANY(${f.statuses}::TEXT[]))
-         AND (${f.supplierId}::UUID IS NULL OR po.supplier_id = ${f.supplierId}::UUID)
-         AND (${f.fromDate}::DATE IS NULL OR po.order_date >= ${f.fromDate}::DATE)
-         AND (${f.toDate}::DATE IS NULL OR po.order_date <= ${f.toDate}::DATE)
-         AND (${f.externalSystem}::TEXT IS NULL OR lower(po.external_system) = lower(${f.externalSystem}))
-         AND (${f.externalRef}::TEXT IS NULL OR po.external_ref = ${f.externalRef})
-    `) as DbRow[];
-    const a = agg[0]!;
-    return { rows: [], total: Number(a.n), totals: { subtotal: Number(a.s), taxAmount: Number(a.t), total: Number(a.g) } };
+    // Past the end: no row carries the window sums. The same query's first row does (one filter, one place).
+    const head = await listPurchaseOrdersForMcp(companyId, f, { limit: 1, offset: 0 });
+    return { rows: [], total: head.total, totals: head.totals };
   }
   const first = rows[0];
   return {

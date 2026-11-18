@@ -22,7 +22,7 @@ describe('parsePurchaseOrder', () => {
     expect(parsed(po())).toMatchObject({
       poNumber: 'PO0000197', supplierId: SUP, status: 'draft', ref: null,
       totals: { subtotal: 20000, tax: 3000, total: 23000 },
-      lines: [{ glAccountId: ACC, productId: null, taxRate: 15, cents: { net: 20000, tax: 3000 } }],
+      lines: [{ glAccountId: ACC, unitPrice: 100, taxRate: 15, cents: { net: 20000, tax: 3000 } }],
     });
   });
 
@@ -64,10 +64,39 @@ describe('parsePurchaseOrder', () => {
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, tax_rate: 101 }] }, /tax_rate must be at most 100/],
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, line_total: 1.005 }] }, /line_total must be whole cents/],
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, gl_account_id: 'x' }] }, /gl_account_id must be a UUID/],
-    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_id: 7 }] }, /item_id must be a UUID/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_id: ACC }] }, /lines\[0\]\.item_id is not a field of this tool/],
+    [{ total: 5 }, /purchase_orders\[0\]\.total is not a field of this tool/],
+    [{ expected_totals: { vat: 1 } }, /expected_totals\.vat is not a field of this tool/],
+    [{ lines: [{ description: 'a', quantity: 0.004, unit_price: 1 }] }, /quantity has at most two decimals/],
+    [{ lines: [{ description: 'a', quantity: 1.005, unit_price: 1 }] }, /quantity has at most two decimals/],
+    [{ lines: [{ description: 'a', quantity: 1e9, unit_price: 9999999999999 }] }, /line amount is more than the largest amount/],
+    [{ lines: [{ description: 'a', quantity: 10, unit_price: 100, line_total: 1150 }] }, /line_total 1150\.00 is more than quantity x unit_price/],
+    [{ lines: [{ description: 'a', quantity: 3_000_000, unit_price: 0.0000001, line_total: 0.3 }] }, /no unit price of 6 decimals gives line_total at this quantity/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, tax_amount: 0.15 }] }, /tax_amount needs line_total/],
+    [{ description: 'x'.repeat(501) }, /description is not a field/],
+    [{ reference: 'x'.repeat(256) }, /reference is longer than 255/],
+    [{ notes: 'x'.repeat(2001) }, /notes is longer than 2000/],
+    [{ lines: Array.from({ length: 201 }, () => ({ description: 'a', quantity: 1, unit_price: 1 })) }, /lines has 201 lines; the maximum is 200/],
     [{ lines: [{ description: '', quantity: 1, unit_price: 1 }] }, /description is required/],
   ])('refuses %o', (over, message) => {
     expect(parsePurchaseOrder(po(over), 0)).toMatch(message);
+  });
+});
+
+describe('the stored unit price', () => {
+  it('is the effective ex-VAT price: a discount, a 4-decimal price, a delivery date kept', () => {
+    const p = parsed(po({ delivery_date: '2026-07-01', lines: [
+      { description: 'discounted', quantity: 10, unit_price: 100, line_total: 900 },
+      { description: '4 decimals', quantity: 1000, unit_price: 1.2345 },
+      { description: 'thirds', quantity: 3, unit_price: 40, line_total: 100 },
+    ] }));
+    expect(p.deliveryDate).toBe('2026-07-01');
+    expect(p.lines.map((l) => [l.unitPrice, l.cents.net])).toEqual([[90, 90000], [1.2345, 123450], [33.333333, 10000]]);
+  });
+
+  it('refuses a PO whose total no document can hold', () => {
+    const lines = Array.from({ length: 2 }, () => ({ description: 'big', quantity: 1, unit_price: 6e12, tax_rate: 0 }));
+    expect(parsePurchaseOrder(po({ lines }), 0)).toMatch(/the PO total is more than the largest amount/);
   });
 });
 

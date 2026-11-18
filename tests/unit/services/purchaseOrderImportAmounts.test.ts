@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cents, expectedTotalsRefusal, lineCents, poCents,
+  cents, expectedTotalsRefusal, lineCents, poCents, storedUnitPrice,
 } from '@/modules/accounting/services/ap/purchaseOrderImportAmounts';
 
 describe('cents', () => {
@@ -17,14 +17,17 @@ describe('lineCents', () => {
   });
 
   it('inclusive: VAT is taken out of the rounded gross, as an inclusive document computes it', () => {
-    // gross = 3 x 19.99 x 1.15 = 68.9655 -> 68.97; VAT = 68.97 x 15/115 = 8.996 -> 9.00; net 59.97
+    // 1 x 1.0143: exclusive net 1.01 (VAT 0.15); inclusive gross round(1.166445) = 1.17, VAT 0.15, net 1.02.
+    expect(lineCents({ quantity: 1, unitPrice: 1.0143, taxRate: 15 }, false)).toEqual({ net: 101, tax: 15 });
+    expect(lineCents({ quantity: 1, unitPrice: 1.0143, taxRate: 15 }, true)).toEqual({ net: 102, tax: 15 });
+    // Where the roundings agree, so do the modes.
     expect(lineCents({ quantity: 3, unitPrice: 19.99, taxRate: 15 }, true)).toEqual({ net: 5997, tax: 900 });
-    // A case where the two roundings differ by a cent: 7 x 1.43 = 10.01 net.
-    const exclusive = lineCents({ quantity: 7, unitPrice: 1.43, taxRate: 15 }, false) as { net: number; tax: number };
-    const inclusive = lineCents({ quantity: 7, unitPrice: 1.43, taxRate: 15 }, true) as { net: number; tax: number };
-    expect(exclusive).toEqual({ net: 1001, tax: 150 });
-    expect(inclusive.net + inclusive.tax).toBe(1151); // gross 11.5115 -> 11.51
-    expect(inclusive).toEqual({ net: 1001, tax: 150 });
+  });
+
+  it('refuses a line_total above quantity x unit_price: the VAT-inclusive total sent as the ex-VAT amount', () => {
+    expect(lineCents({ quantity: 10, unitPrice: 100, taxRate: 15, lineTotal: 1150 }, false))
+      .toBe('line_total 1150.00 is more than quantity x unit_price (1000.00): send the ex-VAT line amount (Sage Exclusive), not the VAT-inclusive total');
+    expect(lineCents({ quantity: 10, unitPrice: 100, taxRate: 15, lineTotal: 1000.01 }, false)).toEqual({ net: 100001, tax: 15000 });
   });
 
   it('the source\'s own line_total and tax_amount are stored as sent (a discount, more price decimals)', () => {
@@ -34,13 +37,13 @@ describe('lineCents', () => {
   });
 
   it('line_total alone computes the VAT from it', () => {
-    expect(lineCents({ quantity: 1, unitPrice: 1, taxRate: 15, lineTotal: 200 }, false)).toEqual({ net: 20000, tax: 3000 });
+    expect(lineCents({ quantity: 1, unitPrice: 200, taxRate: 15, lineTotal: 200 }, false)).toEqual({ net: 20000, tax: 3000 });
   });
 
   it('a VAT that disagrees with the line amount by more than 2 cents is refused; rounding is not', () => {
     expect(lineCents({ quantity: 1, unitPrice: 100, taxRate: 15, lineTotal: 100, taxAmount: 15.02 }, false)).toEqual({ net: 10000, tax: 1502 });
     expect(lineCents({ quantity: 1, unitPrice: 100, taxRate: 15, lineTotal: 100, taxAmount: 15.03 }, false))
-      .toBe('tax_amount 15.03 does not match line_total 100.00 at 15% (expected about 15.00)');
+      .toBe('tax_amount 15.03 does not match line_total 100.00 at 15% (expected about 15.00; tax_rate defaults to 15 — send the line\'s own rate)');
     expect(lineCents({ quantity: 1, unitPrice: 100, taxRate: 0, lineTotal: 100, taxAmount: 15 }, false)).toMatch(/does not match/);
   });
 
@@ -67,5 +70,17 @@ describe('poCents and expected totals', () => {
     const got = poCents(lines);
     expect(expectedTotalsRefusal(got, { total: 118.84 })).toBe('expected_totals.total is 118.84 but the lines add up to 118.83');
     expect(expectedTotalsRefusal(got, { taxAmount: 15.49 })).toBe('expected_totals.tax_amount is 15.49 but the lines add up to 15.50');
+  });
+});
+
+describe('storedUnitPrice', () => {
+  it('is the effective ex-VAT price, so round(quantity x price) gives the line amount back', () => {
+    expect(storedUnitPrice(3, 10000)).toBe(33.333333); // 3 x 33.333333 = 99.999999 -> 100.00
+    expect(storedUnitPrice(10, 90000)).toBe(90); // a 10% discount on 10 x 100
+    expect(storedUnitPrice(1000, 123450)).toBe(1.2345);
+  });
+
+  it('is null when no 6-decimal price rounds back to the amount', () => {
+    expect(storedUnitPrice(3_000_000, 100)).toBeNull();
   });
 });

@@ -42,6 +42,9 @@ describe('bulk_create_purchase_orders handler', () => {
     const r = await tool.handler({ idempotency_key: 'k', purchase_orders: [] }, ctx);
     expect(r).toMatchObject({ isError: true, content: [{ text: 'purchase_orders must be a non-empty array' }] });
     expect(prepareMock).not.toHaveBeenCalled();
+    const bad = await tool.handler({ idempotency_key: 'k', purchase_orders: [{ ...PO, supplier_id: 'acme' }] }, ctx);
+    expect(bad).toMatchObject({ isError: true, content: [{ text: 'purchase_orders[0].supplier_id must be a supplier UUID' }] });
+    expect(prepareMock).not.toHaveBeenCalled();
   });
 
   it('returns a prepare refusal as the tool error', async () => {
@@ -83,9 +86,10 @@ describe('bulk_create_purchase_orders handler', () => {
     importMock.mockRejectedValue(new PurchaseOrderImportRefusal('purchase_orders[0]: po_number PO0000197 already exists'));
     expect(await call({})).toMatchObject({ isError: true, content: [{ text: 'purchase_orders[0]: po_number PO0000197 already exists' }] });
 
-    const budget = Object.create(BudgetExceededError.prototype) as BudgetExceededError;
-    Object.defineProperty(budget, 'message', { value: 'PO0000197 is over budget on BB-6100.' });
-    importMock.mockRejectedValue(budget);
+    importMock.mockRejectedValue(new BudgetExceededError('PO0000197 is over budget on BB-6100.', {
+      companyId: 'c1', documentType: 'purchase_order', documentId: 'p1', documentRef: 'PO0000197', policy: 'block',
+      lines: [], reason: null, channel: 'mcp', actorId: 'u1',
+    }));
     const refused = await call({});
     expect(refused.isError).toBe(true);
     expect(refused.content[0]!.text).toMatch(/^budget_exceeded: PO0000197 is over budget on BB-6100\. Nothing was created/);

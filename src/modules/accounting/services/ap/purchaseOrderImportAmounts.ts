@@ -4,14 +4,19 @@
  * A line's ex-VAT amount (`line_total`) and VAT (`tax_amount`) are, in order of preference:
  *   1. the source system's own figures, when the caller sends them (Sage's Exclusive and Tax per line). Stored as sent,
  *      because the source's arithmetic is what its totals add up to: a discount, an inclusive document, or a unit
- *      price with more decimals than po_items keeps (NUMERIC(15,2)) all make quantity x unit price differ from them.
- *      The VAT must still agree with the line amount at the line's rate within 2 cents (a swapped or mistyped field
- *      is refused, rounding is not);
+ *      price with more decimals all make quantity x unit price differ from them. A line amount may be LESS than
+ *      quantity x unit price (a discount) but never more than it by over a cent (that is the VAT-inclusive total sent
+ *      as the ex-VAT amount). The VAT must agree with the line amount at the line's rate within 2 cents (a swapped or
+ *      mistyped field is refused, rounding is not);
  *   2. otherwise computed. Exclusive: net = round(qty x price), VAT = round(net x rate). Inclusive (the source
  *      document's prices included VAT, as Sage computes it): gross = round(qty x price x (1 + rate)), VAT =
  *      round(gross x rate / (1 + rate)), net = gross - VAT. `unit_price` is ex-VAT either way.
  * The PO's subtotal, VAT and total are the sums of its lines. When the caller sends the source's own totals
  * (`expected`), each one sent must equal the sum to the cent, or the PO is refused naming both figures.
+ *
+ * The STORED unit price is the line's effective ex-VAT price, net / quantity to 6 decimals (`storedUnitPrice`, po_items
+ * NUMERIC(19,6) since 1001), so line_total = round(quantity x unit_price) holds for every PO line whichever writer made
+ * it: the app's edit recomputes line_total from those two, and a bill copies them from the PO.
  */
 
 export interface ImportLineMoney {
@@ -44,11 +49,15 @@ export function lineCents(line: ImportLineMoney, inclusive: boolean): LineCents 
   const vat = line.taxRate / 100;
   if (line.lineTotal !== undefined) {
     const net = cents(line.lineTotal);
+    const gross = cents(line.quantity * line.unitPrice);
+    if (net > gross + 1) {
+      return `line_total ${fmt(net)} is more than quantity x unit_price (${fmt(gross)}): send the ex-VAT line amount (Sage Exclusive), not the VAT-inclusive total`;
+    }
     const expectedTax = cents(line.lineTotal * vat);
     if (line.taxAmount === undefined) return { net, tax: expectedTax };
     const tax = cents(line.taxAmount);
     if (Math.abs(tax - expectedTax) > TAX_TOLERANCE_CENTS) {
-      return `tax_amount ${fmt(tax)} does not match line_total ${fmt(net)} at ${line.taxRate}% (expected about ${fmt(expectedTax)})`;
+      return `tax_amount ${fmt(tax)} does not match line_total ${fmt(net)} at ${line.taxRate}% (expected about ${fmt(expectedTax)}; tax_rate defaults to 15 — send the line's own rate)`;
     }
     return { net, tax };
   }
@@ -60,6 +69,15 @@ export function lineCents(line: ImportLineMoney, inclusive: boolean): LineCents 
   }
   const net = cents(line.quantity * line.unitPrice);
   return { net, tax: cents((net / 100) * vat) };
+}
+
+/** Six decimals: the precision po_items.unit_price keeps. */
+const round6 = (v: number): number => Math.round(Number((v * 1e6).toPrecision(15))) / 1e6;
+
+/** The effective unit price stored for a line, or null when no 6-decimal price makes quantity x price round to it. */
+export function storedUnitPrice(quantity: number, netCents: number): number | null {
+  const unit = round6(netCents / 100 / quantity);
+  return cents(quantity * unit) === netCents ? unit : null;
 }
 
 export function poCents(lines: readonly LineCents[]): PoCents {

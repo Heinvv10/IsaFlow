@@ -6,7 +6,7 @@
 import { DATE_RE, UUID_RE, isRealCalendarDate } from '@/lib/validation';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import {
-  expectedTotalsRefusal, lineCents, poCents, type ExpectedTotals, type LineCents, type PoCents,
+  cents, expectedTotalsRefusal, lineCents, poCents, storedUnitPrice, type ExpectedTotals, type LineCents, type PoCents,
 } from '@/modules/accounting/services/ap/purchaseOrderImportAmounts';
 import type { ImportPoStatus } from '@/modules/accounting/services/ap/purchaseOrderImport';
 import { parseCreateRef, type ParsedCreateRef } from './externalRef';
@@ -15,6 +15,7 @@ import { MAX_LINES } from './invoiceCreateArgs';
 import { MAX_MONEY, hasWholeCents } from './toolHelpers';
 
 export const MAX_PURCHASE_ORDERS = 100;
+const MAX_CENTS = cents(MAX_MONEY);
 export const PO_TEXT_LIMITS = { po_number: 50, reference: 255, notes: 2000, description: 500 } as const;
 
 /** Accepted status words: the PO statuses an import may set, and the names a migration brief uses for them. */
@@ -30,10 +31,10 @@ export const IMPORT_STATUS_ALIASES: Record<string, ImportPoStatus> = {
 export interface ParsedPoLine {
   description: string;
   quantity: number;
+  /** The unit price stored: the line's effective ex-VAT price (net / quantity, 6 decimals). */
   unitPrice: number;
   taxRate: number;
   glAccountId: string | null;
-  productId: string | null;
   dims: DimensionRefs | undefined;
   cents: LineCents;
 }
@@ -53,6 +54,17 @@ export interface ParsedPo {
 }
 
 type Obj = Record<string, unknown>;
+
+/** The keys each object may carry: anything else (a misspelt line_total, an item_id) is refused, never ignored. */
+const PO_KEYS = new Set(['po_number', 'supplier_id', 'order_date', 'delivery_date', 'reference', 'notes', 'status', 'inclusive',
+  'external_ref', 'external_system', 'external_document_number', 'expected_totals', 'lines']);
+const TOTAL_KEYS = new Set(['subtotal', 'tax_amount', 'total']);
+const LINE_KEYS = new Set(['description', 'quantity', 'unit_price', 'tax_rate', 'line_total', 'tax_amount', 'gl_account_id', 'cc1', 'cc2', 'bu']);
+
+function unknownKey(o: Obj, allowed: ReadonlySet<string>, label: string): string | null {
+  const extra = Object.keys(o).find((k) => !allowed.has(k));
+  return extra === undefined ? null : `${label}.${extra} is not a field of this tool (allowed: ${[...allowed].join(', ')})`;
+}
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function text(o: Obj, key: string, max: number, label: string, required: boolean): string | null | { error: string } {
@@ -96,11 +108,15 @@ function refOf(o: Obj): ParsedCreateRef | null | string {
 
 function parseLine(o: unknown, label: string, inclusive: boolean): ParsedPoLine | string {
   if (!isObj(o)) return `${label} must be an object`;
+  const extra = unknownKey(o, LINE_KEYS, label);
+  if (extra) return extra;
   const description = text(o, 'description', PO_TEXT_LIMITS.description, label, true);
   if (err(description)) return description.error;
   const quantity = num(o, 'quantity', label, { min: 0, max: 1e9, exclusiveMin: true });
   if (err(quantity)) return quantity.error;
   if (quantity === undefined) return `${label}.quantity is required`;
+  // po_items.quantity is NUMERIC(15,2): a third decimal would be rounded (0.004 to 0.00, refused by its CHECK).
+  if (!hasWholeCents(quantity)) return `${label}.quantity has at most two decimals`;
   const unitPrice = num(o, 'unit_price', label, { min: 0, max: MAX_MONEY });
   if (err(unitPrice)) return unitPrice.error;
   if (unitPrice === undefined) return `${label}.unit_price is required (ex-VAT)`;
@@ -110,28 +126,29 @@ function parseLine(o: unknown, label: string, inclusive: boolean): ParsedPoLine 
   if (err(lineTotal)) return lineTotal.error;
   const taxAmount = num(o, 'tax_amount', label, { min: 0, max: MAX_MONEY, cents: true });
   if (err(taxAmount)) return taxAmount.error;
-  const ids: Record<string, string | null> = {};
-  for (const key of ['gl_account_id', 'item_id'] as const) {
-    const v = o[key];
-    if (v === undefined || v === null || v === '') { ids[key] = null; continue; }
-    if (typeof v !== 'string' || !UUID_RE.test(v)) return `${label}.${key} must be a UUID`;
-    ids[key] = v.toLowerCase();
+  let glAccountId: string | null = null;
+  const acc = o.gl_account_id;
+  if (acc !== undefined && acc !== null && acc !== '') {
+    if (typeof acc !== 'string' || !UUID_RE.test(acc)) return `${label}.gl_account_id must be a UUID`;
+    glAccountId = acc.toLowerCase();
   }
   const dims = parseDimensionRefs(o, label);
   if (typeof dims === 'string') return dims;
   const rate = taxRate ?? 15;
-  const cents = lineCents({ quantity, unitPrice, taxRate: rate, lineTotal, taxAmount }, inclusive);
-  if (typeof cents === 'string') return `${label}: ${cents}`;
-  return {
-    description: description as string, quantity, unitPrice, taxRate: rate,
-    glAccountId: ids.gl_account_id!, productId: ids.item_id!, dims, cents,
-  };
+  const money = lineCents({ quantity, unitPrice, taxRate: rate, lineTotal, taxAmount }, inclusive);
+  if (typeof money === 'string') return `${label}: ${money}`;
+  if (money.net + money.tax > MAX_CENTS) return `${label}: the line amount is more than the largest amount a document holds`;
+  const stored = storedUnitPrice(quantity, money.net);
+  if (stored === null) return `${label}: no unit price of 6 decimals gives line_total at this quantity; split the line`;
+  return { description: description as string, quantity, unitPrice: stored, taxRate: rate, glAccountId, dims, cents: money };
 }
 
 function parseExpected(o: Obj, label: string): ExpectedTotals | undefined | string {
   const e = o.expected_totals;
   if (e === undefined || e === null) return undefined;
   if (!isObj(e)) return `${label}.expected_totals must be an object`;
+  const extra = unknownKey(e, TOTAL_KEYS, `${label}.expected_totals`);
+  if (extra) return extra;
   const out: ExpectedTotals = {};
   for (const [key, field] of [['subtotal', 'subtotal'], ['tax_amount', 'taxAmount'], ['total', 'total']] as const) {
     const v = num(e, key, `${label}.expected_totals`, { min: 0, max: MAX_MONEY, cents: true });
@@ -144,6 +161,8 @@ function parseExpected(o: Obj, label: string): ExpectedTotals | undefined | stri
 export function parsePurchaseOrder(o: unknown, index: number): ParsedPo | string {
   const label = `purchase_orders[${index}]`;
   if (!isObj(o)) return `${label} must be an object`;
+  const extra = unknownKey(o, PO_KEYS, label);
+  if (extra) return extra;
   const poNumber = text(o, 'po_number', PO_TEXT_LIMITS.po_number, label, true);
   if (err(poNumber)) return poNumber.error;
   const supplierId = o.supplier_id;
@@ -173,6 +192,7 @@ export function parsePurchaseOrder(o: unknown, index: number): ParsedPo | string
     lines.push(line);
   }
   const totals = poCents(lines.map((l) => l.cents));
+  if (totals.total > MAX_CENTS) return `${label}: the PO total is more than the largest amount a document holds`;
   const expected = parseExpected(o, label);
   if (typeof expected === 'string') return expected;
   const mismatch = expectedTotalsRefusal(totals, expected);
