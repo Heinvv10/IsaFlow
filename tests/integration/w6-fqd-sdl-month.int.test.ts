@@ -3,7 +3,8 @@
  * ONCE for a weekly or fortnightly month, on its first run annualised by its own periods a year (52, 26), and the
  * month's later runs inherit it. A steady employer at R520 000 a year (eleven earlier months of R43 333.33) is liable
  * in every week of January 2027: each run carries 1% SDL and approves in order, with no sdl_month_split refusal.
- * Before: weeks 1-2 were judged on the month so far (exempt, SDL R0) and week 3 flipped the month.
+ * Before: weeks 1-2 were judged on the month so far (exempt, SDL R0) and week 3 flipped the month. A later week whose
+ * own pay would annualise below the threshold inherits the first week's decision.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
@@ -16,6 +17,7 @@ import payFrequency from '../../pages/api/payroll/employees/[id]/pay-frequency';
 
 let weekly: R;
 let fortnightly: R;
+let inherit: R;
 const create = (r: R, body: unknown) => r.call(runs as Route, 'POST', '/api/payroll/runs', undefined, { body });
 const putFreq = (r: R, id: string, f: string) =>
   r.call(payFrequency as Route, 'PUT', `/api/payroll/employees/${id}/pay-frequency`, id, { body: { payFrequency: f } });
@@ -44,12 +46,15 @@ async function payInOrder(r: R, ids: string[]) {
 beforeAll(async () => {
   weekly = await rig('fqd-sdl-weekly');
   fortnightly = await rig('fqd-sdl-fortnightly');
+  inherit = await rig('fqd-sdl-inherit');
   await weekly.setup();
   await fortnightly.setup();
+  await inherit.setup();
 }, 120_000);
 afterAll(async () => {
   await cleanup(weekly);
   await cleanup(fortnightly);
+  await cleanup(inherit);
 });
 
 describe('SDL on a steady payroll at R520 000 a year, decided once for the month', () => {
@@ -82,5 +87,22 @@ describe('SDL on a steady payroll at R520 000 a year, decided once for the month
     }
     const out = await payInOrder(fortnightly, ids);
     expect(out).toEqual(ids.map(() => ({ calc: 200, sdl: 200, exempt: false, approve: 200, why: null })));
+  }, 240_000);
+
+  it('a later week inherits the first week\'s decision, even when its own pay would annualise below the threshold', async () => {
+    // Week 1 at R10 000 annualises to R520 000 (liable). Week 2 at R5 000 alone would read
+    // (R476 666.63 + R5 000 x 52 / 12) = R498 333 (exempt); it inherits liable and carries R50.
+    const { employee, salaryRow } = await inherit.employee(10000);
+    expect((await putFreq(inherit, employee, 'weekly')).statusCode).toBe(200);
+    await history(inherit);
+    const ids: string[] = [];
+    for (const s of ['2026-12-28', '2027-01-04']) ids.push(String((await create(inherit, { frequency: 'weekly', periodStart: s })).body.data!.id));
+    const first = await payInOrder(inherit, [ids[0]!]);
+    await inherit.setSalary(salaryRow, 5000);
+    const second = await payInOrder(inherit, [ids[1]!]);
+    expect([...first, ...second]).toEqual([
+      { calc: 200, sdl: 100, exempt: false, approve: 200, why: null },
+      { calc: 200, sdl: 50, exempt: false, approve: 200, why: null },
+    ]);
   }, 240_000);
 });
