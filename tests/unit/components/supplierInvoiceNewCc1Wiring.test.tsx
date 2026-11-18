@@ -39,6 +39,17 @@ describe('supplier invoice page: the default CC1 reaches the line', () => {
     await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: FT Fibertime'));
   });
 
+  it('a supplier with no rule (404) has no default: a line with no CC shows a dash, not "unknown"', async () => {
+    serve(
+      on('GET', '/supplier-rules/s2', () => new Response('', { status: 404 })),
+      on('GET', 'detail=dimensions', () => ok({ items: [] })),
+    );
+    render(<SupplierInvoiceNew />);
+    fireEvent.click(screen.getByRole('button', { name: 'pick supplier 2' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dimensions' }));
+    await waitFor(() => expect(screen.getByTestId('line-cc1').textContent).toBe('CC1: —'));
+  });
+
   const LADDER = { items: [{ id: 'f1', code: 'FT', name: 'Fibertime', ccType: 'cc1', isActive: true, fnoCode: 'FT' }] };
   it.each([
     ['still loading', () => new Promise<Response>(() => undefined)],

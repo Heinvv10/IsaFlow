@@ -177,6 +177,14 @@ describe('useSupplierDimensionDefaults', () => {
     expect(lines()[0]!.cc2Id ?? '').toBe('');
     expect(view.result.current.note).toBe('');
   });
+
+  it('status: a supplier with no rule (404) is known to have no defaults, so ready, never failed', async () => {
+    serve(on('GET', '/supplier-rules/s1', () => new Response('', { status: 404 })));
+    const { view } = mount('s1', OFFERED);
+    expect(view.result.current.status).toBe('loading');
+    await waitFor(() => expect(view.result.current.status).toBe('ready'));
+    expect(view.result.current.cc1Id).toBe('');
+  });
 });
 
 describe('BillLineItemsTable with supplier defaults', () => {
