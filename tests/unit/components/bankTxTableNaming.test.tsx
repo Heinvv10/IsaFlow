@@ -88,9 +88,14 @@ describe('BankTxTable: the names, row by row', () => {
       for (const svg of Array.from(b.querySelectorAll('svg'))) expect(svg).toHaveAttribute('aria-hidden', 'true');
     }
     const first = within(screen.getAllByRole('row')[1]!);
-    for (const name of ['Accept', 'Find & Match', 'Split transaction', 'Create rule from this transaction', 'Link to asset / fuel / service', 'Attachments', 'Ask client on WhatsApp', 'Exclude']) {
-      expect(first.getByRole('button', { name: `${name}, ${row('a')}` })).toBeInTheDocument();
+    // A New row: Accept and the More actions menu on the row; the rest are the menu's items (WP4b).
+    for (const name of ['Accept', 'More actions']) expect(first.getByRole('button', { name: `${name}, ${row('a')}` })).toBeInTheDocument();
+    fireEvent.click(first.getByRole('button', { name: `More actions, ${row('a')}` }));
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem');
+    for (const name of ['Find & Match', 'Split transaction', 'Create rule from this transaction', 'Link to asset / fuel / service', 'Attachments', 'Ask client on WhatsApp', 'Exclude']) {
+      expect(items.some(i => i.textContent === name), name).toBe(true);
     }
+    for (const i of items) for (const svg of Array.from(i.querySelectorAll('svg'))) expect(svg).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('names the undo button on reviewed rows; a reconciled row offers none', () => {
