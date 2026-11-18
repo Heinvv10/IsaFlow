@@ -338,7 +338,7 @@ export async function submitVATReturn(
       ${totalInputTax},
       ${absNetVat},
       ${sarsReference ?? null},
-      ${safeUserId}::UUID,
+      ${userId},
       ${journalEntryId}::UUID
     )
     RETURNING *

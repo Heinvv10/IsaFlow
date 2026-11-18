@@ -12,6 +12,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
+import { mcpRegistry } from '@/lib/mcp/toolIndex';
+import { withAlsTransaction } from '@/lib/alsTransaction';
+import { createVATAdjustment } from '@/modules/accounting/services/reports/vatAdjustmentService';
 
 let r: Awaited<ReturnType<typeof rig>>;
 const N = `sage-import-bot-hyb-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -34,6 +37,15 @@ const header = async (id: string) =>
   (await r.pool.query('SELECT prepared_by::text AS p, approval_revision::text AS v FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
 const status = async (requestId: string) =>
   (await r.pool.query('SELECT status FROM approval_requests WHERE id = $1', [requestId])).rows[0]?.status;
+const SCOPES = ['read:payroll', 'write:payroll', 'write:post', 'read:accounting', 'write:accounting'];
+/** calculate_pay_run through the real registry, as `user` (the company's admin role). */
+async function mcpCalculate(user: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> {
+  const ctx = { userId: user, companyId: r.company, scopes: SCOPES, tokenJti: null, oauthAppId: null, companyRole: 'admin' };
+  const res = await withAlsTransaction({ userId: user, companyId: r.company },
+    () => mcpRegistry.call('calculate_pay_run', { idempotency_key: `hyb-${crypto.randomUUID()}`, ...args }, ctx as never)) as
+    { isError?: boolean; content: Array<{ text: string }> };
+  return { isError: res.isError === true, text: res.content?.[0]?.text ?? '' };
+}
 async function raisedRun(month: number): Promise<{ id: string; req: { id: string; documentDigest: string } }> {
   const id = String((await r.api.createRun(month)).body.data!.id);
   expect((await r.api.calculate(id)).statusCode).toBe(200);
@@ -60,6 +72,48 @@ describe('HYb: a non-UUID preparer and a pay run under R-035 approval', () => {
     expect(approved.statusCode).toBe(200);
     expect(await status(req.id)).toBe('approved');
   }, 180000);
+
+  it('case A: N calculating a fresh run is refused the same way, and the header is untouched', async () => {
+    const id = String((await r.api.createRun(9)).body.data!.id);
+    const before = await header(id);
+    const nCalc = await r.api.calculate(id, { user: N });
+    expect(nCalc.statusCode).toBe(409);
+    expect(JSON.stringify(nCalc.body)).toContain('PREPARER_ID_NOT_SUPPORTED');
+    expect(await header(id)).toEqual(before);
+    expect((await r.pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [id])).rows[0].status).toBe('draft');
+  }, 180000);
+
+  it('case B: after N is refused, the pending request can be withdrawn by its requester and raised again', async () => {
+    const { id, req } = await raisedRun(10);
+    expect((await r.api.calculate(id, { user: N })).statusCode).toBe(409);
+    expect(await status(req.id)).toBe('pending');
+    const withdrawn = await ar(r.admin, { action: 'reject', requestId: req.id });
+    expect(withdrawn.statusCode, JSON.stringify(withdrawn.body)).toBe(200);
+    const again = await ar(r.admin, { action: 'request', documentType: 'pay_run', documentId: id });
+    expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
+  }, 180000);
+
+  it('the MCP calculate_pay_run path refuses N too, live and dry run, and writes nothing', async () => {
+    const { id } = await raisedRun(11);
+    const before = await header(id);
+    for (const args of [{ run_id: id }, { run_id: id, dry_run: true }]) {
+      const out = await mcpCalculate(N, args);
+      expect(out.isError, out.text).toBe(true);
+      expect(out.text).toContain("This account can't prepare pay runs that need approval yet.");
+      expect(out.text).not.toContain(N);
+    }
+    expect(await header(id)).toEqual(before);
+    expect((await mcpCalculate(r.admin, { run_id: id })).isError).toBe(false);
+  }, 180000);
+
+  it("a non-UUID user's VAT adjustment records that user's own id, not a stand-in", async () => {
+    const adj = await withAlsTransaction({ userId: N, companyId: r.company }, () => createVATAdjustment(r.company, {
+      adjustmentDate: '2026-03-15', adjustmentType: 'output', amount: 10, reason: 'hyb L1',
+    } as never, N));
+    const row = (await r.pool.query('SELECT created_by FROM vat_adjustments WHERE id = $1 AND company_id = $2', [adj.id, r.company])).rows[0];
+    expect(row.created_by).toBe(N);
+    await r.pool.query('DELETE FROM vat_adjustments WHERE company_id = $1', [r.company]);
+  }, 60000);
 
   // A request whose authors cannot be computed (a non-UUID preparer: unreachable through the routes now, so written
   // directly) can still be closed: neither a reject nor a withdrawal reads the authors.

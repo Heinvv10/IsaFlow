@@ -115,7 +115,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   // Wave 6 HYb: vat_adjustments and sars_source_codes are on 999w's list too (the information_schema query finds them).
   [`${S}reports/vatAdjustmentService.ts`]: {
     60: 'company_id, adjustment_date, vat_period, adjustment_type, amount, reason, created_by',
-    183: "SET status = 'approved', approved_by = ${safeUserId}, approved_at = NOW(),",
+    183: "SET status = 'approved', approved_by = ${userId}, approved_at = NOW(),",
     215: 'approvedBy: row.approved_by ? String(row.approved_by) : undefined,',
     217: 'createdBy: String(row.created_by),',
   },
@@ -140,8 +140,9 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 341: '${safeUserId}::UUID,' },
-  [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${safeUserId}' },
+  // Wave 6 HYb review L1: the real user id into the TEXT column, not resolveUserUuid's stand-in.
+  [`${S}reports/vatSubmissionService.ts`]: { 341: '${userId},' },
+  [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}' },
   ['src/modules/admin/services/sarsCodesAdminService.ts']: {
     139: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
   },
@@ -149,9 +150,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
 
 /** file:line -> why an actor value is still cast to uuid there. */
 const UUID_CAST_EXEMPT: Readonly<Record<string, string>> = {
-  [`${S}reports/vatSubmissionService.ts:341`]:
-    'vat_returns.submitted_by takes resolveUserUuid(userId), always UUID-shaped, so the cast cannot fail; after HYb a uuid '
-    + 'value assigns to the TEXT column. The file is VR\'s (wave-6 spec section 3); VR binds the user id as text.',
+  // None since HYb review L1: vatSubmissionService binds vat_returns.submitted_by as the real user id.
 };
 
 function code(src: string): string {
