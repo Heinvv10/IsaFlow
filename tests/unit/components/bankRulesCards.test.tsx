@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { BankRulesTable } from '@/components/accounting/bank-rules/BankRulesTable';
 
 const rule = {
@@ -28,8 +28,25 @@ describe('BankRulesTable cards', () => {
     for (const name of [/Edit rule/, /Disable rule/, /Delete rule/]) {
       expect(screen.getByRole('button', { name }).className).toContain('max-lg:h-11');
     }
-    for (const name of [/Select rule: Fuel/, /Select all visible rules/]) {
-      expect(screen.getByRole('checkbox', { name }).closest('label')!.className).toContain('max-lg:h-11');
+    for (const name of [/Select rule: Fuel/, /Select all rules on this list/]) {
+      const label = screen.getByRole('checkbox', { name }).closest('label')!;
+      expect(label.className).toMatch(/max-lg:h-11|min-h-11/);
     }
+  });
+
+  it('select-all is a visible control below lg (the header row is hidden on cards) and selects every visible rule', () => {
+    const onSelectChange = vi.fn();
+    render(<BankRulesTable loading={false} totalRules={2} filteredRules={[rule, { ...rule, id: 'r2' }]} search="" selected={new Set()}
+      busyId="" onSelectChange={onSelectChange} onEdit={vi.fn()} onToggleActive={vi.fn()} onDelete={vi.fn()} />);
+    const box = screen.getByRole('checkbox', { name: 'Select all rules on this list' });
+    expect(box.closest('label')!.className).toContain('lg:hidden');
+    fireEvent.click(box);
+    expect([...onSelectChange.mock.calls[0][0]]).toEqual(['r1', 'r2']);
+  });
+
+  it('empty and loading messages stay centred on cards', () => {
+    const { container } = render(<BankRulesTable loading={false} totalRules={0} filteredRules={[]} search="" selected={new Set()}
+      busyId="" onSelectChange={vi.fn()} onEdit={vi.fn()} onToggleActive={vi.fn()} onDelete={vi.fn()} />);
+    expect(container.querySelector('td[colspan]')!.className).toContain('max-lg:!text-center');
   });
 });

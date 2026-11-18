@@ -177,7 +177,7 @@ export default function BankRulesPage() {
               onChange={e => rules.setSearch(e.target.value)}
               placeholder="Search rules by name, pattern, account…"
               aria-label="Search rules"
-              className="ff-input w-full pl-9 pr-8 max-lg:min-h-11"
+              className="ff-input w-full pl-9 pr-8 max-lg:min-h-11 max-lg:pr-12"
             />
             {rules.search && (
               <button

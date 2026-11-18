@@ -144,6 +144,19 @@ export default function ProvisionalEntriesPage() {
               <p className="text-[var(--ff-text-secondary)] text-sm leading-relaxed">No provisional entries awaiting evidence. The system posts bank transactions here when a supplier match is confident but no slip is attached yet. Import a statement to see this in action.</p>
             </div>
           ) : (
+            <>
+            {/* The sortable header row is hidden on cards, so phones and tablets sort from here. */}
+            <label className="flex items-center gap-2 mb-3 text-xs text-[var(--ff-text-secondary)] lg:hidden">
+              Sort by
+              <select aria-label="Sort by" value={`${sortKey}:${sortDir}`}
+                onChange={ev => { const [k, d] = ev.target.value.split(':'); setSortKey(k as SortKey); setSortDir(d as SortDir); }}
+                className="ff-select text-sm py-2 px-3 min-h-11">
+                {([['daysOutstanding', 'Days out'], ['transactionDate', 'Bank date'], ['amount', 'Amount'], ['predictedSupplierName', 'Predicted supplier']] as const).flatMap(([k, l]) => [
+                  <option key={`${k}:desc`} value={`${k}:desc`}>{l} (high to low)</option>,
+                  <option key={`${k}:asc`} value={`${k}:asc`}>{l} (low to high)</option>,
+                ])}
+              </select>
+            </label>
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">
               <table className="table-cards w-full text-sm lg:min-w-[800px]">
                 <thead>
@@ -162,7 +175,7 @@ export default function ProvisionalEntriesPage() {
                     <tr key={e.jeId} id={`tx-${e.bankTxId}`}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 transition-colors">
                       <td data-label="Bank date" className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">{formatDate(e.transactionDate)}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] max-w-[200px]">
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)] lg:max-w-[200px]">
                         <span className="line-clamp-2 text-xs">{e.description || '—'}</span>
                         <span className="block text-[var(--ff-text-tertiary)] text-xs">{e.bankAccountName}</span>
                       </td>
@@ -185,6 +198,7 @@ export default function ProvisionalEntriesPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>
