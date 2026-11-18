@@ -7,7 +7,7 @@
 -- WHAT. State rules, never a rule on current_user: one that judges current_user is beaten by set_config('role', ...)
 -- (memory: runtime-role guard). WHO IT BINDS (breaker M3): every non-superuser session, so app_user, migration_admin
 -- and platform_admin are refused. Production's postgres (NOSUPERUSER) is refused too, but it OWNS these tables, and
--- an owner can ALTER TABLE ... DISABLE TRIGGER: the freeze does not bind the table owner. Moving ownership off the
+-- an owner can switch a trigger off with ALTER TABLE: the freeze does not bind the table owner. Moving ownership off the
 -- pool's login role is logged for wave 7. The one exemption is a SUPERUSER session (is_superuser), which can disable
 -- any trigger anyway; production has none on its app, deploy or admin pools, and the integration fixtures' postgres
 -- is one (it seeds shapes the app never writes). All triggers ENABLE ALWAYS, so session_replication_role = replica
