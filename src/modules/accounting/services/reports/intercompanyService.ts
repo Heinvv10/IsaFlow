@@ -4,7 +4,7 @@
  */
 
 import { toIsoTimestamp } from '@/lib/dateUtils';
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -114,6 +114,18 @@ export class IntercompanyNotFoundError extends Error {
   }
 }
 
+/**
+ * Match could not change every row it named: row security (999r) lets a user change an intercompany row only with a
+ * write role in its source or target company, so a group writer who writes neither party of one of the pair changes
+ * fewer rows than asked. Nothing is kept (the UPDATE is rolled back): a half-matched pair feeds the eliminations.
+ */
+export class IntercompanyMatchRefusedError extends Error {
+  constructor(readonly expected: number, readonly changed: number) {
+    super(`Intercompany match refused: ${changed} of ${expected} transactions could be changed`);
+    this.name = 'IntercompanyMatchRefusedError';
+  }
+}
+
 export async function createIntercompanyTransaction(input: {
   groupId: string;
   sourceCompanyId: string;
@@ -183,21 +195,20 @@ export async function matchIntercompanyTransactions(
   const variance = Math.abs(Number(source.amount) - Number(target.amount));
   const status = variance === 0 ? 'matched' : 'variance';
 
-  // Row security (999r) lets a writer of one of a row's parties update it: a row the caller may not touch is simply not
-  // updated. Both rows or none: a fewer-than-expected count throws (a 5xx rolls the request back), never a partial match.
+  // Both rows or neither: the savepoint rolls the UPDATE back when row security let fewer than all through.
   const expected = new Set([sourceId, targetId]).size;
-  const updated = (await sql`
-    UPDATE intercompany_transactions SET
-      match_status = ${status},
-      variance_amount = ${variance},
-      matched_at = NOW()
-    WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
-      AND group_id = ${groupId}::UUID
-    RETURNING id
-  `) as Row[];
-  if (updated.length !== expected) {
-    throw new Error(`Intercompany match not applied: ${updated.length} of ${expected} transactions could be updated by this user`);
-  }
+  await withTransaction(async (tx) => {
+    const changed = await tx`
+      UPDATE intercompany_transactions SET
+        match_status = ${status},
+        variance_amount = ${variance},
+        matched_at = NOW()
+      WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
+        AND group_id = ${groupId}::UUID
+      RETURNING id
+    `;
+    if (changed.length !== expected) throw new IntercompanyMatchRefusedError(expected, changed.length);
+  });
 
   log.info('Intercompany transactions matched', { sourceId, targetId, groupId, status, variance }, 'accounting');
 }

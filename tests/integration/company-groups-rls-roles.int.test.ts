@@ -12,7 +12,7 @@ import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { groupsFixture } from './helpers/companyGroupsRlsFixture';
-import { matchIntercompanyTransactions } from '@/modules/accounting/services/reports/intercompanyService';
+import { IntercompanyMatchRefusedError, matchIntercompanyTransactions } from '@/modules/accounting/services/reports/intercompanyService';
 import { removeCoaMapping, setCoaMapping } from '@/modules/accounting/services/reports/groupCoaMappingService';
 import { countFiscalPeriodReferences } from '@/modules/accounting/services/gl/fiscalPeriodReferences';
 
@@ -67,6 +67,15 @@ describe('intercompany_transactions: changed by the writer of a party, and only 
       const r = await client.query('SELECT id, match_status, variance_amount FROM intercompany_transactions WHERE id = ANY($1::uuid[]) ORDER BY 1', [[row.txA1A4, row.txA4]]);
       expect(r.rows.map((x: { match_status: string }) => x.match_status)).toEqual(['variance', 'variance']);
       expect(Number(r.rows[0].variance_amount)).toBe(93);
+    });
+  });
+  it('matching a pair the writer does not write on both rows is refused and changes neither row', async () => {
+    // UW owns A1 only: txA1A4 (source A1) is writable, txA4 (A4 -> A4) is not, so row security would change 1 of 2.
+    await asService(u.UW, co.A1, async (client) => {
+      const before = (await client.query('SELECT id, match_status FROM intercompany_transactions WHERE id = ANY($1::uuid[]) ORDER BY 1', [[row.txA1A4, row.txA4]])).rows;
+      await expect(matchIntercompanyTransactions(row.txA1A4, row.txA4, g.GA)).rejects.toBeInstanceOf(IntercompanyMatchRefusedError);
+      const after = (await client.query('SELECT id, match_status FROM intercompany_transactions WHERE id = ANY($1::uuid[]) ORDER BY 1', [[row.txA1A4, row.txA4]])).rows;
+      expect(after).toEqual(before);
     });
   });
   it('a company that has left the group is no source of a new transaction (T5)', async () => {
