@@ -30,19 +30,21 @@ describe('verifyEntityOwnershipTyped', () => {
     ['supplier_payment', 'FROM supplier_payments'],
     ['customer_payment', 'FROM customer_payments'],
     ['credit_note', 'FROM credit_notes'],
+    ['purchase_order', 'FROM purchase_orders'],
   ] as const)('%s reads only its own table, fenced by company', async (type, table) => {
     sqlMock.mockResolvedValueOnce([{ ok: 1 }]);
     await expect(verifyEntityOwnershipTyped(type, ID, CO)).resolves.toBe(true);
     const [text, values] = sqlMock.mock.calls[0]!;
     expect(text).toContain(table);
     expect(text).not.toContain('UNION');
+    expect(text).toContain('company_id = ?');
     expect(values).toEqual([ID, CO]);
   });
 
   it('is false on a miss and for an unknown type, which reads nothing', async () => {
     sqlMock.mockResolvedValueOnce([]);
     await expect(verifyEntityOwnershipTyped('credit_note', ID, CO)).resolves.toBe(false);
-    await expect(verifyEntityOwnershipTyped('purchase_order' as never, ID, CO)).resolves.toBe(false);
+    await expect(verifyEntityOwnershipTyped('goods_receipt_note' as never, ID, CO)).resolves.toBe(false);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 });
