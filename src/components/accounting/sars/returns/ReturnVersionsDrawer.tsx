@@ -43,8 +43,16 @@ export function ReturnVersionsDrawer({ open, onClose, form, versions, vatReturn,
       <div className="space-y-4 p-4" data-testid="return-versions-drawer">
         {vatReturn && (
           <p className="text-xs text-[var(--ff-text-secondary)]">
-            Older VAT return record: {vatReturn.status}{vatReturn.sarsReference ? `, reference ${vatReturn.sarsReference}` : ''},
+            {vatReturn.returnVersionNo == null ? 'Older VAT return record' : `VAT settlement, posted against v${vatReturn.returnVersionNo}`}
+            : {vatReturn.status}{vatReturn.sarsReference ? `, reference ${vatReturn.sarsReference}` : ''},
             net VAT {formatMoney(vatReturn.netVat)}{vatReturn.mismatch ? ' (differs from the live version)' : ''}.
+          </p>
+        )}
+        {vatReturn?.ledgerGap && (
+          <p className="break-words text-xs text-[var(--ff-text-secondary)]" data-testid="settlement-ledger-gap">
+            Settled although the VAT control accounts and the VAT201 differ. Period figures: control accounts net
+            VAT {formatMoney(vatReturn.ledgerGap.ledgerNetVat)}, VAT201 {formatMoney(vatReturn.ledgerGap.reportNetVat)};
+            this settlement posted net VAT {formatMoney(vatReturn.ledgerGap.netVat)}. Reason: {vatReturn.ledgerGap.reason}
           </p>
         )}
         {newestFirst.map((v) => {

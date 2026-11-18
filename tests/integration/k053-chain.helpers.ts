@@ -167,10 +167,33 @@ export async function cleanupAll(cos: readonly Co[]): Promise<void> {
   if (failures.length > 0) throw new Error(`cleanup failed for ${failures.length} company(ies): ${failures.join('; ')}`);
 }
 
+/**
+ * A VAT201 version names its lock and the 969 trigger refuses every DELETE, owner included: off, DELETE, back ON
+ * ALWAYS in ONE transaction on one client, and only when the company has a version.
+ */
+async function deleteReturnVersions(companyId: string): Promise<void> {
+  const has = (await sql`SELECT 1 FROM tax_return_versions WHERE company_id = ${companyId}::UUID LIMIT 1`) as unknown[];
+  if (has.length === 0) return;
+  const client = await getPoolForTests().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable');
+    await client.query('DELETE FROM tax_return_versions WHERE company_id = $1', [companyId]);
+    await client.query('ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable');
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function cleanup(co: Co): Promise<void> {
   const c = co.id;
   await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`;
+  await deleteReturnVersions(c);
   await sql`DELETE FROM vat_period_locks WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ${c}::UUID)`;
   await sql`DELETE FROM customer_payments WHERE company_id = ${c}::UUID`;
