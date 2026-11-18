@@ -132,6 +132,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['reports/vatExceptionsService.ts', 'VAT'],
   ['reports/vatInputSupportQuery.ts', 'VAT'],
   ['reports/vatNonSupplyExceptions.ts', 'VAT'],
+  ['reports/vatMultiYearSummary.ts', 'VAT'], // split from vatReconciliationService (wave 6 VR)
   ['reports/vatReconciliationService.ts', 'VAT'],
   ['reports/vatReturnService.ts', 'VAT'],
   ['reports/vatUnpostedInvoices.ts', 'VAT'],

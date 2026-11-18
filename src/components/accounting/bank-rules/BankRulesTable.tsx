@@ -37,9 +37,27 @@ export function BankRulesTable({
   const allChecked = filteredRules.length > 0 && filteredRules.every(r => selected.has(r.id));
   const someChecked = filteredRules.some(r => selected.has(r.id));
 
+  const toggleAll = (checked: boolean) => {
+    const next = new Set(selected);
+    filteredRules.forEach(r => {
+      if (checked) next.add(r.id);
+      else next.delete(r.id);
+    });
+    onSelectChange(next);
+  };
+
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-      <table className="w-full text-sm">
+      {/* Below lg the header row is hidden (cards), so select-all needs its own control. */}
+      {filteredRules.length > 0 && (
+        <label className="flex min-h-11 items-center gap-3 border-b border-[var(--ff-border-light)] px-4 text-sm text-[var(--ff-text-secondary)] lg:hidden">
+          <input type="checkbox" checked={allChecked} onChange={e => toggleAll(e.target.checked)}
+            aria-label="Select all rules on this list"
+            className="h-5 w-5 rounded border-[var(--ff-border-light)] accent-yellow-500" />
+          Select all
+        </label>
+      )}
+      <table className="table-cards w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
             <th className="px-3 py-3 w-8">
@@ -49,14 +67,7 @@ export function BankRulesTable({
                 ref={el => {
                   if (el) el.indeterminate = someChecked && !allChecked;
                 }}
-                onChange={e => {
-                  const next = new Set(selected);
-                  filteredRules.forEach(r => {
-                    if (e.target.checked) next.add(r.id);
-                    else next.delete(r.id);
-                  });
-                  onSelectChange(next);
-                }}
+                onChange={e => toggleAll(e.target.checked)}
                 aria-label="Select all visible rules"
                 className="rounded border-[var(--ff-border-light)] accent-yellow-500"
               />
@@ -76,19 +87,19 @@ export function BankRulesTable({
         <tbody>
           {loading && (
             <tr>
-              <td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td>
+              <td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!block max-lg:!py-8 max-lg:!text-center">Loading...</td>
             </tr>
           )}
           {!loading && totalRules === 0 && (
             <tr>
-              <td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+              <td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!block max-lg:!py-8 max-lg:!text-center">
                 No rules configured. Create one to auto-categorise bank transactions.
               </td>
             </tr>
           )}
           {!loading && totalRules > 0 && filteredRules.length === 0 && (
             <tr>
-              <td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+              <td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!block max-lg:!py-8 max-lg:!text-center">
                 No rules match &ldquo;{search}&rdquo;
               </td>
             </tr>

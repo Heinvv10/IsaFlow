@@ -39,10 +39,12 @@ interface Props {
   /** The line whose drawer is open; undefined once it is off the list. */
   detailTx?: BankTx;
   onDetailClose: () => void;
+  /** Rows per page: the skeleton draws that many (WP4b). */
+  pageSize?: number;
   children: ReactNode;
 }
 
-export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing = false, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, children }: Props) {
+export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing = false, error, empty, pastEnd, tab, activeFilters, detailTx, onDetailClose, pageSize, children }: Props) {
   const loading = isLoading || (!error && empty && pastEnd);
   return (
     <>
@@ -62,7 +64,7 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, refreshing
       <div data-testid="bank-tx-list-frame" style={loading ? { minHeight: BANK_TX_FRAME_MIN_PX } : undefined}
         aria-busy={refreshing || undefined} className={refreshing ? 'pointer-events-none opacity-70 transition-opacity' : undefined}>
         {loading ? (
-          <BankTxLoading />
+          <BankTxLoading rows={pageSize} />
         ) : error ? (
           <div className="flex items-center gap-2 text-red-700 dark:text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
         ) : empty ? (

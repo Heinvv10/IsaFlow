@@ -45,6 +45,8 @@ describe('cash13 SARS: past due is assumed paid (review H1)', () => {
     ]);
     const w = warnings.find((x) => x.code === 'sars_past_due_assumed_paid')!;
     expect(w.message).toContain(`EMP201 2026-09-01..2026-09-30 due 2026-10-07 ${formatCents(123_450)}`);
+    // The same items, structured: the page words them itself (count, date range, total), never by parsing the message.
+    expect(w.assumedPaid).toEqual([{ kind: 'EMP201', periodStart: '2026-09-01', periodEnd: '2026-09-30', dueDate: '2026-10-07', cents: -123_450 }]);
   });
 
   it('a completed item is neither forecast nor listed as assumed paid', async () => {

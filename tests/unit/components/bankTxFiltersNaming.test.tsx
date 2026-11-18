@@ -16,11 +16,15 @@ const props = {
   onApplyRules: noop, onDownloadReport: noop, onSearchChange: noop, onFromDateChange: noop, onToDateChange: noop,
   onFromAmountChange: noop, onToAmountChange: noop, onSortOrderChange: noop, onAllocationFilterChange: noop,
   onTxTypeChange: noop, onAllocTypeChange: noop, onHasSuggestionChange: noop, onReconFilterChange: noop, onToggleCC: noop, onToggleBU: noop,
+  onClearSelection: noop,
 } satisfies BankTxFiltersProps;
+/** The dates, amounts and most selects fold behind "Filters" at a narrow width (WP4b): open it. */
+const openFilters = () => fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
 
 describe('BankTxFilters: named controls', () => {
   it.each(['new', 'reviewed'] as const)('every select, input and button on the %s tab has a name', (tab) => {
     const { container } = render(<BankTxFilters {...props} tab={tab} />);
+    openFilters();
     const controls = ['combobox', 'textbox', 'spinbutton', 'button', 'link'].flatMap(r => within(container).queryAllByRole(r));
     expect(controls.length).toBeGreaterThan(10);
     for (const el of controls) expect(el).toHaveAccessibleName();
@@ -28,7 +32,8 @@ describe('BankTxFilters: named controls', () => {
 
   it('names each filter for what it filters', () => {
     render(<BankTxFilters {...props} />);
-    for (const name of ['Sort order', 'Allocation status', 'Spent or received', 'Category', 'Suggestion']) {
+    openFilters();
+    for (const name of ['Sort order', 'Allocation status', 'Spent or received', 'Allocation type', 'Suggestion']) {
       expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
     }
     expect(screen.getByRole('spinbutton', { name: 'Min R' })).toBeInTheDocument();
@@ -55,12 +60,13 @@ describe('BankTxFilters: the filters are kit Selects (NS2) and call their handle
     ['Sort order', 'Oldest First', 'onSortOrderChange', 'asc'],
     ['Allocation status', 'Suggested', 'onAllocationFilterChange', 'suggested'],
     ['Spent or received', 'Received', 'onTxTypeChange', 'received'],
-    ['Category', 'Transfer', 'onAllocTypeChange', 'transfer'],
+    ['Allocation type', 'Transfer', 'onAllocTypeChange', 'transfer'],
     ['Suggestion', 'No Suggestion', 'onHasSuggestionChange', 'no'],
   ];
   it.each(CASES)('%s -> %s calls %s(%s)', (name, option, handler, value) => {
     const spy = vi.fn();
     render(<BankTxFilters {...props} {...{ [handler]: spy }} />);
+    if (name !== 'Allocation status') openFilters();
     fireEvent.click(screen.getByRole('combobox', { name }));
     fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: option }));
     expect(spy).toHaveBeenCalledTimes(1);
