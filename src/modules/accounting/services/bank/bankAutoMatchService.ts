@@ -61,7 +61,8 @@ export async function autoMatchTransactions(
         je.entry_date, je.entry_number, je.source_document_id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE ${reconcilableGlLineWhere(companyId, bankAccountId, sessionId)}
+      WHERE jl.company_id = ${companyId}::UUID AND je.company_id = ${companyId}::UUID
+        AND ${reconcilableGlLineWhere(companyId, bankAccountId, sessionId)}
       ORDER BY je.entry_date`) as DbRow[];
     const bankTxs = bankTxRows.map((r: DbRow) => ({
       id: String(r.id), amount: Number(r.amount), transactionDate: String(r.transaction_date),

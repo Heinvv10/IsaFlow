@@ -18,7 +18,8 @@ export const RECON_GL_SEARCH_MAX = 100;
 
 /**
  * The WHERE predicate over `gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id` (each caller
- * writes that FROM in its own statement, so the ledger censuses still read it there): this company's POSTED lines on the bank account,
+ * writes that FROM, and its own company_id scope, in its own statement, so the ledger censuses (BL-13, G-01) still
+ * read them there; the predicate scopes by company as well): this company's POSTED lines on the bank account,
  * on a journal that stands (not reversed out of the ledger), not already matched to any statement line, and, inside a
  * session, dated on or before its statement date while it is in progress (a missing or completed session makes the
  * date NULL, so nothing qualifies: fail closed). `sessionId` null = no session (auto-match without one).
@@ -81,7 +82,8 @@ export async function listReconcilableGlLines(
       je.entry_date, je.entry_number, COUNT(*) OVER () AS total
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    WHERE ${reconcilableGlLineWhere(companyId, String(session.bank_account_id), reconciliationId)}
+    WHERE jl.company_id = ${companyId}::UUID AND je.company_id = ${companyId}::UUID
+      AND ${reconcilableGlLineWhere(companyId, String(session.bank_account_id), reconciliationId)}
       AND (${search}::TEXT IS NULL
         OR jl.description ILIKE ${search}::TEXT
         OR je.description ILIKE ${search}::TEXT
