@@ -204,10 +204,16 @@ export async function deleteGroup(groupId: string): Promise<void> {
 
 // ── Group Members ────────────────────────────────────────────────────────────
 
+/**
+ * Adds a company to a group, or brings back one that left (migration 999r: a member row is never deleted or
+ * duplicated, so the UNIQUE (group_id, company_id) turns a re-join into the row's re-activation, which row security
+ * lets through only under the INSERT's own gate). Returns null when the company is already a CURRENT member, so the
+ * caller can answer 409 instead of reporting a join that did not happen.
+ */
 export async function addMember(groupId: string, companyId: string, opts?: {
   ownershipPct?: number;
   consolidationMethod?: string;
-}): Promise<GroupMember> {
+}): Promise<GroupMember | null> {
   const rows = (await sql`
     INSERT INTO company_group_members (group_id, company_id, ownership_pct, consolidation_method)
     VALUES (
@@ -216,10 +222,25 @@ export async function addMember(groupId: string, companyId: string, opts?: {
       ${opts?.ownershipPct ?? 100},
       ${opts?.consolidationMethod ?? 'full'}
     )
+    ON CONFLICT (group_id, company_id) DO UPDATE SET
+      left_date = NULL,
+      joined_date = CURRENT_DATE,
+      ownership_pct = EXCLUDED.ownership_pct,
+      consolidation_method = EXCLUDED.consolidation_method
+    WHERE company_group_members.left_date IS NOT NULL
     RETURNING *
   `) as DbRow[];
+  if (!rows[0]) return null;
   log.info('Group member added', { groupId, companyId }, 'accounting');
-  return mapMember(rows[0]!);
+  return mapMember(rows[0]);
+}
+
+/** The company of a member row of THIS group, or null when there is no such row (or the caller cannot see it). */
+export async function findMember(memberId: string, groupId: string): Promise<{ companyId: string } | null> {
+  const rows = (await sql`
+    SELECT company_id FROM company_group_members WHERE id = ${memberId}::UUID AND group_id = ${groupId}::UUID LIMIT 1
+  `) as DbRow[];
+  return rows[0] ? { companyId: String(rows[0].company_id) } : null;
 }
 
 export async function updateMember(memberId: string, opts: {
@@ -245,19 +266,15 @@ export async function updateMember(memberId: string, opts: {
   return mapMember(rows[0]!);
 }
 
-export async function removeMember(memberId: string, groupId?: string): Promise<void> {
-  if (groupId) {
-    await sql`
-      UPDATE company_group_members SET left_date = CURRENT_DATE
-      WHERE id = ${memberId}::UUID AND group_id = ${groupId}::UUID
-    `;
-  } else {
-    await sql`
-      UPDATE company_group_members SET left_date = CURRENT_DATE
-      WHERE id = ${memberId}::UUID
-    `;
-  }
-  log.info('Group member removed', { memberId }, 'accounting');
+/** Retires a member (left_date). False when no row changed (not this group's, not the caller's to change): never a silent success. */
+export async function removeMember(memberId: string, groupId: string): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE company_group_members SET left_date = CURRENT_DATE
+    WHERE id = ${memberId}::UUID AND group_id = ${groupId}::UUID AND left_date IS NULL
+    RETURNING id
+  `) as DbRow[];
+  if (rows.length > 0) log.info('Group member removed', { memberId }, 'accounting');
+  return rows.length > 0;
 }
 
 export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {

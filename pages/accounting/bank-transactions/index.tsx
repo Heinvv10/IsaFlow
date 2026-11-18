@@ -4,7 +4,7 @@
  * Action handlers: useBankTxActions | Ref data: useBankTxRefData | Bank accounts + figures: useBankTxSummary
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
@@ -40,6 +40,7 @@ import { DeepLinkNotice } from '@/components/accounting/bank-transactions/DeepLi
 import { useBankLineDeepLink } from '@/components/accounting/bank-transactions/useBankLineDeepLink';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
+import { BulkAcceptButton } from '@/components/accounting/bank-transactions/bulkAccept/BulkAcceptButton';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { BankTxListFooter } from '@/components/accounting/bank-transactions/BankTxListFooter';
 import { statusTileClick, type StatusTile } from '@/components/accounting/bank-transactions/bankTxStatusTiles';
@@ -111,6 +112,10 @@ export default function BankTransactionsPage() {
   const refreshSummary = summary.refresh;
   const reload = list.reload;
   const afterMutation = useCallback(() => { void reload(); void refreshSummary(); }, [reload, refreshSummary]);
+  // The bulk-accept dialog reports a write it sent when it unmounts; when that is the PAGE going away, nothing is reloaded.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const afterBulkAccept = useCallback(() => { if (mounted.current) afterMutation(); }, [afterMutation]);
   // EVERY post-mutation list reload goes through this (the view on screen NOW, not the one the action was clicked in).
   const reloadList = useCallback(() => { void reload(); }, [reload]);
   const reloadWithSummary = useCallback(async () => { await reload({ silent: true }); void refreshSummary(); }, [reload, refreshSummary]);
@@ -213,6 +218,8 @@ export default function BankTransactionsPage() {
           onHasSuggestionChange={withReset(f.setHasSuggestion)}
           onReconFilterChange={withReset(f.setReconFilter)}
           onToggleCC={toggleCC} onToggleBU={toggleBU} onClearSelection={() => setSelectedIds(new Set())}
+          bulkAccept={<BulkAcceptButton bankAccountId={selectedBank || null} active={tab === 'new'} onChanged={afterBulkAccept} refreshKey={total}
+            hideTrigger={onScreenSelected.size > 0} />}
         />
 
         <ActiveFiltersChip labels={f.activeLabels} onClear={f.clear} />
