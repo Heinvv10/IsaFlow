@@ -45,9 +45,10 @@ const names = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(', 
 
 /**
  * The employees (of `employeeIds`, this company's) with terms a weekly or fortnightly run cannot cost, in the window:
- * by kind, their employee numbers.
+ * by kind, their employee numbers. Also the pay-frequency writer's terms check (wave 6 FQd, coordinator ruling: the
+ * writer refuses exactly what calculate refuses).
  */
-async function unsupportedTerms(companyId: string, employeeIds: string[], from: string, to: string): Promise<DbRow> {
+export async function unsupportedTerms(companyId: string, employeeIds: string[], from: string, to: string): Promise<DbRow> {
   const rows = (await sql`
     WITH people AS (
       SELECT e.id, e.employee_number FROM payroll_employees e
@@ -75,7 +76,8 @@ async function unsupportedTerms(companyId: string, employeeIds: string[], from: 
   return rows[0] ?? {};
 }
 
-function termsReasons(row: DbRow, frequency: string): RunKindReason[] {
+/** unsupportedTerms' row as the refusal's reasons (none: nothing refused). Shared with the pay-frequency writer (FQd). */
+export function termsReasons(row: DbRow, frequency: string): RunKindReason[] {
   const reasons: RunKindReason[] = [];
   const say = (what: string, v: unknown) => {
     if (names(v)) reasons.push({ clause: 'frequency_terms', detail: `employees ${names(v)} have ${what}, which a ${frequency} run cannot cost yet (support comes in a later release)` });

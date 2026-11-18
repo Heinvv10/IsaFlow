@@ -2,7 +2,7 @@
  * The employee's pay frequency (wave 6 FQd; grill F16: its own field and route, mounted on the work card by one line).
  * Reads /api/payroll/employees/[id]/pay-frequency; only an owner or admin may change it (the route refuses anyone
  * else). The server refuses a change once the employee is on an approved run this tax year, and weekly or fortnightly
- * pay for an employee with a fringe benefit, a loan or a regular-pay directive; its message is shown as is.
+ * pay for terms calculate cannot cost; its message is shown as is. A failed load offers Retry, which re-runs the GET.
  */
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +28,8 @@ export function PayFrequencyField({ employeeId, canEdit }: { employeeId: string;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  /** Bumped by Retry: re-runs the load after a failed GET (the field stays disabled until it loads). */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -35,7 +37,12 @@ export function PayFrequencyField({ employeeId, canEdit }: { employeeId: string;
       .then((d) => { if (live) { const f = payFrequencyOfResponse(d); setSaved(f); setDraft(f); } })
       .catch((err: unknown) => { if (live) setError(apiErrorMessage(err, LOAD_FAILED)); });
     return () => { live = false; };
-  }, [employeeId]);
+  }, [employeeId, attempt]);
+
+  function retry(): void {
+    setError('');
+    setAttempt((n) => n + 1);
+  }
 
   async function save(): Promise<void> {
     setSaving(true);
@@ -68,7 +75,12 @@ export function PayFrequencyField({ employeeId, canEdit }: { employeeId: string;
         {canEdit && <Button variant="secondary" onClick={() => void save()} disabled={saved === undefined || draft === saved} loading={saving}>Save frequency</Button>}
       </div>
       {done && <p role="status" className="mt-2 text-sm text-emerald-700 dark:text-emerald-400">Pay frequency saved.</p>}
-      {error && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-400">{error}</p>}
+      {error && (
+        <div className="mt-2 flex items-center gap-3">
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>
+          {saved === undefined && <Button variant="secondary" size="sm" onClick={retry}>Retry</Button>}
+        </div>
+      )}
     </div>
   );
 }

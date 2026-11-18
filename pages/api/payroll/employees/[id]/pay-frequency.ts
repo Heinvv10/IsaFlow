@@ -4,12 +4,14 @@
  *                                                                                      never Login-as
  *
  * How often the employee is paid (wave 6 FQd; payrollEmployeePayFrequency). Judged before any write: 400 for a value
- * outside the three or an employee who cannot be paid weekly/fortnightly yet; 403 for anyone but an owner or admin;
- * 409 FREQUENCY_CHANGE_MID_YEAR once the employee is on a final run this tax year. Another company's employee is 404.
+ * outside the three; 403 for anyone but an owner or admin; what calculate would refuse, answered as calculate's
+ * refusal is (respondIfRunKindUnsupported: 400 PAY_FREQUENCY_REFUSED for terms a weekly/fortnightly run cannot cost,
+ * 409 PAY_FREQUENCY_REFUSED mid-tax-year, 409 PAY_PERIOD_OVERLAP). Another company's employee is 404.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -17,7 +19,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { payslipEmailActor, UUID } from '@/lib/payslipEmailApi';
 import { PAY_FREQUENCIES, type PayFrequency } from '@/modules/accounting/services/payroll/payrollTypesRun';
 import {
-  EmployeePayFrequencyForbidden, FrequencyChangeMidYearError, FrequencyRefused, readEmployeePayFrequency, setEmployeePayFrequency,
+  EmployeePayFrequencyForbidden, readEmployeePayFrequency, setEmployeePayFrequency,
 } from '@/modules/accounting/services/payroll/payrollEmployeePayFrequency';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -42,8 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return saved ? apiResponse.success(res, saved) : apiResponse.notFound(res, 'PayrollEmployee', id);
   } catch (err) {
     if (err instanceof EmployeePayFrequencyForbidden) return apiResponse.forbidden(res, err.message);
-    if (err instanceof FrequencyRefused) return apiResponse.badRequest(res, err.message, { reason: err.code });
-    if (err instanceof FrequencyChangeMidYearError) return apiResponse.conflict(res, err.message, { reason: err.code });
+    if (respondIfRunKindUnsupported(res, err)) return;
     if (respondIfLockTimeout(res, err)) return;
     throw err;
   }

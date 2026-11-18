@@ -6,9 +6,11 @@
  *  - a run per period: the period must start on the pay-week day (400, no row); the row carries the period dates, the
  *    pay date as run_date and the pay date's month; the same period again and an overlapping one are 409 with no row;
  *    a fortnight needs the fortnight start (400);
- *  - the employee's frequency: only an owner or admin changes it; a loan refuses weekly (400); a final line this tax
- *    year refuses any change (409); another tenant's employee is 404; every refusal leaves the row and the audit as
- *    they were;
+ *  - the employee's frequency: only an owner or admin changes it; the writer refuses exactly what calculate refuses
+ *    (FQc's payrollFrequencyGuard, coordinator ruling): a loan, a regular-pay directive, a 3810 or a percent-of-RFI
+ *    row refuses weekly (400); a final line this tax year at another frequency refuses the change (409) but going back
+ *    to that frequency is allowed; a draft of another frequency paying the employee this month refuses it (409
+ *    PAY_PERIOD_OVERLAP); another tenant's employee is 404; every refusal leaves the row as it was;
  *  - tenant B sees none of A's settings or runs.
  * Dates are relative to today in Johannesburg (next week), so the "this tax year" lock holds whenever it runs.
  *
@@ -21,7 +23,7 @@ import payWeek from '../../pages/api/payroll/settings/pay-week';
 import runs from '../../pages/api/payroll/runs';
 import payFrequency from '../../pages/api/payroll/employees/[id]/pay-frequency';
 import { dayNumber, isoDow, isoOfDay, resolveRunPeriod, DEFAULT_PAY_WEEK } from '@/modules/accounting/services/payroll/payrollPayWeek';
-import { todaySast } from '@/modules/accounting/services/payroll/payrollPayWeekSettings';
+import { taxYearStartOf, todaySast } from '@/modules/accounting/services/payroll/payrollPayWeekSettings';
 
 type Opts = { user?: string; company?: string };
 let a: R;
@@ -190,35 +192,74 @@ describe('the employee\'s pay frequency', () => {
     expect(await audits(a, 'payroll_employee')).toBe(audited + 1);
   });
 
-  it('a loan or a regular-pay directive refuses weekly pay, naming it (§0a.11)', async () => {
-    const { employee } = await a.employee(20000);
+  it('refuses what calculate refuses for weekly pay: a loan, a regular-pay directive, a 3810 and a percent-of-RFI row', async () => {
+    const refusedTerms = async (employee: string, frequency: string, says: string) => {
+      const res = await putFreq(a, employee, { payFrequency: frequency });
+      expect([res.statusCode, res.body.error?.details?.code], says).toEqual([400, 'PAY_FREQUENCY_REFUSED']);
+      expect(res.body.error?.message, says).toContain(says);
+      expect(await freqOf(a, employee), says).toBe('monthly');
+    };
+    const { employee: loaned } = await a.employee(20000);
     await a.pool.query(
       `INSERT INTO payroll_loans (company_id, employee_id, loan_number, description, principal, outstanding_balance, term_months,
          method, start_date, first_deduction_period_year, first_deduction_period_month)
-       VALUES ($1, $2, 'L-1', 'Loan', 1000, 1000, 10, 'interest_free', '2026-01-01', 2026, 1)`, [a.company, employee]);
-    const res = await putFreq(a, employee, { payFrequency: 'fortnightly' });
-    expect([res.statusCode, res.body.error?.details?.reason]).toEqual([400, 'FREQUENCY_UNSUPPORTED_FOR_EMPLOYEE']);
-    expect(res.body.error?.message).toContain('an active loan');
-    expect(await freqOf(a, employee)).toBe('monthly');
+       VALUES ($1, $2, 'L-1', 'Loan', 1000, 1000, 10, 'interest_free', '2026-01-01', 2026, 1)`, [a.company, loaned]);
+    await refusedTerms(loaned, 'fortnightly', 'an active loan');
     const { employee: directed } = await a.employee(20000);
     await a.pool.query(
       `INSERT INTO tax_directives (company_id, employee_id, employee_name, directive_type, amount, tax_rate, effective_date, status)
        VALUES ($1, $2, 'Brk', 'fixed_percentage', 0, 0.25, '2026-01-01', 'approved')`, [a.company, directed]);
-    expect((await putFreq(a, directed, { payFrequency: 'weekly' })).body.error?.message).toContain('a regular-pay tax directive');
-    expect(await freqOf(a, directed)).toBe('monthly');
+    await refusedTerms(directed, 'weekly', 'a regular-pay tax directive');
+    const component = async (code: string) => (await a.pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type) VALUES ($1, $2, $3, 'earning') RETURNING id`,
+      [a.company, `FQd ${code} ${crypto.randomUUID().slice(0, 6)}`, code])).rows[0]!.id;
+    const { employee: fringe } = await a.employee(20000);
+    await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from)
+      VALUES ($1, $2, 500, '2020-01-01')`, [fringe, await component('3810')]);
+    await refusedTerms(fringe, 'weekly', 'a fringe benefit');
+    const { employee: rfi } = await a.employee(20000);
+    await a.pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, percent_of_rfi)
+      VALUES ($1, $2, 0, '2020-01-01', 0.075)`, [rfi, await component('4001')]);
+    await refusedTerms(rfi, 'weekly', 'a fringe benefit');
   });
 
-  it('a final line this tax year refuses any change (409); another tenant\'s employee is 404', async () => {
+  it('mid-year: back to the frequency of this year\'s final lines is allowed; another one is refused (409)', async () => {
+    // A month of this tax year other than today's, so the run is not "this month's" (no overlap clause).
+    const today = todaySast();
+    const start = taxYearStartOf(today);
+    const month = Number(today.slice(5, 7)) === 3 ? 4 : 3;
+    const year = Number(start.slice(0, 4));
+    const ps = `${year}-${String(month).padStart(2, '0')}-02`;
     const { employee } = await a.employee(20000);
     const run = (await a.pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, approved_at, pay_frequency, run_kind,
          period_start, period_end, run_date)
-       VALUES ($1, 1, 2020, 'approved', now(), 'weekly', 'regular', $2::date, $2::date + 6, $2::date + 4) RETURNING id`,
-      [a.company, MON2])).rows[0]!.id;
+       VALUES ($1, $2, $3, 'approved', now(), 'weekly', 'regular', $4::date, $4::date + 6, $4::date + 4) RETURNING id`,
+      [a.company, month, year, ps])).rows[0]!.id;
+    await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [run, employee]);
+    const fortnightly = await putFreq(a, employee, { payFrequency: 'fortnightly' });
+    expect([fortnightly.statusCode, fortnightly.body.error?.details?.code]).toEqual([409, 'PAY_FREQUENCY_REFUSED']);
+    expect(fortnightly.body.error?.message).toContain('change an employee\'s pay frequency at the start of a tax year');
+    expect(await freqOf(a, employee)).toBe('monthly');
+    const back = await putFreq(a, employee, { payFrequency: 'weekly' });
+    expect([back.statusCode, back.body.data]).toEqual([200, { payFrequency: 'weekly' }]);
+  });
+
+  it('a draft of another frequency already paying the employee this month refuses the change (409 PAY_PERIOD_OVERLAP)', async () => {
+    const today = todaySast();
+    const { employee } = await a.employee(20000);
+    const run = (await a.pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_month, period_year) VALUES ($1, $2, $3) RETURNING id`,
+      [a.company, Number(today.slice(5, 7)), Number(today.slice(0, 4))])).rows[0]!.id;
     await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [run, employee]);
     const res = await putFreq(a, employee, { payFrequency: 'weekly' });
-    expect([res.statusCode, res.body.error?.details?.reason]).toEqual([409, 'FREQUENCY_CHANGE_MID_YEAR']);
+    expect([res.statusCode, res.body.error?.details?.code]).toEqual([409, 'PAY_PERIOD_OVERLAP']);
     expect(await freqOf(a, employee)).toBe('monthly');
+    await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [run]);
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [run]);
+  });
+
+  it('another tenant\'s employee is 404', async () => {
     const { employee: theirs } = await b.employee(20000);
     expect((await putFreq(a, theirs, { payFrequency: 'weekly' })).statusCode).toBe(404);
     expect(await freqOf(b, theirs)).toBe('monthly');

@@ -34,6 +34,17 @@ const pick = async (name: string | RegExp, option: string | RegExp) => {
 const calls = (method: string) => fetchMock.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === method);
 
 describe('PayFrequencyField', () => {
+  it('a failed load offers Retry, which re-runs the GET and loads the field', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(json({ payFrequency: 'weekly' }));
+    render(<PayFrequencyField employeeId="e1" canEdit />);
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Pay frequency' }).textContent).toContain('Weekly'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(calls('GET').map(([u]) => String(u))).toEqual(['/api/payroll/employees/e1/pay-frequency', '/api/payroll/employees/e1/pay-frequency']);
+  });
+
   it('loads the frequency and saves a change as { payFrequency }', async () => {
     fetchMock.mockImplementation(async (_u: string, init?: RequestInit) =>
       json({ payFrequency: init?.method === 'PUT' ? 'weekly' : 'monthly' }));
