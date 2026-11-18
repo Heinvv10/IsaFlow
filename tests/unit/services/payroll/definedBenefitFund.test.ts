@@ -64,9 +64,14 @@ describe('X = A x B - C [Seventh Schedule para 12D(3), via Sage Pocket Guide 202
   it('is nil, with a warning, when the employee pays more than A x B', () => {
     const warnings: ValidationResult[] = [];
     const out = costDefinedBenefitFund([salary(10_000), own('4001', 1_500), db('3817', 0.1, 1_200)], warnings);
-    // X nil, but the employer still pays the fund its 1 200 (GL 2175, 4472).
+    // X nil, but the employer still pays the fund its 1 200 (GL 2175); not certified as 4472 without a 3817 (BRS p. 54).
     expect(out[2]).toMatchObject({ amount: 0, dbEmployerContribution: 1_200 });
-    expect(warnings.map((w) => w.code)).toEqual(['DB_FUND_FACTOR_UNVERIFIED', 'DB_FUND_BENEFIT_NIL']);
+    expect(warnings.map((w) => w.code)).toEqual(['DB_FUND_FACTOR_UNVERIFIED', 'DB_FUND_BENEFIT_NIL', 'DB_FUND_CONTRIBUTION_NOT_CERTIFIED']);
+    expect(warnings[2]!.message).toMatch(/employer DB contribution \(R\s1\s200\.00\) not certified because the para 12D value is nil \(BRS p\.54 needs 3817 with 4472\).*UNVERIFIED/);
+    // Nothing paid: nothing to certify, no such warning.
+    const none: ValidationResult[] = [];
+    costDefinedBenefitFund([salary(10_000), own('4001', 1_500), db('3817', 0.1)], none);
+    expect(none.map((w) => w.code)).not.toContain('DB_FUND_CONTRIBUTION_NOT_CERTIFIED');
   });
 
   it('a factor on a retirement annuity (3828) is costed at nil with an error: an RA fund is never defined-benefit', () => {

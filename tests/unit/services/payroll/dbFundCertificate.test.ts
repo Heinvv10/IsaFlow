@@ -6,6 +6,8 @@
  * - p. 105-106: 4585 / 4586, the employer's contributions for a member who retired from the fund, or for a deceased
  *   member's dependants or nominees, who qualify for the "no value" provision of para 12D(6).
  * - p. 54: "If code 4585 is greater than zero and code 4472 is equal to zero, then codes 3817/3867 and 4001 must be zero".
+ * - p. 54: "If code 4472 is completed, then code 3817 and/or 3867 and code 4001 must be completed": with the year's X nil the
+ *   payment is not certified (coordinator ruling on #1571; UNVERIFIED against SARS's validator).
  * - p. 57: 4497 totals every 40xx / 44xx / 45xx value.
  */
 import { describe, expect, it } from 'vitest';
@@ -29,9 +31,11 @@ describe('4472 / 4473 are what the employer paid, 3817 / 3825 the value X', () =
     expect([value(lines, '3817'), value(lines, '4001'), value(lines, '4472'), value(lines, '4497')]).toEqual([78_000, 96_000, 26_400, 122_400]);
   });
 
-  it('X nil, paid 14 400: no 3817, 4472 14 400 (the contribution is not lost)', () => {
-    const fields = employerFundContributionFields([{ sourceCode: '3817', amount: 0, employerPaid: 14_400 }]);
-    expect(fields).toEqual(['4472,14400']);
+  it('X nil for the year, paid 14 400: no 3817 and so no 4472 (p. 54); 4001 only what the employee paid', () => {
+    expect(employerFundContributionFields([{ sourceCode: '3817', amount: 0, employerPaid: 14_400 }])).toEqual([]);
+    const lines = buildEmployeeRecord({ ...base, retirementFund: { pension4001: 18_000, provident4003: 0, annuity4006: 0, donations4030: 0 },
+      fringeBenefits: [{ sourceCode: '3817', amount: 0, employerPaid: 14_400 }] });
+    expect([value(lines, '3817'), value(lines, '4472'), value(lines, '4001')]).toEqual([undefined, undefined, 18_000]);
   });
 
   it('a defined-contribution 3817 (no employerPaid) is unchanged: 4472 equals the benefit', () => {

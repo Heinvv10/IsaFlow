@@ -58,14 +58,18 @@ export function withDeemedEmployerContributions(r: RetirementContributions | und
 const EMPLOYER_CONTRIBUTION_FIELDS: ReadonlyArray<[string, number]> = [['3817', 4472], ['3825', 4473], ['3810', 4474], ['3828', 4475]];
 
 /**
- * The employer's own contribution codes in code order; none without a value: 4472 / 4473 / 4475 (pension, provident, RA;
+ * The employer's own contribution codes in code order; none without a value or without its benefit code: 4472 / 4473 / 4475 (pension, provident, RA;
  * RF) and 4474, the medical scheme contribution (V13.1 rule "3810 must equal 4474"; FB). Each equals its benefit, except a
  * defined-benefit fund's (DBF): 4472 / 4473 are the "contributions paid" (BRS V25.3.0 p. 103), `employerPaid`, excluding
  * 4585 / 4586, while 3817 / 3825 carry the para 12D(3) value.
  */
 export function employerFundContributionFields(fringe: readonly CertifiedBenefit[]): string[] {
   const paid = (code: string): number => fringe.filter((f) => f.sourceCode === code).reduce((n, f) => n + (f.employerPaid ?? f.amount), 0);
-  return EMPLOYER_CONTRIBUTION_FIELDS.map(([code, employer]) => field(employer, paid(code))).filter((l): l is string => l !== null);
+  // BRS p. 54: "If code 4472 is completed, then code 3817 ... and code 4001 must be completed" (4473: 3825, 4003). A defined-
+  // benefit fund whose para 12D value is nil for the year has no 3817, so its payment is not certified (coordinator ruling
+  // #1571; the line warned DB_FUND_CONTRIBUTION_NOT_CERTIFIED). It is still booked to GL 2175. UNVERIFIED against SARS.
+  const certified = (code: string): boolean => Math.floor(benefitTotal(fringe, code)) > 0;
+  return EMPLOYER_CONTRIBUTION_FIELDS.map(([code, employer]) => (certified(code) ? field(employer, paid(code)) : null)).filter((l): l is string => l !== null);
 }
 
 /**

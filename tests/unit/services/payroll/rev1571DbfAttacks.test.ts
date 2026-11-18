@@ -3,6 +3,8 @@
  * Copied from the review; the ASSERTIONS are unchanged. The inputs follow the round's rulings, which change what a
  * row says: the employee's compulsory contribution to the fund is marked (`own`, db_fund_member_contribution, M1), and a
  * defined-benefit row's stored amount is what the employer pays the fund (H), read for 4472 as `employerPaid`.
+ * ATTACK 3's certificate assertion is the one changed, by the coordinator's later ruling (BRS p. 54: 4472 needs 3817): with
+ * X nil the payment is kept on the line for GL 2175, warned DB_FUND_CONTRIBUTION_NOT_CERTIFIED, and not certified as 4472.
  */
 import { describe, expect, it } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
@@ -58,12 +60,14 @@ describe('ATTACK 2: para 12D(6) proxy misfires on a working member who also rece
 describe('ATTACK 3: the employer contribution paid (4472 / GL 2175) is not X', () => {
   // BRS V25.3.0 p. 103: 4472 "Employer's pension fund contributions paid for the benefit of employee". For a DB fund the
   // employer pays its contribution rate, X is only the fringe value. When C > A x B, X is nil but the employer still pays.
-  it('when X is nil the line still carries an employer pension contribution to report as 4472 and book to 2175', () => {
+  it('when X is nil the line still carries the employer pension contribution to book to 2175, warned, and not certified as 4472 (ruling: BRS p. 54)', () => {
     const w: ValidationResult[] = [];
     const out = assemble([salary(10_000), own('4001', 1_500), db('3817', 0.1, 1_200)], w);
     expect(dbRow(out).amount).toBe(0); // X nil (engine's floor)
+    expect(dbRow(out).dbEmployerContribution).toBe(1_200); // what GL 2175 books
+    expect(w.map((x) => x.code)).toContain('DB_FUND_CONTRIBUTION_NOT_CERTIFIED');
     const fields = employerFundContributionFields(out.filter((c) => c.component.sarsSourceCode === '3817').map((c) => ({ sourceCode: '3817', amount: c.amount, employerPaid: c.dbEmployerContribution })));
-    expect(fields.some((f) => f.startsWith('4472'))).toBe(true);
+    expect(fields.some((f) => f.startsWith('4472'))).toBe(false);
   });
 });
 

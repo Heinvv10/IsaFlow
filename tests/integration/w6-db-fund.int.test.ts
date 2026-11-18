@@ -5,7 +5,7 @@
  * amount is what the employer pays the fund (GL 2175 and 4472, BRS V25.3.0 p. 103), C is the 4001 marked as the compulsory
  * contribution (an AVC is not C; none marked blocks approval), one factor row per fund kind (409), and a defined_benefit
  * component takes no row without a factor on REST, MCP or the run grid. Company B is costed at 10x the pay in a later month,
- * where X is nil and the employer's payment still reaches 2175 and 4472.
+ * where X is nil: the employer's payment still reaches 2175, and is not certified as 4472 without a 3817 (BRS p. 54).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -207,15 +207,16 @@ describe('C is the marked contribution; none marked blocks approval', () => {
     expect(employerFundContributionFields(fringe)).toEqual(['4472,2200']);
   });
 
-  it('B, September at 10x: A x B 8 000 < C 10 000, X nil; the 15 000 paid still reaches 2175 and 4472; A is untouched', async () => {
+  it('B, September at 10x: A x B 8 000 < C 10 000, X nil; the 15 000 paid reaches 2175 but not 4472 (BRS p. 54); A is untouched', async () => {
     const runB = await calculatedRun(callB, 9, { company: B });
     const line = await lineOf(runB);
     expect(line.component_breakdown.find((b) => b.sarsSourceCode === '3817')).toMatchObject({ amount: 0, rfiBase: 200000, dbEmployeeContribution: 10000, dbEmployerContribution: 15000 });
-    expect(line.validation_results.map((v) => v.code)).toContain('DB_FUND_BENEFIT_NIL');
+    expect(line.validation_results.map((v) => v.code)).toEqual(expect.arrayContaining(['DB_FUND_BENEFIT_NIL', 'DB_FUND_CONTRIBUTION_NOT_CERTIFIED']));
     const { plan, status } = await approveRun(callB, runB);
     expect([status, plan.plan.totals.employerRetirement]).toEqual([200, 15000]);
     const fringe = (await getIrp5EmployeeTotals(B, 2027, { employeeId: emp[B] })).rows[0]!.fringeBenefits;
-    expect(employerFundContributionFields(fringe)).toEqual(['4472,15000']);
+    expect(fringe).toEqual([{ sourceCode: '3817', amount: 0, employerPaid: 15000 }]);
+    expect(employerFundContributionFields(fringe)).toEqual([]);
     expect(Number((await lineOf(runA)).retirement_deduction)).toBe(7287.5);
     expect(await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [A])).toBe(1);
   });

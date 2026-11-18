@@ -128,6 +128,12 @@ export function costDefinedBenefitFund(components: readonly EmployeeComponent[],
       warnings.push({ code: 'DB_FUND_BENEFIT_NIL', severity: 'warning',
         message: `${c.component.name}: the employee's ${own} contributions are more than ${formatPercent(factor)} of retirement-funding income, so the defined-benefit value is nil.` });
     }
+    if (value <= 0 && paid > 0) {
+      warnings.push({ code: 'DB_FUND_CONTRIBUTION_NOT_CERTIFIED', severity: 'warning',
+        message: `${c.component.name}: employer DB contribution (${formatMoney(paid)}) not certified because the para 12D value is nil `
+          + `(BRS p.54 needs ${own === '4001' ? '3817 with 4472' : '3825 with 4473'}); the certificate carries it only if the tax year's value is above nil. `
+          + 'It is still booked to 2175. UNVERIFIED.' });
+    }
     return { ...c, dbMemberCategoryFactor: factor, amount: Math.max(0, value), rfiBase: rfi, dbEmployeeContribution: employeeContribution, dbEmployerContribution: paid };
   });
 }
