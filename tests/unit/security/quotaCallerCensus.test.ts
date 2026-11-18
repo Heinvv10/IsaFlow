@@ -65,6 +65,7 @@ const KEEPS_CHARGE: Record<string, string> = {
   'accounting/document-capture.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
   'accounting/bank-statements/index.ts': 'its AI read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
   'accounting/bank-tx-queries/index.ts': 'sends a WhatsApp message, which no quota recorder counts (markQuotaUsed(send) is the email service); the bucket bounds requests',
+  'payroll/employees/[id]/portal-access.ts': 'one invitation per request, counted once; it asks for no refund (wave 6 SS)',
   'accounting/document-capture-action.ts': "its 'retry' read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded",
 };
 

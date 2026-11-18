@@ -1,6 +1,6 @@
 /**
  * BankTxModalShell - the ONE shell of the modals the bank-transactions page opens (Query, Link, Split, Exclude, Find match,
- * Create rule, Create entity, Attachments). It gives each the same dialog behaviour, from the kit's `useFocusTrap` (not a
+ * Create rule, Create entity, Attachments, Bulk accept). It gives each the same dialog behaviour, from the kit's `useFocusTrap` (not a
  * second implementation): `role="dialog"` + `aria-modal` + a name, Tab kept inside, Escape closes, focus moves in on open and
  * goes back on close. It renders into `document.body`, so the page's stacking context cannot draw the top navigation over the
  * backdrop.

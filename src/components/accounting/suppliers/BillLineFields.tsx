@@ -128,7 +128,7 @@ export function billLineFields(line: BillLineItem, index: number, ctx: LineField
         onChange={e => onUpdate(line.key, 'quantity', Number(e.target.value))} className={`${billInput} text-right`} />
     ),
     price: (
-      <input type="number" aria-label={`Line ${index + 1} unit price`} step="0.01" min="0" required value={line.unitPrice}
+      <input type="number" aria-label={`Line ${index + 1} unit price`} step="any" min="0" required value={line.unitPrice}
         onChange={e => onUpdate(line.key, 'unitPrice', Number(e.target.value))} className={`${billInput} text-right`} />
     ),
     total: formatCurrency(line.quantity * line.unitPrice),

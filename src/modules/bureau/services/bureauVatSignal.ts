@@ -7,6 +7,7 @@
  * supplied meta map.
  */
 import { sql } from '@/lib/neon';
+import { vatPeriodFilings, type VatPeriodFiling } from '@/modules/accounting/services/returns/vatPeriodFilings';
 import { expectedVatPeriodAsOf, normalizeVatAlignment, normalizeVatSetting } from './vatPeriodHelper';
 import { MONTHS, severityForDate, type WorkItem, type CompanyMeta } from './bureauWorkTypes';
 
@@ -54,12 +55,13 @@ export function shapeVatDue(
 
 export async function vatDueSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
   const sixMonthsAgo = new Date(today.getTime() - 183 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const [companies, returns] = await Promise.all([
+  // A period is covered once its VAT201 is submitted: a filed or settled lifecycle version, else (before the
+  // lifecycle) a vat_returns row recorded as submitted (vatPeriodFilings).
+  const [companies, filings] = await Promise.all([
     sql`SELECT id, vat_period_alignment, vat_period, vat_system_type FROM companies WHERE id = ANY(${companyIds})`,
-    sql`SELECT company_id, period_start::text, period_end::text
-          FROM vat_returns
-         WHERE company_id = ANY(${companyIds})
-           AND period_end >= ${sixMonthsAgo}::date`,
-  ]) as [CompanyVatRow[], VatReturnRow[]];
+    vatPeriodFilings(companyIds, { from: sixMonthsAgo, to: '9999-12-31' }),
+  ]) as [CompanyVatRow[], VatPeriodFiling[]];
+  const returns: VatReturnRow[] = filings.filter((f) => f.submitted)
+    .map((f) => ({ company_id: f.companyId, period_start: f.periodStart, period_end: f.periodEnd }));
   return shapeVatDue(companies, returns, meta, today);
 }
