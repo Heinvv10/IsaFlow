@@ -183,6 +183,26 @@ describe('annualisationFactor (AN)', () => {
       expect(w53.paye).toBe(cents((tax(taxed) * 53) / 52));
     });
 
+    it('round 3 L2: past the year, what the AE cannot bear spills to the annual payments from the bounded deduction', () => {
+      // A 13th line: R30 000 a month and R10 000 donated (12 earlier lines), a R2 000 000 bonus, R50 000 a month to an RA.
+      // D = the cap on the AE's scale (430 000 × F ÷ 12) > AE, so the deduction spills past the AE; bounded at the cap to
+      // date, the AE is taxed less 430 000 × F ÷ 13, and only that less the AE spills, × 13 ÷ F.
+      const F = annualisationFactor('monthly');
+      const ytd: PayeYearToDate = {
+        ...NONE, periods: 12, periodicTaxable: 12 * 30_000, donations: 12 * 10_000, donationDeduction: 12 * 10_000,
+        retirementContributions: 12 * 50_000, retirementDeduction: 0, retirementCapPeriods: 12,
+      };
+      const r = calculateCumulativePaye({
+        ...base, factor: F, periodsInYear: 12, regularTaxable: 30_000, annualPayments: 2_000_000, periodicRemuneration: 30_000,
+        annualPaymentRemuneration: 2_000_000, retirementContributions: 50_000, donations: 10_000, ytd,
+      });
+      const t = r.trace;
+      expect(t.deductionBounded).toBe(true);
+      expect(t.offPeriodicTaxed).toBeCloseTo((430_000 * F) / 13, 6);
+      expect(t.donationSpill).toBeCloseTo(((t.offPeriodicTaxed - t.annualEquivalent) * 13) / F, 6);
+      expect(t.donationSpill).toBeLessThan(((t.offPeriodic - t.annualEquivalent) * 13) / F);
+    });
+
     it('a 27th fortnight under the cap: R135 000 recorded (27 × R5 000) and taxed in full', () => {
       const f27 = run('fortnightly', 27, 20_000, 5_000, 0);
       expect(f27.deduction).toBe(13_500_000);
