@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { PortalShell } from '@/components/employeePortal/PortalShell';
 import { portalCall } from '@/components/employeePortal/portalFetch';
+import { apiErrorMessage } from '@/lib/apiFetch';
 
 export default function EmployeePortalAccept() {
   const router = useRouter();
@@ -34,10 +35,10 @@ export default function EmployeePortalAccept() {
     setBusy(true);
     setError('');
     try {
-      await portalCall('/api/employee-portal/accept', { method: 'POST', body: { token, password } });
+      await portalCall('/api/employee-portal/accept', 'Could not set your password. Please try again.', { method: 'POST', body: { token, password } });
       await router.push('/employee-portal');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not set your password. Please try again.');
+      setError(apiErrorMessage(err, 'Could not set your password. Please try again.'));
     } finally {
       setBusy(false);
     }

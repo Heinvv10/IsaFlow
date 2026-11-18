@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { PortalShell } from '@/components/employeePortal/PortalShell';
 import { portalCall, PortalCallError } from '@/components/employeePortal/portalFetch';
+import { apiErrorMessage } from '@/lib/apiFetch';
 
 type Employer = { accessId: string; employer: string };
 
@@ -23,11 +24,11 @@ export default function EmployeePortalLogin() {
     setBusy(true);
     setError('');
     try {
-      await portalCall('/api/employee-portal/login', { method: 'POST', body: { email, password, ...(accessId ? { accessId } : {}) } });
+      await portalCall('/api/employee-portal/login', 'Could not sign in. Please try again.', { method: 'POST', body: { email, password, ...(accessId ? { accessId } : {}) } });
       await router.push('/employee-portal');
     } catch (err) {
       if (err instanceof PortalCallError && err.reason === 'CHOOSE_EMPLOYER') setChoices((err.details?.employers as Employer[]) ?? []);
-      else setError(err instanceof Error ? err.message : 'Could not sign in. Please try again.');
+      else setError(apiErrorMessage(err, 'Could not sign in. Please try again.'));
     } finally {
       setBusy(false);
     }

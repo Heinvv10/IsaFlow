@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Money } from '@/components/ui/Money';
 import { PortalShell } from '@/components/employeePortal/PortalShell';
 import { portalCall, PortalCallError } from '@/components/employeePortal/portalFetch';
+import { apiErrorMessage } from '@/lib/apiFetch';
 
 interface Me { employeeName: string; employeeNumber: string; employer: string }
 interface Slip { runId: string; periodYear: number; periodMonth: number; runDate: string | null; netPay: number }
@@ -24,16 +25,17 @@ export default function EmployeePortalHome() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([portalCall<Me>('/api/employee-portal/me'), portalCall<Slip[]>('/api/employee-portal/payslips'), portalCall<Leave[]>('/api/employee-portal/leave')])
+    const failed = 'Could not load your details.';
+    Promise.all([portalCall<Me>('/api/employee-portal/me', failed), portalCall<Slip[]>('/api/employee-portal/payslips', failed), portalCall<Leave[]>('/api/employee-portal/leave', failed)])
       .then(([m, s, l]) => { setMe(m); setSlips(s); setLeave(l); })
       .catch((err: unknown) => {
         if (err instanceof PortalCallError && err.status === 401) void router.replace('/employee-portal/login');
-        else setError(err instanceof Error ? err.message : 'Could not load your details.');
+        else setError(apiErrorMessage(err, failed));
       });
   }, [router]);
 
   async function signOut(): Promise<void> {
-    await portalCall('/api/employee-portal/logout', { method: 'POST', body: {} }).catch(() => undefined);
+    await portalCall('/api/employee-portal/logout', 'Could not sign out.', { method: 'POST', body: {} }).catch(() => undefined);
     await router.replace('/employee-portal/login');
   }
 
