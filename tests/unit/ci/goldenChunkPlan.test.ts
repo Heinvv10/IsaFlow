@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CONTRAST_FILE, CONTRAST_SECONDS, CONTRAST_TITLE_TAIL, FILE_SECONDS, SPEC_DIR, chunkSeconds, contrastSlugs, planChunk, planItems,
-  splitItems, toInvocations,
+  splitItems, toInvocations, type Item,
 } from '../../../scripts/ci/golden-hosted/goldenChunkPlan';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -91,6 +91,22 @@ describe('golden chunk plan mechanics', () => {
       expect(parts).toHaveLength(n);
       expect(parts.flat()).toEqual(items);
     }
+  });
+
+  it('makes the longest chunk as short as a contiguous split can (the midpoint rule left 80 / 150 / 110 here)', () => {
+    const w = (seconds: number, i: number): Item => ({ kind: 'file', name: `s${i}.spec.ts`, seconds });
+    const parts = splitItems([80, 90, 10, 30, 20, 40, 70].map(w), 3);
+    expect(parts.map(chunkSeconds)).toEqual([80, 130, 130]);
+    expect(parts.flat().map((i) => i.name)).toEqual(['s0.spec.ts', 's1.spec.ts', 's2.spec.ts', 's3.spec.ts', 's4.spec.ts', 's5.spec.ts', 's6.spec.ts']);
+  });
+
+  it('keeps the real suite within 25% when one more spec lands (18 Nov: z30 beside z32 put the midpoint rule at 1.34)', () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'chunk-'));
+    mkdirSync(path.join(tmp, SPEC_DIR), { recursive: true });
+    for (const f of FILES) writeFileSync(path.join(tmp, SPEC_DIR, f), f === CONTRAST_FILE ? CONTRAST_SRC : '');
+    writeFileSync(path.join(tmp, SPEC_DIR, 'z30-bank-bulk-accept.spec.ts'), ''); // a new spec: the default weight
+    const secs = Array.from({ length: N }, (_, i) => chunkSeconds(planChunk(tmp, i + 1, N).items));
+    expect(Math.max(...secs) / Math.min(...secs)).toBeLessThan(1.25);
   });
 
   it('makes one invocation per run of the same kind, with the screens in a --grep', () => {
