@@ -9,7 +9,7 @@
 import { fmtDate } from '@/lib/fmtDate';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { emp501PeriodOf, type Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
-import { assertEmp501Ready } from './emp501Readiness';
+import { assertEmp501MatchesFiledEmp201s, assertEmp501Ready } from './emp501Readiness';
 import { buildEmp501Figures } from './emp501Figures';
 import { insertVersion, listVersionRows, nextVersion } from './returnVersionStore';
 import { ReturnRefusal, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
@@ -30,8 +30,10 @@ export async function finaliseEmp501Return(
 ): Promise<ReturnVersion> {
   const p = assertEmp501Period(periodStart, periodEnd);
   await lockCompanyPayrollApprovals(null, companyId);
-  await assertEmp501Ready(companyId, p);
+  const ready = await assertEmp501Ready(companyId, p);
   const figures = await buildEmp501Figures(companyId, p);
+  // Only when every month's EMP201 has figures; an uncompared legacy month is a warning on the readiness instead.
+  if (ready.crossChecked) await assertEmp501MatchesFiledEmp201s(companyId, p, figures.totals);
   const approved = figures.runs.map((r) => r.approvedAt).filter((a): a is string => a !== null).sort();
   const next = nextVersion(await listVersionRows(companyId, 'EMP501', periodStart, periodEnd));
   return insertVersion({
