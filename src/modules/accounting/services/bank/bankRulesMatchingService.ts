@@ -207,6 +207,9 @@ export async function applyRules(
       });
 
       for (const tx of orderedTxs) {
+        // A 0.00 line has nothing to post: every journal line would be 0/0 and createJournalEntry refuses it,
+        // failing the whole sweep. It stays imported for a person to allocate or ignore.
+        if (Number(tx.amount) === 0) continue;
         if (transferTo && transferLocks.contended.has(String(tx.id))) { autoPostSkippedLocked++; continue; } // line or pair held
         let outcome;
         try {
