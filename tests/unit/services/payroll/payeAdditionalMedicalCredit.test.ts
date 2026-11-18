@@ -70,7 +70,7 @@ describe('the annual credit (payeEngine)', () => {
 });
 
 describe('cumulative PAYE with the credit (payeCumulative)', () => {
-  const month = (ytd: PayeYearToDate, fees = 5_100) => calculateCumulativePaye({ factor: X12,
+  const month = (ytd: PayeYearToDate, fees = 5_100) => calculateCumulativePaye({ factor: X12, periodsInYear: 12,
     taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0,
     periodicRemuneration: 30_000, annualPaymentRemuneration: 0, medicalSchemeFees: fees, ytd,
   });
@@ -112,7 +112,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
   it('2026 tax year, a year at R30 000 and R5 100, member + 1: 2 297.06 / 2 297.05 / 2 297.06 ..., 4120 adds to 11 652.34', () => {
     // 2026: tax(360 000) = 42 678 + 26% x 122 900 = 74 632; - 17 235 - 9 444 = 47 953; MTC 728 x 12 = 8 736: 39 217.
     // AMTC 33,3% x (61 200 - 3 x 8 736) = 11 652.336: 27 564.664 a year, 2 297.0553 a month.
-    const in2026 = (ytd: PayeYearToDate) => calculateCumulativePaye({ factor: X12,
+    const in2026 = (ytd: PayeYearToDate) => calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear: 2026, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0,
       periodicRemuneration: 30_000, annualPaymentRemuneration: 0, medicalSchemeFees: 5_100, ytd,
     });
@@ -128,7 +128,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
 
   it('a single beneficiary (member only), R3 000 fees: 33,3% x (36 000 - 3 x 4 512) = 7 480.512', () => {
     // tax(360 000) = 73 992 - 27 585 - 4 512 = 41 895; - 7 480.512 = 34 414.488 / 12 = 2 867.874.
-    const r = calculateCumulativePaye({ factor: X12,
+    const r = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 1, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 3_000, ytd: NONE,
       periodicRemuneration: 30_000, annualPaymentRemuneration: 0,
     });
@@ -142,7 +142,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
 
   it('no medical aid beneficiaries on the employee (member flag off, no dependants): no additional credit either', () => {
     // 4005 fees but no scheme membership recorded: no MTC, and no AMTC (round 2 review). tax 73 992 - 27 585 = 46 407.
-    const r = calculateCumulativePaye({ factor: X12,
+    const r = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 0, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 5_100, ytd: NONE,
       periodicRemuneration: 30_000, annualPaymentRemuneration: 0,
     });
@@ -150,7 +150,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
   });
 
   it('no periodic pay yet (an annual payment alone): the fees to date are taken as they stand', () => {
-    const r = calculateCumulativePaye({ factor: X12,
+    const r = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 0, annualPayments: 400_000, medicalSchemeFees: 61_200, ytd: NONE,
       periodicRemuneration: 0, annualPaymentRemuneration: 400_000,
     });

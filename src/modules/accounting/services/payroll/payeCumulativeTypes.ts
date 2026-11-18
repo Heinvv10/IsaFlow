@@ -31,6 +31,9 @@ export interface CumulativePayeInput {
    * for monthly pay. 12 is the statutory × 12 of G21 p. 8, which the method's own tests use to check SARS's examples.
    */
   factor: number;
+  /** P, the statutory periods in a year for the frequency (annualisationFactor.periodsInYear: 12, 26, 52), for the period
+   *  ratios statute fixes: the s11F cap to date and the medical credits, each × min(n, P) ÷ P (wave-6 AN). */
+  periodsInYear: number;
 }
 
 export interface CumulativePayeResult {
@@ -58,6 +61,8 @@ export interface CumulativePayeTrace {
   paid: boolean;
   /** F, the annualisation factor (annualisationFactor.ts): AE = periodic to date × F ÷ periods. */
   factor: number;
+  /** P, the statutory periods in a year (CumulativePayeInput.periodsInYear). */
+  periodsInYear: number;
   periods: number; ytdPeriodicTaxable: number; regularTaxable: number; periodicToDate: number; annualEquivalent: number;
   contributionsToDate: number; donationsToDate: number; annualisedContributions: number; deductionBase: number;
   /** The s11F deduction on annual figures, the part off the annual equivalent, and the part off the annual payments. */

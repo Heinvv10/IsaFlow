@@ -50,7 +50,7 @@ interface Month { salary: number; contribution: number; bonus?: number; benefici
 function year(months: Month[]) {
   let ytd: PayeYearToDate = NONE;
   return months.map((m) => {
-    const r = calculateCumulativePaye({ factor: X12,
+    const r = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       ...base, monthlyMedicalBeneficiaries: m.beneficiaries ?? 0,
       regularTaxable: m.salary, annualPayments: m.bonus ?? 0, retirementContributions: m.contribution, ytd,
       periodicRemuneration: m.salary, annualPaymentRemuneration: m.bonus ?? 0,

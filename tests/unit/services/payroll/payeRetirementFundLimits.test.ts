@@ -23,7 +23,7 @@ interface Month { salary: number; contribution: number; bonus?: number; donation
 function year(months: Month[], taxYear = 2027) {
   let ytd: PayeYearToDate = NONE;
   return months.map((m) => {
-    const r = calculateCumulativePaye({ factor: X12,
+    const r = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear, rebateAge: 40, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0,
       regularTaxable: m.salary - (m.donation ?? 0), annualPayments: m.bonus ?? 0,
       periodicRemuneration: m.salary, annualPaymentRemuneration: m.bonus ?? 0,

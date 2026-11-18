@@ -4,7 +4,8 @@
  * The statutory × 12 (SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 8) is what AN departs from, by a few cents a year.
  */
 import { describe, it, expect } from 'vitest';
-import { annualisationFactor, annualisationFactorWords } from '@/modules/accounting/services/payroll/annualisationFactor';
+import { annualisationFactor, annualisationFactorWords, periodsInYear } from '@/modules/accounting/services/payroll/annualisationFactor';
+import type { PayFrequency } from '@/modules/accounting/services/payroll/payrollTypesRun';
 import { calculateCumulativePaye } from '@/modules/accounting/services/payroll/payeCumulative';
 import { annualTaxAfterCredits } from '@/modules/accounting/services/payroll/payeEngine';
 import { getTaxYearConfig } from '@/modules/accounting/services/payroll/taxTables';
@@ -25,7 +26,7 @@ function year(salary: number, months: number, extra: { retirementContributions?:
   let ytd: PayeYearToDate = NONE;
   const out = [];
   for (let i = 0; i < months; i++) {
-    const r = calculateCumulativePaye({ ...base, ...extra, factor: annualisationFactor('monthly'), regularTaxable: salary, annualPayments: 0, periodicRemuneration: salary, annualPaymentRemuneration: 0, ytd });
+    const r = calculateCumulativePaye({ ...base, ...extra, factor: annualisationFactor('monthly'), periodsInYear: periodsInYear('monthly'), regularTaxable: salary, annualPayments: 0, periodicRemuneration: salary, annualPaymentRemuneration: 0, ytd });
     out.push(r);
     ytd = {
       ...ytd, periods: ytd.periods + 1, periodicTaxable: ytd.periodicTaxable + salary, tablePaye: ytd.tablePaye + r.regular.monthlyPaye,
@@ -37,14 +38,14 @@ function year(salary: number, months: number, extra: { retirementContributions?:
 }
 
 /** n periods of the same pay on one frequency's factor, member only (one beneficiary), with fees each period. */
-function medicalYear({ rebateAge, fees, factor = annualisationFactor('monthly'), periods = 12, salary = 30_000 }: {
-  rebateAge: number; fees: number; factor?: number; periods?: number; salary?: number;
+function medicalYear({ rebateAge, fees, frequency = 'monthly', periods = 12, salary = 30_000 }: {
+  rebateAge: number; fees: number; frequency?: PayFrequency; periods?: number; salary?: number;
 }) {
   let ytd: PayeYearToDate = NONE;
   const out = [];
   for (let i = 0; i < periods; i++) {
     const r = calculateCumulativePaye({
-      ...base, rebateAge, monthlyMedicalBeneficiaries: 1, medicalSchemeFees: fees, factor,
+      ...base, rebateAge, monthlyMedicalBeneficiaries: 1, medicalSchemeFees: fees, factor: annualisationFactor(frequency), periodsInYear: periodsInYear(frequency),
       regularTaxable: salary, annualPayments: 0, periodicRemuneration: salary, annualPaymentRemuneration: 0, ytd,
     });
     out.push(r);
@@ -93,8 +94,8 @@ describe('annualisationFactor (AN)', () => {
     const months = year(200_000, 12, { retirementContributions: 50_000 });
     const cap = getTaxYearConfig(2027).retirementDeductionCap;
     expect(cap).toBe(430_000);
-    expect(months[0]!.trace.capToDate).toBe(cap / 12);
-    expect(months[11]!.trace.capToDate).toBe(cap);
+    expect(months[0]!.trace.capToDate).toBeCloseTo(cap / 12, 9);
+    expect(months[11]!.trace.capToDate).toBeCloseTo(cap, 9);
     expect(months[0]!.trace.annualCap).toBe((cap * SAGE_F) / 12);
     const recorded = months.reduce((t, m) => t + cents(m.retirementDeduction), 0);
     expect(recorded).toBe(43_000_000); // exactly R430 000 (cap × 12 ÷ F would be R429 999.06)
@@ -116,7 +117,7 @@ describe('annualisationFactor (AN)', () => {
     });
 
     it('(a) weekly (F = 52): 52 weeks credit exactly 12 × R376, R86.77 a week (376 × 12 ÷ 52)', () => {
-      const weeks = medicalYear({ rebateAge: 46, fees: 0, factor: annualisationFactor('weekly'), periods: 52, salary: 7_000 });
+      const weeks = medicalYear({ rebateAge: 46, fees: 0, frequency: 'weekly', periods: 52, salary: 7_000 });
       expect(weeks[0]!.medicalCredit).toBe(86.77);
       expect(sumCents(weeks.map(w => w.medicalCredit))).toBe(12 * 37_600);
     });
@@ -124,6 +125,12 @@ describe('annualisationFactor (AN)', () => {
     it('(b) a mid-year starter, five months: the credit to date is exactly 5 × R376', () => {
       const months = medicalYear({ rebateAge: 46, fees: 0, periods: 5 });
       expect(sumCents(months.map(m => m.medicalCredit))).toBe(5 * 37_600);
+    });
+
+    it('(L5) fortnightly (26 periods): exactly 12 × R376', () => {
+      const fortnights = medicalYear({ rebateAge: 46, fees: 0, frequency: 'fortnightly', periods: 26, salary: 14_000 });
+      expect(fortnights[0]!.medicalCredit).toBe(173.54); // 376 × 12 ÷ 26 = 173.538
+      expect(sumCents(fortnights.map(f => f.medicalCredit))).toBe(12 * 37_600);
     });
 
     it('(c) 65+: the additional credit is 33,3% × (fees to date − 3 × MTC × n), a full year and a five-month starter', () => {
@@ -135,7 +142,42 @@ describe('annualisationFactor (AN)', () => {
     });
   });
 
-  it('a monthly line is costed on F, and its explanation states it (phekis: R50 000, Sage PAYE 11 075.60 to the cent)', () => {
+  // Review #1578 M: the period ratios never pass a whole year. A 53rd week, or a 13th line in a tax year (ytd.periods
+  // counts lines), counts as the year: × min(n, P) ÷ P, so the credit to date stays ≤ 12 × MTC and the deduction ≤ the cap.
+  describe('the period ratios are bounded at a year (min(n, P) ÷ P)', () => {
+    const run = (frequency: PayFrequency, periods: number, salary: number, ra: number) => {
+      let ytd: PayeYearToDate = { ...NONE, retirementContributions: 0, retirementDeduction: 0, retirementCapPeriods: 0 };
+      const out = [];
+      for (let i = 0; i < periods; i++) {
+        const r = calculateCumulativePaye({
+          ...base, monthlyMedicalBeneficiaries: 1, factor: annualisationFactor(frequency), periodsInYear: periodsInYear(frequency),
+          regularTaxable: salary, annualPayments: 0, periodicRemuneration: salary, annualPaymentRemuneration: 0, retirementContributions: ra, ytd,
+        });
+        out.push(r);
+        ytd = {
+          ...ytd, periods: ytd.periods + 1, periodicTaxable: ytd.periodicTaxable + salary, tablePaye: ytd.tablePaye + r.regular.monthlyPaye,
+          medicalCredit: ytd.medicalCredit + r.medicalCredit, retirementContributions: (ytd.retirementContributions ?? 0) + ra,
+          retirementDeduction: (ytd.retirementDeduction ?? 0) + r.retirementDeduction, retirementCapPeriods: (ytd.retirementCapPeriods ?? 0) + 1,
+        };
+      }
+      return { mtc: sumCents(out.map(o => o.medicalCredit)), deduction: sumCents(out.map(o => o.retirementDeduction)) };
+    };
+    const cap = 43_000_000; // R430 000, 2027
+
+    it('weekly: 52 weeks credit 12 × R376 and deduct the cap; a 53rd week adds neither', () => {
+      expect(run('weekly', 52, 50_000, 10_000)).toEqual({ mtc: 12 * 37_600, deduction: cap });
+      expect(run('weekly', 53, 50_000, 10_000)).toEqual({ mtc: 12 * 37_600, deduction: cap }); // unbounded: 4 598.77 and 438 269.23
+    });
+
+    it('monthly: a 13th line in the tax year adds neither credit nor deduction past the year', () => {
+      expect(run('monthly', 12, 220_000, 45_000)).toEqual({ mtc: 12 * 37_600, deduction: cap });
+      const thirteen = run('monthly', 13, 220_000, 45_000);
+      expect(thirteen.mtc).toBeLessThanOrEqual(12 * 37_600);
+      expect(thirteen.deduction).toBeLessThanOrEqual(cap);
+    });
+  });
+
+  it('a monthly line is costed on F, and its explanation states it (phekis: R50 000, Sage PAYE 11 075.60: within 5c of Sage, here to the cent)', () => {
     const line = calculatePayrollLine(buildCaseInput(loadCases().find(c => c.id === 'sage-2027-03-phekis')!));
     expect(line.paye.monthlyPaye).toBe(11_075.6);
     const steps = stepsByKey(line.explanations.paye);

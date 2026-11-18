@@ -216,14 +216,16 @@ describe('4030 is cumulative over the tax year', () => {
     const given = year(true);
     const without = year(false);
     expect(given.ytd.retirementDeduction).toBe(without.ytd.retirementDeduction);
-    // AN (F = 365 / 30.4166): AE = 140 000 × F / 7 = 240 000.53; 27.5% × (AE + 1 000 000) − AE comes off the bonus, and
-    // the AE part is weighted 7 ÷ F (140 000): 341 000.14 − 240 000.53 + 140 000 = 240 999.62 (× 12: 241 000).
-    expect(given.ytd.retirementDeduction).toBe(240_999.62);
+    // AN (F = 365 / 30.4166): AE = 140 000 × F / 7 = 240 000.53, so the 27.5% limb is 27.5% × (AE + 1 000 000) =
+    // 341 000.14 (× 12: 341 000), a ruled F effect: the remuneration it is 27.5% of is annualised by F. The AE part comes
+    // off at 7 ÷ F (140 000) and the rest off the bonus on the year's scale (review #1578 L2): 341 000.14 − 240 000.53
+    // × 12 ÷ F = 101 000.14, so 241 000.14 (before L2 the scales mixed: 240 999.62).
+    expect(given.ytd.retirementDeduction).toBe(241_000.14);
     // Months 1-6 give R3 000; in month 7 the deduction takes all the periodic pay, so that R500 waits.
-    // Leviable 1 140 000 − 240 999.62 − 3 000; taxable income for PAYE is the same 896 000.38.
-    expect(given.ytd.sdlLeviable).toBe(896_000.38);
+    // Leviable 1 140 000 − 241 000.14 − 3 000; taxable income for PAYE is the same 895 999.86 (SDL 14c below × 12's).
+    expect(given.ytd.sdlLeviable).toBe(895_999.86);
     expect(given.ytd.donationDeduction).toBe(3_000);
-    expect(given.ytd.tablePaye).toBeCloseTo(245_653.16, 2); // AN (× 12: 245 653.00)
+    expect(given.ytd.tablePaye).toBeCloseTo(245_652.94, 2); // AN (× 12: 245 653.00; the extra 14c deducted at 45%)
   });
 
   it('a clawback past the periodic pay records no take-back the nil floor would swallow; the next line bears it', () => {

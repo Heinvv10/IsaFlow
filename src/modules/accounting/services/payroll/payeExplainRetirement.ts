@@ -5,7 +5,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { RETIREMENT_DEDUCTION_RATE } from './retirementFund';
 import { getTaxYearConfig } from './taxTables';
-import { annualisationFactorWords, periodsInYear } from './annualisationFactor';
+import { annualisationFactorWords } from './annualisationFactor';
 import { SOURCES, footed, pct, sourceFor, type ExplainStep } from './payrollExplainTypes';
 import type { PayeExplainInput } from './payeExplain';
 
@@ -37,7 +37,7 @@ export function retirementStep(input: PayeExplainInput): ExplainStep {
           },
           {
             key: 'paye.retirement.cap', label: 'Annual cap, on the annual-equivalent scale', amount: t.annualCap,
-            formula: `${r(getTaxYearConfig(taxYear).retirementDeductionCap)} × (${annualisationFactorWords(t.factor)}) ÷ ${periodsInYear(t.factor)}`,
+            formula: `${r(getTaxYearConfig(taxYear).retirementDeductionCap)} × (${annualisationFactorWords(t.factor)}) ÷ ${t.periodsInYear}`,
             children: [{ key: 'paye.retirement.statutoryCap', label: 'The s11F annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap }],
           },
         ],
@@ -66,14 +66,17 @@ export function annualPaymentsStep(input: PayeExplainInput): ExplainStep {
       key: 'paye.offAnnual', label: 'Less the retirement fund deduction taken off them', amount: -t.offAnnual, source: sourceFor(SOURCES.retirement, taxYear),
       formula: 'the least of these limits, never below nil',
       children: [
-        { key: 'paye.offAnnual.deductionLeft', label: 'The deduction a year left after the annual equivalent', amount: t.offAnnualLimits.deductionLeft },
+        {
+          key: 'paye.offAnnual.deductionLeft', label: 'The deduction a year left after the annual equivalent\'s part over a year', amount: t.offAnnualLimits.deductionLeft,
+          formula: `${r(t.annualDeduction)} − ${r(t.offPeriodic)} × ${t.periodsInYear} ÷ (${annualisationFactorWords(t.factor)})`,
+        },
         { key: 'paye.offAnnual.annualPayments', label: 'The annual payments to date', amount: t.offAnnualLimits.annualPayments },
         { key: 'paye.offAnnual.contributionsLeft', label: 'Contributions to date, less the part off periodic pay to date', amount: t.offAnnualLimits.contributionsLeft },
         {
           key: 'paye.offAnnual.capLeft', label: 'The cap to date, less that part', amount: t.offAnnualLimits.capLeft,
           formula: `${r(t.capToDate)} − ${r(t.deductionOffPeriodicToDate)}`,
           children: [
-            { key: 'paye.offAnnual.capToDate', label: `Cap to date (the s11F annual cap × periods ÷ ${periodsInYear(t.factor)})`, amount: t.capToDate },
+            { key: 'paye.offAnnual.capToDate', label: `Cap to date (the s11F annual cap × periods ÷ ${t.periodsInYear})`, amount: t.capToDate },
             { key: 'paye.offAnnual.capPeriods', label: 'Periods for the cap (periodic pay or an annual payment)', amount: t.capPeriods, unit: 'count' },
             { key: 'paye.offAnnual.offPeriodicToDate', label: 'The deduction off periodic pay to date', amount: t.deductionOffPeriodicToDate },
           ],

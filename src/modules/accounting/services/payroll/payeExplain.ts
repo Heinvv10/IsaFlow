@@ -9,7 +9,7 @@ import type { CumulativePayeTrace } from './payeCumulative';
 import type { EmploymentClass } from './employmentTerms';
 import { earningStep } from './earningExplain';
 import type { EarningPart } from './payrollLineAccumulate';
-import { annualisationFactorWords, periodsInYear } from './annualisationFactor';
+import { annualisationFactorWords } from './annualisationFactor';
 import { annualPaymentsStep, retirementStep } from './payeExplainRetirement';
 import { NON_STANDARD_RATE, type PayeTreatment } from './taxStatusTreatment';
 import { SOURCES, footed, pct, sourceFor, type ExplainStep, type FigureExplanation } from './payrollExplainTypes';
@@ -132,6 +132,10 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
       note: 'Days-based, as Sage Payroll annualises a month (365 days ÷ 30.4166), not the × 12 of the SARS guide: a few cents a year apart.',
     },
     {
+      key: 'paye.periodsInYear', label: 'Statutory periods in a year (for the s11F cap and the medical credits)', amount: t.periodsInYear, unit: 'count',
+      note: 'The cap to date and the medical credits are period ratios the statute fixes: × periods ÷ this, never more than a year\'s worth.',
+    },
+    {
       key: 'paye.annualEquivalent', label: 'Annual equivalent', amount: t.annualEquivalent,
       formula: t.periods > 0 ? `${r(t.periodicToDate)} × ${annualisationFactorWords(t.factor)} ÷ ${t.periods}` : 'no periodic pay to date: nil',
       source: sourceFor(SOURCES.annualEquivalent, taxYear),
@@ -141,7 +145,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   if (input.medicalFees.total !== 0) {
     steps.push(footed({
       key: 'paye.medicalFees', label: 'Medical scheme fees this period (for the medical credits)', amount: input.medicalFees.total,
-      note: `With the earlier periods' fees, taken a year (× ${periodsInYear(t.factor)} ÷ periods: the credits are monthly amounts) inside the tax for the year below.`, source: sourceFor(SOURCES.additionalMedical, taxYear),
+      note: `With the earlier periods' fees, taken a year (× ${t.periodsInYear} ÷ periods: the credits are monthly amounts) inside the tax for the year below.`, source: sourceFor(SOURCES.additionalMedical, taxYear),
     }, [
       { key: 'paye.medicalFees.employee', label: 'Deducted from the employee (4005)', amount: input.medicalFees.employee },
       ...(input.medicalFees.employer !== 0 ? [{
@@ -164,7 +168,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   steps.push({
     key: 'paye.liability', label: 'Tax due for the year to date', amount: t.liability,
     formula: `${liabilityAE(t)}${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
-    ...(creditsUsed(t.atAE) > 0 ? { note: `The medical credits are monthly amounts (s6A): the tax for the year before them comes off × periods ÷ the factor, and the ${r(creditsUsed(t.atAE))} of credits it used × periods ÷ ${periodsInYear(t.factor)} (${r(t.creditsOnAEToDate)}), never more than that tax.` } : {}),
+    ...(creditsUsed(t.atAE) > 0 ? { note: `The medical credits are monthly amounts (s6A): the tax for the year before them comes off × periods ÷ the factor, and the ${r(creditsUsed(t.atAE))} of credits it used × periods ÷ ${t.periodsInYear} (${r(t.creditsOnAEToDate)}), never more than that tax.` } : {}),
   });
   steps.push({ key: 'paye.ytdTablePaye', label: 'Less PAYE already deducted this tax year (tables)', amount: t.ytdTablePaye });
   steps.push({ key: 'paye.due', label: 'PAYE this period from the tables', amount: t.due, formula: 'due to date − already deducted, rounded to the cent, never below nil' });

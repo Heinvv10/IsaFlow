@@ -26,7 +26,7 @@ function year(months: Month[]) {
     const bonus = month.bonus ?? 0;
     const periodicAfterDeductions = Math.max(0, month.salary - donation);
     const annualAfterDeductions = Math.max(0, bonus - Math.max(0, donation - month.salary));
-    const result = calculateCumulativePaye({ factor: X12,
+    const result = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear: 2027, rebateAge: 40, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0,
       regularTaxable: periodicAfterDeductions, annualPayments: annualAfterDeductions,
       periodicRemuneration: month.salary, annualPaymentRemuneration: bonus,

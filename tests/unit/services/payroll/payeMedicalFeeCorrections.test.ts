@@ -31,7 +31,7 @@ interface Period {
 }
 
 function period(ytd: PayeYearToDate, input: Period) {
-  const result = calculateCumulativePaye({ factor: X12,
+  const result = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
     taxYear: 2027,
     rebateAge: input.age ?? 40,
     monthlyMedicalBeneficiaries: input.beneficiaries ?? 1,
@@ -101,7 +101,7 @@ describe('signed medical scheme fee corrections', () => {
   });
 
   it('combines medical and retirement reversals in a correction-only no-pay month', () => {
-    const result = calculateCumulativePaye({ factor: X12,
+    const result = calculateCumulativePaye({ factor: X12, periodsInYear: 12,
       taxYear: 2027,
       rebateAge: 67,
       monthlyMedicalBeneficiaries: 1,
