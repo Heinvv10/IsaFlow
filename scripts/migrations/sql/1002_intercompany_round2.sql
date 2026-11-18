@@ -25,7 +25,7 @@
 --     (intercompany_document_exists_as_writer, a registered definer); a pending pairing holds no unique slot (indexes over ACTIVE
 --     links); one mirror link per message; the mirror match is NULL-safe.
 --   - Backfill for rows 1000 may already hold: group connections whose group is gone are revoked (stamp system:group-membership),
---     and revoked connections release their customer and supplier links.
+--     and revoked connections release their customer and supplier links (by a no-op status UPDATE that fires the release trigger).
 --
 -- DEFINER FUNCTIONS (registered in app_definer_reviews, 930; owner migration_admin; pinned search_path, pg_temp last; EXECUTE for
 -- app_user and app_service only, none for the trigger functions): intercompany_in_one_group, intercompany_document_exists_as_writer
@@ -710,7 +710,7 @@ ALTER FUNCTION public.intercompany_release_links() OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_release_links() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_intercompany_release_links ON intercompany_connections;
 CREATE TRIGGER trg_intercompany_release_links AFTER UPDATE OF status ON intercompany_connections
-  FOR EACH ROW WHEN (NEW.status = 'revoked' AND OLD.status IS DISTINCT FROM 'revoked')
+  FOR EACH ROW WHEN (NEW.status = 'revoked')
   EXECUTE FUNCTION public.intercompany_release_links();
 ALTER TABLE intercompany_connections ENABLE ALWAYS TRIGGER trg_intercompany_release_links;
 
@@ -762,10 +762,10 @@ UPDATE public.intercompany_connections c SET status = 'revoked'
 RESET ROLE;
 SELECT pg_catalog.set_config('app.intercompany_system_revoke', '', true);
 
--- Connections revoked before this migration still hold their links: release them. The sides guard is off for this one statement
--- (the statement is not a foreign key action, and a revoked connection's sides are otherwise frozen).
-ALTER TABLE intercompany_connection_sides DISABLE TRIGGER trg_intercompany_sides_guard;
-UPDATE intercompany_connection_sides s SET customer_id = NULL, supplier_id = NULL
- WHERE (s.customer_id IS NOT NULL OR s.supplier_id IS NOT NULL)
-   AND EXISTS (SELECT 1 FROM intercompany_connections c WHERE c.id = s.connection_id AND c.status = 'revoked');
-ALTER TABLE intercompany_connection_sides ENABLE ALWAYS TRIGGER trg_intercompany_sides_guard;
+-- Connections revoked before this migration still hold their links. A status UPDATE to the value a row already has changes
+-- nothing (the connections guard returns the row as it is, stamps included) and fires the release trigger, whose own UPDATE of
+-- the sides is a second trigger level, which the sides guard lets through. No trigger is switched off.
+UPDATE public.intercompany_connections c SET status = 'revoked'
+ WHERE c.status = 'revoked'
+   AND EXISTS (SELECT 1 FROM public.intercompany_connection_sides s
+                WHERE s.connection_id = c.id AND (s.customer_id IS NOT NULL OR s.supplier_id IS NOT NULL));

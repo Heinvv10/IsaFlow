@@ -191,7 +191,8 @@ describe('1002 on a database that already holds rows', () => {
     expect(await sideOf(co.A)).toMatchObject({ customer_id: null, supplier_id: null, loan_account_id: acct.aLoan });
     expect(await sideOf(co.B)).toMatchObject({ customer_id: null, supplier_id: null });
     expect(await sideOf(co.A, live)).toMatchObject({ customer_id: other, supplier_id: null });   // a live connection keeps its link
-    // the guard that was switched off for the backfill is back on
+    // the connection row itself is untouched (stamps included), and the sides guard still holds for a user
+    expect((await pool.query('SELECT status, revoked_by FROM intercompany_connections WHERE id = $1', [id])).rows[0]).toEqual({ status: 'revoked', revoked_by: U.ab });
     expect((await pool.query("SELECT tgenabled FROM pg_trigger WHERE tgname = 'trg_intercompany_sides_guard'")).rows[0].tgenabled).toBe('A');
     await asAppUser(pool, U.a, co.A, async (q) => {
       expect(await outcome(q, 'UPDATE intercompany_connection_sides SET auto_accept = false WHERE connection_id = $1', [id])).toBe(R.sideRevoked);
