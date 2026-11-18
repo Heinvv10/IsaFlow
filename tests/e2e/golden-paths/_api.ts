@@ -7,7 +7,7 @@
  *   - apiResponse envelope unwrapping ({success,data} | {success:false,error})
  *
  * HTTP-only on purpose: the same specs must run against the workspace dev
- * server, CI, and prod Demo post-deploy, where direct DB access is not
+ * server, CI, and the production post-deploy run (the Deploy Verification company), where direct DB access is not
  * available. All state assertions go through the public API.
  */
 import { request as pwRequest, type APIRequestContext } from '@playwright/test';
@@ -196,7 +196,7 @@ export class Api {
   /**
    * Find-or-create the suite's fixture customer/supplier. Specs previously
    * created a fresh master per run — unbounded growth in the shared Demo
-   * company (and the prod Demo post-deploy runs). One fixture row each,
+   * company (and the post-deploy runs, now in the Deploy Verification company). One fixture row each,
    * reused forever. Names start '0GP' so UI dropdowns (first-page-only, see
    * spec d) always include them. Seeded Demo masters can't be used instead:
    * their non-RFC UUIDs fail zod-strict endpoints (baseline finding N1).

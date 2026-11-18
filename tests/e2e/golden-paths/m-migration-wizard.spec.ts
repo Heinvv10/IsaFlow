@@ -3,19 +3,19 @@
  * take on an opening trial balance and an AR opening invoice, import a GL
  * journal, find "Import from Sage".
  *
- * Runs in its OWN company (_migrationSandbox.ts), never in Demo: a take-on
+ * Runs in its OWN company (_migrationSandbox.ts), never in the suite's own company: a take-on
  * leaves a migration session and step flags no supported API removes. The
  * API and browser contexts are each switched to the sandbox and back in
- * `finally`; the spec then re-reads Demo and requires its migration session
+ * `finally`; the spec then re-reads the suite's own company and requires its migration session
  * and its ledger over the dates this spec posts on to be unchanged. A red on
- * that check alone means something else wrote to Demo in that window during
+ * that check alone means something else wrote to that company in that window during
  * the run (a local golden run, a peer worktree, an MCP poster on isaflow_dev):
  * look for a concurrent writer before suspecting the wizard.
  * Re-runs are deterministic: the opening-balance step REPLACES the session's
  * previous trial balance (it reverses it first), and the AR take-on invoice
  * is cancelled and the imported journal reversed by the test (by `finally` if
  * an assertion stopped it first), so the sandbox's balances are the same
- * after every run. Against prod Demo the same holds: the only lasting
+ * after every run. Against production the same holds: the only lasting
  * footprint is the one sandbox company, created on the first post-deploy run
  * and reused on every later one.
  *
@@ -68,10 +68,10 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
   let importReversed = false;
   let arInvoiceId = '';
   let arCancelled = false;
-  // Demo, read before and after: its migration session and every ledger
+  // The suite's own company, read before and after: its migration session and every ledger
   // movement in the date range all of this spec's postings are dated in.
-  let demoState: () => Promise<unknown> = async () => null;
-  let demoBefore: unknown = null;
+  let homeState: () => Promise<unknown> = async () => null;
+  let homeBefore: unknown = null;
   try {
     const sandboxId = await findOrCreateMigrationSandbox(api);
     expect(sandboxId).not.toBe(homeCompanyId);
@@ -84,13 +84,13 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     const effectiveDate: string = period.startDate;
 
     await switchApiCompany(api, homeCompanyId);
-    demoState = async () => ({
+    homeState = async () => ({
       session: (await api.get<any>('/api/accounting/migration/session')).session,
       ledger: (await api.get<any>(
         `/api/accounting/reports-general-ledger?period_start=${effectiveDate}&period_end=${period.endDate}`,
       )).accounts.map((a: any) => [a.accountCode, a.totalDebit, a.totalCredit, a.transactions.length]),
     });
-    demoBefore = await demoState();
+    homeBefore = await homeState();
     await switchApiCompany(api, sandboxId);
 
     // ── 1. Upload/parse: CSV and a real .xlsx give the same accounts ───────
@@ -275,11 +275,11 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
       await attempt('switch browser back', () => switchBrowserCompany(page.context(), homeCompanyId));
     }
     const apiHome = await attempt('switch API back', () => switchApiCompany(api, homeCompanyId));
-    if (apiHome && demoBefore !== null) {
-      await attempt('re-read Demo', async () => {
-        const after = await demoState();
-        if (passed) expect(after, 'Demo migration session and ledger must be untouched').toEqual(demoBefore);
-        else expect.soft(after, 'Demo migration session and ledger must be untouched').toEqual(demoBefore);
+    if (apiHome && homeBefore !== null) {
+      await attempt('re-read the suite company', async () => {
+        const after = await homeState();
+        if (passed) expect(after, 'the suite company\'s migration session and ledger must be untouched').toEqual(homeBefore);
+        else expect.soft(after, 'the suite company\'s migration session and ledger must be untouched').toEqual(homeBefore);
       });
     }
     await api.dispose();

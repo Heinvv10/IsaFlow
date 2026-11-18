@@ -3,14 +3,15 @@
  *
  * Runs the money-path suite in tests/e2e/golden-paths/ against ANY environment:
  *   BASE_URL=http://localhost:3200 (default — workspace dev server)
- *   BASE_URL=https://app.isaflow.co.za (post-deploy prod-Demo verification)
+ *   BASE_URL=<the idle colour> (post-deploy verification, scripts/verify-deploy.sh: logs in as the dedicated verify user,
+ *   whose only company is the hidden "Deploy Verification" company; without E2E_VERIFY_* it falls back to the Demo company)
  *
  * NOTE: never default to localhost:3101 — on velo-server that port is the
  * PRODUCTION next-server, not a dev instance.
  *
  * Specs are HTTP-only where possible (APIRequestContext) so the same suite
- * works in CI, against dev, and against prod Demo. Serial workers: the specs
- * share the Demo company's books.
+ * works in CI, against dev, and against production's Deploy Verification company. Serial workers: the specs
+ * share that company's books.
  */
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
