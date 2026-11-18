@@ -72,8 +72,10 @@ export interface BankTx {
   provisionalJeId?: string | null;
   /** PRD-05 Phase 5: true when the provisional JE has no attached evidence yet */
   needsEvidence?: boolean;
-  /** Files in bank_transaction_attachments for this line; > 0 highlights its paperclip. */
+  /** Own files (bank_transaction_attachments, linked captures) plus settled-document evidence for this line; > 0 highlights its paperclip. */
   attachmentCount?: number;
+  /** Of attachmentCount, the documents of the bills / invoices the line settles (read-only evidence). */
+  settledDocumentCount?: number;
   /** A client query about this line is open: the Ask-client button is marked. */
   queried?: boolean;
   /** LLM tier: categorization strategy used ('llm' | 'rule' | 'history' | ...) */

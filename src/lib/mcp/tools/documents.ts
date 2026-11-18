@@ -21,10 +21,13 @@ const MAX_LIMIT = 200;
 export const listUnsupportedTransactionsTool: McpTool = {
   name: 'list_unsupported_transactions',
   description:
-    'Bank transactions with NO supporting document attached — the "which transactions over R10,000 have no receipt" audit test. ' +
+    'Bank transactions with NO supporting evidence — the "which transactions over R10,000 have no receipt" audit test. ' +
     'min_amount is compared against the ABSOLUTE amount, so a R12,000 payment out is caught as readily as one in. Rows come back largest first. ' +
-    'transactions_in_scope is every transaction in the range over the threshold; transactions_with_a_document is how many of those do have one, so the two figures size the exposure rather than merely listing it. ' +
-    'LIMIT: "supporting document" here means a document on the BANK TRANSACTION itself: a file attached to it (attach_document) or a captured document linked to it. A transaction whose evidence was filed against the related invoice instead is still reported as unsupported — those two stores are not linked. Treat the result as a list to check, not a list of failures.',
+    'Each row carries evidence: "own" (a document on the bank line itself: an attach_document file or a linked captured document), "settled_document" (no own document, but the line pays or receives a bill / customer invoice that carries its own document, through the supplier / customer payment or supplier payment batch its posted journal belongs to) or "none". A credit note\'s document alone is not evidence. A gateway payout line does not reach the receipts it pays out, so it reads "none". ' +
+    'By default a row is unsupported when it has NO evidence of either kind; strict: true keeps the old test (no OWN document, whatever it settles). ' +
+    'Totals: transactions_in_scope, with_own_document, with_settled_document, no_evidence (they partition the scope), plus transactions_with_a_document (in scope minus unsupported, under the chosen test). ' +
+    'exclude_transfers: true drops lines that move money between the company\'s own accounts (an interbank transfer, or a line coded to a bank / cash / card account); give transfer_account_codes for clearing accounts the chart does not mark as money accounts (e.g. ["1150","1560731"]). ' +
+    'Settled-document evidence is an audit read only: it does not count as a VAT input document for any journal other than the bill itself.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -34,6 +37,12 @@ export const listUnsupportedTransactionsTool: McpTool = {
       to: { type: 'string', description: 'Transaction date to, YYYY-MM-DD.' },
       min_amount: { type: 'number', minimum: 0, description: 'Materiality threshold on ABS(amount). Default 0 — everything.' },
       limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
+      strict: { type: 'boolean', description: 'true: unsupported = no document on the line itself (ignores settled bills / invoices). Default false.' },
+      exclude_transfers: { type: 'boolean', description: 'Drop transfers between the company\'s own accounts. Default false.' },
+      transfer_account_codes: {
+        type: 'array', items: { type: 'string' }, maxItems: 20,
+        description: 'With exclude_transfers: GL account codes that are transfer / clearing accounts, e.g. ["1150","1560731"].',
+      },
     },
     required: ['from', 'to'],
     additionalProperties: false,
@@ -49,9 +58,20 @@ export const listUnsupportedTransactionsTool: McpTool = {
       return toolError('min_amount must be a number of 0 or more — it is compared against the absolute amount');
     }
     const minAmount = raw === undefined ? 0 : Number(raw);
+    for (const flag of ['strict', 'exclude_transfers'] as const) {
+      if (args[flag] !== undefined && typeof args[flag] !== 'boolean') return toolError(`${flag} must be true or false`);
+    }
+    const codes = args.transfer_account_codes;
+    if (codes !== undefined && (!Array.isArray(codes) || codes.length > 20
+      || codes.some((c) => typeof c !== 'string' || c.length === 0 || c.length > 20))) {
+      return toolError('transfer_account_codes must be up to 20 account codes (strings of 1-20 characters)');
+    }
     try {
       const page = await listTransactionsWithoutDocuments(ctx.companyId, {
         from, to, minAmount, limit: clampLimit(args, 50, MAX_LIMIT),
+        strict: args.strict === true,
+        excludeTransfers: args.exclude_transfers === true,
+        transferAccountCodes: (codes as string[] | undefined) ?? [],
       });
       const envelope = buildEnvelope({
         rows: page.rows.map((r) => ({
@@ -61,6 +81,7 @@ export const listUnsupportedTransactionsTool: McpTool = {
           description: r.description,
           reference: r.reference,
           status: r.status,
+          evidence: r.evidence,
         })),
         rowsTotal: page.rowsTotal,
         detail: 'standard',
@@ -74,8 +95,13 @@ export const listUnsupportedTransactionsTool: McpTool = {
       return ok({
         ...envelope,
         min_amount: minAmount,
+        strict: args.strict === true,
+        exclude_transfers: args.exclude_transfers === true,
         transactions_in_scope: page.universeTotal,
         transactions_with_a_document: page.universeTotal - page.rowsTotal,
+        with_own_document: page.withOwnDocument,
+        with_settled_document: page.withSettledDocument,
+        no_evidence: page.noEvidence,
       });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to list unsupported transactions.'));
