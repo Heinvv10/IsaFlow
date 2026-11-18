@@ -84,7 +84,10 @@ export function mapTxRow(row: Row): BankTransaction {
     transferJournalEntryId: row.transfer_journal_entry_id ? String(row.transfer_journal_entry_id) : undefined,
     link: bankTxLinkOf(row),
     // Absent (not 0) from queries that do not select it: unknown must not read as "no files".
-    attachmentCount: row.attachment_count != null ? Number(row.attachment_count) : undefined,
+    // Own files plus settled-document evidence (settled_document_count): the paperclip counts both kinds.
+    attachmentCount: row.attachment_count != null
+      ? Number(row.attachment_count) + Number(row.settled_document_count ?? 0) : undefined,
+    settledDocumentCount: row.settled_document_count != null ? Number(row.settled_document_count) : undefined,
     queried: row.has_open_query === true ? true : undefined,
   };
 }
