@@ -13,7 +13,7 @@ import { apiErrorMessage, apiFetch, ApiRequestError, assertOk } from '@/lib/apiF
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument, documentsFromList } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
-import { refreshFinancialYearView } from '@/components/accounting/settings/refreshFinancialYearView';
+import { useFinancialYearRefresh } from '@/components/accounting/settings/refreshFinancialYearView';
 import { companySavePayload } from '@/components/accounting/settings/companySavePayload';
 import { SettingsErrorBanner } from '@/components/accounting/settings/SettingsErrorBanner';
 import { SettingsSavedBanner } from '@/components/accounting/settings/SettingsSavedBanner';
@@ -136,6 +136,7 @@ export default function CompanySettingsPage() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
+  const refreshYearView = useFinancialYearRefresh(activeCompany?.id, setCompany, setError, setReloads);
   const update = (field: keyof Company, value: unknown) => {
     setCompany(prev => prev ? { ...prev, [field]: value } as Company : prev);
   };
@@ -156,8 +157,7 @@ export default function CompanySettingsPage() {
       companySaved = true;
       const row = ((await r.json()) as { data?: Record<string, unknown> | null }).data;
       const month = row ? mapApiCompany(row).financialYearStart : company.financialYearStart; // the month now stored
-      setLoadedMonth(month);
-      if (month !== loadedMonth && activeCompany?.id) { setReloads(n => n + 1); void refreshFinancialYearView(activeCompany.id, setCompany, setError); }
+      setLoadedMonth(month); if (month !== loadedMonth && activeCompany?.id) refreshYearView(activeCompany.id); // periods rebuilt
       const after = 'Company details saved, but some settings could not be saved - try again';
       await Promise.all([
         docNumbers.length > 0 && put('/api/accounting/company-settings?type=document-numbers',
