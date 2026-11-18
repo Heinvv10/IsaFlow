@@ -31,6 +31,7 @@ function ctxOf(items: ExistingItem[], movements: string[] = []): UpsertContext {
     ],
     accounts: new Map([[ACC, true], [INACTIVE_ACC, false]]),
     itemsWithMovements: new Set(movements),
+    accountProblems: new Map(),
   };
 }
 
@@ -168,6 +169,39 @@ describe('planItemRows — refusals (each with the row index and a code)', () =>
   it('does not re-check an unchanged account: a since-deactivated account does not fail an unchanged row', () => {
     const a = stored({ id: 'a', code: 'A', purchasesAccountId: INACTIVE_ACC });
     const { planned, refusals } = planItemRows([row(0, { code: 'A', purchases_account_id: INACTIVE_ACC })], ctxOf([a]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]!.outcome).toBe('unchanged');
+  });
+});
+
+describe('planItemRows: the line guards\' account rules (account_not_allowed)', () => {
+  const codes = (rows: ReturnType<typeof row>[], ctx: UpsertContext) => planItemRows(rows, ctx).refusals.map((r) => `${r.index}:${r.code}`);
+
+  it('refuses a purchases default a bill line would refuse, and a sales default an invoice line would refuse', () => {
+    const ctx = ctxOf([]);
+    ctx.accountProblems.set(`purchases:${ACC}`, 'A bill line cannot be coded to 2000 Trade Payables: it is an AP control account.');
+    ctx.accountProblems.set(`sales:${ACC}`, 'An invoice line cannot be coded to 5000 Rent: it is not a revenue account (it is expense).');
+    const r = planItemRows([
+      row(0, { code: 'N', description: 'd', purchases_account_id: ACC }),
+      row(1, { code: 'M', description: 'd', sales_account_id: ACC }),
+      row(2, { code: 'K', description: 'd', sales_account_id: ACC, purchases_account_id: ACC }),
+    ], ctx).refusals;
+    expect(r.map((x) => `${x.index}:${x.code}`)).toEqual(['0:account_not_allowed', '1:account_not_allowed', '2:account_not_allowed']);
+    expect(r[0]!.reason).toMatch(/^purchases_account_id: A bill line cannot be coded to 2000/);
+    expect(r[1]!.reason).toMatch(/^sales_account_id: An invoice line cannot/);
+  });
+
+  it('judges each side by its own rule: an account fine for sales may be refused for purchases', () => {
+    const ctx = ctxOf([]);
+    ctx.accountProblems.set(`purchases:${ACC}`, 'x');
+    expect(codes([row(0, { code: 'N', description: 'd', sales_account_id: ACC })], ctx)).toEqual([]);
+    expect(codes([row(0, { code: 'N', description: 'd', purchases_account_id: ACC })], ctx)).toEqual(['0:account_not_allowed']);
+  });
+
+  it('an unchanged account is not re-judged (a rule that tightened since must not fail an unchanged row)', () => {
+    const ctx = ctxOf([stored({ id: 'a', code: 'A', salesAccountId: ACC })]);
+    ctx.accountProblems.set(`sales:${ACC}`, 'x');
+    const { planned, refusals } = planItemRows([row(0, { code: 'A', sales_account_id: ACC })], ctx);
     expect(refusals).toEqual([]);
     expect(planned[0]!.outcome).toBe('unchanged');
   });

@@ -182,6 +182,32 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
   `;
   count += r3.length;
 
+  // Migration 1005: the other lines that may name an item, and its stock movements. Each is scoped through its document's company.
+  const r4 = await sql`
+    UPDATE po_items pi SET item_id = ${primaryId}::UUID
+    FROM purchase_orders po
+    WHERE pi.purchase_order_id = po.id AND po.company_id = ${companyId}::UUID AND pi.item_id = ${duplicateId}::UUID
+    RETURNING pi.id
+  `;
+  const r5 = await sql`
+    UPDATE supplier_invoice_items sii SET item_id = ${primaryId}::UUID
+    FROM supplier_invoices si
+    WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID AND sii.item_id = ${duplicateId}::UUID
+    RETURNING sii.id
+  `;
+  const r6 = await sql`
+    UPDATE customer_quote_lines cql SET item_id = ${primaryId}::UUID
+    FROM customer_quotes cq
+    WHERE cql.quote_id = cq.id AND cq.company_id = ${companyId}::UUID AND cql.item_id = ${duplicateId}::UUID
+    RETURNING cql.id
+  `;
+  const r7 = await sql`
+    UPDATE stock_movements SET item_id = ${primaryId}::UUID
+    WHERE company_id = ${companyId}::UUID AND item_id = ${duplicateId}::UUID
+    RETURNING id
+  `;
+  count += r4.length + r5.length + r6.length + r7.length;
+
   await sql`
     UPDATE items SET deleted_at = NOW()
     WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID

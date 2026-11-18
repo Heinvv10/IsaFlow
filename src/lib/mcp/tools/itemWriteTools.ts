@@ -13,7 +13,7 @@
  * wipe it.
  */
 import type { McpTool, McpToolResult } from '../types';
-import { applyItemPlan, deactivateCatalogItem, planItemBatch } from '@/modules/accounting/services/items/itemUpsertService';
+import { ItemWriteConflict, applyItemPlan, deactivateCatalogItem, planItemBatch } from '@/modules/accounting/services/items/itemUpsertService';
 import {
   applyCategoryPlan, planCategoryUpsert, validateCategoryInput,
 } from '@/modules/accounting/services/items/itemCategoryService';
@@ -63,7 +63,16 @@ export const bulkUpsertItemsTool: McpTool = {
     const refusals = [...parsed.refusals, ...plan.refusals];
     if (refusals.length > 0) return batchRefusal(refusals, dryRun);
 
-    const ids = dryRun ? new Map<number, string>() : await applyItemPlan(ctx.companyId, plan.planned);
+    let ids = new Map<number, string>();
+    if (!dryRun) {
+      try {
+        ids = await applyItemPlan(ctx.companyId, plan.planned);
+      } catch (err) {
+        // The whole apply was rolled back to its savepoint: nothing was written, so this is a refusal like any other.
+        if (err instanceof ItemWriteConflict) return batchRefusal([{ index: err.index, code: err.code, reason: err.reason }], false);
+        throw err;
+      }
+    }
     const rows = [...plan.planned].sort((a, b) => a.index - b.index).map((p) => ({
       index: p.index,
       outcome: p.outcome,
@@ -78,7 +87,8 @@ export const bulkUpsertItemsTool: McpTool = {
       counts: { created: count('created'), updated: count('updated'), unchanged: count('unchanged'), total: rows.length },
       rows,
     };
-    return dryRun ? wroteNothing(body) : ok(body);
+    // A preview, and a live call that found every row already as asked, wrote nothing: the key stays free (as update_item).
+    return dryRun || !body.written ? wroteNothing(body) : ok(body);
   },
 };
 
@@ -86,7 +96,7 @@ export const updateItemTool: McpTool = {
   name: 'update_item',
   description:
     'Change one catalogue item (item_id from list_items / get_item). Send only the fields that change; anything left out KEEPS its value, so this tool cannot clear a field. '
-    + 'code renames the item (document lines follow it by id). Same fields and the same refusals as a bulk_upsert_items row, plus: an item with stock movements cannot become a service (has_stock_movements). '
+    + 'code renames the item (document lines follow it by id). Same fields and the same refusals as a bulk_upsert_items row, plus: an item with stock movements cannot become a service (has_stock_movements; nothing writes item-linked movements until the inventory phase, so today this guard cannot fire). '
     + 'A change that changes nothing succeeds as unchanged. Posts nothing to the ledger. dry_run previews the same result without writing.',
   scope: SCOPE,
   write: true,
@@ -105,7 +115,7 @@ export const updateItemTool: McpTool = {
   handler: async (args, ctx) => {
     const bad = guardCastableArgs(args, { uuid: ['item_id'] });
     if (bad) return bad;
-    const itemId = strArg(args, 'item_id');
+    const itemId = strArg(args, 'item_id')?.toLowerCase();
     if (!itemId) return toolError('item_id is required');
     const checked = itemFieldsFromArgs(args);
     if (!checked.ok) return rowRefusal(checked.code, checked.reason);
@@ -118,7 +128,12 @@ export const updateItemTool: McpTool = {
     const planned = plan.planned[0]!;
     const body = { dry_run: dryRun, id: planned.itemId, code: planned.code, outcome: planned.outcome, changed: planned.changed };
     if (planned.outcome === 'unchanged' || dryRun) return wroteNothing(body);
-    await applyItemPlan(ctx.companyId, plan.planned);
+    try {
+      await applyItemPlan(ctx.companyId, plan.planned);
+    } catch (err) {
+      if (err instanceof ItemWriteConflict) return rowRefusal(err.code, err.reason);
+      throw err;
+    }
     return ok(body);
   },
 };
@@ -139,7 +154,7 @@ export const deactivateItemTool: McpTool = {
   handler: async (args, ctx) => {
     const bad = guardCastableArgs(args, { uuid: ['item_id'] });
     if (bad) return bad;
-    const itemId = strArg(args, 'item_id');
+    const itemId = strArg(args, 'item_id')?.toLowerCase();
     if (!itemId) return toolError('item_id is required');
     const dryRun = args.dry_run === true;
     const result = await deactivateCatalogItem(ctx.companyId, itemId, { dryRun });

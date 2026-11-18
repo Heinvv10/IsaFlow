@@ -136,7 +136,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   let lines: SupplierInvoiceDraftUpdatePlan['lines'] = null;
   if (patch.items) {
     lines = await planLines(companyId, invoiceId, number, patch.items,
-      patch.taxRate ?? Number(row.tax_rate ?? DEFAULT_SUPPLIER_TAX_RATE));
+      patch.taxRate ?? Number(row.tax_rate ?? DEFAULT_SUPPLIER_TAX_RATE), patch.taxRate !== undefined);
   }
 
   const totalBefore = Number(row.total_amount);

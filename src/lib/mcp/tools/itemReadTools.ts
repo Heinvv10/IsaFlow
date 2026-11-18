@@ -12,7 +12,8 @@ import { ITEM_TYPES, type CatalogItem } from '@/modules/accounting/services/item
 import { buildEnvelope, decodeCursor, encodeCursor, isDetailLevel } from '../contracts';
 import type { DetailLevel } from '../contracts';
 import { fmtDate } from '@/lib/fmtDate';
-import { NOT_FOUND, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { insufficientScopeMessage } from '../scopeRemediation';
+import { NOT_FOUND, boolArg, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const ITEMS_DEFAULT_LIMIT = 50;
 /** An item row with every field at its longest is about 1.3 KB of JSON: 50 stay under a client's ~90 KB result limit (itemReadTools.test.ts). */
@@ -45,11 +46,10 @@ export function itemOut(i: CatalogItem, whole = false): Record<string, unknown> 
   };
 }
 
-/** undefined = absent, null = present but not a boolean. */
-function boolArg(args: Record<string, unknown>, key: string): boolean | undefined | null {
-  const v = args[key];
-  if (v === undefined) return undefined;
-  return typeof v === 'boolean' ? v : null;
+/** A boolean filter: undefined = absent, null = present but not a boolean (refused). Reuses toolHelpers.boolArg. */
+function flagArg(args: Record<string, unknown>, key: string): boolean | undefined | null {
+  if (args[key] === undefined) return undefined;
+  return boolArg(args, key) ?? null;
 }
 
 export const listItemsTool: McpTool = {
@@ -60,8 +60,10 @@ export const listItemsTool: McpTool = {
     + '(source system) reference. Sorted by code, paged with next_cursor (at most ' + ITEMS_MAX_LIMIT + ' per page; pass it back as cursor until it is null). '
     + 'Filters: q (code or description contains), type, category_id, is_active, inventory_tracked, external_system + external_ref. '
     + 'rowsTotal is the count of the WHOLE filter, not the page. Soft-deleted items never appear; inactive ones do unless is_active is given. '
-    + 'This is the `items` catalogue; the older `products` table is retired and holds no new rows. Use stock_valuation for stock on hand.',
-  scope: 'read:items',
+    + 'This is the `items` catalogue. The older `products` table is legacy (still written by the products screens and stock adjustments) and is NOT read by these tools; use stock_valuation for stock on hand. '
+    + 'Needs read:items, or read:reports for one more release (this tool used to sit on read:reports). The old active argument ("true" / "false") still works and means is_active.',
+  // Either scope (read:items, or the old read:reports for one release): checked in the handler, as find_by_external_ref does.
+  scope: null,
   write: false,
   inputSchema: {
     type: 'object',
@@ -70,6 +72,7 @@ export const listItemsTool: McpTool = {
       type: { type: 'string', enum: [...ITEM_TYPES] },
       category_id: { type: 'string', description: 'Item category UUID (list_item_categories).' },
       is_active: { type: 'boolean' },
+      active: { type: 'string', enum: ['true', 'false'], description: 'Deprecated: the old spelling of is_active.' },
       inventory_tracked: { type: 'boolean' },
       external_system: { type: 'string', maxLength: 32 },
       external_ref: { type: 'string', maxLength: 128, description: 'With external_system.' },
@@ -80,13 +83,17 @@ export const listItemsTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    if (!ctx.scopes.includes('read:items') && !ctx.scopes.includes('read:reports')) return toolError(insufficientScopeMessage('read:items'));
     const guard = guardCastableArgs(args, { uuid: ['category_id'] });
     if (guard) return guard;
     const type = strArg(args, 'type');
     if (type !== undefined && !(ITEM_TYPES as readonly string[]).includes(type)) return toolError(`type must be one of: ${ITEM_TYPES.join(', ')}`);
-    const isActive = boolArg(args, 'is_active');
-    const tracked = boolArg(args, 'inventory_tracked');
-    if (isActive === null || tracked === null) return toolError('is_active and inventory_tracked must be true or false');
+    const legacy = args.active === undefined ? undefined : args.active === 'true' ? true : args.active === 'false' ? false : null;
+    if (legacy === null) return toolError('active must be "true" or "false" (it is the old spelling of is_active)');
+    const flag = flagArg(args, 'is_active');
+    const tracked = flagArg(args, 'inventory_tracked');
+    if (flag === null || tracked === null) return toolError('is_active and inventory_tracked must be true or false');
+    const isActive = flag ?? legacy;
     const system = strArg(args, 'external_system')?.toLowerCase();
     const ref = strArg(args, 'external_ref');
     if ((ref !== undefined) !== (system !== undefined)) return toolError('external_system and external_ref go together');
@@ -99,7 +106,7 @@ export const listItemsTool: McpTool = {
 
     const page = await listCatalogItems(
       ctx.companyId,
-      { q: strArg(args, 'q'), type, categoryId: strArg(args, 'category_id'), isActive, inventoryTracked: tracked, externalSystem: system, externalRef: ref },
+      { q: strArg(args, 'q'), type, categoryId: strArg(args, 'category_id')?.toLowerCase(), isActive, inventoryTracked: tracked, externalSystem: system, externalRef: ref },
       cursor ? { code: cursor.parts[0]!, id: cursor.parts[1]! } : null,
       limit,
     );
@@ -136,7 +143,7 @@ export const getItemTool: McpTool = {
   handler: async (args, ctx) => {
     const guard = guardCastableArgs(args, { uuid: ['item_id'] });
     if (guard) return guard;
-    const id = strArg(args, 'item_id');
+    const id = strArg(args, 'item_id')?.toLowerCase();
     const code = strArg(args, 'code');
     const system = strArg(args, 'external_system')?.toLowerCase();
     const ref = strArg(args, 'external_ref');
@@ -161,7 +168,7 @@ export const listItemCategoriesTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const isActive = boolArg(args, 'is_active');
+    const isActive = flagArg(args, 'is_active');
     if (isActive === null) return toolError('is_active must be true or false');
     const all = await listItemCategories(ctx.companyId, { includeInactive: true, q: strArg(args, 'q') });
     const categories = all.filter((c) => isActive === undefined || c.isActive === isActive);

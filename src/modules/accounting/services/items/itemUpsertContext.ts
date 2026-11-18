@@ -8,6 +8,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ItemFields } from './itemFieldValidation';
 import { ITEM_CODE_SEED, takeCompanyNumberLock } from '../core/numberLock';
+import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
+import { invoiceLineCodingRefusal } from '../ar/invoiceLineCodingGuard';
 
 export interface ExistingItem {
   id: string;
@@ -47,6 +49,12 @@ export interface UpsertContext {
   accounts: Map<string, boolean>;
   /** Items with at least one stock movement, which may not become a service. */
   itemsWithMovements: Set<string>;
+  /**
+   * `purchases:<id>` / `sales:<id>` -> why that account may not be an item's default on that side: the refusal the line
+   * guards give (a bill line may not name AP / VAT / bank / header accounts; an invoice or quote line must name an active
+   * leaf revenue account). Absent = acceptable.
+   */
+  accountProblems: Map<string, string>;
 }
 
 export const refKey = (system: string, ref: string): string => `${system}\u0000${ref}`;
@@ -117,5 +125,17 @@ export async function loadUpsertContext(
     `) as DbRow[];
     for (const m of moved) itemsWithMovements.add(String(m.item_id));
   }
-  return { byId, byCode, byRef, categories, accounts, itemsWithMovements };
+  // The line guards' own account rules, per default account and side (a purchases default is used on bills and POs, a sales
+  // default on invoices and quotes). Only accounts that exist and are active: the plan refuses the rest by its own codes.
+  const accountProblems = new Map<string, string>();
+  const live = (id: string | undefined): id is string => !!id && accounts.get(id) === true;
+  for (const id of new Set(rows.map((r) => r.purchasesAccountId).filter(live))) {
+    const problem = await billLineAccountRefusal(companyId, [id]);
+    if (problem) accountProblems.set(`purchases:${id}`, problem);
+  }
+  for (const id of new Set(rows.map((r) => r.salesAccountId).filter(live))) {
+    const problem = await invoiceLineCodingRefusal(companyId, [{ glAccountId: id, projectId: null }], { lock: false });
+    if (problem) accountProblems.set(`sales:${id}`, problem);
+  }
+  return { byId, byCode, byRef, categories, accounts, itemsWithMovements, accountProblems };
 }

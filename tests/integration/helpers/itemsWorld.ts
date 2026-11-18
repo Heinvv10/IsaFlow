@@ -89,10 +89,10 @@ export async function cleanupWorld(pool: Pool, w: ItemsWorld): Promise<void> {
     await pool.query('DELETE FROM purchase_orders WHERE company_id = $1', [c]);
     await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = $1)', [c]);
     await pool.query('DELETE FROM supplier_invoices WHERE company_id = $1', [c]);
-    await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = $1)', [c]);
-    await pool.query('DELETE FROM customer_invoices WHERE company_id = $1', [c]);
     await pool.query('DELETE FROM customer_quote_lines WHERE quote_id IN (SELECT id FROM customer_quotes WHERE company_id = $1)', [c]);
     await pool.query('DELETE FROM customer_quotes WHERE company_id = $1', [c]);
+    await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = $1)', [c]);
+    await pool.query('DELETE FROM customer_invoices WHERE company_id = $1', [c]);
     await pool.query('DELETE FROM stock_movements WHERE company_id = $1', [c]);
     await pool.query('DELETE FROM warehouses WHERE company_id = $1', [c]);
     await pool.query('DELETE FROM products WHERE company_id = $1', [c]);

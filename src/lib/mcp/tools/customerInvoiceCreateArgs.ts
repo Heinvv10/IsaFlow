@@ -13,13 +13,14 @@ import {
 import { DIMENSION_LINE_PROPERTIES, parseDimensionRefs } from './dimensionArgs';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { MAX_LINES } from './invoiceCreateArgs';
+import { itemIdArg } from './itemToolArgs';
 
 export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   description: string;
   quantity?: number;
   unitPrice: number;
-  /** The catalogue item (migration 1005), when the line names one. */
-  itemId?: string;
+  /** The catalogue item (migration 1005), when the line names one; null = none (clears it on an edit). */
+  itemId?: string | null;
 }
 
 export interface ParsedCustomerInvoice {
@@ -132,12 +133,12 @@ export function parseCustomerInvoiceInput(
     }
     const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
     if (typeof coding === 'string') return coding;
-    const itemId = readCodingId(o.item_id);
-    if (itemId === undefined) return `items[${i}].item_id must be a UUID`;
+    const item = itemIdArg(o.item_id, `items[${i}]`);
+    if (typeof item === 'string') return item;
     const dims = parseDimensionRefs(o, `items[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
-    items.push({ description, unitPrice, quantity, ...coding, ...(itemId ? { itemId } : {}) });
+    items.push({ description, unitPrice, quantity, ...coding, ...item });
   }
   const projectId = readCodingId(args.project_id);
   if (projectId === undefined) return 'project_id must be a UUID';

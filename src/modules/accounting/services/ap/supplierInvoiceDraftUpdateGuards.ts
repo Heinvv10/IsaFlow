@@ -79,6 +79,7 @@ export async function planLines(
   number: string,
   sentItems: SupplierInvoiceItemInput[],
   taxRate: number,
+  taxRateGiven = false,
 ): Promise<(SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null> {
   try {
     assertSupplierInvoiceLines(sentItems, false);
@@ -97,7 +98,7 @@ export async function planLines(
   try {
     items = await resolveEditLineItems(companyId, 'purchase', sentItems, kept.map((l) => ({
       itemId: l.item_id ? String(l.item_id) : null, description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price),
-    })), (i) => `lines[${i}]`);
+    })), (i) => `lines[${i}]`, { deriveTax: !taxRateGiven });
   } catch (err) {
     if (err instanceof ItemLineRefusal) throw new SupplierInvoiceDraftUpdateRefusal(err.message);
     throw err;

@@ -119,11 +119,13 @@ type Bad = { code: string; reason: string } | null;
 
 /** The default GL accounts a row names must be this company's and active. */
 function accountRefusal(v: ItemColumnValues, ctx: UpsertContext): Bad {
-  for (const [col, id] of [['sales_account_id', v.sales_account_id], ['purchases_account_id', v.purchases_account_id]] as const) {
+  for (const [col, side, id] of [['sales_account_id', 'sales', v.sales_account_id], ['purchases_account_id', 'purchases', v.purchases_account_id]] as const) {
     if (id === undefined) continue;
     const active = ctx.accounts.get(id);
     if (active === undefined) return { code: 'account_not_found', reason: `${col} is not an account of this company` };
     if (!active) return { code: 'account_inactive', reason: `${col} is an inactive account` };
+    const problem = ctx.accountProblems.get(`${side}:${id}`);
+    if (problem) return { code: 'account_not_allowed', reason: `${col}: ${problem}` };
   }
   return null;
 }

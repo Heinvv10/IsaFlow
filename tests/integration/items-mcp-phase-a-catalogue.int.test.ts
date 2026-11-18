@@ -211,15 +211,13 @@ describe('stock_movements are company-scoped (migration 1005)', () => {
     expect(await seen(w.b.u.homeCompanyId)).toEqual([{ company_id: w.b.u.homeCompanyId, quantity: '7.00' }]);
   });
 
-  it('a movement for another company, or with no company, is refused', async () => {
+  it('a movement naming another company is refused; one naming none takes its product\'s company (trigger)', async () => {
     await expect(asAppUser(w.a.u.homeCompanyId, (q) => q(
       `INSERT INTO stock_movements (company_id, product_id, movement_type, quantity) VALUES ($1, $2, 'purchase', 1)`, [w.b.u.homeCompanyId, productB],
     ))).rejects.toThrow(/row-level security/);
-    await expect(pool.query(`INSERT INTO stock_movements (product_id, movement_type, quantity) VALUES ($1, 'purchase', 1)`, [productA]))
-      .rejects.toThrow(/stock_movements_company_id_not_null/);
+    const filled = await pool.query(`INSERT INTO stock_movements (product_id, movement_type, quantity) VALUES ($1, 'purchase', 1) RETURNING company_id`, [productA]);
+    expect(filled.rows[0].company_id).toBe(w.a.u.homeCompanyId);
     const warehouse = String((await pool.query(`INSERT INTO warehouses (company_id, name, code) VALUES ($1, 'IA store', 'IA-W1') RETURNING id`, [w.a.u.homeCompanyId])).rows[0].id);
-    await expect(pool.query('INSERT INTO stock_levels (product_id, warehouse_id, quantity) VALUES ($1, $2, 1)', [productA, warehouse]))
-      .rejects.toThrow(/stock_levels_company_id_not_null/);
     await pool.query('INSERT INTO stock_levels (company_id, product_id, warehouse_id, quantity) VALUES ($1, $2, $3, 1)', [w.a.u.homeCompanyId, productA, warehouse]);
     expect(await asAppUser(w.b.u.homeCompanyId, async (q) => (await q('SELECT COUNT(*)::int AS n FROM stock_levels')).rows[0].n)).toBe(0);
     expect(await asAppUser(w.a.u.homeCompanyId, async (q) => (await q('SELECT COUNT(*)::int AS n FROM stock_levels')).rows[0].n)).toBe(1);

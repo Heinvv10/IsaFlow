@@ -16,6 +16,8 @@ export interface WipeStep {
   table: string;
   /** For a table without company_id: [fk column, parent table] pairs; a row goes when any names a Demo parent row. */
   via?: ReadonlyArray<readonly [string, string]>;
+  /** With `via`: the table also has a company_id, and a row goes when it names the company OR a Demo parent (stock rows whose company_id is NULL but whose warehouse is the Demo's would otherwise block the warehouses delete). */
+  orCompany?: boolean;
   /** Rows of this table that must survive (an append-only row names them). */
   preserve?: string;
 }
@@ -129,9 +131,9 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'soft_delete_journal_reversals' },
   { table: 'stock_adjustments' },
   { table: 'stock_items' },
-  // company_id since migration 1005 (rows of a product with no company have none and are nobody's).
-  { table: 'stock_levels' },
-  { table: 'stock_movements' },
+  // company_id since migration 1005, but a legacy row may have none: it goes by the company OR by its product / warehouse.
+  { table: 'stock_levels', via: [['product_id', 'products'], ['warehouse_id', 'warehouses']], orCompany: true },
+  { table: 'stock_movements', via: [['product_id', 'products'], ['warehouse_id', 'warehouses']], orCompany: true },
   { table: 'supplier_activities' },
   { table: 'supplier_coding_history' },
   { table: 'supplier_coding_rules' },
@@ -283,7 +285,8 @@ export function isKept(table: string): boolean {
 /** The WHERE clause of a step; `$1` is always the company id, never interpolated. */
 export function stepWhere(step: WipeStep): string {
   const scope = step.via
-    ? step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id = $1::uuid)`).join(' OR ')
+    ? [...(step.orCompany ? ['company_id = $1::uuid'] : []),
+        ...step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id = $1::uuid)`)].join(' OR ')
     : 'company_id = $1::uuid';
   return step.preserve ? `(${scope}) AND NOT (${step.preserve})` : scope;
 }

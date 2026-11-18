@@ -5,6 +5,7 @@
  * `update_item` take the same names, and the same validator (`itemFieldValidation`) answers both with the same codes.
  * Nothing here touches the database.
  */
+import { UUID_RE } from '@/lib/validation';
 import { MAX_UPSERT_ROWS, type ItemRefusal } from '@/modules/accounting/services/items/itemCatalogTypes';
 import { validateItemFields, type FieldCheck } from '@/modules/accounting/services/items/itemFieldValidation';
 import type { PlanInputRow } from '@/modules/accounting/services/items/itemUpsertPlan';
@@ -88,4 +89,16 @@ export function itemFieldsFromArgs(args: Record<string, unknown>): FieldCheck {
     row[key] = value;
   }
   return validateItemFields(row);
+}
+
+/**
+ * A line's `item_id` argument, parsed once for every tool that takes one (bill, invoice and quote lines): absent -> no
+ * `itemId`; null -> `itemId: null` (clears the link on a draft edit, is simply no item on create); a UUID string -> that
+ * UUID LOWER-CASED (ids compare as text downstream); anything else -> a refusal naming `where`.
+ */
+export function itemIdArg(raw: unknown, where: string): { itemId?: string | null } | string {
+  if (raw === undefined) return {};
+  if (raw === null) return { itemId: null };
+  if (typeof raw !== 'string' || !UUID_RE.test(raw)) return `${where}.item_id must be a UUID`;
+  return { itemId: raw.toLowerCase() };
 }

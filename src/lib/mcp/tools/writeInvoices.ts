@@ -19,7 +19,8 @@ import { createQuote, LineValidationError } from '@/modules/accounting/services/
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
 import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
-import { NOT_FOUND, castableArgError, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { itemIdArg } from './itemToolArgs';
 import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './customerInvoiceCreateArgs';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
 
@@ -27,7 +28,7 @@ interface LineIn {
   description: string;
   quantity?: number;
   unitPrice: number;
-  itemId?: string;
+  itemId?: string | null;
 }
 
 function parseLines(raw: unknown): LineIn[] | null {
@@ -41,7 +42,7 @@ function parseLines(raw: unknown): LineIn[] | null {
     if (!description || !Number.isFinite(unitPrice)) return null;
     const qtyRaw = o.quantity === undefined ? 1 : Number(o.quantity);
     if (!Number.isFinite(qtyRaw)) return null;
-    lines.push({ description, unitPrice, quantity: qtyRaw, ...(typeof o.item_id === 'string' ? { itemId: o.item_id } : {}) });
+    lines.push({ description, unitPrice, quantity: qtyRaw });
   }
   return lines;
 }
@@ -161,9 +162,9 @@ export const createDraftQuoteTool: McpTool = {
     const items = parseLines(args.items);
     if (!items) return toolError('items must be a non-empty array of {description, unit_price, quantity?}');
     for (const [i, line] of (args.items as Record<string, unknown>[]).entries()) {
-      if (line.item_id !== undefined && (typeof line.item_id !== 'string' || castableArgError({ item_id: line.item_id }, { uuid: ['item_id'] }))) {
-        return toolError(`invalid items[${i}].item_id`);
-      }
+      const item = itemIdArg(line.item_id, `items[${i}]`);
+      if (typeof item === 'string') return toolError(item);
+      if (item.itemId !== undefined) items[i]!.itemId = item.itemId;
     }
     try {
       const quote = await createQuote(

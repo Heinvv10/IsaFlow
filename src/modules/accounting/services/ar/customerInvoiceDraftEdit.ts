@@ -39,7 +39,6 @@ import { isDimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensio
 import { draftEditDueDate } from './customerInvoiceDraftDueDate';
 import { resolveDraftEditItems } from './customerInvoiceDraftItems';
 import type { CustomerInvoiceDraftEditResult } from './customerInvoiceDraftEditResult';
-
 type Row = Record<string, unknown>;
 const idOrNull = (v: unknown): string | null => (v == null ? null : String(v));
 
@@ -143,13 +142,9 @@ export async function editDraftCustomerInvoice(
     let unchanged = (_c: InvoiceLineCoding): InvoiceLineCoding => _c;
     let wip: WipLinkCheck | null = null;
     if (items) {
-      const storedRows = (await tx`
-        SELECT gl_account_id, project_id, item_id, description, quantity, unit_price FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
-      `) as Row[];
-      const stored = storedRows.map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
-      const withItems = await resolveDraftEditItems(companyId, items, storedRows); // migration 1005: item links and their default account
+      const withItems = await resolveDraftEditItems(tx, companyId, id, items); // migration 1005: item links, their default account, the stored coding
       if ('message' in withItems) return { kind: 'bad_line' as const, message: withItems.message };
-      items = withItems.items;
+      const { stored } = withItems; items = withItems.items;
       const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
       wip = await wipLinks(tx, companyId, id, items, edit.releaseTimeEntryIds); // keep a link, or release it by name
@@ -278,8 +273,7 @@ export async function editDraftCustomerInvoice(
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
             ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i}, -- the entry order (956)
-            ${it.itemId ?? null}::UUID
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i}, ${it.itemId ?? null}::UUID -- line_position is the entry order (956)
           )
         `;
       }

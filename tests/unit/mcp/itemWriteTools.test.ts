@@ -314,3 +314,62 @@ it('every statement the write tools send names company_id = the token\'s company
   expect(values).toContain(COMPANY);
   expect(values).not.toContain(OTHER);
 });
+
+describe('review fixes', () => {
+  const ID = 'bbbbbbbb-0000-4000-8000-000000000001';
+
+  it('a live call whose rows are all unchanged wrote nothing: wroteNothing, so the key stays free (as update_item)', async () => {
+    vi.mocked(loadUpsertContext).mockResolvedValue(upsertCtx([stored({ id: ID, code: 'A', description: 'Same' })]));
+    await call('bulk_upsert_items', { items: [{ code: 'A', description: 'Same' }], idempotency_key: 'r1' });
+    expect(itemWrites()).toEqual([]);
+    expect(db.audit.at(-1)).toMatchObject({ tool: 'bulk_upsert_items', status: 'ok', key: null });
+    // while a call that wrote keeps its key
+    vi.mocked(loadUpsertContext).mockResolvedValue(upsertCtx());
+    await call('bulk_upsert_items', { items: [{ code: 'B', description: 'new' }], idempotency_key: 'r2' });
+    expect(db.audit.at(-1)).toMatchObject({ key: 'r2' });
+  });
+
+  it('a unique violation the plan could not see (a UI create took the code) is that row\'s refusal, nothing is written, and the transaction survives', async () => {
+    db.failWrite = { code: '23505', constraint: 'items_company_id_code_key' };
+    const r = await call('bulk_upsert_items', { items: [{ code: 'X', description: 'd' }, { code: 'Y', description: 'd' }], idempotency_key: 'r3' });
+    expect(r.isError).toBe(true);
+    expect(body(r)).toMatchObject({ refused: true, written: false, refusals: [{ index: 0, code: 'code_in_use' }] });
+    db.failWrite = { code: '23505', constraint: 'items_company_external_ref_key' };
+    expect(body(await call('bulk_upsert_items', { items: [{ code: 'X', description: 'd' }], idempotency_key: 'r4' })).refusals[0]).toMatchObject({ code: 'external_ref_in_use' });
+    db.failWrite = null;
+    // another error is not swallowed as a refusal
+    db.failWrite = { code: '22001', constraint: 'x' };
+    const generic = await call('bulk_upsert_items', { items: [{ code: 'X', description: 'd' }], idempotency_key: 'r5' });
+    expect(generic.content[0]!.text).not.toMatch(/refused/);
+  });
+
+  it('the apply runs in a savepoint of its own (so a caught unique violation cannot poison the request transaction)', async () => {
+    const { withSavepoint } = await import('@/lib/neon');
+    vi.mocked(withSavepoint).mockClear();
+    await call('bulk_upsert_items', { items: [{ code: 'X', description: 'd' }], idempotency_key: 'r6' });
+    expect(vi.mocked(withSavepoint).mock.calls.map((c) => c[0])).toContain('items_apply');
+  });
+
+  it('an upper-case item_id is the same item: update_item and deactivate_item look it up lower-cased', async () => {
+    vi.mocked(loadUpsertContext).mockResolvedValue(upsertCtx([stored({ id: ID, code: 'A', description: 'Old' })]));
+    const r = await call('update_item', { item_id: ID.toUpperCase(), description: 'New', idempotency_key: 'r7' });
+    expect(body(r)).toMatchObject({ id: ID, outcome: 'updated' });
+    expect(vi.mocked(loadUpsertContext).mock.calls.at(-1)![2]).toEqual([ID]);
+    db.reads.deactivate = [{ id: ID, code: 'A', is_active: true }];
+    await call('deactivate_item', { item_id: ID.toUpperCase(), idempotency_key: 'r8' });
+    const values = (sqlMock as unknown as { mock: { calls: unknown[][] } }).mock.calls.flatMap((c) => c.slice(1));
+    expect(values).toContain(ID);
+    expect(values).not.toContain(ID.toUpperCase());
+  });
+
+  it('deactivate_item: a dry run is a plain SELECT (no row lock); the live call locks the row', async () => {
+    const selects = () => (sqlMock as unknown as { mock: { calls: Array<[string[]]> } }).mock.calls
+      .map((c) => c[0].join('?')).filter((t) => t.includes('SELECT id, code, is_active FROM items'));
+    db.reads.deactivate = [{ id: ID, code: 'A', is_active: true }];
+    await call('deactivate_item', { item_id: ID, dry_run: true, idempotency_key: 'r9' });
+    expect(selects()).toHaveLength(1);
+    expect(selects()[0]).not.toMatch(/FOR UPDATE/);
+    await call('deactivate_item', { item_id: ID, idempotency_key: 'r10' });
+    expect(selects().at(-1)).toMatch(/FOR UPDATE/);
+  });
+});

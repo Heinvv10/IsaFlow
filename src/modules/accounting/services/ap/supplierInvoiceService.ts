@@ -97,7 +97,7 @@ export async function createSupplierInvoice(
     // supplier read below (the VAT number) yields NULL on a miss. Before any write.
     await assertSupplierInCompany(companyId, input.supplierId);
     // Migration 1005: a line naming a catalogue item (this company's, active) and no account takes the item's purchases account.
-    const lineInputs = await applyItemLineDefaults(companyId, input.items || [], 'purchase', (i) => `items[${i}]`);
+    const lineInputs = await applyItemLineDefaults(companyId, input.items || [], 'purchase', (i) => `items[${i}]`, { deriveTax: input.taxRate === undefined });
     // P5-3 security review: a line's po_item_id must be this company's PO line (of the bill's PO when named).
     await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs);
 

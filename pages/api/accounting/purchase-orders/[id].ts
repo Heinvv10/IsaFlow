@@ -24,7 +24,8 @@ import {
   readStoredPoLineDimensions, resolvePoLineDimensions, sentFromSnake,
 } from '@/modules/accounting/services/ap/purchaseOrderLineDimensions';
 import { readPoItemsLabelled } from '@/modules/accounting/services/ap/purchaseOrderItemsRead';
-import { ItemLineRefusal, applyItemDefaultsToSnakeLines } from '@/modules/accounting/services/items/itemLineDefaults';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
+import { resolveEditedPoLines } from '@/modules/accounting/services/ap/purchaseOrderItemLines';
 
 type Row = Record<string, unknown>;
 
@@ -141,10 +142,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    let items = sentItems; // migration 1005: a line naming an item and no account takes the item's purchases account (checked below)
-    try {
-      if (sentItems?.length) items = await applyItemDefaultsToSnakeLines(companyId, sentItems, 'purchase', (n) => `items[${n}]`);
-    } catch (err) {
+    let items = sentItems; // migration 1005: item links (new item checked, default account and rate; none keeps the stored one)
+    try { if (sentItems?.length) items = await resolveEditedPoLines(companyId, id, sentItems); } catch (err) {
       if (err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       throw err;
     }

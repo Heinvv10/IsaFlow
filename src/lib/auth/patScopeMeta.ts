@@ -80,7 +80,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   'write:items': {
     label: 'Write items',
     // Default accounts are named because they decide where a document line posts when it names the item.
-    desc: 'Create, edit and deactivate catalogue items and their categories, including the sales and purchases accounts a document line defaults to, and put an item on a purchase order, bill, invoice or quote line. Posts nothing to the ledger and cannot delete an item.',
+    desc: 'Create, edit and deactivate catalogue items and their categories, including the sales and purchases accounts a document line defaults to. Putting an item on a purchase order, bill, invoice or quote line is governed by that document\'s own permission, not this one. Posts nothing to the ledger and cannot delete an item.',
   },
   'read:vat': {
     label: 'Read VAT status',

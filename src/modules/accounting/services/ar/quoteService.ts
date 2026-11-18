@@ -191,7 +191,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   // convertToInvoice copies this client_id onto the invoice verbatim.
   await assertCustomerInCompany(companyId, input.clientId);
   // Migration 1005: a line naming a catalogue item and no account takes the item's sales account (checked below with the rest).
-  const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`);
+  const itemLines = await applyItemDefaultsToAccountIdLines(companyId, input.lines, 'sales', (i) => `items[${i}]`, { deriveTax: true });
   await assertValidLines(companyId, itemLines);
   const lines = await withQuoteTaxRates(companyId, itemLines);
   const { subtotal, taxAmount, total } = quoteTotals(lines);
@@ -233,7 +233,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   await assertCustomerInCompany(companyId, input.clientId);
   // Migration 1005: a NEW item on a line is checked and defaults the sales account; a line without one keeps an identical stored line's.
   const itemLines = await resolveEditLineItemsAccountId(companyId, 'sales', input.lines, (existing.lines ?? []).map((l) => ({
-    itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`);
+    itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`, { deriveTax: true });
   await assertValidLines(companyId, itemLines);
   const lines = await withQuoteTaxRates(companyId, itemLines);
   const { subtotal, taxAmount, total } = quoteTotals(lines);

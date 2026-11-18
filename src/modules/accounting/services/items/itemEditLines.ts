@@ -10,7 +10,7 @@
  *  - `item_id: null` clears the link; a line whose description, quantity or price changed loses it.
  * Reads only (the item read of the lines that need a check); every refusal is an `ItemLineRefusal` before any write.
  */
-import { applyItemLineDefaults, type ItemDefaultKind } from './itemLineDefaults';
+import { applyItemLineDefaults, type ItemDefaultKind, type ItemDefaultOptions } from './itemLineDefaults';
 
 export interface StoredItemLine {
   itemId: string | null;
@@ -25,6 +25,8 @@ interface EditLine {
   unitPrice?: number | string | null;
   itemId?: string | null;
   glAccountId?: string | null;
+  taxRate?: number | null;
+  vatClassification?: string;
 }
 
 const key = (description: string, quantity: unknown, unitPrice: unknown): string =>
@@ -36,6 +38,7 @@ export async function resolveEditLineItems<T extends EditLine>(
   sent: readonly T[],
   stored: readonly StoredItemLine[],
   label: (index: number) => string,
+  opts: ItemDefaultOptions = {},
 ): Promise<T[]> {
   const pool = stored.map((s) => ({ key: key(s.description, s.quantity, s.unitPrice), itemId: s.itemId?.toLowerCase() ?? null, used: false }));
   const inherited = sent.map((l) => {
@@ -46,10 +49,15 @@ export async function resolveEditLineItems<T extends EditLine>(
   // Only a line naming an item its identical stored line did not carry is read and defaulted.
   const check = sent.map((l, i) => typeof l.itemId === 'string' && l.itemId.toLowerCase() !== inherited[i]);
   const checked = await applyItemLineDefaults(
-    companyId, sent.map((l, i) => ({ itemId: check[i] ? l.itemId : undefined, glAccountId: l.glAccountId })), kind, label,
+    companyId, sent.map((l, i) => ({
+      itemId: check[i] ? l.itemId : undefined, glAccountId: l.glAccountId, taxRate: l.taxRate, vatClassification: l.vatClassification,
+    })), kind, label, opts,
   );
   return sent.map((l, i) => {
-    if (check[i]) return { ...l, itemId: checked[i]!.itemId, glAccountId: checked[i]!.glAccountId };
+    if (check[i]) {
+      const c = checked[i]!;
+      return { ...l, itemId: c.itemId, glAccountId: c.glAccountId, ...(c.taxRate !== l.taxRate ? { taxRate: c.taxRate } : {}), ...(c.vatClassification !== l.vatClassification ? { vatClassification: c.vatClassification } : {}) };
+    }
     if (l.itemId === null) return l;
     return typeof l.itemId === 'string' ? { ...l, itemId: l.itemId.toLowerCase() } : (inherited[i] ? { ...l, itemId: inherited[i] } : l);
   });
@@ -61,14 +69,38 @@ interface AccountIdEditLine {
   unitPrice?: number | string | null;
   itemId?: string | null;
   accountId?: string | null;
+  taxRate?: number | null;
 }
 
 /** The same rule for lines that name their account `accountId` (quote lines). */
 export async function resolveEditLineItemsAccountId<T extends AccountIdEditLine>(
   companyId: string, kind: ItemDefaultKind, sent: readonly T[], stored: readonly StoredItemLine[], label: (index: number) => string,
+  opts: ItemDefaultOptions = {},
 ): Promise<T[]> {
   const out = await resolveEditLineItems(
-    companyId, kind, sent.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, itemId: l.itemId, glAccountId: l.accountId })), stored, label,
+    companyId, kind, sent.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, itemId: l.itemId, glAccountId: l.accountId, taxRate: l.taxRate })),
+    stored, label, opts,
   );
-  return sent.map((l, i) => ({ ...l, itemId: out[i]!.itemId, accountId: out[i]!.glAccountId ?? l.accountId }));
+  return sent.map((l, i) => ({ ...l, itemId: out[i]!.itemId, accountId: out[i]!.glAccountId ?? l.accountId, taxRate: out[i]!.taxRate ?? l.taxRate }));
+}
+
+interface SnakeEditLine {
+  description: string;
+  quantity?: number | string | null;
+  unit_price?: number | string | null;
+  item_id?: string | null;
+  gl_account_id?: string | null;
+  tax_rate?: number | null;
+}
+
+/** The same rule for lines in the REST bodies' snake_case (the purchase-order PUT). */
+export async function resolveEditLineItemsSnake<T extends SnakeEditLine>(
+  companyId: string, kind: ItemDefaultKind, sent: readonly T[], stored: readonly StoredItemLine[], label: (index: number) => string,
+  opts: ItemDefaultOptions = {},
+): Promise<T[]> {
+  const out = await resolveEditLineItems(
+    companyId, kind, sent.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unit_price, itemId: l.item_id, glAccountId: l.gl_account_id, taxRate: l.tax_rate })),
+    stored, label, opts,
+  );
+  return sent.map((l, i) => ({ ...l, item_id: out[i]!.itemId, gl_account_id: out[i]!.glAccountId ?? l.gl_account_id, tax_rate: out[i]!.taxRate ?? l.tax_rate }));
 }

@@ -33,12 +33,16 @@ export function upsertCtx(items: ExistingItem[] = [], movements: string[] = []):
     categories: [{ id: CAT, code: 'optics', name: 'Optics', isActive: true }],
     accounts: new Map([[ACC, true]]),
     itemsWithMovements: new Set(movements),
+    accountProblems: new Map(),
   };
 }
 
 interface AuditRow { tool: string; key: string | null; hash: string; status: string; result: unknown }
 
 export interface FakeDb {
+  /** When set, the next item INSERT/UPDATE throws this (a pg error shape: code, constraint). */
+  failWrite?: { code: string; constraint: string } | null;
+  /** The text of every item read that asked for a row lock. */
   audit: AuditRow[];
   /** Statements that change items or item_categories. */
   writes: string[];
@@ -62,6 +66,9 @@ export function installFakeSql(): FakeDb {
     if (text.includes('FROM mcp_tool_calls')) {
       const [, tool, key] = values as string[];
       return db.audit.filter((a) => a.tool === tool && a.key === key && a.status === 'ok').map((a) => ({ result: a.result, args_hash: a.hash }));
+    }
+    if (db.failWrite && (text.includes('INSERT INTO items') || text.includes('UPDATE items SET'))) {
+      throw Object.assign(new Error('duplicate key value violates unique constraint'), db.failWrite);
     }
     if (text.includes('INSERT INTO items') || text.includes('INSERT INTO item_categories')) { db.writes.push(text); return [{ id: id() }]; }
     if (text.includes('UPDATE items') || text.includes('UPDATE item_categories')) {

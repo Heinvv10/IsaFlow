@@ -7,7 +7,7 @@
  *
  * The caller must not call `applyItemPlan` for a plan with refusals: nothing may be written when any row is refused.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { loadUpsertContext } from './itemUpsertContext';
@@ -68,16 +68,50 @@ async function updateItemRow(companyId: string, p: PlannedItemRow): Promise<void
   if (updated.length !== 1) throw new Error(`items: row ${p.index} matched no item of this company when it was written`);
 }
 
-/** Write a refusal-free plan. Returns the id of every row that was created or updated, by row index. */
+/**
+ * A unique index refused a row the plan had cleared: a writer outside the batch lock (the UI creating an item, a concurrent
+ * request) took the code or reference between the plan's read and this write. Thrown AFTER the whole apply was rolled back
+ * to its savepoint, so nothing of the batch is written and the caller may answer it as that row's refusal.
+ */
+export class ItemWriteConflict extends Error {
+  constructor(readonly index: number, readonly code: string, readonly reason: string) {
+    super(reason);
+    this.name = 'ItemWriteConflict';
+  }
+}
+
+function conflictOf(err: unknown, index: number): ItemWriteConflict | null {
+  const e = err as { code?: string; constraint?: string };
+  if (e?.code !== '23505') return null;
+  if (e.constraint === 'items_company_external_ref_key') {
+    return new ItemWriteConflict(index, 'external_ref_in_use', 'another item took this external reference while the batch was running');
+  }
+  if (e.constraint === 'items_company_id_code_key') {
+    return new ItemWriteConflict(index, 'code_in_use', 'another item took this code while the batch was running');
+  }
+  return null;
+}
+
+/**
+ * Write a refusal-free plan. Returns the id of every row that was created or updated, by row index. Runs in a savepoint of
+ * its own, so a unique violation (a race the plan could not see) undoes the whole batch and surfaces as `ItemWriteConflict`
+ * instead of a poisoned transaction.
+ */
 export async function applyItemPlan(companyId: string, planned: PlannedItemRow[]): Promise<Map<number, string>> {
   const ids = new Map<number, string>();
-  for (const p of planned) {
-    if (p.outcome === 'created') ids.set(p.index, await insertItem(companyId, p));
-    else if (p.outcome === 'updated') {
-      await updateItemRow(companyId, p);
-      ids.set(p.index, p.itemId as string);
+  await withSavepoint('items_apply', async () => {
+    for (const p of planned) {
+      try {
+        if (p.outcome === 'created') ids.set(p.index, await insertItem(companyId, p));
+        else if (p.outcome === 'updated') {
+          await updateItemRow(companyId, p);
+          ids.set(p.index, p.itemId as string);
+        }
+      } catch (err) {
+        throw conflictOf(err, p.index) ?? err;
+      }
     }
-  }
+  });
   log.info('Items written', { companyId, rows: planned.length, written: ids.size }, 'accounting');
   return ids;
 }
@@ -89,7 +123,11 @@ export async function applyItemPlan(companyId: string, planned: PlannedItemRow[]
 export async function deactivateCatalogItem(
   companyId: string, itemId: string, opts: { dryRun: boolean },
 ): Promise<{ id: string; code: string; wasActive: boolean } | null> {
-  const found = (await sql`
+  // A dry run only reads: no row lock (FOR UPDATE would make a preview queue behind, and block, real writers).
+  const found = (opts.dryRun ? await sql`
+    SELECT id, code, is_active FROM items
+    WHERE id = ${itemId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+  ` : await sql`
     SELECT id, code, is_active FROM items
     WHERE id = ${itemId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
     FOR UPDATE

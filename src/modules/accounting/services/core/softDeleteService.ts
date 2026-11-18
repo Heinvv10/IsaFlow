@@ -261,7 +261,7 @@ export async function purgeExpiredDeletes(companyId: string): Promise<number> {
   const tables: Array<{ entityType: string; fn: () => Promise<DbRow[]> }> = [
     { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
     { entityType: 'supplier',         fn: () => purgeSuppliers(companyId) },
-    { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'item',             fn: () => purgeItems(companyId) },
     { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
     { entityType: 'customer_invoice', fn: () => purgeInvoices('customer_invoices', 'customer_invoice', companyId) },
     { entityType: 'supplier_invoice', fn: () => purgeInvoices('supplier_invoices', 'supplier_invoice', companyId) },
@@ -288,4 +288,21 @@ export async function purgeExpiredDeletes(companyId: string): Promise<number> {
   }
 
   return total;
+}
+
+/**
+ * Soft-deleted items past the grace period, EXCEPT those a document line or a stock movement still names (migration 1005's
+ * FKs have no ON DELETE): one referenced item must not fail the purge of every other.
+ */
+async function purgeItems(companyId: string): Promise<DbRow[]> {
+  return (await sql`
+    DELETE FROM items i
+    WHERE i.company_id = ${companyId}::uuid AND i.deleted_at IS NOT NULL AND i.deleted_at < NOW() - INTERVAL '5 minutes'
+      AND NOT EXISTS (SELECT 1 FROM po_items x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM customer_quote_lines x WHERE x.item_id = i.id)
+      AND NOT EXISTS (SELECT 1 FROM stock_movements x WHERE x.item_id = i.id)
+    RETURNING i.id, i.company_id
+  `) as DbRow[];
 }

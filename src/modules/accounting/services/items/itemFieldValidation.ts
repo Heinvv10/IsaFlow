@@ -120,7 +120,7 @@ export function validateItemFields(row: Record<string, unknown>): FieldCheck {
   ] as const) {
     if (row[wire] === undefined) continue;
     if (typeof row[wire] !== 'string' || !UUID_RE.test(row[wire] as string)) return bad('invalid_field', `invalid ${wire}`);
-    set(key, row[wire]);
+    set(key, (row[wire] as string).toLowerCase()); // ids compare as text downstream: a PG uuid is lower-case
   }
   for (const [wire, key] of [['inventory_tracked', 'inventoryTracked'], ['is_active', 'isActive']] as const) {
     if (row[wire] === undefined) continue;

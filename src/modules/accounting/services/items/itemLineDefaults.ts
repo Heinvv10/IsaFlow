@@ -11,6 +11,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
+import { SA_STANDARD_VAT_RATE_PCT } from '@/lib/vat/standardRate';
 
 /** Registered in `mcp/tools/refusalCodes.ts`: the message reaches an MCP caller. Names only the caller's own line. */
 export class ItemLineRefusal extends Error {
@@ -26,17 +27,39 @@ export type ItemDefaultKind = 'purchase' | 'sales';
 interface LineWithItem {
   itemId?: string | null;
   glAccountId?: string | null;
+  /** Percent. With `deriveTax`, a line that names an item and has none takes the item's VAT type for the side. */
+  taxRate?: number | null;
+  vatClassification?: string;
+}
+
+export interface ItemDefaultOptions {
+  /**
+   * Derive a missing line `taxRate` from the item's VAT type on that side (`vat_on_purchases` for a PO / bill,
+   * `vat_on_sales` for a quote): standard = the statutory rate (lib/vat/standardRate, as the items screen), zero = 0 with
+   * vat_classification zero_rated, exempt = 0 with exempt. Set it only where the document has a per-line rate and the
+   * caller named no rate for the document either (a customer invoice has ONE rate on its header, so never there).
+   */
+  deriveTax?: boolean;
+}
+
+/** The rate and VAT classification an item's VAT type gives a line (the items screen's three values). */
+export function itemVatTreatment(vatType: unknown): { taxRate: number; vatClassification?: 'zero_rated' | 'exempt' } | null {
+  if (vatType === 'standard') return { taxRate: SA_STANDARD_VAT_RATE_PCT };
+  if (vatType === 'zero') return { taxRate: 0, vatClassification: 'zero_rated' };
+  if (vatType === 'exempt') return { taxRate: 0, vatClassification: 'exempt' };
+  return null;
 }
 
 /**
- * Returns the lines with `glAccountId` filled from the item where the line named an item and no account. A batch with
- * no item is returned as given and reads nothing.
+ * Returns the lines with `glAccountId` filled from the item where the line named an item and no account (and, with
+ * `deriveTax`, `taxRate` where it had none). A batch with no item is returned as given and reads nothing.
  */
 export async function applyItemLineDefaults<T extends LineWithItem>(
   companyId: string,
   lines: readonly T[],
   kind: ItemDefaultKind,
   label: (index: number) => string,
+  opts: ItemDefaultOptions = {},
 ): Promise<T[]> {
   const named = lines.flatMap((l, i) => (l.itemId === undefined || l.itemId === null || l.itemId === '' ? [] : [{ id: l.itemId, i }]));
   if (named.length === 0) return [...lines];
@@ -45,7 +68,7 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
   }
   const ids = [...new Set(named.map((n) => n.id.toLowerCase()))];
   const rows = (await sql`
-    SELECT id, is_active, sales_account_id, purchases_account_id FROM items
+    SELECT id, is_active, sales_account_id, purchases_account_id, vat_on_sales, vat_on_purchases FROM items
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[]) AND deleted_at IS NULL
   `) as DbRow[];
   const byId = new Map(rows.map((r) => [String(r.id), r]));
@@ -77,10 +100,13 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
     if (l.itemId === undefined || l.itemId === null || l.itemId === '') return l;
     const item = byId.get(l.itemId.toLowerCase())!;
     const fallback = kind === 'purchase' ? item.purchases_account_id : item.sales_account_id;
+    const vat = opts.deriveTax && (l.taxRate === undefined || l.taxRate === null)
+      ? itemVatTreatment(kind === 'purchase' ? item.vat_on_purchases : item.vat_on_sales) : null;
     return {
       ...l,
       itemId: l.itemId.toLowerCase(),
       glAccountId: l.glAccountId ? l.glAccountId : fallback ? String(fallback) : l.glAccountId,
+      ...(vat ? { taxRate: vat.taxRate, ...(vat.vatClassification && !l.vatClassification ? { vatClassification: vat.vatClassification } : {}) } : {}),
     };
   });
 }
@@ -88,6 +114,7 @@ export async function applyItemLineDefaults<T extends LineWithItem>(
 interface AccountKeyedLine {
   itemId?: string | null;
   accountId?: string | null;
+  taxRate?: number | null;
 }
 
 /** The same defaulting for lines that name their account `accountId` (quote lines). */
@@ -96,33 +123,13 @@ export async function applyItemDefaultsToAccountIdLines<T extends AccountKeyedLi
   lines: readonly T[],
   kind: ItemDefaultKind,
   label: (index: number) => string,
+  opts: ItemDefaultOptions = {},
 ): Promise<T[]> {
   const defaulted = await applyItemLineDefaults(
-    companyId, lines.map((l) => ({ itemId: l.itemId, glAccountId: l.accountId })), kind, label,
+    companyId, lines.map((l) => ({ itemId: l.itemId, glAccountId: l.accountId, taxRate: l.taxRate })), kind, label, opts,
   );
   return lines.map((l, i) => {
     const d = defaulted[i]!;
-    return d.itemId ? { ...l, itemId: d.itemId, accountId: d.glAccountId ?? l.accountId } : l;
-  });
-}
-
-interface SnakeLine {
-  item_id?: string | null;
-  gl_account_id?: string | null;
-}
-
-/** The same defaulting for lines in the REST bodies' snake_case (`item_id`, `gl_account_id`): the PO PUT. */
-export async function applyItemDefaultsToSnakeLines<T extends SnakeLine>(
-  companyId: string,
-  lines: readonly T[],
-  kind: ItemDefaultKind,
-  label: (index: number) => string,
-): Promise<T[]> {
-  const defaulted = await applyItemLineDefaults(
-    companyId, lines.map((l) => ({ itemId: l.item_id, glAccountId: l.gl_account_id })), kind, label,
-  );
-  return lines.map((l, i) => {
-    const d = defaulted[i]!;
-    return d.itemId ? { ...l, item_id: d.itemId, gl_account_id: d.glAccountId ?? l.gl_account_id } : l;
+    return d.itemId ? { ...l, itemId: d.itemId, accountId: d.glAccountId ?? l.accountId, taxRate: d.taxRate ?? l.taxRate } : l;
   });
 }

@@ -42,11 +42,11 @@ describe('tenant scoping', () => {
 });
 
 describe('registration', () => {
-  it('all three are read-only and need read:items (not read:reports)', () => {
-    for (const t of [listItemsTool, getItemTool, listItemCategoriesTool]) {
-      expect(t.scope).toBe('read:items');
-      expect(t.write).toBe(false);
-    }
+  it('all three are read-only; get_item and list_item_categories need read:items, list_items read:items OR read:reports (one release)', () => {
+    for (const t of [listItemsTool, getItemTool, listItemCategoriesTool]) expect(t.write).toBe(false);
+    expect(getItemTool.scope).toBe('read:items');
+    expect(listItemCategoriesTool.scope).toBe('read:items');
+    expect(listItemsTool.scope).toBeNull(); // checked in the handler: either scope
   });
 });
 
@@ -160,5 +160,48 @@ describe('list_item_categories', () => {
     const inactive = json(await listItemCategoriesTool.handler({ is_active: false }, ctx));
     expect(inactive.categories.map((c: { id: string }) => c.id)).toEqual(['c2']);
     expect((await listItemCategoriesTool.handler({ is_active: 'no' }, ctx)).isError).toBe(true);
+  });
+});
+
+describe('list_items compatibility (one release)', () => {
+  it('accepts read:items OR read:reports, and refuses a token with neither (the remediation text names read:items)', async () => {
+    for (const scopes of [['read:items'], ['read:reports']]) {
+      db.reads.count = [{ n: 0 }];
+      expect((await listItemsTool.handler({}, ctxOf(scopes))).isError, scopes.join()).toBeUndefined();
+    }
+    sqlMock.mockClear();
+    const r = await listItemsTool.handler({}, ctxOf(['read:invoices']));
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/read:items/);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('the old `active` argument still works and means is_active; is_active wins; a bad value is refused', async () => {
+    await listItemsTool.handler({ active: 'false' }, ctx);
+    expect(lastValues()).toContain(false);
+    sqlMock.mockClear();
+    await listItemsTool.handler({ active: 'false', is_active: true }, ctx);
+    expect(lastValues()).toContain(true);
+    expect(lastValues()).not.toContain(false);
+    sqlMock.mockClear();
+    expect((await listItemsTool.handler({ active: 'maybe' }, ctx)).isError).toBe(true);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('describes products as legacy, still written, and not read by these tools (not "retired")', () => {
+    expect(listItemsTool.description).toMatch(/legacy/);
+    expect(listItemsTool.description).not.toMatch(/retired/);
+  });
+
+  it('lower-cases category_id and item_id', async () => {
+    const LOWER = 'abcdefab-1111-4111-8111-abcdefabcdef';
+    const U = LOWER.toUpperCase();
+    await listItemsTool.handler({ category_id: U }, ctx);
+    expect(lastValues()).toContain(LOWER);
+    expect(lastValues()).not.toContain(U);
+    sqlMock.mockClear();
+    await getItemTool.handler({ item_id: U }, ctx);
+    expect(lastValues()).toContain(LOWER);
+    expect(lastValues()).not.toContain(U);
   });
 });

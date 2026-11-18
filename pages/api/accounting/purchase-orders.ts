@@ -17,7 +17,8 @@ import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { isDimensionRefusal, type DimensionIds } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { resolvePoLineDimensions } from '@/modules/accounting/services/ap/purchaseOrderLineDimensions';
-import { ItemLineRefusal, applyItemLineDefaults } from '@/modules/accounting/services/items/itemLineDefaults';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
+import { defaultNewPoLines } from '@/modules/accounting/services/ap/purchaseOrderItemLines';
 
 type Row = Record<string, unknown>;
 
@@ -63,17 +64,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    // Migration 1005: a line naming a catalogue item (this company's, active) takes the item's purchases account, which
-    // is what the budget check reads (a line with no item still has no account, census 7). Before the number reservation.
-    let lineItems: Array<{ itemId?: string | null; glAccountId?: string | null }>;
+    // Migration 1005: a line naming a catalogue item (this company's, active) takes the item's purchases account, which is what
+    // the budget check reads (a line with no item still has no account, census 7), and, with no taxRate, the rate its VAT type
+    // gives. Before the number reservation.
+    let lineItems: Awaited<ReturnType<typeof defaultNewPoLines>>;
     try {
-      lineItems = await applyItemLineDefaults(companyId, (body.items as Array<{ itemId?: string | null }>).map((i) => ({ itemId: i.itemId })), 'purchase', (n) => `items[${n}]`);
+      lineItems = await defaultNewPoLines(companyId, body.items as Array<{ itemId?: string | null; taxRate?: number | null }>);
     } catch (err) {
       if (err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       throw err;
     }
+    const poItems = (body.items as Array<Record<string, unknown>>).map((it, i) => ({ ...it, taxRate: lineItems[i]?.taxRate ?? it.taxRate }));
 
-    const totals = calculatePOTotals(body.items);
+    const totals = calculatePOTotals(poItems as unknown as Parameters<typeof calculatePOTotals>[0]);
 
     // The number comes from the company's `purchase_order` sequence. What this
     // replaced was COUNT(*)+1 against a UNIQUE(company_id, po_number): count is
@@ -93,11 +96,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const poId = String(inserted[0]?.id);
     for (let i = 0; i < body.items.length; i++) {
-      const item = body.items[i];
+      const item = poItems[i] as { quantity: number; unitPrice: number; taxRate?: number; productId?: string; description: string };
       const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100;
-      const lineTax = Math.round(lineTotal * (item.taxRate || 15) / 100 * 100) / 100;
+      const lineTax = Math.round(lineTotal * (item.taxRate ?? 15) / 100 * 100) / 100;
       const d = dims[i] ?? {};
-      await sql`INSERT INTO po_items (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, sort_order, cc1_id, cc2_id, bu_id, item_id, gl_account_id) VALUES (${poId}, ${item.productId || null}, ${item.description}, ${item.quantity}, ${item.unitPrice}, ${item.taxRate || 15}, ${lineTotal}, ${lineTax}, ${i}, ${d.cc1Id ?? null}::UUID, ${d.cc2Id ?? null}::UUID, ${d.buId ?? null}::UUID, ${lineItems[i]?.itemId ?? null}::UUID, ${lineItems[i]?.glAccountId ?? null}::UUID)`;
+      await sql`INSERT INTO po_items (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, sort_order, cc1_id, cc2_id, bu_id, item_id, gl_account_id) VALUES (${poId}, ${item.productId || null}, ${item.description}, ${item.quantity}, ${item.unitPrice}, ${item.taxRate ?? 15}, ${lineTotal}, ${lineTax}, ${i}, ${d.cc1Id ?? null}::UUID, ${d.cc2Id ?? null}::UUID, ${d.buId ?? null}::UUID, ${lineItems[i]?.itemId ?? null}::UUID, ${lineItems[i]?.glAccountId ?? null}::UUID)`;
     }
 
     log.info('Purchase order created', { poNumber, supplier: body.supplierId, total: totals.total }, 'accounting');

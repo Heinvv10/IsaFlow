@@ -94,3 +94,16 @@ describe('resolveEditLineItems', () => {
     expect(out[0]!.itemId).toBe(ITEM_A);
   });
 });
+
+describe('item VAT on an edit', () => {
+  it('a NEW item line with no rate takes the item\'s rate; an inherited line, and a line with a rate, keep theirs', async () => {
+    db([item(ITEM_B, { vat_on_purchases: 'zero' })]);
+    const out = await resolveEditLineItems(COMPANY, 'purchase',
+      [line({ itemId: ITEM_B }), line({ itemId: ITEM_B, taxRate: 15, description: 'b' }), line({ description: 'c' })],
+      [stored(ITEM_A, 'c')], label, { deriveTax: true });
+    expect(out[0]).toMatchObject({ itemId: ITEM_B, taxRate: 0, vatClassification: 'zero_rated' });
+    expect(out[1]).toMatchObject({ taxRate: 15 });
+    expect(out[2]).toMatchObject({ itemId: ITEM_A });
+    expect(out[2]!.taxRate).toBeUndefined();
+  });
+});

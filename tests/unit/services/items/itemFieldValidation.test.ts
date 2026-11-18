@@ -68,3 +68,11 @@ describe('validateItemFields', () => {
     expect(validateItemFields({ code: 'X', category_code: 'optics' })).toMatchObject({ ok: true, fields: { categoryCode: 'optics' } });
   });
 });
+
+describe('uppercase ids', () => {
+  it('lower-cases every uuid field (a PG uuid is lower-case: an upper-case id would otherwise miss, refuse and show as "updated" forever)', () => {
+    const U = 'AAAAAAAA-1111-4111-8111-AAAAAAAAAAAA';
+    const r = validateItemFields({ code: 'X', category_id: U, sales_account_id: U, purchases_account_id: U });
+    expect(r).toEqual({ ok: true, fields: { code: 'X', categoryId: U.toLowerCase(), salesAccountId: U.toLowerCase(), purchasesAccountId: U.toLowerCase() } });
+  });
+});
