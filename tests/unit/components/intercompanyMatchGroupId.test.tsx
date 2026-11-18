@@ -44,4 +44,44 @@ describe('IntercompanyPage match', () => {
     const post = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
     expect(JSON.parse(String(post[1]!.body))).toEqual({ action: 'match', groupId: 'g1', sourceId: 't1', targetId: 't2' });
   });
+
+  const mountWithTxs = () => {
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (init?.method === 'POST') return ok({});
+      if (u.includes('company-groups')) return ok({ items: [GROUP] });
+      if (u.includes('action=reconciliation')) return ok(null);
+      return ok({ items: [tx('t1'), tx('t2')] });
+    });
+    render(<IntercompanyPage />);
+  };
+
+  it('clicking a row selects it exactly once', async () => {
+    mountWithTxs();
+    await waitFor(() => expect(screen.getAllByRole('checkbox').length).toBe(2));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!.closest('tr')!);
+    expect((screen.getAllByRole('checkbox')[0] as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText('Select 1 more transaction to match')).toBeTruthy();
+  });
+
+  it('clicking the checkbox itself selects it exactly once', async () => {
+    mountWithTxs();
+    await waitFor(() => expect(screen.getAllByRole('checkbox').length).toBe(2));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    expect((screen.getAllByRole('checkbox')[0] as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText('Select 1 more transaction to match')).toBeTruthy();
+  });
+
+  it('recording a transaction keeps the success message after the reload', async () => {
+    mountWithTxs();
+    await waitFor(() => expect(screen.getAllByRole('checkbox').length).toBe(2));
+    fireEvent.click(screen.getByRole('button', { name: /Record Transaction/ }));
+    const combos = await screen.findAllByRole('combobox');
+    const dlgStart = combos.length - 3;
+    fireEvent.change(combos[dlgStart]!, { target: { value: 'c1' } });
+    fireEvent.change((await screen.findAllByRole('combobox'))[dlgStart + 1]!, { target: { value: 'c2' } });
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Record$/ }));
+    expect(await screen.findByText('Transaction recorded')).toBeTruthy();
+  });
 });

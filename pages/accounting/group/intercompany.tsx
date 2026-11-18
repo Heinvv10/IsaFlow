@@ -141,7 +141,7 @@ export default function IntercompanyReconciliationPage() {
       setMsg({ type: 'success', text: 'Transaction recorded' });
       setShowCreate(false);
       setForm(BLANK_FORM);
-      await loadData();
+      await loadData(true);
     } catch (err) {
       setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not create the transaction - try again') });
     } finally { setSaving(false); }
