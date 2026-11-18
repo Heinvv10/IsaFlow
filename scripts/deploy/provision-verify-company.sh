@@ -27,8 +27,10 @@ BUN="${BUN:-/home/hein/.bun/bin/bun}"
 . "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"
 
 # Literal read of one key from the env file, never `source`d (values are not valid shell, see deploy.sh).
+# shellcheck disable=SC2086
 env_value() { $SUDO cat "$PROD_ENV" | grep -m1 "^$1=" | cut -d= -f2- || true; }
 
+# shellcheck disable=SC2086  # $SUDO is "sudo" or empty: it must split into zero or one words
 DB_URL="$(owner_database_url_for "$PROD_ENV" $SUDO || true)"
 GOTRUE="$(env_value GOTRUE_URL)"
 KEY="$(env_value SUPABASE_SERVICE_ROLE_KEY)"

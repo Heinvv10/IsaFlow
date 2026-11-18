@@ -2,8 +2,9 @@
  * The data the post-deploy golden specs need in the Deploy Verification company, made THROUGH THE RUNNING APP as the verify
  * user (so every gate, trigger, numbering rule and posting path runs, as scripts/ci/golden-hosted/seed-demo-app.ts does for
  * the hosted CI Demo, whose seeders this reuses). Only what the 24 specs that run in production read: customers and an
- * employee on a basic salary, approved customer and supplier invoices, the 0GP-Golden-Supplier, some posted journals and
- * bank statement rows. Smaller than the CI Demo: no spec that runs in production measures volume.
+ * employee on a basic salary, approved customer and supplier invoices, the 0GP-Golden-Supplier, some posted journals,
+ * bank statement rows and an original budget version (the two budget specs skip a company without one). Smaller than
+ * the CI Demo: no spec that runs in production measures volume.
  *
  * Idempotent per block: a block whose records are all there is skipped, one with none is made, and one with some is a
  * refusal (running it again would duplicate what is there). The records are found in the database by the seeders' own
@@ -17,6 +18,8 @@ import { CUSTOMER_INVOICES, FIXTURE_SUPPLIER, seedCustomerInvoices, seedFixtureS
 
 /** Small on purpose; the hosted Demo's 8 / 80 / 10 / 200 / 4 is for specs that measure volume. */
 export const VERIFY_COUNTS: SeedCounts = { suppliers: 4, invoices: 12, journals: 6, bankRows: 40, customers: 4 };
+
+const BUDGET_VERSION_NAME = 'Deploy Verification original';
 
 export interface Block {
   name: string;
@@ -73,6 +76,17 @@ export const BLOCKS: Block[] = [
     have: count(`SELECT count(*) AS n FROM bank_transactions WHERE company_id = $1::uuid AND description LIKE 'DEMO-BNK %'`),
     expected: VERIFY_COUNTS.bankRows,
     run: ({ api, months, now }) => seedBankRows(api, months, now.toISOString().slice(0, 10), VERIFY_COUNTS),
+  },
+  {
+    // v-budget-workspace and z-budget-drivers skip (not fail) a company whose year has no budget version; the year with
+    // prior-year actuals is the current one, which GET /api/accounting/budgets names.
+    name: 'budget original version',
+    have: count(`SELECT count(*) AS n FROM budget_versions WHERE company_id = $1::uuid AND name = '${BUDGET_VERSION_NAME}'`),
+    expected: 1,
+    run: async ({ api }) => {
+      const years = await api.get<{ fiscalYear: number }>('/api/accounting/budgets');
+      await api.post('/api/accounting/budget-versions', { fiscalYear: years.fiscalYear, name: BUDGET_VERSION_NAME, kind: 'original' });
+    },
   },
 ];
 
