@@ -78,6 +78,7 @@ const KNOWN_WRITERS = [
   // and the address is judged against GoTrue's current login email (adminGetUser, before the transaction), not the claim.
   'pages/api/invite/[token].ts: writes',
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
+  'scripts/deploy/verifyCompany/provisionDb.ts: writes', // Deploy Verification approver's admin membership (and the owner via create_company_with_owner) — one company, additive, the owner database url only
   'scripts/ci/golden/slotProvision.ts: writes', // Golden Paths slot owner membership — isaflow_dev only (provision-slots.ts refuses any other database), one golden user per slot
   'scripts/acceptance/entity-onboarding-admin.ts: writes', // browser acceptance admin scenarios — throwaway DB via psql
   'scripts/acceptance/entity-onboarding-seed.ts: writes', // browser acceptance seed — throwaway DB via psql

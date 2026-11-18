@@ -20,6 +20,7 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { loginGolden } from './helpers/goldenLogin';
 import { readGoldenSlot } from './helpers/goldenSlot';
+import { isVerifyLogin, verifyCompanyProblems, type UserCompany } from './helpers/verifyCompany';
 
 export const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
 
@@ -56,6 +57,18 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       `golden-paths precondition failed: company has no system account for [${missing.join(', ')}]. ` +
         `Set account_subtype + is_system_account on the chart of accounts (mirror prod Demo: 1120 receivable, 4100 default_revenue, 2120 vat_output).`,
     );
+  }
+
+  // The post-deploy run as the dedicated verify user: prove the company, never trust the email (see helpers/verifyCompany.ts).
+  if (!readGoldenSlot(process.env) && isVerifyLogin(process.env)) {
+    const res3 = await ctx.get('/api/accounting/companies?action=user-companies');
+    const body3 = (await res3.json().catch(() => null)) as { data?: { items?: UserCompany[]; activeCompanyId?: string } } | null;
+    const problems = verifyCompanyProblems(body3?.data?.items ?? [], String(body3?.data?.activeCompanyId ?? ''));
+    if (problems.length > 0) {
+      throw new Error(`golden-paths: the verify login is not in the Deploy Verification company: ${problems.join('; ')}. `
+        + 'No spec runs: they would write to the wrong company. Re-run scripts/deploy/provision-verify-company.sh, or fix the login\'s memberships.');
+    }
+    process.stdout.write('golden-paths: verified: the active company is "Deploy Verification" (is_demo) and the verify login owns nothing else\n');
   }
 
   mkdirSync(dirname(GOLDEN_STATE_FILE), { recursive: true });

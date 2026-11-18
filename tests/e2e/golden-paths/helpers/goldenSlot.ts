@@ -11,7 +11,7 @@
  */
 
 import { assertSlotCompanyId, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
-import { VERIFY_USER_EMAIL } from '../../../../scripts/deploy/verifyCompany/config';
+import { VERIFY_LOGIN } from '../../../../scripts/deploy/verifyCompany/identity';
 
 export interface GoldenSlot {
   companyId: string;
@@ -47,7 +47,7 @@ export function readGoldenSlot(env: Record<string, string | undefined>): GoldenS
 export function describeGoldenCompany(env: Record<string, string | undefined>): string {
   const companyId = env.GOLDEN_COMPANY_ID;
   // No slot: the post-deploy verify login's only company, or else the Demo admin's default company.
-  if (!companyId) return env.E2E_ADMIN_EMAIL === VERIFY_USER_EMAIL ? 'the Deploy Verification company' : 'the Demo company';
+  if (!companyId) return env.E2E_ADMIN_EMAIL === VERIFY_LOGIN.email ? 'the Deploy Verification company' : 'the Demo company';
   const email = env.GOLDEN_USER_EMAIL ?? 'unknown';
   const n = /^golden-slot-(\d)@/.exec(email)?.[1];
   // --reset-slot refuses to run without --seed-url: a rebuilt slot without the GSEED data fails the volume specs.

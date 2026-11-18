@@ -6,7 +6,7 @@
  * driver on a salaries line, then a planned hire → that row moves by R per head × FTE from the hire's month → New
  * reforecast from actuals → the closed months are marked Actual.
  *
- * It runs in prod post-deploy verify against Demo (scripts/verify-deploy.sh), so it obeys the budgets contract's
+ * It runs in prod post-deploy verify in the Deploy Verification company (scripts/verify-deploy.sh), so it obeys the budgets contract's
  * golden-spec write rule (docs/plans/budgets/00-shared-contract.md):
  *   - prechecks through the API BEFORE any write (owner/admin role; a year that already has a version; an active
  *     turnover, cost-of-sales and operating-expense line) and skips with a reason;

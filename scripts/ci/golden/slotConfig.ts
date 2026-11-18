@@ -57,12 +57,12 @@ export const slotEnvKeys = (n: number): SlotEnvKeys => ({
 });
 
 /**
- * Throws unless `url` names database `allowed` (default isaflow_dev) as its path, and carries no query parameter that
- * could name another one. This is the first of two guards: the same host and port serve production, and a driver may
- * honour query parameters over the path, so the real guard is `current_database()` after connecting
- * (provision-slots.ts). The message never echoes the url (it carries a password).
+ * Throws unless `url` names database `allowed` as its path, and carries no query parameter that could name another one.
+ * This is the first of two guards: the same host and port serve production, and a driver may honour query parameters over
+ * the path, so the real guard is `current_database()` after connecting (assertConnectedToDatabase). The message never
+ * echoes the url (it carries a password). Generic: production's provisioner names `isaflow` here; the slots name isaflow_dev.
  */
-export function assertDevDatabaseUrl(url: string, allowed: string = DEV_DATABASE): void {
+export function assertDatabaseUrlNames(url: string, allowed: string): void {
   let name = '';
   let overrides: string[] = [];
   try {
@@ -70,12 +70,17 @@ export function assertDevDatabaseUrl(url: string, allowed: string = DEV_DATABASE
     name = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
     overrides = ['database', 'dbname', 'db'].filter((k) => parsed.searchParams.has(k));
   } catch {
-    throw new Error(`the database url does not parse; the provisioner only runs against ${allowed}`);
+    throw new Error(`the database url does not parse; this tool only runs against ${allowed}`);
   }
   if (overrides.length) throw new Error(`refusing to provision: the database url carries ${overrides.join(', ')} in its query string; name the database in the path only (${allowed})`);
   if (name !== allowed) {
-    throw new Error(`refusing to provision: the database url names "${name || '(none)'}", the provisioner only runs against ${allowed}`);
+    throw new Error(`refusing to provision: the database url names "${name || '(none)'}", this tool only runs against ${allowed}`);
   }
+}
+
+/** The slots' guard: the url must name isaflow_dev. */
+export function assertDevDatabaseUrl(url: string, allowed: string = DEV_DATABASE): void {
+  assertDatabaseUrlNames(url, allowed);
 }
 
 /**
@@ -83,12 +88,19 @@ export function assertDevDatabaseUrl(url: string, allowed: string = DEV_DATABASE
  * `allowed`. Takes anything with a pg-style `query`, so a test can answer for it.
  * @returns the database name
  */
-export async function assertConnectedToDev(
-  db: { query(sql: string): Promise<{ rows: Array<{ db: string }> }> }, allowed: string = DEV_DATABASE,
+export async function assertConnectedToDatabase(
+  db: { query(sql: string): Promise<{ rows: Array<{ db: string }> }> }, allowed: string,
 ): Promise<string> {
   const actual = (await db.query('SELECT current_database() AS db')).rows[0]?.db;
   if (actual !== allowed) throw new Error(`connected to "${actual ?? '(none)'}", not ${allowed}; stopping before any write`);
   return actual;
+}
+
+/** The slots' guard: the server must say isaflow_dev. */
+export function assertConnectedToDev(
+  db: { query(sql: string): Promise<{ rows: Array<{ db: string }> }> }, allowed: string = DEV_DATABASE,
+): Promise<string> {
+  return assertConnectedToDatabase(db, allowed);
 }
 
 /** Throws unless `url` is the GoTrue instance slot users are created in (EXPECTED_GOTRUE_URL), trailing slash aside. */

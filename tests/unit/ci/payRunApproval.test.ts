@@ -142,3 +142,44 @@ describe('clearPayRunApproval', () => {
     expect(second.dispose).toHaveBeenCalled();
   });
 });
+
+describe('clearPayRunApproval, proveSelfRefusal (the two-member verify company)', () => {
+  const forbidden = () => new ApiError(403, FORBIDDEN_BODY, 'POST', URL);
+
+  function twoMembers(selfAllowed: boolean) {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    vi.stubEnv('E2E_ADMIN_EMAIL', 'admin@x');
+    const api = fakeApi(selfAllowed ? undefined : forbidden());
+    const second = fakeApi();
+    vi.spyOn(Api, 'loginAs').mockResolvedValue(second);
+    return { api, second };
+  }
+
+  it('tries the suite user first, is refused, then the second user approves: the gate is proved', async () => {
+    const { api, second } = twoMembers(false);
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1', { proveSelfRefusal: true })).resolves.toBe('two-person-gate-proved');
+    expect(api.post.mock.calls.map((c) => (c[1] as { action: string }).action)).toEqual(['request', 'approve']);
+    expect(second.post).toHaveBeenCalledWith(URL, DECISION);
+    expect(second.dispose).toHaveBeenCalled();
+  });
+
+  it('throws, naming the cause, when the suite user is ALLOWED to approve their own run (the second member does not stand in the way)', async () => {
+    const { api, second } = twoMembers(true);
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1', { proveSelfRefusal: true })).rejects.toThrow(/approved their own pay run although a second approver/);
+    expect(second.post).not.toHaveBeenCalled();
+  });
+
+  it('a self-approval that fails for another reason is not a refusal: it propagates', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    const boom = new ApiError(500, { error: 'boom' }, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(boom), 'http://x', 'run-1', { proveSelfRefusal: true })).rejects.toBe(boom);
+  });
+
+  it('without the option the suite user never tries: the old path is unchanged', async () => {
+    const { api } = twoMembers(true);
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1')).resolves.toBe('cleared');
+    expect(api.post.mock.calls.map((c) => (c[1] as { action: string }).action)).toEqual(['request']);
+  });
+});
