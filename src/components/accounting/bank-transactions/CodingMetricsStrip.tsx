@@ -1,5 +1,6 @@
 /**
- * CodingMetricsStrip — the company's learning-loop numbers above the bank transactions table:
+ * CodingMetricsStrip — the company's learning-loop numbers in the bank transactions list footer (WP4b), labelled
+ * company-wide: they count every bank account, not the one on screen:
  * how many lines IsaFlow coded with no clicks this month, and how often its suggestions were accepted.
  * Reads GET /api/accounting/coding-metrics (active company). Renders nothing until loaded.
  */
@@ -26,11 +27,12 @@ export function CodingMetricsStrip() {
     return () => { live = false; };
   }, []);
 
-  if (error) return <p role="alert" className="mb-2 text-xs text-red-700 dark:text-red-400">{error}</p>;
+  if (error) return <p role="alert" className="text-xs text-red-700 dark:text-red-400">{error}</p>;
   if (!data) return null;
   const { metrics, minDecisions } = data;
   return (
-    <div aria-label="IsaFlow coding" className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--ff-text-secondary)]">
+    <div aria-label="IsaFlow coding, company-wide (every bank account)" className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--ff-text-secondary)]">
+      <span className="font-medium text-[var(--ff-text-primary)]">Company-wide:</span>
       <span>{autoCodedLabel(metrics.autoCoded)}</span>
       <span>{acceptedLabel(metrics.suggestionsAccepted, metrics.decisionLogSince, minDecisions)}</span>
     </div>
