@@ -122,12 +122,12 @@ describe('finaliseEmp501Return', () => {
   });
 
   it('refuses 409 when the certificates\' totals differ from the sum of the filed EMP201s, in cents', async () => {
-    const version = { id: 'e1', status: 'filed', figures: { totalPAYE: 4000.01, totalUIF: 0, totalSDL: 0 } };
-    m.months.mockResolvedValue([{ month: '2025-03', totals: { paye: 4000.01, uif: 0, sdl: 0 }, emp201: { kind: 'version', version } }]);
+    const version = { id: 'e1', status: 'filed', figures: { totalPAYE: 4.35, totalUIF: 0, totalSDL: 0 } };
+    m.months.mockResolvedValue([{ month: '2025-03', totals: { paye: 4.35, uif: 0, sdl: 0 }, emp201: { kind: 'version', version } }]);
     m.figures.mockResolvedValue({ taxYear: 2026, kind: 'interim', employer: {}, employees: [], warnings: [],
-      totals: { certificates: 1, paye: 4000, uif: 0, sdl: 0 }, runs: [] });
+      totals: { certificates: 1, paye: 4.34, uif: 0, sdl: 0 }, runs: [] }); // 4.35 - 4.34 is 0.0099999… in floats
     const r = await refusal('2025-03-01', '2025-08-31');
-    expect(r.message).toContain('PAYE 4000.01 on the filed EMP201s, 4000.00 on the certificates (difference -0.01)');
+    expect(r.message).toContain('PAYE 4.35 on the filed EMP201s, 4.34 on the certificates (difference -0.01)');
     expect(m.insertVersion).not.toHaveBeenCalled();
   });
 
