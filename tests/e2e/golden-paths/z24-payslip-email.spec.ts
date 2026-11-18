@@ -137,7 +137,7 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   await expect(field).toBeEnabled({ timeout: 60_000 });
   await field.fill(ADDRESS);
   await page.getByRole('button', { name: 'Save email' }).click();
-  await expect(page.getByText('Payslip email saved.')).toBeVisible();
+  await expect(page.getByText('Payslip email saved.')).toBeVisible({ timeout: 30_000 }); // the PUT took 4-7 s on a loaded runner
   if (EVIDENCE_DIR) await field.screenshot({ path: `${EVIDENCE_DIR}/employee-email-field-${theme}.png` });
 
   await page.goto(`/payroll/runs/${runId}`, { waitUntil: 'domcontentloaded' });
