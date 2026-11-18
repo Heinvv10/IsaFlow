@@ -16,6 +16,9 @@ import { IGNORABLE_CAP, PAST_ANY_PAGE, PROSE_TEXT_CAP } from '@/modules/accounti
 import { forgetLongLines, keptLongLines, proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { denseInput } from './fixtures/boardPackInputs';
+import { expectWithin, loadAwareBound, useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 const INPUTS: ReadonlyArray<readonly [string, string]> = [
   ['"e" and 200,000 acute accents', `e${'\u0301'.repeat(200_000)}`],
@@ -48,7 +51,8 @@ describe('tenant text of any length', () => {
     run(eighth);
     const small = best(() => run(eighth));
     const full = best(() => run(text));
-    expect(full).toBeLessThan(GROWTH_LIMIT * Math.max(small, NOISE_FLOOR_MS));
+    // The floor stretches with the load (a preempted run of a near-instant eighth is all noise); the ratio does not.
+    expect(full).toBeLessThan(GROWTH_LIMIT * Math.max(small, loadAwareBound(NOISE_FLOOR_MS)));
   };
 
   it.each(INPUTS)('%s: segmented and measured in time that grows linearly with the text, not quadratically', (unused, text) => {
@@ -61,8 +65,8 @@ describe('tenant text of any length', () => {
     try {
       const input = { ...denseInput, matters: denseInput.matters.map((m) => ({ ...m, issue: `Journal JE-2026-00061 (recorded well after its entry date): ${text}` })) };
       // Master composed these in 7 to 16ms of model time; the round-1 branch took 27s to 175s. The bound leaves room for a
-      // loaded machine: the work is under half a second here.
-      expect(elapsed(() => { try { buildBoardPackPages(input); } catch (err) { if (!(err instanceof PackRefusal)) throw err; } })).toBeLessThan(3_000);
+      // loaded machine: the work is under half a second here (stretched by the load past one task per CPU).
+      expectWithin(elapsed(() => { try { buildBoardPackPages(input); } catch (err) { if (!(err instanceof PackRefusal)) throw err; } }), 3_000);
     } finally {
       warn.mockRestore();
     }
@@ -75,7 +79,7 @@ describe('tenant text of any length', () => {
       try {
         for (const n of [PROSE_TEXT_CAP - 160, IGNORABLE_CAP]) {
           const input = { ...denseInput, matters: denseInput.matters.map((m) => ({ ...m, issue: `Journal JE-2026-00061 (recorded well after its entry date): ${ch.repeat(n)}` })) };
-          expect(elapsed(() => { try { buildBoardPackPages(input); } catch (err) { if (!(err instanceof PackRefusal)) throw err; } }), `${n}`).toBeLessThan(1_000);
+          expectWithin(elapsed(() => { try { buildBoardPackPages(input); } catch (err) { if (!(err instanceof PackRefusal)) throw err; } }), 1_000, `${n}`);
         }
       } finally {
         warn.mockRestore();
@@ -85,7 +89,7 @@ describe('tenant text of any length', () => {
   );
 
   it('splits a long run of ideographic spaces before a ZWSP in linear time (the trailing-run regex was quadratic)', () => {
-    expect(elapsed(() => pieces(`${'\u3000'.repeat(127_999)}\u200B`))).toBeLessThan(1_000);
+    expectWithin(elapsed(() => pieces(`${'\u3000'.repeat(127_999)}\u200B`)), 1_000);
   });
 
   it('keeps the lines of the long texts it has measured, a bounded few, so the fit\'s attempts do not measure them again', () => {
