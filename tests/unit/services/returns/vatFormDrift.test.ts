@@ -35,6 +35,15 @@ describe('VAT201 drift, like for like', () => {
     expect(await driftOf('c1', VAT_VERSION)).toMatchObject({ drifted: true, changed: ['sarsFields'] });
   });
 
+  it('L3: field 2 alone moved by uncoded revenue is drift with the note the filing refusal says; other moves have no note', async () => {
+    m.getNilRatedSupplies.mockResolvedValue({ ...NIL_RATED, zeroRated: NIL_RATED.zeroRated + 900, uncodedAssumedZeroRated: 900 });
+    expect(await driftOf('c1', VAT_VERSION)).toMatchObject({
+      drifted: true, changed: ['sarsFields'], notes: ['A revenue line without a VAT code was posted after finalise; amend.'],
+    });
+    m.getNilRatedSupplies.mockResolvedValue({ ...NIL_RATED, zeroRated: NIL_RATED.zeroRated + 900 }); // coded zero-rated revenue
+    expect((await driftOf('c1', VAT_VERSION)).notes).toBeUndefined();
+  });
+
   it('an older version (boxes only, keys in jsonb order): nothing moved, no drift; a moved box is drift', async () => {
     expect(JSON.stringify(older.figures.sarsFields)).not.toBe(JSON.stringify(VAT_BOXES)); // the order really differs
     expect(await driftOf('c1', older)).toMatchObject({ drifted: false, changed: [] });

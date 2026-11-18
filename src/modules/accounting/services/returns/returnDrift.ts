@@ -4,6 +4,11 @@
  *
  * DRIFT = re-generate the return now and compare it with what was finalised. Only the live
  * (non-superseded) version is compared; a superseded one is history.
+ *
+ * BY DESIGN, uncoded revenue posted into a VAT-locked period after finalise is drift. A revenue line with no VAT code
+ * raises no VAT leg, so the VAT lock does not stop it, but the form counts it as zero-rated (field 2,
+ * NilRatedSupplies.uncodedAssumedZeroRated): the recorded field 2 no longer matches, and the version must be amended.
+ * When field 2 alone moved and such revenue exists, the drift carries UNCODED_REVENUE_NOTE, which the filing refusal says.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -67,18 +72,27 @@ function canonical(v: unknown): string {
  * EFa) is compared field by field, amount for amount, with the form built now from the same two sources; an older
  * version (report boxes only) with the boxes now, key order aside.
  */
-async function sarsFormChanged(companyId: string, v: ReturnVersion, r: Vat201Report): Promise<boolean> {
+export const UNCODED_REVENUE_NOTE = 'A revenue line without a VAT code was posted after finalise; amend.';
+
+async function sarsFormChanged(
+  companyId: string, v: ReturnVersion, r: Vat201Report,
+): Promise<{ changed: boolean; uncodedRevenue: boolean }> {
   const stored = v.figures.sarsForm;
   if (!Array.isArray(stored)) {
-    return canonical(v.figures.sarsFields ?? []) !== canonical(JSON.parse(JSON.stringify(r.boxes)));
+    return { changed: canonical(v.figures.sarsFields ?? []) !== canonical(JSON.parse(JSON.stringify(r.boxes))), uncodedRevenue: false };
   }
-  const now = buildVat201SarsFields(r, await getNilRatedSupplies(companyId, v.periodStart, v.periodEnd));
+  const nilRated = await getNilRatedSupplies(companyId, v.periodStart, v.periodEnd);
+  const now = buildVat201SarsFields(r, nilRated);
   const was = new Map(stored.map((f) => {
     const x = f as { field?: unknown; amount?: unknown };
     return [String(x.field), x.amount === null || x.amount === undefined ? null : cents(num(x.amount))];
   }));
-  return now.length !== was.size
-    || now.some((f) => !was.has(f.field) || was.get(f.field) !== (f.amount === null ? null : cents(f.amount)));
+  if (now.length !== was.size) return { changed: true, uncodedRevenue: false };
+  const moved = now.filter((f) => !was.has(f.field) || was.get(f.field) !== (f.amount === null ? null : cents(f.amount)));
+  return {
+    changed: moved.length > 0,
+    uncodedRevenue: moved.length === 1 && moved[0]!.field === '2' && nilRated.uncodedAssumedZeroRated !== 0,
+  };
 }
 
 export async function driftOf(companyId: string, v: ReturnVersion): Promise<ReturnDrift> {
@@ -86,8 +100,12 @@ export async function driftOf(companyId: string, v: ReturnVersion): Promise<Retu
   if (form === 'VAT201') {
     const r = await getVat201Report(companyId, start, end, { detail: 'summary' });
     const fields = compare(figures, { outputTax: r.totals.outputTax, inputTax: r.totals.inputTax, netVat: r.totals.netVat });
-    const changed = await sarsFormChanged(companyId, v, r) ? ['sarsFields'] : [];
-    return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };
+    const sars = await sarsFormChanged(companyId, v, r);
+    const changed = sars.changed ? ['sarsFields'] : [];
+    return {
+      drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0,
+      ...(sars.uncodedRevenue && fields.length === 0 ? { notes: [UNCODED_REVENUE_NOTE] } : {}),
+    };
   }
   if (form === 'EMP501') {
     const p = emp501PeriodOf(start, end);

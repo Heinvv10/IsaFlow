@@ -17,7 +17,7 @@ import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modul
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
-import { driftOf } from './returnDrift';
+import { driftOf, UNCODED_REVENUE_NOTE } from './returnDrift';
 import { emp501PublicFigures } from './emp501Figures';
 import { assertFilingReferenceIsTheCompanys, parseFilingReference, type FilingWarning } from './filingReference';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
@@ -37,6 +37,12 @@ export interface FileOptions {
   /** EVERY legacy submission of the period this filing corrects (see LEGACY_SUBMISSION_EXISTS), with the reason. */
   correctsLegacySubmissionIds?: string[];
   reason?: string;
+}
+
+/** Whether 999v's trigger requires this version's filing file before it is filed (finalised at or after the cut-off). */
+async function finalisedAfterFilingFileCutoff(v: ReturnVersion): Promise<boolean> {
+  const rows = (await sql`SELECT ${v.finalisedAt}::TIMESTAMPTZ >= public.tax_return_versions_filing_file_cutoff() AS after`) as DbRow[];
+  return rows[0]?.after === true;
 }
 
 interface LegacySubmission { id: string; status: string; reference: string | null }
@@ -69,8 +75,9 @@ export async function markReturnFiled(
       : `Version ${v.versionNo} was superseded by an amend. File the current version.`,
     v.status === 'filed' ? STALE_RETURN_REFUSAL.ALREADY_FILED : STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
-  // Wave 6 EFa: filed from the file IsaFlow generated for this version (999v's trigger holds the same for new versions).
-  if (!v.filingFileSha256) {
+  // Wave 6 EFa: filed from the file IsaFlow generated for this version, for a version finalised at or after 999v's
+  // cut-off, exactly as the trigger holds. One finalised before it (mid-cycle at the release) files without one, as before.
+  if (!v.filingFileSha256 && await finalisedAfterFilingFileCutoff(v)) {
     throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
       'FILING_FILE_REQUIRED');
   }
@@ -89,6 +96,10 @@ export async function markReturnFiled(
       + `${doubt.correlationId ? ` (correlation id ${doubt.correlationId})` : ''}: poll or reconcile it before filing.`, 'SEND_UNCERTAIN');
   }
   const drift = await driftOf(companyId, v);
+  if (drift.drifted && drift.notes?.includes(UNCODED_REVENUE_NOTE)) {
+    throw new ReturnRefusal(409, `Version ${v.versionNo} no longer matches the ledger: a revenue line without a VAT code was `
+      + 'posted after finalise; amend it and finalise again before filing.');
+  }
   if (drift.drifted) {
     const what = [...drift.fields.map((f) => f.name), ...drift.changed, ...(drift.unfinalRuns > 0 ? ['unfinalRuns'] : [])];
     throw new ReturnRefusal(409,
