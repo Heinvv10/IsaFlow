@@ -32,6 +32,8 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/modules/accounting/services/shared/documentCurrency', () => ({
   resolveDocumentCurrency: async () => ({ currencyCode: 'ZAR', exchangeRate: 1 }),
 }));
+// The link sync runs on the create's own transaction and is proved against real PostgreSQL (mcp-po-bill-links-app.int.test.ts).
+vi.mock('@/modules/accounting/services/ap/billPurchaseOrderLinks', () => ({ recordBillLinks: vi.fn(async () => 0) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
