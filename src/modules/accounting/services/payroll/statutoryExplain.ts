@@ -93,25 +93,30 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-/** `inherited`: the month's decision was taken by its first costed regular run, and this run takes it (wave 6 FQd). */
-type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; inherited?: boolean };
+/** `catchUp`: the month's earlier final runs' 1% this run catches up (wave 6 FQd, the month-to-date SDL catch-up). */
+type SdlCharge = {
+  annualRemuneration: number; exempt: boolean; sdl: number;
+  catchUp?: { earlierLeviable: number; earlierSdl: number; catchUp: number };
+};
 
 function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
-  const threshold = { amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear) };
-  return [
-    charge.inherited
-      ? {
-        key: 'sdl.threshold', ...threshold,
-        label: `Employer ${charge.exempt ? 'exempt' : 'liable'} this month: decided once for the month, on its first costed run`,
-      }
-      : {
-        key: 'sdl.threshold', ...threshold,
-        label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
-        children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
-      },
+  const steps: ExplainStep[] = [
+    {
+      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt this month: remuneration at or under the threshold' : 'Employer liable this month: remuneration over the threshold (once liable, the rest of the month is too)',
+      amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear),
+      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated, with the month to date)', amount: charge.annualRemuneration }],
+    },
     { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
-    { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
   ];
+  if (charge.catchUp) {
+    const c = charge.catchUp;
+    steps.push({
+      key: 'sdl.catchUp', label: 'This run catches up the month: 1% of its earlier approved runs\' leviable pay, less the SDL they carried, shared by leviable pay',
+      amount: c.catchUp, formula: `${pct(SDL_RATE)} × ${r(c.earlierLeviable)} − ${r(c.earlierSdl)}, this line's share included below`,
+    });
+  }
+  steps.push({ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}${charge.catchUp ? ' plus this line\'s share of the catch-up' : ''}, rounded to the cent` });
+  return steps;
 }
 
 /** The SDL explanation of a line costed with the threshold deferred, completed once the run has decided it (applySdlToLines). */

@@ -1,11 +1,15 @@
 /**
- * Wave 6 FQd, review #1622 M1 (breaker repro zz-rev1622-sdl-split): SDL leviability (SDLA s4(b), R500 000) is decided
- * ONCE for a weekly or fortnightly month, on its first run annualised by its own periods a year (52, 26), and the
- * month's later runs inherit it. A steady employer at R520 000 a year (eleven earlier months of R43 333.33) is liable
- * in every week of January 2027: each run carries 1% SDL and approves in order, with no sdl_month_split refusal.
- * Before: weeks 1-2 were judged on the month so far (exempt, SDL R0) and week 3 flipped the month. A later week whose
- * own pay would annualise below the threshold inherits the first week's decision. With weekly and monthly staff, the
- * employer-month is decided by its first costed regular run of either frequency and inherited by the other.
+ * Wave 6 FQd, review #1622 M1 (breaker repro zz-rev1622-sdl-split) under the coordinator's month-to-date catch-up ruling:
+ * at each run the month's SDLA s4(b) liability is judged on the trailing history plus the month to date (a weekly or
+ * fortnightly run's estimator is at least itself x 52/26 / 12 beside the month's other runs); once any run of the month is
+ * liable every later one is; a run catches up the 1% the month's earlier final runs left uncharged. Here:
+ *  - a steady employer at R520 000 a year (eleven months of R43 333.33) is liable in every week (R100) and fortnight (R200),
+ *    every run approving in order, with no refusal;
+ *  - monotonic: a later week whose own pay would read exempt stays liable (R50);
+ *  - weekly and monthly staff: weekly first, liable, the monthly run follows (R50); monthly first, exempt (R0), the first
+ *    week tips the month and catches up the monthly run's 1% (R100 + R50).
+ * The catch-up when a week tips an exempt month, the EMP201 total and the approval recalculation are in
+ * w6-fqd-sdl-catchup.int.test.ts.
  *
  * Disposable DB only (rig -> assertDisposable).
  */
@@ -66,7 +70,7 @@ afterAll(async () => {
   await cleanup(mixedB);
 });
 
-describe('SDL on a steady payroll at R520 000 a year, decided once for the month', () => {
+describe('SDL on a steady payroll at R520 000 a year, month to date', () => {
   it('weekly: all five January weeks carry R100 SDL and approve in order', async () => {
     const { employee } = await weekly.employee(10000);
     expect((await putFreq(weekly, employee, 'weekly')).statusCode).toBe(200);
@@ -98,9 +102,9 @@ describe('SDL on a steady payroll at R520 000 a year, decided once for the month
     expect(out).toEqual(ids.map(() => ({ calc: 200, sdl: 200, exempt: false, approve: 200, why: null })));
   }, 240_000);
 
-  it('a later week inherits the first week\'s decision, even when its own pay would annualise below the threshold', async () => {
+  it('once a week of the month is liable, a later week is too, even when its own pay would read exempt', async () => {
     // Week 1 at R10 000 annualises to R520 000 (liable). Week 2 at R5 000 alone would read
-    // (R476 666.63 + R5 000 x 52 / 12) = R498 333 (exempt); it inherits liable and carries R50.
+    // (R476 666.63 + R5 000 x 52 / 12) = R498 333 (exempt); once week 1 is liable the month stays liable, so it carries R50.
     const { employee, salaryRow } = await inherit.employee(10000);
     expect((await putFreq(inherit, employee, 'weekly')).statusCode).toBe(200);
     await history(inherit);
@@ -117,8 +121,8 @@ describe('SDL on a steady payroll at R520 000 a year, decided once for the month
 
   /**
    * Weekly wage staff (R10 000 a week: alone it annualises to R520 000, liable) and monthly salaried staff (R5 000:
-   * alone, on the same history, R481 667, exempt) in one company. SDL is one decision per EMPLOYER-month: the month's
-   * first costed regular run decides it, whatever its frequency, and every later run inherits it.
+   * alone, on the same history, R481 667, exempt) in one company. SDL is the EMPLOYER's: the month to date decides, and once
+   * liable the month stays liable, whatever the frequency of the next run.
    */
   async function mixed(r: R) {
     const { employee: wage } = await r.employee(10000);
@@ -130,7 +134,7 @@ describe('SDL on a steady payroll at R520 000 a year, decided once for the month
     return { w1: await week('2026-12-28'), w2: await week('2027-01-04'), month };
   }
 
-  it('mixed frequencies, a weekly run first: it decides liable; the monthly run and the next week inherit; all approve', async () => {
+  it('mixed frequencies, a weekly run first: liable; the monthly run and the next week stay liable; all approve', async () => {
     const { w1, w2, month } = await mixed(mixedA);
     const out = await payInOrder(mixedA, [w1, month, w2]);
     expect(out).toEqual([
@@ -140,13 +144,13 @@ describe('SDL on a steady payroll at R520 000 a year, decided once for the month
     ]);
   }, 240_000);
 
-  it('mixed frequencies, the monthly run first: it decides exempt; both weeks inherit; all approve', async () => {
+  it('mixed frequencies, the monthly run first: exempt (R0); the first week tips the month and catches up its 1%; all approve', async () => {
     const { w1, w2, month } = await mixed(mixedB);
     const out = await payInOrder(mixedB, [month, w1, w2]);
     expect(out).toEqual([
       { calc: 200, sdl: 0, exempt: true, approve: 200, why: null },
-      { calc: 200, sdl: 0, exempt: true, approve: 200, why: null },
-      { calc: 200, sdl: 0, exempt: true, approve: 200, why: null },
+      { calc: 200, sdl: 150, exempt: false, approve: 200, why: null },
+      { calc: 200, sdl: 100, exempt: false, approve: 200, why: null },
     ]);
   }, 240_000);
 });

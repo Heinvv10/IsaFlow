@@ -3,7 +3,8 @@ import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmpl
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
-import { applySdlToLines, estimateAnnualRemuneration, inheritedSdlDecision } from './sdlLeviabilityService';
+import { applySdlToLines, estimateAnnualRemuneration, sdlCatchUp } from './sdlLeviabilityService';
+import { isSdlExempt } from './sdlEngine';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
@@ -207,8 +208,10 @@ export async function calculatePayrollRun(
   const annualRemuneration = await estimateAnnualRemuneration(
     companyId, period, r(totalRemuneration), runId,
   );
-  // One decision per employer-month (wave 6 FQd): a regular run takes the one its month's first costed run took.
-  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear, await inheritedSdlDecision(companyId, runId));
+  // The month-to-date catch-up (wave 6 FQd, coordinator ruling): liable once any run of the month is, and this run
+  // carries what the month's earlier final runs left uncharged.
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear,
+    await sdlCatchUp(companyId, runId, !isSdlExempt(annualRemuneration, taxYear)));
 
   await replaceRunLines(runId, companyId, lineInserts);
 

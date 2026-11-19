@@ -95,7 +95,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', async (
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),
-  inheritedSdlDecision: vi.fn(async () => null),
+  sdlCatchUp: vi.fn(async () => ({ liable: false, catchUp: 0, earlierLeviable: 0, earlierSdl: 0 })),
 }));
 // No leaver awaiting a severance directive (p3-severance-directive-run covers that).
 vi.mock('@/modules/accounting/services/payroll/payrollSeveranceDirective', async (orig) => ({

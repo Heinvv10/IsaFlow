@@ -16,7 +16,7 @@ import { createPayrollRun, PayrollRunDuplicateError } from '@/modules/accounting
 import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDateGate';
 import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
-import { sdlMonthSplitRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
+import { sdlRecalculateRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
 import { runLinesRefusal } from '@/modules/accounting/services/payroll/payrollRunRecalcGate';
 import { sql } from '@/lib/neon';
 import { createPayRunTool } from '@/lib/mcp/tools/writePayroll';
@@ -186,70 +186,46 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     expect(got).toBe(600000);
   });
 
-  // Review #1507 B4b: the bonus was calculated while the regular run was a draft, so it decided alone (exempt). Once the
-  // regular run is calculated (liable), approving the bonus is refused until it is recalculated, which then agrees.
-  it('a run decided before its month\'s other run existed is refused at approval, and its recalculation agrees', async () => {
-    let regular = '';
+  // Since wave 6 FQd (review #1622, coordinator ruling: the SDL month-to-date catch-up) the month's decision is no longer
+  // one decision every run must share: a run is liable once any run of the month is, it catches up the earlier final
+  // runs, and approval re-judges THIS run only (sdl_recalculate), never sending another run back.
+  // Review #1507 B4b: the bonus was costed exempt while the regular run was a draft; the regular run is now costed
+  // liable, so the month is liable and the bonus, re-judged, is refused until it is recalculated.
+  it('a run costed exempt before its month turned liable is refused at approval until it is recalculated', async () => {
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: true });
-      regular = await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null, sdlExempt: false });
-    }, async () => ({
-      refusal: await runLinesRefusal(A.company, bonus),
-      direct: await sdlMonthSplitRefusal(A.company, bonus),
-      recalculated: await estimate(bonus, 20000),
-      regular: await estimate(regular, 50000),
-    }));
-    expect(got.refusal?.code).toBe('sdl_month_split');
-    expect(got.direct?.detail).toMatch(/is liable for SDL, but a run was costed the other way\. To approve: recalculate this run\.$/);
-    expect(got.recalculated).toBe(840000);
-    expect(got.regular).toBe(840000);
+      await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null, sdlExempt: false });
+    }, async () => ({ refusal: await runLinesRefusal(A.company, bonus), direct: await sdlRecalculateRefusal(A.company, bonus) }));
+    expect(got.refusal?.code).toBe('sdl_recalculate');
+    expect(got.direct?.detail).toMatch(/Recalculate this run, then approve it\.$/);
   });
 
-  it('when the stale run is the approved other one, the refusal names it: reopen and recalculate; runs that agree pass', async () => {
+  // The FQb1 cases that named ANOTHER run (an approved one to reopen, or the other run to recalculate): no longer.
+  it('an approved run of the month is never named or sent back; the run being approved is judged on its own', async () => {
     let bonus = '';
     let regular = '';
-    const split = await twoRunsInMonth(pool, A, async (c) => {
-      regular = await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: true });
+    const approvedOther = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: true });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
-    }, () => sdlMonthSplitRefusal(A.company, bonus));
-    expect(split?.detail).toContain(`To approve: reopen and recalculate the regular run ${regular} (approved).`);
-    const agree = await twoRunsInMonth(pool, A, async (c) => {
-      await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: false });
-      bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
-    }, () => sdlMonthSplitRefusal(A.company, bonus));
-    expect(agree).toBeNull();
-  });
-
-  // Review #1507 arch M (the mirror of B4b): the bonus was costed alone (exempt), then the regular run with it (liable).
-  // Approving the REGULAR run is refused naming the BONUS (recalculating the regular run would change nothing); once
-  // the bonus is recalculated (liable), the regular run's approval passes.
-  it('approving the later-costed run names the other, stale run; once that is recalculated the gate passes', async () => {
-    let regular = '';
-    let bonus = '';
-    const got = await twoRunsInMonth(pool, A, async (c) => {
-      bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: true });
+    }, () => sdlRecalculateRefusal(A.company, bonus));
+    expect(approvedOther).toBeNull();
+    const staleOther = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: true });
       regular = await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null, sdlExempt: false });
-    }, async () => {
-      const before = await sdlMonthSplitRefusal(A.company, regular);
-      await sql`UPDATE payroll_run_lines SET sdl_exempt = false WHERE run_id = ${bonus}::uuid`; // the bonus, recalculated
-      return { before, after: await sdlMonthSplitRefusal(A.company, regular) };
-    });
-    expect(got.before?.detail).toContain(`To approve: recalculate the off_cycle run ${bonus} (calculated).`);
-    expect(got.before?.detail).not.toContain('this run');
-    expect(got.after).toBeNull();
+    }, () => sdlRecalculateRefusal(A.company, regular));
+    expect(staleOther).toBeNull();
   });
 
-  // Review #1507 G2: the month changed under a run (a run of it cancelled): its stored decision is re-judged, not just
-  // compared with the other runs' (here there are none left to compare with).
+  // Review #1507 G2: the month changed under a run (a run of it cancelled): its own stored decision is re-judged.
   it('a run whose month lost a run since it was costed is refused on its own stale decision', async () => {
     let regular = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
       regular = await seedRun(c, A, { ...REGULAR, gross: 30000, status: 'calculated', approvedAt: null, sdlExempt: false });
       await seedRun(c, A, { ...BONUS, gross: 20000, status: 'cancelled', approvedAt: null, sdlExempt: false });
-    }, () => sdlMonthSplitRefusal(A.company, regular));
+    }, () => sdlRecalculateRefusal(A.company, regular));
     // 30 000 x 12 = 360 000 now: exempt, but the run was costed liable on 50 000.
-    expect(got?.detail).toMatch(/is below the R500 000 SDL threshold \(exempt\), but a run was costed the other way\. To approve: recalculate this run\.$/);
+    expect([got?.code, got?.detail]).toEqual(['sdl_recalculate', expect.stringMatching(/Recalculate this run, then approve it\.$/)]);
   });
 
   it('a paid run is final: never named, never blocking', async () => {
@@ -257,7 +233,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     const got = await twoRunsInMonth(pool, A, async (c) => {
       await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'paid', sdlExempt: true });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
-    }, () => sdlMonthSplitRefusal(A.company, bonus));
+    }, () => sdlRecalculateRefusal(A.company, bonus));
     expect(got).toBeNull();
   });
 });
