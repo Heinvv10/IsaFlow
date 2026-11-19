@@ -1,0 +1,85 @@
+/**
+ * postCustomerInvoiceToGL and an invoice whose lines carry their VAT type (migration 1008): the revenue legs carry
+ * each line group's type and the VAT Output leg is one per rated type, from the STORED lines; a partly typed invoice
+ * or one whose lines do not foot is refused before any journal is created. The legacy shape is pinned unchanged by
+ * postCustomerInvoiceToGlVatCode.test.ts.
+ */
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
+vi.mock('@/lib/neon', () => {
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn() });
+  return { sql: sqlMock, withTransaction: vi.fn(), withSavepoint: vi.fn((_n: string, fn: () => unknown) => fn()) };
+});
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({ createJournalEntry: vi.fn(), postJournalEntry: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({ getPeriodStatusForDate: vi.fn().mockResolvedValue('open') }));
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { sql } from '@/lib/neon';
+import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerInvoiceGlPosting';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
+import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+
+const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
+const mockCreate = createJournalEntry as unknown as MockedFunction<(...args: unknown[]) => Promise<{ id: string }>>;
+const mockAccount = getSystemAccount as unknown as MockedFunction<(subtype: string) => Promise<{ id: string }>>;
+
+const INVOICE = {
+  id: 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa', status: 'approved', gl_journal_entry_id: null, invoice_number: 'INV-7',
+  invoice_date: '2026-07-01', subtotal: '1500.00', tax_amount: '150.00', total_amount: '1650.00', amounts_are: null,
+};
+/** storedInvoiceLines' rows: the header columns repeat on every line. */
+const row = (amount: string, vatType: string | null, taxAmount: string | null, i: number) => ({
+  invoice_number: 'INV-7', subtotal: '1500.00', tax_amount: '150.00', amounts_are: null, customer_fno_id: null,
+  line_id: `line-${i}`, amount, gl_account_id: null, project_id: null, cc1_id: null, cc2_id: null, bu_id: null,
+  line_vat_type: vatType, line_tax_amount: taxAmount,
+});
+
+async function post(lines: Record<string, unknown>[]): Promise<JournalLineInput[]> {
+  mockSql.mockResolvedValueOnce([INVOICE]).mockResolvedValueOnce(lines);
+  await postCustomerInvoiceToGL('cccccccc-0000-4000-8000-cccccccccccc', INVOICE.id, 'ffffffff-0000-4000-8000-ffffffffffff');
+  return (mockCreate.mock.calls[0]![1] as { lines: JournalLineInput[] }).lines;
+}
+
+describe('postCustomerInvoiceToGL, lines carrying their VAT type', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSql.mockReset();
+    mockSql.mockResolvedValue([]);
+    mockCreate.mockResolvedValue({ id: 'je-1' });
+    mockAccount.mockImplementation(async (subtype: string) => ({ id: `acct-${subtype}` }));
+  });
+
+  it('posts a revenue leg per type and one VAT Output leg per rated type, all coded', async () => {
+    const lines = await post([row('1000.00', 'standard', '150.00', 0), row('300.00', 'zero_rated', '0.00', 1),
+      row('200.00', 'exempt', '0.00', 2)]);
+    expect(lines.map((l) => [l.glAccountId, l.debit, l.credit, l.vatType])).toEqual([
+      ['acct-receivable', 1650, 0, undefined],
+      ['acct-default_revenue', 0, 1000, 'standard'],
+      ['acct-default_revenue', 0, 300, 'zero_rated'],
+      ['acct-default_revenue', 0, 200, 'exempt'],
+      ['acct-vat_output', 0, 150, 'standard'],
+    ]);
+  });
+
+  it('refuses a partly typed invoice before any journal is created', async () => {
+    const err = await post([row('1000.00', 'standard', '150.00', 0), row('500.00', null, null, 1)]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses typed lines that do not foot to the header, before any journal is created', async () => {
+    const err = await post([row('1000.00', 'standard', '150.00', 0), row('499.99', 'exempt', '0.00', 1)])
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/its lines' net adds up to 1499.99 but its subtotal is 1500.00/);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+});

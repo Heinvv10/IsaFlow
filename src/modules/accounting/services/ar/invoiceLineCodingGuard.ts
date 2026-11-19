@@ -27,7 +27,8 @@ import { sql } from '@/lib/neon';
 import {
   InvoiceLineAccountLockError, InvoiceLineCodingRefusal, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
-import { isRevenueCoded, revenueLinesProblem, revenueSplitDependsOnLines, type StoredRevenueLine } from './invoiceRevenueLines';
+import { isRevenueCoded, revenueLinesProblem, revenueSplitDependsOnLines } from './invoiceRevenueLines';
+import { typedLinesProblem, type StoredVatLine } from './invoiceVatLegs';
 import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 
@@ -147,9 +148,12 @@ export async function assertLineAccountIds(companyId: string, ids: readonly unkn
 export interface StoredInvoiceLines {
   invoiceNumber: string;
   subtotal: number;
+  /** The header VAT and how the line amounts were entered (migration 1008): what typed lines must foot to. */
+  taxAmount: number;
+  amountsAre: string | null;
   /** customers.default_cc1_id of the invoice's customer. */
   customerFnoId: string | null;
-  lines: StoredRevenueLine[];
+  lines: StoredVatLine[];
 }
 
 /**
@@ -161,8 +165,9 @@ export async function storedInvoiceLines(
   invoiceId: string,
 ): Promise<StoredInvoiceLines | null> {
   const rows = (await sql`
-    SELECT ci.invoice_number, ci.subtotal, c.default_cc1_id AS customer_fno_id, cii.id AS line_id, cii.amount,
-           cii.gl_account_id, cii.project_id, cii.cc1_id, cii.cc2_id, cii.bu_id
+    SELECT ci.invoice_number, ci.subtotal, ci.tax_amount, ci.amounts_are, c.default_cc1_id AS customer_fno_id,
+           cii.id AS line_id, cii.amount, cii.gl_account_id, cii.project_id, cii.cc1_id, cii.cc2_id, cii.bu_id,
+           cii.vat_type AS line_vat_type, cii.tax_amount AS line_tax_amount
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     LEFT JOIN customer_invoice_items cii ON cii.invoice_id = ci.id
@@ -175,6 +180,8 @@ export async function storedInvoiceLines(
   return {
     invoiceNumber: String(rows[0]!.invoice_number),
     subtotal: Number(rows[0]!.subtotal),
+    taxAmount: Number(rows[0]!.tax_amount ?? 0),
+    amountsAre: id(rows[0]!.amounts_are),
     customerFnoId: id(rows[0]!.customer_fno_id),
     lines: rows.filter((r) => r.line_id != null).map((r) => ({
       amount: Number(r.amount),
@@ -183,6 +190,8 @@ export async function storedInvoiceLines(
       cc1Id: dim(r.cc1_id),
       cc2Id: dim(r.cc2_id),
       buId: dim(r.bu_id),
+      vatType: id(r.line_vat_type),
+      taxAmount: r.line_tax_amount == null ? null : Number(r.line_tax_amount),
     })),
   };
 }
@@ -224,6 +233,9 @@ export async function storedLinesRefusal(
       if (isDimensionRefusal(err)) return `Invoice ${stored.invoiceNumber}: ${err.message}${POSTING_HINT}`;
       throw err;
     }
+    // Lines carrying their VAT (migration 1008): partly typed, or not footing to the header to the cent.
+    const vat = typedLinesProblem(stored.lines, stored);
+    if (vat) return `Invoice ${stored.invoiceNumber}: ${vat}`;
   }
   if (!stored.lines.some(isRevenueCoded)) return null;
   const coding = await invoiceLineCodingRefusal(companyId, stored.lines, { lock: opts.lock, posting: !opts.approving });
