@@ -361,7 +361,8 @@ GRANT EXECUTE ON FUNCTION public.intercompany_withdraw_for_source(text, uuid) TO
 -- ── 5. The sender's elimination row follows the receiver's APPROVED document ─
 
 -- A recorded transaction keeps everything but its matching; the target journal is the one thing that is set later (to a journal of
--- the target company, when the receiver approves) or cleared (when its document is cancelled or deleted and the row goes unmatched).
+-- the target company, when the receiver approves) or cleared (when its document is cancelled or deleted and the row goes unmatched),
+-- and only by intercompany_sync_group_row (migration_admin): a writer of a party updating the row directly still cannot (999r).
 CREATE OR REPLACE FUNCTION public.intercompany_transaction_parties_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -378,6 +379,11 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
   IF NEW.target_journal_entry_id IS DISTINCT FROM OLD.target_journal_entry_id THEN
+    -- Only the registered definer below (migration_admin) sets or clears it; a writer of a party updating the row directly cannot.
+    IF current_user <> 'migration_admin' THEN
+      RAISE EXCEPTION 'intercompany_transactions: a recorded transaction keeps its group, parties, journals, amount, currency, type, date, description and creation time; matching changes only its status'
+        USING ERRCODE = '23514';
+    END IF;
     IF NEW.target_journal_entry_id IS NOT NULL AND (OLD.target_journal_entry_id IS NOT NULL OR NOT EXISTS (
          SELECT 1 FROM public.gl_journal_entries je WHERE je.id = NEW.target_journal_entry_id AND je.company_id = NEW.target_company_id)) THEN
       RAISE EXCEPTION 'intercompany_transactions: the target journal is set once, to a journal of the target company' USING ERRCODE = '23514';

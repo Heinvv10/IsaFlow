@@ -12,7 +12,7 @@ import { approveSupplierInvoice, cancelSupplierInvoice } from '../../../src/modu
 import { approveCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteApproveService';
 import { autoGenerateEliminations } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
-import { asAppUser } from './intercompany.helpers';
+import { asAppUser, outcome } from './intercompany.helpers';
 import {
   acc, asService, clearMirrorRows, co, connect, errorOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U,
 } from './mirror.helpers';
@@ -105,6 +105,23 @@ describe('an accepted DRAFT eliminates nothing; an APPROVED bill eliminates once
     const unrelated = await asAppUser(pool, U.b, co.B, async (q) => (await q.query("SELECT public.intercompany_sync_group_row('supplier_invoice', $1) AS s", [other])).rows[0].s);
     expect(unrelated).toBeNull();
     expect(await groupRow()).toEqual(before);
+  });
+});
+
+describe('the target journal is the definer\'s to set', () => {
+  it('a writer of a party cannot set or clear target_journal_entry_id by an UPDATE of its own (999r\'s freeze holds), approved or not', async () => {
+    const bill = await acceptBill();
+    await asService(pool, U.b, co.B, () => approveSupplierInvoice(co.B, bill, U.b));
+    const journal = (await pool.query('SELECT gl_journal_entry_id FROM supplier_invoices WHERE id = $1', [bill])).rows[0].gl_journal_entry_id as string;
+    const other = (await pool.query('SELECT id FROM gl_journal_entries WHERE company_id = $1 AND id <> $2 LIMIT 1', [co.A, journal])).rows[0]?.id as string | undefined;
+    const tx = (await groupRow()).id as string;
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = NULL, match_status = \'unmatched\' WHERE id = $1', [tx])).toMatch(/^23514: intercompany_transactions: a recorded transaction keeps/);
+    });
+    await asAppUser(pool, U.ab, co.A, async (q) => {
+      if (other) expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = $2 WHERE id = $1', [tx, other])).toMatch(/^23514/);
+    });
+    expect((await groupRow()).target_journal_entry_id).toBe(journal);
   });
 });
 
