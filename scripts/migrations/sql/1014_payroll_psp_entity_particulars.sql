@@ -2,10 +2,10 @@
 --
 -- WHAT.
 --   payroll_employees.psp_entity_name          the trading name of the company / CC or trust: e@syFile 3030 for nature of
---                                              person H (SARS PAYE Employer Reconciliation BRS V25.3.0 p. 18: "If Nature of
+--                                              person H (SARS PAYE Employer Reconciliation BRS V25.3.0 p. 20: "If Nature of
 --                                              Person is D / E / F / G / H the trading name of the trust / company").
 --   payroll_employees.psp_registration_number  its registration number: 3066, with 3065 = 1 (company / CC registration
---                                              number) or 2 (trust registration number) for H (BRS V25.3.0 p. 22, "May be
+--                                              number) or 2 (trust registration number) for H (BRS V25.3.0 p. 23, "May be
 --                                              completed if Nature of Person is D / E / G / H"). Free text, at most 30 (FT30).
 --   payroll_employees.psp_tax_reference        the entity's income tax reference: 3100, ten digits starting with 9 for E, G
 --                                              and H (BRS V25.3.0 p. 26-27), mandatory when PAYE (4102) is above nil.
@@ -51,7 +51,7 @@ ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees
 ALTER TABLE public.payroll_employees ADD CONSTRAINT payroll_employees_psp_tax_reference_shape
   CHECK (psp_tax_reference IS NULL OR psp_tax_reference ~ '^9[0-9]{9}$') NOT VALID;
 
--- 3030 is FT120, 3066 FT30 (BRS V25.3.0 p. 18, 22); never blank when set.
+-- 3030 is FT120, 3066 FT30 (BRS V25.3.0 pp. 20, 24); never blank when set.
 ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_psp_text_lengths;
 ALTER TABLE public.payroll_employees ADD CONSTRAINT payroll_employees_psp_text_lengths
   CHECK ((psp_entity_name IS NULL OR char_length(btrim(psp_entity_name)) BETWEEN 1 AND 120)
