@@ -106,6 +106,7 @@ describe('the backfill and recordBillLinks give the same links', () => {
       grossLines: await seedRawBill(pool, f, { items: [{ total: 33.33, poItem: a.items[2] }, { total: 33.33, poItem: b.items[0] }, { total: 33.34, poItem: a.items[1] }], total: 100, subtotal: 86.96 }),
       zeroLines: await seedRawBill(pool, f, { items: [{ total: 0, poItem: e.items[0] }, { total: 80 }], subtotal: 80, total: 92 }),
       headerAlsoLined: await seedRawBill(pool, f, { items: [{ total: 70, poItem: c.items[0] }, { total: 30 }], subtotal: 100, total: 115, header: c.po }),
+      draftPoByLines: await seedRawBill(pool, f, { items: [{ total: 30, poItem: draftPo.items[0] }], subtotal: 30, total: 34.5 }),
       draftPoOnly: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: draftPo.po }),
       strangerPo: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: stranger.po }),
       legacy: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: crypto.randomUUID() }),
@@ -136,7 +137,7 @@ describe('the backfill and recordBillLinks give the same links', () => {
     const gross = [at(bills.grossLines, a), at(bills.grossLines, b)].map(Number);
     expect(c2(gross[0]! + gross[1]!)).toBe(86.96);
     expect(gross[1]).toBeLessThan(33.33);
-    for (const none of [bills.draftPoOnly, bills.strangerPo, bills.legacy, bills.cancelled]) {
+    for (const none of [bills.draftPoOnly, bills.draftPoByLines, bills.strangerPo, bills.legacy, bills.cancelled]) {
       expect([...fromSql.keys()].filter((k) => k.startsWith(none.id))).toEqual([]);
     }
     expect(at(bills.draftBill, b)).toBe('40.00');                // a draft bill is linked by the app / backfill (the MCP is what refuses it)
