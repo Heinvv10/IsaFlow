@@ -1,7 +1,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateSDL, isSdlExempt } from './sdlEngine';
+import { isSdlExempt, SDL_RATE } from './sdlEngine';
+import { NO_EARLIER_SDL, runSdlForMonth, splitByLeviable, type MonthToDateSdl } from './payrollSdlMonthToDate';
 import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
@@ -69,6 +70,8 @@ const TRAILING_PERIODS = 12;
 export interface SdlLine {
   sdl: number;
   sdlLeviable: number;
+  /** For a deterministic split of an SDL catch-up (payrollSdlMonthToDate.splitCatchUp). */
+  employeeId?: string;
   /** Set by applySdlToLines: the run was SDL-exempt (s4(b)), stored as sdl_exempt (migration 957). */
   sdlExempt?: boolean;
   /** The line's explanation (EX-core): applySdlToLines completes its SDL charge with the run's threshold decision. */
@@ -174,24 +177,37 @@ export async function estimateAnnualRemuneration(
  * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
  * with each line so the year to date knows which months were liable), which is
  * why the caller builds them first.
+ * `monthToDate` (wave 6 OC, review #1620 final breaker H, FQd's month-level ruling): the month's earlier final runs.
+ * The month stays liable once one of them was; a liable run charges 1% of the month to date less what they charged,
+ * split by leviable share (payrollSdlMonthToDate). A line whose share differs from 1% of its own pay says so.
  */
 export function applySdlToLines(
   lines: SdlLine[],
   annualRemunerationEstimate: number,
   taxYear: number,
+  monthToDate: MonthToDateSdl = NO_EARLIER_SDL,
 ): number {
   let total = 0;
-  const exempt = isSdlExempt(annualRemunerationEstimate, taxYear);
-  for (const line of lines) {
-    line.sdlExempt = exempt;
-    line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
+  const byEstimate = !isSdlExempt(annualRemunerationEstimate, taxYear);
+  const liable = byEstimate || monthToDate.earlierLiable;
+  const runSdl = runSdlForMonth(liable, lines.reduce((t, l) => t + Math.max(0, l.sdlLeviable), 0), monthToDate);
+  const shares = splitByLeviable(lines, runSdl);
+  lines.forEach((line, i) => {
+    const own = liable ? Math.round(line.sdlLeviable * SDL_RATE * 100) / 100 : 0;
+    const share = shares[i] ?? 0;
+    const adjustment = Math.round((share - own) * 100) / 100;
+    line.sdlExempt = !liable;
+    line.sdl = share;
     if (line.explanation) {
       line.explanation = {
         ...line.explanation,
-        sdl: withSdlCharge(line.explanation.sdl, taxYear, { annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl }),
+        sdl: withSdlCharge(line.explanation.sdl, taxYear, {
+          annualRemuneration: annualRemunerationEstimate, exempt: !liable, sdl: line.sdl,
+          ...(liable && !byEstimate ? { liableEarlier: true } : {}), ...(adjustment !== 0 ? { catchUp: adjustment } : {}),
+        }),
       };
     }
     total += line.sdl;
-  }
+  });
   return total;
 }

@@ -90,6 +90,7 @@ export async function buildPayrollJournalPlan(
   const status = String(hdr.status);
   const periodYear = Number(hdr.period_year);
   const periodMonth = Number(hdr.period_month);
+  const offCycleReason = hdr.run_kind === 'off_cycle' ? String(hdr.off_cycle_reason ?? 'off-cycle') : null;
   const gross = Number(hdr.total_gross) || 0;
   const paye = Number(hdr.total_paye) || 0;
   const uif = Number(hdr.total_uif) || 0; // combined employee + employer
@@ -193,7 +194,8 @@ export async function buildPayrollJournalPlan(
   const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
   built.push(payeNet >= 0 || paye < 0 ? line('2140', 0, payeNet, 'PAYE payable, net of ETI') : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
-  built.push(line('2160', 0, sdl, 'SDL payable'));
+  // A negative run SDL is a within-month refund (payrollSdlMonthToDate): it reduces the SDL payable, as a debit.
+  built.push(sdl >= 0 ? line('2160', 0, sdl, 'SDL payable') : line('2160', -sdl, 0, 'SDL refund within the month (the month\'s SDL corrected down)'));
   built.push(netPayLine(netPayTarget, round2(net)));
   // The employee's own deductions and the employer's medical contribution are separate lines: a reversal of the one must never
   // hide the other under a "reversal" label.
@@ -232,7 +234,7 @@ export async function buildPayrollJournalPlan(
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
     entryDate,
     description: runJournalDescriptionOf(hdr), // wave 6 FQc: a weekly, fortnightly or off-cycle run's names its kind and pay date
-    reference: `PAY-${periodYear}-${mm}`,
+    reference: `PAY-${periodYear}-${mm}${offCycleReason ? `-${offCycleReason.toUpperCase()}` : ''}`,
     lines,
     totalDebit,
     totalCredit,
