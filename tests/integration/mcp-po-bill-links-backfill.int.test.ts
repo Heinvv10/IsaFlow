@@ -123,3 +123,32 @@ describe('a row that changes under the run', () => {
     expect(await linkRows(pool, f, `l.supplier_invoice_id = '${doomedBill.id}'`)).toEqual([]);
   }, 60_000);
 });
+
+describe('the backfill\'s plan stays linear', () => {
+  it('po_bill_posted_cents runs once per candidate bill, however many POs the supplier has (it was bills x POs: 50 s for 40 000 bills)', async () => {
+    const s = await seedBillFixture(pool, 'po-links-backfill-scale');
+    const POS = 300;
+    try {
+      const pos = [];
+      for (let i = 0; i < POS; i++) pos.push(await seedPo(pool, s, { lines: [10 + (i % 40)] }));
+      const BILLS = 600;
+      for (let i = 0; i < BILLS; i++) {
+        const bill = await seedRawBill(pool, s, { items: [{ total: 10 + (i % 40), poItem: i % 2 === 0 ? pos[i % POS]!.items[0] : null }], subtotal: 10 + (i % 40), total: Math.round((10 + (i % 40)) * 115) / 100, header: pos[(i + 7) % POS]!.po });
+        expect(bill.id).toBeTruthy();
+      }
+      await pool.query('ANALYZE supplier_invoices'); await pool.query('ANALYZE supplier_invoice_items'); await pool.query('ANALYZE purchase_orders'); await pool.query('ANALYZE po_items');
+      const c = await pool.connect();
+      let calls = -1;
+      let linked = -1;
+      try {
+        await c.query('BEGIN');
+        await c.query("SET LOCAL track_functions = 'all'");
+        linked = Number((await c.query('SELECT purchase_order_bill_links_backfill($1) AS n', [s.co])).rows[0].n);
+        calls = Number((await c.query(`SELECT COALESCE(pg_stat_get_xact_function_calls('public.po_bill_posted_cents(uuid)'::regprocedure), 0) AS n`)).rows[0].n);
+      } finally { await c.query('ROLLBACK'); c.release(); }
+      expect(linked).toBeGreaterThanOrEqual(BILLS);
+      expect(calls).toBeGreaterThan(0);
+      expect(calls, 'one call per candidate bill, not per (bill, PO)').toBeLessThanOrEqual(BILLS);
+    } finally { await dropBillFixture(pool, s); }
+  }, 120_000);
+});
