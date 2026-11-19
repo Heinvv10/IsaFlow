@@ -14,6 +14,10 @@ Tables: `budget_versions`, `budgets` on `/api/accounting/gl-lines-export`, schem
 
 The integration suite reads as `app_user` (SET LOCAL ROLE app_user, the member's claims, the company GUC; it asserts `current_user = app_user`) and through the real route with a cookie session (real `withAuth`). It asserts: rows sum to `X-Control-Total` / `summary.controlTotal` in cents; for Mar-May 2026 the PRIMARY version's revenue rows and expense rows equal `getBudgetVariance(...).sections.revenue.budget` / `.expense.budget` to the cent; the per_head account exports only company-level `per_head_rollup` rows (none at a dimension) in the version with the line, and cell for cell in the version without one; `X-Row-Count` = CSV data rows; another company's versions and cells never appear; `budget_versions` sends no `X-Control-Total`.
 
+## token_info `user` (commit 8eb6838171)
+
+`token_info` also returns `user: { id, email, name }` for the token's user (ctx.userId), read through `practiceUsersService.getCompanyUser` (`company_member_directory`: this company's active member only); email / name null when not readable, name null with no first or last name. Tests: `tests/unit/mcp/tokenInfoTool.test.ts` (7 passed) and `tests/integration/mcp-token-info-user.int.test.ts` (2 passed; real MCP registry, app_user, the bearer pipeline's claims). `vitest run` of tokenInfoTool, transport, withBearerAuth and writeToolRoleFence: 4 files, 288 passed. `token_info` is not described in `src/lib/mcp/.claude.md` (only in its change archive), so no contract doc changed.
+
 ## Mutation table
 
 Each mutant applied to the committed code, its tests run, the file restored from HEAD (`git status` clean after the run).
@@ -30,6 +34,8 @@ Each mutant applied to the committed code, its tests run, the file restored from
 | (d) MCP refusal | `isGlMcpExportTable` accepts the budget tables | 1 failed (9) | n/a |
 | (d) MCP refusal | MCP table enum lists the budget tables | 1 failed (9) | n/a |
 | as-at-today refusal | route lets date_from / date_to / status through on budget tables | 1 failed (15) | n/a |
+| token_info `user` (8eb6838171) | `user` field dropped from the reply | 2 failed (7) | 2 failed (2) |
+| token_info `user` (8eb6838171) | member never read (email / name always null) | 2 failed (7) | 2 failed (2) |
 
 One mutant first stayed green: the per-row unrounded ×100 sum passed the `0.1 + 0.2` test (both are exact ×100). A test with `0.07, 1.10, 2.20, 0.10, 0.20` (drifts either way; the cents sum is 3.67) was added in `3e36fc748e`, and both float mutants now fail.
 
