@@ -153,7 +153,7 @@ describe('what refuses an update', () => {
     expect((await poRow(pool, po.po)).notes).toBeNull();
   });
 
-  it('a bill link (made by link_bills_to_purchase_order) and a bill line naming a PO line tie the PO; a bill naming it ONLY in its header does not (no dead end: unlink needs a link row)', async () => {
+  it('a bill link (made by link_bills_to_purchase_order) and a bill line naming a PO line tie the PO; a bill naming it ONLY in its header ties it when the link tool could link the pair (link it first), and not otherwise (no dead end)', async () => {
     const a = await seedPo(pool, f, { lines: [100] });
     const billA = await seedBill(pool, f, { lines: [100] });
     expect((await callTool(pool, f, link, { links: [{ po_id: a.po, bill_id: billA.id }] })).isError).toBe(false);
@@ -170,20 +170,51 @@ describe('what refuses an update', () => {
     expect(await linkRows(pool, f, `l.purchase_order_id = '${b.po}'`)).toHaveLength(0);
     expect((await callTool(pool, f, update, { po_id: b.po, lines: [line()] })).text).toContain('Bills are linked');
 
+    for (const p of [a, b]) expect((await poLines(pool, p.po)).map((l) => l.line_total)).toEqual(['100.00']);
+
+    // Header only on an APPROVED PO by an APPROVED same-supplier bill (the app approved the PO after a bill named it while it was only
+    // submitted: no link row was ever made). The link tool could link it, so it is billing the PO: update / cancel are refused.
     const c = await seedPo(pool, f, { lines: [100] });
     const billC = await seedBill(pool, f, { lines: [100] });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [c.po, billC.id]);
-    // Header only: no link row, no line on a PO line. The PO is editable (nothing of the bill could be orphaned, and unlink would answer
-    // "not linked"), and a draft / cancelled PO the REST create let a bill name is no dead end either.
-    expect((await callTool(pool, f, update, { po_id: c.po, notes: 'x', lines: [line()] })).isError).toBe(false);
-    for (const p of [a, b]) expect((await poLines(pool, p.po)).map((l) => l.line_total)).toEqual(['100.00']);
-    const unlinkTry = await callTool(pool, f, unlink, { po_id: c.po, bill_id: billC.id, reason: 'x' });
-    expect(unlinkTry.text).toContain('is not linked'); // what the old "unlink them first" would have sent the caller to
+    expect(await linkRows(pool, f, `l.purchase_order_id = '${c.po}'`)).toHaveLength(0);
+    for (const args of [{ notes: 'x' }, { notes: 'x', lines: [line()] }]) {
+      const r = await callTool(pool, f, update, { po_id: c.po, ...args });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain('A bill names this purchase order in its header but is not linked to it');
+      expect(r.text).toContain('link it first (link_bills_to_purchase_order)');
+    }
+    expect((await callTool(pool, f, cancel, { po_id: c.po, reason: 'x' })).text).toContain('link it first');
+    expect((await poLines(pool, c.po)).map((l) => l.line_total)).toEqual(['100.00']);
+    // The way out: link it (now a link row ties it: refused for the link), then unlink (the header is reset) and the PO is free.
+    expect((await callTool(pool, f, link, { links: [{ po_id: c.po, bill_id: billC.id }] })).isError).toBe(false);
+    expect((await callTool(pool, f, update, { po_id: c.po, notes: 'x' })).text).toContain('Bills are linked to this purchase order');
+    expect((await callTool(pool, f, unlink, { po_id: c.po, bill_id: billC.id, reason: 'not billing this order' })).isError).toBe(false);
+    expect((await callTool(pool, f, update, { po_id: c.po, notes: 'free again', lines: [line()] })).isError).toBe(false);
+
+    // A header reference the link tool could NOT link is no tie, so no dead end: a draft / submitted / cancelled PO, a draft bill,
+    // another supplier's bill.
+    const free = async (label: string, po: { po: string }) => {
+      const r = await callTool(pool, f, update, { po_id: po.po, notes: label });
+      return r;
+    };
     const draftPo = await seedPo(pool, f, { status: 'draft', lines: [100] });
     const billD = await seedBill(pool, f, { lines: [100] });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [draftPo.po, billD.id]);
-    expect((await callTool(pool, f, update, { po_id: draftPo.po, notes: 'free' })).isError).toBe(false);
+    expect((await free('draft PO', draftPo)).isError).toBe(false);
     expect((await callTool(pool, f, cancel, { po_id: draftPo.po, reason: 'free' })).isError).toBe(false);
+    const draftBillPo = await seedPo(pool, f, { lines: [100] });
+    const draftBill = await seedBill(pool, f, { lines: [100], status: 'draft' });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [draftBillPo.po, draftBill.id]);
+    expect((await free('draft bill', draftBillPo)).isError).toBe(false);
+    const otherSupplierPo = await seedPo(pool, f, { lines: [100] });
+    const otherBill = await seedBill(pool, f, { lines: [100], supplier: await seedSupplier(pool, f, 'Header supplier') });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [otherSupplierPo.po, otherBill.id]);
+    expect((await free('other supplier', otherSupplierPo)).isError).toBe(false);
+    const deletedBillPo = await seedPo(pool, f, { lines: [100] });
+    const deletedBill = await seedBill(pool, f, { lines: [100] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1, deleted_at = NOW() WHERE id = $2', [deletedBillPo.po, deletedBill.id]);
+    expect((await free('deleted bill', deletedBillPo)).isError).toBe(false);
   });
 
   it('a header-only supplier change on a linked PO is refused with the supplier-specific wording (the PUT\'s check runs with no lines too)', async () => {

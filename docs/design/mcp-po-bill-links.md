@@ -182,6 +182,7 @@ the typed timeout with nothing written.
 
 ## Known limits
 
+- **A header-only bill on a submitted PO gets no link when the PO is later approved.** The REST bill form lists submitted POs; a bill that names one only in its header gets no link (a submitted PO is not linkable) and approving the PO writes none. The link tool, or the post-release `SELECT purchase_order_bill_links_backfill();` re-run, picks it up. Until then the PO maintenance tools refuse to edit or cancel it ("link it first").
 - **Backfill timing:** see decision 11: run the backfill function once after the release.
 - **Credit notes do not reduce billed.** A supplier credit note against a bill leaves its link amount (and so the PO's
   billed total and `fully_billed`) as it was.

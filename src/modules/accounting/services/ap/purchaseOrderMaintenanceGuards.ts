@@ -5,14 +5,14 @@
  *
  * "Tied" is wider than a link row: `supplier_invoice_items.po_item_id` has NO foreign key, so a bill line naming one of the PO's
  * lines (written by the REST create, which does not always make a link row) would be orphaned by replacing the lines. Deleted bills
- * do not count. A bill that names the PO ONLY by its header (no link row, no line on a PO line) is NOT a tie: there is nothing of it to
- * orphan, and no tool could clear it (unlink needs a link row), so counting it was a dead end ("unlink them first" / "not linked");
- * the link table is the list of bill <-> PO ties (design mcp-po-bill-links.md, decision 3: the header follows the links).
+ * do not count. A bill that names the PO ONLY by its header counts (as `header`) only when the link tool could link the pair; see
+ * `poBillTie`.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { withRowLockBudget } from '../core/rowLockBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
+import { LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
 
 export async function poHasReceipts(companyId: string, poId: string): Promise<boolean> {
   const rows = (await sql`
@@ -21,17 +21,33 @@ export async function poHasReceipts(companyId: string, poId: string): Promise<bo
   return rows.length > 0;
 }
 
-export async function poHasBillLinks(companyId: string, poId: string): Promise<boolean> {
+/**
+ * How a bill is tied to the PO, or null:
+ *   - `linked`: a link row, or a (not deleted) bill line naming one of the PO's lines;
+ *   - `header`: a bill that names the PO ONLY in its header, no link row, and that `link_bills_to_purchase_order` COULD link: PO in a
+ *     linkable status, bill approved / paid / partially_paid and not deleted, same supplier. Such a bill is billing the PO (the
+ *     three-way match reads the header PO's lines) but has no link row yet (it was made while the PO was only submitted and the
+ *     approval writes no link); the way out is to link it, then unlink if it was wrong. A header reference the link tool could NOT
+ *     make a link of (a draft / submitted / cancelled PO, a draft or cancelled bill, another supplier) is not a tie: nothing bills the
+ *     PO, and nothing could clear it.
+ */
+export async function poBillTie(companyId: string, poId: string): Promise<'linked' | 'header' | null> {
   const rows = (await sql`
     SELECT (
       EXISTS (SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID)
       OR EXISTS (SELECT 1 FROM supplier_invoice_items sii
                    JOIN po_items pi ON pi.id = sii.po_item_id AND pi.purchase_order_id = ${poId}::UUID
                    JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL)
-    ) AS tied
+    ) AS linked,
+    EXISTS (SELECT 1 FROM supplier_invoices si JOIN purchase_orders po ON po.id = si.purchase_order_id AND po.company_id = si.company_id
+             WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ${poId}::UUID AND si.deleted_at IS NULL
+               AND si.supplier_id = po.supplier_id AND si.status = ANY(${[...LINKABLE_BILL_STATUSES]}::TEXT[])
+               AND po.status = ANY(${[...LINKABLE_PO_STATUSES]}::TEXT[])) AS header
   `) as DbRow[];
-  return rows[0]?.tied === true;
+  return rows[0]?.linked === true ? 'linked' : rows[0]?.header === true ? 'header' : null;
 }
+
+export const poHasBillLinks = async (companyId: string, poId: string): Promise<boolean> => (await poBillTie(companyId, poId)) !== null;
 
 export const RECEIPT_REFUSAL = 'Goods have been received against this purchase order (a receipt is on record)';
 export const LINKS_REFUSAL = 'Bills are linked to this purchase order';
@@ -39,7 +55,9 @@ export const LINKS_REFUSAL = 'Bills are linked to this purchase order';
 /** The refusal text for a PO whose lines / status must not move while a receipt or bill link stands, or null. */
 export async function receiptOrLinkRefusal(companyId: string, poId: string, what: string): Promise<string | null> {
   if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; unlink or cancel the receipt first`;
-  if (await poHasBillLinks(companyId, poId)) return `${LINKS_REFUSAL}, so ${what}; unlink them first (unlink_bill_from_purchase_order)`;
+  const tie = await poBillTie(companyId, poId);
+  if (tie === 'linked') return `${LINKS_REFUSAL}, so ${what}; unlink them first (unlink_bill_from_purchase_order)`;
+  if (tie === 'header') return `A bill names this purchase order in its header but is not linked to it, so ${what}; link it first (link_bills_to_purchase_order), then unlink it if it is not billing this order, or clear the bill's purchase order`;
   return null;
 }
 
@@ -57,9 +75,13 @@ export async function lockPoForMaintenance(companyId: string, poId: string): Pro
 }
 
 /**
- * One rule for every writer of an APPROVED purchase order (update, import open, set status -> approved): under the BLOCK budget policy
+ * One rule for every MCP writer of an APPROVED purchase order (update, import open, set status -> approved): under the BLOCK budget policy
  * each line needs an expense account. A line with none is "No budget" (never over), so it would escape the very check that approval
  * runs. The import's `skip_budget_check_for_import` lets such lines through, reported as would-have-failed.
+ *
+ * NOT the app's Approve action (`purchaseOrderApprove`): it deliberately accepts account-less lines as "No budget" (P5-3 census 7: the
+ * PO create route writes lines with no account), so refusing them there would stop approvals the app's own screens produce. The MCP
+ * tools are stricter because an agent loads or edits lines in bulk and can name the account.
  */
 export const ACCOUNTLESS_REFUSAL = 'Under the block budget policy every line of an approved purchase order needs an expense account: a line with none cannot be checked against a budget';
 

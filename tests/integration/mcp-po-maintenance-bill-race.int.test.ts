@@ -51,6 +51,7 @@ import { seedPo } from './helpers/poBillLinkHarness';
 import { callTool, dropMaintExtras, poLines } from './helpers/poMaintHarness';
 import { updatePurchaseOrderTool as update } from '@/lib/mcp/tools/writeUpdatePurchaseOrder';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { refreshAppBillLinks } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -134,4 +135,35 @@ describe('update_purchase_order x bill create', () => {
     expect(Number((await pool.query('SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2', [f.co, number])).rows[0].n)).toBe(0);
     expect(await orphans()).toBe(0);
   }, 30_000);
+
+  it('a HEADER-only bill (no PO line named) and a draft edit take the same bounded wait: the PO held FOR UPDATE ends both in the typed timeout, nothing written', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const header = (n: string) => ({
+      invoiceNumber: n, supplierId: f.supplier, invoiceDate: '2026-06-15', purchaseOrderId: po.po,
+      items: [{ description: 'Header only', quantity: 1, unitPrice: 100, taxRate: 0, glAccountId: f.acc.opex }],
+    });
+    // A draft bill that already names the PO in its header, for the edit leg (created before the PO is held).
+    const draftReq = await openRequest(pool, f, f.owner);
+    const draft = await draftReq.run(() => createSupplierInvoice(f.co, header(`HDR-DRAFT-${Date.now()}`), f.owner));
+    await draftReq.commit();
+    await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [draft.id]);
+    const holder = await pool.connect();
+    const number = `HDR-LOCK-${Date.now()}`;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM purchase_orders WHERE id = $1 FOR UPDATE', [po.po]);
+      const started = Date.now();
+      const create = await openRequest(pool, f, f.owner);
+      let createErr: unknown;
+      try { await create.run(() => createSupplierInvoice(f.co, header(number), f.owner)); await create.commit(); } catch (e) { createErr = e; await create.rollback(); }
+      expect(createErr).toMatchObject({ code: 'PURCHASE_ORDER_LOCK_TIMEOUT' });
+      const edit = await openRequest(pool, f, f.owner);
+      let editErr: unknown;
+      try { await edit.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await edit.commit(); } catch (e) { editErr = e; await edit.rollback(); }
+      expect(editErr).toMatchObject({ code: 'PURCHASE_ORDER_LOCK_TIMEOUT' });
+      expect(Date.now() - started, 'two bounded waits, not unbounded').toBeLessThan(25_000);
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(Number((await pool.query('SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2', [f.co, number])).rows[0].n)).toBe(0);
+    expect(Number((await pool.query('SELECT count(*) AS n FROM purchase_order_bill_links WHERE purchase_order_id = $1', [po.po])).rows[0].n)).toBe(0);
+  }, 40_000);
 });
