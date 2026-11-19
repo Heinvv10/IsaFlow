@@ -25,7 +25,7 @@ import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../c
 import { sql, withSavepoint } from '@/lib/neon';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { BudgetCheckLockTimeoutError } from '../budgets/budgetCheckTypes';
-import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
+import { BILLED_STATUSES, COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
 import { toCents } from '../budgets/grid/cents';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
@@ -94,8 +94,11 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const invoiceNumber = String(bills[0].invoice_number);
 
   const all = (await sql`
-    SELECT id::TEXT AS id, supplier_invoice_id::TEXT AS bill, amount, closed_po_from_status FROM purchase_order_bill_links
-     WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID ORDER BY created_at, id
+    SELECT l.id::TEXT AS id, l.supplier_invoice_id::TEXT AS bill, l.amount, l.closed_po_from_status,
+           (si.status = ANY(${[...BILLED_STATUSES]}::TEXT[]) AND si.deleted_at IS NULL) AS billed,
+           NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL) AS durable
+      FROM purchase_order_bill_links l JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
+     WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ${poId}::UUID ORDER BY l.created_at, l.id
   `) as DbRow[];
   const link = all.find((l) => String(l.bill).toLowerCase() === req.billId);
   if (!link) throw new PurchaseOrderBillLinkRefusal(`Bill ${invoiceNumber} is not linked to purchase order ${poNumber}`);
@@ -129,7 +132,9 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
     }
   } else if (status === 'closed' && claim && String(claim.id) === String(link.id)) {
     // Still fully billed: the closing record outlives the link that held it.
-    const heir = all.find((l) => String(l.id) !== String(link.id));
+    // Only a link on a BILLED bill can hold it (a draft's app link is remade by the draft's next edit), the durable (mcp / referenced) first.
+    const others = all.filter((l) => String(l.id) !== String(link.id) && l.billed === true);
+    const heir = others.find((l) => l.durable === true) ?? others[0];
     if (heir) {
       await sql`UPDATE purchase_order_bill_links SET closed_po_from_status = ${closedFrom} WHERE id = ${String(heir.id)}::UUID AND company_id = ${companyId}::UUID`;
     }

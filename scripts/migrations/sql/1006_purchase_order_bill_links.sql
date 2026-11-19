@@ -17,14 +17,17 @@
 -- both on the same bills). A PO the bill names only by its header (or whose lines post nothing) gets the bill's subtotal
 -- less what the line-linked POs hold; of several such POs only the lowest id (byte order of its text) is linked. Never above zero or below.
 --
--- BACKFILL. purchase_order_bill_links_backfill(): one `backfill` link per approved / paid / partially_paid, not-deleted bill (R3:
--- a draft or pending bill gets its `app` links from the create and every edit, never a backfill that would go stale), for each
+-- BACKFILL. purchase_order_bill_links_backfill(): one `backfill` link per non-cancelled, non-deleted bill of ANY other status (a
+-- draft or pending bill too: approving a bill writes no link, so a bill that was a draft at the release, or that the OLD colour
+-- created, would otherwise never get one; the app sync owns ref-less `app` / `backfill` links of an unposted bill and remakes them
+-- on its next edit, so a draft's link cannot go stale for good), for each
 -- purchase_orders row of the same company AND supplier that the bill's header names OR that its lines name, the PO in an
 -- approved / partially_received / received / closed status (a stale or foreign id, an older supplier_purchase_orders id, a draft
 -- or cancelled PO gets none). It runs here, BEFORE row security and the guards exist, and is idempotent (ON CONFLICT DO NOTHING
--- on the pair). RE-RUN IT ONCE AFTER THE RELEASE goes live (`SELECT purchase_order_bill_links_backfill();` as the deploy role,
--- `postgres`, which bypasses row security): a bill the OLD colour approved between this migration and the switch has no link
--- until then. Executable by the migration / deploy role only; the guard lets `postgres` and `migration_admin` write source
+-- on the pair; a header-only / zero-posting PO gets the subtotal less the bill's other links that this writer does not own, as
+-- the app sync does, so a re-run never pushes a bill's links past its subtotal). RE-RUN IT ONCE AFTER THE RELEASE goes live
+-- (`SELECT purchase_order_bill_links_backfill();` as the deploy role, `postgres`, which bypasses row security): a bill the OLD
+-- colour created or approved between this migration and the switch has no link until then. Executable by the migration / deploy role only; the guard lets `postgres` and `migration_admin` write source
 -- `backfill` and no other role.
 --
 -- RULES IN THE DATABASE.
@@ -171,9 +174,13 @@ DECLARE
   inserted BIGINT;
 BEGIN
   WITH cand AS (
-    SELECT si.id, si.company_id, si.supplier_id, si.purchase_order_id AS header_po, round(si.subtotal * 100)::BIGINT AS sub_c
+    SELECT si.id, si.company_id, si.supplier_id, si.purchase_order_id AS header_po, round(si.subtotal * 100)::BIGINT AS sub_c,
+           -- What the bill's links this writer does not own (mcp, or with an external reference) already hold.
+           COALESCE((SELECT SUM(round(l.amount * 100)) FROM purchase_order_bill_links l
+                      WHERE l.company_id = si.company_id AND l.supplier_invoice_id = si.id
+                        AND NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL)), 0)::BIGINT AS held_c
       FROM supplier_invoices si
-     WHERE si.status IN ('approved', 'paid', 'partially_paid') AND si.deleted_at IS NULL
+     WHERE si.status <> 'cancelled' AND si.deleted_at IS NULL
        AND (si.purchase_order_id IS NOT NULL
             OR EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id IS NOT NULL))
   ), line_po AS (
@@ -194,12 +201,12 @@ BEGIN
                              AND po.status IN ('approved', 'partially_received', 'received', 'closed')
      WHERE NOT EXISTS (SELECT 1 FROM line_po l WHERE l.bill = c.id AND l.po = po.id)
   ), sized AS (
-    SELECT pt.bill, pt.po, pt.cents, c.company_id, c.sub_c, COALESCE(pt.cents, 0) > 0 AS positive,
+    SELECT pt.bill, pt.po, pt.cents, c.company_id, c.sub_c, c.held_c, COALESCE(pt.cents, 0) > 0 AS positive,
            COALESCE(SUM(pt.cents) FILTER (WHERE pt.cents > 0) OVER (PARTITION BY pt.bill), 0) AS pos_total,
            MIN(pt.po::TEXT COLLATE "C") FILTER (WHERE COALESCE(pt.cents, 0) <= 0) OVER (PARTITION BY pt.bill) AS first_fallback
       FROM parts pt JOIN cand c ON c.id = pt.bill
   ), amounts AS (
-    SELECT s.company_id, s.po, s.bill, CASE WHEN s.positive THEN s.cents ELSE s.sub_c - s.pos_total END AS cents
+    SELECT s.company_id, s.po, s.bill, CASE WHEN s.positive THEN s.cents ELSE s.sub_c - s.pos_total - s.held_c END AS cents
       FROM sized s WHERE s.positive OR (s.po::TEXT COLLATE "C") = s.first_fallback
   ), done AS (
     INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source)
@@ -304,6 +311,8 @@ CREATE POLICY tenant_isolation ON purchase_order_bill_links FOR ALL TO app_user
 -- 348's default privileges gave app_user every command: take them back, grant per column.
 REVOKE INSERT, UPDATE, DELETE ON purchase_order_bill_links FROM app_user;
 GRANT SELECT, DELETE ON purchase_order_bill_links TO app_user;
+-- The supplier guard (SECURITY DEFINER, owner migration_admin) reads this table: grant it explicitly, not by default privileges.
+GRANT SELECT ON purchase_order_bill_links TO migration_admin;
 GRANT INSERT (company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref,
               closed_po_from_status, created_by) ON purchase_order_bill_links TO app_user;
 GRANT UPDATE (external_system, external_ref, closed_po_from_status) ON purchase_order_bill_links TO app_user;
@@ -327,6 +336,13 @@ BEGIN
   IF pg_catalog.has_function_privilege('public', 'public.purchase_order_bill_links_supplier_guard()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.purchase_order_bill_links_supplier_guard()', 'EXECUTE') THEN
     RAISE EXCEPTION '1006: a role it must not reach can execute the supplier guard';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT pg_catalog.has_table_privilege('migration_admin', 'public.purchase_order_bill_links', 'SELECT') THEN
+    RAISE EXCEPTION '1006: migration_admin cannot read purchase_order_bill_links, so the supplier guard would see no links';
   END IF;
 END $$;
 
