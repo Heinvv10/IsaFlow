@@ -116,9 +116,9 @@ describe('999f: production payroll_run_headers drift', () => {
 
   it('999f adds both columns, and the same journal link then succeeds', async () => {
     expect(await attempt(M999F)).toBeNull();
+    expect(await linkJournal()).toBeNull();
     expect(await columnsOf('payroll_run_headers', ['posted_journal_entry_id', 'cancelled_by']))
       .toEqual({ posted_journal_entry_id: 'uuid', cancelled_by: 'text' });
-    expect(await linkJournal()).toBeNull();
     const row = (await client.query('SELECT journal_entry_id, posted_journal_entry_id FROM payroll_run_headers WHERE id = $1', [run])).rows[0];
     expect(row).toEqual({ journal_entry_id: journal, posted_journal_entry_id: null });
   });
