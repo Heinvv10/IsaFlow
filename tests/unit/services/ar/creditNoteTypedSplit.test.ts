@@ -1,14 +1,12 @@
 /**
- * A customer credit note linked to a TYPED invoice (every revenue leg of its journal coded, migration 1008): the note's
- * VAT decides how much of its subtotal is rated. The rated part (the net its tax_amount is VAT on, at the standard rate
- * on the note's date, reconciled to the subtotal within a cent) is taken pro rata from the invoice's remaining RATED
- * legs only, the rest from its remaining UNRATED legs only; a part the legs cannot carry is refused before any write.
- * PR #1648 review L3: pro rata over every leg reversed 30 of VAT against 133.33 of standard net (the 15% check out by
- * R10). A note against a legacy invoice (uncoded legs) is untouched: creditNoteVatTypedLegs / invoiceRevenueLines.
+ * A customer credit note against a TYPED invoice is PROPORTIONAL ONLY (Hein, 2026-11-19): its debits are spread pro
+ * rata over every revenue leg by remaining net, and its VAT must be exactly the invoice's remaining VAT in proportion
+ * (all of it when the note clears the net). The real functions; sequences are simulated by feeding each note's
+ * allocation rows back as `taken` and its tax out of the remaining VAT, as the reader does.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CreditNoteVatSplitRefusal, allocateTypedCreditNote, legsAreTyped, noteRatedCents,
+  CreditNoteVatSplitRefusal, allocateTypedCreditNote, legsAreTyped, requiredCreditNoteVat, splitGrossProportionally,
 } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import type { RevenueLeg } from '@/modules/accounting/services/ar/invoiceRevenueLines';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
@@ -16,168 +14,148 @@ import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 const DEFAULT = 'acct-default-revenue';
 const leg = (net: number, vatType: RevenueLeg['vatType'], id: string, taken = 0): RevenueLeg =>
   ({ glAccountId: DEFAULT, projectId: null, cc1Id: null, cc2Id: null, buId: null, net, vatType, journalLineId: id, taken });
-const MIXED = [leg(1000, 'standard', 's'), leg(300, 'zero_rated', 'z'), leg(200, 'exempt', 'e')];
-/** A note against MIXED (or a 1000-standard invoice), whose rated legs still carry all 150.00 of their VAT. */
-const note = (subtotal: number, taxAmount: number) => ({ subtotal, taxAmount, date: '2026-07-20', remainingRatedVat: 150 });
-const debits = (legs: RevenueLeg[], subtotal: number, taxAmount: number) =>
-  allocateTypedCreditNote(legs, note(subtotal, taxAmount), 'CN-9', DEFAULT).lines.map((l) => [l.vatType, l.debit]);
+const MIXED = () => [leg(1000, 'standard', 's'), leg(300, 'zero_rated', 'z'), leg(200, 'exempt', 'e')]; // VAT 150
+const TEN_X_10_10 = () => [leg(101, 'standard', 's')]; // each 1.515 -> 1.52: VAT 15.20
+const TEN_X_10_03 = () => [leg(100.3, 'standard', 's')]; // each 1.5045 -> 1.50: VAT 15.00
+const HUNDRED = () => [leg(10, 'standard', 's'), leg(50, 'exempt', 'e')]; // each 0.015 -> 0.02: VAT 2.00
 
-describe('noteRatedCents', () => {
-  it('is the net the VAT is on, reconciled to the subtotal within a cent', () => {
-    expect(noteRatedCents(note(200, 30))).toBe(20000);
-    expect(noteRatedCents(note(300, 15))).toBe(10000);
-    expect(noteRatedCents(note(200, 0))).toBe(0);
-    expect(noteRatedCents(note(8.7, 1.3))).toBe(870); // a dispute's gross 10.00 split 8.70 + 1.30: 15% of 8.70 is 1.305
-    expect(noteRatedCents(note(100, 20))).toBe(10000); // never more than the subtotal
-  });
+const c = (n: number) => Math.round(n * 100);
+type Outcome = string;
+const run = (legs: RevenueLeg[], remainingVat: number, subtotal: number, taxAmount: number): Outcome => {
+  try {
+    return allocateTypedCreditNote(legs, { subtotal, taxAmount, remainingVat }, 'CN-9', DEFAULT)
+      .lines.map((l) => `${l.vatType} ${l.debit.toFixed(2)}`).join(', ');
+  } catch (err) {
+    if (err instanceof CreditNoteVatSplitRefusal) return `refused: ${err.message}`;
+    throw err;
+  }
+};
 
-  it('reads the standard rate on the note\'s date', () => {
-    expect(noteRatedCents({ subtotal: 200, taxAmount: 14, date: '2017-06-30' })).toBe(10000);
+/** An invoice's state across notes: legs (with taken) and remaining VAT (cents). */
+class Invoice {
+  constructor(public legs: RevenueLeg[], public vat: number, readonly originalVat = vat) {}
+  get remainingNet(): number { return this.legs.reduce((s, l) => s + c(l.net) - c(l.taken ?? 0), 0); }
+  required(subtotalCents: number): number {
+    return c(requiredCreditNoteVat({ remainingNet: this.remainingNet / 100, remainingVat: this.vat / 100, subtotal: subtotalCents / 100 }));
+  }
+  /** Approve a note of `subtotalCents` with the required VAT; returns its tax (cents) and checks its journal. */
+  credit(subtotalCents: number): number {
+    const tax = this.required(subtotalCents);
+    const out = allocateTypedCreditNote(this.legs, { subtotal: subtotalCents / 100, taxAmount: tax / 100, remainingVat: this.vat / 100 }, 'CN', DEFAULT);
+    expect(out.lines.reduce((s, l) => s + c(l.debit) - c(l.credit), 0)).toBe(subtotalCents);
+    // As approveCreditNote posts it: a VAT reversal only when there is VAT.
+    const vatLeg = tax > 0 ? [{ glAccountId: 'vat', debit: tax / 100, credit: 0 }] : [];
+    expect(validateJournalEntry([...out.lines, ...vatLeg,
+      { glAccountId: 'ar', debit: 0, credit: (subtotalCents + tax) / 100 }]).valid).toBe(true);
+    for (const a of out.allocations) {
+      const l = this.legs.find((x) => x.journalLineId === a.journalLineId)!;
+      l.taken = (c(l.taken ?? 0) + c(a.amount)) / 100;
+      expect(Math.abs(c(l.taken)) <= Math.abs(c(l.net))).toBe(true); // never over-credited
+    }
+    this.vat -= tax;
+    expect(this.vat).toBeGreaterThanOrEqual(0);
+    expect(this.originalVat - this.vat).toBeLessThanOrEqual(this.originalVat);
+    return tax;
+  }
+}
+
+describe('requiredCreditNoteVat', () => {
+  it('all the VAT when the note clears the net; else the proportional share, half away from zero', () => {
+    expect(requiredCreditNoteVat({ remainingNet: 1500, remainingVat: 150, subtotal: 150 })).toBe(15);
+    expect(requiredCreditNoteVat({ remainingNet: 1500, remainingVat: 150, subtotal: 1500 })).toBe(150);
+    expect(requiredCreditNoteVat({ remainingNet: 101, remainingVat: 15.2, subtotal: 50.5 })).toBe(7.6);
+    expect(requiredCreditNoteVat({ remainingNet: 100.3, remainingVat: 15, subtotal: 50.15 })).toBe(7.5);
+    expect(requiredCreditNoteVat({ remainingNet: 1, remainingVat: 0.01, subtotal: 0.5 })).toBe(0.01); // 0.005 -> 0.01
+    expect(requiredCreditNoteVat({ remainingNet: 50.5, remainingVat: 7.62, subtotal: 50.5 })).toBe(7.62);
   });
 });
 
-describe('allocateTypedCreditNote', () => {
-  it('a note of 200 + VAT 30 against 1000 standard / 300 zero / 200 exempt debits standard 200 only', () => {
-    const { lines, allocations } = allocateTypedCreditNote(MIXED, note(200, 30), 'CN-9', DEFAULT);
-    expect(lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 200]]);
-    expect(allocations.map((a) => [a.journalLineId, a.amount, a.isExcess])).toEqual([['s', 200, false]]);
-    expect(validateJournalEntry([...lines, { glAccountId: 'vat', debit: 30, credit: 0 },
-      { glAccountId: 'ar', debit: 0, credit: 230 }]).valid).toBe(true);
+describe('the proportional rule, case by case', () => {
+  it.each([
+    ['mixed: 150 + 15.00 debits 100 / 30 / 20', MIXED(), 150, 150, 15, 'standard 100.00, zero_rated 30.00, exempt 20.00'],
+    ['mixed: full credit 1500 + 150 clears every leg', MIXED(), 150, 1500, 150, 'standard 1000.00, zero_rated 300.00, exempt 200.00'],
+    ['ten x 10.10: 50.50 + 7.60', TEN_X_10_10(), 15.2, 50.5, 7.6, 'standard 50.50'],
+    ['ten x 10.03: 50.15 + 7.50', TEN_X_10_03(), 15, 50.15, 7.5, 'standard 50.15'],
+  ] as const)('%s passes', (_l, legs, vat, sub, tax, expected) => expect(run([...legs], vat, sub, tax)).toBe(expected));
+
+  it.each([
+    ['mixed: 150 + 22.50 (15% of 150)', MIXED(), 150, 150, 22.5,
+      'Credit note CN-9 reverses 150.00 of an invoice with 1500.00 left, so its VAT must be 15.00, not 22.50. '
+      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+    ['ten x 10.10: 50.50 + 7.58 (the rate on 50.50)', TEN_X_10_10(), 15.2, 50.5, 7.58,
+      'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.58. '
+      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+    ['ten x 10.03: 50.15 + 7.52', TEN_X_10_03(), 15, 50.15, 7.52,
+      'Credit note CN-9 reverses 50.15 of an invoice with 100.30 left, so its VAT must be 7.50, not 7.52. '
+      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+    ['mixed: more than is left, 1600 + 160', MIXED(), 150, 1600, 160,
+      'Credit note CN-9 credits 1600.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
+    ['a zero subtotal', MIXED(), 150, 0, 0, 'Credit note CN-9 credits 0.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
+    ['negative VAT left (hand-made data)', MIXED(), -1, 150, 0,
+      'Credit note CN-9 cannot be raised: the invoice\'s VAT is already fully reversed. Correct it with a journal.'],
+  ] as const)('%s is refused, naming the figure', (_l, legs, vat, sub, tax, message) =>
+    expect(run([...legs], vat, sub, tax)).toBe(`refused: ${message}`));
+
+  it('ten x 10.10: two notes of 50.50 + 7.60 clear it to net 0 / VAT 0', () => {
+    const inv = new Invoice(TEN_X_10_10(), 1520);
+    expect([inv.credit(5050), inv.credit(5050)]).toEqual([760, 760]);
+    expect([inv.remainingNet, inv.vat]).toEqual([0, 0]);
   });
 
-  it('a note of 200 with no VAT debits zero-rated and exempt only, pro rata (120 / 80)', () => {
-    expect(debits(MIXED, 200, 0)).toEqual([['zero_rated', 120], ['exempt', 80]]);
+  it('a hundred R0.10 lines + 50 exempt: 20 + required, 20 + required, then the remainder end at net 0 / VAT 0', () => {
+    const inv = new Invoice(HUNDRED(), 200);
+    expect([inv.credit(2000), inv.credit(2000), inv.credit(inv.remainingNet)]).toEqual([67, 67, 66]);
+    expect([inv.remainingNet, inv.vat, ...inv.legs.map((l) => c(l.net) - c(l.taken ?? 0))]).toEqual([0, 0, 0, 0]);
   });
 
-  it('a note with VAT on part of it (300, VAT 15) debits 100 standard and 200 across zero-rated and exempt', () => {
-    expect(debits(MIXED, 300, 15)).toEqual([['standard', 100], ['zero_rated', 120], ['exempt', 80]]);
+  it('the breaker\'s case cannot happen: after 50.50 + 7.58 is refused, nothing strands', () => {
+    expect(run(TEN_X_10_10(), 15.2, 50.5, 7.58)).toMatch(/^refused: .*must be 7\.60, not 7\.58/);
   });
+});
 
-  it('takes from what each group has left after earlier notes', () => {
-    const taken = [leg(1000, 'standard', 's', 900), leg(300, 'zero_rated', 'z', 0), leg(200, 'exempt', 'e', 200)];
-    expect(debits(taken, 400, 15)).toEqual([['standard', 100], ['zero_rated', 300]]);
+// Property: random-but-seeded invoices and splits; every sequence of notes carrying the required VAT ends at net 0 and
+// VAT 0, with no leg over-credited, each note's debits equal to its subtotal, and VAT reversed never above the invoice's.
+describe('any sequence of notes with the required VAT clears the invoice exactly', () => {
+  let seed = 20261119;
+  const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const lineVat = (netCents: number) => Math.round(netCents * 0.15); // a rated line's own VAT, rounded on the line
+  const invoices: Array<[string, () => { legs: RevenueLeg[]; vat: number }]> = [
+    ['lines rounding up (ten x 10.10)', () => ({ legs: TEN_X_10_10(), vat: 1520 })],
+    ['lines rounding down (ten x 10.03)', () => ({ legs: TEN_X_10_03(), vat: 1500 })],
+    ['mixed with zero-rated and exempt', () => ({ legs: MIXED(), vat: 15000 })],
+    ['a hundred R0.10 lines + exempt', () => ({ legs: HUNDRED(), vat: 200 })],
+    ['a negative rated leg (a discount line)', () => ({
+      legs: [leg(500, 'standard', 's'), leg(-40, 'standard', 'd'), leg(120.33, 'exempt', 'e')], vat: lineVat(50000) + lineVat(-4000),
+    })],
+  ];
+  it.each(invoices)('%s', (_label, make) => {
+    for (let trial = 0; trial < 40; trial++) {
+      const { legs, vat } = make();
+      const inv = new Invoice(legs, vat);
+      const k = 1 + Math.floor(rand() * 5);
+      for (let n = 1; n < k && inv.remainingNet > 1; n++) inv.credit(1 + Math.floor(rand() * (inv.remainingNet - 1)));
+      inv.credit(inv.remainingNet); // the note that clears it: always accepted, with all the VAT left
+      expect([inv.remainingNet, inv.vat]).toEqual([0, 0]);
+      for (const l of inv.legs) expect(c(l.net) - c(l.taken ?? 0)).toBe(0);
+    }
   });
+});
 
-  it('refuses a note whose VAT implies more rated net than the rated legs have left, saying by how much', () => {
-    const err = (() => { try { allocateTypedCreditNote(MIXED, note(1100, 165), 'CN-9', DEFAULT); } catch (e) { return e; } })();
-    expect(err).toBeInstanceOf(CreditNoteVatSplitRefusal);
-    expect((err as Error).message).toBe('Credit note CN-9: its VAT of 165.00 is VAT on 1100.00 of standard-rated supplies, '
-      + 'but the invoice\'s rated lines have 1000.00 left to credit (100.00 over). Reduce the note, or its VAT.');
+describe('splitGrossProportionally (dispute notes)', () => {
+  it('splits a gross into a subtotal and its required VAT, adding up exactly', () => {
+    expect(splitGrossProportionally(165, 1500, 150)).toEqual({ subtotal: 150, taxAmount: 15 });
+    const half = splitGrossProportionally(58.1, 101, 15.2)!;
+    expect(half).toEqual({ subtotal: 50.5, taxAmount: 7.6 });
   });
-
-  it('refuses a note whose untaxed part is more than the zero-rated and exempt legs have left', () => {
-    expect(() => allocateTypedCreditNote(MIXED, note(600, 0), 'CN-9', DEFAULT))
-      .toThrow('Credit note CN-9: 600.00 of it carries no VAT, but the invoice\'s zero-rated and exempt lines have 500.00 '
-        + 'left to credit (100.00 over). Give the note its VAT, or reduce it.');
-    expect(() => allocateTypedCreditNote([leg(1000, 'standard', 's')], note(115, 15), 'CN-9', DEFAULT))
-      .toThrow(/15\.00 of it carries no VAT, but the invoice's zero-rated and exempt lines have 0\.00 left/);
+  it('null when the gross is more than the invoice has left', () => {
+    expect(splitGrossProportionally(2000, 1500, 150)).toBeNull();
   });
 });
 
 describe('legsAreTyped', () => {
   it('every leg coded: typed; any uncoded leg, or none at all: not', () => {
-    expect(legsAreTyped(MIXED)).toBe(true);
+    expect(legsAreTyped(MIXED())).toBe(true);
     expect(legsAreTyped([leg(1000, 'standard', 's'), leg(300, null, 'z')])).toBe(false);
     expect(legsAreTyped([])).toBe(false);
-  });
-});
-
-// PR #1648 review round 3, item 2: a full credit of a mixed typed invoice is not refused by a rounding cent. When the
-// note's VAT is (within a cent) all the VAT the invoice's rated legs still carry, its rated part IS their remaining net.
-describe('a note reversing all the remaining rated VAT', () => {
-  const full = (legs: RevenueLeg[], subtotal: number, taxAmount: number, remainingRatedVat: number) =>
-    allocateTypedCreditNote(legs, { subtotal, taxAmount, date: '2026-07-20', remainingRatedVat }, 'CN-9', DEFAULT)
-      .lines.map((l) => [l.vatType, l.debit]);
-
-  it('66.66 standard (VAT 10.00) + 100 exempt: a 166.66 + 10.00 note takes each leg\'s remaining balance', () => {
-    expect(full([leg(66.66, 'standard', 's'), leg(100, 'exempt', 'e')], 166.66, 10, 10)).toEqual([['standard', 66.66], ['exempt', 100]]);
-  });
-
-  it('100 lines of R0.10 standard (VAT 2.00) + 50 exempt: a 60.00 + 2.00 note takes 10.00 and 50.00', () => {
-    expect(full([leg(10, 'standard', 's'), leg(50, 'exempt', 'e')], 60, 2, 2)).toEqual([['standard', 10], ['exempt', 50]]);
-  });
-
-  it('a partial note at the rate, then a final note that clears the invoice exactly', () => {
-    const first = allocateTypedCreditNote([leg(66.66, 'standard', 's'), leg(100, 'exempt', 'e')],
-      { subtotal: 33.33, taxAmount: 5, date: '2026-07-20', remainingRatedVat: 10 }, 'CN-1', DEFAULT);
-    expect(first.lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 33.33]]);
-    const after = [leg(66.66, 'standard', 's', 33.33), leg(100, 'exempt', 'e')];
-    const last = allocateTypedCreditNote(after, { subtotal: 133.33, taxAmount: 5, date: '2026-07-25', remainingRatedVat: 5 }, 'CN-2', DEFAULT);
-    expect(last.lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 33.33], ['exempt', 100]]);
-    expect(last.allocations.filter((a) => a.isExcess)).toEqual([]);
-  });
-
-  it('the same on the hundred-line invoice: 5.00 + 0.75, then 55.00 + 1.25 clears it', () => {
-    expect(full([leg(10, 'standard', 's'), leg(50, 'exempt', 'e')], 5, 0.75, 2)).toEqual([['standard', 5]]);
-    expect(full([leg(10, 'standard', 's', 5), leg(50, 'exempt', 'e')], 55, 1.25, 1.25)).toEqual([['standard', 5], ['exempt', 50]]);
-  });
-
-  it('still refuses a genuine over-allocation: 1100 + 165 against 1000 rated carrying 150', () => {
-    expect(() => full(MIXED, 1100, 165, 150)).toThrow(/1100\.00 of standard-rated supplies, but the invoice's rated lines have 1000\.00 left/);
-  });
-
-  it('cannot move net between groups: the rated part is the rated legs\' own remaining net, the rest must fit the unrated', () => {
-    // VAT equal to all of it, but a subtotal too large for the unrated legs: refused, not stretched.
-    expect(() => full(MIXED, 1600, 150, 150)).toThrow(/600\.00 of it carries no VAT, but the invoice's zero-rated and exempt lines have 500\.00/);
-  });
-});
-
-// Item 3: a note's VAT may not exceed the standard rate on its subtotal (a cent over allowed), on the typed path.
-describe('a note whose VAT is more than its subtotal can carry', () => {
-  const run = (subtotal: number, taxAmount: number) =>
-    allocateTypedCreditNote(MIXED, { subtotal, taxAmount, date: '2026-07-20', remainingRatedVat: 150 }, 'CN-9', DEFAULT);
-
-  it('refuses 100 + VAT 30, giving both figures', () => {
-    expect(() => run(100, 30)).toThrow(new CreditNoteVatSplitRefusal('Credit note CN-9: its VAT of 30.00 is more than the '
-      + '15.00 of VAT the invoice charged on the 100.00 of standard-rated supplies it reverses. Correct its VAT.'));
-  });
-
-  it('accepts VAT exactly at the rate, and a cent over; refuses two cents over', () => {
-    expect(run(100, 15).lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 100]]);
-    expect(() => run(100, 15.01)).not.toThrow();
-    expect(() => run(100, 15.02)).toThrow(/its VAT of 15\.02 is more than the 15\.00 of VAT the invoice charged on the 100\.00/);
-  });
-});
-
-// Round 4, item 5: the "all remaining VAT" branch when the rated legs have (almost) no VAT left. Reachable: a note at
-// the rate whose VAT rounds up (99.99 + VAT 15.00 against 100 standard) takes 99.99 of net and all 15.00 of VAT,
-// leaving 0.01 of rated net with no VAT. A later note carrying a cent of VAT then takes that last cent of net, which
-// is exactly what the rated legs hold: net and VAT both end at zero. A large rated net with no VAT left cannot arise
-// from these rules (each note's rated part follows its VAT, to a cent), and if it ever did, the note would reverse what
-// the legs hold rather than leave it stranded.
-describe('the rated legs with no VAT left', () => {
-  it('a note with a cent of VAT takes the last cent of rated net, the rest from the unrated legs', () => {
-    const legs = [leg(100, 'standard', 's', 99.99), leg(200, 'exempt', 'e')];
-    const out = allocateTypedCreditNote(legs, { subtotal: 50.01, taxAmount: 0.01, date: '2026-07-20', remainingRatedVat: 0 }, 'CN-9', DEFAULT);
-    expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 0.01], ['exempt', 50]]);
-  });
-});
-
-// Round 4, item 6: a zero-VAT note needs no rate; a note WITH VAT on a date no rate can be read for is a refusal, not a 500.
-describe('a note dated where no VAT rate can be read', () => {
-  it('a zero-VAT note posts to the unrated legs without reading a rate', () => {
-    const out = allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 0, date: '1980-01-01', remainingRatedVat: 150 }, 'CN-9', DEFAULT);
-    expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['zero_rated', 120], ['exempt', 80]]);
-  });
-
-  it('a note whose VAT needs the rate (not the invoice\'s own share) is refused with the refusal class, naming the date', () => {
-    expect(() => allocateTypedCreditNote(MIXED, { subtotal: 300, taxAmount: 15, date: '1980-01-01', remainingRatedVat: 150 }, 'CN-9', DEFAULT))
-      .toThrow(new CreditNoteVatSplitRefusal('Credit note CN-9: its date cannot be read for a VAT rate '
-        + '(1980-01-01 is before VAT began (1991-09-30)).'));
-  });
-});
-
-// Round 4 (found by the item 1 tests): the cap on a note's VAT (item 3) must not refuse the exact reversal of a
-// rated group whose VAT was rounded up line by line: a hundred R0.10 standard lines carry 2.00 of VAT on 10.00.
-describe('the VAT cap and a full reversal of per-line-rounded VAT', () => {
-  const hundredLines = [leg(10, 'standard', 's'), leg(50, 'exempt', 'e')];
-  it('a 10.00 + 2.00 note reversing all of the standard lines is not refused', () => {
-    const out = allocateTypedCreditNote(hundredLines, { subtotal: 10, taxAmount: 2, date: '2026-07-20', remainingRatedVat: 2 }, 'CN-9', DEFAULT);
-    expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 10]]);
-  });
-
-  it('a 5.00 + 2.00 note (all the VAT on half the net) is still refused by the cap', () => {
-    expect(() => allocateTypedCreditNote(hundredLines, { subtotal: 5, taxAmount: 2, date: '2026-07-20', remainingRatedVat: 2 }, 'CN-9', DEFAULT))
-      .toThrow(/its VAT of 2\.00 is more than the 1\.00 of VAT the invoice charged on the 5\.00 of standard-rated supplies/);
   });
 });

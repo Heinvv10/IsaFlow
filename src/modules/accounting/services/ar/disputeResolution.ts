@@ -6,6 +6,8 @@
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
+import { splitGrossProportionally } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { ArRequestError } from './arErrors';
 import {
   mapRow,
@@ -109,21 +111,13 @@ async function resolveClaimed(
       );
     }
 
-    // disputed_amount is a slice of the invoice TOTAL, which is VAT-inclusive.
-    // createCreditNote takes a VAT-EXCLUSIVE subtotal and derives tax from
-    // taxRate, so passing the gross amount with taxRate 0 booked the whole
-    // amount to revenue and nothing to the VAT control account. Split the
-    // disputed amount back out at the invoice's rate.
-    const taxRate = effectiveTaxRate(id, invoiceRows[0]!);
     const grossDisputed = Number(dispute.disputed_amount);
-    const creditSubtotal = Math.round((grossDisputed / (1 + taxRate / 100)) * 100) / 100;
-    // Pass the remainder as the tax rather than letting createCreditNote
-    // re-derive it from the rate: rounding both halves independently can leave
-    // subtotal + tax a cent away from the disputed amount (10.00 at 15% splits
-    // to 8.70 + 1.31 = 10.01), which would relieve the debtor by the wrong
-    // figure. No split of a 2-decimal gross at 15% is exact, so the cent goes
-    // to VAT and the total is right by construction.
-    const creditTax = Math.round((grossDisputed - creditSubtotal) * 100) / 100;
+    // A typed invoice (every revenue leg VAT-coded) is credited in proportion only (Hein, 2026-11-19): the note's VAT
+    // is the figure approve demands of it, on what the invoice still has left. Legacy invoices keep the rate split.
+    const typed = await typedInvoiceCreditState(companyId, String(dispute.customer_invoice_id));
+    const { taxRate, creditSubtotal, creditTax } = typed
+      ? typedDisputeSplit(grossDisputed, typed, Number(invoiceRows[0]!.tax_rate ?? 0))
+      : rateSplit(id, grossDisputed, invoiceRows[0]!);
 
     const cn = await createCreditNote(
       companyId,
@@ -165,6 +159,50 @@ async function resolveClaimed(
   );
 
   return mapRow(dispute);
+}
+
+interface CreditSplit { taxRate: number; creditSubtotal: number; creditTax: number }
+
+/**
+ * A typed invoice's disputed gross as a proportional note: subtotal + required VAT = the gross exactly. Refused (before
+ * any note exists; the savepoint undoes the claim) when it is more than the invoice has left, or when no proportional
+ * split reaches it: the VAT steps by a cent every few cents of net, so some grosses fall between two notes.
+ */
+function typedDisputeSplit(gross: number, left: { remainingNet: number; remainingVat: number }, headerRate: number): CreditSplit {
+  const split = splitGrossProportionally(gross, left.remainingNet, left.remainingVat);
+  if (split) return { taxRate: headerRate, creditSubtotal: split.subtotal, creditTax: split.taxAmount };
+  const leftGross = left.remainingNet + left.remainingVat;
+  const near = [-1, 1].map((d) => nearestProportionalGross(gross, left, d)).filter((g): g is number => g !== null);
+  const why = Math.round(gross * 100) > Math.round(leftGross * 100)
+    ? `is more than the ${leftGross.toFixed(2)} the invoice has left`
+    : `cannot be split in proportion across the invoice's lines; ${near.map((g) => g.toFixed(2)).join(' or ')} can`;
+  throw new ArRequestError(
+    `Cannot auto-create credit note: the disputed ${gross.toFixed(2)} ${why}. `
+      + 'An invoice with a VAT type per line is credited in proportion across its lines.',
+    400,
+    'DISPUTE_CREDIT_NOT_PROPORTIONAL',
+  );
+}
+
+/** The nearest gross below (dir -1) or above (dir 1) that a proportional note reaches, within ten cents; null if none. */
+function nearestProportionalGross(gross: number, left: { remainingNet: number; remainingVat: number }, dir: number): number | null {
+  for (let step = 1; step <= 10; step++) {
+    const g = (Math.round(gross * 100) + dir * step) / 100;
+    if (g > 0 && splitGrossProportionally(g, left.remainingNet, left.remainingVat)) return g;
+  }
+  return null;
+}
+
+/**
+ * A legacy invoice's disputed gross split at its rate. disputed_amount is a slice of the invoice TOTAL (VAT-inclusive);
+ * createCreditNote takes a VAT-EXCLUSIVE subtotal, so passing the gross with taxRate 0 booked it all to revenue. The
+ * remainder goes to tax rather than letting createCreditNote re-derive it: rounding both halves independently can leave
+ * subtotal + tax a cent off the disputed amount (10.00 at 15% splits to 8.70 + 1.31 = 10.01).
+ */
+function rateSplit(disputeId: string, gross: number, invoice: DbRow): CreditSplit {
+  const taxRate = effectiveTaxRate(disputeId, invoice);
+  const creditSubtotal = Math.round((gross / (1 + taxRate / 100)) * 100) / 100;
+  return { taxRate, creditSubtotal, creditTax: Math.round((gross - creditSubtotal) * 100) / 100 };
 }
 
 /**

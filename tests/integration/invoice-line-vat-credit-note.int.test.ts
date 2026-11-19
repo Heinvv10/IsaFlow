@@ -2,7 +2,9 @@
  * Migration 1008, the credit-note half: a customer credit note linked to a typed invoice debits each revenue leg on
  * that leg's own VAT type, so a full note against an exempt invoice reduces VAT201 field 3 to nothing and leaves
  * field 2 alone (an uncoded debit on an untaxed note read as zero-rated: field 2 -1000, field 3 +1000). A note against
- * a mixed invoice reverses every field. A note against a legacy invoice keeps its uncoded debit, as before.
+ * a mixed invoice reverses every field. A note against a typed invoice is PROPORTIONAL ONLY (Hein, 2026-11-19): its
+ * debits spread pro rata over every line, its VAT exactly the invoice's remaining VAT in proportion. A note against a
+ * legacy invoice keeps its uncoded debit, as before.
  *
  * Disposable databases only.
  */
@@ -91,7 +93,7 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
       { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
     ], { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] }, 150);
     expect(await fields('2026-08-01', '2026-08-31')).toEqual([1000, 300, 200, 150]);
-    // The note's own VAT leg stays 'standard' (this PR), carrying the invoice's 150 of VAT: 10% of 1500.
+    // It clears the net, so it carries all 150 of the VAT left (10% of 1500); its own VAT leg stays 'standard' (this PR).
     const je = await note(id, '2026-08-20', 1500, 10);
     expect(await journalLegs(f, je)).toEqual([
       L('1100', 0, 1650), L('2120', 150, 0, { vat: 'standard' }),
@@ -100,23 +102,23 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
     expect(await fields('2026-08-01', '2026-08-31')).toEqual([0, 0, 0, 0]);
   });
 
-  it('a 200 + VAT 30 note against a mixed invoice debits standard 200 only, and the VAT201 moves consistently', async () => {
+  it('a 150 + VAT 15.00 note against a mixed invoice debits every line pro rata, and every VAT201 field moves by a tenth', async () => {
     const id = await approvedInvoice('2026-10-10', [
       { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
     ], { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] }, 150);
     expect(await fields('2026-10-01', '2026-10-31')).toEqual([1000, 300, 200, 150]);
-    const je = await note(id, '2026-10-20', 200, 15);
+    const je = await note(id, '2026-10-20', 150, 10);
     expect(await journalLegs(f, je)).toEqual([
-      L('1100', 0, 230), L('2120', 30, 0, { vat: 'standard' }), L('4000', 200, 0, { vat: 'standard' }),
+      L('1100', 0, 165), L('2120', 15, 0, { vat: 'standard' }),
+      L('4000', 20, 0, { vat: 'exempt' }), L('4000', 30, 0, { vat: 'zero_rated' }), L('4000', 100, 0, { vat: 'standard' }),
     ]);
-    // field 1 -200, output VAT -30, fields 2 and 3 unchanged.
-    expect(await fields('2026-10-01', '2026-10-31')).toEqual([800, 300, 200, 120]);
+    expect(await fields('2026-10-01', '2026-10-31')).toEqual([900, 270, 180, 135]);
   });
 
   it.each([
-    ['more rated net than the rated legs carry (1100 + 165 against 1000 standard)', 1100, 15, /1100\.00 of standard-rated supplies/],
-    ['VAT above its share of the VAT the invoice charged (100 + 30)', 100, 30,
-      /its VAT of 30\.00 is more than the 15\.00 of VAT the invoice charged on the 100\.00 of standard-rated supplies/],
+    ['VAT at the rate on its subtotal (150 + 22.50)', 150, 15,
+      /^Credit note \S+ reverses 150\.00 of an invoice with 1500\.00 left, so its VAT must be 15\.00, not 22\.50\. An invoice with a VAT type per line is credited in proportion across its lines\.$/],
+    ['more than the invoice has left (1600 + 160)', 1600, 10, /credits 1600\.00, but the invoice has 1500\.00 left to credit/],
   ] as const)('refuses, through the real service and a committed 4xx, a note with %s: nothing moves', async (_l, subtotal, rate, message) => {
     const id = await approvedInvoice('2026-11-10', [
       { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
@@ -145,30 +147,34 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
     expect(await fields('2026-12-01', '2026-12-31')).toEqual([0, 0, 0, 0]);
   });
 
-  // Round 4, item 1: the remaining rated VAT is the invoice's VAT less what its LIVE earlier notes reversed. 0.10 of
-  // standard (VAT 0.02, rounded up on the line) + 50 exempt: an earlier note took 0.05 with 0.01, so 0.05 and 0.01
-  // remain, and the final 50.05 + 0.01 takes them. A cancelled note and a draft one, each with VAT, must not count:
-  // counted, the 1.50 draft makes the remaining VAT negative, the final note is read at the rate (0.07 rated) and
-  // refused. (The 66.66 / 10.00 invoice cannot show this: 5.00 / 15% is 33.33, exactly what is left, either way.)
+  // The remaining VAT is the invoice's VAT less what its LIVE earlier notes reversed. 1000 standard (VAT 150) + 50
+  // exempt: a cancelled 105 + 15.00 note and a live 210 + 30.00 note (std 200, exempt 10), so 840 and 120 remain, and
+  // the final 840 + 120 clears every leg. A draft (100 + 50) must not count: counted, 70 of VAT would remain and the
+  // final note would be refused as 120 instead of 70; the cancelled one counted, it would be refused too (105).
+  // The note being approved is itself still a draft when the reader runs (creditNoteApproveService sets its status
+  // after posting), so the reader's `cn.id <> note.id` is redundant with `status NOT IN ('draft', ...)`: a text pin.
   it('the final note reverses what the live earlier notes left; drafts and cancelled notes do not count', async () => {
-    const id = await approvedInvoice('2026-05-10', [{ description: 'Standard', unitPrice: 0.1 }, { description: 'Exempt', unitPrice: 50 }],
-      { Standard: ['standard', 0.02], Exempt: ['exempt', 0] }, 0.02);
-    const cancelled = await draftNote(id, '2026-05-12', 0.05, 15, 0.01);
+    const id = await approvedInvoice('2026-05-10', [{ description: 'Standard', unitPrice: 1000 }, { description: 'Exempt', unitPrice: 50 }],
+      { Standard: ['standard', 150], Exempt: ['exempt', 0] }, 150);
+    const cancelled = await draftNote(id, '2026-05-12', 105, 15, 15);
     await inTx(f.fx, () => approveCreditNote(f.fx.companyId, cancelled.id, f.fx.userId));
     await inTx(f.fx, () => cancelCreditNote(f.fx.companyId, cancelled.id, f.fx.userId));
-    const partial = await note(id, '2026-05-15', 0.05, 15, 0.01);
-    expect((await journalLegs(f, partial)).filter((l) => l.code === '4000')).toEqual([L('4000', 0.05, 0, { vat: 'standard' })]);
-    await draftNote(id, '2026-05-16', 10, 15, 1.5); // left a draft
-    const final = await note(id, '2026-05-20', 50.05, 1, 0.01);
+    const partial = await note(id, '2026-05-15', 210, 15, 30);
+    expect(await journalLegs(f, partial)).toEqual([
+      L('1100', 0, 240), L('2120', 30, 0, { vat: 'standard' }),
+      L('4000', 10, 0, { vat: 'exempt' }), L('4000', 200, 0, { vat: 'standard' }),
+    ]);
+    await draftNote(id, '2026-05-16', 100, 15, 50); // left a draft
+    const final = await note(id, '2026-05-20', 840, 15, 120);
     expect(await journalLegs(f, final)).toEqual([
-      L('1100', 0, 50.06), L('2120', 0.01, 0, { vat: 'standard' }),
-      L('4000', 0.05, 0, { vat: 'standard' }), L('4000', 50, 0, { vat: 'exempt' }),
+      L('1100', 0, 960), L('2120', 120, 0, { vat: 'standard' }),
+      L('4000', 40, 0, { vat: 'exempt' }), L('4000', 800, 0, { vat: 'standard' }),
     ]);
     expect(await fields('2026-05-01', '2026-05-31')).toEqual([0, 0, 0, 0]);
   });
 
-  // Round 4, item 7: ten R10.10 standard lines each carry 1.52 (1.515 rounded up): 15.20 on 101.00, above 15% of it.
-  // One note reversing all of it is not refused by a cap at the rate on its subtotal (15.15).
+  // Ten R10.10 standard lines each carry 1.52 (1.515 rounded up): 15.20 on 101.00, above 15% of it (15.15). A note
+  // clearing the net carries all of the VAT left, whatever the rate on its subtotal says.
   it('a single full credit of ten R10.10 standard lines (VAT 15.20) posts and returns the VAT201 to zero', async () => {
     const items = Array.from({ length: 10 }, (_, i) => ({ description: `Line ${i + 1}`, unitPrice: 10.1 }));
     const id = await approvedInvoice('2026-06-10', items,
@@ -179,8 +185,8 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
     expect(await fields('2026-06-01', '2026-06-30')).toEqual([0, 0, 0, 0]);
   });
 
-  // Item 7 follow-up: the same invoice credited in two halves, each 50.50 + 7.60: VAT above 15% of 50.50 (7.58) but
-  // exactly what the invoice charged on it, so the share cap lets it through; the second reverses what is left.
+  // The same invoice credited in two halves: each must carry 7.60 (15.20 x 50.50 / 101.00; the second, clearing the
+  // net, all that is left), not the 7.58 the rate gives. 7.58 + 7.58 would strand 0.04 of VAT; 7.60 is required.
   it('ten R10.10 lines credited in two notes of 50.50 + 7.60 post and return the VAT201 to zero', async () => {
     const items = Array.from({ length: 10 }, (_, i) => ({ description: `Half ${i + 1}`, unitPrice: 10.1 }));
     const id = await approvedInvoice('2026-04-10', items,

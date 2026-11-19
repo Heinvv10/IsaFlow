@@ -19,7 +19,7 @@ vi.mock('@/lib/neon', () => ({
   }),
 }));
 
-import { creditNoteRevenueJournalLines } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
+import { creditNoteRevenueJournalLines, typedInvoiceCreditState } from '@/modules/accounting/services/ar/invoiceRevenuePosting';
 import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 
 const DEFAULT = 'acct-default';
@@ -29,7 +29,7 @@ const row = (id: string, net: string, vatType: string | null) => ({
 });
 const NO_TAGS = { projectId: null, cc1Id: null, cc2Id: null, buId: null };
 const read = (amount: number, taxAmount: number) => creditNoteRevenueJournalLines('co', {
-  id: 'cn', number: 'CN-1', amount, taxAmount, date: '2026-07-20', customerInvoiceId: 'inv', tags: NO_TAGS,
+  id: 'cn', number: 'CN-1', amount, taxAmount, customerInvoiceId: 'inv', tags: NO_TAGS,
 }, DEFAULT);
 const debits = async (amount: number, taxAmount: number) => (await read(amount, taxAmount)).lines.map((l) => [l.debit, l.vatType ?? null]);
 
@@ -47,10 +47,11 @@ describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => 
     expect(await debits(500, 75)).toEqual([[500, null]]);
   });
 
-  it('coded legs (a typed invoice): the note\'s VAT decides the rated part, each debit on its leg\'s type', async () => {
+  it('coded legs (a typed invoice): pro rata over every leg, each debit on its leg\'s type, VAT exactly proportional', async () => {
     db.legs = [row('s', '1000.00', 'standard'), row('z', '300.00', 'zero_rated'), row('e', '200.00', 'exempt')];
     db.vat = [{ invoice_vat: '150.00', reversed_vat: '0.00' }];
-    expect(await debits(300, 15)).toEqual([[100, 'standard'], [120, 'zero_rated'], [80, 'exempt']]);
+    expect(await debits(300, 30)).toEqual([[200, 'standard'], [60, 'zero_rated'], [40, 'exempt']]);
+    await expect(read(300, 45)).rejects.toThrow(/its VAT must be 30\.00, not 45\.00/);
     await expect(read(1100, 165)).rejects.toBeInstanceOf(CreditNoteVatSplitRefusal);
   });
 
@@ -59,7 +60,7 @@ describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => 
     expect(await debits(200, 30)).toEqual([[100, 'standard'], [100, null]]);
   });
 
-  it('a typed invoice: reads the VAT its rated legs still carry, so a full credit is not refused by a rounding cent', async () => {
+  it('a typed invoice: reads its remaining VAT, and a note clearing the net carries all of it', async () => {
     db.legs = [row('s', '66.66', 'standard'), row('e', '100.00', 'exempt')];
     db.vat = [{ invoice_vat: '10.00', reversed_vat: '0.00' }];
     expect(await debits(166.66, 10)).toEqual([[66.66, 'standard'], [100, 'exempt']]);
@@ -72,21 +73,29 @@ describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => 
     expect(db.texts.some((t) => /AS invoice_vat/.test(t))).toBe(false);
   });
 
-  // Round 4, item 1: the remaining rated VAT is the invoice's VAT less what its live earlier notes reversed. On the
-  // hundred R0.10-lines invoice (10.00 standard carrying 2.00 of VAT, 50 exempt), an earlier note took 5.00 with 0.75.
-  // (The 66.66 / 10.00 invoice cannot show it: 5.00 / 15% is 33.33, exactly what is left, with or without the subtraction.)
-  it('subtracts the earlier notes\' VAT: the final 55.00 + 1.25 takes standard 5.00 and exempt 50', async () => {
+  // The remaining VAT is the invoice's VAT less what its live earlier notes reversed. On the hundred R0.10-lines invoice
+  // (10.00 standard carrying 2.00, 50 exempt) an earlier 12.00 + 0.40 note took 2.00 and 10.00: 48.00 and 1.60 remain.
+  it('subtracts the earlier notes\' VAT: the final 48.00 + 1.60 takes standard 8.00 and exempt 40', async () => {
     db.legs = [row('s', '10.00', 'standard'), row('e', '50.00', 'exempt')];
-    db.taken = [{ journal_line_id: 's', amount: '5.00' }];
-    db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.75' }];
-    expect(await debits(55, 1.25)).toEqual([[5, 'standard'], [50, 'exempt']]);
+    db.taken = [{ journal_line_id: 's', amount: '2.00' }, { journal_line_id: 'e', amount: '10.00' }];
+    db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.40' }];
+    expect(await debits(48, 1.6)).toEqual([[8, 'standard'], [40, 'exempt']]);
   });
 
-  it('without that subtraction the same note reads differently: refused as more rated net than is left', async () => {
+  it('without that subtraction the same note reads differently: refused, it would have to carry 2.00', async () => {
     db.legs = [row('s', '10.00', 'standard'), row('e', '50.00', 'exempt')];
-    db.taken = [{ journal_line_id: 's', amount: '5.00' }];
+    db.taken = [{ journal_line_id: 's', amount: '2.00' }, { journal_line_id: 'e', amount: '10.00' }];
     db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.00' }];
-    await expect(read(55, 1.25)).rejects.toThrow(/is VAT on 8\.33 of standard-rated supplies, but the invoice's rated lines have 5\.00 left/);
+    await expect(read(48, 1.6)).rejects.toThrow(/its VAT must be 2\.00, not 1\.60/);
+  });
+
+  it('what a typed invoice still has to credit, for a dispute raising a note against it', async () => {
+    db.legs = [row('s', '10.00', 'standard'), row('e', '50.00', 'exempt')];
+    db.taken = [{ journal_line_id: 's', amount: '2.00' }, { journal_line_id: 'e', amount: '10.00' }];
+    db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.40' }];
+    expect(await typedInvoiceCreditState('co', 'inv')).toEqual({ remainingNet: 48, remainingVat: 1.6 });
+    db.legs = [row('a', '1000.00', null)];
+    expect(await typedInvoiceCreditState('co', 'inv')).toBeNull();
   });
 
   it('counts only live earlier customer notes, never this one', async () => {

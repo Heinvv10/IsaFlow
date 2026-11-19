@@ -47,10 +47,11 @@ describe('approveCreditNote, a note its typed invoice cannot carry', () => {
     expect(writes()).toEqual([]);
   });
 
-  it('a note it can carry gets as far as its journal, on the split legs', async () => {
-    wire(200, 30);
+  it('a note with its proportional VAT gets as far as its journal, pro rata on every leg', async () => {
+    wire(300, 30);
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID).catch(() => undefined); // what follows the journal is not this test's
     const lines = (mockCreateJournalEntry.mock.calls[0]![1] as { lines: { debit: number; vatType?: string }[] }).lines;
-    expect(lines.filter((l) => l.debit > 0).map((l) => [l.debit, l.vatType])).toEqual([[200, 'standard'], [30, 'standard']]);
+    expect(lines.filter((l) => l.debit > 0).map((l) => [l.debit, l.vatType]))
+      .toEqual([[200, 'standard'], [60, 'zero_rated'], [40, 'exempt'], [30, 'standard']]);
   });
 });
