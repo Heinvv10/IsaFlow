@@ -122,7 +122,7 @@ export async function intercompanyRelationRows(tx: Tx, companyId: string): Promi
   for (const [table, where] of reads) {
     try {
       const [r] = await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`, [companyId]);
-      if ((r?.n ?? 0) > 0) out.push({ table, n: r!.n });
+      if (r && r.n > 0) out.push({ table, n: r.n });
     } catch (err) {
       // A role that cannot read the table, or a database from before migration 1000: a clean refusal that names it, not a raw driver error.
       const code = (err as { code?: string }).code;
