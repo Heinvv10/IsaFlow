@@ -8,9 +8,16 @@
  * write; refusal = 400. The REST create is the only writer of the column (census 7): `createSupplierInvoice`, and
  * the route ahead of its number reservation.
  * Named limit: the header `purchase_order_id` alone (no line naming a PO line) is not checked here.
+ *
+ * `lock: true` (the create's own transaction, before it inserts the bill or its lines): the named POs are taken `FOR KEY SHARE`
+ * in id order and the checks run again UNDER that lock. Without it a PO edit (`update_purchase_order`: `FOR UPDATE`, replaces the
+ * po_items rows) could slip between this check and the line insert and leave the bill line naming a deleted PO line; with it the
+ * edit waits for the bill's commit (and then refuses, the line being tied), or the bill, arriving second, finds the line gone and
+ * is refused. Lock order (census): the bill row is new, nobody else can hold it, so the PO rows are the first lock a create takes;
+ * a draft edit holds its bill and then takes the same `KEY SHARE`, so the two never invert.
  */
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
 
@@ -24,6 +31,7 @@ export class SupplierInvoicePoLinkRefusal extends Error {
 
 export async function assertBillPoLinks(
   companyId: string, purchaseOrderId: unknown, supplierId: string, items: ReadonlyArray<{ poItemId?: unknown }>,
+  opts: { db?: typeof sql | TxSql; lock?: boolean } = {},
 ): Promise<void> {
   const named = items.map((i) => i.poItemId).filter((v) => v !== undefined && v !== null && v !== '');
   if (named.length === 0) return;
@@ -33,7 +41,16 @@ export async function assertBillPoLinks(
   const ids = [...new Set((named as string[]).map((v) => v.toLowerCase()))];
   const order = typeof purchaseOrderId === 'string' && purchaseOrderId !== '' ? purchaseOrderId : null;
   if (order !== null && !UUID_RE.test(order)) throw new SupplierInvoicePoLinkRefusal('The bill names a purchase order that is not a valid id');
-  const found = (await sql`
+  const db = opts.db ?? sql;
+  if (opts.lock) {
+    // The POs the named lines belong to (any company's id resolves to nothing here: the company filter), id order.
+    await db`
+      SELECT po.id FROM purchase_orders po
+       WHERE po.company_id = ${companyId}::UUID AND po.id IN (SELECT pi.purchase_order_id FROM po_items pi WHERE pi.id = ANY(${ids}::UUID[]))
+       ORDER BY po.id FOR KEY SHARE OF po
+    `;
+  }
+  const found = (await db`
     SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, po.supplier_id::TEXT AS supplier, po.status
       FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
      WHERE pi.id = ANY(${ids}::UUID[])
