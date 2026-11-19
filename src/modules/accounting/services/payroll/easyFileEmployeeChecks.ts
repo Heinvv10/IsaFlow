@@ -4,8 +4,9 @@
  * 300-line cap.
  */
 
-import { UsageError, isValidTaxNumber } from './easyFileFields';
+import { UsageError } from './easyFileFields';
 import type { EmployeeInput } from './easyFileExportService';
+import { fieldLabel } from './easyFileCertificateCodes';
 
 /**
  * BRS V25.3.0 p. 43 (3232): a directive for these income codes has a numeric
@@ -26,17 +27,25 @@ export function validateEmployee(emp: EmployeeInput): void {
   if (!/^\d{13}$/.test(emp.idNumber)) {
     throw new UsageError(`ID number (code 3060) must be 13 digits for natural persons: "${emp.idNumber}"`);
   }
-  if (emp.taxNumber && !isValidTaxNumber(emp.taxNumber)) {
-    throw new UsageError('Tax number (code 3150) must be 10 digits starting with 0/1/2/3/9');
+  // BRS V25.3.0 p. 27: for nature of person A the income tax reference starts with 0, 1, 2 or 3 (9 is a company's).
+  if (emp.taxNumber && !/^[0-3]\d{9}$/.test(emp.taxNumber)) {
+    throw new UsageError(`${fieldLabel('incomeTaxReference', 'Income tax reference number')} must be 10 digits starting with 0, 1, 2 or 3: "${emp.taxNumber}"`);
   }
-  if (!/^\d{8}$/.test(emp.employmentStartDate)) {
-    throw new UsageError('Employment start date (code 3200) must be CCYYMMDD');
+  // BRS p. 32: CCYYMMDD, start <= end, start on or after 1 January of the year before the year of assessment.
+  for (const [name, words, v] of [['taxPeriodStart', 'Certificate tax period start date', emp.taxPeriodStart],
+    ['taxPeriodEnd', 'Certificate tax period end date', emp.taxPeriodEnd]] as const) {
+    if (!/^\d{8}$/.test(v)) throw new UsageError(`${fieldLabel(name, words)} must be CCYYMMDD: "${v}"`);
   }
-  if (emp.employmentEndDate && !/^\d{8}$/.test(emp.employmentEndDate)) {
-    throw new UsageError('Employment end date (code 3210) must be CCYYMMDD');
+  if (emp.taxPeriodStart > emp.taxPeriodEnd) {
+    throw new UsageError(`${fieldLabel('taxPeriodStart', 'Certificate tax period start date')} ${emp.taxPeriodStart} is after the end date (code 3180) ${emp.taxPeriodEnd}`);
   }
-  if (emp.periodsInYoA < 0 || emp.periodsInYoA > 12) {
-    throw new UsageError('Periods in year of assessment (code 3215) must be 0..12');
+  if (emp.taxPeriodStart < `${emp.yearOfAssessment - 1}0101`) {
+    throw new UsageError(`${fieldLabel('taxPeriodStart', 'Certificate tax period start date')} ${emp.taxPeriodStart} is before 1 January ${emp.yearOfAssessment - 1}`);
+  }
+  // BRS p. 33: 3210 cannot be greater than 3200.
+  if (!(emp.payPeriodsInYear > 0) || !(emp.payPeriodsWorked > 0) || emp.payPeriodsWorked > emp.payPeriodsInYear) {
+    throw new UsageError(`${fieldLabel('payPeriodsWorked', 'Pay periods worked')} must be more than 0 and not more than `
+      + `the pay periods in the year (code 3200): ${emp.payPeriodsWorked} of ${emp.payPeriodsInYear}`);
   }
   const lumpSums = emp.lumpSums ?? [];
   if (emp.grossSalary3601 <= 0 && (emp.annualPayments3605 ?? 0) <= 0 && (emp.independentContractor3616 ?? 0) <= 0 && !lumpSums.some(l => l.amount > 0)
@@ -57,4 +66,18 @@ export function validateEmployee(emp: EmployeeInput): void {
       throw new UsageError(`Directive issued date (code 3231) of the ${l.sourceCode} lump sum for ${who} must be CCYYMMDD`);
     }
   }
+}
+
+/**
+ * BRS V25.3.0 p. 26 (3100): the income tax reference is mandatory on an IRP5 with PAYE (4102) above zero, and on an
+ * IT3(a) whose reason (4150) is not 02 or 04; optional otherwise. Refused here, naming the employee, because
+ * e@syFile rejects the certificate without it.
+ */
+export function assertIncomeTaxReference(emp: EmployeeInput, it3aReason: string | null): void {
+  if (emp.taxNumber) return;
+  const required = it3aReason === null ? emp.paye4102 > 0 : it3aReason !== '02' && it3aReason !== '04';
+  if (!required) return;
+  const why = it3aReason === null ? 'PAYE was withheld' : `the IT3(a) reason is ${it3aReason}`;
+  throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${fieldLabel('incomeTaxReference', 'income tax reference number')} `
+    + `is required because ${why}. Capture the employee's tax number on the employee record.`);
 }

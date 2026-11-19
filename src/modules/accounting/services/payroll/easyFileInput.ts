@@ -20,7 +20,7 @@ import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/d
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import {
-  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
+  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthlyPayPeriodsWorked, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { allowanceCertificateFields, listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
@@ -87,7 +87,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
         sars_contact_first_name, sars_contact_last_name,
         sars_contact_telephone, sars_contact_number,
         email,
-        physical_address_line1, physical_city, physical_province, physical_postal_code
+        physical_address_line1, physical_city, physical_postal_code
       FROM companies
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
@@ -123,6 +123,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   if (!company.sars_contact_last_name) missing.push('SARS contact surname');
   if (!company.physical_address_line1) missing.push('Physical address line 1');
   if (!company.physical_postal_code) missing.push('Physical postal code');
+  // 2066: with no suburb held (2065), the city is the one the BRS needs ("either the Suburb / District or the City / Town").
+  if (!company.physical_city) missing.push('Physical city');
   if (!(company.sars_contact_telephone || company.sars_contact_number)) {
     missing.push('SARS contact telephone or cell number');
   }
@@ -214,9 +216,12 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
       initials: initialsFromName(String(row.first_name ?? '')),
       idNumber: String(row.id_number ?? ''),
       taxNumber: row.tax_number ? String(row.tax_number) : null,
-      employmentStartDate: certStartDate,
-      employmentEndDate: certEndDate,
-      periodsInYoA: monthsBetween(periodStart, periodEnd),
+      // 3170 / 3180 / 3200 / 3210 (BRS V25.3.0 p. 32-33). 12 pay periods: only monthly runs are certified
+      // (assertRunKindSupported 'irp5' refuses any other frequency above); an interim year is still divided into 12.
+      taxPeriodStart: periodStart,
+      taxPeriodEnd: periodEnd,
+      payPeriodsInYear: 12,
+      payPeriodsWorked: monthlyPayPeriodsWorked(periodStart, periodEnd),
       ...split,
       cashAllowances: allowance.cashAllowances,
       ...(allowance.paye4582 !== undefined ? { paye4582: allowance.paye4582 } : {}),
@@ -261,7 +266,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     reconciliationPeriod: reconciliationPeriodCode(period),
     sic7Code: company.sic7_code ? String(company.sic7_code) : null,
     physicalStreet: String(company.physical_address_line1),
-    physicalSuburb: company.physical_province ? String(company.physical_province) : null,
+    // 2065 is the suburb / district (BRS V25.3.0 p. 14); the company holds no suburb, and a province is neither.
+    physicalSuburb: null,
     physicalCity: company.physical_city ? String(company.physical_city) : null,
     physicalPostalCode: String(company.physical_postal_code),
   };

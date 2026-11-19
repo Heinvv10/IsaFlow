@@ -12,6 +12,7 @@ import type { DbRow } from '@/lib/neon';
 import { buildIrp5File, UsageError, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '@/modules/accounting/services/payroll/easyFileInput';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { currentCertificate } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import type { Emp501Kind, Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { ReturnRefusal } from './returnVersionTypes';
@@ -132,7 +133,9 @@ export async function emp501Drift(companyId: string, p: Emp501Period, recorded: 
   const same = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
   const changed = [
     ...(same(recorded.employer, now.employer) ? [] : ['employer']),
-    ...(same(recorded.employees, now.employees) ? [] : ['certificates']),
+    // A certificate recorded before the BRS code fix compares in today's shape (currentCertificate).
+    ...(same(Array.isArray(recorded.employees) ? recorded.employees.map((e: object) => currentCertificate(e, p.taxYear, p.kind)) : recorded.employees,
+      now.employees) ? [] : ['certificates']),
     ...(same(recorded.runs, now.runs) ? [] : ['runs']),
   ];
   return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };

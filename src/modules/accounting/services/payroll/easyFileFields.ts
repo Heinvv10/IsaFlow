@@ -13,7 +13,12 @@ export class UsageError extends Error {
 
 // ─── Field formatters ─────────────────────────────────────────────────────────
 
-type FieldType = 'A' | 'AN' | 'FT' | 'N' | 'N_CENTS';
+/**
+ * BRS length types. A / AN / FT are quoted (§3(l)). N drops the cents; N_CENTS keeps them (§3(j)). ND is a number
+ * written digit for digit (an ID, tax or PAYE reference: N13 / N10, where a leading 0 is part of the number). N4DP is
+ * the N3.4 fixed decimal of the pay periods (3200 / 3210: "4 digits after the decimal point ... even if zero", p. 33).
+ */
+export type FieldType = 'A' | 'AN' | 'FT' | 'N' | 'N_CENTS' | 'ND' | 'N4DP';
 
 /** BRS §3: no commas or pipes are allowed inside values (rule h). */
 function assertNoForbiddenChars(value: string, code: number): void {
@@ -38,6 +43,18 @@ export function formatField(code: number, value: string | number | null, type: F
     assertNoLeadingSpace(str, code);
     // BRS §3(l): Alpha / AN / FT wrapped in opening + closing double quotes.
     return `${code},"${str}"`;
+  }
+
+  if (type === 'ND') {
+    const digits = String(value);
+    if (!/^\d+$/.test(digits)) throw new UsageError(`Field ${code} must be digits only: "${digits}"`);
+    return `${code},${digits}`;
+  }
+
+  if (type === 'N4DP') {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) throw new UsageError(`Field ${code} must be a number of 0 or more (BRS §3(g))`);
+    return `${code},${num.toFixed(4)}`;
   }
 
   if (type === 'N_CENTS') {

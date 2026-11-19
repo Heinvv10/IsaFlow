@@ -23,7 +23,8 @@
  *     indicator is left out). 3601 excludes them.
  *   - Deduction codes 4001/4003/4006 (retirement funds, easyFileRetirementFields), 4102 (PAYE),
  *     4115 (PAYE on lump sums), 4141 (total UIF: employee + employer), 4142 (SDL)
- *   - Periods-of-employment field derived from employee start/end dates
+ *   - The certificate tax period (3170 / 3180) and pay periods (3200 / 3210), from the employee's start and leaving
+ *     dates within the period (easyFileInput); identity and period codes: easyFileCertificateCodes
  *
  * Deliberately out of scope — will be added in later iterations:
  *   - The IRP5 total fields (gross remuneration 3699 and its 3696-3698 splits,
@@ -33,7 +34,9 @@
  *   - Reason codes 4150 other than 02, 04 and 08 (08: medical credits, with
  *     4005/4116/4120, easyFileMedicalFields; PAYE 4a follow-ups round 2, R3).
  *   - ETI (codes 3026, 3190, 7002-7009)
- *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
+ *   - Foreign nationals / passport / alternate ID (codes 3061/3065/3066/3070/3075)
+ *   - The mandatory fields IsaFlow holds no data for (addresses, bank details, 3026 / 3195 / 3220 / 3263 / 3136):
+ *     easyFileCertificateCodes.UNWRITTEN_MANDATORY_CODES
  *   - Fixed-rate PAYE directives
  *   - Allowances 3702-3713 (paid as cash, so in 3601; 3701 is certified under its own code, payrollAllowanceFiling); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
  *   - Non-natural persons / directors / asylum seekers
@@ -43,7 +46,8 @@
  */
 
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
-import { validateEmployee } from './easyFileEmployeeChecks';
+import { assertIncomeTaxReference, validateEmployee } from './easyFileEmployeeChecks';
+import { certificateField } from './easyFileCertificateCodes';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
@@ -98,7 +102,8 @@ export function buildEmployerRecord(e: EmployerInput): string[] {
   const lines: (string | null)[] = [
     formatField(2010, e.tradingName, 'FT'),
     formatField(2015, 'LIVE', 'A'),
-    formatField(2020, e.payeReferenceNumber, 'AN'),
+    // N10 (BRS V25.3.0 p. 10): unquoted, every digit kept.
+    formatField(2020, e.payeReferenceNumber, 'ND'),
     formatField(2022, e.sdlReferenceNumber, 'AN'),
     formatField(2024, e.uifReferenceNumber, 'AN'),
     formatField(2025, e.contactFirstName, 'A'),
@@ -151,21 +156,25 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // RF: 4001 / 4003 / 4006 include the employer's contributions deemed paid by the employee (the non-cash 3817 / 3825 / 3828).
   const retirement = retirementFieldLines(withDeemedEmployerContributions(emp.retirementFund, emp.fringeBenefits ?? []));
   const employerFund = employerFundContributionFields(emp.fringeBenefits ?? []);
+  assertIncomeTaxReference(emp, reason);
+  // BRS V25.3.0 p. 33-34: "If the lump sum is the only income on the certificate", 3200 and 3210 are 1.0000.
+  const lumpSumOnly = lumpSums.some(l => l.amount >= 1) && emp.grossSalary3601 < 1 && (emp.annualPayments3605 ?? 0) < 1
+    && (emp.independentContractor3616 ?? 0) < 1 && ![...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].some(f => f.amount >= 1);
   const lines: (string | null)[] = [
-    formatField(3010, emp.certificateNumber, 'AN'),
-    formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
-    formatField(3020, 'A', 'A'),
-    formatField(3025, emp.yearOfAssessment, 'N'),
-    formatField(3030, emp.surname, 'FT'),
-    formatField(3040, emp.firstNames, 'AN'),
-    formatField(3050, emp.initials, 'A'),
-    formatField(3060, emp.idNumber, 'N'),
-    formatField(3080, birth3080, 'N'),
-    formatField(3150, emp.taxNumber, 'AN'),
-    formatField(3200, emp.employmentStartDate, 'N'),
-    formatField(3210, emp.employmentEndDate, 'N'),
-    // 3215 — N4.4 periods in YoA. Render with 4-decimal precision per BRS.
-    `3215,${emp.periodsInYoA.toFixed(4)}`,
+    certificateField('certificateNumber', emp.certificateNumber),
+    certificateField('certificateType', it3a ? 'IT3(a)' : 'IRP5'),
+    certificateField('natureOfPerson', 'A'),
+    certificateField('yearOfAssessment', emp.yearOfAssessment),
+    certificateField('surname', emp.surname),
+    certificateField('firstTwoNames', emp.firstNames),
+    certificateField('initials', emp.initials),
+    certificateField('identityNumber', emp.idNumber),
+    certificateField('dateOfBirth', birth3080),
+    certificateField('incomeTaxReference', emp.taxNumber),
+    certificateField('taxPeriodStart', emp.taxPeriodStart),
+    certificateField('taxPeriodEnd', emp.taxPeriodEnd),
+    certificateField('payPeriodsInYear', lumpSumOnly ? 1 : emp.payPeriodsInYear),
+    certificateField('payPeriodsWorked', lumpSumOnly ? 1 : emp.payPeriodsWorked),
     ...lumpSums.flatMap(l => [
       formatField(3230, l.directiveNumber, 'AN'),
       formatField(3231, l.directiveIssuedDate, 'N'),

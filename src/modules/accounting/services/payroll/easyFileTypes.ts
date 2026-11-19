@@ -1,5 +1,5 @@
 /**
- * The input types of the e@syFile IRP5 export (moved out of easyFileExportService.ts, unchanged, for the 300-line cap).
+ * The input types of the e@syFile IRP5 export (moved out of easyFileExportService.ts for the 300-line cap).
  * easyFileExportService re-exports them, so every importer is as before.
  */
 import type { MedicalCertificateInput } from './easyFileMedicalFields';
@@ -31,10 +31,12 @@ export interface EmployeeInput {
   firstNames: string;             // 3040 — first two names
   initials: string;               // 3050
   idNumber: string;               // 3060 — 13-digit RSA ID
-  taxNumber: string | null;       // 3150 — 10-digit SARS income tax ref (optional if legitimate)
-  employmentStartDate: string;    // 3200 — CCYYMMDD
-  employmentEndDate: string | null; // 3210 — CCYYMMDD
-  periodsInYoA: number;           // 3215 — e.g. months worked in the year (0..12)
+  taxNumber: string | null;       // 3100 — income tax reference, N10 (mandatory on an IRP5 with PAYE: easyFileEmployeeChecks)
+  // Field codes: easyFileCertificateCodes.CERTIFICATE_FIELDS (BRS V25.3.0 p. 32-33).
+  taxPeriodStart: string;         // 3170 — CCYYMMDD, the later of the period's first day and the employment start
+  taxPeriodEnd: string;           // 3180 — CCYYMMDD, the earlier of the period's last day and the leaving date
+  payPeriodsInYear: number;       // 3200 — N3.4, the pay periods the year is divided into (12: monthly runs only)
+  payPeriodsWorked: number;       // 3210 — N3.4, those worked, a part period as a fraction; <= payPeriodsInYear
   // Amounts (Rand, cents dropped where applicable):
   grossSalary3601: number;        // 3601 — cents dropped
   paye4102: number;               // 4102 — cents kept (N11.2)
