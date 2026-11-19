@@ -113,7 +113,7 @@ describe('the migration backfill', () => {
     const file = readFileSync('scripts/migrations/sql/1006_purchase_order_bill_links.sql', 'utf8');
     const functions = file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.po_bill_posted_cents'), file.indexOf('SELECT public.purchase_order_bill_links_backfill();'));
     await pool.query(functions);
-    await pool.query('SELECT purchase_order_bill_links_backfill()');
+    await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     const rows = await linkRows(pool, f);
     const byBill = new Map(rows.map((r) => [r.bill, r]));
     expect([...byBill.keys()].sort()).toEqual([plain.id, withLines.id, wayOver.id].sort());
@@ -121,7 +121,7 @@ describe('the migration backfill', () => {
     expect(byBill.get(plain.id)!.amount).toBe('250.00');
     expect(byBill.get(withLines.id)!.amount).toBe('100.00');
     expect(byBill.get(wayOver.id)!.amount).toBe('50.00');
-    expect(Number((await pool.query('SELECT purchase_order_bill_links_backfill() AS n')).rows[0].n)).toBe(0);
+    expect(Number((await pool.query('SELECT purchase_order_bill_links_backfill($1) AS n', [f.co])).rows[0].n)).toBe(0);
     expect(await linkRows(pool, f)).toHaveLength(3);
     await pool.query('DELETE FROM purchase_order_bill_links WHERE company_id = $1', [f.co]);
   });
@@ -283,7 +283,7 @@ describe('the guards hold for every role and every session setting', () => {
     try {
       await c.query('BEGIN');
       await c.query('ALTER ROLE postgres NOSUPERUSER');
-      const r = await c.query('SELECT purchase_order_bill_links_backfill() AS n');
+      const r = await c.query('SELECT purchase_order_bill_links_backfill($1) AS n', [f.co]);
       expect(Number(r.rows[0].n)).toBeGreaterThanOrEqual(1);
       const mine = await c.query('SELECT source FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
       expect(mine.rows).toEqual([{ source: 'backfill' }]);

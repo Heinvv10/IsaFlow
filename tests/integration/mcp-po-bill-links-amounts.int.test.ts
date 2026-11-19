@@ -125,9 +125,9 @@ describe('the backfill and recordBillLinks give the same links', () => {
     const ids = [...Object.values(bills), ...posted, ...unposted].map((x) => x.id);
     const snapshot = async () => new Map((await linkRows(pool, f)).map((l) => [`${l.bill}|${l.po}`, l.amount]));
 
-    await pool.query('SELECT purchase_order_bill_links_backfill()');
+    await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     const fromSql = await snapshot();
-    const again = await pool.query('SELECT purchase_order_bill_links_backfill() AS n');
+    const again = await pool.query('SELECT purchase_order_bill_links_backfill($1) AS n', [f.co]);
     expect(Number(again.rows[0].n)).toBe(0);
     await pool.query('DELETE FROM purchase_order_bill_links WHERE company_id = $1', [f.co]);
     for (const id of ids) await inRequest(() => recordBillLinks(f.co, id, f.owner));
@@ -160,7 +160,7 @@ describe('the backfill and recordBillLinks give the same links', () => {
     const po = await seedPo(pool, f, { lines: [60] });
     const draft = await seedBill(pool, f, { lines: [60], status: 'draft' });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [draft.id, po.po]);
-    await pool.query('SELECT purchase_order_bill_links_backfill()');
+    await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ po: po.po, amount: '60.00', source: 'backfill' });
     await approveBill(pool, f, draft.id);
     expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`)).map((l) => [l.po, l.amount])).toEqual([[po.po, '60.00']]);
@@ -173,14 +173,14 @@ describe('the backfill and recordBillLinks give the same links', () => {
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, p1.po]);   // the old colour wrote only the header
     await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by) VALUES ($1, $2, $3, 100, 'mcp', 'u')`, [f.co, p2.po, bill.id]);
     for (let i = 0; i < 2; i++) {
-      await pool.query('SELECT purchase_order_bill_links_backfill()');
+      await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
       expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill.id}'`)).map((l) => [l.po, l.amount, l.source])).toEqual([[p2.po, '100.00', 'mcp']]);
     }
     // With room left (the mcp link holds 30), the header PO gets the remainder, in TypeScript and SQL alike.
     const bill2 = await seedBill(pool, f, { lines: [100] });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill2.id, p1.po]);
     await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by) VALUES ($1, $2, $3, 30, 'mcp', 'u')`, [f.co, p2.po, bill2.id]);
-    await pool.query('SELECT purchase_order_bill_links_backfill()');
+    await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill2.id}'`)).map((l) => [l.po, l.amount]).sort()).toEqual([[p1.po, '70.00'], [p2.po, '30.00']].sort());
   });
 });
