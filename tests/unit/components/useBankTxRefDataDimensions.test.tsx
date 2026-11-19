@@ -7,12 +7,15 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/lib/fetchAllSuppliers', async (original) => ({
   ...await original<typeof import('@/lib/fetchAllSuppliers')>(),
   fetchAllSuppliers: vi.fn().mockResolvedValue({ suppliers: [], truncated: false }),
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { notify } from '@/utils/toast';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -40,7 +43,13 @@ const setters = () => ({
   setCc1Options: vi.fn(), setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSuppliersStatus: vi.fn(),
 });
 beforeEach(() => vi.mocked(apiFetch).mockImplementation(async (url: unknown) => route(String(url))));
-afterEach(() => vi.mocked(apiFetch).mockReset());
+afterEach(() => {
+  vi.mocked(apiFetch).mockReset();
+  vi.mocked(notify.error).mockClear();
+  vi.mocked(log.warn).mockClear();
+});
+
+const LISTS_FAILED = 'Could not load some lists - reload the page';
 
 describe('useBankTxRefData dimensions (#1653)', () => {
   it('gives every CC2 its parent and the FNO its chain reaches', async () => {
@@ -59,5 +68,42 @@ describe('useBankTxRefData dimensions (#1653)', () => {
     renderHook(() => useBankTxRefData(s));
     await waitFor(() => expect(s.setBuOptions).toHaveBeenCalled());
     expect(s.setBuOptions).toHaveBeenCalledWith([{ id: 'bu1', code: 'ADM', name: 'Administration' }]);
+    expect(notify.error).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['CC2', '/api/accounting/cost-centres?detail=dimensions'],
+    ['BU', '/api/accounting/business-units'],
+    ['CC1', '/api/accounting/cost-centres?cc_type=cc1'],
+  ])('a %s list in the wrong shape says the lists failed and logs it, once', async (_name, prefix) => {
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => (
+      String(url).startsWith(prefix) ? ok([{ id: 'not-under-items' }]) : route(String(url))));
+    const s = setters();
+    renderHook(() => useBankTxRefData(s));
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith(LISTS_FAILED));
+    expect(notify.error).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/wrong shape/), expect.objectContaining({ url: expect.stringContaining(prefix) }), 'accounting-ui');
+  });
+
+  it('aborts its fetches on unmount and sets nothing after it', async () => {
+    const signals: AbortSignal[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      await gate;
+      return route(String(url));
+    });
+    const s = setters();
+    const { unmount } = renderHook(() => useBankTxRefData(s));
+    await waitFor(() => expect(signals).toHaveLength(5));
+    unmount();
+    expect(signals.every(sg => sg.aborted)).toBe(true);
+    release();
+    await new Promise(r => setTimeout(r, 20));
+    expect(s.setCc2Options).not.toHaveBeenCalled();
+    expect(s.setBuOptions).not.toHaveBeenCalled();
+    expect(notify.error).not.toHaveBeenCalled();
   });
 });

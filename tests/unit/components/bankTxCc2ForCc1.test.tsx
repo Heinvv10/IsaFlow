@@ -91,6 +91,24 @@ describe('bank grid: CC2 options follow the chosen CC1 (#1653)', () => {
     expect(p.onRowDimensionChange).toHaveBeenLastCalledWith('a', 'fc', 'pc2', '');
   });
 
+  it('a stored CC1 missing from the active options offers every CC2 and clears nothing', () => {
+    // 'gone' is a deactivated CC1 the row still carries: there is no ladder to filter on, so nothing is hidden.
+    const p = props('gone', 'pa1');
+    render(<BankTxTable {...p} />);
+    expect(offered('Cost centre 2')).toHaveLength(CC2.length + 1);
+    choose('Cost centre 2', 'OH-BANK Bank charges');
+    expect(p.onRowDimensionChange).toHaveBeenLastCalledWith('a', 'gone', 'oh', '');
+    choose('Business unit', 'Z');
+    expect(p.onRowDimensionChange).toHaveBeenLastCalledWith('a', 'gone', 'pa1', 'z');
+  });
+
+  it('clearing the CC1 keeps the CC2', () => {
+    const p = props('fa', 'pa1');
+    render(<BankTxTable {...p} />);
+    choose('Cost centre 1', '—');
+    expect(p.onRowDimensionChange).toHaveBeenLastCalledWith('a', '', 'pa1', '');
+  });
+
   it('no CC1 offers every active CC2', () => {
     render(<BankTxTable {...props('')} />);
     expect(offered('Cost centre 2')).toHaveLength(CC2.length + 1);
