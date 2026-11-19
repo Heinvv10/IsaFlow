@@ -3,8 +3,8 @@
  * Golden path (s): the app shell holds still while it loads, names the tab, and works on a phone and a tablet
  * (master plan W1 PR S).
  *
- *  - No layout shift moves the shell (`main` itself, the header bar or a nav bar) on /accounting and the invoice list,
- *    cold (new context) and warm (reload), in top-nav and in sidebar mode. The invoice list's total stays < 0.05.
+ *  - No layout shift moves the shell (`main` itself, the header bar or a nav bar) on /accounting, the invoice list and
+ *    the item list (which keeps a section bar), cold (new context) and warm (reload), in top-nav and in sidebar mode. The invoice list's total stays < 0.05.
  *    /accounting is gated on shell shifts only: its total (0.069 warm on dev) is the dashboard's own hero and tiles
  *    growing as their numbers load, which PR K's files own.
  *  - The document title names the page and its module.
@@ -25,7 +25,9 @@ const INVOICES = '/accounting/customer-invoices';
 /** A page that keeps the section bar under the main row (a module reached through Library). */
 const ITEMS = '/accounting/items';
 /** What "the page has loaded" means on each page: its content, not a timer. */
-const LOADED: Record<string, string> = { '/accounting': '[data-tour="dashboard"]', [INVOICES]: 'main table tbody tr' };
+const LOADED: Record<string, string> = {
+  '/accounting': '[data-tour="dashboard"]', [INVOICES]: 'main table tbody tr', [ITEMS]: 'main table tbody tr:not(:has(.animate-spin))',
+};
 
 interface Shift { value: number; shell: boolean; sources: string[] }
 
@@ -78,7 +80,7 @@ async function shiftsOf(page: Page, path: string, inflight: () => number, load: 
 const total = (s: Shift[]) => s.reduce((sum, x) => sum + x.value, 0);
 
 for (const mode of ['top', 'side'] as const) {
-  for (const path of ['/accounting', INVOICES]) {
+  for (const path of ['/accounting', INVOICES, ITEMS]) {
     test(`${path}, ${mode} nav: the shell does not move while it loads, cold and warm`, async ({ page }) => {
       await page.setViewportSize({ width: 1568, height: 900 });
       if (mode === 'side') await page.addInitScript(() => localStorage.setItem('accounting-nav-mode', 'side'));

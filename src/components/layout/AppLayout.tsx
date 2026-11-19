@@ -41,8 +41,8 @@ import { readShellPrefs, writeShellPrefs, type NavMode } from '@/components/layo
 interface AppLayoutProps {
   children: ReactNode;
   /**
-   * The path the secondary nav bar highlights from, when the URL alone cannot say: an AFS document and a
-   * management pack share /accounting/afs/<id>, and only the loaded document knows which it is.
+   * The path the nav menus (main row, sidebar, section bar) mark the current page from, when the URL alone cannot
+   * say: an AFS document and a management pack share /accounting/afs/<id>, and only the loaded document knows which.
    */
   navPath?: string;
 }
@@ -142,6 +142,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
         onCloseMobile={closeMobile}
         menuButtonRef={menuButtonRef}
         isAdminHost={isAdminHost}
+        navPath={navPath}
       />
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
@@ -165,7 +166,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
             inside a scrolling strip, so the hamburger drawer (AppSidebar) carries the nav there. */}
         {showTopNav && (
           <div className="relative z-40 hidden lg:block flex-shrink-0">
-            <div style={{ minHeight: SHELL_HEIGHTS.topNav }}><AccountingNav /></div>
+            <div style={{ minHeight: SHELL_HEIGHTS.topNav }}><AccountingNav navPath={navPath} /></div>
             {hasModuleNav && (
               <div style={{ minHeight: SHELL_HEIGHTS.moduleNav }}><SecondaryModuleNav moduleId={activeModuleId} navPath={navPath} /></div>
             )}

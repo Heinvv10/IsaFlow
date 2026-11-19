@@ -30,7 +30,7 @@ export function SecondaryModuleNav({ moduleId, navPath }: { moduleId: string; na
   return (
     <div className="border-b border-gray-200 dark:border-gray-800 bg-[var(--ff-canvas-mid)]">
       <div className="flex items-center gap-2 px-4">
-        {/* The visible label repeats the nav's own name ("Sales sections"), so screen readers skip it. Its capitals stay
+        {/* The visible label repeats the nav's own name ("Inventory sections"), so screen readers skip it. Its capitals stay
             on the label: on the wrapper every menu item inherited them. */}
         <span className="py-2 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)]" aria-hidden="true">{moduleTab.label}</span>
         {/* flex-1 + w-full: the nav carries its own bottom border, which otherwise stops where its tabs do */}
