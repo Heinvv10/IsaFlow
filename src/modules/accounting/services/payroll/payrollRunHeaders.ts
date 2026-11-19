@@ -85,8 +85,11 @@ export async function latestPayrollRun(companyId: string): Promise<{ id: string;
 export class PayrollRunDuplicateError extends Error {
   readonly month: number;
   readonly year: number;
-  constructor(month: number, year: number, message = `A payroll run for ${month}/${year} already exists.`) {
+  /** The run that already holds the period, when known (FQd: the new-run page links to it). */
+  readonly runId: string | null;
+  constructor(month: number, year: number, message = `A payroll run for ${month}/${year} already exists.`, runId: string | null = null) {
     super(message);
+    this.runId = runId;
     this.name = 'PayrollRunDuplicateError';
     this.month = month;
     this.year = year;

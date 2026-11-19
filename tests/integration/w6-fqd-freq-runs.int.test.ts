@@ -115,6 +115,9 @@ describe('a weekly run per period', () => {
   it('refuses the same period again and an overlapping one (pay week changed), writing no run', async () => {
     const dup = await create(a, { frequency: 'weekly', periodStart: MON });
     expect([dup.statusCode, dup.body.error?.details?.reason]).toEqual([409, 'PAY_PERIOD_EXISTS']);
+    const want = resolveRunPeriod('weekly', MON, DEFAULT_PAY_WEEK);
+    expect([dup.body.error?.message, dup.body.error?.details?.runId])
+      .toEqual([`The run for Week ${formatDayRange(want.periodStart, want.periodEnd)} already exists.`, weekly]);
     expect((await putWeek(a, { payWeekStartDow: 3, payWeekday: 1, fortnightAnchor: null })).statusCode).toBe(200);
     const over = await create(a, { frequency: 'weekly', periodStart: WED });
     expect([over.statusCode, over.body.error?.details?.reason]).toEqual([409, 'PAY_PERIOD_OVERLAP']);

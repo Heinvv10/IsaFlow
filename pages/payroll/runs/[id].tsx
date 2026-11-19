@@ -25,7 +25,7 @@ import { useLineExplain } from '@/components/payroll/LineExplain';
 import { PayslipEmailCard } from '@/components/payroll/PayslipEmailCard';
 import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
 import { periodLabel } from '@/components/payroll/RunCards';
-import { DeleteDraftRunButton } from '@/components/payroll/DeleteDraftRunButton';
+import { emptyLinesMessage } from '@/components/payroll/runEmptyLines';
 import { FrequencyChangeCard } from '@/components/payroll/FrequencyChangeCard';
 
 
@@ -148,10 +148,7 @@ export default function PayrollRunDetailPage() {
             </div>
             {run.lines.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)] text-sm">
-                No lines yet{canWrite(companyRole)
-                  ? <> — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.</>
-                  : '.'}
-                {run.status === 'draft' && canWrite(companyRole) && <DeleteDraftRunButton runId={runId} />}
+                {emptyLinesMessage(run, canWrite(companyRole))}
               </div>
             ) : editable && grid.inputs ? (
               <>

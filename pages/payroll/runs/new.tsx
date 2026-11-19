@@ -33,6 +33,8 @@ export default function NewPayrollRunPage() {
   const [year, setYear] = useState<number>(today.getFullYear());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** The run that already holds the chosen period (409 PAY_PERIOD_EXISTS): linked beside the error (review #1622 UI L3). */
+  const [existing, setExisting] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -42,12 +44,18 @@ export default function NewPayrollRunPage() {
     }
     setSubmitting(true);
     setError('');
+    setExisting(null);
     let target = '';
     try {
       const res = await apiFetch('/api/payroll/runs', {
         method: 'POST',
         body: JSON.stringify(frequency === 'monthly' ? { month, year } : { frequency, periodStart }),
       });
+      if (res.status === 409) {
+        const body = await res.clone().json().catch(() => null) as { error?: { details?: { runId?: unknown } } } | null;
+        const runId = body?.error?.details?.runId;
+        if (typeof runId === 'string') setExisting(runId);
+      }
       await assertOk(res, 'Could not create the payroll run - try again');
       const json = await res.json();
       const created = json.data ?? json;
@@ -86,7 +94,10 @@ export default function NewPayrollRunPage() {
 
         <form onSubmit={submit} className="p-6 max-w-md space-y-6">
           {error && (
-            <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
+            <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-400 text-sm">
+              {error}
+              {existing && <> <Link href={`/payroll/runs/${existing}`} className="underline">Open the existing run</Link></>}
+            </div>
           )}
           <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
             <Select label="Pay frequency" options={FREQUENCIES} value={frequency}

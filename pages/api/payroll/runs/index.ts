@@ -86,7 +86,7 @@ async function createForPeriod(
     return apiResponse.created(res, run);
   } catch (err) {
     if (err instanceof RunPeriodRefused) return apiResponse.badRequest(res, err.message);
-    if (err instanceof PayrollRunDuplicateError) return apiResponse.conflict(res, err.message, { reason: 'PAY_PERIOD_EXISTS' });
+    if (err instanceof PayrollRunDuplicateError) return apiResponse.conflict(res, err.message, { reason: 'PAY_PERIOD_EXISTS', runId: err.runId });
     if (err instanceof PayrollRunOverlapError) return apiResponse.conflict(res, err.message, { reason: err.code });
     if (respondIfLockTimeout(res, err)) return;
     throw err;

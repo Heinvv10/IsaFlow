@@ -21,7 +21,7 @@ import { Api } from './_api';
 import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
-import { formatPayDate, formatPeriodRange, periodsAround, DEFAULT_PAY_WEEK } from '@/modules/accounting/services/payroll/payrollPayWeek';
+import { formatDayRange, formatPayDate, formatPeriodRange, periodsAround, DEFAULT_PAY_WEEK } from '@/modules/accounting/services/payroll/payrollPayWeek';
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Weekly Sandbox';
@@ -94,7 +94,7 @@ async function weeklyRunFromPage(page: Page, api: Api): Promise<string> {
   const existing = (await api.get<Run[]>('/api/payroll/runs')).find((r) => r.payFrequency === 'weekly' && r.periodStart === week.periodStart);
   await Promise.race([
     page.waitForURL(/\/payroll\/runs\/[0-9a-f-]{36}$/, { timeout: 60_000 }),
-    expect(page.getByText(`A weekly payroll run for ${week.periodStart} already exists.`)).toBeVisible({ timeout: 60_000 }),
+    expect(page.getByText(`The run for Week ${formatDayRange(week.periodStart, week.periodEnd)} already exists.`)).toBeVisible({ timeout: 60_000 }),
   ]);
   const runs = await api.get<Run[]>('/api/payroll/runs');
   const run = runs.find((r) => r.payFrequency === 'weekly' && r.periodStart === week.periodStart);

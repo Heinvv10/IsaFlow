@@ -118,6 +118,26 @@ describe('a weekly run on the new-run page', () => {
     expect([post[0], JSON.parse(String(post[1].body))]).toEqual(['/api/payroll/runs', { frequency: 'weekly', periodStart: first.periodStart }]);
   });
 
+  it('a period that already has a run says so in plain words and links to it (UI L3)', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/payroll/settings/pay-week') return json(week);
+      if (init?.method === 'POST') {
+        return json({ code: 'CONFLICT', message: 'The run for Week 21–27 Sep 2026 already exists.', details: { reason: 'PAY_PERIOD_EXISTS', runId: 'run-9' } }, 409);
+      }
+      return json({});
+    });
+    render(<NewRunPage />);
+    await pick('Pay frequency', 'Weekly');
+    await screen.findByRole('combobox', { name: /^Period/ });
+    const first = periodsAround('weekly', DEFAULT_PAY_WEEK, new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date()))[0]!;
+    await pick(/^Period/, `${formatPeriodRange(first.periodStart, first.periodEnd)} (paid ${formatPayDate(first.payDate)})`);
+    fireEvent.click(screen.getByRole('button', { name: 'Create Run' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('The run for Week 21–27 Sep 2026 already exists.');
+    expect(within(alert).getByText('Open the existing run')).toBeTruthy();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it('refuses to post without a period', async () => {
     serve();
     render(<NewRunPage />);

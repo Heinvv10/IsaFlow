@@ -46,3 +46,18 @@ describe('DeleteDraftRunButton', () => {
     expect(router.push).not.toHaveBeenCalled();
   });
 });
+
+describe('Delete draft sits with the run\'s actions (review #1622 UI L5)', () => {
+  const props = {
+    runId: 'r1', period: 'Week 21–27 Sep 2026', companyRole: 'owner', locked: false, canCalculate: true, canReopen: false,
+    canApprove: false, calculating: false, reopening: false, calculate: () => undefined, reopen: () => undefined, openApprove: () => undefined,
+  };
+  it('in the header of a draft never calculated, beside Calculate; not once it has lines', async () => {
+    const { RunHeaderActions } = await import('@/components/payroll/RunHeaderActions');
+    const { rerender } = render(<RunHeaderActions {...props} run={{ status: 'draft', journalEntryId: null, lines: [] }} />);
+    const del = screen.getByRole('button', { name: 'Delete draft' });
+    expect(del.parentElement?.parentElement).toBe(screen.getByRole('button', { name: 'Calculate' }).parentElement);
+    rerender(<RunHeaderActions {...props} run={{ status: 'draft', journalEntryId: null, lines: [{}] }} />);
+    expect(screen.queryByRole('button', { name: 'Delete draft' })).toBeNull();
+  });
+});

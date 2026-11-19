@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { Button } from '@/components/ui/Button';
+import { Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
@@ -30,8 +30,11 @@ export function DeleteDraftRunButton({ runId }: { runId: string }) {
   };
 
   return (
-    <div className="mt-3 flex flex-col items-center gap-2">
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>Delete draft</Button>
+    <div className="flex items-center gap-2">
+      <button type="button" onClick={() => setOpen(true)}
+        className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium">
+        <Trash2 className="h-4 w-4" aria-hidden="true" /> Delete draft
+      </button>
       {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
       <ConfirmDialog open={open} title="Delete this draft run?" tone="destructive" loading={busy}
         message="It has paid nobody yet. Its period becomes free to create again." acceptLabel="Delete" cancelLabel="Keep it"

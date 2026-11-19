@@ -16,7 +16,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { PayrollRunDuplicateError, mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
-import { resolveRunPeriod, type PeriodFrequency, type RunPeriod } from './payrollPayWeek';
+import { formatDayRange, resolveRunPeriod, type PeriodFrequency, type RunPeriod } from './payrollPayWeek';
 import { readPayWeekSettings } from './payrollPayWeekSettings';
 import { dateColumnOf } from './payrollFrequency';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
@@ -32,7 +32,7 @@ export class PayrollRunOverlapError extends Error {
 /** The refusal a create of `period` would meet now (duplicate or overlap), or null. Read-only. */
 async function periodClash(db: TxSql, companyId: string, frequency: PeriodFrequency, period: RunPeriod): Promise<Error | null> {
   const clash = (await db`
-    SELECT period_start, period_end FROM payroll_run_headers
+    SELECT id, period_start, period_end FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid AND pay_frequency = ${frequency} AND run_kind = 'regular' AND status <> 'cancelled'
        AND period_start <= ${period.periodEnd}::date AND period_end >= ${period.periodStart}::date
      ORDER BY period_start LIMIT 1
@@ -41,9 +41,10 @@ async function periodClash(db: TxSql, companyId: string, frequency: PeriodFreque
   if (!other) return null;
   const start = dateColumnOf(other.period_start) ?? '';
   const end = dateColumnOf(other.period_end) ?? '';
-  return start === period.periodStart
-    ? new PayrollRunDuplicateError(period.periodMonth, period.periodYear, `A ${frequency} payroll run for ${start} already exists.`)
-    : new PayrollRunOverlapError(frequency, period, { start, end });
+  if (start !== period.periodStart) return new PayrollRunOverlapError(frequency, period, { start, end });
+  // The period in plain words, and the run to open instead (review #1622 UI L3).
+  const label = `${frequency === 'weekly' ? 'Week' : 'Fortnight'} ${formatDayRange(start, end)}`;
+  return new PayrollRunDuplicateError(period.periodMonth, period.periodYear, `The run for ${label} already exists.`, String(other.id));
 }
 
 /**
