@@ -81,6 +81,19 @@ describe('SDL settled for the month to date', () => {
     // The line says why: liable on this run, carrying the month's earlier runs.
     const steps = (await t.pool.query(`SELECT explanation->'sdl'->'steps' AS s FROM payroll_run_lines WHERE run_id = $1`, [id])).rows[0].s as Array<{ key: string; amount: number }>;
     expect(steps.find((s) => s.key === 'sdl.catchUp')?.amount).toBe(203);
+
+    // P7 (FQd's breaker case, off-cycle): the bonus, final with its R203 catch-up, is reopened, recalculated and approved
+    // again. The month's SDL stays exactly 1% of its leviable pay (R6 203), never 1% plus the catch-up again.
+    expect((await t.api.reopen(id)).statusCode).toBe(200);
+    const journal = String((await t.pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [id])).rows[0].journal_entry_id);
+    expect((await t.api.reverse(journal)).statusCode).toBe(200);
+    expect((await t.api.calculate(id)).statusCode).toBe(200);
+    const again = await t.api.approve(id);
+    expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
+    expect(await sdlOf(t, id)).toBe(6_203);
+    const after = await month(t);
+    expect(after.levied).toBeCloseTo(6_203, 2);
+    expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBeCloseTo(6_203, 2);
   });
 
   it('B: a termination run that tips the month carries the earlier runs\' 1%; every run ends final without a reopen', async () => {
