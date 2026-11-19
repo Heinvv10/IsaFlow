@@ -55,6 +55,11 @@ export interface NilRatedSupplies {
   onTaxedAmbiguous: number;
   /** Part of `zeroRated` from revenue lines with NO vat code on wholly untaxed documents: assumed zero-rated, for the user to confirm. */
   uncodedAssumedZeroRated: number;
+  /**
+   * The part of `onTaxedJournals` that is such uncoded revenue: a document whose stored VAT is nil or NULL but whose
+   * journal carries output VAT. The 15% gates name it when they refuse (vat201RateCheck.rateCheckFailure).
+   */
+  uncodedOnTaxedJournals: number;
 }
 
 function r2(n: number): number {
@@ -161,6 +166,7 @@ export async function getNilRatedSupplies(
   let onTaxedCapital = 0;
   let onTaxedAmbiguous = 0;
   let uncodedAssumedZeroRated = 0;
+  let uncodedOnTaxedJournals = 0;
   for (const row of rows) {
     const vatType = String(row.vat_type ?? '');
     const base = Number(row.base) || 0;
@@ -172,12 +178,15 @@ export async function getNilRatedSupplies(
     onTaxedJournals += Number(row.base_on_taxed) || 0;
     onTaxedCapital += Number(row.base_on_capital) || 0;
     onTaxedAmbiguous += Number(row.base_on_mixed) || 0;
-    if (row.raw_vat_type == null) uncodedAssumedZeroRated += base;
+    if (row.raw_vat_type == null) {
+      uncodedAssumedZeroRated += base;
+      uncodedOnTaxedJournals += Number(row.base_on_taxed) || 0;
+    }
   }
 
   return {
     zeroRated: r2(zeroRated), exported: r2(exported), exempt: r2(exempt), onTaxedJournals: r2(onTaxedJournals),
     onTaxedCapital: r2(onTaxedCapital), onTaxedAmbiguous: r2(onTaxedAmbiguous),
-    uncodedAssumedZeroRated: r2(uncodedAssumedZeroRated),
+    uncodedAssumedZeroRated: r2(uncodedAssumedZeroRated), uncodedOnTaxedJournals: r2(uncodedOnTaxedJournals),
   };
 }

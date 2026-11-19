@@ -121,7 +121,7 @@ describe.each([
 describe('labels per allocation row', () => {
   it('names the receipt amount field', () => {
     render(<NewCustomerPayment />);
-    expect(classes(screen.getByRole('spinbutton', { name: 'Amount' }))).toContain(TAP);
+    expect(classes(screen.getByRole('textbox', { name: 'Amount' }))).toContain(TAP);
   });
 
   it('ties each supplier payment row label to that row', () => {
