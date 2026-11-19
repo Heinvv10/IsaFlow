@@ -206,10 +206,22 @@ ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_p
 --     UPDATE that moves the run out of approved or paid, which is what reopenPayrollRun (its one writer) does (#1679f).
 -- The Demo company stays exempt: scripts/lib/demoReseed reopens and wipes its runs, and may run under the app's role
 -- (runOwnedContext); its money is not real.
+-- ACCEPTED LIMITS (coordinator rulings 2026-11-19, wave 7):
+--   * app_user can forge the approval path below the service: the real approve and reopen also run as app_user, so no
+--     row trigger can tell them from a forged app_user statement (set status 'approved' and approved_at, then
+--     "reopen" in one UPDATE that appends [approved_at, now)). Closed in wave 7 by moving approve and reopen into a
+--     reviewed SECURITY DEFINER (930 registry) and revoking app_user's direct UPDATE of status and approval_history.
+--     Tightened here: null-safe status comparisons, and the appended range must start at OLD.approved_at (or be
+--     unbounded below for a grandfathered run).
+--   * Binding on current_user: inside SET LOCAL ROLE app_user, set_config('role', 'none', true) mid-statement shows
+--     the trigger the pool's login role. With the pool on isaflow_app or isaflow_service that role is bound too (and
+--     holds no header grant); with the pool still on postgres (the table owner) it is not, but the owner can switch
+--     any trigger off anyway, so this is no weaker than 999n's freeze today.
 CREATE OR REPLACE FUNCTION public.payroll_run_headers_history_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
   co uuid := CASE WHEN TG_OP = 'INSERT' THEN NEW.company_id ELSE OLD.company_id END;
+  added tstzmultirange;
 BEGIN
   IF NOT public.payroll_run_app_role() OR co = '00000000-0000-0000-0000-000000000001'::uuid THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
@@ -220,8 +232,18 @@ BEGIN
         RAISE EXCEPTION 'payroll_run_headers: a pay run''s approval history is only added to, never rewritten or cleared'
           USING ERRCODE = 'check_violation';
       END IF;
-      IF NOT (OLD.status IN ('approved', 'paid') AND NEW.status NOT IN ('approved', 'paid')) THEN
+      -- Null-safe: a NULL status never passes for a transition.
+      IF NOT (COALESCE(OLD.status, '') IN ('approved', 'paid') AND COALESCE(NEW.status, '') NOT IN ('approved', 'paid')) THEN
         RAISE EXCEPTION 'payroll_run_headers: a pay run''s approval history grows only when the run is reopened'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      -- The range a reopen adds is the approval it ends: from OLD.approved_at, or unbounded below for a grandfathered
+      -- run (no approved_at, approval_grandfathered_at set), as reopenPayrollRun writes it.
+      added := NEW.approval_history - COALESCE(OLD.approval_history, '{}'::tstzmultirange);
+      IF NOT pg_catalog.isempty(added) AND NOT (
+           (OLD.approved_at IS NOT NULL AND NOT pg_catalog.lower_inf(added) AND pg_catalog.lower(added) = OLD.approved_at)
+        OR (OLD.approved_at IS NULL AND OLD.approval_grandfathered_at IS NOT NULL AND pg_catalog.lower_inf(added))) THEN
+        RAISE EXCEPTION 'payroll_run_headers: a reopen adds the approval it ends, from the run''s approved_at'
           USING ERRCODE = 'check_violation';
       END IF;
     END IF;

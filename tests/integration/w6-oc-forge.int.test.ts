@@ -157,6 +157,13 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     for (const status of ['approved', 'calculated']) await asApp('UPDATE payroll_run_headers SET status = $2 WHERE id = $1', [id, status]);
     await expect(asApp(`UPDATE payroll_run_headers SET approval_history = tstzmultirange(tstzrange(now() - interval '2 days', now() - interval '1 day')) WHERE id = $1`, [id]))
       .rejects.toThrow(/approval history grows only when the run is reopened/);
+    // In the same UPDATE as a flip out of 'approved' (the accepted-limit shape), a range that is not the approval it
+    // ends (not from approved_at) is refused too.
+    await asApp(`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() - interval '5 days' WHERE id = $1`, [id]);
+    await expect(asApp(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL,
+      approval_history = tstzmultirange(tstzrange(now() - interval '2 days', now() - interval '1 day')) WHERE id = $1`, [id]))
+      .rejects.toThrow(/a reopen adds the approval it ends, from the run's approved_at/);
+    await asApp(`UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1`, [id]);
     const ap = await a.api.approve(id);
     expect(ap.statusCode).not.toBe(200);
     expect(JSON.stringify(ap.body)).toMatch(/before today/);
