@@ -12,7 +12,7 @@ import { parseMirrorPayload } from '../../../src/modules/accounting/services/int
 import { enableFxDocuments } from '../r035-approval.helpers';
 import { asAppUser, outcome, plantExternal } from './intercompany.helpers';
 import {
-  clearMirrorRows, co, connect, dataOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, plantArInvoice, sentInvoice, U, wipeConnections,
+  clearMirrorRows, co, connect, dataOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, plantArInvoice, sentInvoice, U, wipeConnections, approveCreditNoteRow,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -63,7 +63,7 @@ describe('the sender cannot write a document message, whatever it says', () => {
 
   it('a credit-note message is refused the same way, by the app_service role too (it holds an INSERT policy, and the worker\'s login inherits it)', async () => {
     const cn = await plantArCreditNote(pool);
-    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
+    await approveCreditNoteRow(pool, cn);
     const insert = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
                     VALUES ($1, $2, $3, 'credit_note', 'credit_note', $4, '{}'::jsonb)`;
     expect(await asAppUser(pool, U.a, co.A, (q) => outcome(q, insert, [conn, co.A, co.B, cn]))).toMatch(/^42501: a document message is written by the database/);
@@ -109,6 +109,19 @@ describe('the database sends the sender\'s document, and only that', () => {
     const inv = await plantArInvoice(pool, { status: 'approved' });
     expect(await sendFor('customer_invoice', inv.id, U[user], co[company])).toMatchObject({ message_id: null, reason });
     expect(await messageOf(inv.id)).toBeUndefined();
+    expect(await groupRows()).toHaveLength(0);
+  });
+
+  it('a document approved in STATUS only (no posted, standing approval journal) is not sent: its cancel could never be proved against the ledger', async () => {
+    const noJournal = await plantArInvoice(pool, { status: 'approved' });
+    await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE id = $1', [noJournal.id]);
+    expect(await sendFor('customer_invoice', noJournal.id)).toMatchObject({ message_id: null, reason: 'no_journal' });
+    const reversed = await plantArInvoice(pool, { status: 'approved' });
+    const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [reversed.id])).rows[0].je as string;
+    await pool.query("INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id) SELECT entry_date, 'reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1", [je]);
+    expect(await sendFor('customer_invoice', reversed.id)).toMatchObject({ message_id: null, reason: 'no_journal' });
+    expect(await messageOf(noJournal.id)).toBeUndefined();
+    expect(await messageOf(reversed.id)).toBeUndefined();
     expect(await groupRows()).toHaveLength(0);
   });
 
@@ -190,7 +203,8 @@ describe('what the old check refused although it was the sender\'s own (the brea
     expect((await sendFor('customer_invoice', inv.id)).message_id).toBeTruthy();
     expect((await messageOf(inv.id)).payload.currency).toBe('ZAR');
     const cn = await plantArCreditNote(pool);
-    await pool.query("UPDATE credit_notes SET status = 'approved', currency = NULL WHERE id = $1", [cn]);
+    await approveCreditNoteRow(pool, cn);
+    await pool.query('UPDATE credit_notes SET currency = NULL WHERE id = $1', [cn]);
     expect((await sendFor('credit_note', cn)).message_id).toBeTruthy();
     expect((await messageOf(cn)).payload).toMatchObject({ currency: 'ZAR', kind: 'credit_note' });
   });

@@ -7,14 +7,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
+import { approveSupplierInvoice } from '../../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/ar/customerInvoiceCancelService';
 import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { cancelCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteCancelService';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
-import { asAppUser, outcome } from './intercompany.helpers';
+import { asAppUser, asOwner, outcome, withoutTrigger } from './intercompany.helpers';
 import {
-  asService, clearMirrorRows, co, connect, dataOf, errorOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U,
+  asService, clearMirrorRows, co, connect, dataOf, errorOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U, approveCreditNoteRow,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -76,11 +77,95 @@ describe('a message the receiver has not handled', () => {
 
   it('a customer credit note the sender cancels is withdrawn the same way', async () => {
     const cn = await plantArCreditNote(pool);
-    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
+    await approveCreditNoteRow(pool, cn);
     await asService(pool, U.a, co.A, () => mirrorApprovedCreditNote(co.A, cn));
     const id = (await pool.query('SELECT id FROM intercompany_messages WHERE source_doc_id = $1', [cn])).rows[0].id as string;
     await asService(pool, U.a, co.A, () => cancelCreditNote(co.A, cn, U.a, 'issued in error'));
     expect(await row(id)).toMatchObject({ status: 'withdrawn' });
+  });
+});
+
+describe('the group row a withdrawal releases is the one the DATABASE recorded (the second security scan, 1 and 2)', () => {
+  const planted = (id: string, set: string, params: unknown[] = []) =>
+    withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(`UPDATE intercompany_messages SET ${set} WHERE id = $1`, [id, ...params]));
+  const rowOf = async (id: string) => (await pool.query('SELECT * FROM intercompany_transactions WHERE id = $1', [id])).rows[0];
+
+  /** Sender invoice S1, accepted and approved by B (its row R1 is matched); and a second sent invoice S2 whose message the test then doctors. */
+  async function pair() {
+    const s1 = await sentInvoice(pool);
+    expect((await inbox.accept(U.b, co.B, s1.id)).state.statusCode).toBe(200);
+    const bill = (await row(s1.id)).target_doc_id as string;
+    await asService(pool, U.b, co.B, () => approveSupplierInvoice(co.B, bill, U.b));
+    const r1 = s1.message.payload.groupTransactionId as string;
+    expect((await rowOf(r1)).match_status).toBe('matched');
+    const s2 = await sentInvoice(pool);
+    return { s1, s2, r1 };
+  }
+
+  it('a legacy message whose PAYLOAD names another of the sender\'s rows (and records none) releases nothing but its own cancel: the other row stays matched', async () => {
+    const { s2, r1 } = await pair();
+    await planted(s2.id, "payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text)), group_transaction_id = NULL", [r1]);
+    await cancelInvoice(s2.inv.id);
+    expect(await row(s2.id)).toMatchObject({ status: 'withdrawn' });
+    expect((await rowOf(r1)).match_status).toBe('matched');
+  });
+
+  it('even a row that passes every check for this message is not released on the payload\'s word: only the recorded reference is', async () => {
+    const m = await sentInvoice(pool);
+    const own = m.message.payload.groupTransactionId as string;
+    // a second row of the same pair for the same journal (planted), matched; the payload is made to name it, the recorded reference stays the real one
+    const twin = (await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+      `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, description, transaction_date, match_status)
+       SELECT group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, 'twin', transaction_date, 'variance' FROM intercompany_transactions WHERE id = $1 RETURNING id`, [own]))).rows[0].id as string;
+    await planted(m.id, "payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text))", [twin]);
+    await cancelInvoice(m.inv.id);
+    expect((await rowOf(own)).match_status).toBe('unmatched');
+    expect((await rowOf(twin)).match_status).toBe('variance');
+  });
+
+  it('a recorded reference that is not this message\'s row (another journal) is not released either', async () => {
+    const { s2, r1 } = await pair();
+    await planted(s2.id, 'group_transaction_id = $2', [r1]);
+    await cancelInvoice(s2.inv.id);
+    expect(await row(s2.id)).toMatchObject({ status: 'withdrawn' });
+    expect((await rowOf(r1)).match_status).toBe('matched');
+    // and the honest case: the message\'s own row is released
+    const own = await sentInvoice(pool);
+    await cancelInvoice(own.inv.id);
+    expect((await rowOf(own.message.payload.groupTransactionId)).match_status).toBe('unmatched');
+  });
+
+  it('the database records the journal and the row on the message it writes', async () => {
+    const m = await sentInvoice(pool);
+    const journal = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [m.inv.id])).rows[0].je;
+    expect(await row(m.id)).toMatchObject({ source_journal_entry_id: journal, group_transaction_id: m.message.payload.groupTransactionId });
+    await asAppUser(pool, U.a, co.A, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_messages SET group_transaction_id = NULL WHERE id = $1', [m.id])).toMatch(/^42501/);   // no column grant
+    });
+    await asOwner(pool, U.b, co.B, async (q) => {   // and the guard itself (the table owner has every grant): handling a message never rewrites its record
+      expect(await outcome(q, 'UPDATE intercompany_messages SET group_transaction_id = NULL WHERE id = $1', [m.id])).toMatch(/^23514: a message changes only its handling/);
+      expect(await outcome(q, 'UPDATE intercompany_messages SET source_journal_entry_id = NULL WHERE id = $1', [m.id])).toMatch(/^23514: a message changes only its handling/);
+    });
+  });
+
+  it('FAIL CLOSED: a message that records no journal proves nothing, so a cancelled, reversed document withdraws nothing', async () => {
+    const m = await sentInvoice(pool);
+    await planted(m.id, 'source_journal_entry_id = NULL');
+    await reverseOnly(m.inv.id);
+    const n = await asAppUser(pool, U.a, co.A, async (q) => Number((await q.query("SELECT public.intercompany_withdraw_for_source('customer_invoice', $1) AS n", [m.inv.id])).rows[0].n), true);
+    expect(n).toBe(0);
+    expect(await row(m.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });
+  });
+
+  it('an invoice\'s link to its journal is cleared by the real cancel: a reversed journal with the link still set (and the status flipped by hand) withdraws nothing, until the link is cleared', async () => {
+    const m = await sentInvoice(pool);
+    const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [m.inv.id])).rows[0].je as string;
+    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, je, U.a));
+    await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [m.inv.id]);   // link NOT cleared
+    const call = () => asAppUser(pool, U.a, co.A, async (q) => Number((await q.query("SELECT public.intercompany_withdraw_for_source('customer_invoice', $1) AS n", [m.inv.id])).rows[0].n), true);
+    expect(await call()).toBe(0);
+    await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE id = $1', [m.inv.id]);
+    expect(await call()).toBe(1);
   });
 });
 

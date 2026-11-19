@@ -14,7 +14,7 @@ import { autoGenerateEliminations } from '../../../src/modules/accounting/servic
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { asAppUser, outcome } from './intercompany.helpers';
 import {
-  asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, errorOf, groupAccounts, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U,
+  asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, errorOf, groupAccounts, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U, approveCreditNoteRow,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -122,7 +122,7 @@ describe('the target journal is the definer\'s to set', () => {
 describe('a supplier credit note', () => {
   it('matches when the receiver approves it (the sender\'s row is negative), and not before', async () => {
     const cn = await plantArCreditNote(pool);
-    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
+    await approveCreditNoteRow(pool, cn);
     await asService(pool, U.a, co.A, () => mirrorApprovedCreditNote(co.A, cn));
     const mid = (await pool.query('SELECT id FROM intercompany_messages WHERE source_doc_id = $1', [cn])).rows[0].id as string;
     const res = await inbox.accept(U.b, co.B, mid);

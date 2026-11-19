@@ -10,7 +10,7 @@ import { enableFxDocuments } from '../r035-approval.helpers';
 import { asAppUser, count, pairOf, withoutTrigger } from './intercompany.helpers';
 import {
   acct, acc, approveInvoice, co, connect, dataOf, errorOf, inbox, mirrorCleanup, mirrorSetup, party, plantArCreditNote, plantArInvoice,
-  U, asService, clearMirrorRows, sentInvoice as sentInvoiceIn,
+  U, asService, clearMirrorRows, sentInvoice as sentInvoiceIn, approveCreditNoteRow,
 } from './mirror.helpers';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { acceptMessage } from '../../../src/modules/accounting/services/intercompany/acceptService';
@@ -36,7 +36,7 @@ const accept = (id: string, body?: unknown, user = U.b) => inbox.accept(user, co
 /** A customer credit note of A, approved, and the message it left for B. */
 async function sentCreditNote(date?: string) {
   const cn = await plantArCreditNote(pool, { date });
-  await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
+  await approveCreditNoteRow(pool, cn);
   await asService(pool, U.a, co.A, () => mirrorApprovedCreditNote(co.A, cn));
   const message = (await pool.query('SELECT * FROM intercompany_messages WHERE source_doc_id = $1', [cn])).rows[0];
   return { cn, id: message.id as string, message };
@@ -64,7 +64,7 @@ describe('accepting a credit note', () => {
     await pool.query("UPDATE credit_notes SET reason = 'edited by a person' WHERE company_id = $1 AND type = 'supplier'", [co.B]);
     // A second message with the same sender number (a re-issued document): planted with the guard off, because a sender cannot reuse a number.
     const second = await plantArCreditNote(pool, { date: '2026-09-06' });
-    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [second]);
+    await approveCreditNoteRow(pool, second);
     const dup = await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', async (q) => (await q.query(
       `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
        VALUES ($1, $2, $3, 'credit_note', 'credit_note', $4, $5::jsonb) RETURNING id`, [conn, co.A, co.B, second, JSON.stringify(first.message.payload)])).rows[0].id as string);

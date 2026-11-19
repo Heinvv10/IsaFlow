@@ -14,7 +14,7 @@ import { sql } from '../../../src/lib/neon';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { asAppUser, count, plantDocument, plantExternal, withoutTrigger } from './intercompany.helpers';
 import {
-  acc, asService, clearMirrorRows, plantArCreditNote, co, connect, inbox, mirrorCleanup, mirrorSetup, party, plantArInvoice, sentInvoice, U,
+  acc, asService, clearMirrorRows, plantArCreditNote, co, connect, inbox, mirrorCleanup, mirrorSetup, party, plantArInvoice, sentInvoice, U, approveCreditNoteRow,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -83,7 +83,7 @@ describe('what the worker does', () => {
   it('accepts a credit note as a draft supplier credit note, saying it was created by auto-accept', async () => {
     await connect(pool, { autoAccept: true });
     const cn = await plantArCreditNote(pool);
-    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
+    await approveCreditNoteRow(pool, cn);
     await asService(pool, U.a, co.A, () => mirrorApprovedCreditNote(co.A, cn));
     const mid = (await pool.query('SELECT id FROM intercompany_messages WHERE source_doc_id = $1', [cn])).rows[0].id as string;
     expect(await runAutoAccept()).toMatchObject({ accepted: 1 });

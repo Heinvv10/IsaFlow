@@ -17,7 +17,7 @@ import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/
 import { autoGenerateEliminations, postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { asAppUser, outcome, withoutTrigger } from './intercompany.helpers';
 import {
-  asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, inbox, mirrorCleanup, mirrorSetup, sentInvoice, U,
+  acc, asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, inbox, mirrorCleanup, mirrorSetup, sentInvoice, U,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -134,7 +134,7 @@ describe('the receiver\'s journal must be the expense for it (the reviewer\'s le
     const m = await accepted();
     await pool.query('UPDATE supplier_invoice_items SET gl_account_id = $2 WHERE supplier_invoice_id = $1', [m.bill, extra.asset]);
     await approveBill(m.bill);
-    expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/not expense/) });
+    expect(await groupRow()).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/not expense/), target_journal_entry_id: null }); // a variance names no journal
     expect(await eliminate()).toHaveLength(0);
   });
 
@@ -146,6 +146,30 @@ describe('the receiver\'s journal must be the expense for it (the reviewer\'s le
 });
 
 describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => {
+  it('a row that passes every check for the message is still not moved on the payload\'s word: only the recorded reference is', async () => {
+    const m = await accepted();
+    const own = m.message.payload.groupTransactionId as string;
+    const twin = (await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+      `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, description, transaction_date)
+       SELECT group_id, source_company_id, target_company_id, source_journal_entry_id, transaction_type, amount, currency, 'twin', transaction_date FROM intercompany_transactions WHERE id = $1 RETURNING id`, [own]))).rows[0].id as string;
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
+      "UPDATE intercompany_messages SET payload = jsonb_set(payload, '{groupTransactionId}', to_jsonb($2::text)) WHERE id = $1", [m.id, twin]));
+    await approveBill(m.bill);
+    const byId = Object.fromEntries((await rows()).map((r) => [r.id, r.match_status]));
+    expect(byId[own]).toBe('matched');
+    expect(byId[twin]).toBe('unmatched');
+  });
+
+  it('the row a sync moves is the one the DATABASE recorded for the message: a message whose recorded reference is another row moves nothing', async () => {
+    const m = await accepted();
+    const other = await sentInvoice(pool);
+    await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) => q.query(
+      'UPDATE intercompany_messages SET group_transaction_id = $2 WHERE id = $1', [m.id, other.message.payload.groupTransactionId]));
+    await approveBill(m.bill);
+    expect((await rows()).map((r) => r.match_status)).toEqual(['unmatched', 'unmatched']);
+    expect(await sync(U.b, co.B, m.bill)).toBeNull();
+  });
+
   it('a draft bill flipped to approved with a journal of its own made up: not matched', async () => {
     const m = await accepted();
     await pool.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [m.bill]);
@@ -197,6 +221,39 @@ describe('what a writer sets by hand proves nothing (the breaker\'s P3)', () => 
     await pool.query("UPDATE supplier_invoices SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [thief.bill, stolen]);
     expect(await sync(U.b, co.B, thief.bill)).toBe('variance');
     expect((await rows()).find((r) => r.id === thief.message.payload.groupTransactionId)).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/posting this document wrote/) });
+  });
+
+  it('a journal whose TEXT is the bill\'s but which is another document\'s posting is not matched (the second security scan, 3)', async () => {
+    const real = await accepted();
+    await approveBill(real.bill);
+    const realNumber = (await pool.query('SELECT invoice_number AS n FROM supplier_invoices WHERE id = $1', [real.bill])).rows[0].n as string;
+    const posting = (await groupRow()).target_journal_entry_id as string;
+    // the real bill is another supplier's now (it keeps its journal), and its row lets go of the journal (planted: only the definer clears a target)
+    await pool.query('UPDATE supplier_invoices SET supplier_id = $2 WHERE id = $1', [real.bill, extra.supplier]);
+    await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
+      "UPDATE intercompany_transactions SET match_status = 'unmatched', matched_at = NULL, matched_by = NULL, target_journal_entry_id = NULL WHERE id = $1", [real.message.payload.groupTransactionId]));
+    // a second bill takes the first one's NUMBER (so the journal's description names it too) and its journal
+    const copy = await accepted();
+    await pool.query("UPDATE supplier_invoices SET invoice_number = $2, status = 'approved', gl_journal_entry_id = $3 WHERE id = $1", [copy.bill, realNumber, posting]);
+    expect(await sync(U.b, co.B, copy.bill)).toBe('variance');
+    expect((await rows()).find((r) => r.id === copy.message.payload.groupTransactionId)).toMatchObject({ match_status: 'variance', variance_reason: expect.stringMatching(/posting of another document/) });
+  });
+
+  it('the first journal a row is matched to is the one it keeps: pointing the bill at a second journal of the same text and amount is a variance, and the row keeps its first', async () => {
+    const m = await accepted();
+    await approveBill(m.bill);
+    const first = (await groupRow()).target_journal_entry_id as string;
+    const j = (await pool.query('SELECT description, source, entry_date FROM gl_journal_entries WHERE id = $1', [first])).rows[0];
+    const clone = (await pool.query(
+      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ($1, $2, $3, 'draft', $4, $5) RETURNING id`,
+      [j.entry_date, j.description, j.source, U.ab, co.B])).rows[0].id as string;
+    const apAccount = (await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'payable'", [co.B])).rows[0].id as string;
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id) VALUES ($1, $2, 1000, 0, $4), ($1, $3, 0, 1000, $4)`, [clone, acc.bExp1, apAccount, co.B]);
+    await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [clone]);
+    await pool.query('UPDATE supplier_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [m.bill, clone]);
+    expect(await sync(U.b, co.B, m.bill)).toBe('variance');
+    expect(await groupRow()).toMatchObject({ match_status: 'variance', target_journal_entry_id: first, variance_reason: expect.stringMatching(/first matched/) });
   });
 
   it('a journal that is already another row\'s target is not matched to this one', async () => {
