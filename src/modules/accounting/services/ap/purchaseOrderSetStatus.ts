@@ -21,7 +21,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { checkPurchaseOrderBudget } from './purchaseOrderBudget';
 import { PurchaseOrderChangedError, PurchaseOrderMaintenanceRefusal, PurchaseOrderNotFoundError } from './purchaseOrderErrors';
-import { lockPoForMaintenance, poHasBillLinks, poHasReceipts } from './purchaseOrderMaintenanceGuards';
+import { ACCOUNTLESS_REFUSAL, lockPoForMaintenance, poHasAccountlessLines, poHasBillLinks, poHasReceipts } from './purchaseOrderMaintenanceGuards';
 
 export const SETTABLE_PO_STATUSES = ['draft', 'approved', 'closed', 'cancelled'] as const;
 export type SettablePoStatus = (typeof SETTABLE_PO_STATUSES)[number];
@@ -66,6 +66,8 @@ export async function setImportedPurchaseOrderStatus(
       throw refuse(`Bills are linked to this purchase order, so it cannot go to ${target}; unlink them first (unlink_bill_from_purchase_order)`);
     }
 
+    if (target === 'approved' && gate?.policy === 'block' && await poHasAccountlessLines(companyId, poId)) throw refuse(ACCOUNTLESS_REFUSAL);
+
     let budgetWarnings: string[] = [];
     let budgetPolicy: string | null = null;
     if (target === 'approved' && gate) {
@@ -78,11 +80,20 @@ export async function setImportedPurchaseOrderStatus(
     }
     const closedFrom = target === 'closed' ? po.status : null;
     // Leaving closed: the link closing records go first, while the PO is still closed (a link's record is valid only then).
+    let clearedLinks: string[] = [];
     if (po.status === 'closed') {
-      await sql`
-        UPDATE purchase_order_bill_links SET closed_po_from_status = NULL
-         WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID AND closed_po_from_status IS NOT NULL
-      `;
+      // The audit row names the links whose record is cleared and what it said (an UPDATE ... RETURNING would give the new NULL).
+      const held = (await sql`
+        SELECT id::TEXT AS id, supplier_invoice_id::TEXT AS bill, closed_po_from_status AS was FROM purchase_order_bill_links
+         WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID AND closed_po_from_status IS NOT NULL ORDER BY created_at, id
+      `) as DbRow[];
+      if (held.length > 0) {
+        await sql`
+          UPDATE purchase_order_bill_links SET closed_po_from_status = NULL
+           WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID AND closed_po_from_status IS NOT NULL
+        `;
+      }
+      clearedLinks = held.map((r) => `${r.id} (bill ${r.bill}, was ${r.was})`);
     }
     const updated = (await sql`
       UPDATE purchase_orders SET
@@ -101,6 +112,7 @@ export async function setImportedPurchaseOrderStatus(
         metadata: {
           reason: why.slice(0, 500), source: opts.via, status_set: 'true',
           ...(closedFrom ? { status_before: closedFrom } : {}),
+          ...(clearedLinks.length > 0 ? { cleared_link_records: String(clearedLinks.length), cleared_links: clearedLinks.slice(0, 20).join('; ') } : {}),
           ...(budgetPolicy ? { budgetPolicy, ...(budgetWarnings.length > 0 ? { budgetWarnings: String(budgetWarnings.length) } : {}) } : {}),
         },
       },

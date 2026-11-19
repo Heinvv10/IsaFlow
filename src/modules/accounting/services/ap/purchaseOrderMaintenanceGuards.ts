@@ -4,8 +4,10 @@
  * through the PO / the bill).
  *
  * "Tied" is wider than a link row: `supplier_invoice_items.po_item_id` has NO foreign key, so a bill line naming one of the PO's
- * lines (written by the REST create, which does not always make a link row) would be orphaned by replacing the lines, and an
- * older bill may name the PO by its header only. Deleted bills do not count.
+ * lines (written by the REST create, which does not always make a link row) would be orphaned by replacing the lines. Deleted bills
+ * do not count. A bill that names the PO ONLY by its header (no link row, no line on a PO line) is NOT a tie: there is nothing of it to
+ * orphan, and no tool could clear it (unlink needs a link row), so counting it was a dead end ("unlink them first" / "not linked");
+ * the link table is the list of bill <-> PO ties (design mcp-po-bill-links.md, decision 3: the header follows the links).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -26,8 +28,6 @@ export async function poHasBillLinks(companyId: string, poId: string): Promise<b
       OR EXISTS (SELECT 1 FROM supplier_invoice_items sii
                    JOIN po_items pi ON pi.id = sii.po_item_id AND pi.purchase_order_id = ${poId}::UUID
                    JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL)
-      OR EXISTS (SELECT 1 FROM supplier_invoices si
-                  WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ${poId}::UUID AND si.deleted_at IS NULL)
     ) AS tied
   `) as DbRow[];
   return rows[0]?.tied === true;
@@ -54,4 +54,20 @@ export async function lockPoForMaintenance(companyId: string, poId: string): Pro
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError());
   const r = rows[0];
   return r ? { poNumber: String(r.po_number), status: String(r.status), externalRef: r.external_ref == null ? null : String(r.external_ref), orderMonth: String(r.month) } : null;
+}
+
+/**
+ * One rule for every writer of an APPROVED purchase order (update, import open, set status -> approved): under the BLOCK budget policy
+ * each line needs an expense account. A line with none is "No budget" (never over), so it would escape the very check that approval
+ * runs. The import's `skip_budget_check_for_import` lets such lines through, reported as would-have-failed.
+ */
+export const ACCOUNTLESS_REFUSAL = 'Under the block budget policy every line of an approved purchase order needs an expense account: a line with none cannot be checked against a budget';
+
+/** Lines of the PO (stored) with no account: the set-status check. */
+export async function poHasAccountlessLines(companyId: string, poId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
+     WHERE pi.purchase_order_id = ${poId}::UUID AND pi.gl_account_id IS NULL LIMIT 1
+  `) as DbRow[];
+  return rows.length > 0;
 }

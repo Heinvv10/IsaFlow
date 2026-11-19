@@ -27,7 +27,11 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      too. partially_received / received / closed / cancelled are refused with the status.
    - On an approved PO the edit RESTAMPS `approved_by` / `approved_at` to the editor (they approved what it now says); the previous
      approver and time are in the audit row (`prior_approved_by` / `prior_approved_at`). Under the BLOCK policy every replacement
-     line needs a `gl_account_id` (a line with none cannot meet a budget and would escape the re-check). The re-check judges the
+     line needs a `gl_account_id` (a line with none cannot meet a budget and would escape the re-check). The SAME rule holds for
+     every writer of an approved PO (`ACCOUNTLESS_REFUSAL`): the import (an open PO: the batch is refused, dry run too) and
+     `set_purchase_order_status` -> approved (stored lines); warn and a draft allow it. `skip_budget_check_for_import` lets an import
+     through and reports the PO as `would_have_failed` with that reason. The audit row records the prior lines of a replacement
+     (`prior_lines`: account, dimensions, quantity, ex-VAT amount, the first 20, `prior_lines_total`). The re-check judges the
      NEW lines in the order date's (new) month; the month the PO leaves only loses commitment, which cannot put anything over.
    - Lines: as `bulk_create_purchase_orders` (`description`, `quantity`, `unit_price`, `tax_rate`, source `line_total` /
      `tax_amount`, `gl_account_id`, `cc1` / `cc2` / `bu` as code / alias / UUID) plus `item_id` or `item_code` (migration 1005:
@@ -38,7 +42,10 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      only the update does. Adding them to the import is a small follow-up (one decision: `po_items.item_id` is written by
      `purchaseOrderLinesWrite`, which both writers now share).
    - **Refused when the PO has any goods receipt, or any bill link** (a `purchase_order_bill_links` row, a bill line naming one of
-     its lines by `po_item_id` - no FK holds that column - or a bill whose header names it): replacing lines would orphan them.
+     its lines by `po_item_id` - no FK holds that column): replacing lines would orphan them. A bill that names the PO ONLY in its
+     header (no link row, no line) is NOT a tie: nothing of it can be orphaned, and no tool could clear it (unlink needs a link
+     row), so counting it was a dead end (round 3). A draft / cancelled PO a REST bill names in its header is editable and
+     cancellable.
      "Unlink the bills (`unlink_bill_from_purchase_order`) / cancel the receipt first". A supplier change on a linked PO is
      refused by the existing database guard and, first, by `poSupplierChangeBlocked`.
    - Validation is the PUT's, extracted, not copied: `ap/purchaseOrderEditChecks.validatePoEdit` (supplier in company, supplier

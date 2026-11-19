@@ -84,13 +84,13 @@ describe('cancel_purchase_order', () => {
     for (const p of [received, billed]) expect((await poRow(pool, p.po)).status).toBe('approved');
   });
 
-  it('a draft / submitted PO with a receipt or a bill tied to it is refused too; an approved one with only a bill LINE tying it is refused (the wide check); the audit row says which tool', async () => {
+  it('a draft / submitted PO with a receipt or a bill LINE tied to it is refused too, as is an approved one with only a bill line (the wide check); a bill naming it only in a header does not tie it; the audit row says which tool', async () => {
     const draft = await seedQtyPo(pool, f, { status: 'draft', lines: [{ qty: 4, price: 25, received: 1 }] });
     await seedGrn(pool, f, draft);
     expect((await callTool(pool, f, cancel, { po_id: draft.po, reason: 'x' })).text).toContain('a receipt is on record');
     const submitted = await seedQtyPo(pool, f, { status: 'submitted', lines: [{ qty: 1, price: 100 }] });
     const billH = await seedBill(pool, f, { lines: [100] });
-    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [submitted.po, billH.id]);
+    await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE id = $2', [submitted.items[0], billH.lines[0]]);
     expect((await callTool(pool, f, cancel, { po_id: submitted.po, reason: 'x' })).text).toContain('Bills are linked to this purchase order');
     const approved = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
     const billL = await seedBill(pool, f, { lines: [100] });
@@ -99,6 +99,10 @@ describe('cancel_purchase_order', () => {
     const r = await callTool(pool, f, cancel, { po_id: approved.po, reason: 'x' });
     expect(r.text).toContain('unlink them first');
     for (const p of [draft, submitted, approved]) expect((await poRow(pool, p.po)).status).not.toBe('cancelled');
+    const headerOnly = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
+    const billHdr = await seedBill(pool, f, { lines: [100] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [headerOnly.po, billHdr.id]);
+    expect((await callTool(pool, f, cancel, { po_id: headerOnly.po, reason: 'header only' })).isError).toBe(false);
     const free = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
     expect((await callTool(pool, f, cancel, { po_id: free.po, reason: 'dup' })).isError).toBe(false);
     expect((await auditOf(pool, f, free.po)).at(-1)!.changes.metadata).toMatchObject({ source: 'mcp:cancel_purchase_order', reason: 'dup' });

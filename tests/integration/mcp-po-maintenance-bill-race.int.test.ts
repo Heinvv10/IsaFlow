@@ -116,4 +116,22 @@ describe('update_purchase_order x bill create', () => {
     expect(await orphans()).toBe(0);
     expect((await poLines(pool, po.po)).map((l) => l.description)).toEqual(['PO line 0']);
   }, 30_000);
+
+  it('a PO held FOR UPDATE by another request ends the create in the typed retryable timeout (5 s), nothing written', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const holder = await pool.connect();
+    const number = `RACE-LOCK-${Date.now()}`;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM purchase_orders WHERE id = $1 FOR UPDATE', [po.po]);
+      const req = await openRequest(pool, f, f.owner);
+      const started = Date.now();
+      let err: unknown;
+      try { await req.run(() => createSupplierInvoice(f.co, { ...billFor(po.items[0]!), invoiceNumber: number }, f.owner)); await req.commit(); } catch (e) { err = e; await req.rollback(); }
+      expect(err).toMatchObject({ code: 'PURCHASE_ORDER_LOCK_TIMEOUT' });
+      expect(Date.now() - started, 'bounded, not unbounded').toBeLessThan(15_000);
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(Number((await pool.query('SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2', [f.co, number])).rows[0].n)).toBe(0);
+    expect(await orphans()).toBe(0);
+  }, 30_000);
 });

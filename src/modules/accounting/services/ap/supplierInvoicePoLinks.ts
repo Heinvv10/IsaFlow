@@ -19,7 +19,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
+import { withRowLockBudget } from '../core/rowLockBudget';
 import { LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
+import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 
 export class SupplierInvoicePoLinkRefusal extends Error {
   readonly code = 'SUPPLIER_INVOICE_PO_LINK_REFUSED';
@@ -44,11 +46,14 @@ export async function assertBillPoLinks(
   const db = opts.db ?? sql;
   if (opts.lock) {
     // The POs the named lines belong to (any company's id resolves to nothing here: the company filter), id order.
-    await db`
+    // Bounded like every PO lock (5 s, typed retryable `PURCHASE_ORDER_LOCK_TIMEOUT`, 503 on the routes): a PO held `FOR UPDATE` by an
+    // edit / cancel / approval must not pin this request on a pooled connection. The REST route has reserved the bill number by now;
+    // a 503 rolls the request transaction back, reservation included, so no number is burned; the MCP create reserves none.
+    await withRowLockBudget(async () => db`
       SELECT po.id FROM purchase_orders po
        WHERE po.company_id = ${companyId}::UUID AND po.id IN (SELECT pi.purchase_order_id FROM po_items pi WHERE pi.id = ANY(${ids}::UUID[]))
        ORDER BY po.id FOR KEY SHARE OF po
-    `;
+    `, () => new PurchaseOrderLockTimeoutError());
   }
   const found = (await db`
     SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, po.supplier_id::TEXT AS supplier, po.status

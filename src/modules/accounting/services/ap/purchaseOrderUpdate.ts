@@ -29,7 +29,7 @@ import {
   PurchaseOrderChangedError, PurchaseOrderLockTimeoutError, PurchaseOrderMaintenanceRefusal, PurchaseOrderNotFoundError,
 } from './purchaseOrderErrors';
 import { insertPoLines, type PoLineRow } from './purchaseOrderLinesWrite';
-import { receiptOrLinkRefusal } from './purchaseOrderMaintenanceGuards';
+import { ACCOUNTLESS_REFUSAL, receiptOrLinkRefusal } from './purchaseOrderMaintenanceGuards';
 import type { PoCents } from './purchaseOrderImportAmounts';
 
 /** The statuses an update accepts: the PUT's (draft, submitted) and approved. */
@@ -75,6 +75,17 @@ async function lockFull(companyId: string, poId: string): Promise<DbRow | undefi
   return rows[0];
 }
 
+const PRIOR_LINES_SHOWN = 20;
+
+async function priorLinesForAudit(poId: string): Promise<{ text: string; total: number }> {
+  const rows = (await sql`
+    SELECT gl_account_id::TEXT AS a, cc1_id::TEXT AS c1, cc2_id::TEXT AS c2, bu_id::TEXT AS bu, quantity::TEXT AS q, line_total::TEXT AS t
+      FROM po_items WHERE purchase_order_id = ${poId}::UUID ORDER BY sort_order, id
+  `) as DbRow[];
+  const shown = rows.slice(0, PRIOR_LINES_SHOWN).map((r) => ({ account: r.a, cc1: r.c1, cc2: r.c2, bu: r.bu, qty: r.q, amount: r.t }));
+  return { text: JSON.stringify(shown), total: rows.length };
+}
+
 export async function updatePurchaseOrder(companyId: string, req: PoUpdateRequest, opts: PoUpdateOptions): Promise<PoUpdateResult> {
   const { poId, header, replace } = req;
   const seen = (await sql`SELECT status FROM purchase_orders WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
@@ -94,9 +105,11 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
     const refusal = await receiptOrLinkRefusal(companyId, poId, 'its lines and header cannot be edited');
     if (refusal) throw new PurchaseOrderMaintenanceRefusal(refusal);
     if (status === 'approved' && gate?.policy === 'block' && replace?.lines.some((l) => l.glAccountId === null)) {
-      throw new PurchaseOrderMaintenanceRefusal('Under the block budget policy every line of an approved purchase order needs an expense account: a line with none cannot be checked against a budget');
+      throw new PurchaseOrderMaintenanceRefusal(ACCOUNTLESS_REFUSAL);
     }
 
+    // What an approved PO's line replacement removes, for the audit row (account, dimensions, quantity, ex-VAT amount; capped).
+    const prior = status === 'approved' && replace ? await priorLinesForAudit(poId) : null;
     const newDate = header.orderDate ?? String(po.order_date);
     const updated = (await sql`
       UPDATE purchase_orders SET
@@ -156,6 +169,7 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
         metadata: {
           source: opts.via, status, changed: changed.join(',').slice(0, 200),
           ...(replace ? { lines: String(replace.lines.length), subtotal: String(updated[0].subtotal), total: String(updated[0].total) } : {}),
+          ...(prior ? { prior_lines: prior.text, prior_lines_total: String(prior.total) } : {}),
           ...(status === 'approved' ? { prior_approved_by: String(po.approved_by ?? ''), prior_approved_at: String(po.approved_at ?? ''), budgetChecked: String(budgetChecked), ...(budgetWarnings.length > 0 ? { budgetWarnings: String(budgetWarnings.length) } : {}) } : {}),
         },
       },

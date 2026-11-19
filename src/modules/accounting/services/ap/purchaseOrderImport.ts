@@ -32,6 +32,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import type { BudgetGate } from '../budgets/budgetCheckTypes';
 import { insertPoLines, type PoLineRow } from './purchaseOrderLinesWrite';
+import { ACCOUNTLESS_REFUSAL } from './purchaseOrderMaintenanceGuards';
 import { runImportBudgetCheck, type ImportBudgetCheck } from './purchaseOrderImportBudget';
 import type { PoCents } from './purchaseOrderImportAmounts';
 
@@ -189,6 +190,14 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
     );
   }
 
+  // The same rule as an approved PO's update and a status set to approved: under block, no account-less line on an approved PO. Before any
+  // write; the skip flag lets it through (reported below as would-have-failed).
+  const accountless = (p: ImportPo) => p.status === 'approved' && gate?.policy === 'block' && p.lines.some((l) => l.glAccountId === null);
+  if (opts.skipBudgetCheck !== true) {
+    const first = fresh.find(accountless);
+    if (first) throw new PurchaseOrderImportRefusal(`purchase_orders[${first.index}]: ${ACCOUNTLESS_REFUSAL}; nothing was created. Give each line a gl_account_id, import the PO as draft, or ask an owner or admin to import with skip_budget_check_for_import`);
+  }
+
   const out: ImportedPo[] = [...replayed.values()];
   for (const p of fresh) {
     const id = await insertPo(companyId, p, opts.userId);
@@ -203,6 +212,11 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
       const { allReasons: reasons, ...shown } = run;
       budgetCheck = shown;
       allReasons = reasons;
+      if (accountless(p)) {
+        // Only reachable with the skip flag (otherwise refused above): the PO is created and reported as one the rule would have refused.
+        budgetCheck = { ...shown, outcome: 'block', would_have_failed: true, reasons: [ACCOUNTLESS_REFUSAL, ...shown.reasons].slice(0, 10), reasons_total: shown.reasons_total + 1 };
+        allReasons = [ACCOUNTLESS_REFUSAL, ...reasons];
+      }
       budgetWarnings = shown.outcome === 'warn' ? reasons : [];
       // A dry run (no skip) that reports a block: the live call would end here, so this PO must not count as committed for the POs
       // after it. They are judged as if it were not there (the savepoint is rolled back anyway).
