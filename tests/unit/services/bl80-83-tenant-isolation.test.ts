@@ -413,10 +413,14 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([] as never)            // customers
       .mockResolvedValueOnce([] as never)            // suppliers (the ids to purge: none)
-      .mockResolvedValueOnce(sameCompanyRows as never) // items
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([] as never);
+      // items: the candidate ids, then one DELETE (its own savepoint) per candidate
+      .mockResolvedValueOnce(sameCompanyRows.map((r) => ({ id: r.id })) as never)
+      .mockResolvedValueOnce([sameCompanyRows[0]] as never)
+      .mockResolvedValueOnce([sameCompanyRows[1]] as never)
+      .mockResolvedValueOnce([sameCompanyRows[2]] as never)
+      .mockResolvedValueOnce([] as never)            // bank_rules
+      .mockResolvedValueOnce([] as never)            // customer_invoices
+      .mockResolvedValueOnce([] as never);           // supplier_invoices
 
     await purgeExpiredDeletes(B180_COMPANY_A);
 

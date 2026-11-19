@@ -24,6 +24,9 @@ import { stampMergedDraftJournals } from './manualJournalAuthors';
 
 export const DOCUMENT_ROW_TABLES = [
   'supplier_invoice_items', 'customer_invoice_items', 'expense_claim_lines', 'po_items', 'capture_events',
+  // The item master's DEFAULT accounts (migration 1005 gave items.sales_account_id / purchases_account_id their FKs): the ids of
+  // the items whose default moved. An item with both defaults on the source is listed under both keys. Soft-deleted items move too.
+  'item_sales_accounts', 'item_purchases_accounts',
 ] as const;
 
 export type DocumentRowTable = typeof DOCUMENT_ROW_TABLES[number];
@@ -53,7 +56,11 @@ export async function countDocumentRows(
         AS po_items,
       (SELECT COUNT(*)::INT FROM capture_events
         WHERE company_id = ${companyId}::UUID AND resolved_gl_account_id = ${sourceId}::UUID)
-        AS capture_events
+        AS capture_events,
+      (SELECT COUNT(*)::INT FROM items WHERE company_id = ${companyId}::UUID AND sales_account_id = ${sourceId}::UUID)
+        AS item_sales_accounts,
+      (SELECT COUNT(*)::INT FROM items WHERE company_id = ${companyId}::UUID AND purchases_account_id = ${sourceId}::UUID)
+        AS item_purchases_accounts
   `) as Record<string, unknown>[];
   const r = rows[0] ?? {};
   return {
@@ -62,6 +69,8 @@ export async function countDocumentRows(
     expense_claim_lines: Number(r.expense_claim_lines ?? 0),
     po_items: Number(r.po_items ?? 0),
     capture_events: Number(r.capture_events ?? 0),
+    item_sales_accounts: Number(r.item_sales_accounts ?? 0),
+    item_purchases_accounts: Number(r.item_purchases_accounts ?? 0),
   };
 }
 
@@ -143,12 +152,24 @@ export async function repointDocumentRows(
        AND resolved_gl_account_id = ${sourceId}::UUID
     RETURNING id
   `);
+  const itemSalesAccounts = ids(await sql`
+    UPDATE items SET sales_account_id = ${targetId}::UUID, updated_at = NOW()
+     WHERE company_id = ${companyId}::UUID AND sales_account_id = ${sourceId}::UUID
+    RETURNING id
+  `);
+  const itemPurchasesAccounts = ids(await sql`
+    UPDATE items SET purchases_account_id = ${targetId}::UUID, updated_at = NOW()
+     WHERE company_id = ${companyId}::UUID AND purchases_account_id = ${sourceId}::UUID
+    RETURNING id
+  `);
   return {
     supplier_invoice_items: supplierInvoiceItems,
     customer_invoice_items: customerInvoiceItems,
     expense_claim_lines: expenseClaimLines,
     po_items: poItems,
     capture_events: captureEvents,
+    item_sales_accounts: itemSalesAccounts,
+    item_purchases_accounts: itemPurchasesAccounts,
   };
 }
 
@@ -160,5 +181,7 @@ export function countsOf(moved: MovedDocumentRows): DocumentRowCounts {
     expense_claim_lines: moved.expense_claim_lines.length,
     po_items: moved.po_items.length,
     capture_events: moved.capture_events.length,
+    item_sales_accounts: moved.item_sales_accounts.length,
+    item_purchases_accounts: moved.item_purchases_accounts.length,
   };
 }

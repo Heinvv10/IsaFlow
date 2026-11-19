@@ -14,6 +14,7 @@
 import type { SupplierInvoiceItemInput } from '@/modules/accounting/types/ap.types';
 import { castableArgError, strArg } from './toolHelpers';
 import { parseDimensionRefs } from './dimensionArgs';
+import { itemIdArg } from './itemToolArgs';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 /** More lines than this on one invoice is a mistake, not a bill. */
@@ -123,11 +124,14 @@ export function parseSupplierLines(
       accountIds.push(value);
     }
 
+    const item = itemIdArg(o.item_id, `lines[${i}]`);
+    if (typeof item === 'string') return item;
+
     const dims = parseDimensionRefs(o, `lines[${i}]`);
     if (typeof dims === 'string') return dims;
     dimensionRefs.push(dims);
 
-    items.push({ description, quantity, unitPrice, taxRate, glAccountId });
+    items.push({ description, quantity, unitPrice, taxRate, glAccountId, ...item });
   }
 
   return { items, accountIds, dimensionRefs };
