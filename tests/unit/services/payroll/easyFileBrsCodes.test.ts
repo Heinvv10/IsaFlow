@@ -5,7 +5,7 @@
  * in the year / worked, p. 33) and the months worked under 3215 (residential suburb, p. 35).
  */
 import { describe, expect, it } from 'vitest';
-import { buildEmployeeRecord, buildEmployerRecord, UsageError, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
+import { buildEmployeeRecord, buildEmployerRecord, formatField, UsageError, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { CERTIFICATE_FIELDS, UNWRITTEN_MANDATORY_CODES } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { monthlyPayPeriodsWorked } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { currentCertificate } from '@/modules/accounting/services/payroll/easyFileLegacyCertificate';
@@ -136,5 +136,30 @@ describe('a certificate stored before the fix (an EMP501 version finalised earli
 
   it('a certificate already in today\'s shape is returned as it is', () => {
     expect(currentCertificate(employee, 2026, 'annual')).toBe(employee);
+  });
+});
+
+describe('formatField refuses delimiter and control characters in A / AN / FT values (BRS V25.3.0 p. 5, §3(h)(l) p. 8)', () => {
+  it.each([
+    ['a comma', 'Molefe, T'], ['a pipe', 'Molefe|T'], ['a double quote', 'Mole"fe'], ['CR', 'Molefe\r3601,1'],
+    ['LF', 'Molefe\n9999,9999'], ['a tab', 'Mole\tfe'], ['NUL', 'Mole\u0000fe'], ['DEL', 'Mole\u007ffe'],
+  ])('%s is refused, naming the field, for every quoted type', (_what, value) => {
+    for (const type of ['A', 'AN', 'FT'] as const) expect(() => formatField(3030, value, type)).toThrow(/Field 3030 contains/);
+  });
+
+  it('the refusal names the character and never echoes a raw control character', () => {
+    expect(() => formatField(3030, 'Mole\nfe', 'FT')).toThrow(/control character \(U\+000A\).*"Mole\?fe"/);
+  });
+
+  it('Free Text characters the BRS lists are kept as they are', () => {
+    expect(formatField(3030, "O'Brien-Smith & Co (Pty) Ltd. #1 ê/ë @ $!?=;:_+\\", 'FT')).toBe(`3030,"O'Brien-Smith & Co (Pty) Ltd. #1 ê/ë @ $!?=;:_+\\"`);
+  });
+
+  it('a surname carrying a line break cannot add a record: buildEmployeeRecord refuses the certificate', () => {
+    expect(() => buildEmployeeRecord({ ...employee, surname: 'Molefe"\r\n3601,999999\r\n3030,"X' })).toThrow(UsageError);
+  });
+
+  it('an employer trading name carrying a line break is refused too', () => {
+    expect(() => buildEmployerRecord({ ...employer, tradingName: 'Acme\r\n2015,"TEST' })).toThrow(/Field 2010 contains/);
   });
 });

@@ -20,10 +20,30 @@ export class UsageError extends Error {
  */
 export type FieldType = 'A' | 'AN' | 'FT' | 'N' | 'N_CENTS' | 'ND' | 'N4DP';
 
-/** BRS §3: no commas or pipes are allowed inside values (rule h). */
+/**
+ * Characters a quoted (A / AN / FT) value must never carry, refused with a named error rather than stripped: filing
+ * data is fixed at its source (the employee or company record), never silently changed on the certificate.
+ * - comma and pipe: BRS V25.3.0 §3(h) p. 8, "No field must contain a comma (,) or a pipe (|) in the value";
+ * - double quote: §3(l) p. 8 makes it the value's delimiter, and the Free Text list (p. 5) does not include it;
+ * - control characters (C0 and DEL), CR and LF among them: the file is one "code,value" per line (CRLF), and the
+ *   Free Text list (p. 5) admits none of them.
+ * Without this an employee name or address carrying CR/LF or a quote could end its field and write fields or
+ * records of its own (record and field injection).
+ */
+const FORBIDDEN_IN_QUOTED = /[\x00-\x1f\x7f",|]/;
+
+function describeChar(ch: string): string {
+  if (ch === ',') return 'a comma';
+  if (ch === '|') return 'a pipe';
+  if (ch === '"') return 'a double quote';
+  return `a control character (U+${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`;
+}
+
 function assertNoForbiddenChars(value: string, code: number): void {
-  if (value.includes(',') || value.includes('|')) {
-    throw new UsageError(`Field ${code} contains a forbidden character (comma or pipe): "${value}"`);
+  const hit = FORBIDDEN_IN_QUOTED.exec(value);
+  if (hit) {
+    throw new UsageError(`Field ${code} contains ${describeChar(hit[0])}, which the SARS e@syFile format does not allow: `
+      + `"${value.replace(/[\x00-\x1f\x7f]/g, '?')}". Correct it on the record it comes from.`);
   }
 }
 
