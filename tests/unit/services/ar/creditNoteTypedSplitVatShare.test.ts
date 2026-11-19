@@ -15,6 +15,8 @@ const leg = (net: number, vatType: RevenueLeg['vatType'], id: string, taken = 0)
 const TEN_X_10_10 = [leg(101, 'standard', 's')]; // 10 lines of R10.10, each VAT 1.52: 15.20 on 101.00
 const HUNDRED_X_0_10 = [leg(10, 'standard', 's'), leg(50, 'exempt', 'e')]; // VAT 2.00 on 10.00
 const MIXED = [leg(1000, 'standard', 's'), leg(300, 'zero_rated', 'z'), leg(200, 'exempt', 'e')]; // VAT 150.00
+// Ten R10.03 lines: 10.03 x 15% = 1.5045, each rounded DOWN to 1.50: 15.00 on 100.30, where 15% of 100.30 is 15.05.
+const TEN_X_10_03_DOWN = [leg(100.3, 'standard', 's')];
 
 const outcome = (legs: RevenueLeg[], remainingRatedVat: number, subtotal: number, taxAmount: number): string => {
   try {
@@ -32,6 +34,8 @@ describe('the VAT cap is the note\'s share of the VAT the invoice charged', () =
     ['10 x 10.10, half 50.50 + 7.60', TEN_X_10_10, 15.2, 50.5, 7.6, 'standard 50.50'],
     ['100 x 0.10, rated-only 10.00 + 2.00', HUNDRED_X_0_10, 2, 10, 2, 'standard 10.00'],
     ['mixed, 100 + 15.01', MIXED, 150, 100, 15.01, 'standard 100.00'],
+    ['rounded down, (b) half with the invoice\'s own VAT 50.15 + 7.50', TEN_X_10_03_DOWN, 15, 50.15, 7.5, 'standard 50.15'],
+    ['rounded down, (c) full credit with the invoice\'s VAT 100.30 + 15.00', TEN_X_10_03_DOWN, 15, 100.3, 15, 'standard 100.30'],
   ] as const)('%s passes', (_label, legs, rem, sub, tax, expected) => {
     expect(outcome([...legs], rem, sub, tax)).toBe(expected);
   });
@@ -43,6 +47,10 @@ describe('the VAT cap is the note\'s share of the VAT the invoice charged', () =
       'refused: its VAT of 15.02 is more than the 15.00 of VAT the invoice charged on the 100.00 of standard-rated supplies it reverses. Correct its VAT.'],
     ['100 x 0.10, 5.00 + 2.00 (allowed 1.00 on 5.00 of 10.00)', HUNDRED_X_0_10, 2, 5, 2,
       'refused: its VAT of 2.00 is more than the 1.00 of VAT the invoice charged on the 5.00 of standard-rated supplies it reverses. Correct its VAT.'],
+    ['rounded down, (a) half at the rate 50.15 + 7.52', TEN_X_10_03_DOWN, 15, 50.15, 7.52,
+      'refused: its VAT of 7.52 is more than the 7.50 of VAT the invoice charged on the 50.15 of standard-rated supplies it reverses. Correct its VAT.'],
+    ['rounded down, (d) full credit at the rate 100.30 + 15.05', TEN_X_10_03_DOWN, 15, 100.3, 15.05,
+      'refused: its VAT of 15.05 is more than the 15.00 of VAT the invoice charged on the 100.30 of standard-rated supplies it reverses. Correct its VAT.'],
     ['mixed, 1100 + 165 (over-allocation)', MIXED, 150, 1100, 165,
       'refused: its VAT of 165.00 is VAT on 1100.00 of standard-rated supplies, but the invoice\'s rated lines have 1000.00 left to credit (100.00 over). Reduce the note, or its VAT.'],
   ] as const)('%s is refused', (_label, legs, rem, sub, tax, expected) => {
