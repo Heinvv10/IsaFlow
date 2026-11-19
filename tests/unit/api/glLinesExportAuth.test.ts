@@ -228,6 +228,74 @@ describe('gl-lines-export with a Personal Access Token', () => {
   });
 });
 
+describe('gl-lines-export budget tables (isaflow-budgets-1.0)', () => {
+  const VERSIONS = {
+    columns: ['Version_ID', 'Fiscal_Year', 'Is_Primary', 'Approved_At'],
+    rows: [{ Version_ID: 'v1', Fiscal_Year: 2027, Is_Primary: true, Approved_At: null }],
+    summary: { table: 'budget_versions', schemaVersion: 'isaflow-budgets-1.0', asAt: '2026-11-19', rowCount: 1 },
+  };
+  const BUDGETS = {
+    columns: ['Version_ID', 'Month', 'CC1_ID', 'Amount', 'Source'],
+    rows: [
+      { Version_ID: 'v1', Month: '2026-03', CC1_ID: null, Amount: -1200.5, Source: 'per_head_rollup' },
+      { Version_ID: 'v1', Month: '2026-03', CC1_ID: 'c1', Amount: 7, Source: 'manual' },
+    ],
+    summary: { table: 'budgets', schemaVersion: 'isaflow-budgets-1.0', asAt: '2026-11-19', rowCount: 2, controlTotal: -1193.5 },
+  };
+
+  it('read:reports alone serves both (no extra scope); budgets carries X-Control-Total, 2dp amounts', async () => {
+    pat(['read:reports']);
+    h.buildComputed.mockResolvedValueOnce(BUDGETS);
+    const res = await call({ table: 'budgets' }, `Bearer ${RAW}`);
+    expect(res.statusCode).toBe(200);
+    expect(h.buildComputed).toHaveBeenCalledWith(TOKEN_COMPANY, 'budgets');
+    expect(res.headers).toMatchObject({
+      'X-Schema-Version': 'isaflow-budgets-1.0', 'X-As-At': '2026-11-19', 'X-Row-Count': '2', 'X-Control-Total': '-1193.50',
+    });
+    expect(csv(res)).toBe('Version_ID,Month,CC1_ID,Amount,Source\n"v1","2026-03",,-1200.50,"per_head_rollup"\n"v1","2026-03","c1",7.00,"manual"\n');
+  });
+
+  it('budget_versions: X-Row-Count but NO X-Control-Total; Fiscal_Year an integer, a null date blank', async () => {
+    pat(['read:reports']);
+    h.buildComputed.mockResolvedValueOnce(VERSIONS);
+    const res = await call({ table: 'budget_versions' }, `Bearer ${RAW}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers).toMatchObject({ 'X-Schema-Version': 'isaflow-budgets-1.0', 'X-As-At': '2026-11-19', 'X-Row-Count': '1' });
+    expect(res.headers).not.toHaveProperty('X-Control-Total');
+    expect(csv(res)).toBe('Version_ID,Fiscal_Year,Is_Primary,Approved_At\n"v1",2027,true,\n');
+  });
+
+  it('a token without read:reports → 403 on both, nothing built', async () => {
+    pat(['read:contacts', 'read:bank-tx', 'write:budgets']);
+    for (const table of ['budgets', 'budget_versions']) {
+      const res = await call({ table }, `Bearer ${RAW}`);
+      expect(res.statusCode).toBe(403);
+      expect(errorCode(res)).toBe('INSUFFICIENT_SCOPE');
+    }
+    expect(h.buildComputed).not.toHaveBeenCalled();
+  });
+
+  it('as at today: date_from, date_to and status → 400 on both, nothing built', async () => {
+    pat(['read:reports']);
+    for (const table of ['budgets', 'budget_versions']) {
+      for (const extra of [{ date_from: '2026-03-01' }, { date_to: '2027-02-28' }, { status: 'posted' }]) {
+        const res = await call({ table, ...extra }, `Bearer ${RAW}`);
+        expect(res.statusCode).toBe(400);
+        expect(JSON.stringify(res.body)).toContain('as at today');
+      }
+    }
+    expect(h.buildComputed).not.toHaveBeenCalled();
+  });
+
+  it('manifest=1 answers the summary as JSON, no rows', async () => {
+    pat(['read:reports']);
+    h.buildComputed.mockResolvedValueOnce(BUDGETS);
+    const res = await call({ table: 'budgets', manifest: '1' }, `Bearer ${RAW}`);
+    expect((res.body as { data: Record<string, unknown> }).data).toMatchObject({ table: 'budgets', rowCount: 2, controlTotal: -1193.5 });
+    expect(res.chunks.join('')).not.toContain('Version_ID,');
+  });
+});
+
 describe('gl-lines-export with a browser session (unchanged)', () => {
   it('no Authorization header → cookie withAuth, no scope gate, every table served', async () => {
     const res = await call({ table: 'counterparties' });
