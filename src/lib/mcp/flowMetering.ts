@@ -91,6 +91,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_proofs_of_payment: null,
   list_supplier_invoices: null,
   list_purchase_orders: null,
+  get_purchase_order: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.
   // Pricing it would discourage the check that prevents a stale rule silently
@@ -310,6 +311,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // A purchase order is a commitment: it posts nothing and bills nothing, so loading POs is free (a pricing decision
   // for the owner; the bulk invoice creates are priced per element because invoices are what the Flows meter counts).
   bulk_create_purchase_orders: null,
+  // Links post nothing and bill nothing (a pricing decision for the owner, as the PO import).
+  link_bills_to_purchase_order: null,
+  unlink_bill_from_purchase_order: null,
   create_upload_urls: null,
   finalize_uploads: null,
 

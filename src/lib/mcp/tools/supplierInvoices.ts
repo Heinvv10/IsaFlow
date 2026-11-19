@@ -14,6 +14,8 @@ import {
   getSupplierInvoiceById,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
+import { purchaseOrderIdsByBill } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
+import { readThreeWayMatchState } from '@/modules/accounting/services/ap/threeWayMatchState';
 import {
   SUPPLIER_INVOICE_GROUP_BY,
   summariseSupplierInvoices,
@@ -28,6 +30,8 @@ import {
   toolError,
 } from './toolHelpers';
 
+const THREE_WAY_LINE_CAP = 100;
+
 const STATUSES = [
   'draft', 'pending_approval', 'approved', 'partially_paid', 'paid',
   'disputed', 'cancelled',
@@ -38,7 +42,7 @@ const STATUSES = [
  * amount and is a stored column here (unlike customer invoices, which have no
  * balance_due column and need total - amount_paid computed).
  */
-function compact(inv: SupplierInvoice): Record<string, unknown> {
+function compact(inv: SupplierInvoice, purchaseOrderIds: readonly string[] = []): Record<string, unknown> {
   return {
     id: inv.id,
     invoice_number: inv.invoiceNumber,
@@ -60,6 +64,8 @@ function compact(inv: SupplierInvoice): Record<string, unknown> {
     // Computed from the document tables on every read (core/documentPresenceSql), the same test as
     // list_missing_documents: an uploaded or cross-linked document, or a stored source scan.
     has_document: inv.hasDocument === true,
+    // The purchase orders the bill is linked to (link_bills_to_purchase_order; the app's bill create), oldest link first.
+    purchase_order_ids: [...purchaseOrderIds],
   };
 }
 
@@ -127,14 +133,17 @@ export const listSupplierInvoicesTool: McpTool = {
       offset,
     });
 
-    return ok({ invoices: invoices.map(compact), total, offset });
+    const poIds = await purchaseOrderIdsByBill(ctx.companyId, invoices.map((i) => i.id));
+    return ok({ invoices: invoices.map((i) => compact(i, poIds.get(i.id.toLowerCase()))), total, offset });
   },
 };
 
 export const getSupplierInvoiceTool: McpTool = {
   name: 'get_supplier_invoice',
   description:
-    'Fetch one supplier invoice by id, including its line items and the gl_account_id each line posts to (resolve codes with list_gl_accounts).',
+    'Fetch one supplier invoice by id, including its line items and the gl_account_id each line posts to (resolve codes with list_gl_accounts). '
+    + 'purchase_order_ids lists the purchase orders it is linked to, each line\'s po_item_id its purchase order line, and three_way the match as the bill page shows it: '
+    + 'status (fully_matched / po_matched / grn_matched / unmatched), a summary and per-line quantity and price variances against the PO and goods received note.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -153,13 +162,31 @@ export const getSupplierInvoiceTool: McpTool = {
 
     const invoice = await getSupplierInvoiceById(ctx.companyId, invoiceId);
     if (!invoice) return toolError(NOT_FOUND);
+    const poIds = await purchaseOrderIdsByBill(ctx.companyId, [invoice.id]);
+    const match = await readThreeWayMatchState(ctx.companyId, invoice.id);
+    const withPoLine = new Set((invoice.items ?? []).filter((i) => i.poItemId).map((i) => i.id));
+    const linked = (match?.itemResults ?? []).filter((l) => withPoLine.has(l.invoiceItemId));
 
     return ok({
-      ...compact(invoice),
+      ...compact(invoice, poIds.get(invoice.id.toLowerCase())),
+      three_way: match && {
+        status: match.matchStatus, has_purchase_order: match.hasPurchaseOrder, payment_matched: match.paymentMatched, summary: match.summary,
+        tolerances: { quantity_percent: match.tolerancesApplied.qtyTolerancePct, price_percent: match.tolerancesApplied.priceTolerancePct },
+        // Only lines that name a PO line (the rest are unmatched by definition: lines_without_po_line); capped so a 200-line bill still fits.
+        lines_total: linked.length,
+        lines_without_po_line: match.itemResults.length - linked.length,
+        lines: linked.slice(0, THREE_WAY_LINE_CAP).map((l) => ({
+          invoice_item_id: l.invoiceItemId, description: l.description, status: l.lineMatchStatus,
+          quantity: { po: l.poQuantity, grn: l.grnQuantityReceived, invoice: l.invoiceQuantity, variance_percent: l.qtyVariancePct },
+          unit_price: { po: l.poUnitPrice, invoice: l.invoiceUnitPrice, variance_percent: l.priceVariancePct },
+          mismatches: l.mismatches,
+        })),
+      },
       notes: invoice.notes ?? null,
       payment_terms: invoice.paymentTerms ?? null,
       items: (invoice.items ?? []).map((item) => ({
         id: item.id,
+        po_item_id: item.poItemId ?? null,
         description: item.description,
         quantity: item.quantity,
         unit_price: item.unitPrice,
