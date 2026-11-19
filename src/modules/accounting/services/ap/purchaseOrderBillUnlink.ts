@@ -13,21 +13,23 @@
  *   - still fully billed, and the deleted link held the record -> the record moves to a remaining link of the PO (so a later
  *     unlink can still reopen it);
  *   - a PO closed by hand, or cancelled, is not touched.
- * R2: when the PO commits spend again (it reopened, or its lines are un-netted) the budget check runs in warn form
- * (`checkPurchaseOrderBudget`, channel mcp, gate held): it NEVER blocks, an over-budget result comes back as `budgetWarnings`.
+ * R2: when the PO commits spend again (it reopened, or its lines are un-netted) the budget is READ (`unlinkBudgetWarnings`: the same lines
+ * the PO approve judges, nothing recorded) and an over-budget result comes back as `budgetWarnings` in the unlink's own wording; it
+ * NEVER blocks and never fails on a busy gate or a policy that changed. Reopening is open to any write:invoices holder (Hein): it
+ * restores a commitment, the conservative direction.
  * A reason is required; audited. A cancelled or soft-deleted bill can still be unlinked (clean-up).
  */
-import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
+import { sql, withSavepoint } from '@/lib/neon';
 import { openBudgetGate } from '../budgets/budgetCheck';
-import { BudgetExceededError } from '../budgets/budgetCheckTypes';
+import { BudgetCheckLockTimeoutError } from '../budgets/budgetCheckTypes';
 import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
 import { toCents } from '../budgets/grid/cents';
 import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
-import { checkPurchaseOrderBudget } from './purchaseOrderBudget';
+import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
 
@@ -64,12 +66,18 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   if (resolved.length !== 1) throw NOT_FOUND('Purchase order');
   const poId = String(resolved[0]!.id);
 
-  const gate = await openBudgetGate(companyId, 'take'); // FIRST, as every budget-checked writer
+  // FIRST, as every budget-checked writer. Its own savepoint: a busy gate (BudgetCheckLockTimeoutError, a 55P03) must not abort the
+  // request. R2: an unlink never blocks on the budget, so a busy gate only means the budget is not checked this time.
+  let gateBusy = false;
+  try { await withSavepoint('unlink_budget_gate', () => openBudgetGate(companyId, 'take')); } catch (err) {
+    if (!(err instanceof BudgetCheckLockTimeoutError)) throw err;
+    gateBusy = true;
+  }
   const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
   const pos = await withRowLockBudget(async () => (await sql`
     SELECT po_number, status, to_char(order_date, 'YYYY-MM') AS month, subtotal FROM purchase_orders
-     WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE
-  `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline });
+     WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE
+  `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline }); // not FOR UPDATE: see purchaseOrderBillLinkRead (draft edit vs link deadlock)
   if (!pos[0]) throw NOT_FOUND('Purchase order');
   const held = (await sql`
     SELECT supplier_invoice_id::TEXT AS bill FROM purchase_order_bill_links
@@ -127,19 +135,13 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
     }
   }
 
+  // R2 (Hein): never blocks, and records nothing (no budget_check_events row, no approve audit row): a READ of what the PO would
+  // now commit, worded for an unlink. Not run when the budget gate was busy; the reply says so.
   let budgetWarnings: string[] = [];
   if ((COMMITTING_PO_STATUSES as readonly string[]).includes(statusAfter) && (reopenedTo !== null || cleared.length > 0)) {
-    try {
-      const check = await checkPurchaseOrderBudget(
-        companyId, { id: poId, poNumber, status: statusAfter, month: String(pos[0].month) }, gate,
-        { channel: 'mcp', lock: 'held', gate, figures: opts.budgetFigures }, opts.userId,
-      );
-      budgetWarnings = check.warnings;
-    } catch (err) {
-      // R2: an unlink never blocks on the budget; the block policy's refusal is reported as the warning it is.
-      if (!(err instanceof BudgetExceededError)) throw err;
-      budgetWarnings = [err.message];
-    }
+    budgetWarnings = gateBusy
+      ? ['The budget could not be checked just now (another approval holds the budget lock); the purchase order commits spend again, check it in the app.']
+      : await unlinkBudgetWarnings(companyId, poId, poNumber, opts.budgetFigures);
   }
 
   await logAuditOrThrow({

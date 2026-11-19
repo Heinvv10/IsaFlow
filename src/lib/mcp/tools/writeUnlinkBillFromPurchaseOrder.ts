@@ -21,10 +21,10 @@ export const unlinkBillFromPurchaseOrderTool: McpTool = {
   name: TOOL,
   description:
     'Remove the link between one bill and one purchase order. Posts nothing. Deletes the link, clears po_item_id on that bill\'s lines that point into this PO '
-    + '(so budget committed for those PO lines is no longer netted by the bill), resets the bill\'s purchase_order_id (its PO when exactly one link remains, else none) '
+    + '(so budget committed for those PO lines is no longer netted by the bill), resets the bill\'s purchase_order_id (its PO when exactly one link remains, else none; a header that names a PO this bill has no link to, such as an older purchase-order id, stays as it is) '
     + 'and reopens the PO to the status a link call closed it from (close_when_fully_billed) when it is still closed and no longer fully billed after the unlink '
     + '(the record of that closing moves to another link of the PO when this link held it and the PO is still fully billed; a PO closed by hand is left). '
-    + 'Un-netting PO lines or reopening makes the PO commit spend again: the budget check runs in warn form and never blocks; an over-budget result comes back as budget_warning. '
+    + 'Un-netting PO lines or reopening makes the PO commit spend again: the budget check runs in warn form and never blocks; an over-budget result comes back as budget_warning (nothing is recorded in the budget history). Any write:invoices holder may unlink and so reopen a PO that a link closed: reopening restores a commitment, the conservative direction. '
     + 'A reason is required and recorded in the audit trail. Refused when the pair is not linked. dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,

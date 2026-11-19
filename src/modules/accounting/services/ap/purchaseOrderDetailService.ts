@@ -55,7 +55,8 @@ export async function readPurchaseOrderDetail(
   const lineRows = (await sql`
     SELECT pi.id, pi.description, pi.quantity, pi.unit_price, pi.tax_rate, pi.line_total, pi.tax_amount, pi.quantity_received,
            pi.gl_account_id, pi.sort_order, count(*) OVER ()::INT AS total_rows
-      FROM po_items pi WHERE pi.purchase_order_id = ${poId}::UUID
+      FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
+     WHERE pi.purchase_order_id = ${poId}::UUID
      ORDER BY pi.sort_order, pi.id LIMIT ${DETAIL_CAPS.lines} OFFSET ${linesOffset}
   `) as DbRow[];
   const billed = await billedByPoItem(companyId, lineRows.map((r) => String(r.id)));
@@ -98,7 +99,8 @@ export async function readPurchaseOrderDetail(
   `) as DbRow[];
   const docs = (await sql`
     SELECT d.id, d.document_name, d.document_type, d.mime_type, d.file_size, d.uploaded_at, count(*) OVER ()::INT AS total_rows
-      FROM procurement_documents d WHERE d.entity_type = 'purchase_order' AND d.entity_id = ${poId}::UUID AND d.is_active = true
+      FROM procurement_documents d JOIN purchase_orders po ON po.id = d.entity_id AND po.company_id = ${companyId}::UUID
+     WHERE d.entity_type = 'purchase_order' AND d.entity_id = ${poId}::UUID AND d.is_active = true
      ORDER BY d.uploaded_at, d.id LIMIT ${DETAIL_CAPS.documents}
   `) as DbRow[];
 
@@ -111,18 +113,18 @@ export async function readPurchaseOrderDetail(
   const counted = (s: unknown) => (BILLED_STATUSES as readonly string[]).includes(String(s));
   return {
     purchase_order: {
-      id: poId, po_number: String(head.po_number), supplier_id: String(head.supplier_id), supplier_name: text(head.supplier_name),
+      id: poId, po_number: String(head.po_number), supplier_id: String(head.supplier_id), supplier_name: short(head.supplier_name),
       status: String(head.status), order_date: day(head.order_date), delivery_date: day(head.expected_delivery_date),
       reference: short(head.reference), notes: text(head.notes)?.slice(0, 500) ?? null, subtotal: Number(head.subtotal ?? 0), tax_amount: Number(head.tax_amount ?? 0),
-      total: Number(head.total ?? 0), external_system: text(head.external_system), external_ref: text(head.external_ref),
-      external_document_number: text(head.external_document_number),
+      total: Number(head.total ?? 0), external_system: short(head.external_system), external_ref: short(head.external_ref),
+      external_document_number: short(head.external_document_number),
     },
     lines, lines_total: lineRows[0] ? Number(lineRows[0].total_rows) : 0,
     next_offset: lineRows.length > 0 && linesOffset + lineRows.length < Number(lineRows[0]!.total_rows) ? linesOffset + lineRows.length : null,
     bills: billRows.map((r) => ({
       link_id: String(r.link_id), bill_id: String(r.bill_id), invoice_number: String(r.invoice_number), status: String(r.status),
       invoice_date: day(r.invoice_date), subtotal: Number(r.subtotal), total_amount: Number(r.total_amount), linked_amount: Number(r.amount),
-      counts_as_billed: counted(r.status), source: String(r.source), external_system: text(r.external_system), external_ref: text(r.external_ref),
+      counts_as_billed: counted(r.status), source: String(r.source), external_system: short(r.external_system), external_ref: short(r.external_ref),
     })),
     bills_total: billRows[0] ? Number(billRows[0].total_rows) : 0,
     goods_received_notes: grnRows.map((g) => ({

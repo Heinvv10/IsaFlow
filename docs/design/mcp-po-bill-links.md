@@ -6,7 +6,8 @@ session; sections 4, 3, 5 follow this PR.
 
 Status: built (migration `1006`, tools `link_bills_to_purchase_order`, `unlink_bill_from_purchase_order`,
 `get_purchase_order`). This note is kept in step with the code; the review rounds of 19 Nov changed decisions 4, 6, 8, 9,
-10, 11 and added 14-16, the lock-order census and the known limits.
+10, 11 and added 14-17, the lock-order census and the known limits. Round 2 changed the PO lock mode, the app sync (a diff), the
+backfill's population, the unlink's budget reading and PO cancel (decisions 10, 11, 13, 14, the census).
 
 ## What exists
 
@@ -43,7 +44,9 @@ Status: built (migration `1006`, tools `link_bills_to_purchase_order`, `unlink_b
      stored gross is scaled to its subtotal, the last line takes the rounding residual, a R0 line posts nothing. Never the
      raw `line_total`; else
    - the bill's ex-VAT subtotal less what its other links hold (a PO the bill names only by its header, or whose lines
-     post nothing). Of several such POs in the app writer / backfill only the lowest id (byte order of its text) is linked.
+     post nothing). In the app writer the "other links" include any `mcp` or adopted link the bill already has, so a bill's links
+     never pass its subtotal; a line amount is never more than the subtotal (a negative last line can make the lines' sum
+     larger). Of several such POs in the app writer / backfill only the lowest id (byte order of its text) is linked.
    Refused (MCP) when it would be <= 0 or take a bill's links past its subtotal (+1c); the app writer links nothing then.
 5. **Billed** for a PO = sum of link amounts on bills in approved / paid / partially_paid (`BILLED_STATUSES`), not
    deleted. Per PO line: billed qty and amount from linked bill lines (`billedLinesByPoItem`, the same posted amounts
@@ -75,24 +78,44 @@ Status: built (migration `1006`, tools `link_bills_to_purchase_order`, `unlink_b
     `closed_under_billed: true` (closed by a link and billed < subtotal - 1c) and a person decides. **Budget (Hein R2):** an
     unlink takes the budget gate first (as approve does) and never blocks; when the PO commits spend again (it reopened, or its
     lines are un-netted) the PO approve's budget check runs in warn form (`checkPurchaseOrderBudget`, channel mcp) and an
-    over-budget result comes back as `budget_warning` / `budget_warnings`, whatever the policy.
+    over-budget result comes back as `budget_warning` / `budget_warnings`, whatever the policy. The check is a READ
+    (`previewPurchaseOrderBudget`, the lines the Approve dialog judges): it records no `budget_check_events` row and no `approve`
+    audit row, and words the result as the unlink's ("Unlinked. Purchase order PO7 commits spend again and is now over budget on
+    ... by R..."), never as an approval refusal. A busy gate (`BudgetCheckLockTimeoutError`, caught in its own savepoint) or a
+    policy that changed never fails the unlink: the reply says the budget could not be checked. Reopening by unlink stays open to any
+    `write:invoices` holder (Hein, 19 Nov): it restores a commitment, the conservative direction (closing is the owner's / admin's
+    call; undoing it is not). A legacy header that names a PO this bill has no link to stays after an unlink (decision 3).
+    **PO cancel** (`cancelApprovedPurchaseOrder`) is refused while any bill is linked to the PO ("unlink first"; brief section 4).
 11. **Backfill + app writer:** the migration (`purchase_order_bill_links_backfill()`) inserts a `backfill` link for every
-    non-cancelled, non-deleted bill, per PO that the header names OR the lines name (line-only bills too), of the same company
-    and supplier, PO in a linkable status, amount per decision 4. The REST / MCP bill create inserts `source = 'app'` links by
-    the same rule INSIDE the create's transaction (`recordBillLinks`), and every draft edit (REST PUT, MCP
-    `update_supplier_invoice`) makes the bill's `app` links again from what it now says (`refreshAppBillLinks`; `mcp` and
-    `backfill` links are not touched). A supplier change on a bill that has links is refused (the MCP draft edit; the REST PUT
+    approved / paid / partially_paid, not-deleted bill (R3: a draft or pending bill is never backfilled, its link would go stale on
+    the next edit), per PO that the header names OR the lines name (line-only bills too), of the same company and supplier, PO in a
+    linkable status, amount per decision 4. **Run `SELECT purchase_order_bill_links_backfill();` once more as the deploy role
+    (`postgres`, which bypasses row security) after the release is live:** a bill the old colour approved between the migration and
+    the switch has no link until then; the function is idempotent. The REST / MCP bill create inserts `source = 'app'` links by the
+    same rule INSIDE the create's transaction (`recordBillLinks`), and every draft edit (REST PUT, MCP `update_supplier_invoice`)
+    syncs them (`refreshAppBillLinks`, the same function): a DIFF against the links this writer owns (`app` / `backfill`, no
+    external reference): a link that is already right is not touched (no lock, same `created_at`), a stale one is deleted and made
+    again, an owned link of a PO the bill no longer names goes; `mcp` and adopted links are not touched and count against the
+    subtotal. A supplier change on a bill that has links is refused (the MCP draft edit; the REST PUT
     takes no supplier), and on a PO that has links (the PO PUT); supplier merge is refused while the source supplier's POs
     have links (the smaller safe option; re-parenting both sides would need the merge to move links atomically).
 12. **Scope `write:invoices`** (as `bulk_create_purchase_orders`): a new scope would need every connector re-consented
     before the migration can run.
-13. **Locks:** see the lock-order census below.
+13. **Locks:** see the lock-order census below. The PO is taken `FOR NO KEY UPDATE` by link and unlink (round 2, M1): it still
+    excludes another link / unlink and PO cancel / approve / goods receipt (`FOR UPDATE`), but not the `KEY SHARE` a draft edit's
+    link insert takes on the PO through the FK, which a draft edit holding its bill would otherwise wait on while the link call
+    waits for that bill (a reproduced 40P01). The app writer reads the PO `FOR KEY SHARE` (the lock its insert takes anyway): it
+    waits for a concurrent cancel and then re-reads the status, so a PO cancelled meanwhile gets no link.
 14. **Database guards** (`1006`): `purchase_order_bill_links_guard` (BEFORE INSERT OR UPDATE): PO and bill are the row's
     company's and one supplier; `source = 'backfill'` only from a role that is not app_user / app_service; the closing record
     only while the PO is closed, moved or cleared never rewritten; a reference never changes once set; nothing but the
     reference and the closing record updates (column grants: UPDATE on those three columns only). `...supplier_guard`
     (BEFORE UPDATE OF supplier_id on purchase_orders and supplier_invoices): a linked PO or bill cannot change supplier, so
-    a link can never become cross-supplier. Cross-company refusals are enforced twice: by every tool query's company scope and by RLS.
+    a link can never become cross-supplier. The supplier guard is SECURITY DEFINER (owner migration_admin, pinned
+    search_path, registered in `app_definer_reviews`, 930): an invoker would see only the links the caller's row security shows and
+    could pass silently for a role that sees none; the other guard stays INVOKER on purpose (a caller is refused a PO or bill it
+    cannot see). `source = 'backfill'` only from `postgres` / `migration_admin`. `ENABLE ALWAYS` on all three triggers (tested with
+    `session_replication_role = replica`). Cross-company refusals are enforced twice: by every tool query's company scope and by RLS.
 15. **Readers keyed on the header PO** (review finding 4) now read the link table too: the bill list's `has_po`
     (`supplierInvoiceQueryService`), the PO documents auto-linked to a bill's document (`documentStorageService.autoLinkSupplierInvoice`),
     the bill PDF's "PO #" (`supplierInvoicePdfBuilder`: the older family's number, else the linked POs' numbers), the bill page's
@@ -109,25 +132,28 @@ raised before anything is written. Orders, first lock first:
 
 | Writer | Order |
 |---|---|
-| `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR UPDATE` in id order -> bill rows in ONE id order: the call's bills AND the bills of the existing links of those POs (so billed / fully_billed cannot move under the close decision) |
-| `unlink_bill_from_purchase_order` | budget gate (`budget_check:<company>` advisory lock, block policy only; warn / off take none) -> PO row -> bill rows (this bill and the PO's other linked bills, one sorted list) |
+| `link_bills_to_purchase_order` | external-ref advisory locks (sorted) -> PO rows `FOR NO KEY UPDATE` in id order -> bill rows in ONE id order: the call's bills AND the bills of the existing links of those POs (so billed / fully_billed cannot move under the close decision) |
+| `unlink_bill_from_purchase_order` | budget gate (`budget_check:<company>` advisory lock, block policy only; warn / off take none; a busy gate is survived) -> PO row `FOR NO KEY UPDATE` -> bill rows (this bill and the PO's other linked bills, one sorted list) |
 | bill approve | budget gate (block) -> bill row |
 | bill cancel | bill row |
 | PO approve | budget gate (block) -> PO row |
-| PO cancel (approved) | PO row |
+| PO cancel (approved) | PO row `FOR UPDATE` (refuses while links exist) |
 | goods receipt | number lock 620 -> PO row -> its `po_items` rows |
 | PO import (`bulk_create_purchase_orders`) | budget gate (an approved PO) -> number counter row -> external-ref advisory locks |
-| `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row locks only (taken by the edit); inserts into the link table (the pair's unique index) |
+| `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row (held by the edit) -> the PO rows `FOR KEY SHARE` (id order; also what the link FK takes) -> link inserts / deletes. Writes nothing, so takes no PO lock, when the links are already right |
 | supplier merge | batches -> payments -> bills -> supplier_purchase_orders (unchanged); refuses first when linked |
 
 No cycle: every writer that takes the budget gate takes it FIRST (the link tool takes none: it never raises committed spend,
-closing releases it); the PO is always taken before a bill (link, unlink), and no other writer takes a bill row and then a PO
-row (bill approve / cancel hold no PO row; their budget check reads POs without row locks); goods receipt's number lock
+closing releases it); the PO is always taken before a bill (link, unlink), and the only writer that holds a bill row and then
+touches a PO row is the app writer (a draft edit), whose lock is `KEY SHARE`, compatible with link / unlink's `NO KEY UPDATE`
+(it conflicts only with `FOR UPDATE` holders: PO cancel / approve / goods receipt, which take no bill row, so no cycle either);
+bill approve / cancel hold no PO row (their budget check reads POs without row locks); goods receipt's number lock
 precedes its PO row and the link tool takes neither; the external-ref advisory keys (`external_ref:<company>:po_bill_link:...`)
 are taken only by the link tool, always before its PO rows, always sorted. Proven in motion by
 `mcp-po-bill-links-races.int.test.ts`: link x unlink x PO cancel x bill approve x bill cancel on the same rows under the
-block policy, ten rounds, no 40P01 / 55P03 and a consistent end state; opposite-order reference lists; held PO / bill /
-"another link's bill" rows end in the typed timeout with nothing written.
+block policy, ten rounds, with a draft edit leg, no 40P01 / 55P03 and a consistent end state; a deterministic draft edit vs
+link / unlink case (the reproduced deadlock); opposite-order reference lists; held PO / bill / "another link's bill" rows end in
+the typed timeout with nothing written.
 
 ## Tools
 
@@ -148,6 +174,7 @@ block policy, ten rounds, no 40P01 / 55P03 and a consistent end state; opposite-
 
 ## Known limits
 
+- **Backfill timing:** see decision 11: run the backfill function once after the release.
 - **Credit notes do not reduce billed.** A supplier credit note against a bill leaves its link amount (and so the PO's
   billed total and `fully_billed`) as it was.
 - **A multi-PO bill cannot be `fully_matched` across its POs:** the three-way read takes goods received only from the bill's

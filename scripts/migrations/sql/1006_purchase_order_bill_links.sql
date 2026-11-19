@@ -17,11 +17,15 @@
 -- both on the same bills). A PO the bill names only by its header (or whose lines post nothing) gets the bill's subtotal
 -- less what the line-linked POs hold; of several such POs only the lowest id (byte order of its text) is linked. Never above zero or below.
 --
--- BACKFILL. purchase_order_bill_links_backfill(): one `backfill` link per live (not cancelled, not deleted) bill for each
--- purchase_orders row of the same company AND supplier that the bill's header names OR that its lines name, the PO
--- in an approved / partially_received / received / closed status (a stale or foreign id, an older supplier_purchase_orders
--- id, a draft or cancelled PO gets none). It runs here, BEFORE row security and the guards exist, and is idempotent
--- (ON CONFLICT DO NOTHING on the pair). Executable by the migration role only.
+-- BACKFILL. purchase_order_bill_links_backfill(): one `backfill` link per approved / paid / partially_paid, not-deleted bill (R3:
+-- a draft or pending bill gets its `app` links from the create and every edit, never a backfill that would go stale), for each
+-- purchase_orders row of the same company AND supplier that the bill's header names OR that its lines name, the PO in an
+-- approved / partially_received / received / closed status (a stale or foreign id, an older supplier_purchase_orders id, a draft
+-- or cancelled PO gets none). It runs here, BEFORE row security and the guards exist, and is idempotent (ON CONFLICT DO NOTHING
+-- on the pair). RE-RUN IT ONCE AFTER THE RELEASE goes live (`SELECT purchase_order_bill_links_backfill();` as the deploy role,
+-- `postgres`, which bypasses row security): a bill the OLD colour approved between this migration and the switch has no link
+-- until then. Executable by the migration / deploy role only; the guard lets `postgres` and `migration_admin` write source
+-- `backfill` and no other role.
 --
 -- RULES IN THE DATABASE.
 --   - Tenancy: 944's forced-RLS policy, verbatim. app_user reads, INSERTs the payload columns, DELETEs (an unlink) and
@@ -29,13 +33,15 @@
 --     record to another link of the same PO).
 --   - One link per (company, PO, bill); one link per (company, external_system, external_ref) where a ref is given
 --     (the system is stored lower case). amount > 0.
---   - purchase_order_bill_links_guard (BEFORE INSERT OR UPDATE, SECURITY INVOKER, so RLS applies to its reads):
---     the PO and the bill must both be the row's company's, and of the same supplier; `source = 'backfill'` only from a
---     role that is not app_user / app_service; closed_po_from_status only while the PO is closed; a reference, once set,
+--   - purchase_order_bill_links_guard (BEFORE INSERT OR UPDATE, SECURITY INVOKER, so RLS applies to its reads: a caller
+--     is refused a PO or bill it cannot see): the PO and the bill must both be the row's company's, and of the same supplier;
+--     `source = 'backfill'` only from `postgres` / `migration_admin` (not app_user, app_service, platform_admin ...); closed_po_from_status only while the PO is closed; a reference, once set,
 --     never changes; nothing but those three columns changes.
 --   - purchase_order_bill_links_supplier_guard (BEFORE UPDATE OF supplier_id on purchase_orders and supplier_invoices):
 --     a PO or a bill that has a link cannot change supplier, so a link can never become cross-supplier (supplier merge,
---     a draft edit, the PO PUT). The code refuses earlier with a reason; this is the last line.
+--     a draft edit, the PO PUT). The code refuses earlier with a reason; this is the last line. SECURITY DEFINER, owned by
+--     migration_admin (BYPASSRLS), pinned search_path, registered in app_definer_reviews (930): it must see EVERY link of the
+--     row whatever the caller's row security shows (an invoker that sees none, a role with no company set, would pass silently).
 --
 -- LOCKS. REFERENCES takes SHARE ROW EXCLUSIVE on companies, purchase_orders and supplier_invoices while the table is
 -- created, and the two triggers on purchase_orders / supplier_invoices take SHARE ROW EXCLUSIVE too (writers wait,
@@ -43,10 +49,13 @@
 -- purchase_orders and po_items. The OLD COLOUR never reads or writes the table: it keeps working, and a bill it creates
 -- between this migration and the new colour's first request gets no `app` link (the next backfill run covers it).
 --
--- Rollback (code first; links are metadata, no ledger row depends on them):
+-- Rollback (code first; links are metadata, no ledger row depends on them). A rollback does NOT undo what link calls did to
+-- other rows: supplier_invoice_items.po_item_id and supplier_invoices.purchase_order_id stay as set, and a PO a link call
+-- closed (close_when_fully_billed) stays closed; reopen those by hand if they matter:
 --   DROP TRIGGER IF EXISTS trg_po_bill_links_supplier_guard ON public.purchase_orders;
 --   DROP TRIGGER IF EXISTS trg_po_bill_links_supplier_guard ON public.supplier_invoices;
 --   DROP TRIGGER IF EXISTS trg_purchase_order_bill_links_guard ON public.purchase_order_bill_links;
+--   DELETE FROM public.app_definer_reviews WHERE signature = 'purchase_order_bill_links_supplier_guard()';
 --   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_supplier_guard();
 --   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_guard();
 --   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_backfill();
@@ -164,18 +173,18 @@ BEGIN
   WITH cand AS (
     SELECT si.id, si.company_id, si.supplier_id, si.purchase_order_id AS header_po, round(si.subtotal * 100)::BIGINT AS sub_c
       FROM supplier_invoices si
-     WHERE si.status <> 'cancelled' AND si.deleted_at IS NULL
+     WHERE si.status IN ('approved', 'paid', 'partially_paid') AND si.deleted_at IS NULL
        AND (si.purchase_order_id IS NOT NULL
             OR EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id IS NOT NULL))
   ), line_po AS (
-    SELECT c.id AS bill, po.id AS po, SUM(p.cents)::BIGINT AS cents
+    SELECT c.id AS bill, po.id AS po, LEAST(SUM(p.cents), c.sub_c)::BIGINT AS cents
       FROM cand c
       JOIN LATERAL public.po_bill_posted_cents(c.id) p ON true
       JOIN supplier_invoice_items sii ON sii.id = p.item_id
       JOIN po_items pi ON pi.id = sii.po_item_id
       JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = c.company_id AND po.supplier_id = c.supplier_id
                              AND po.status IN ('approved', 'partially_received', 'received', 'closed')
-     GROUP BY c.id, po.id
+     GROUP BY c.id, po.id, c.sub_c
   ), parts AS (
     SELECT bill, po, cents FROM line_po
     UNION ALL
@@ -223,8 +232,8 @@ BEGIN
       RAISE EXCEPTION 'a purchase order link joins a purchase order and a bill of one company and one supplier'
         USING ERRCODE = '23514';
     END IF;
-    IF NEW.source = 'backfill' AND current_user IN ('app_user', 'app_service') THEN
-      RAISE EXCEPTION 'only the migration backfill writes source backfill' USING ERRCODE = '42501';
+    IF NEW.source = 'backfill' AND current_user NOT IN ('postgres', 'migration_admin') AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+      RAISE EXCEPTION 'only the migration backfill (postgres, migration_admin) writes source backfill' USING ERRCODE = '42501';
     END IF;
   ELSE
     IF NEW.id IS DISTINCT FROM OLD.id OR NEW.company_id IS DISTINCT FROM OLD.company_id
@@ -259,7 +268,7 @@ ALTER TABLE purchase_order_bill_links ENABLE ALWAYS TRIGGER trg_purchase_order_b
 CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_supplier_guard()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
@@ -273,6 +282,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+ALTER FUNCTION public.purchase_order_bill_links_supplier_guard() OWNER TO migration_admin;
 DROP TRIGGER IF EXISTS trg_po_bill_links_supplier_guard ON purchase_orders;
 CREATE TRIGGER trg_po_bill_links_supplier_guard BEFORE UPDATE OF supplier_id ON purchase_orders
   FOR EACH ROW EXECUTE FUNCTION public.purchase_order_bill_links_supplier_guard();
@@ -302,6 +312,23 @@ REVOKE ALL ON FUNCTION public.purchase_order_bill_links_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.purchase_order_bill_links_supplier_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.purchase_order_bill_links_backfill() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.po_bill_posted_cents(UUID) FROM PUBLIC;
+
+-- The definer registry (930): the supplier guard reads purchase_order_bill_links whatever the caller's row security shows.
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
+  FROM (VALUES
+    ('purchase_order_bill_links_supplier_guard()', 'public.purchase_order_bill_links_supplier_guard()',
+     'nothing (reads purchase_order_bill_links; raises when a PO or bill that has a link changes supplier); trigger function, no EXECUTE for app roles')
+  ) AS v(signature, fn, writes)
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+
+DO $$
+BEGIN
+  IF pg_catalog.has_function_privilege('public', 'public.purchase_order_bill_links_supplier_guard()', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.purchase_order_bill_links_supplier_guard()', 'EXECUTE') THEN
+    RAISE EXCEPTION '1006: a role it must not reach can execute the supplier guard';
+  END IF;
+END $$;
 
 -- The service pool reaches the table through the mirrors 915 creates from the app_user policies.
 SELECT public.app_service_sync_policies();

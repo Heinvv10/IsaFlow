@@ -68,9 +68,14 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
 
   const poRows = await withRowLockBudget(async () => (await sql`
     SELECT id::TEXT AS id, po_number, status, supplier_id::TEXT AS supplier_id, subtotal FROM purchase_orders
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${poIds}::UUID[]) ORDER BY id FOR UPDATE
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${poIds}::UUID[]) ORDER BY id FOR NO KEY UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline });
-  // Links of a locked PO change only under that PO's lock (the link tool), so this read is stable.
+  // FOR NO KEY UPDATE, not FOR UPDATE: it still excludes another link / unlink call and a PO cancel / approve / goods receipt
+  // (FOR UPDATE), but not the KEY SHARE a draft edit's link insert takes on the PO through the FK, which a draft edit holding
+  // its bill row would otherwise wait on while this call waits for that bill (a deadlock; review round 2, M1).
+  // The links of a locked PO change under this lock EXCEPT by the app writers (a bill's create / draft edit), which hold only the
+  // bill's row and a KEY SHARE on the PO. A link such a writer commits after this read is on a DRAFT bill, which is not billed
+  // and so cannot move fully_billed; a draft this call reads is locked below, so it cannot be approved under the decision.
   const held = (await sql`
     SELECT DISTINCT l.supplier_invoice_id::TEXT AS bill FROM purchase_order_bill_links l
      WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${poIds}::UUID[])
@@ -86,6 +91,7 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
       LEFT JOIN po_items pi ON pi.id = sii.po_item_id
       LEFT JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
      WHERE sii.supplier_invoice_id = ANY(${billIds}::UUID[])
+       AND EXISTS (SELECT 1 FROM supplier_invoices si WHERE si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID)
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
   `) as DbRow[];
   const bills = new Map<string, BillFacts>();

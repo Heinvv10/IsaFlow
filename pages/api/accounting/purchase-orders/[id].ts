@@ -142,8 +142,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
-
-    if (supplier_id && await poSupplierChangeBlocked(companyId, id, supplier_id)) return apiResponse.badRequest(res, 'Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.'); // migration 1006
+    const blocked = supplier_id ? await poSupplierChangeBlocked(companyId, id, supplier_id) : null; if (blocked) return apiResponse.badRequest(res, blocked); // migration 1006
     let items = sentItems; // migration 1005: item links (new item checked, default account and rate; none keeps the stored one)
     try { if (sentItems?.length) items = await resolveEditedPoLines(companyId, id, sentItems); } catch (err) {
       if (err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
