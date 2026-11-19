@@ -17,6 +17,10 @@
  * is S = R, which takes exactly V, so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT.
  * Negative V (hand-made data) is refused.
  *
+ * NAMED LIMIT: a tiny note can need no VAT (0.03 against the mixed 1000 / 300 / 200 invoice: 0.02 standard, VAT 0.00),
+ * so its standard debit posts with no VAT leg and field 1 does not see it: at most half a cent of VAT per note, and the
+ * clearing note takes exactly what is left, so it corrects itself.
+ *
  * Only the standard lines of a mixed invoice cannot be credited alone until credit notes have lines. A note against a
  * legacy invoice (any uncoded leg) is not this file's: allocateCreditNote, exactly as before. Pure.
  */
@@ -65,13 +69,14 @@ export function requiredCreditNoteVat(input: { remainingNet: number; remainingVa
 
 /**
  * A gross amount (a dispute's) split into a subtotal and the VAT requiredCreditNoteVat gives it, adding up to the gross
- * exactly; null when no subtotal within two cents of the proportional one does (the gross is more than is left).
+ * exactly; null when no subtotal within two cents of the proportional one does (the gross is more than is left), and
+ * null (a refusal, never a throw) when nothing is left or the VAT left is negative (hand-made data; approve refuses it).
  */
 export function splitGrossProportionally(gross: number, remainingNet: number, remainingVat: number): { subtotal: number; taxAmount: number } | null {
   const g = cents(gross);
   const r = cents(remainingNet);
   const v = cents(remainingVat);
-  if (r <= 0 || g <= 0) return null;
+  if (r <= 0 || g <= 0 || v < 0) return null;
   const guess = mulDivRound(g, r, r + v);
   for (const s of [guess, guess - 1, guess + 1, guess - 2, guess + 2]) {
     if (s <= 0 || s > r) continue;
@@ -96,9 +101,8 @@ export function allocateTypedCreditNote(
   const r = carries.reduce((a, b) => a + b, 0);
   const s = cents(note.subtotal);
   const v = cents(note.remainingVat);
-  if (s <= 0 || s > r) {
-    refuse(`credits ${money(s)}, but the invoice has ${money(Math.max(r, 0))} left to credit. Reduce the note.`);
-  }
+  if (s <= 0) refuse('must credit a positive amount.');
+  if (s > r) refuse(`credits ${money(s)}, but the invoice has ${money(Math.max(r, 0))} left to credit. Reduce the note.`);
   if (v < 0) refuse('cannot be raised: the invoice\'s VAT is already fully reversed. Correct it with a journal.');
   const required = cents(requiredCreditNoteVat({ remainingNet: r / 100, remainingVat: v / 100, subtotal: s / 100 }));
   if (cents(note.taxAmount) !== required) {

@@ -175,7 +175,7 @@ function typedDisputeSplit(gross: number, left: { remainingNet: number; remainin
   const near = [-1, 1].map((d) => nearestProportionalGross(gross, left, d)).filter((g): g is number => g !== null);
   const why = Math.round(gross * 100) > Math.round(leftGross * 100)
     ? `is more than the ${leftGross.toFixed(2)} the invoice has left`
-    : `cannot be split in proportion across the invoice's lines; ${near.map((g) => g.toFixed(2)).join(' or ')} can`;
+    : `cannot be split in proportion across the invoice's lines${near.length ? `; ${near.map((g) => g.toFixed(2)).join(' or ')} can` : ''}`;
   throw new ArRequestError(
     `Cannot auto-create credit note: the disputed ${gross.toFixed(2)} ${why}. `
       + 'An invoice with a VAT type per line is credited in proportion across its lines.',

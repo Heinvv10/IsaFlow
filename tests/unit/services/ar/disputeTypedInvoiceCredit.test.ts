@@ -27,13 +27,21 @@ const CO = '11111111-1111-1111-1111-111111111111';
 const INV = '22222222-2222-2222-2222-222222222222';
 const DSP = '44444444-4444-4444-4444-444444444444';
 
+// sql answered by statement text, not call order: the claim, the invoice read and the credit-note link.
 const wire = (disputed: number) => {
   mockSql.mockReset();
-  mockSql
-    .mockResolvedValueOnce([{ id: DSP, company_id: CO, customer_invoice_id: INV, status: 'resolved', disputed_amount: String(disputed), reason: 'r' }])
+  mockSql.mockImplementation((async (strings: TemplateStringsArray) => {
+    const text = strings.join('?');
+    if (/UPDATE customer_invoice_disputes\s+SET status/.test(text)) {
+      return [{ id: DSP, company_id: CO, customer_invoice_id: INV, status: 'resolved', disputed_amount: String(disputed), reason: 'r' }];
+    }
     // A mixed invoice: header 15% on 1500 would be 225, but its VAT is 150 (only the 1000 standard line carries it).
-    .mockResolvedValueOnce([{ client_id: 'cl', subtotal: '1500.00', tax_amount: '150.00', tax_rate: '15' }])
-    .mockResolvedValueOnce([{ id: DSP, company_id: CO, customer_invoice_id: INV, status: 'resolved', credit_note_id: 'cn-1' }]);
+    if (/FROM customer_invoices/.test(text)) return [{ client_id: 'cl', subtotal: '1500.00', tax_amount: '150.00', tax_rate: '15' }];
+    if (/SET credit_note_id/.test(text)) {
+      return [{ id: DSP, company_id: CO, customer_invoice_id: INV, status: 'resolved', credit_note_id: 'cn-1' }];
+    }
+    throw new Error(`unexpected statement: ${text}`);
+  }) as never);
   mockCreate.mockReset();
   mockCreate.mockResolvedValue({ id: 'cn-1' } as never);
 };
@@ -77,7 +85,16 @@ describe('resolveDispute against a typed invoice', () => {
   it('a gross no proportional split reaches is refused, naming the nearest amounts', async () => {
     mockState.mockResolvedValue({ remainingNet: 1500, remainingVat: 150 });
     wire(0.05); // 0.04 + 0.00 = 0.04; 0.05 + 0.01 = 0.06
-    await expect(resolve()).rejects.toThrow(/0\.04 or 0\.06/);
+    await expect(resolve()).rejects.toMatchObject({
+      code: 'DISPUTE_CREDIT_NOT_PROPORTIONAL', message: expect.stringMatching(/0\.04 or 0\.06/),
+    });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('VAT already over-reversed (hand-made data): refused as not proportional, not a RangeError', async () => {
+    mockState.mockResolvedValue({ remainingNet: 100, remainingVat: -100 });
+    wire(10);
+    await expect(resolve()).rejects.toMatchObject({ code: 'DISPUTE_CREDIT_NOT_PROPORTIONAL' });
     expect(mockCreate).not.toHaveBeenCalled();
   });
 

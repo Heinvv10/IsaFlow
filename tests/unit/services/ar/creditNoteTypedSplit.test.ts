@@ -88,6 +88,8 @@ describe('the proportional rule, case by case', () => {
     ['mixed: full credit 1500 + 150 clears every leg', MIXED(), 150, 1500, 150, 'standard 1000.00, zero_rated 300.00, exempt 200.00'],
     ['ten x 10.10: 50.50 + 7.60', TEN_X_10_10(), 15.2, 50.5, 7.6, 'standard 50.50'],
     ['ten x 10.03: 50.15 + 7.50', TEN_X_10_03(), 15, 50.15, 7.5, 'standard 50.15'],
+    // The module's named limit: VAT 0.00 is required, so the 0.02 standard debit posts with no VAT leg.
+    ['mixed: 0.03 + 0.00 (the named limit)', MIXED(), 150, 0.03, 0, 'standard 0.02, zero_rated 0.01'],
   ] as const)('%s passes', (_l, legs, vat, sub, tax, expected) => expect(run([...legs], vat, sub, tax)).toBe(expected));
 
   it.each([
@@ -108,7 +110,8 @@ describe('the proportional rule, case by case', () => {
       + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
     ['mixed: more than is left, 1600 + 160', MIXED(), 150, 1600, 160,
       'Credit note CN-9 credits 1600.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
-    ['a zero subtotal', MIXED(), 150, 0, 0, 'Credit note CN-9 credits 0.00, but the invoice has 1500.00 left to credit. Reduce the note.'],
+    ['a zero subtotal', MIXED(), 150, 0, 0, 'Credit note CN-9 must credit a positive amount.'],
+    ['a negative subtotal', MIXED(), 150, -10, -1, 'Credit note CN-9 must credit a positive amount.'],
     ['negative VAT left (hand-made data)', MIXED(), -1, 150, 0,
       'Credit note CN-9 cannot be raised: the invoice\'s VAT is already fully reversed. Correct it with a journal.'],
   ] as const)('%s is refused, naming the figure', (_l, legs, vat, sub, tax, message) =>
@@ -134,7 +137,9 @@ describe('the proportional rule, case by case', () => {
 // Property: random-but-seeded invoices and splits; every sequence of notes carrying the required VAT ends at net 0 and
 // VAT 0, with no leg over-credited, each note's debits equal to its subtotal, and VAT reversed never above the invoice's.
 describe('any sequence of notes with the required VAT clears the invoice exactly', () => {
-  let seed = 20261119;
+  // Seeded per case (from its label), so a failing case reproduces alone with -t.
+  let seed = 0;
+  const seedFrom = (label: string) => { seed = [...label].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 2147483648, 20261119); };
   const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   const lineVat = (netCents: number) => Math.round(netCents * 0.15); // a rated line's own VAT, rounded on the line
   const invoices: Array<[string, () => { legs: RevenueLeg[]; vat: number }]> = [
@@ -146,7 +151,8 @@ describe('any sequence of notes with the required VAT clears the invoice exactly
       legs: [leg(500, 'standard', 's'), leg(-40, 'standard', 'd'), leg(120.33, 'exempt', 'e')], vat: lineVat(50000) + lineVat(-4000),
     })],
   ];
-  it.each(invoices)('%s', (_label, make) => {
+  it.each(invoices)('%s', (label, make) => {
+    seedFrom(label);
     for (let trial = 0; trial < 40; trial++) {
       const { legs, vat } = make();
       const inv = new Invoice(legs, vat);
@@ -168,6 +174,11 @@ describe('splitGrossProportionally (dispute notes)', () => {
   it('null when the gross is more than the invoice has left', () => {
     expect(splitGrossProportionally(2000, 1500, 150)).toBeNull();
   });
+  // Hand-made data: VAT already over-reversed. A refusal (null), never a RangeError from a zero or negative divisor.
+  it.each([[10, 100, -100], [10, 100, -150], [10, 100, -0.01], [10, 0, 0]])(
+    'null, not a throw, for gross %s against net %s and VAT %s left', (g, r, v) => {
+      expect(splitGrossProportionally(g, r, v)).toBeNull();
+    });
 });
 
 describe('legsAreTyped', () => {
