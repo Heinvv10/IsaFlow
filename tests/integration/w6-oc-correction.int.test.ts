@@ -101,8 +101,8 @@ describe('correcting a paid, over-paid bonus run', () => {
     // Delta L1: the 999x guard changes an amount on a DRAFT run only; a calculated run's lines were costed on it.
     await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 4999 WHERE run_id = $1', [run]))
       .rejects.toThrow(/only a draft bonus run's amount changes/);
-    // The first change after the reopen kept the amount last approved.
-    expect((await a.pool.query('SELECT approved_amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [run])).rows[0].x).toBe(50_000);
+    // The run's gross as last approved, snapshotted as it left 'approved'.
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 50_000 });
     const ok = await a.api.approve(run);
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     const after = await paye(run);
@@ -139,12 +139,16 @@ describe('correcting a paid, over-paid bonus run', () => {
     for (const amount of [80_000, 5_000.01]) {
       const up = await patch(run, { employeeId: mid, amount });
       expect(up.statusCode).toBe(409);
-      expect(a.msg(up)).toMatch(/can't be raised after the pay date \(last approved R\s5\s000\.00\)\. Pay the difference in a new off-cycle run\./);
+      expect(a.msg(up)).toMatch(/pay on it can't be raised after the pay date \(last approved R\s5\s000\.00\)\. Pay the difference in a new off-cycle run\./);
     }
     expect((await a.header(run)).status).toBe('calculated');
     // Lower is allowed.
     expect((await patch(run, { employeeId: mid, amount: 4_000 })).statusCode).toBe(200);
-    expect((await a.pool.query('SELECT approved_amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [run])).rows[0].x).toBe(5_000);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 5_000 });
+    // Review #1679 L1: no write to the header moves the snapshot (it is the trigger's, taken as the run left approved).
+    await a.pool.query(`UPDATE payroll_run_headers SET off_cycle_paid_gross = jsonb_build_object($2::text, 999999),
+      reopened_at = reopened_at + interval '1 second' WHERE id = $1`, [run, mid]);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 5_000 });
     // An amount raised another way (below the service, on the draft run) is refused at approval.
     await a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 80000 WHERE run_id = $1', [run]);
     expect((await a.api.calculate(run)).statusCode).toBe(200);

@@ -108,6 +108,9 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
   // Pay order is creation order, and no later month is final (review #1620 breaker H2 and its later-month repro).
   const order = await offCycleOrderRefusal(companyId, period, input.runDate, tx) ?? await laterMonthFinalRefusal(companyId, period, tx);
   if (order) throw state(order);
+  // Review #1679 L2: no off-cycle run is created in a month whose EMP201 is filed (route, MCP create and dry run).
+  const filed = await offCycleFiledMonthRefusal(companyId, { run_kind: 'off_cycle', period_year: period.year, period_month: period.month }, tx);
+  if (filed) throw state(filed);
   const ids = employees.map((e) => e.employeeId);
   const people = (await tx`
     SELECT e.id, e.employee_number, e.first_name, e.last_name, e.pay_frequency, e.end_date::text AS end_date,

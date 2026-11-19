@@ -5,11 +5,11 @@
  *    accepted EMP201, covers the month, the filed declaration stands. An off-cycle run of that month is not reopened
  *    after its pay date (payrollOffCycleGates), and none is calculated or approved again (offCycleFiledMonthRefusal):
  *    a run reopened before the filing would otherwise be approved again outside the filed return (delta M2).
- *  - Raising a paid amount (offCycleRaisedAfterPayRefusal, delta M1): after its pay date a run's amounts were paid, so a
- *    correction may only lower them. Anything above the last approved amount is refused at the amount edit and again at
- *    approval (defence in depth for an amount changed another way); the difference is paid by a new off-cycle run.
- *    The last approved amount is kept by the 999x guard: the first amount change after a reopen stamps the amount it
- *    replaces (approved_amount, approved_as_of = the run's reopened_at). app_user cannot write either column.
+ *  - Raising paid pay (delta M1, review #1679 M): after its pay date a run's pay was paid, so a correction may only
+ *    lower it. Each employee's gross as last approved is snapshotted by 999x's payroll_off_cycle_paid_snapshot trigger
+ *    when the run leaves 'approved' (payroll_run_headers.off_cycle_paid_gross, which no app_user write can set or move).
+ *    Approval refuses any employee's gross above it, bonus or termination run alike (offCycleRaisedAfterPayRefusal);
+ *    the bonus amount edit refuses it up front (offCycleRaiseRefusal). The difference is paid by a new off-cycle run.
  * Scoped by company_id throughout.
  */
 import { sql } from '@/lib/neon';
@@ -19,7 +19,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { dateColumnOf } from './payrollFrequency';
 
-type RunFacts = { id?: unknown; run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown; reopened_at?: unknown };
+type RunFacts = { id?: unknown; run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown; off_cycle_paid_gross?: unknown };
 
 /** A finalised or filed EMP201 (or a legacy submitted or accepted one) covers the month. */
 export async function emp201FiledForMonth(companyId: string, year: number, month: number, db: TxSql = sql): Promise<boolean> {
@@ -38,56 +38,59 @@ export async function emp201FiledForMonth(companyId: string, year: number, month
   return filed.length > 0;
 }
 
-/** Calculate and approve (delta M2): no off-cycle run of a month whose EMP201 is filed. Null when it is not. */
+/** Create (review #1679 L2), calculate and approve (delta M2): no off-cycle run of a month whose EMP201 is filed. */
 export async function offCycleFiledMonthRefusal(companyId: string, run: RunFacts, db: TxSql = sql): Promise<string | null> {
   if (run.run_kind !== 'off_cycle') return null;
   const year = Number(run.period_year);
   const month = Number(run.period_month);
   return (await emp201FiledForMonth(companyId, year, month, db))
-    ? `The EMP201 for ${year}-${String(month).padStart(2, '0')} is filed, so an off-cycle run of that month is not calculated `
-      + 'or approved: the filed declaration stands. A correction after filing is made outside payroll for now.'
+    ? `The EMP201 for ${year}-${String(month).padStart(2, '0')} is filed, so an off-cycle run of that month is not created, `
+      + 'calculated or approved: the filed declaration stands. A correction after filing is made outside payroll for now.'
     : null;
 }
 
-/** Each employee's last approved amount on this run, when the run was approved before and its pay date has passed. */
-async function paidCaps(companyId: string, run: RunFacts, today: string, db: TxSql): Promise<Map<string, number> | null> {
-  if (run.run_kind !== 'off_cycle' || run.reopened_at == null) return null;
+/**
+ * Each employee's gross as last approved on this run (999x payroll_run_headers.off_cycle_paid_gross, taken by the
+ * snapshot trigger when the run left 'approved'), when its pay date has passed; null otherwise.
+ */
+function paidCaps(run: RunFacts, today: string): Map<string, number> | null {
+  if (run.run_kind !== 'off_cycle' || run.off_cycle_paid_gross == null) return null;
   const payDate = dateColumnOf(run.run_date);
   if (payDate === null || payDate >= today) return null;
-  const rows = (await db`
-    SELECT x.employee_id::text AS employee_id,
-           (CASE WHEN x.approved_as_of IS NOT DISTINCT FROM h.reopened_at THEN x.approved_amount ELSE x.amount END)::float8 AS cap
-      FROM payroll_off_cycle_employees x JOIN payroll_run_headers h ON h.id = x.run_id AND h.company_id = x.company_id
-     WHERE x.company_id = ${companyId}::uuid AND x.run_id = ${String(run.id)}::uuid AND x.amount IS NOT NULL
-  `) as DbRow[];
-  return new Map(rows.map((r) => [String(r.employee_id), Number(r.cap)]));
+  const snap = (typeof run.off_cycle_paid_gross === 'string' ? JSON.parse(run.off_cycle_paid_gross) : run.off_cycle_paid_gross) as Record<string, unknown>;
+  return new Map(Object.entries(snap).map(([k, v]) => [k, Number(v)]));
 }
 
 const raisedMessage = (payDate: string, cap: number) =>
-  `This bonus was paid on ${formatDisplayDate(payDate)}, so its amount can't be raised after the pay date (last approved `
-  + `${formatMoney(cap)}). Pay the difference in a new off-cycle run.`;
+  `This run was paid on ${formatDisplayDate(payDate)}, so an employee's pay on it can't be raised after the pay date (last `
+  + `approved ${formatMoney(cap)}). Pay the difference in a new off-cycle run.`;
 
-/** The amount edit (delta M1): `amount` would raise a paid amount. Null when it does not. */
-export async function offCycleRaiseRefusal(
-  companyId: string, run: RunFacts, employeeId: string, amount: number, db: TxSql = sql, today: string = todayInSast(),
-): Promise<string | null> {
-  const cap = (await paidCaps(companyId, run, today, db))?.get(employeeId);
-  return cap !== undefined && amount > cap ? raisedMessage(String(dateColumnOf(run.run_date)), cap) : null;
+/** The bonus amount edit (delta M1): `amount` (the bonus line's gross) would raise a paid gross. Null when it does not. */
+export function offCycleRaiseRefusal(run: RunFacts, employeeId: string, amount: number, today: string = todayInSast()): string | null {
+  const caps = paidCaps(run, today);
+  if (!caps) return null;
+  const cap = caps.get(employeeId) ?? 0;
+  return amount > cap + 0.004 ? raisedMessage(String(dateColumnOf(run.run_date)), cap) : null;
 }
 
-/** Approval (delta M1, defence in depth): an amount of this run is above what was approved and paid. */
+/**
+ * Approval (review #1679 M): after its pay date, no employee's gross on a reopened off-cycle run (bonus or
+ * termination) rises above what was last approved; an employee who was not paid then counts as nil.
+ */
 export async function offCycleRaisedAfterPayRefusal(
   companyId: string, run: RunFacts, db: TxSql = sql, today: string = todayInSast(),
 ): Promise<string | null> {
-  const caps = await paidCaps(companyId, run, today, db);
-  if (!caps || caps.size === 0) return null;
+  const caps = paidCaps(run, today);
+  if (!caps) return null;
   const now = (await db`
-    SELECT employee_id::text AS employee_id, amount::float8 AS amount FROM payroll_off_cycle_employees
-     WHERE company_id = ${companyId}::uuid AND run_id = ${String(run.id)}::uuid AND amount IS NOT NULL
+    SELECT l.employee_id::text AS employee_id, SUM(l.gross_pay)::float8 AS gross
+      FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
+     WHERE h.company_id = ${companyId}::uuid AND h.id = ${String(run.id)}::uuid
+     GROUP BY l.employee_id
   `) as DbRow[];
   for (const r of now) {
-    const cap = caps.get(String(r.employee_id));
-    if (cap !== undefined && Number(r.amount) > cap) return raisedMessage(String(dateColumnOf(run.run_date)), cap);
+    const cap = caps.get(String(r.employee_id)) ?? 0;
+    if (Number(r.gross) > cap + 0.004) return raisedMessage(String(dateColumnOf(run.run_date)), cap);
   }
   return null;
 }

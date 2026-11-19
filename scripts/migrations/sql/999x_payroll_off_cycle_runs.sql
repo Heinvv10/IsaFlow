@@ -14,9 +14,15 @@
 --     company's, an off-cycle run, still a draft; the employee is this company's; a bonus row names one of this
 --     company's 3605 earnings and a termination row names none. On UPDATE (app_user may update the amount column
 --     only): the run is this company's DRAFT bonus run (the service sends a calculated run back to draft and clears its
---     lines first); company, run, employee and earning stay as they were; the amount is more than R0 in whole cents;
---     the first change after a reopen stamps approved_amount / approved_as_of (the amount last approved, which a paid
---     run's correction may not exceed: payrollOffCycleCorrection). Neither column is app_user's to write. app_user may INSERT, SELECT and UPDATE (amount).
+--     lines first); company, run, employee and earning stay as they were; the amount is more than R0 in whole cents.
+--     app_user may INSERT, SELECT and UPDATE (amount).
+--   payroll_run_headers.off_cycle_paid_gross  each employee's gross on an off-cycle run as last approved, as JSONB
+--     {employee_id: gross}: taken by payroll_off_cycle_paid_snapshot (BEFORE INSERT OR UPDATE, ENABLE ALWAYS, INVOKER)
+--     from the run's lines at the status transition out of 'approved' (a reopen), on the row that transition writes.
+--     Every other INSERT or UPDATE keeps it as it was (NULL on insert), whatever the statement says, so no app_user
+--     write can set or move it (review #1679 L1: approved_amount, stamped from a reopened_at app_user may UPDATE, could
+--     be forged). After a run's pay date its gross may not rise above it (payrollOffCycleCorrection: bonus and
+--     termination runs alike, review #1679 M).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
 --     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
 --     run's reference is unchanged
@@ -33,6 +39,9 @@
 --     NOT NULL (getPayrollRun/mapRunRow tolerate NULL), and the old colour never names it.
 --
 -- OLD COLOUR (the previous release against this schema):
+--   payroll_run_headers.off_cycle_paid_gross  it never names the column; its header writes pass through
+--     payroll_off_cycle_paid_snapshot, which keeps the column as it was and snapshots only an off-cycle run leaving
+--     'approved' (which the old colour never reopens).
 --   insert/update/read  it never names payroll_off_cycle_employees; it creates no off-cycle run (insertMonthlyRun
 --     writes run_kind 'regular' only), and its run-kind guard refuses to calculate, approve, post, reopen or print an
 --     off-cycle run created by this release, so it never costs one without its inputs.
@@ -43,6 +52,9 @@
 --   DROP TABLE IF EXISTS public.payroll_off_cycle_employees;
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS cancelled_at;  (only where this file added it: prod)
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_employees_guard();
+--   DROP TRIGGER IF EXISTS payroll_off_cycle_paid_snapshot ON public.payroll_run_headers;
+--   DROP FUNCTION IF EXISTS public.payroll_off_cycle_paid_snapshot();
+--   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_paid_gross;
 --   and re-run 951's approval_request_document_facts definition.
 
 SET LOCAL lock_timeout = '5s';
@@ -64,14 +76,8 @@ CREATE TABLE IF NOT EXISTS public.payroll_off_cycle_employees (
   CONSTRAINT payroll_off_cycle_employees_one_per_run UNIQUE (run_id, employee_id)
 );
 
--- The last approved amount of a run approved before and reopened (review #1620 final breaker delta M1): stamped by the
--- guard below at the first amount change after a reopen; app_user writes neither column.
-ALTER TABLE public.payroll_off_cycle_employees
-  ADD COLUMN IF NOT EXISTS approved_amount NUMERIC(14, 2) NULL,
-  ADD COLUMN IF NOT EXISTS approved_as_of TIMESTAMPTZ NULL;
-
 COMMENT ON TABLE public.payroll_off_cycle_employees IS
-  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation; a bonus amount may be corrected while the run is a draft (approved_amount keeps the amount last approved, for a reopened run).';
+  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation; a bonus amount may be corrected while the run is a draft.';
 
 CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.payroll_off_cycle_employees (company_id, run_id);
 
@@ -80,7 +86,7 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp 
 DECLARE
   h record;
 BEGIN
-  SELECT run_kind, off_cycle_reason, status, reopened_at INTO h
+  SELECT run_kind, off_cycle_reason, status INTO h
     FROM public.payroll_run_headers WHERE id = NEW.run_id AND company_id = NEW.company_id;
   IF TG_OP = 'UPDATE' THEN
     IF NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.run_id IS DISTINCT FROM OLD.run_id
@@ -97,14 +103,6 @@ BEGIN
     IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.off_cycle_reason IS DISTINCT FROM 'bonus' OR h.status <> 'draft' THEN
       RAISE EXCEPTION 'payroll_off_cycle_employees: only a draft bonus run''s amount changes'
         USING ERRCODE = 'check_violation';
-    END IF;
-    -- The amount last approved (delta M1): the first change after a reopen keeps the amount it replaces.
-    IF h.reopened_at IS NOT NULL AND OLD.approved_as_of IS DISTINCT FROM h.reopened_at THEN
-      NEW.approved_amount := OLD.amount;
-      NEW.approved_as_of := h.reopened_at;
-    ELSE
-      NEW.approved_amount := OLD.approved_amount;
-      NEW.approved_as_of := OLD.approved_as_of;
     END IF;
     RETURN NEW;
   END IF;
@@ -128,8 +126,6 @@ BEGIN
     RAISE EXCEPTION 'payroll_off_cycle_employees: a termination row names no component' USING ERRCODE = 'check_violation';
   END IF;
   NEW.created_at := pg_catalog.clock_timestamp();
-  NEW.approved_amount := NULL;
-  NEW.approved_as_of := NULL;
   RETURN NEW;
 END
 $$;
@@ -138,6 +134,34 @@ DROP TRIGGER IF EXISTS payroll_off_cycle_employees_guard ON public.payroll_off_c
 CREATE TRIGGER payroll_off_cycle_employees_guard BEFORE INSERT OR UPDATE ON public.payroll_off_cycle_employees
   FOR EACH ROW EXECUTE FUNCTION public.payroll_off_cycle_employees_guard();
 ALTER TABLE public.payroll_off_cycle_employees ENABLE ALWAYS TRIGGER payroll_off_cycle_employees_guard;
+
+-- What an off-cycle run paid each employee, as last approved (review #1679 M and L1): see WHAT above.
+ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS off_cycle_paid_gross JSONB NULL;
+COMMENT ON COLUMN public.payroll_run_headers.off_cycle_paid_gross IS
+  'Off-cycle runs (999x): each employee''s gross as last approved, {employee_id: gross}, taken by payroll_off_cycle_paid_snapshot when the run leaves approved (a reopen). Written by that trigger only.';
+
+CREATE OR REPLACE FUNCTION public.payroll_off_cycle_paid_snapshot() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.off_cycle_paid_gross := NULL;
+    RETURN NEW;
+  END IF;
+  IF OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved' THEN
+    SELECT pg_catalog.jsonb_object_agg(s.employee_id::text, s.gross) INTO NEW.off_cycle_paid_gross
+      FROM (SELECT l.employee_id, pg_catalog.sum(l.gross_pay) AS gross
+              FROM public.payroll_run_lines l WHERE l.run_id = OLD.id GROUP BY l.employee_id) s;
+  ELSE
+    NEW.off_cycle_paid_gross := OLD.off_cycle_paid_gross;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+DROP TRIGGER IF EXISTS payroll_off_cycle_paid_snapshot ON public.payroll_run_headers;
+CREATE TRIGGER payroll_off_cycle_paid_snapshot BEFORE INSERT OR UPDATE ON public.payroll_run_headers
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_off_cycle_paid_snapshot();
+ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_paid_snapshot;
 
 ALTER TABLE public.payroll_off_cycle_employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_off_cycle_employees FORCE ROW LEVEL SECURITY;

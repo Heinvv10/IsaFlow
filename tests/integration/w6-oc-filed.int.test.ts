@@ -11,12 +11,14 @@ vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: tru
 
 let a: Awaited<ReturnType<typeof rig>>;
 let run = '';
+let mid = '';
+let bonus = '';
 
 beforeAll(async () => {
   a = await rig('w6-oc-filed');
   await a.setup();
-  const mid = (await a.employee(15_000)).employee;
-  const bonus = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
+  mid = (await a.employee(15_000)).employee;
+  bonus = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
     VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [a.company])).rows[0].id;
   const regular = await a.calculatedRun(11);
   expect((await a.api.approve(regular)).statusCode).toBe(200);
@@ -60,10 +62,18 @@ describe('a filed EMP201 after the reopen', () => {
     [a.company, a.admin]);
     const calc = await a.api.calculate(run);
     expect(calc.statusCode).toBe(409);
-    expect(a.msg(calc)).toMatch(/The EMP201 for 2026-11 is filed, so an off-cycle run of that month is not calculated or approved/);
+    expect(a.msg(calc)).toMatch(/The EMP201 for 2026-11 is filed, so an off-cycle run of that month is not created, calculated or approved/);
     const ap = await a.api.approve(run);
     expect(ap.statusCode).not.toBe(200);
     expect(JSON.stringify(ap.body)).toMatch(/The EMP201 for 2026-11 is filed/);
     expect((await a.header(run)).status).toBe('calculated');
+    // Review #1679 L2: no new off-cycle run is created in the filed month either (409, before any write).
+    const before = Number((await a.pool.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).rows[0].n);
+    const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
+      body: { month: 11, year: 2026, reason: 'bonus', runDate: '2026-11-27', employees: [{ employeeId: mid, componentId: bonus, amount: 1_000 }] },
+    });
+    expect(made.statusCode).toBe(409);
+    expect(a.msg(made)).toMatch(/The EMP201 for 2026-11 is filed, so an off-cycle run of that month is not created/);
+    expect(Number((await a.pool.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).rows[0].n)).toBe(before);
   });
 });

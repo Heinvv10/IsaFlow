@@ -56,7 +56,7 @@ export async function setOffCycleBonusAmount(
   const amount = Math.round(entered * 100) / 100;
   return withTransaction(async (tx) => {
     const run = ((await tx`
-      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.reopened_at
+      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.off_cycle_paid_gross
         FROM payroll_run_headers h
        WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
        FOR UPDATE OF h
@@ -78,7 +78,7 @@ export async function setOffCycleBonusAmount(
     `) as DbRow[])[0];
     if (!before) throw refused('That employee is not on this bonus run.', 400);
     // After its pay date a run's amounts were paid: a correction only lowers them (delta M1).
-    const raised = await offCycleRaiseRefusal(companyId, run, employeeId, amount, tx);
+    const raised = offCycleRaiseRefusal(run, employeeId, amount);
     if (raised) throw refused(raised);
     // Nothing costed on the old amount can be approved: back to draft and no lines FIRST (the 999x guard changes an
     // amount on a draft run only, delta L1), until it is recalculated.
