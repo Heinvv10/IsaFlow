@@ -206,7 +206,7 @@ export default function CustomerQuotesPage() {
 
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="flex gap-1 p-1 max-lg:flex-wrap bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
               {TABS.map(t => (
                 <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 max-lg:min-h-11 max-lg:min-w-11 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
               ))}
@@ -258,12 +258,12 @@ export default function CustomerQuotesPage() {
                         <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(q.total)}</td>
                         <td data-label="Status" className="px-5 py-3.5"><StatusPill status={q.status} /></td>
                         <td className="px-4 py-3.5">
-                          <div className="flex justify-end gap-1.5">
-                            <a href={`/api/accounting/quote-pdf?quoteId=${q.id}`} target="_blank" rel="noreferrer" title="Download PDF" aria-label="Download PDF" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"><Download className="h-3.5 w-3.5" /></a>
-                            {q.status === 'draft' && <button onClick={() => handleAction(q.id, 'send')} title="Mark Sent" aria-label="Mark sent" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors"><Send className="h-3.5 w-3.5" /></button>}
+                          <div className="flex justify-end gap-1.5 max-lg:flex-wrap">
+                            <a href={`/api/accounting/quote-pdf?quoteId=${q.id}`} target="_blank" rel="noreferrer" title="Download PDF" aria-label={`Download PDF ${q.quoteNumber}`} className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"><Download className="h-3.5 w-3.5" /></a>
+                            {q.status === 'draft' && <button onClick={() => handleAction(q.id, 'send')} title="Mark Sent" aria-label={`Mark ${q.quoteNumber} sent`} className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors"><Send className="h-3.5 w-3.5" /></button>}
                             {q.status === 'sent' && (<>
-                              <button onClick={() => handleAction(q.id, 'accept')} aria-label="Accept quote" title="Accept" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-slate-500 dark:text-slate-400 hover:text-emerald-500 transition-colors"><Check className="h-3.5 w-3.5" /></button>
-                              <button onClick={() => handleAction(q.id, 'decline')} aria-label="Decline quote" title="Decline" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors"><X className="h-3.5 w-3.5" /></button>
+                              <button onClick={() => handleAction(q.id, 'accept')} aria-label={`Accept quote ${q.quoteNumber}`} title="Accept" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-slate-500 dark:text-slate-400 hover:text-emerald-500 transition-colors"><Check className="h-3.5 w-3.5" /></button>
+                              <button onClick={() => handleAction(q.id, 'decline')} aria-label={`Decline quote ${q.quoteNumber}`} title="Decline" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors"><X className="h-3.5 w-3.5" /></button>
                             </>)}
                             {q.status === 'accepted' && (<>
                               <button onClick={() => handleConvertToSO(q)} disabled={convertingToSO === q.id} className="flex items-center gap-1 px-2.5 py-1 max-lg:min-h-11 rounded-lg text-xs font-semibold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-40">

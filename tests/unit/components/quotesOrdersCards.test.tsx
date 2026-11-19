@@ -33,8 +33,9 @@ describe('quotes list on touch', () => {
     expect(container.querySelector('table')?.className).toContain('table-cards');
     expect([...container.querySelectorAll('tbody tr:first-child td[data-label]')].map(td => td.getAttribute('data-label')))
       .toEqual(['Quote #', 'Customer', 'Date', 'Expiry', 'Total', 'Status']);
-    for (const name of [/Download PDF/, /Mark sent/, /Accept quote/, /Decline quote/]) {
-      for (const el of screen.getAllByLabelText(name)) expect(el.className).toContain('max-lg:h-11');
+    for (const name of [/Download PDF Q-1/, /Mark Q-1 sent/, /Accept quote Q-2/, /Decline quote Q-2/]) {
+      const el = screen.getByLabelText(name);
+      for (const c of ['max-lg:h-11', 'max-lg:w-11', 'max-lg:inline-flex']) expect(el.className).toContain(c);
     }
     for (const el of screen.getAllByRole('button', { name: /Invoice|To SO/ })) expect(el.className).toContain('max-lg:min-h-11');
     for (const el of screen.getAllByRole('button', { name: /^(all|draft|sent)$/ })) expect(el.className).toContain('max-lg:min-h-11');
@@ -44,13 +45,18 @@ describe('quotes list on touch', () => {
 describe('sales orders list on touch', () => {
   it('is a card table and edit/delete are 44px', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) =>
-      String(url).includes('customer-sales-orders') ? ok({ orders: [order('1', 'draft')], total: 1 }) : ok({ data: [] }));
+      String(url).includes('customer-sales-orders') ? ok({ orders: [order('1', 'draft'), order('2', 'confirmed')], total: 2 }) : ok({ data: [] }));
     const { container } = render(<CustomerSalesOrdersPage />);
     await screen.findByText('SO-1');
     expect(container.querySelector('table')?.className).toContain('table-cards');
     expect([...container.querySelectorAll('tbody tr:first-child td[data-label]')].map(td => td.getAttribute('data-label')))
       .toEqual(['Order #', 'Customer', 'Date', 'Delivery Date', 'Total', 'Status']);
-    expect(screen.getByLabelText('Edit sales order').className).toContain('max-lg:h-11');
-    expect(screen.getByLabelText('Delete sales order').className).toContain('max-lg:h-11');
+    // A non-draft order has no actions, so its empty actions cell is hidden on cards.
+    const lastCell = (i: number) => container.querySelectorAll('tbody tr')[i].querySelector('td:last-child');
+    expect(lastCell(1)?.className).toContain('max-lg:!hidden');
+    expect(lastCell(0)?.className).not.toContain('max-lg:!hidden');
+    for (const n of ['Edit sales order SO-1', 'Delete sales order SO-1']) {
+      for (const c of ['max-lg:h-11', 'max-lg:w-11', 'max-lg:inline-flex']) expect(screen.getByLabelText(n).className).toContain(c);
+    }
   });
 });
