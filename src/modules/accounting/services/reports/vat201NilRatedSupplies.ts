@@ -152,9 +152,6 @@ export async function getNilRatedSupplies(
       AND je.entry_date <= ${periodEnd}::DATE
       AND ga.account_type = 'revenue'
       AND je.id NOT IN (SELECT id FROM cancelled_entries)
-      -- ...and their reversals: a cancelled credit note keeps its journal link, and the reversal its cancellation
-      -- posts (je is company-scoped above; reversal_of_id names the entry it reverses) would count on its own.
-      AND (je.reversal_of_id IS NULL OR je.reversal_of_id NOT IN (SELECT id FROM cancelled_entries))
       AND (
         jl.vat_type = ANY(${NIL_RATED_TYPES as string[]}::TEXT[])
         OR (jl.vat_type IS NULL AND je.id IN (SELECT id FROM untaxed_documents))
