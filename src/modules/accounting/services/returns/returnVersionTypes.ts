@@ -1,6 +1,6 @@
 /** Types and refusals for tax return versions (wave 5 L1a). */
 
-export type ReturnForm = 'VAT201' | 'EMP201';
+export type ReturnForm = 'VAT201' | 'EMP201' | 'EMP501';
 export type ReturnVersionStatus = 'finalised' | 'filed' | 'superseded';
 
 export interface ReturnVersion {
