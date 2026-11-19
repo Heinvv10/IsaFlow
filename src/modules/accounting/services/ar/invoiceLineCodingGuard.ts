@@ -28,7 +28,7 @@ import {
   InvoiceLineAccountLockError, InvoiceLineCodingRefusal, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
 import { isRevenueCoded, revenueLinesProblem, revenueSplitDependsOnLines } from './invoiceRevenueLines';
-import { typedLinesProblem, type StoredVatLine } from './invoiceVatLegs';
+import { lineVatShape, typedLinesProblem, type StoredVatLine } from './invoiceVatLegs';
 import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 
@@ -240,7 +240,8 @@ export async function storedLinesRefusal(
   if (!stored.lines.some(isRevenueCoded)) return null;
   const coding = await invoiceLineCodingRefusal(companyId, stored.lines, { lock: opts.lock, posting: !opts.approving });
   if (coding) return `Invoice ${stored.invoiceNumber}: ${coding}${POSTING_HINT}`;
-  if (!opts.approving || !revenueSplitDependsOnLines(stored.lines)) return null;
+  // A typed invoice foots on its lines' net to the cent (typedLinesProblem, above): its amounts may be VAT-inclusive.
+  if (!opts.approving || lineVatShape(stored.lines) === 'typed' || !revenueSplitDependsOnLines(stored.lines)) return null;
   const problem = revenueLinesProblem(stored.lines, stored.subtotal);
   return problem ? `Invoice ${stored.invoiceNumber}: ${problem}` : null;
 }
