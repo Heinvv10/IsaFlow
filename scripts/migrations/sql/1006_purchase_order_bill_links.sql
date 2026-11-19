@@ -98,6 +98,7 @@ CREATE OR REPLACE FUNCTION public.po_bill_posted_cents(p_bill UUID)
 RETURNS TABLE (item_id UUID, cents BIGINT)
 LANGUAGE plpgsql
 STABLE
+ROWS 3
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
@@ -194,7 +195,7 @@ BEGIN
             OR EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id IS NOT NULL))
   ), posted AS MATERIALIZED (
     -- Once per candidate bill, and carrying the bill's company / supplier / subtotal, so that line_po never joins the CTE `cand` (no
-    -- statistics: the planner took it for ~3 000 rows and joined it to every PO of the supplier first: bills x POs rows, 40 s for 40 000 bills).
+    -- statistics: the planner took it for ~3 000 rows and joined it to every PO of the supplier first: bills x POs rows: 40 s for 40 000 bills on one box, over 300 s on another under load).
     SELECT c.id AS bill, c.company_id, c.supplier_id, c.sub_c, p.item_id, p.cents
       FROM cand c CROSS JOIN LATERAL public.po_bill_posted_cents(c.id) p
   ), line_po AS MATERIALIZED (
