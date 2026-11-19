@@ -5,10 +5,10 @@ import { formatDrCr } from './pairingFormat';
 
 export function LoanDifferenceCard({ loan, partnerName }: { loan: LoanDifference; partnerName: string }) {
   const agrees = loan.difference !== null && Math.abs(loan.difference) < 0.005;
-  // difference = yours + theirs (net debit): above nil, yours shows more owed to you (or less owed by you) than the partner's mirror.
+  // difference = yours + theirs (net debit): above nil, yours shows more owed to you (or less owed by you) than the partner's mirror; below nil, the partner's shows more owed by them (or less owed to them).
   const higher = loan.difference === null || agrees ? null
     : loan.difference > 0 ? `Your books show ${formatCurrency(loan.difference)} more owed to you (or less owed by you) than ${partnerName}'s`
-      : `${partnerName}'s books show ${formatCurrency(Math.abs(loan.difference))} more owed to them (or less owed by them) than yours`;
+      : `${partnerName}'s books show ${formatCurrency(Math.abs(loan.difference))} more owed by them (or less owed to them) than yours`;
   return (
     <section className="bg-[var(--ff-canvas-mid)] border border-[var(--ff-canvas-border)] rounded-xl p-5 space-y-3" data-testid="loan-difference">
       <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Intercompany loan balances</h2>

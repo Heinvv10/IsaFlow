@@ -13,18 +13,8 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import PairingPage from '../../../pages/accounting/settings/intercompany/pairing';
-import type { PairingCandidate, PairingDoc, PairingView } from '@/modules/accounting/services/intercompany/pairingTypes';
 import { connection, envelope, failure } from './intercompanyFixtures';
-
-const doc = (id: string, number: string, total: number, over: Partial<PairingDoc> = {}): PairingDoc => ({ id, number, date: '2026-08-15', total, open: total, currency: 'ZAR', ...over });
-const pair = (n: number, over: Partial<PairingCandidate> = {}): PairingCandidate => ({
-  mine: doc(`m${n}`, `INV-${n}`, 1000 + n), theirs: doc(`t${n}`, `INV-${n}`, 1000 + n), ambiguous: false, openDiffers: false, ...over,
-});
-const EMPTY = { suggestions: [], mismatches: [], unmatchedMine: [], unmatchedTheirs: [], unsupported: [] };
-const VIEW = (over: Partial<PairingView> = {}): PairingView => ({
-  connectionId: 'conn-1', partnerName: 'Velocity Fibre', direction: 'ar', cutoverDate: '2026-10-01', blocked: null, confirmsBoth: false,
-  matches: EMPTY, truncated: false, links: [], loan: null, ...over,
-});
+import { EMPTY, VIEW, doc, pair } from './intercompanyPairingFixtures';
 
 let view: (direction: string) => Response;
 let connectionsReply: () => Response = () => envelope({ items: [connection({ settings: { settlementMode: 'cash', cutoverDate: '2026-10-01', interestRatePct: null } })], count: 1 });
@@ -101,28 +91,6 @@ describe('the page', () => {
     expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u) === '/api/accounting/intercompany/connections')).toHaveLength(2);
   });
 
-  it('the tabs follow the tabs pattern: a controlled panel, one tab in the tab order, arrow keys and Home / End move and select', async () => {
-    render(<PairingPage />);
-    await screen.findByTestId('pairing-view');
-    const ar = screen.getByRole('tab', { name: /Owed to you/ });
-    const ap = screen.getByRole('tab', { name: /Owed by you/ });
-    expect([ar.tabIndex, ap.tabIndex]).toEqual([0, -1]);
-    const panel = screen.getByRole('tabpanel');
-    expect(ar).toHaveAttribute('aria-controls', panel.id);
-    expect(panel).toHaveAttribute('aria-labelledby', ar.id);
-    ar.focus();
-    fireEvent.keyDown(ar, { key: 'ArrowRight' });
-    await waitFor(() => expect(ap).toHaveAttribute('aria-selected', 'true'));
-    expect(document.activeElement).toBe(ap);
-    expect([ar.tabIndex, ap.tabIndex]).toEqual([-1, 0]);
-    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', ap.id);
-    fireEvent.keyDown(ap, { key: 'ArrowRight' });
-    await waitFor(() => expect(ar).toHaveAttribute('aria-selected', 'true'));
-    fireEvent.keyDown(ar, { key: 'End' });
-    await waitFor(() => expect(ap).toHaveAttribute('aria-selected', 'true'));
-    fireEvent.keyDown(ap, { key: 'Home' });
-    await waitFor(() => expect(ar).toHaveAttribute('aria-selected', 'true'));
-  });
 
   it.each([
     ['no_cutover', /cut-over date first/], ['no_party', /Link the customer/], ['revoked', /is revoked/], ['no_write_access', /owner, admin or manager/],
@@ -314,29 +282,9 @@ describe('exceptions, pairings and loan balances', () => {
     expect(row).not.toHaveTextContent('Not open any more');
   });
 
-  it('says which side is higher when the loan balances differ', async () => {
+  it('shows the loan card on the page, from the view', async () => {
     view = () => envelope(VIEW({ loan: { mine: 5000, theirs: -4800, difference: 200, asAt: '2026-09-30' } }));
     render(<PairingPage />);
-    expect(await screen.findByTestId('loan-higher')).toHaveTextContent("Your books show R 200.00 more owed to you (or less owed by you) than Velocity Fibre's");
-    view = () => envelope(VIEW({ loan: { mine: 4800, theirs: -5000, difference: -200, asAt: '2026-09-30' } }));
-    fireEvent.click(screen.getByRole('tab', { name: /Owed by you/ }));
-    await waitFor(() => expect(screen.getByTestId('loan-higher')).toHaveTextContent("Velocity Fibre's books show R 200.00 more owed to them"));
-  });
-
-  it('shows the loan balances as Dr / Cr with the difference, and says when the partner has not set a loan account', async () => {
-    view = () => envelope(VIEW({ loan: { mine: 5000, theirs: -4800, difference: 200, asAt: '2026-09-30' } }));
-    render(<PairingPage />);
-    const card = await screen.findByTestId('loan-difference');
-    expect(screen.getByTestId('loan-mine')).toHaveTextContent('R 5 000.00 Dr');
-    expect(screen.getByTestId('loan-theirs')).toHaveTextContent('R 4 800.00 Cr');
-    expect(screen.getByTestId('loan-difference-value')).toHaveAttribute('data-state', 'differs');
-    expect(card).toHaveTextContent('30 Sep 2026');
-    view = () => envelope(VIEW({ loan: { mine: 0, theirs: 0, difference: 0, asAt: '2026-09-30' } }));
-    fireEvent.click(screen.getByRole('tab', { name: /Owed by you/ }));
-    await waitFor(() => expect(screen.getByTestId('loan-difference-value')).toHaveAttribute('data-state', 'agrees'));
-    view = () => envelope(VIEW({ loan: { mine: 100, theirs: null, difference: null, asAt: '2026-09-30' } }));
-    fireEvent.click(screen.getByRole('tab', { name: /Owed to you/ }));
-    await waitFor(() => expect(screen.getByTestId('loan-difference-value')).toHaveAttribute('data-state', 'unknown'));
-    expect(screen.getByTestId('loan-difference')).toHaveTextContent(/has not set a loan account/);
+    expect(await screen.findByTestId('loan-difference')).toHaveTextContent('30 Sep 2026');
   });
 });

@@ -7,7 +7,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { dataOf } from '../r035-pr2.helpers';
 import { asAppUser, cleanup, co, party, plantDocument, setup, U } from './intercompany.helpers';
-import { LINK, acceptedMessage, high, low, mirrorArgs, ownerOf, pairing } from './links.helpers';
+import { LINK, acceptedMessage, low, mirrorArgs, ownerOf, pairing } from './links.helpers';
 import { pairingApi as api, pairingConnection, plantCustomerInvoice, plantSupplierInvoice, wipeDocuments } from './pairing.helpers';
 import type { PairingView } from '../../../src/modules/accounting/services/intercompany/pairingTypes';
 
@@ -56,7 +56,6 @@ describe('the screen touches only its own links', () => {
       expect((await view(user, company, 'ap')).links).toEqual([]);
     }
     expect((await live()).map((r) => r.status).sort()).toEqual(['active', 'pending_confirmation']);
-    expect(high()).toBeDefined();
   });
 });
 

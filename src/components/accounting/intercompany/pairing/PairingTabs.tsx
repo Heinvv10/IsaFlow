@@ -39,7 +39,7 @@ export function PairingTabs({ direction, labels, onChange, children }: Props) {
           </button>
         ))}
       </div>
-      <div role="tabpanel" id={PANEL_ID} aria-labelledby={tabId(direction)} tabIndex={-1} className="space-y-6 outline-none">{children}</div>
+      <div role="tabpanel" id={PANEL_ID} aria-labelledby={tabId(direction)} tabIndex={0} className="space-y-6 outline-none">{children}</div>
     </>
   );
 }
