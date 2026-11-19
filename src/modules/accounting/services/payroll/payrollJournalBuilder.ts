@@ -179,15 +179,18 @@ export async function buildPayrollJournalPlan(
         glAccountId: l.glAccountId,
         accountCode: acc?.code ?? '',
         accountName: acc?.name ?? '',
-        debit: round2(l.debit),
-        credit: 0,
+        // A negative share (an SDL refund larger than the run's cost, breaker #1622 L-H) reduces the expense: a credit.
+        debit: l.debit >= 0 ? round2(l.debit) : 0,
+        credit: l.debit < 0 ? round2(-l.debit) : 0,
         description: l.description,
         inactiveAccount: acc ? !acc.isActive : false,
         cc1Id: l.cc1Id,
       });
     }
   } else {
-    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI'));
+    built.push(labourDebit >= 0
+      ? line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI')
+      : line('5200', 0, -labourDebit, 'Labour costs reduced — an SDL refund larger than the run\'s cost (the month\'s earlier runs carried more than 1%)'));
   }
 
   const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
