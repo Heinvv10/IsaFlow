@@ -143,7 +143,7 @@ export default function BureauClientsPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
-            <Link href="/bureau" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+            <Link href="/bureau" aria-label="Back to bureau" className="p-2 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
               <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
             </Link>
             <div className="p-2 rounded-lg bg-purple-500/10">
@@ -169,7 +169,7 @@ export default function BureauClientsPage() {
                 <button
                   key={b.id}
                   onClick={() => setActiveBureauId(b.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs ${activeBureauId === b.id ? 'bg-purple-500/20 text-purple-400' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]'}`}
+                  className={`px-3 py-1.5 max-lg:min-h-11 rounded-full text-xs ${activeBureauId === b.id ? 'bg-purple-500/20 text-purple-400' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]'}`}
                 >
                   {b.name} <span className="opacity-60">({b.role})</span>
                 </button>
@@ -185,12 +185,12 @@ export default function BureauClientsPage() {
             {clients.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-[var(--ff-text-tertiary)]">No clients linked yet.</div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium">Company</th>
                     <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium">Linked</th>
-                    <th className="py-2 px-4"></th>
+                    <th className="py-2 px-4"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -199,19 +199,19 @@ export default function BureauClientsPage() {
                       <td className="py-2 px-4">
                         <Link
                           href={`/bureau/clients/${c.companyId}`}
-                          className="inline-flex items-center gap-2 text-[var(--ff-text-primary)] hover:text-teal-400"
+                          className="inline-flex items-center gap-2 max-lg:min-h-11 text-[var(--ff-text-primary)] hover:text-teal-400"
                         >
                           <Building2 className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
                           {c.companyName}
                         </Link>
                       </td>
-                      <td className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatDisplayDate(c.addedAt)}</td>
+                      <td data-label="Linked" className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatDisplayDate(c.addedAt)}</td>
                       <td className="py-2 px-4 text-right">
                         {isOwner && (
                           <button
                             onClick={() => void unlink(c.companyId)}
                             disabled={working}
-                            className="text-xs text-red-400 hover:text-red-500 disabled:opacity-50 inline-flex items-center gap-1"
+                            className="text-xs text-red-400 hover:text-red-500 disabled:opacity-50 inline-flex items-center gap-1 max-lg:min-h-11"
                           >
                             <Trash2 className="h-3 w-3" /> Unlink
                           </button>
@@ -248,7 +248,7 @@ export default function BureauClientsPage() {
                           <button
                             onClick={() => void link(c.companyId)}
                             disabled={working}
-                            className="text-xs text-teal-400 hover:text-teal-500 disabled:opacity-50 inline-flex items-center gap-1"
+                            className="text-xs text-teal-400 hover:text-teal-500 disabled:opacity-50 inline-flex items-center gap-1 max-lg:min-h-11"
                           >
                             <Plus className="h-3 w-3" /> Link to bureau
                           </button>
