@@ -26,6 +26,15 @@ const CC2: SelectOption[] = [
   { id: 'orph', code: 'ORPH', name: 'No parent', fnoCode: null },
 ];
 
+// Linked to its CC1 by parent only: no fnoCode reached it (e.g. the CC1's chain could not be derived server-side).
+const PARENT_ONLY_CC1: SelectOption[] = [...CC1, { id: 'fc', code: 'FNO-C', name: 'Gamma Telecom' }];
+const PARENT_ONLY_CC2: SelectOption[] = [
+  ...CC2,
+  { id: 'pc1', code: 'PC1', name: 'Gamma build', parentId: 'fc', fnoCode: null },
+  // A project under a parent-only programme: linked to FNO-C through its programme's parent.
+  { id: 'pc2', code: 'PC2', name: 'Gamma phase 2', parentId: 'pc1', fnoCode: null },
+];
+
 const row = rowLabel(TXS[0]!);
 const cell = (name: string) => screen.getByRole('combobox', { name: `${name}, ${row}` });
 function offered(name: string): string[] {
@@ -62,6 +71,24 @@ describe('bank grid: CC2 options follow the chosen CC1 (#1653)', () => {
     expect(offered('Cost centre 2')).toEqual(['—', 'OH-BANK Bank charges']);
     choose('Cost centre 2', 'OH-BANK Bank charges');
     expect(p.onRowDimensionChange).toHaveBeenLastCalledWith('a', 'ho', 'oh', '');
+  });
+
+  it('a CC1 whose CC2s are linked by parent but carry no fnoCode still lists them', () => {
+    render(<BankTxTable {...tableProps({
+      cc1Options: PARENT_ONLY_CC1, cc2Options: PARENT_ONLY_CC2,
+      rowSelections: { ...SELECTIONS, a: { ...SELECTIONS.a!, cc1Id: 'fc', cc2Id: '' } },
+    })} />);
+    expect(offered('Cost centre 2')).toEqual(['—', 'PC1 Gamma build', 'PC2 Gamma phase 2']);
+  });
+
+  it('a CC1 change keeps a CC2 linked to it by parent only', () => {
+    const p = tableProps({
+      cc1Options: PARENT_ONLY_CC1, cc2Options: PARENT_ONLY_CC2,
+      rowSelections: { ...SELECTIONS, a: { ...SELECTIONS.a!, cc1Id: '', cc2Id: 'pc2' } },
+    });
+    render(<BankTxTable {...p} />);
+    choose('Cost centre 1', 'FNO-C Gamma Telecom');
+    expect(p.onRowDimensionChange).toHaveBeenLastCalledWith('a', 'fc', 'pc2', '');
   });
 
   it('no CC1 offers every active CC2', () => {

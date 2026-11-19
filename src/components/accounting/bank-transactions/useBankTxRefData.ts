@@ -79,7 +79,7 @@ export function useBankTxRefData(setters: Setters): void {
       apiFetch('/api/accounting/chart-of-accounts'),
       apiFetch('/api/accounting/customers'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
-      // The dimension rows carry each CC2's fnoCode, which the row's CC1 -> CC2 filter keys on (#1653).
+      // The dimension rows carry each CC2's fnoCode and parentId, which the row's CC1 -> CC2 filter keys on (#1653).
       apiFetch('/api/accounting/cost-centres?detail=dimensions&cc_type=cc2&active=true'),
       apiFetch('/api/accounting/business-units?active=true'),
     ]).then(async ([coaRes, clientRes, cc1Res, cc2Res, buRes]) => {
@@ -103,8 +103,8 @@ export function useBankTxRefData(setters: Setters): void {
       setCc1Options(cc1List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
 
       const cc2List = Array.isArray(cc2Json?.data?.items) ? cc2Json.data.items : [];
-      setCc2Options(cc2List.map((c: { id: string; code: string; name: string; fnoCode?: string | null }) => (
-        { id: c.id, code: c.code, name: c.name, fnoCode: c.fnoCode ?? null })));
+      setCc2Options(cc2List.map((c: { id: string; code: string; name: string; fnoCode?: string | null; parentId?: string | null }) => (
+        { id: c.id, code: c.code, name: c.name, fnoCode: c.fnoCode ?? null, parentId: c.parentId ?? null })));
 
       // Business units, not cost centres: this list read cost-centres and an array under `data`, so it was always empty.
       const buList = Array.isArray(buJson?.data?.items) ? buJson.data.items : [];

@@ -43,13 +43,13 @@ beforeEach(() => vi.mocked(apiFetch).mockImplementation(async (url: unknown) => 
 afterEach(() => vi.mocked(apiFetch).mockReset());
 
 describe('useBankTxRefData dimensions (#1653)', () => {
-  it('gives every CC2 the FNO its chain reaches', async () => {
+  it('gives every CC2 its parent and the FNO its chain reaches', async () => {
     const s = setters();
     renderHook(() => useBankTxRefData(s));
     await waitFor(() => expect(s.setCc2Options).toHaveBeenCalled());
     expect(s.setCc2Options).toHaveBeenCalledWith([
-      { id: 'oh', code: 'OH-BANK', name: 'Bank charges', fnoCode: 'HO' },
-      { id: 'orph', code: 'ORPH', name: 'No parent', fnoCode: null },
+      { id: 'oh', code: 'OH-BANK', name: 'Bank charges', fnoCode: 'HO', parentId: 'ho' },
+      { id: 'orph', code: 'ORPH', name: 'No parent', fnoCode: null, parentId: null },
     ]);
     expect(s.setCc1Options).toHaveBeenCalledWith([{ id: 'ho', code: 'HO', name: 'Head Office' }]);
   });
