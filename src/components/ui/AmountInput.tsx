@@ -28,7 +28,7 @@ export interface AmountInputProps extends Omit<React.InputHTMLAttributes<HTMLInp
 }
 
 export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(function AmountInput(
-  { value, onValueChange, onFocus, onMouseUp, min, max, decimals = 2, required, ...rest }, ref,
+  { value, onValueChange, onFocus, onBlur, onMouseUp, min, max, decimals = 2, required, ...rest }, ref,
 ) {
   const inner = React.useRef<HTMLInputElement | null>(null);
   const justFocused = React.useRef(false);
@@ -38,10 +38,16 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
     inner.current = el;
     if (typeof ref === 'function') ref(el); else if (ref) ref.current = el;
   };
-  // The parent changed the value to something the draft does not already say (a reset, a "fill remaining"): follow it.
-  // An equal number keeps the draft, so "2325." survives the parent echoing 2325 back.
+  const emitted = React.useRef(Number(asText(value)) || 0);
+  // The parent changed the value to something the draft does not already say (a reset, a "fill remaining"): follow it,
+  // and drop a refusal that belonged to the old text. A string parent echoing the draft, or a number parent echoing the
+  // number last emitted, keeps the draft, so "2325." survives the parent handing back 2325.
   React.useEffect(() => {
-    setDraft(prev => ((Number(prev) || 0) === (Number(asText(value)) || 0) ? prev : asText(value)));
+    setRefused(false);
+    if (typeof value === 'string') { setDraft(prev => (prev === value ? prev : value)); return; }
+    if (value === emitted.current) return;
+    emitted.current = value;
+    setDraft(asText(value));
   }, [value]);
   const message = refused ? REFUSED : amountValidity(draft, { min, max, required: Boolean(required) });
   React.useEffect(() => { inner.current?.setCustomValidity(message); }, [message]);
@@ -59,17 +65,19 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
         if (isZeroText(e.currentTarget.value)) { justFocused.current = true; e.currentTarget.select(); }
         onFocus?.(e);
       }}
+      onBlur={e => { justFocused.current = false; setRefused(false); onBlur?.(e); }}
       onMouseUp={e => {
         // The mouseup of the click that focused the field would drop the selection and park the caret after the 0.
         if (justFocused.current) { e.preventDefault(); justFocused.current = false; }
         onMouseUp?.(e);
       }}
       onChange={e => {
-        const text = normaliseAmountText(e.target.value);
+        const text = normaliseAmountText(e.target.value, decimals);
         if (!new RegExp(`^\\d*(\\.\\d{0,${decimals}})?$`).test(text)) { setRefused(true); return; }
         setRefused(false);
         setDraft(text);
-        onValueChange(Number(text) || 0, text);
+        emitted.current = Number(text) || 0;
+        onValueChange(emitted.current, text);
       }}
     />
   );

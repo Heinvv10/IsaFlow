@@ -9,7 +9,7 @@
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const push = vi.fn(async () => true);
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -84,5 +84,31 @@ describe('new supplier credit note — create-and-post refused by approval', () 
     fillAndPost();
     expect(await screen.findByText('creditDate is required')).toBeDefined();
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe('new supplier credit note — the real click path', () => {
+  beforeEach(() => { fetchMock.mockReset(); push.mockClear(); });
+
+  it('a real click on Save as draft submits the valid form once (jsdom runs the native submit)', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { id: 'cn-1' } }), { status: 200 }));
+    render(<NewSupplierCreditNotePage />);
+    fireEvent.click(screen.getByText('pick-supplier'));
+    fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Returned goods' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[1]!, { target: { value: '100' } });
+    expect(document.querySelector('form')!.checkValidity()).toBe(true);
+    await act(async () => { screen.getByRole('button', { name: /save as draft|save draft/i }).click(); });
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(String((posts()[0]![1] as RequestInit).body))).toMatchObject({ submitAction: 'draft', supplierId: 'sup-1' });
+  });
+
+  it('a form with a lone "." in the unit price is invalid: the real click posts nothing', async () => {
+    render(<NewSupplierCreditNotePage />);
+    fireEvent.click(screen.getByText('pick-supplier'));
+    fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Returned goods' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[1]!, { target: { value: '.' } });
+    expect(document.querySelector('form')!.checkValidity()).toBe(false);
+    await act(async () => { screen.getByRole('button', { name: /post credit note/i }).click(); });
+    expect(posts()).toHaveLength(0);
   });
 });

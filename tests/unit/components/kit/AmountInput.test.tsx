@@ -157,3 +157,62 @@ describe('AmountInput (#1654): paste', () => {
     expect(field().getAttribute('aria-invalid')).toBe('true');
   });
 });
+
+describe('AmountInput (#1654): review follow-ups', () => {
+  it('decimals>=3: "1,234" is ambiguous and refused (aria-invalid), "1,23" and "1,2345" are not thousands; decimals=2 still reads 1,234 as 1234', () => {
+    expect(normaliseAmountText('1,234', 3)).toBe('1,234');
+    expect(normaliseAmountText('1,234', 2)).toBe('1234');
+    expect(normaliseAmountText('1,5', 3)).toBe('1.5');
+    expect(normaliseAmountText('1,234,567', 3)).toBe('1234567');
+    render(<TextHarness initial="" decimals={3} />);
+    fireEvent.change(field(), { target: { value: '1,234' } });
+    expect(field().value).toBe('');
+    expect(field().getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('a refusal is not sticky: blur clears it, and so does a parent reset', () => {
+    function Reset() {
+      const [t, setT] = useState('5');
+      return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('7')}>reset</button></>);
+    }
+    render(<Reset />);
+    fireEvent.change(field(), { target: { value: '5x' } });
+    expect(field().getAttribute('aria-invalid')).toBe('true');
+    fireEvent.blur(field());
+    expect(field().getAttribute('aria-invalid')).toBeNull();
+    expect(field().form).toBeNull();
+    expect(field().validity.valid).toBe(true);
+    fireEvent.change(field(), { target: { value: '5x' } });
+    fireEvent.click(screen.getByText('reset'));
+    expect(field().value).toBe('7');
+    expect(field().getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('blur forgets a pending focus, so a later plain mouseup is not cancelled', () => {
+    render(<TextHarness initial="0" />);
+    fireEvent.focus(field());
+    fireEvent.blur(field());
+    expect(fireEvent.mouseUp(field())).toBe(true);
+  });
+
+  it('a parent reset to "" clears a "." draft; a number parent reset to 0 clears a typed number', () => {
+    function StrReset() {
+      const [t, setT] = useState('');
+      return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('')}>reset</button></>);
+    }
+    render(<StrReset />);
+    type(field(), '.');
+    expect(field().value).toBe('.');
+    fireEvent.click(screen.getByText('reset'));
+    expect(field().value).toBe('');
+    cleanup();
+    function NumReset() {
+      const [n, setN] = useState(0);
+      return (<><AmountInput aria-label="amt" value={n} onValueChange={v => setN(v)} /><button type="button" onClick={() => setN(0)}>reset</button></>);
+    }
+    render(<NumReset />);
+    type(field(), '12.5');
+    fireEvent.click(screen.getByText('reset'));
+    expect(field().value).toBe('');
+  });
+});
