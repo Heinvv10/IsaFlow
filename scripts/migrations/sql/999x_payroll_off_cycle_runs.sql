@@ -24,6 +24,12 @@
 --     needed. It runs inside those definers with their owner's rights, so its body is reviewed here: it reads
 --     payroll_run_headers only, by the caller's company and document id, as before.
 --
+--   payroll_run_headers.cancelled_at  cancelOffCycleRun stamps it (cancelled_by came with 999f). Dev has the column
+--     from 385; production does not (999f: "paid_at and cancelled_at ... are absent on prod too"), so the cancel
+--     route would fail there with 42703. ADD COLUMN IF NOT EXISTS, no default: a no-op where the column exists (dev,
+--     the CI baseline), catalogue-only where it is missing (prod). TIMESTAMPTZ is dev's type. Nothing reads it as
+--     NOT NULL (getPayrollRun/mapRunRow tolerate NULL), and the old colour never names it.
+--
 -- OLD COLOUR (the previous release against this schema):
 --   insert/update/read  it never names payroll_off_cycle_employees; it creates no off-cycle run (insertMonthlyRun
 --     writes run_kind 'regular' only), and its run-kind guard refuses to calculate, approve, post, reopen or print an
@@ -33,11 +39,15 @@
 --
 -- Rollback (down SQL; roll the code back first):
 --   DROP TABLE IF EXISTS public.payroll_off_cycle_employees;
+--   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS cancelled_at;  (only where this file added it: prod)
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_employees_guard();
 --   and re-run 951's approval_request_document_facts definition.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
+
+ALTER TABLE public.payroll_run_headers
+  ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS public.payroll_off_cycle_employees (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
