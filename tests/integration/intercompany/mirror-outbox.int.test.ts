@@ -124,10 +124,10 @@ describe('approving an invoice for a connected customer', () => {
     expect(await gtx()).toHaveLength(0);
   });
 
-  it('an invoice that is not this company\'s is not found, and sends nothing', async () => {
+  it('an invoice that is not this company\'s has no connection for it, and sends nothing', async () => {
     const inv = await plantArInvoice(pool, { status: 'approved' });
     const out = await asService(pool, U.b, co.B, () => mirrorApprovedInvoice(co.B, inv.id));
-    expect(out).toEqual({ sent: false, reason: 'not_found' });
+    expect(out).toEqual({ sent: false, reason: 'no_connection' });
     expect(await messages(inv.id)).toHaveLength(0);
   });
 });

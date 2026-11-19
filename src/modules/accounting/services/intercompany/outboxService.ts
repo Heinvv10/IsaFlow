@@ -16,7 +16,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { buildCreditNotePayload, buildInvoicePayload, type MirrorKind, type MirrorPayload } from './mirrorPayload';
-import { readCreditNoteSource, readInvoiceSource, routeForCustomer, type OutboxRoute } from './outboxRead';
+import { readCreditNoteSource, readInvoiceSource, routeForDocument, type OutboxRoute } from './outboxRead';
 
 export type MirrorOutcome =
   | { sent: true; messageId: string }
@@ -61,15 +61,14 @@ async function recordGroupSide(
 
 async function send(
   companyId: string, kind: MirrorKind, sourceId: string,
-  read: () => Promise<{ customerId: string; date: string; payload: MirrorPayload; journalEntryId: string | null } | null>,
+  read: () => Promise<{ payload: MirrorPayload; journalEntryId: string | null } | null>,
 ): Promise<MirrorOutcome> {
-  const source = await read();
-  if (!source) return { sent: false, reason: 'not_found' };
-  const route = await routeForCustomer(companyId, source.customerId);
+  // The cheap answer first: nearly every approval is for a customer with no connection, and costs this one query.
+  const route = await routeForDocument(companyId, kind, sourceId);
   if (!route) return { sent: false, reason: 'no_connection' };
   // No cut-over agreed: nothing is mirrored (the checklist asks for one). Before it: the pairing screen's business, not a message.
   if (!route.cutoverDate) return { sent: false, reason: 'no_cutover' };
-  if (source.date < route.cutoverDate) return { sent: false, reason: 'before_cutover' };
+  if (route.documentDate < route.cutoverDate) return { sent: false, reason: 'before_cutover' };
 
   const existing = (await sql`
     SELECT id FROM intercompany_messages
@@ -77,6 +76,8 @@ async function send(
   `) as Row[];
   if (existing.length > 0) return { sent: false, reason: 'already_sent' };
 
+  const source = await read();
+  if (!source) return { sent: false, reason: 'not_found' };
   const payload = { ...source.payload };
   if (route.kind === 'group') {
     // The elimination feed is secondary: if its row cannot be written the message is still sent (and carries no reference).
@@ -113,7 +114,7 @@ async function guarded(companyId: string, kind: MirrorKind, sourceId: string, ru
 export function mirrorApprovedInvoice(companyId: string, invoiceId: string): Promise<MirrorOutcome> {
   return guarded(companyId, 'invoice', invoiceId, () => send(companyId, 'invoice', invoiceId, async () => {
     const s = await readInvoiceSource(companyId, invoiceId);
-    return s && { customerId: s.customerId, date: s.date, payload: buildInvoicePayload(s), journalEntryId: s.glJournalEntryId };
+    return s && { payload: buildInvoicePayload(s), journalEntryId: s.glJournalEntryId };
   }));
 }
 
@@ -121,6 +122,6 @@ export function mirrorApprovedInvoice(companyId: string, invoiceId: string): Pro
 export function mirrorApprovedCreditNote(companyId: string, creditNoteId: string): Promise<MirrorOutcome> {
   return guarded(companyId, 'credit_note', creditNoteId, () => send(companyId, 'credit_note', creditNoteId, async () => {
     const s = await readCreditNoteSource(companyId, creditNoteId);
-    return s && { customerId: s.customerId, date: s.date, payload: buildCreditNotePayload(s), journalEntryId: s.glJournalEntryId };
+    return s && { payload: buildCreditNotePayload(s), journalEntryId: s.glJournalEntryId };
   }));
 }

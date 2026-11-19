@@ -47,7 +47,7 @@ export function InboxTable({ items, canWrite, busyId, onReview, onReject, onDism
           const href = draftHref(i);
           const busy = busyId === i.id;
           return (
-            <tr key={i.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 align-top" data-testid="inbox-row">
+            <tr key={i.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 align-middle" data-testid="inbox-row">
               <td data-label="From" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{i.senderName}</td>
               <td data-label="Type" className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{KIND[i.kind]}</td>
               <td data-label="Number" className="px-5 py-3.5 tabular-nums text-amber-500 font-semibold">{i.number}</td>

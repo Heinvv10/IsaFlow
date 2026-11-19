@@ -16,26 +16,39 @@ export interface OutboxRoute {
   kind: 'group' | 'external';
   partnerCompanyId: string;
   cutoverDate: string | null;
+  /** The document's own date (an invoice's invoice_date, a note's credit_date), as YYYY-MM-DD. */
+  documentDate: string;
 }
 
 /**
- * The live connection this company's customer is the partner on, or null. A customer is linked to one connection per
- * company (the partial unique index of 1000), so this is at most one row; only an ACTIVE connection counts.
+ * The live connection a document's customer is the partner on, or null: ONE indexed query, because it runs on every approval of every
+ * company (a bulk finalize runs it per invoice) and the answer is almost always "no". A customer is linked to one connection per
+ * company (the partial unique index of 1000), so this is at most one row; only an ACTIVE connection counts. Only a document of this
+ * company is found (the join names company_id), and a customer credit note only (type = 'customer').
  */
-export async function routeForCustomer(companyId: string, customerId: string): Promise<OutboxRoute | null> {
-  const rows = (await sql`
-    SELECT c.id, c.kind, to_char(c.cutover_date, 'YYYY-MM-DD') AS cutover_date,
-           CASE WHEN c.company_low_id = ${companyId}::UUID THEN c.company_high_id ELSE c.company_low_id END AS partner_company_id
-      FROM intercompany_connection_sides s
-      JOIN intercompany_connections c ON c.id = s.connection_id AND c.status = 'active'
-     WHERE s.company_id = ${companyId}::UUID AND s.customer_id = ${customerId}::UUID
-     LIMIT 1
-  `) as Row[];
+export async function routeForDocument(companyId: string, kind: 'invoice' | 'credit_note', documentId: string): Promise<OutboxRoute | null> {
+  const rows = (kind === 'invoice'
+    ? await sql`
+        SELECT c.id, c.kind, to_char(c.cutover_date, 'YYYY-MM-DD') AS cutover_date, to_char(d.invoice_date, 'YYYY-MM-DD') AS document_date,
+               CASE WHEN c.company_low_id = ${companyId}::UUID THEN c.company_high_id ELSE c.company_low_id END AS partner_company_id
+          FROM customer_invoices d
+          JOIN intercompany_connection_sides s ON s.company_id = d.company_id AND s.customer_id = COALESCE(d.client_id, d.customer_id)
+          JOIN intercompany_connections c ON c.id = s.connection_id AND c.status = 'active'
+         WHERE d.id = ${documentId}::UUID AND d.company_id = ${companyId}::UUID AND d.deleted_at IS NULL
+         LIMIT 1`
+    : await sql`
+        SELECT c.id, c.kind, to_char(c.cutover_date, 'YYYY-MM-DD') AS cutover_date, to_char(d.credit_date, 'YYYY-MM-DD') AS document_date,
+               CASE WHEN c.company_low_id = ${companyId}::UUID THEN c.company_high_id ELSE c.company_low_id END AS partner_company_id
+          FROM credit_notes d
+          JOIN intercompany_connection_sides s ON s.company_id = d.company_id AND s.customer_id = d.client_id
+          JOIN intercompany_connections c ON c.id = s.connection_id AND c.status = 'active'
+         WHERE d.id = ${documentId}::UUID AND d.company_id = ${companyId}::UUID AND d.type = 'customer'
+         LIMIT 1`) as Row[];
   const r = rows[0];
   if (!r) return null;
   return {
     connectionId: String(r.id), kind: String(r.kind) as OutboxRoute['kind'],
-    partnerCompanyId: String(r.partner_company_id), cutoverDate: str(r.cutover_date),
+    partnerCompanyId: String(r.partner_company_id), cutoverDate: str(r.cutover_date), documentDate: String(r.document_date),
   };
 }
 
