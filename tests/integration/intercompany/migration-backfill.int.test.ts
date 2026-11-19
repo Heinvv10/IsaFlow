@@ -69,6 +69,26 @@ describe('the backfills run as migration_admin', () => {
   });
 });
 
+describe('rows of companies that no longer exist', () => {
+  it('the migration removes them and puts the foreign key back, as migration_admin', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('ALTER TABLE intercompany_company_locks DROP CONSTRAINT intercompany_company_locks_company_fk');
+      const ghost = crypto.randomUUID();
+      await client.query('INSERT INTO intercompany_company_locks(company_id) VALUES ($1)', [ghost]);       // a company deleted while nothing tied its row
+      await client.query(`SET LOCAL SESSION AUTHORIZATION ${ROLE}`);
+      await client.query(slice('intercompany_company_locks'));
+      await client.query('RESET SESSION AUTHORIZATION');
+      expect((await client.query('SELECT count(*)::int AS n FROM intercompany_company_locks WHERE company_id = $1', [ghost])).rows[0].n).toBe(0);
+      expect((await client.query("SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'intercompany_company_locks_company_fk'")).rows[0].n).toBe(1);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+});
+
 describe('a restore in replica mode', () => {
   it('the lock-row trigger and the join triggers are origin-only, so they do not run in replica mode; the changers are ALWAYS', async () => {
     const t = (await pool.query(

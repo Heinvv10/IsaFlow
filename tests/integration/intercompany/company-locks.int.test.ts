@@ -55,6 +55,17 @@ describe('intercompany_company_locks', () => {
     expect((await pool.query('SELECT * FROM app_pool_reach_violations()')).rows).toEqual([]);
   });
 
+  it('a lock row follows its company: a foreign key that cascades, and a row cannot exist for a company that does not', async () => {
+    const fk = (await pool.query(`SELECT confdeltype, confrelid::regclass::text AS ref FROM pg_constraint WHERE conname = 'intercompany_company_locks_company_fk'`)).rows[0];
+    expect(fk).toEqual({ confdeltype: 'c', ref: 'companies' });
+    await expect(pool.query('INSERT INTO intercompany_company_locks(company_id) VALUES ($1)', [crypto.randomUUID()])).rejects.toMatchObject({ code: '23503' });
+    const id = crypto.randomUUID();
+    await pool.query("INSERT INTO companies(id, name) VALUES ($1, 'IC lock fk probe')", [id]);
+    expect((await pool.query('SELECT count(*)::int AS n FROM intercompany_company_locks WHERE company_id = $1', [id])).rows[0].n).toBe(1);   // the trigger
+    await pool.query('DELETE FROM companies WHERE id = $1', [id]);
+    expect((await pool.query('SELECT count(*)::int AS n FROM intercompany_company_locks WHERE company_id = $1', [id])).rows[0].n).toBe(0);   // the cascade
+  });
+
   it('app_user (any user, any claims, none) cannot lock, read or write it', async () => {
     const statements = [
       'SELECT 1 FROM intercompany_company_locks FOR SHARE', 'SELECT 1 FROM intercompany_company_locks FOR UPDATE', 'SELECT 1 FROM intercompany_company_locks',

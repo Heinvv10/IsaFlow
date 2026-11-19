@@ -70,12 +70,28 @@
 --         guards take their connection row FOR SHARE, then the company rows. A re-activation holds its connection row, then waits
 --         for the company rows; a session switching auto-accept on holds its side row, then waits for the company rows; a side's
 --         first save, a message sent or accepted and a link inserted or updated hold their connection row FOR SHARE. A manual revoke
---         (a user UPDATE of the status) holds the connection row, then the release trigger takes the sides rows. Changers hold their
---         whole set at once, so none of these can be waiting on a changer for a row the changer is waiting on.
+--         (a user UPDATE of the status) holds the connection row, then the release trigger takes the sides rows. A changer holds its
+--         whole set at once and never waits while it holds it, so within ONE statement nothing waits on a changer for a row the
+--         changer waits on. ACROSS statements of one transaction that does not hold: a transaction whose first statement ended a pair
+--         keeps that changer's set until it commits, and a second changer statement in it polls for a company another session holds
+--         while that session waits for the set the first statement kept (a wait cycle no deadlock detector sees). It is bounded by the
+--         budget below (it ends in 55P03, never a deadlock or a corrupt state), involves only companies in the transaction's own
+--         groups, and no API request makes two membership changes in one transaction.
 --       * limits: row share locks do not queue behind a waiting changer and a changer polls, so continuous overlapping traffic
---         of one company pair can keep that pair's leave from finding a gap (it then fails with 55P03 after the budget); a
+--         of one company pair can keep that pair's leave from finding a gap (it then fails with 55P03 after the budget). That includes
+--         a party's own read-only user: a viewer of E that keeps a transaction open holding (E, F) makes F's leave fail every time until
+--         it lets go. It is a direct party to the pair, so it is inside the property above, and an API request is too short to hold;
+--         it is an accepted limit, not a stranger's lever. platform_admin (trusted, migration 352) can still LOCK TABLE the group
+--         tables: the property is about app_user. Deleting a company waits for a held lock row of that company (the foreign key
+--         below cascades to it). A
 --         session that, inside ONE transaction, holds a company share and then updates a side or connection row that a changer
 --         holds ends in 40P01 only (accept a message, then send one, in one transaction); a deadlock rolls its whole transaction back.
+--       * ISOLATION: the whole protocol re-reads under the locks, which needs a new snapshot, and only READ COMMITTED (the application's
+--         default; READ UNCOMMITTED behaves as READ COMMITTED) takes one per statement. At REPEATABLE READ or SERIALIZABLE the re-read
+--         would reuse the transaction's snapshot and miss what committed meanwhile, and the lock rows are locked, never updated, so
+--         there is no serialization failure to catch it. So every path that relies on the re-read refuses with SQLSTATE 40001 (as
+--         migration 886 does for company_users) when the transaction is at another level: intercompany_in_one_group (create,
+--         re-activate, message, auto-accept), intercompany_revoke_for_change (every changer), the joiner trigger and the sides guard.
 --       * the companies trigger and the join triggers are ENABLE (origin), not ALWAYS: a restore in replica mode (pg_restore
 --         --disable-triggers) does not fire them, so the restored lock table cannot collide with rows they would have made. Lock
 --         rows are derivable: re-running this file's backfill recreates any that are missing, and a decider creates a missing row.
@@ -175,6 +191,17 @@ CREATE TRIGGER trg_intercompany_company_lock_row AFTER INSERT ON companies
 -- owns the table: the role that applies this file need not be able to write it.
 SET LOCAL ROLE migration_admin;
 INSERT INTO public.intercompany_company_locks (company_id) SELECT id FROM public.companies ON CONFLICT DO NOTHING;
+-- A lock row follows its company: rows of companies that no longer exist (a company deleted while no foreign key tied them) go, and
+-- the foreign key keeps them from coming back. Deleting a company then waits for a lock row a session holds (header).
+DELETE FROM public.intercompany_company_locks l WHERE NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = l.company_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'intercompany_company_locks_company_fk'
+                    AND conrelid = 'public.intercompany_company_locks'::regclass) THEN
+    ALTER TABLE public.intercompany_company_locks
+      ADD CONSTRAINT intercompany_company_locks_company_fk FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE CASCADE;
+  END IF;
+END $$;
 RESET ROLE;
 
 -- ── 1. Link indexes: unique over ACTIVE links only, one mirror link per message ─────────────
@@ -253,6 +280,24 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_shared_group(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_shared_group(uuid, uuid) TO migration_admin;
+
+-- The protocol re-reads under its locks and needs READ COMMITTED's per-statement snapshot (header, ISOLATION). Any other level
+-- refuses with 40001, as migration 886 does. READ UNCOMMITTED is READ COMMITTED in Postgres.
+CREATE OR REPLACE FUNCTION public.intercompany_require_read_committed()
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed', 'read uncommitted') THEN
+    RAISE EXCEPTION 'intercompany group changes need READ COMMITTED isolation: retry the transaction at READ COMMITTED' USING ERRCODE = '40001';
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_require_read_committed() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_require_read_committed() TO app_user, app_service, migration_admin;
 
 -- Internal: the live group connections of the `p_seeds` companies that no longer share a group (the ones a change to the
 -- membership can end, and no others), by id. Only the definer functions call these, as migration_admin.
@@ -362,6 +407,7 @@ DECLARE
   cand2 uuid[];
   lockset2 uuid[];
 BEGIN
+  PERFORM public.intercompany_require_read_committed();
   LOOP
     attempt := attempt + 1;
     IF pg_catalog.clock_timestamp() - started > budget THEN
@@ -393,9 +439,12 @@ BEGIN
       END IF;
       RAISE EXCEPTION 'the group-membership set changed' USING ERRCODE = '55P03';
     EXCEPTION WHEN lock_not_available THEN
-      PERFORM pg_catalog.pg_sleep(0.005 + random() * 0.02 * LEAST(attempt, 10));
+      -- Exponential backoff, 5 ms doubling to 1 s with jitter: about 18 attempts in 10 s and about 40 in the 30 s maximum, well
+      -- under the 64 sub-transactions a backend can hold before its subxid cache overflows and slows everyone's snapshots.
+      PERFORM pg_catalog.pg_sleep(LEAST(1.0, 0.005 * power(2, LEAST(attempt - 1, 8))) * (0.5 + random()));
     END;
   END LOOP;
+  PERFORM pg_catalog.set_config('app.intercompany_changer_attempts', attempt::text, true);   -- diagnostic: how many tries it took
   PERFORM pg_catalog.set_config('app.intercompany_system_revoke', 'on', true);
   UPDATE public.intercompany_connections c SET status = 'revoked' WHERE c.id = ANY (cand2);
   PERFORM pg_catalog.set_config('app.intercompany_system_revoke', '', true);
@@ -429,6 +478,7 @@ BEGIN
   IF NOT (p_a IN (SELECT auth.user_companies()) OR p_b IN (SELECT auth.user_companies())) THEN
     RETURN false;
   END IF;
+  PERFORM public.intercompany_require_read_committed();
   IF NOT public.intercompany_shared_group(p_a, p_b) THEN
     RETURN false;
   END IF;
@@ -725,6 +775,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF NEW.left_date IS NULL THEN
+    PERFORM public.intercompany_require_read_committed();
     PERFORM public.intercompany_lock_companies(public.intercompany_group_members(NEW.group_id, ARRAY[NEW.company_id]), false);
   END IF;
   RETURN NULL;
@@ -816,6 +867,9 @@ BEGIN
     NEW.updated_at := clock_timestamp();
     RETURN NEW;
   END IF;
+  -- The connection's state above is read at this statement's snapshot (an UPDATE holds only its side row), and auto-accept relies on
+  -- a fresh group read: at any isolation level but READ COMMITTED a revoke that committed meanwhile would be missed.
+  PERFORM public.intercompany_require_read_committed();
   IF conn.status = 'revoked' THEN
     RAISE EXCEPTION 'a revoked connection''s sides cannot change' USING ERRCODE = '23514';
   END IF;
@@ -1351,7 +1405,8 @@ BEGIN
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_link_slots_sync()', 'EXECUTE') THEN
     RAISE EXCEPTION '1002: an app role can reach intercompany_company_locks, intercompany_document_slots or intercompany_link_slots_sync';
   END IF;
-  IF pg_catalog.has_function_privilege('public', 'public.intercompany_in_one_group(uuid, uuid)', 'EXECUTE')
+  IF pg_catalog.has_function_privilege('public', 'public.intercompany_require_read_committed()', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_in_one_group(uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_documents_ok(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_message_doc_exists(text, text, text, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_document_exists_as_writer(text, uuid, uuid)', 'EXECUTE')

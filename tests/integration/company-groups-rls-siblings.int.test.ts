@@ -1,12 +1,7 @@
 /**
- * Migration 999r, the sibling tables of company_groups, as app_user. None of them had row security
- * (group_accounts, intercompany_transactions, consolidation_adjustments, company_relationships,
- * intercompany_eliminations) or checked only the company (group_coa_mappings), so a session read every
- * tenant's group chart, intercompany transactions, adjustments, corporate structure and eliminations,
- * and could write into a group it was not in. Group-keyed tables now follow the group (members read, a
- * writer of a member company writes, as the route guards do); the company-keyed ones follow the company.
- *
- * Real PostgreSQL; synthetic rows only. Fixture route: isaflow_schema_fixture.
+ * Migration 999r, the sibling tables of company_groups, as app_user: group-keyed rows follow the group (members read, a writer
+ * of a member company writes), company-keyed ones follow the company; none had row security before. Real PostgreSQL, synthetic
+ * rows, fixture route isaflow_schema_fixture. (1002: no DELETE and no table-level UPDATE on the group tables.)
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -227,10 +222,9 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
   it('a company in no group and no link changes and deletes nothing, anywhere', async () => {
     await F.asAppUser(u.UC, co.C, async (q) => {
       for (const t of ALL) {
-        const touch = t === 'company_groups' ? 'updated_at = NOW()' : t === 'company_group_members' ? 'joined_date = joined_date' : 'created_at = NOW()';
-        expect((await q.query(`UPDATE ${t} SET ${touch}`)).rowCount, `update ${t}`).toBe(0);
-        if (t === 'company_groups' || t === 'company_group_members') expect(await F.codeOf(q, `DELETE FROM ${t}`), `delete ${t}`).toBe('42501');   // no DELETE privilege since 1002
-        else expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
+        const group = t === 'company_groups' || t === 'company_group_members';   // 1002: no DELETE privilege on these, UPDATE by column
+        expect((await q.query(`UPDATE ${t} SET ${t === 'company_groups' ? 'updated_at' : group ? 'joined_date' : 'created_at'} = ${group && t !== 'company_groups' ? 'joined_date' : 'NOW()'}`)).rowCount, `update ${t}`).toBe(0);
+        expect(group ? await F.codeOf(q, `DELETE FROM ${t}`) : (await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(group ? '42501' : 0);
       }
     });
   });

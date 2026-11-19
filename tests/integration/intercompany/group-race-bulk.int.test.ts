@@ -180,6 +180,31 @@ describe('the lock set is narrowed to companies with a live connection to a leav
   }, 60000);
 });
 
+describe('the retry backs off exponentially (a backend holds at most 64 sub-transactions before its subxid cache overflows)', () => {
+  it('a leave that waits about 1.5 s takes a handful of attempts, not a hundred', async () => {
+    await withWorld(async (w) => {
+      const holder = await inFlight(U.ab, w.a, ASK, [w.a, w.b]);
+      const leaver = await pool.connect();
+      try {
+        await leaver.query('BEGIN');
+        const run = leaver.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [w.gAB, w.b]);
+        await sleep(1500);
+        await holder.query('ROLLBACK');
+        await run;
+        const attempts = Number((await leaver.query("SELECT current_setting('app.intercompany_changer_attempts') AS n")).rows[0].n);
+        expect(attempts).toBeGreaterThanOrEqual(3);
+        expect(attempts).toBeLessThanOrEqual(14);                                        // linear 5-25 ms sleeps took ~100 in the same time
+        await leaver.query('COMMIT');
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        holder.release();
+        await leaver.query('ROLLBACK').catch(() => undefined);
+        leaver.release();
+      }
+    });
+  }, 60000);
+});
+
 describe('a leave that cannot find a gap gives up cleanly after its budget', () => {
   it('holder keeps a and b; the leave of b fails with 55P03 after about the budget, the membership and the connection are as they were', async () => {
     await withWorld(async (w) => {

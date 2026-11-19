@@ -139,7 +139,13 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   A session can only delay work that involves a company its user belongs to, or a connected company in a group of its company: a stranger, an
   ungrouped pair, a claim-less session and a no-op hold nothing, and since 1002 revokes app_user's table-level UPDATE, DELETE and TRUNCATE on
   `company_group_members` and `company_groups` (column-level UPDATE stays for what the application writes) it cannot `LOCK TABLE` them
-  either. The companies trigger and the join triggers are origin-only (a restore in replica mode skips them; the lock table restores itself, and a
+  either. The protocol needs READ COMMITTED's per-statement snapshot for its re-reads, so every path that relies on one (`intercompany_in_one_group`, every
+  changer, the joiner, the sides guard) refuses with SQLSTATE 40001 at REPEATABLE READ or SERIALIZABLE, as migration 886 does for `company_users`
+  (the application never runs these writers at another level). A party's own read-only user that keeps a transaction open can keep that pair's
+  leave failing with 55P03 until it lets go: an accepted limit (a direct party, and an API request is too short to hold). platform_admin can still
+  `LOCK TABLE` the group tables. `intercompany_company_locks` has a foreign key to `companies` that cascades (a company delete waits for a held
+  lock row), and the changer's retry backs off exponentially (5 ms doubling to 1 s; about 18 attempts in 10 s, fewer than the 64 sub-transactions a
+  backend can hold before its subxid cache overflows). The companies trigger and the join triggers are origin-only (a restore in replica mode skips them; the lock table restores itself, and a
   decider recreates a missing row). Tests: `company-locks-scope`, `group-race-matrix` (every kind of membership change x every kind of writer x
   both orders), `group-race-single`, `group-race-bulk`, `group-tables-grants`, `migration-backfill`. `intercompany_in_one_group` answers only for
   a signed-in user of one of the two companies (`auth.user_companies()`), never on the strength of the session's company GUC, so it is false when
