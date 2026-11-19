@@ -5,7 +5,7 @@
  * (so a partner cannot squat a document by proposing it), a document is in one live link at a time, and only a user with a write
  * role acts. This service checks the same first, so the person is told in a sentence.
  */
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { userCanWriteCompany } from '@/modules/accounting/services/core/companyAccessService';
 import { listConnections } from './connectionRead';
 import { orderedPair } from './connectionValidation';
@@ -15,8 +15,6 @@ import { buildPairingView } from './pairingView';
 import type { PairInput, PairingBlock, PairingDirection, PairingResult } from './pairingTypes';
 
 type Row = Record<string, unknown>;
-
-let seq = 0;
 
 const BLOCK_REFUSAL: Record<PairingBlock, ConnectionRefusal> = {
   revoked: new ConnectionRefusal(409, 'This connection is revoked, so documents can no longer be paired.'),
@@ -45,7 +43,8 @@ async function mayWriteOrRefuse(userId: string, companyId: string): Promise<void
 }
 
 /**
- * Record `pairs` as document links, all or none. Both documents must be among those the screen offers right now (so a document id
+ * Record `pairs` as document links, all or none (one transaction: a database refusal aborts it whole, and the request answers 4xx on a
+ * transaction that can no longer commit anything). Both documents must be among those the screen offers right now (so a document id
  * from anywhere else is refused, whatever the database would say). A user who can write in BOTH companies of a group confirms both
  * sides at once (the links guard allows it); anyone else's pairing waits for the partner to confirm.
  */
@@ -65,24 +64,22 @@ export async function createPairings(userId: string, companyId: string, connecti
   const [mineType, theirType] = [MY_TYPE[direction], THEIR_TYPE[direction]];
   let active = 0;
   try {
-    await withSavepoint(`ic_pairing_${++seq}`, async () => {
-      for (const p of pairs) {
-        const [aType, aId, bType, bId] = mineIsA ? [mineType, p.mineId, theirType, p.theirsId] : [theirType, p.theirsId, mineType, p.mineId];
-        const made = (await sql`
-          INSERT INTO intercompany_document_links
-            (connection_id, company_a_id, doc_a_type, doc_a_id, company_b_id, doc_b_type, doc_b_id, origin)
-          VALUES (${connectionId}::UUID, ${low}::UUID, ${aType}, ${aId}::UUID, ${high}::UUID, ${bType}, ${bId}::UUID, 'manual_pairing')
-          RETURNING id
-        `) as Row[];
-        if (!view.confirmsBoth) continue;
-        const linkId = String(made[0]?.id);
-        // The partner's side, confirmed by this same user (a writer in both companies of a group).
-        const done = (mineIsA
-          ? await sql`UPDATE intercompany_document_links SET confirmed_by_b = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`
-          : await sql`UPDATE intercompany_document_links SET confirmed_by_a = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`) as Row[];
-        if (done[0]?.status === 'active') active += 1;
-      }
-    });
+    for (const p of pairs) {
+      const [aType, aId, bType, bId] = mineIsA ? [mineType, p.mineId, theirType, p.theirsId] : [theirType, p.theirsId, mineType, p.mineId];
+      const made = (await sql`
+        INSERT INTO intercompany_document_links
+          (connection_id, company_a_id, doc_a_type, doc_a_id, company_b_id, doc_b_type, doc_b_id, origin)
+        VALUES (${connectionId}::UUID, ${low}::UUID, ${aType}, ${aId}::UUID, ${high}::UUID, ${bType}, ${bId}::UUID, 'manual_pairing')
+        RETURNING id
+      `) as Row[];
+      if (!view.confirmsBoth) continue;
+      const linkId = String(made[0]?.id);
+      // The partner's side, confirmed by this same user (a writer in both companies of a group).
+      const done = (mineIsA
+        ? await sql`UPDATE intercompany_document_links SET confirmed_by_b = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`
+        : await sql`UPDATE intercompany_document_links SET confirmed_by_a = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`) as Row[];
+      if (done[0]?.status === 'active') active += 1;
+    }
   } catch (err) {
     const known = refusalFor(err);
     if (known) throw known;
@@ -103,9 +100,9 @@ export async function confirmPairing(userId: string, companyId: string, connecti
   const link = await ownLink(companyId, connectionId, linkId);
   if (link.status === 'active' || link.confirmedByMe) throw new ConnectionRefusal(409, 'This pairing is already confirmed on your side.');
   try {
-    const done = (await withSavepoint(`ic_pairing_${++seq}`, async () => (link.mineIsA
+    const done = (link.mineIsA
       ? await sql`UPDATE intercompany_document_links SET confirmed_by_a = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`
-      : await sql`UPDATE intercompany_document_links SET confirmed_by_b = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`))) as Row[];
+      : await sql`UPDATE intercompany_document_links SET confirmed_by_b = ${userId} WHERE id = ${linkId}::UUID AND status = 'pending_confirmation' RETURNING status`) as Row[];
     if (!done[0]) throw new ConnectionRefusal(409, 'This pairing was changed meanwhile. Reload and try again.');
     return { status: String(done[0].status) };
   } catch (err) {
@@ -120,9 +117,9 @@ export async function unlinkPairing(userId: string, companyId: string, connectio
   await mayWriteOrRefuse(userId, companyId);
   await ownLink(companyId, connectionId, linkId);
   try {
-    const done = (await withSavepoint(`ic_pairing_${++seq}`, async () => sql`
+    const done = (await sql`
       UPDATE intercompany_document_links SET status = 'unlinked' WHERE id = ${linkId}::UUID AND status <> 'unlinked' RETURNING status
-    `)) as Row[];
+    `) as Row[];
     if (!done[0]) throw new ConnectionRefusal(409, 'This pairing was already removed.');
     return { status: String(done[0].status) };
   } catch (err) {

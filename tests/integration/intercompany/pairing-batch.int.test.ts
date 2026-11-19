@@ -5,7 +5,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
-import { cleanup, co, party, setup, U } from './intercompany.helpers';
+import { asAppUser, cleanup, co, party, plantConnection, plantSide, setup, U } from './intercompany.helpers';
+import { dataOf } from '../r035-pr2.helpers';
+import type { PairingView } from '../../../src/modules/accounting/services/intercompany/pairingTypes';
 import { pairingApi as api, pairingConnection, plantCustomerInvoice, plantSupplierInvoice } from './pairing.helpers';
 
 assertDisposable();
@@ -61,5 +63,25 @@ describe('a document is in one live pairing', () => {
     expect((await api.pair(U.a, co.A, id, [{ mineId: mine, theirsId: otherBill }])).state.statusCode).toBe(409);
     expect((await api.pair(U.a, co.A, id, [{ mineId: otherInvoice, theirsId: theirs }])).state.statusCode).toBe(409);
     expect(await live()).toHaveLength(1);
+  });
+});
+
+describe('a document paired on one connection is not offered on its successor', () => {
+  it('after the first connection is revoked its active pairing still holds both documents on the new one', async () => {
+    const mine = await plantCustomerInvoice(pool, co.A, party.aCustomer, { number: 'S-1' });
+    const theirs = await plantSupplierInvoice(pool, co.B, party.bSupplier, { number: 'S-1' });
+    expect((await api.pair(U.ab, co.A, id, [{ mineId: mine, theirsId: theirs }])).state.statusCode).toBe(201);
+    await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
+
+    const second = await plantConnection(pool, co.A, co.B);
+    await plantSide(pool, second, co.A, co.B, { customer_id: party.aCustomer, supplier_id: party.aSupplier });
+    await plantSide(pool, second, co.B, co.A, { customer_id: party.bCustomer, supplier_id: party.bSupplier });
+    await asAppUser(pool, U.ab, co.A, (q) => q.query('UPDATE intercompany_connections SET cutover_date = $2 WHERE id = $1', [second, '2026-10-01']), true);
+    const v = dataOf<PairingView>(await api.view(U.a, co.A, second));
+    expect(v.blocked).toBeNull();
+    expect(v.matches.suggestions).toEqual([]);
+    expect(v.matches.unmatchedMine).toEqual([]);
+    expect(v.matches.unmatchedTheirs).toEqual([]);
+    expect((await api.pair(U.a, co.A, second, [{ mineId: mine, theirsId: theirs }])).state.statusCode).toBe(409);
   });
 });

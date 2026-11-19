@@ -18,8 +18,8 @@
 --       the cut-over), one number; NULL when it cannot be given. The page sets it against the caller's own balance.
 --
 -- WHO MAY ASK (both functions; for any other caller the answer is empty / NULL, so neither is a way to probe another company's books):
---   - a signed-in user (auth.uid()) of the session company (app.current_company_id() IN auth.user_companies(): the GUC alone proves
---     nothing), holding a write role in it (intercompany_user_can_write: a viewer reads only, as everywhere in 1000 / 1002);
+--   - a signed-in user (auth.uid()) holding a write role in the session company (intercompany_user_can_write reads company_users by
+--     auth.uid(), so it also proves membership: the session company GUC alone proves nothing; a viewer reads only, as in 1000 / 1002);
 --   - the session company is one of the connection's two companies, the connection is ACTIVE, and it has a cut-over date.
 --   The partner is the OTHER company of the connection; the party and the loan account are read from the partner's own side row,
 --   which the sides guard (1002) keeps to the partner's own customer, supplier and accounts.
@@ -52,7 +52,6 @@ AS $$
       FROM public.intercompany_connections c
      WHERE c.id = p_connection AND c.status = 'active' AND c.cutover_date IS NOT NULL
        AND app.current_company_id() IN (c.company_low_id, c.company_high_id)
-       AND app.current_company_id() IN (SELECT auth.user_companies())
        AND public.intercompany_user_can_write(app.current_company_id())
   ), party AS (
     SELECT x.connection_id, x.cutover_date, x.partner_id, s.customer_id, s.supplier_id
@@ -113,7 +112,6 @@ AS $$
          AND s.company_id = CASE WHEN c.company_low_id = app.current_company_id() THEN c.company_high_id ELSE c.company_low_id END
        WHERE c.id = p_connection AND c.status = 'active' AND c.cutover_date IS NOT NULL
          AND app.current_company_id() IN (c.company_low_id, c.company_high_id)
-         AND app.current_company_id() IN (SELECT auth.user_companies())
          AND public.intercompany_user_can_write(app.current_company_id())
          AND s.loan_account_id IS NOT NULL
     ) p

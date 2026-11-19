@@ -166,6 +166,13 @@ describe('intercompany_pairing_partner_loan_balance', () => {
     await setBSide('loan_account_id', null);
     expect(await loan(U.a, co.A)).toBeNull();
   });
+
+  it('is null once the connection is revoked, although a revoke keeps the loan accounts', async () => {
+    await plantJournal(pool, co.B, '2026-09-01', acct.bLoan, bOther, 0, 5000);
+    expect(Number(await loan(U.a, co.A))).toBe(-5000);
+    await asAppUser(pool, U.a, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
+    expect(await loan(U.a, co.A)).toBeNull();
+  });
 });
 
 describe('the registry and the grants', () => {
