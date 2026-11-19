@@ -52,7 +52,7 @@ for (const theme of THEMES) {
     await page.waitForURL(/\/payroll\/runs\/off-cycle$/, { timeout: 60_000 });
     await openPage(page);
 
-    await expect(page.getByText('Choose the month first.')).toBeVisible();
+    await expect(page.getByText('Choose the month first.', { exact: true })).toBeVisible();
     await expect(page.locator('#oc-date')).toBeDisabled();
     await page.locator('#oc-month').click();
     await expect(page.getByText('No approved regular run yet')).toBeVisible({ timeout: 30_000 });
