@@ -1,12 +1,7 @@
 /**
- * Migration 999r, the sibling tables of company_groups, as app_user. None of them had row security
- * (group_accounts, intercompany_transactions, consolidation_adjustments, company_relationships,
- * intercompany_eliminations) or checked only the company (group_coa_mappings), so a session read every
- * tenant's group chart, intercompany transactions, adjustments, corporate structure and eliminations,
- * and could write into a group it was not in. Group-keyed tables now follow the group (members read, a
- * writer of a member company writes, as the route guards do); the company-keyed ones follow the company.
- *
- * Real PostgreSQL; synthetic rows only. Fixture route: isaflow_schema_fixture.
+ * Migration 999r, the sibling tables of company_groups, as app_user: group-keyed rows follow the group (members read, a writer
+ * of a member company writes), company-keyed ones follow the company; none had row security before. Real PostgreSQL, synthetic
+ * rows, fixture route isaflow_schema_fixture. (1002: no DELETE and no table-level UPDATE on the group tables.)
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -227,8 +222,9 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
   it('a company in no group and no link changes and deletes nothing, anywhere', async () => {
     await F.asAppUser(u.UC, co.C, async (q) => {
       for (const t of ALL) {
-        expect((await q.query(`UPDATE ${t} SET created_at = NOW()`)).rowCount, `update ${t}`).toBe(0);
-        expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
+        const group = t === 'company_groups' || t === 'company_group_members';   // 1002: no DELETE privilege on these, UPDATE by column
+        expect((await q.query(`UPDATE ${t} SET ${t === 'company_groups' ? 'updated_at' : group ? 'joined_date' : 'created_at'} = ${group && t !== 'company_groups' ? 'joined_date' : 'NOW()'}`)).rowCount, `update ${t}`).toBe(0);
+        expect(group ? await F.codeOf(q, `DELETE FROM ${t}`) : (await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(group ? '42501' : 0);
       }
     });
   });
@@ -241,10 +237,11 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
       }
       expect((await q.query('DELETE FROM group_accounts')).rowCount).toBe(1);   // the chart is edited and pruned by the app
       // Nothing else is ever hard-deleted by the app: adjustments are reversed, transactions kept, groups deactivated.
-      for (const t of ['consolidation_adjustments', 'intercompany_transactions', 'company_groups']) {
+      for (const t of ['consolidation_adjustments', 'intercompany_transactions']) {
         expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
       }
-      expect((await q.query('UPDATE company_groups SET created_at = NOW()')).rowCount).toBe(1);
+      expect(await F.codeOf(q, 'DELETE FROM company_groups')).toBe('42501');   // no DELETE privilege since 1002
+      expect((await q.query('UPDATE company_groups SET updated_at = NOW()')).rowCount).toBe(1);
     });
   });
 });
