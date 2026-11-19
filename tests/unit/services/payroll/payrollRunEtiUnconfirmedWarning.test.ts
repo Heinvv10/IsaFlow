@@ -15,6 +15,11 @@ const inserts: unknown[][] = [];
 // Both loan components exist: the fail-closed path has its own integration suites.
 // Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
 // A rehire's earlier ETI months (etiPriorEmployment) have their own tests (etiEligibility.test.ts).
+// Wave 6 FQc: the frequency guard and the weekly cadence read the database; a monthly run passes and has none.
+vi.mock('@/modules/accounting/services/payroll/payrollFrequencyGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollFrequencyGuard')>(), assertFrequencyCostable: vi.fn(async () => undefined),
+}));
+vi.mock('@/modules/accounting/services/payroll/payrollRunCadence', () => ({ loadLineCadences: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/payroll/etiPriorEmployment', () => ({ withEtiPriorMonths: async (_c: string, e: unknown[]) => e }));
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
@@ -43,6 +48,10 @@ vi.mock('@/lib/neon', () => ({
       if (strings.join('?').includes('INSERT INTO payroll_run_lines')) inserts.push(values);
       return Promise.resolve([]);
     })),
+}));
+// GA: the run's garnishee orders are read and recorded by payrollGarnisheeRun (proven in w6-garnishee.int.test.ts).
+vi.mock('@/modules/accounting/services/payroll/payrollGarnisheeRun', () => ({
+  loadRunGarnisheeOrders: vi.fn(async () => new Map()), replaceRunGarnisheeDeductions: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({

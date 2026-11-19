@@ -26,6 +26,7 @@ import { DIRECTIVE_TYPES, isRegularPayDirectiveType } from '@/modules/accounting
 import { directiveBodyProblem, regularPayDirectiveBodyProblem } from '@/modules/accounting/services/payroll/taxDirectiveRegularPayBody';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { TaxDirectiveWindowError } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 
 const VALID_TYPES = DIRECTIVE_TYPES;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
@@ -121,6 +122,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Judged under the employee's lock before the insert: nothing written (taxDirectiveRegularPayChange).
       if (respondIfImpersonationForbidden(res, err)) return;
       if (err instanceof TaxDirectiveWindowError) return apiResponse.badRequest(res, err.message);
+      if (respondIfRunKindUnsupported(res, err)) return; // wave 6 FQc: refused for a weekly or fortnightly employee (400)
       throw err;
     }
   }

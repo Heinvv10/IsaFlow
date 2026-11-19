@@ -6,8 +6,9 @@
 import type { BillLineItem, GLAccount } from './BillLineItemsTable';
 
 /**
- * The PO statuses a bill line may link to: the server's `COMMITTING_PO_STATUSES`, which `assertBillPoLinks` enforces
- * (that module reads the database, so it cannot be imported here; a test holds the two equal). The PO picker also
+ * The PO statuses the picker links a copied bill line to: the server's `COMMITTING_PO_STATUSES` (a test holds the two equal).
+ * `assertBillPoLinks` accepts these and also `closed` (a short-closed or Sage-Invoiced PO still has bills; the REST create and the
+ * MCP link tool take it), but the picker does not offer a closed order's lines. The PO picker also
  * offers submitted orders: those lines are copied without a link, and a submitted order commits nothing to net.
  */
 export const LINKABLE_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;

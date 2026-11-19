@@ -78,3 +78,12 @@ describe('scope copy — PAT page and OAuth consent screen agree', () => {
     );
   });
 });
+
+describe('write:items says where item lines are gated', () => {
+  it('the PAT page and the consent screen say an item on a document needs that document\'s own permission', async () => {
+    const { PAT_SCOPE_META } = await import('@/lib/auth/patScopeMeta');
+    const { SCOPE_LABELS } = await import('@/lib/auth/consentScopeLabels');
+    expect(PAT_SCOPE_META['write:items'].desc).toMatch(/purchase order, bill, invoice or quote line is governed by that document's own permission/);
+    expect(SCOPE_LABELS['write:items']).toMatch(/document needs its own permission/);
+  });
+});

@@ -3,6 +3,7 @@ import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
 import type { RegularPayDirectiveType } from './taxDirectiveKinds';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
+import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
@@ -106,8 +107,8 @@ export interface EmployeeComponent {
   employerFundAsCash?: boolean;
 }
 
-export type { OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
-import type { PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
+export type { EtiMonthParts, LineCadence, OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
+import type { EtiMonthParts, LineCadence, PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
 
 export interface PayeInput {
   annualTaxableIncome: number;
@@ -143,8 +144,12 @@ export interface ValidationResult {
   message: string;
   field?: string;
   deepLink?: string;
-  /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
+  /** PAYE_LATER_PERIODS_APPROVED only: the later periods it names, for people (YYYY-MM; a weekly run's YYYY-MM-DD start). */
   periods?: string[];
+  /** PAYE_LATER_PERIODS_APPROVED only (wave 6 FQc): the later runs' ids. The approval gate matches on these. */
+  runs?: string[];
+  /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
+  etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
   treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
   /** PAYE_OUTSIDE_TABLES with treatment 'flat_psp' only: the PSP's entity and rate (the payslip states them; wave 6 PSP). */
@@ -187,6 +192,10 @@ export interface PayrollLineInput {
   notEmployedInPeriod?: boolean;
   /** The employee's IRP3(b)/(c) directive on regular pay for the period (payrollRunRegularDirective); absent = none. */
   regularPayDirective?: RegularPayDirectiveState;
+  /** The employee's garnishee orders for the period (payrollGarnisheeRun; GA); absent = none. Taken from net pay last. */
+  garnisheeOrders?: GarnisheeOrderInput[];
+  /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
+  cadence?: LineCadence;
 }
 
 export interface ComponentBreakdownItem {
@@ -279,7 +288,10 @@ export interface PayrollLineResult {
   donationBase: number;
   donationDeduction: number;
   eti: EtiResult;
+  /** After any garnishee deductions (GA), never below nil. */
   netPay: number;
+  /** The garnishee deductions taken from net pay (payrollGarnishee); stored in payroll_garnishee_deductions. */
+  garnishees: GarnisheeDeduction[];
   componentBreakdown: ComponentBreakdownItem[];
   validationResults: ValidationResult[];
   /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */

@@ -48,7 +48,7 @@ test('supplier payment created through the /new form allocates to the invoice', 
     // auto-waits for the option to appear after the invoices fetch — then
     // allocate its full total (115.00).
     await page.selectOption('select[name="invoiceId"]', invoiceId, { timeout: 15_000 });
-    const allocationInput = page.locator('input[type="number"][step="0.01"]').first();
+    const allocationInput = page.getByRole('textbox', { name: 'Pay Amount' }).first();
     await allocationInput.fill('115');
 
     await page.getByRole('button', { name: /record|create|save|payment/i }).last().click();

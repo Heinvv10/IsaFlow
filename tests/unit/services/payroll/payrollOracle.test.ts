@@ -90,6 +90,7 @@ const EXPECTED_CASE_IDS = [
   'weekly-6000-third-week-month-uif-ceiling',
   'weekly-starter-fourth-week-averaged',
   'weekly-starter-g21-3-of-7-days',
+  'weekly-week-53-medical-retirement',
   'weekly-week-53-pay-sunday',
 ];
 
@@ -114,8 +115,6 @@ describe('payroll oracle fixtures', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
     'db-fund-12d-s11f-cap-binds': 'DBF',
-    'ga-emolument-attachment-capped-25pct': 'GA',
-    'ga-maintenance-outside-cap': 'GA',
     'offcycle-bonus-after-regular-g21': 'OC',
     'offcycle-termination-leave-after-regular': 'OC',
     'ri-overtime-10h-at-1-5x': 'RI',
@@ -123,14 +122,16 @@ describe('payroll oracle fixtures', () => {
     'ri-reimbursive-above-prescribed-3702-3722': 'RI',
     'ri-sunday-8h-at-2x': 'RI',
     'sage-2027-03-marco': 'PARITY',
-    'weekly-6000-fourth-week-month-uif-ceiling': 'FQc',
-    'weekly-6000-third-week-month-uif-ceiling': 'FQc',
-    'weekly-starter-fourth-week-averaged': 'FQc',
-    'weekly-starter-g21-3-of-7-days': 'FQc',
-    'weekly-week-53-pay-sunday': 'FQc',
     });
     // PSP closed its two gaps: the engine gives the A06 row 6 hand figure, UNVERIFIED only for the A06 edition (2025).
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'psp-company-27pct', 'psp-trust-45pct']);
+    // FQc: week 53 (UNVERIFIED, x52 over n = 53) equals its hand figure, so it moves to unverified.json.
+    expect(unverified.map(u => u.case).sort()).toEqual([
+      'db-fund-12d-category-factor', 'director-uif-on-remuneration',
+      // GA (wave 6): the s65J(1A)(a) limit and maintenance outside it; statutes read, no SARS guide or vendor figure.
+      'ga-emolument-attachment-capped-25pct', 'ga-maintenance-outside-cap',
+      'psp-company-27pct', 'psp-trust-45pct',
+      'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
+    ]);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are not gaps', () => {

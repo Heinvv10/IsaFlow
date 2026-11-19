@@ -29,6 +29,7 @@ const ALLOWED: Record<string, string> = {
   'src/modules/accounting/services/gl/nonControlPostingAccounts.ts': 'account eligibility lists, sums nothing',
   'src/modules/accounting/services/gl/reclassification/planGuards.ts': 'account reclassification guards, sums nothing',
   'src/modules/accounting/services/reports/vat201NilRatedSupplies.ts': 'reads zero_rated/exempt CODED lines; every clearing-journal line is uncoded',
+  'src/modules/accounting/services/reports/vat201Service.ts': 'reads ONE customer invoice\'s own journal (ci.gl_journal_entry_id) for its drill-down VAT label; the clearing journal is no invoice\'s',
   'src/modules/accounting/services/reports/vatAllocationMismatchService.ts': 'bank-allocation journals only (documented V-05 census note)',
   'src/modules/accounting/services/reports/vatBalanceSheetExceptions.ts': 'deliberately includes it: a miscoded clearing line must still be caught (documented)',
   'src/modules/accounting/services/reports/vatNonSupplyExceptions.ts': 'flags CODED lines on non-supply accounts; every clearing-journal line is uncoded',

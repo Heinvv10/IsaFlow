@@ -16,7 +16,7 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
   let approvedRunId = '';
   try {
     const employees = await api.get<any[]>('/api/payroll/employees?limit=1');
-    expect(employees.length, 'Demo company must have employees').toBeGreaterThan(0);
+    expect(employees.length, 'the suite company must have employees').toBeGreaterThan(0);
 
     // Reuse the sandbox run a previous suite execution left behind (cleanup
     // below reopens it to 'calculated'), else create it. Runs are unique per
@@ -25,11 +25,11 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     // The sandbox must sit inside a loaded tax year: calculate refuses a period
     // whose tax tables are not loaded (UnsupportedTaxYearError), so the old
     // 2031+ "future sandbox years" no longer calculate. Feb 2027 is the last
-    // month of tax year 2027, absent from Demo's seeded runs (they stop at Dec
+    // month of tax year 2027, absent from the suite company's seeded runs (they stop at Dec
     // 2026), and in an open fiscal period. It is RESERVED for this spec: the
     // close-agent specs take the first open 2027 period and skip this month
     // (PAYROLL_SANDBOX_MONTH). Jan 2027 is theirs, so it is not a fallback.
-    // Move this when Demo needs Feb 2027 for a real payroll run.
+    // Move this when the suite company needs Feb 2027 for a real payroll run.
     const [sandboxYear, sandboxMonth] = PAYROLL_SANDBOX_MONTH.split('-').map(Number) as [number, number];
     const existing = await api.get<any[]>('/api/payroll/runs');
     const inSandbox = (r: any) => r.periodYear === sandboxYear && r.periodMonth === sandboxMonth;
@@ -69,7 +69,10 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     // that member authorise it. A company with other owners/admins and no second login configured (post-deploy run)
     // cannot clear a run with one login, so the spec proves the two-person gate instead (self-approval refused, the
     // run refused without clearance) and posts nothing. The pending request is reused by the next execution.
-    const clearance = await clearPayRunApproval(api, baseURL!, runId, { reportSelfRefusal: true });
+    const clearance = await clearPayRunApproval(api, baseURL!, runId, { reportSelfRefusal: true, proveSelfRefusal: true });
+    if (clearance === 'two-person-gate-proved') {
+      test.info().annotations.push({ type: 'two-person-gate', description: 'self-approval refused (SELF_APPROVAL_FORBIDDEN), then the second approver approved: the full R-035 path ran' });
+    }
     if (clearance === 'self-approval-refused') {
       test.info().annotations.push({
         type: 'two-person-gate',

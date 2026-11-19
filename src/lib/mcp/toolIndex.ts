@@ -29,6 +29,8 @@ import { getMatchCandidatesTool } from './tools/bankMatch';
 import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
 import { listUnappliedPaymentsTool } from './tools/supplierPayments';
 import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
+import { listPurchaseOrdersTool } from './tools/listPurchaseOrders';
+import { getPurchaseOrderTool } from './tools/getPurchaseOrder';
 import { findDoubleSettlementsTool } from './tools/findDoubleSettlements';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
@@ -101,6 +103,13 @@ import {
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
 import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
+import { bulkCreatePurchaseOrdersTool } from './tools/writeBulkPurchaseOrders';
+import { linkBillsToPurchaseOrderTool } from './tools/writeLinkBillsToPurchaseOrder';
+import { unlinkBillFromPurchaseOrderTool } from './tools/writeUnlinkBillFromPurchaseOrder';
+import { updatePurchaseOrderTool } from './tools/writeUpdatePurchaseOrder';
+import { cancelPurchaseOrderTool } from './tools/writeCancelPurchaseOrder';
+import { closePurchaseOrderTool } from './tools/writeClosePurchaseOrder';
+import { setPurchaseOrderStatusTool } from './tools/writeSetPurchaseOrderStatus';
 import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
 import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
@@ -149,11 +158,8 @@ import { reconcileFixedAssetsTool } from './tools/reconcileFixedAssets';
 import { runDepreciationTool } from './tools/writeDepreciation';
 import { createFixedAssetTool } from './tools/writeCreateFixedAsset';
 import { deleteFixedAssetTool } from './tools/writeDeleteFixedAsset';
-import {
-  listItemsTool,
-  stockValuationTool,
-  supplierStatementTool,
-} from './tools/inventoryAndAp';
+import { stockValuationTool, supplierStatementTool } from './tools/inventoryAndAp';
+import { ITEM_READ_TOOLS, ITEM_WRITE_TOOLS } from './tools/itemToolSet';
 import { createPayRunTool, postPayrollJournalTool } from './tools/writePayroll';
 import {
   assignEmployeeComponentTool,
@@ -243,6 +249,8 @@ export const MCP_TOOLS = [
   listUnappliedReceiptsTool,
   listUnappliedPaymentsTool,
   listSupplierPaymentsTool,
+  listPurchaseOrdersTool,
+  getPurchaseOrderTool,
   findDoubleSettlementsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
@@ -267,7 +275,8 @@ export const MCP_TOOLS = [
   assetRegisterTool,
   reconcileFixedAssetsTool,
   runDepreciationTool,
-  listItemsTool,
+  // Item master (Phase A): list_items, get_item, list_item_categories.
+  ...ITEM_READ_TOOLS,
   stockValuationTool,
   supplierStatementTool,
   jobCostReportTool,
@@ -319,6 +328,16 @@ export const MCP_TOOLS = [
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
   bulkCreateSupplierInvoicesTool,
+  // Purchase orders with the caller's own numbers (Sage PO migration). Posts nothing.
+  bulkCreatePurchaseOrdersTool,
+  // Which bills were billed against which POs (Sage FromDocument links). Posts nothing.
+  linkBillsToPurchaseOrderTool,
+  unlinkBillFromPurchaseOrderTool,
+  // PO maintenance: edit, cancel, short-close, set an imported PO's status. Posts nothing.
+  updatePurchaseOrderTool,
+  cancelPurchaseOrderTool,
+  closePurchaseOrderTool,
+  setPurchaseOrderStatusTool,
   bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,
@@ -390,6 +409,8 @@ export const MCP_TOOLS = [
   linkDocumentToJournalTool,
   // CC1 / CC2 / BU: masters and defaults post nothing; split, tag and its reversal require write:post.
   ...DIMENSION_WRITE_TOOLS,
+  // Item master (Phase A): bulk_upsert_items, update_item, deactivate_item, upsert_item_category. write:items; post nothing.
+  ...ITEM_WRITE_TOOLS,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

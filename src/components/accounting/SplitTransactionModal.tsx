@@ -40,7 +40,7 @@ function newLine(amount = ''): SplitLineState {
 }
 
 /** A typed amount as rand and cents: the server takes whole cents only. */
-const cents = (raw: string) => Math.round((parseFloat(raw) || 0) * 100) / 100;
+export const cents = (raw: string) => Math.round((parseFloat(raw) || 0) * 100) / 100;
 
 /** What the route takes for one line: an account line, or a supplier / customer line. */
 function linePayload(l: SplitLineState) {

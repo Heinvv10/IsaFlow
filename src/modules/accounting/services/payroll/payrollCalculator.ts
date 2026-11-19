@@ -10,12 +10,15 @@ import { explainPayrollLine } from './payrollExplain';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
-import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
+import { classifyEmployment, timeWorkedEarnings } from './employmentTerms';
+import { cadenceTermsOf } from './payrollLineCadence';
+import { etiMonthPartsOf, pendingEti } from './payrollLineEtiMonth';
 import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
 import { pspComponentResults, pspDirectiveResults, pspPayeBase } from './pspLineRules';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
+import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
 import type {
@@ -81,10 +84,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // How the employee is taxed (TS-b): the tables, a flat 25% (non-standard), or none (contractor). The class reads what the line pays
   // per day (employmentTerms). A line off the tables is costed as a first period (no year to date), then replaced below; its month
   // stays out of every later table month's base.
-  const timeWorked = timeWorkedEarnings(components);
-  const classification = classifyEmployment(employee, taxYear, {
-    earnings: timeWorked, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate),
-  });
+  const cadence = cadenceTermsOf(input); // wave 6 FQc: weekly and fortnightly (payrollLineCadence)
+  const classification = classifyEmployment(employee, taxYear, cadence.dayPay(timeWorkedEarnings(components)));
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
   const psp = pspFacts(employee, taxYear); // a personal service provider's entity and rate (wave 6 PSP), else null
   // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.
@@ -125,6 +126,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       periodicRemuneration, annualPaymentRemuneration,
       ytd: ytdForTables ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
       taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
+      factor: cadence.factor, periodsInYear: cadence.periodsInYear, periodShare: cadence.periodShare,
     },
     ytd: ytdForTables,
   });
@@ -136,7 +138,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // A PSP's flat rate is on the payment before any deduction, less non-cash items (pspLineRules), never the balance above.
   const flatBase = psp ? pspPayeBase(remuneration, components) : balanceOfRemuneration;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
+  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear, cadence.uifMonthToDate);
   const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
   if (uifCosted) warnings.push(...uifClawbackWarnings(earningParts, uifLeviable));
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
@@ -175,9 +177,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const lineEti = costLineEti({
     employee, components, period, periodDate, runHours: hours,
     notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
+    ...(input.cadence?.etiMonthToDate ? { monthToDate: input.cadence.etiMonthToDate } : {}),
   });
-  const eti: EtiResult = psp ? { ...lineEti.eti, ineligibilityReason: PSP_NO_ETI } : lineEti.eti;
-  warnings.push(...lineEti.warnings);
+  // A weekly or fortnightly line before its month's last run claims none and records its parts (payrollLineEtiMonth).
+  const etiPending = input.cadence && cadence.frequency !== 'monthly' && !input.cadence.etiMonthToDate && !input.notEmployedInPeriod
+    ? pendingEti(lineEti.eti, etiMonthPartsOf(employee, input.cadence, hours, components)) : null;
+  const etiCosted: EtiResult = etiPending?.eti ?? lineEti.eti;
+  const eti: EtiResult = psp ? { ...etiCosted, ineligibilityReason: PSP_NO_ETI } : etiCosted;
+  warnings.push(...(etiPending?.warnings ?? lineEti.warnings));
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
@@ -205,9 +212,13 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     });
   }
 
+  // GA: garnishee orders come off the net pay above, after tax, never below nil (payrollGarnishee; s65J(1A)(a)).
+  const garnishee = applyGarnishees({ orders: input.garnisheeOrders ?? [], components, netPayBefore: netPay });
+  warnings.push(...garnishee.warnings);
+
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.
   const explanations = explainPayrollLine({
-    taxYear, periodDate, psp: psp ? { ...psp, base: flatBase } : null,
+    taxYear, periodDate, psp: psp ? { ...psp, base: flatBase } : null, ...(cadence.frequency === 'monthly' ? {} : { periodShare: cadence.periodShare }), // FQc M2
     paye: {
       treatment: treatment.paye, classification, earningParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
       medicalFees: { total: medicalSchemeFees, employee: employeeMedicalFees, employer: employerMedicalFees },
@@ -217,7 +228,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         regular: directed.regular, annual: directed.annualPayment, capRoom: capped.capRoom }, taxYear) } : {}),
     },
     uif: {
-      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,
+      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts, monthToDate: cadence.uifMonthToDate,
       outsideReason: !treatment.uif ? (psp ? PSP_NO_UIF : 'Independent contractor: no UIF') : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {
@@ -254,7 +265,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     donationBase: donation.base,
     donationDeduction: donation.deduction,
     eti,
-    netPay: Math.max(0, netPay),
+    netPay: round2(Math.max(0, netPay) - garnishee.total),
+    garnishees: garnishee.deductions,
     componentBreakdown: breakdown,
     validationResults: [...warnings, ...(input.notEmployedInPeriod ? [] : hoursValidation(employee, components))],
     hours,

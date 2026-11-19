@@ -41,6 +41,7 @@
  * The write itself is payrollRunRowWrite.ts, shared with setRunHours (payrollRunHoursInput.ts, HD: hours and days of an
  * hourly or daily employee, priced on the server). An hourly or daily employee's Basic Salary takes no typed amount here.
  */
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -148,12 +149,14 @@ export async function listEditableComponents(companyId: string): Promise<RunInpu
 export async function getRunInputs(companyId: string, runId: string): Promise<RunInputsState | null> {
   const run = await getPayrollRun(runId, companyId);
   if (!run) return null;
-  const period = { year: run.periodYear, month: run.periodMonth };
+  // The run's own dates and frequency (wave 6 FQc): a weekly run's grid keys its once-offs by its week.
+  const period = runPeriodOf({ period_year: run.periodYear, period_month: run.periodMonth, pay_frequency: run.payFrequency,
+    period_start: run.periodStart, period_end: run.periodEnd });
   // One after another: under withAuth these share the request's one connection.
   const lines = await getPayrollRunLines(runId, companyId);
   const approval = run.status === 'draft' || run.status === 'calculated'
     ? await describePayRunApproval(companyId, runId) : null;
-  const employees = await listPayrollRunEmployees(companyId, period);
+  const employees = await listPayrollRunEmployees(companyId, period, run.payFrequency);
   const components = await listEditableComponents(companyId);
   const { quantityRows, ...captured } = await readAmounts(companyId, period, components.map((c) => c.id), employees.map((e) => e.id));
   const found = hoursComponentOf(components);
@@ -211,9 +214,9 @@ export async function setRunPeriodAmount(
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new PayrollRunInputRefusedError(404, 'Payroll run not found');
 
-  const period: Period = { year: Number(run.period_year), month: Number(run.period_month) };
+  const period: Period = runPeriodOf(run);
   await assertRunEditable(companyId, runId, run, period);
-  const employees = await listPayrollRunEmployees(companyId, period);
+  const employees = await listPayrollRunEmployees(companyId, period, payFrequencyOf(run.pay_frequency));
   if (!employees.some((e) => e.id === employeeId)) throw new PayrollRunInputRefusedError(400, 'This employee is not on this run.');
   const editable = await listEditableComponents(companyId);
   const component = editable.find((c) => c.id === componentId);

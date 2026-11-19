@@ -19,12 +19,12 @@ const refusal = async (version: number | null) => {
   return (await recalculateRequiredRefusal('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))?.code ?? null;
 };
 
-describe('calculation version 14: personal service providers (PSP) on top of days-based annualisation (AN, 13), UIF floored at nil (UF, 12), regular-pay directives (DR, 11), RF (10), explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
+describe('calculation version 16: personal service providers (PSP) on top of garnishee orders (GA, 15), weekly and fortnightly (FQc, 14), days-based annualisation (AN, 13), UIF floored at nil (UF, 12), regular-pay directives (DR, 11), RF (10), explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
   it('is the current version', () => {
-    expect(PAYROLL_CALCULATION_VERSION).toBe(14);
+    expect(PAYROLL_CALCULATION_VERSION).toBe(16);
   });
 
-  it('refuses a run calculated by version 13 or unstamped, approves one calculated by version 14', async () => {
-    expect([await refusal(13), await refusal(null), await refusal(14)]).toEqual(['recalculate_required', 'recalculate_required', null]);
+  it('refuses a run calculated by version 15 or unstamped, approves one calculated by version 16', async () => {
+    expect([await refusal(15), await refusal(null), await refusal(16)]).toEqual(['recalculate_required', 'recalculate_required', null]);
   });
 });

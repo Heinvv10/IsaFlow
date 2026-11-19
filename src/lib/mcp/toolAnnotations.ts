@@ -16,6 +16,9 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'create_supplier_invoice',
   'bulk_create_supplier_invoices',
   'bulk_create_customer_invoices',
+  'bulk_create_purchase_orders',
+  // Adds a link and never changes a bill or a ledger row (a PO may close when asked); the unlink deletes it.
+  'link_bills_to_purchase_order',
   'attach_document',
   'attach_entity_document',
   'create_upload_urls',
@@ -67,6 +70,12 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'delete_business_unit',
   'cancel_customer_invoice',
   'delete_draft_credit_note',
+  'unlink_bill_from_purchase_order',
+  // PO maintenance: an edit replaces lines; cancel / close release a commitment; set status moves it either way.
+  'update_purchase_order',
+  'cancel_purchase_order',
+  'close_purchase_order',
+  'set_purchase_order_status',
   // A template that auto-posts changes what later runs post; a run may post (write:post decided per template).
   'create_recurring_journal',
   'run_recurring_journals',
@@ -77,6 +86,11 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'set_bank_account_default_dimensions',
   'set_supplier_default_dimensions',
   'sync_bank_dimensions',
+  // Catalogue master data: an upsert or update replaces a price or default account; a deactivation retires the item.
+  'bulk_upsert_items',
+  'update_item',
+  'deactivate_item',
+  'upsert_item_category',
   // Budget amounts, notes and the human-gated moves replace state (restore undoes the latest amount write once).
   'add_budget_note',
   'delete_budget_version',

@@ -57,7 +57,7 @@ function mockReqRes(body: Record<string, unknown>) {
 }
 
 /** Route the mocked sql calls by the membership/access query text. */
-function installSql(opts: { groupAccess: boolean; membersInGroup: string[] }) {
+function installSql(opts: { groupAccess: boolean; membersInGroup: string[]; writesSource?: boolean }) {
   sqlMock.mockImplementation(async (strings: readonly string[], ...values: unknown[]) => {
     // Collapse runs of whitespace so routing survives SQL re-indentation. Matching
     // on raw text made this mock break when the guard was extracted to
@@ -66,6 +66,10 @@ function installSql(opts: { groupAccess: boolean; membersInGroup: string[] }) {
     // verifyGroupAccess: caller belongs to some company in the group
     if (q.includes('JOIN company_users cu ON cu.company_id = cgm.company_id')) {
       return opts.groupAccess ? [{ ok: 1 }] : [];
+    }
+    // userCanWriteCompany: a write role in the (source) company itself
+    if (q.includes('FROM company_users') && !q.includes('JOIN')) {
+      return opts.writesSource === false ? [] : [{ ok: 1 }];
     }
     // verifyCompanyInGroup: company_id is an active member of the group
     if (q.includes('FROM company_group_members') && q.includes('left_date IS NULL')) {
@@ -113,6 +117,17 @@ describe('intercompany-transactions POST — cross-tenant forgery guard', () => 
   // access guard was not load-bearing in this suite.
   it('rejects a create when the caller belongs to no company in the group', async () => {
     installSql({ groupAccess: false, membersInGroup: [SOURCE, TARGET_IN] });
+    const { req, res } = mockReqRes(validBody);
+
+    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(createTxMock).not.toHaveBeenCalled();
+  });
+
+  // 999r: the row-security policy needs a write role in the source company; the route says so as a 403, not a database 500.
+  it('rejects a create whose source company the caller holds no write role in', async () => {
+    installSql({ groupAccess: true, membersInGroup: [SOURCE, TARGET_IN], writesSource: false });
     const { req, res } = mockReqRes(validBody);
 
     await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);

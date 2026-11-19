@@ -56,7 +56,7 @@ describe('supplier-payments/new', () => {
       fireEvent.click(screen.getByRole('button', { name: 'pick supplier' }));
       await screen.findAllByText(/INV-D2-1/);
       fireEvent.change(document.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
-      const amount = document.querySelector('input[type="number"][max]') as HTMLInputElement;
+      const amount = document.querySelector('input[id^="supplier-payments-new-amount"]') as HTMLInputElement;
       fireEvent.change(amount, { target: { value: '100' } });
       fireEvent.submit(form());
     },

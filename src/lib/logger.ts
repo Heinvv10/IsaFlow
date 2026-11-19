@@ -7,6 +7,7 @@
  */
 
 import { getRequestId, isDryRun } from '@/lib/observability/requestContext';
+import { forwardLogError } from '@/lib/sentry/logBridge';
 
 // Global type declarations for log storage
 declare global {
@@ -174,6 +175,11 @@ class Logger {
         process.stderr.write(jsonLine);
       } else {
         process.stdout.write(jsonLine);
+      }
+
+      // Error-level lines also reach Bugsink (no-op in tests, when Sentry is off, and for expected 4xx rejections).
+      if (level === 'error' && !dryRun && process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+        forwardLogError({ message, component, requestId, data });
       }
 
       // Supplementary in-memory storage

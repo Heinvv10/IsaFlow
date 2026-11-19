@@ -2,7 +2,7 @@
  * Wave 6 HYa: actor ids on the payroll, SARS and tax tables are bound as text.
  *
  * users.id is varchar and a user id need not be UUID-shaped, but these tables' `*_by` columns are uuid until HYb turns
- * them to TEXT. Code that tolerates both writes `${userId}` (an untyped parameter: Postgres takes the column's type)
+ * them to TEXT (999w). Code that tolerates both writes `${userId}` (an untyped parameter: Postgres takes the column's type)
  * and compares `col::text = ${userId}`; `${userId}::uuid` fails for a non-UUID id today and keeps failing after HYb.
  *
  * The census, by table: every tracked src/ or pages/ file whose code (comments removed) names one of the tables, and
@@ -18,12 +18,12 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../../..');
 const S = 'src/modules/accounting/services/';
-const TABLE = /\b(payroll_run_headers|payroll_leave_requests|payroll_external_imports|sars_submissions|sars_efiling_events|tax_directives|tax_directive_payments|uif_declarations|vat_returns)\b/;
-const COLUMN = /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\b/;
+const TABLE = /\b(payroll_run_headers|payroll_leave_requests|payroll_external_imports|sars_submissions|sars_efiling_events|sars_source_codes|tax_directives|tax_directive_payments|uif_declarations|vat_returns|vat_adjustments)\b/;
+const COLUMN = /\b(approved_by|cancelled_by|created_by|imported_by|prepared_by|requested_by|submitted_by)\b/;
 /** An actor column cast to uuid, or `col = ${…}::uuid` on an actor column. */
 const ACTOR_UUID_CAST = [
-  /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\s*::\s*uuid\b/i,
-  /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\s*=\s*\$\{[^}]*\}\s*::\s*uuid\b/i,
+  /\b(approved_by|cancelled_by|created_by|imported_by|prepared_by|requested_by|submitted_by)\s*::\s*uuid\b/i,
+  /\b(approved_by|cancelled_by|created_by|imported_by|prepared_by|requested_by|submitted_by)\s*=\s*\$\{[^}]*\}\s*::\s*uuid\b/i,
 ];
 /**
  * Fail closed: in those files every `${…}::uuid` bind is refused unless its expression is listed here, verbatim, as
@@ -41,11 +41,15 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'undone', 'declarationId', 'submissionId', 'evt.submissionId', 'String(open[0].id)',
   // journals, documents, generic row ids
   'journalId', 'journalEntryId', 'gate.replaces.journalEntryId', 'live.map((h) => String(h.journal_entry_id))',
-  'entry.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
+  'entry.id', 'je.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
-  // wave 6 PSP: the pay component a PSP may not carry (pspComponentGuard)
-  'componentId',
+  // wave 6 GA: garnishee orders, their payable account, a run's deductions
+  'orderId', 'payable.id', 'rows.map((r) => r.orderId)', 'rows.map((r) => r.employeeId)',
+  // wave 6 EFa: a tax return version's row id
+  'v.id',
+  // wave 6 FQc: a payroll component (the frequency refusal; also wave 6 PSP's pspComponentGuard) and the run whose payslip year to date is read
+  'componentId', 'run.id', 'run.runId ?? null',
   // wave 6 VR: the VAT201 version a settlement is posted against
   'basis.version.id', 'version.id',
   // entity-change log cursors
@@ -67,16 +71,18 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     52: 'SELECT approved_plan_hash, prepared_by::text AS prepared_by, approval_grandfathered_at',
     59: 'const preparedBy = header.prepared_by == null ? null : String(header.prepared_by);',
   },
-  [`${S}payroll/payrollApprovalService.ts`]: { 150: 'approved_by = ${approvedBy},' },
+  [`${S}payroll/payrollApprovalService.ts`]: { 153: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
+  // Wave 6 GA: payroll_garnishee_orders.created_by is TEXT, restamped by its trigger from the session user (999z).
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 137: 'payable_account_id, created_by' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 120: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 114: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
   [`${S}payroll/payrollRunLock.ts`]: { 229: 'prepared_by     = ${preparedBy},' },
-  [`${S}payroll/payrollRunReopen.ts`]: { 78: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
+  [`${S}payroll/payrollRunReopen.ts`]: { 79: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
-    121: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
+    122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
   },
   [`${S}payroll/taxDirectiveApprover.ts`]: {
     32: 'SELECT requested_by::text AS requested_by, approvers_at_create FROM tax_directives WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid',
@@ -87,8 +93,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     209: 'bank_account_id, created_by',
   },
   [`${S}payroll/taxDirectiveService.ts`]: {
-    88: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
-    193: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
+    91: 'effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create',
+    196: 'approved_by = COALESCE(${approvedByUserId ?? null}, approved_by),',
   },
   [`${S}payroll/uifDeclarationService.ts`]: {
     93: 'submittedBy: r.submitted_by ? String(r.submitted_by) : null,',
@@ -96,10 +102,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     273: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
-    47: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
-    121: 'submitted_by = ${userId}, updated_at = NOW()',
-    125: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
-    205: 'submitted_by = ${actorUserId},',
+    48: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
+    122: 'submitted_by = ${userId}, updated_at = NOW()',
+    126: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    209: 'submitted_by = ${actorUserId},',
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     81: 'submitted_by = ${userId},',
@@ -118,28 +124,46 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}reports/vatSubmissionService.ts`]: {
     213: 'sars_reference, submitted_by, journal_entry_id,',
   },
+  // Wave 6 HYb: vat_adjustments and sars_source_codes are on 999w's list too (the information_schema query finds them).
+  [`${S}reports/vatAdjustmentService.ts`]: {
+    60: 'company_id, adjustment_date, vat_period, adjustment_type, amount, reason, created_by',
+    183: "SET status = 'approved', approved_by = ${userId}, approved_at = NOW(),",
+    215: 'approvedBy: row.approved_by ? String(row.approved_by) : undefined,',
+    217: 'createdBy: String(row.created_by),',
+  },
+  ['src/modules/admin/services/sarsCodesAdminService.ts']: {
+    135: 'source_document, source_url, official_excerpt, brs_version, imported_by',
+    154: 'imported_by = EXCLUDED.imported_by',
+  },
 };
 
 /** The VALUES line that binds the actor of a multi-line INSERT pinned above (the column is named on another line). */
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
+  [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 123: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 117: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
-  [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
+  [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 238: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
-    126: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
+    127: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
     257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
-  [`${S}reports/vatSubmissionService.ts`]: { 224: '${safeUserId}, -- uuid column until HYb: an untyped bind, no ::uuid on the actor (HYa census)' },
+  // Wave 6 HYb review L1: the real user id into the TEXT column, not resolveUserUuid's stand-in.
+  [`${S}reports/vatSubmissionService.ts`]: { 224: "${userId}, -- TEXT since 999w (HYb): the real user id, not resolveUserUuid's stand-in" },
+  [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}' },
+  ['src/modules/admin/services/sarsCodesAdminService.ts']: {
+    139: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
+  },
 };
 
 /** file:line -> why an actor value is still cast to uuid there. */
 const UUID_CAST_EXEMPT: Readonly<Record<string, string>> = {
+  // None since HYb review L1: vatSubmissionService binds vat_returns.submitted_by as the real user id.
 };
 
 function code(src: string): string {

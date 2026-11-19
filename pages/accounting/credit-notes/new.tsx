@@ -13,6 +13,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP } from '@/components/accounting/formActionBar';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Client { id: string; company_name: string }
 
@@ -139,7 +140,7 @@ export default function NewCreditNotePage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label htmlFor="credit-notes-new-subtotal" className={lbl}>Subtotal (excl. VAT) *</label>
-                    <input id="credit-notes-new-subtotal" type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
+                    <AmountInput id="credit-notes-new-subtotal" name="subtotal" min={0} value={form.subtotal || ''} onValueChange={n => setForm(f => ({ ...f, subtotal: n }))} className={inp} required />
                   </div>
                   <div>
                     <label htmlFor="credit-notes-new-tax-rate" className={lbl}>VAT rate (%)</label>

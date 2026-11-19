@@ -20,6 +20,10 @@
  * 12: UIF is floored at nil: a clawback larger than the month's UIF pay gives nil, not a negative contribution, and warns UIF_CLAWBACK (UF).
  * 13: PAYE annualises a month by days, 365 ÷ 30.4166 (Sage parity, wave-6 ruling 5), not × 12: the annual equivalent and the tax after rebates' n ÷ F.
  *    The s11F cap to date, the medical credits and the fees a year stay statutory period ratios, × min(n, 12) ÷ 12 (coordinator ruling 2026-11-17; AN).
- * 14: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 999r).
+ * 14: weekly and fortnightly runs: × 52 / × 26 over the periods worked (a starter's part period by its days), UIF capped on the month to
+ *    date across the month's runs, ETI claimed on the month's last run, the year to date and once-offs keyed by run (FQc).
+ * 15: garnishee orders come off net pay after tax: emoluments attachments within 25% of basic salary (Magistrates' Courts Act
+ *    s65J(1A)(a)), maintenance outside it and first (Maintenance Act s28, s29(3)); recorded per run (GA).
+ * 16: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 999r).
  */
-export const PAYROLL_CALCULATION_VERSION = 14;
+export const PAYROLL_CALCULATION_VERSION = 16;

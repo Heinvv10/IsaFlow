@@ -14,6 +14,7 @@ import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payr
 import type { Employee } from './EmployeeProfileCard';
 import { EmployeeEmailField } from './EmployeeEmailField';
 import { PayrollTaxStatusField } from './PayrollTaxStatusField';
+import { EmployeePortalCard } from './EmployeePortalCard';
 
 /** ETI Act s6(b): an SA ID number (checked), an asylum seeker permit, or a refugee identity document. */
 const ETI_ID_DOCUMENT = [
@@ -121,6 +122,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>
       <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
+      <EmployeePortalCard employeeId={employee.id} canEdit={canEditPriced} />
     </div>
   );
 }

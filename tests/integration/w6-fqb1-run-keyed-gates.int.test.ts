@@ -1,6 +1,6 @@
 /**
  * Wave 6 FQb1: the run-keyed GATES and WRITERS (census class R, owner FQb1), each with two runs in one month: a
- * regular run and an off-cycle bonus run of the same calendar month, the per-month unique dropped inside the case's
+ * regular run and an off-cycle bonus run of the same calendar month, seeded inside the case's
  * own rolled-back transaction (w6-fqb1.helpers.ts). Company B holds the same shape at 10x.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -14,6 +14,7 @@ import { etiCarryLedger } from '@/modules/accounting/services/payroll/etiCarry';
 import { refuseReversalAgainstPayRun } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { createPayrollRun, PayrollRunDuplicateError } from '@/modules/accounting/services/payroll/payrollRunHeaders';
 import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDateGate';
+import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
 import { sdlMonthSplitRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
 import { runLinesRefusal } from '@/modules/accounting/services/payroll/payrollRunRecalcGate';
@@ -121,17 +122,6 @@ describe('creating a regular run beside an off-cycle run of the month', () => {
     expect(created.again).toBeInstanceOf(PayrollRunDuplicateError);
   });
 
-  it('today\'s schema (month unique kept): a month holding only an off-cycle run is the named duplicate, not a raw 23505', async () => {
-    const got = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, BONUS); }, async () => {
-      const again = await createPayrollRun(A.company, { month: 5, year: 2026 }, A.user).then(() => null, (e: unknown) => e);
-      // Its own savepoint: the request's transaction is still usable after the refusal (review #1507 B5).
-      const after = ((await sql`SELECT 1 AS ok`) as Array<{ ok: number }>)[0]?.ok;
-      return { again, after };
-    }, { keepMonthKey: true });
-    expect(got.again).toBeInstanceOf(PayrollRunDuplicateError);
-    expect(got.after).toBe(1);
-  });
-
   it('create_pay_run (MCP) dry run: the bonus is no clash, a regular run is', async () => {
     const ctx = { companyId: A.company, userId: A.user, scopes: ['write:payroll'], tokenJti: null, oauthAppId: null, role: 'admin' } as McpToolContext;
     const dry = () => createPayRunTool.handler({ month: 5, year: 2026, dry_run: true, idempotency_key: crypto.randomUUID() }, ctx)
@@ -143,16 +133,21 @@ describe('creating a regular run beside an off-cycle run of the month', () => {
   });
 });
 
-describe('the year-to-date gate (month order until FQc moves it with the figure)', () => {
-  // Review #1507 B2a: loadPayeYearToDate reads earlier MONTHS only, so the gate must not call May's regular run "earlier
-  // and covered" for a May bonus: approving the bonus is refused until FQc makes both run-keyed together.
-  it('refuses a bonus calculated after the month\'s regular run was approved, as the figure never read that run', async () => {
+describe('the year-to-date gate and figure: pay order, moved together (wave 6 FQc, spec F2)', () => {
+  // Review #1507 B2a: the gate and loadPayeYearToDate must agree on "earlier". FQb1 held both to the month; FQc moved
+  // both onto payrollRunOrder: a May bonus (off-cycle after the regular run) has May's regular run in its year to date,
+  // so the gate rightly calls that run earlier and covered.
+  it('passes a bonus calculated after the month\'s regular run was approved, and its figure reads that run', async () => {
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
       await seedRun(c, A, { ...REGULAR, approvedAt: '2026-05-21T08:00:00Z', calculatedAt: '2026-05-20T08:00:00Z' });
       bonus = await seedRun(c, A, { ...BONUS, status: 'calculated', approvedAt: null, calculatedAt: '2026-05-27T08:00:00Z' });
-    }, () => judgeYearToDate(A.company, bonus));
-    expect(got.blocker?.code).toBe('paye_year_to_date_stale');
+    }, async () => ({
+      blocker: (await judgeYearToDate(A.company, bonus)).blocker,
+      ytd: (await loadPayeYearToDate(A.company, bonus, { year: 2026, month: 5 }, [A.employee])).get(A.employee),
+    }));
+    expect(got.blocker).toBeNull();
+    expect(got.ytd?.periodicTaxable).toBe(REGULAR.gross);
   });
 });
 

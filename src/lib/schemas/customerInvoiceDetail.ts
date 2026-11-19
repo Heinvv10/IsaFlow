@@ -20,6 +20,9 @@ export const PutItemSchema = z.object({
   // ownership and the revenue-account rules are invoiceLineCodingGuard's.
   glAccountId: UUID.nullable().optional(),
   projectId: UUID.nullable().optional(),
+  // Migration 1005: the catalogue item. A NEW item is checked and defaults the account; left out keeps the item of an identical
+  // stored line; null clears it (items/itemEditLines).
+  itemId: UUID.nullable().optional(),
   // CC1 / CC2 / BU (migration 870): left out keeps the value every stored line
   // shares; null clears it (gl/dimensions/dimensionKeepStored).
   cc1Id: UUID.nullable().optional(),

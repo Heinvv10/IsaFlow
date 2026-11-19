@@ -2,7 +2,7 @@
  * The forward-compat guard (wave 6 FQa, grill F3/F4/F8/F28). This release costs, approves, posts, reopens and prints
  * only MONTHLY REGULAR runs of employees whose tax status and assignments it knows. Later wave-6 releases add weekly
  * and fortnightly runs, off-cycle runs, personal service providers, defined-benefit factors, overtime multipliers,
- * travel km and garnishee orders. If production is rolled back to this release (code only, never migrations), this
+ * travel km. If production is rolled back to this release (code only, never migrations), this
  * guard is what stops it costing those rows as if they were ordinary: it refuses, naming why, before any write.
  *
  * Called from the SERVICES (calculatePayrollRun, approvePayrollRun and previewPayrollApproval, postPayrollRunJournal,
@@ -13,10 +13,15 @@
  * every later one: a column through `to_jsonb(row) ->> 'name'` (NULL while absent), a table through
  * `to_regclass` with a CASE that never plans the query while the table is absent (query_to_xml runs it only then).
  * Each later PR lifts exactly its own clause, in its own release. Contract for those PRs (the names read here):
- *   payroll_employee_components.db_member_category_factor / .rate_multiplier (DBF, RI), quantity_unit 'km' (RI);
- *   payroll_garnishee_orders(company_id, employee_id, status) and payroll_garnishee_deductions(run_id) (GA). An order
- *   counts unless its status is cancelled, completed, satisfied, withdrawn or ended; a missing key counts (fails closed).
- *   A deduction counts for this company's run (or, with no run_id key, any of this company's: fails closed).
+ *   payroll_employee_components.db_member_category_factor / .rate_multiplier (DBF, RI), quantity_unit 'km' (RI).
+ * Lifted: the garnishee clauses (an active order refused costing; a deduction on the run refused every action), by GA
+ * (migration 999z), which costs, approves, posts and reopens garnishee orders. A rollback past GA reaches a release that
+ * still has them.
+ * Added by GA (review of #1574): `garnishee_frequency`. A garnishee instalment is monthly and is taken once per run, so
+ * a weekly or fortnightly run would take it four or two times a month. Such a run is refused costing while an employee
+ * on it has an order in force, until pro-rating is built. The `frequency` clause is still in force on master (FQc built the
+ * weekly engine but did not lift it); FQd lifts it when weekly and fortnightly runs reach the product. That lift removes
+ * `frequency` only, never this clause.
  *
  * KNOWN LIMIT (wave 6 EF review): `tax_status` and the employee-frequency clause are judged on the employee's CURRENT
  * row, not as at the run. An employee moved to weekly after a monthly run makes that old run refuse (fails closed), and
@@ -34,7 +39,9 @@ export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'paysl
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor', 'personal_service_provider'] as const;
 
 export type RunKindClause =
-  | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment' | 'garnishee_order' | 'garnishee_deduction';
+  | 'frequency' | 'run_kind' | 'tax_status' | 'employee_frequency' | 'assignment' | 'garnishee_frequency'
+  // Wave 6 FQc (payrollFrequencyGuard): terms a weekly or fortnightly run cannot cost, the EMP201 month, a mid-year change.
+  | 'frequency_terms' | 'emp201_month' | 'frequency_change' | 'pay_period_overlap';
 
 export interface RunKindReason {
   clause: RunKindClause;
@@ -59,7 +66,7 @@ export function isRunKindUnsupported(err: unknown): err is RunKindUnsupportedErr
   return err instanceof RunKindUnsupportedError;
 }
 
-/** Which clauses each action judges. Costing reads assignments and orders; every action meets the run's shape. */
+/** Which clauses each action judges. Costing reads assignments; every action meets the run's shape. */
 const COSTING: ReadonlySet<RunKindAction> = new Set(['calculate', 'approve', 'post']);
 
 const names = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(', ') : '');
@@ -104,22 +111,12 @@ export async function assertRunKindSupported(
           AND (to_jsonb(c) ->> 'db_member_category_factor' IS NOT NULL
                OR to_jsonb(c) ->> 'rate_multiplier' IS NOT NULL
                OR to_jsonb(c) ->> 'quantity_unit' = 'km')) AS odd_assignments,
-      CASE WHEN to_regclass('public.payroll_garnishee_orders') IS NULL THEN 0
-           ELSE (xpath('/row/n/text()', query_to_xml(format(
-             'SELECT count(*) AS n FROM public.payroll_garnishee_orders g'
-             || ' WHERE COALESCE(to_jsonb(g) ->> ''company_id'', %L) = %L'
-             || ' AND (NOT (to_jsonb(g) ? ''employee_id'') OR to_jsonb(g) ->> ''employee_id'' = ANY (%L::text[]))'
-             || ' AND COALESCE(to_jsonb(g) ->> ''status'', '''') NOT IN'
-             || ' (''cancelled'', ''completed'', ''satisfied'', ''withdrawn'', ''ended'')',
-             r.company_id::text, r.company_id::text, (SELECT array_agg(p.id::text) FROM people p)),
-             false, true, '')))[1]::text::int END AS garnishee_orders,
-      CASE WHEN to_regclass('public.payroll_garnishee_deductions') IS NULL THEN 0
-           ELSE (xpath('/row/n/text()', query_to_xml(format(
-             'SELECT count(*) AS n FROM public.payroll_garnishee_deductions d'
-             || ' WHERE COALESCE(to_jsonb(d) ->> ''company_id'', %L) = %L'
-             || ' AND (NOT (to_jsonb(d) ? ''run_id'') OR to_jsonb(d) ->> ''run_id'' = %L)',
-             r.company_id::text, r.company_id::text, r.id::text),
-             false, true, '')))[1]::text::int END AS garnishee_deductions
+      (SELECT array_agg(DISTINCT p.employee_number) FROM people p
+         JOIN payroll_garnishee_orders g ON g.employee_id = p.id AND g.company_id = r.company_id
+        WHERE r.pay_frequency IS DISTINCT FROM 'monthly'
+          AND g.status IN ('active', 'ended') AND g.start_date <= r.period_end
+          AND (g.end_date IS NULL OR g.end_date >= r.period_start)
+          AND (g.balance IS NULL OR g.balance > 0)) AS garnishee_off_month
       FROM run r
   `) as DbRow[];
   const row = rows[0];
@@ -138,9 +135,6 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
     const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
     reasons.push({ clause: 'run_kind', detail: `it is ${kind} run, and only regular runs are supported` });
   }
-  if (Number(row.garnishee_deductions) > 0) {
-    reasons.push({ clause: 'garnishee_deduction', detail: 'it carries garnishee deductions' });
-  }
   if (action !== 'reopen' && names(row.unknown_status)) {
     reasons.push({ clause: 'tax_status', detail: `employees ${names(row.unknown_status)} have a tax status this version does not know` });
   }
@@ -150,8 +144,8 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   if (COSTING.has(action) && names(row.odd_assignments)) {
     reasons.push({ clause: 'assignment', detail: `employees ${names(row.odd_assignments)} have pay components with a defined-benefit factor, an overtime multiplier or travel km` });
   }
-  if (COSTING.has(action) && Number(row.garnishee_orders) > 0) {
-    reasons.push({ clause: 'garnishee_order', detail: 'an employee on it has an active garnishee order' });
+  if (COSTING.has(action) && names(row.garnishee_off_month)) {
+    reasons.push({ clause: 'garnishee_frequency', detail: `employees ${names(row.garnishee_off_month)} have garnishee orders, whose monthly instalments are not yet pro-rated for a ${String(row.pay_frequency)} run` });
   }
   return reasons;
 }

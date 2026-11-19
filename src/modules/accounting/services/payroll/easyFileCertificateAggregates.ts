@@ -50,11 +50,8 @@ export function loadCertificateAggregates(
       AND ${sql.unsafe(payRunFinalSql('prh'))}
       -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): decided per line.
       AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
-      AND (
-        (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
-        OR
-        (prh.period_year = ${endYear}   AND prh.period_month <= ${endMonth})
-      )
+      -- One range, not "start year from startMonth OR end year to endMonth": for the interim (both in one year) that OR is the whole year.
+      AND prh.period_year * 100 + prh.period_month BETWEEN ${startYear * 100 + startMonth} AND ${endYear * 100 + endMonth}
     GROUP BY prl.employee_id
 ` as Promise<DbRow[]>;
 }

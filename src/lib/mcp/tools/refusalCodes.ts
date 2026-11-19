@@ -6,6 +6,7 @@
 import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
 import { PAYROLL_REFUSAL_CODES } from './payrollRefusalCodes';
 import { BUDGET_REFUSAL_CODES } from './budgetRefusalCodes';
+import { VAT_LINE_REFUSAL_CODES } from './vatLineRefusalCodes';
 
 /**
  * The codes this codebase's own refusal classes carry — the complete set of
@@ -175,6 +176,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // A customer invoice line's revenue account, job or CC1 / CC2 / BU (with the customer's FNO) refused
   // (ar/invoiceLineCoding): names only the caller's own account, job or cost centre.
   'INVOICE_LINE_CODING_REFUSED',
+  // items/itemLineDefaults (migration 1005): a document line names an item that is not this company's, or is inactive.
+  // Names only the caller's own line position; raised before the document's first write.
+  'ITEM_LINE_REFUSED',
   // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_BUDGET_INVALID',
@@ -213,10 +217,14 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Wave 6 PSP: a component a personal service provider cannot carry (pspComponentGuard).
   'PSP_COMPONENT_REFUSED',
   'PSP_STATUS_CHANGED_SINCE_APPROVAL',
+  'PURCHASE_ORDER_BILL_LINK_REFUSED', // link_bills_to_purchase_order / unlink_bill_from_purchase_order: every row refusal, decided before any write.
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',
+  'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
+  // update / cancel / close / set status of a PO (ap/purchaseOrderErrors): the PO's status, a receipt, linked bills or an owner / admin rule; decided before any write.
+  'PURCHASE_ORDER_MAINTENANCE_REFUSED',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',
   'PURCHASE_ORDER_NOT_FOUND',
@@ -283,11 +291,13 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   ...SYSTEM_ROLE_REFUSAL_CODES,
   ...PAYROLL_REFUSAL_CODES,
   ...BUDGET_REFUSAL_CODES,
+  ...VAT_LINE_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
   'PAYROLL_RUN_DIRECTIVE_USE',
   'EMPLOYEE_END_DATE_DIRECTIVE',
+  'PREPARER_ID_NOT_SUPPORTED', // wave 6 HYb: a non-UUID preparer of a pay run R-035 governs (payrollPreparerGuard)
   'LEAVER_EXIT_AMBIGUOUS', // two live leaver-exit audit rows for a directive's current expiry: nothing restored
   'LEAVER_EXIT_WINDOW_TAKEN', // undoing a leaver exit when another run taxed the employee inside the restored window
   'LEAVER_EXIT_RUN_NOT_REOPENED', // undoing a leaver exit while a run it changed is approved or paid: refused before the write // an end date that would un-explain a directive ended at the leave date: refused before the write // an ever-approved run would lose a directive it was approved with: refused before any write

@@ -26,6 +26,7 @@ import { getPayslips } from '@/modules/accounting/services/payroll/payslipModel'
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
 import { listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { loadFinalLineTotals } from '@/modules/accounting/services/payroll/preValidationReads';
 import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
 
 assertDisposable();
@@ -173,6 +174,11 @@ describe('a PSP trust in March, an employee from April', () => {
     const agg = (await loadCertificateAggregates(f.company, { startYear: 2026, startMonth: 3, endYear: 2027, endMonth: 2 }))
       .find((r) => String(r.employee_id) === who)!;
     expect(Number(agg.total_gross)).toBe(45_000); // April: 40 000 + 5 000 travel; March's 55 000 is the PSP's
+  });
+
+  it('H1: IRP5 pre-validation (wave 6 PV, merged after PSP) reads April only, never March\'s PSP line', async () => {
+    const [row] = (await loadFinalLineTotals(f.company, 2027, who, null)) as Array<{ gross?: unknown }>;
+    expect(Number(row!.gross)).toBe(45_000); // April: 40 000 + 5 000 travel; March's 50 000 is the PSP's
   });
 
   it('H1: the EMP501 reconciliation puts March\'s PSP PAYE apart and names it', async () => {

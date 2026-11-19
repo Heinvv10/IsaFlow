@@ -22,6 +22,7 @@ import {
 import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
 import { PayrollRunDirectiveUseError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
+import { PreparerIdNotSupportedError } from '@/modules/accounting/services/payroll/payrollPreparerGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -49,6 +50,8 @@ async function handler(
     if (err instanceof EtiLaterMonthPostedError) {
       return apiResponse.conflict(res, err.message, { code: 'ETI_LATER_MONTH_POSTED' });
     }
+    // Wave 6 HYb: a non-UUID preparer of a run R-035 governs, refused before any write.
+    if (err instanceof PreparerIdNotSupportedError) return apiResponse.conflict(res, err.message, { code: err.code });
     if (err instanceof PayrollRunLockedError) {
       return apiResponse.badRequest(res, err.message, { lockedStatus: err.status });
     }

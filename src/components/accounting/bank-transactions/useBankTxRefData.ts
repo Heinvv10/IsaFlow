@@ -75,18 +75,34 @@ export function useBankTxRefData(setters: Setters): void {
       }
     };
 
-    Promise.allSettled([
-      apiFetch('/api/accounting/chart-of-accounts'),
-      apiFetch('/api/accounting/customers'),
-      apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
-      apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true'),
-      apiFetch('/api/accounting/cost-centres?active=true'),
-    ]).then(async ([coaRes, clientRes, cc1Res, cc2Res, deptRes]) => {
-      const [coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
-        json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
-      ]);
+    // An unmounted page sets nothing and raises nothing: its fetches are aborted and their results dropped.
+    let live = true;
+    const controller = new AbortController();
+    const get = (url: string) => apiFetch(url, { signal: controller.signal });
+    const CC1_URL = '/api/accounting/cost-centres?cc_type=cc1&active=true';
+    // The dimension rows carry each CC2's fnoCode and parentId, which the row's CC1 -> CC2 filter keys on (#1653).
+    const CC2_URL = '/api/accounting/cost-centres?detail=dimensions&cc_type=cc2&active=true';
+    const BU_URL = '/api/accounting/business-units?active=true';
 
-      if ([coaJson, clientJson, cc1Json, cc2Json, deptJson].some(j => j === null)) notify.error(LISTS_FAILED);
+    Promise.allSettled([
+      get('/api/accounting/chart-of-accounts'), get('/api/accounting/customers'), get(CC1_URL), get(CC2_URL), get(BU_URL),
+    ]).then(async ([coaRes, clientRes, cc1Res, cc2Res, buRes]) => {
+      if (!live) return;
+      const [coaJson, clientJson, cc1Json, cc2Json, buJson] = await Promise.all([
+        json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(buRes),
+      ]);
+      if (!live) return;
+
+      let failed = [coaJson, clientJson, cc1Json, cc2Json, buJson].some(j => j === null);
+      // A loaded list whose rows are not an array at data.items failed too: say so, never show it as empty.
+      const items = (body: { data?: { items?: unknown } } | null, url: string): Array<Record<string, unknown>> => {
+        if (body === null) return [];
+        const rows = body.data?.items;
+        if (Array.isArray(rows)) return rows as Array<Record<string, unknown>>;
+        log.warn('A bank-transactions reference list came back in the wrong shape', { url }, 'accounting-ui');
+        failed = true;
+        return [];
+      };
 
       const coaRaw = coaJson?.data ?? coaJson;
       const coaList: Array<SelectOption & { accountSubtype?: string; accountCode?: string; accountName?: string; defaultVatCode?: string; vatInputDenied?: boolean }> = Array.isArray(coaRaw) ? coaRaw : [];
@@ -98,21 +114,23 @@ export function useBankTxRefData(setters: Setters): void {
       const clientList = Array.isArray(clientJson?.data) ? clientJson.data : [];
       setCustomers(clientList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name || '' })));
 
-      const cc1List = Array.isArray(cc1Json?.data?.items) ? cc1Json.data.items : [];
-      setCc1Options(cc1List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
+      const cc1List = items(cc1Json, CC1_URL) as Array<{ id: string; code: string; name: string }>;
+      setCc1Options(cc1List.map(c => ({ id: c.id, code: c.code, name: c.name })));
 
-      const cc2List = Array.isArray(cc2Json?.data?.items) ? cc2Json.data.items : [];
-      setCc2Options(cc2List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
+      const cc2List = items(cc2Json, CC2_URL) as Array<{ id: string; code: string; name: string; fnoCode?: string | null; parentId?: string | null }>;
+      setCc2Options(cc2List.map(c => ({ id: c.id, code: c.code, name: c.name, fnoCode: c.fnoCode ?? null, parentId: c.parentId ?? null })));
 
-      const deptRaw = deptJson?.data ?? deptJson;
-      const deptList = Array.isArray(deptRaw) ? deptRaw : [];
-      setBuOptions(deptList
-        .filter((d: { is_active?: boolean; isActive?: boolean }) => d.is_active !== false && d.isActive !== false)
-        .map((d: { id: string; name: string; code?: string }) => ({ id: d.id, name: d.name, code: d.code })));
+      // Business units, not cost centres: this list read cost-centres and an array under `data`, so it was always empty.
+      const buList = items(buJson, BU_URL) as Array<{ id: string; name: string; code?: string; isActive?: boolean }>;
+      setBuOptions(buList.filter(b => b.isActive !== false).map(b => ({ id: b.id, name: b.name, code: b.code })));
+
+      if (failed) notify.error(LISTS_FAILED);
     }).catch((err) => {
+      if (!live) return;
       log.error('Failed to load bank transaction reference data', { error: err }, 'accounting-ui');
       notify.error(LISTS_FAILED);
     });
+    return () => { live = false; controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

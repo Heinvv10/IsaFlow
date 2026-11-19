@@ -217,7 +217,8 @@ export async function payrollTermsChangedSinceCalculation(
     FROM entity_changes c
     JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id
     CROSS JOIN LATERAL (
-      SELECT (pg_catalog.make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date AS last_day
+      -- The run's own last day (wave 6 FQc; a monthly regular run's is its month end, migration 999a).
+      SELECT h.period_end AS last_day
     ) p
     WHERE c.company_id = ${companyId}::uuid AND c.entity_type = 'payroll_employee'
       AND c.entity_id = ANY(${employeeIds}::uuid[])
