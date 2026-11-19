@@ -106,7 +106,7 @@ describe('SDL settled for the month to date', () => {
     expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBe(0);
   });
 
-  it('D: only FINAL earlier runs count toward the catch-up (a run that is no longer final carries nothing)', async () => {
+  it('D: only FINAL earlier runs count toward the catch-up (a calculated run paid earlier in the month carries nothing)', async () => {
     const t = r.d;
     expect((await t.api.approve(regular[t.company]!)).statusCode).toBe(200);
     const made = await bonus(t, 600_000, '2026-11-27');
@@ -114,14 +114,17 @@ describe('SDL settled for the month to date', () => {
     const id = String(made.body.data!.id);
     expect((await t.api.calculate(id)).statusCode).toBe(200);
     expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 203, earlierLevied: 0 });
-    // The regular run seen as not final (its status alone moved): nothing of it is caught up.
-    await t.pool.query(`ALTER TABLE payroll_run_headers DISABLE TRIGGER USER`);
+    // A run of the month paid earlier (the 20th) but not final (calculated): nothing of it is caught up.
+    const seeded = String((await t.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date,
+        run_kind, off_cycle_reason, period_start, period_end, employee_count)
+      VALUES ($1, 11, 2026, 'calculated', '2026-11-20', 'off_cycle', 'bonus', '2026-11-01', '2026-11-30', 1) RETURNING id`, [t.company])).rows[0].id);
     try {
-      await t.pool.query(`UPDATE payroll_run_headers SET status = 'calculated' WHERE id = $1`, [regular[t.company]]);
-      expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 0, earlierLevied: 0 });
-      await t.pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [regular[t.company]]);
+      await t.pool.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay, sdl, sdl_leviable, sdl_exempt)
+        VALUES ($1, $2, 10000, 10000, 0, 10000, 0, 10000, true)`, [seeded, mid[t.company]]);
+      expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 203, earlierLevied: 0 });
     } finally {
-      await t.pool.query(`ALTER TABLE payroll_run_headers ENABLE TRIGGER USER`);
+      await t.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [seeded]);
+      await t.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [seeded]);
     }
   });
 });

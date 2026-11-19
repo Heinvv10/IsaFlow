@@ -42,10 +42,21 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  // tax_return_versions is append-only for the app; the fixture row goes with its triggers off.
-  await a.pool.query('ALTER TABLE tax_return_versions DISABLE TRIGGER USER');
-  await a.pool.query('DELETE FROM tax_return_versions WHERE company_id = $1', [a.company]);
-  await a.pool.query('ALTER TABLE tax_return_versions ENABLE TRIGGER USER');
+  // tax_return_versions refuses every DELETE (969): its immutability trigger off, DELETE, back ON ALWAYS, in ONE
+  // transaction on one client (as k053-chain.helpers does), so no other session ever sees it off.
+  const c = await a.pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable');
+    await c.query('DELETE FROM tax_return_versions WHERE company_id = $1', [a.company]);
+    await c.query('ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable');
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK');
+    throw err;
+  } finally {
+    c.release();
+  }
   await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]).catch(() => undefined);
   await a.pool.query('DELETE FROM audit_log WHERE company_id = $1', [a.company]).catch(() => undefined);
   await a.teardown();
