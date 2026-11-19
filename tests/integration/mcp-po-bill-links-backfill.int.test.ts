@@ -160,8 +160,9 @@ describe('the backfill\'s plan does not grow with bills x POs', () => {
     // The LIVE function's own SELECT (its body from pg_proc, between FOR r IN and LOOP) with the company filled in, EXPLAIN ANALYZEd: a later
     // migration that replaces the function is tested, not 1006's file text. Which plan the planner picks depends on statistics (other suites'
     // rows, this company's), so one EXPLAIN proves only the plan of the day: the round-4 query (bill lines joined to purchase_orders on company
-    // and supplier as well as by id) passed most runs and on others joined every bill line to every PO of the supplier (180 008 rows). Forcing nested loops (what a one-row estimate leads to) and forbidding them covers the
-    // plans an estimate can tip the planner into; a query whose every join is on a key has no bills x POs plan under any of them.
+    // and supplier as well as by id) passed most runs and on others joined every bill line to every PO of the supplier (180 008 rows).
+    // Forcing nested loops (what a one-row estimate leads to) and forbidding them covers the plans an estimate can tip the planner into; a
+    // query whose every join is on a key has no bills x POs plan under any of them.
     const fn = String((await pool.query(`SELECT prosrc FROM pg_proc WHERE oid = 'public.purchase_order_bill_links_backfill(uuid)'::regprocedure`)).rows[0].prosrc);
     const query = fn.slice(fn.indexOf('FOR r IN') + 'FOR r IN'.length, fn.indexOf('  LOOP')).replace(/p_company/g, `'${s.co}'::UUID`);
     const modes: Record<string, string[]> = {
@@ -169,38 +170,43 @@ describe('the backfill\'s plan does not grow with bills x POs', () => {
       'nested loops only': ['SET LOCAL enable_hashjoin = off', 'SET LOCAL enable_mergejoin = off'],
       'no nested loops': ['SET LOCAL enable_nestloop = off'],
     };
-    const worst: Record<string, string> = {};
-    const worstRows: Record<string, number> = {};
-    let tableRows = 0;
+    // Two shapes carry bills x POs, and neither depends on how many rows OTHER suites keep in these tables (a single pass over a whole table
+    // is linear and is not judged): a join whose output is more than 4 x its larger input (the round-4 merge join: 3 903 bill lines in,
+    // 982 167 out), and a node run once per row of another (a nested loop's inner side, a SubPlan) that handles more than 4 x (bills + POs)
+    // rows in all (the round-4 Materialize: 900 rows x 600 loops). Sort / Materialize / Hash / Memoize pass their input through: a merge join's
+    // inner Sort counts every re-read, so a join's input is measured below them.
+    const passThrough = new Set(['Sort', 'Incremental Sort', 'Materialize', 'Hash', 'Memoize']);
+    const joins = new Set(['Nested Loop', 'Hash Join', 'Merge Join']);
+    type PlanNode = { 'Node Type': string; 'Actual Rows': number; 'Actual Loops': number; 'Relation Name'?: string; 'CTE Name'?: string; Plans?: PlanNode[] };
+    const total = (n: PlanNode) => n['Actual Rows'] * n['Actual Loops'];
+    const input = (n: PlanNode): number => (passThrough.has(n['Node Type']) && n.Plans?.length ? input(n.Plans[0]!) : total(n));
+    const name = (n: PlanNode) => `${n['Node Type']}${n['Relation Name'] ?? n['CTE Name'] ? ` ${n['Relation Name'] ?? n['CTE Name']}` : ''}`;
+    const rescanCap = 4 * (BILLS + POS);
+    const faults: string[] = [];
+    let judgedJoins = 0;
     const c = await pool.connect();
     try {
-      // One snapshot for every EXPLAIN and for the table counts: the bound below is the size of exactly the tables those plans read.
       await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
       for (const [mode, sets] of Object.entries(modes)) {
         await c.query('SAVEPOINT mode');
         for (const set of sets) await c.query(set);
-        const plan = (await c.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN'][0].Plan as Record<string, unknown>;
+        const plan = (await c.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN'][0].Plan as PlanNode;
         await c.query('ROLLBACK TO SAVEPOINT mode');
-        worstRows[mode] = 0;
-        const walk = (n: Record<string, unknown>) => {
-          const rows = Number(n['Actual Rows']) * Number(n['Actual Loops']);
-          if (rows > worstRows[mode]!) {
-            worstRows[mode] = rows;
-            worst[mode] = `${String(n['Node Type'])} ${String(n['Relation Name'] ?? n['CTE Name'] ?? '')}: ${String(n['Actual Rows'])} rows x ${String(n['Actual Loops'])} loops`;
+        const walk = (n: PlanNode) => {
+          if (joins.has(n['Node Type'])) {
+            judgedJoins += 1;
+            const widest = Math.max(1, ...(n.Plans ?? []).map(input));
+            if (total(n) > 4 * widest) faults.push(`${mode}: ${name(n)} put out ${total(n)} rows from inputs of at most ${widest}`);
           }
-          for (const child of (n.Plans as Array<Record<string, unknown>> | undefined) ?? []) walk(child);
+          if (n['Actual Loops'] > 1 && total(n) > rescanCap) {
+            faults.push(`${mode}: ${name(n)} ran ${n['Actual Loops']} times, ${total(n)} rows in all (over ${rescanCap})`);
+          }
+          for (const child of n.Plans ?? []) walk(child);
         };
         walk(plan);
       }
-      tableRows = Number((await c.query(`SELECT (SELECT count(*) FROM supplier_invoices) + (SELECT count(*) FROM supplier_invoice_items)
-                                                + (SELECT count(*) FROM purchase_orders) + (SELECT count(*) FROM po_items) AS n`)).rows[0].n);
     } finally { await c.query('ROLLBACK'); c.release(); }
-    // A key-driven plan touches each candidate row a few times, and at worst scans a whole table it reads (other suites' rows included); the
-    // bills x POs shape is BILLS x POS = 180 000 rows. The bound must stay far below that or the test proves nothing.
-    const bound = 4 * (BILLS + POS) + tableRows;
-    expect(bound, 'the tables grew so large that the bound no longer separates linear from bills x POs').toBeLessThan((BILLS * POS) / 4);
-    for (const mode of Object.keys(modes)) {
-      expect(worstRows[mode], `${mode}: the widest plan node (${worst[mode]}) is over ${bound} rows`).toBeLessThanOrEqual(bound);
-    }
+    expect(judgedJoins, 'the plans have joins to judge').toBeGreaterThan(0);
+    expect(faults).toEqual([]);
   }, 120_000);
 });
