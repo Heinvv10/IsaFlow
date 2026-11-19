@@ -2,8 +2,10 @@
  * A server-side bound for the statements of the bank-row sync and its reversal
  * (dimensionBankSync.ts, dimensionTagApply.ts): a bad plan or a lock wait can
  * never hang a request. Split out of dimensionBankSync.ts for the 300-line cap.
+ * `withJitOff` is the JIT half alone, for the Banking list (getBankTransactions).
  */
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { BankDimensionSyncRefusal } from './dimensionBankSyncTypes';
 
@@ -51,6 +53,36 @@ export async function withBoundedStatements<T>(
       const detail = { err: restoreErr instanceof Error ? restoreErr.message : String(restoreErr) };
       if ((restoreErr as { code?: unknown }).code === TX_ABORTED) log.debug('Statement bound not restored: transaction already aborted', detail, 'accounting');
       else log.warn('Bank sync could not restore statement_timeout after an error', detail, 'accounting');
+    }
+  }
+}
+
+/**
+ * Run `fn` with JIT off, transaction-locally, and put the previous value back afterwards on every path. Nothing else
+ * changes: statement_timeout is left alone and errors pass through untouched. For a read whose plan cost estimate
+ * crosses the JIT thresholds although it executes in milliseconds (the Banking list: ~20 s of compile on a ~300 ms
+ * query). A LOCAL setting lives only in a transaction, and `sql` runs in one only on the request's ALS client
+ * (withAuth / bearer); without it every statement autocommits on its own pool connection, so there is nothing to set
+ * and `fn` runs as is. Restore failures are handled as in withBoundedStatements.
+ */
+export async function withJitOff<T>(fn: () => Promise<T>): Promise<T> {
+  if (!als.getStore()?.client) return fn();
+  const [prev] = (await sql`SELECT current_setting('jit') AS jit`) as { jit: string }[];
+  await sql`SELECT set_config('jit', 'off', true)`;
+  let failed = false;
+  try {
+    return await fn();
+  } catch (err) {
+    failed = true;
+    throw err;
+  } finally {
+    try {
+      await sql`SELECT set_config('jit', ${prev?.jit ?? 'on'}, true)`;
+    } catch (restoreErr) {
+      if (!failed) throw restoreErr;
+      const detail = { err: restoreErr instanceof Error ? restoreErr.message : String(restoreErr) };
+      if ((restoreErr as { code?: unknown }).code === TX_ABORTED) log.debug('jit not restored: transaction already aborted', detail, 'accounting');
+      else log.warn('Could not restore jit after an error', detail, 'accounting');
     }
   }
 }
