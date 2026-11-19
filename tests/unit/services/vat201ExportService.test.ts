@@ -29,6 +29,7 @@ vi.mock('@/modules/accounting/services/reports/vatExceptionsService', () => ({
 }));
 
 import { exportVat201 } from '@/modules/accounting/services/reports/vat201ExportService';
+import { csvVal } from '@/lib/csv';
 import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED } from './reports/helpers/vat201MixedJournal';
 
 const REPORT = {
@@ -95,5 +96,36 @@ describe('exportVat201 — filingRateCheck, the verdict the lock and finalise ga
     m.getVat201Report.mockResolvedValue({ ...REPORT, ...MIXED_REPORT });
     const out = await exportVat201('company-1', '2026-07-01', '2026-08-31');
     expect(out.filingRateCheck).toMatchObject({ ties: false, outputVariance: -75, taxedOutputBase: 1500, nilRatedGivenBack: 0 });
+  });
+});
+
+describe('exportVat201 — the csv: per-box diagnostic rows, then the verdict the gates judge as its own row', () => {
+  const row = (cells: Array<string | number>) => cells.map(csvVal).join(',');
+
+  it('header, box rows and TOTALS as before; a FILING_CHECK row after TOTALS; EXCLUDED rows last', async () => {
+    const excluded = { id: 'a9', reason: 'unmapped_vat_treatment', detail: 'SYS-9 VAT Payable', amount: 12, documentNumber: 'SYS-9', lineCount: 1 };
+    m.getVat201Report.mockResolvedValue({ ...REPORT, ...MIXED_REPORT, excludedRows: [excluded] });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    const lines = (await exportVat201('company-1', '2026-07-01', '2026-08-31', 'csv')).csv!.split('\n');
+    expect(lines).toEqual([
+      row(['box', 'label', 'direction', 'vat_type', 'base', 'tax', 'implied_tax_at_15pct', 'variance']),
+      row(['1', 'Standard rated supplies', 'output', 'standard', 1500, 150, 225, -75]),
+      row(['TOTALS', 'Output tax (box 4) / Input tax (box 19) / Net (box 20)', '', '', 1500, 150, 0, 150]),
+      row(['FILING_CHECK', '15% check the lock and finalise gates judge, on the ledger as read now: ties; 500.00 of '
+        + 'zero-rated or exempt supplies on taxed journals given back; input tax over-claimed by 0.00',
+      'output', '', 1000, 150, 150, 0]),
+      row(['EXCLUDED', 'SYS-9 VAT Payable', '', 'unmapped_vat_treatment', '', 12, '', '']),
+    ]);
+  });
+
+  it('says FAILS on that row when the verdict fails', async () => {
+    m.getVat201Report.mockResolvedValue({ ...REPORT, ...MIXED_REPORT });
+    const csv = (await exportVat201('company-1', '2026-07-01', '2026-08-31', 'csv')).csv!;
+    expect(csv).toContain('on the ledger as read now: FAILS; 0.00 of zero-rated');
+  });
+
+  it('a failed nil-rated read fails the export whole', async () => {
+    m.getNilRatedSupplies.mockRejectedValue(new Error('nil read failed'));
+    await expect(exportVat201('company-1', '2026-07-01', '2026-08-31', 'csv')).rejects.toThrow('nil read failed');
   });
 });

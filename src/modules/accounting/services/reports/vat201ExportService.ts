@@ -37,8 +37,9 @@ export interface Vat201Export {
   /** The report's per-box 15% tie-out: a diagnostic, measured before the nil-rated give-back. */
   rateCheck: Vat201Report['rateCheck'];
   /**
-   * The 15% verdict the lock and finalise gates judge (vat201RateCheck.rateCheckForFiling): output tax against the
-   * taxed output base after zero-rated/exempt supplies on taxed journals are given back. Decide on this one.
+   * The 15% verdict by the function the lock and finalise gates judge with (vat201RateCheck.rateCheckForFiling):
+   * output tax against the taxed output base after zero-rated/exempt supplies on taxed journals are given back. On
+   * the ledger as read now, locked period or not, with no lock taken; the gates recompute it under the VAT lock.
    */
   filingRateCheck: FilingRateCheck;
   /** The lock, when the period has been filed. */
@@ -84,7 +85,7 @@ function taxOutside(report: Vat201Report, direction: 'output' | 'input', named: 
   return r2(report.boxes.filter((b) => b.direction === direction && !named.includes(b.box)).reduce((s, b) => s + b.tax, 0));
 }
 
-function toCsv(report: Vat201Report): string {
+function toCsv(report: Vat201Report, filing: FilingRateCheck): string {
   const header = ['box', 'label', 'direction', 'vat_type', 'base', 'tax', 'implied_tax_at_15pct', 'variance'];
   const lines = [header.map(csvVal).join(',')];
   for (const b of report.boxes) {
@@ -92,6 +93,16 @@ function toCsv(report: Vat201Report): string {
   }
   lines.push([ 'TOTALS', 'Output tax (box 4) / Input tax (box 19) / Net (box 20)', '', '',
     report.totals.standardRatedSupplies, report.totals.outputTax, report.totals.inputTax, report.totals.netVat,
+  ].map(csvVal).join(','));
+  // The rows above are the per-box diagnostic. A reader of the csv alone must see the verdict the gates judge too:
+  // one labelled row like TOTALS, the taxed output base in `base`, 15% of it in `implied_tax_at_15pct`.
+  lines.push([
+    'FILING_CHECK',
+    `15% check the lock and finalise gates judge, on the ledger as read now: ${filing.ties ? 'ties' : 'FAILS'}; `
+      + `${filing.nilRatedGivenBack.toFixed(2)} of zero-rated or exempt supplies on taxed journals given back; `
+      + `input tax over-claimed by ${filing.inputVariance.toFixed(2)}`,
+    'output', '', filing.taxedOutputBase, report.totals.outputTax,
+    r2(report.totals.outputTax - filing.outputVariance), filing.outputVariance,
   ].map(csvVal).join(','));
   // Unplaced VAT is part of the export, not a footnote. A reader taking the
   // CSV to a filing needs to see what the boxes could not account for.
@@ -115,6 +126,8 @@ export async function exportVat201(
     getNilRatedSupplies(companyId, periodStart, periodEnd),
   ]);
   const blockingExceptions = vatGateExceptionCounts(exceptionsReport);
+  // A failed nil-rated read fails the export whole, as any of the reads above does (never a missing verdict).
+  const filing = rateCheckForFiling(report, nilRated);
 
   const driftSinceLock = lock && (
     r2(lock.outputTax) !== report.totals.outputTax
@@ -132,7 +145,7 @@ export async function exportVat201(
     periodEnd,
     format,
     rateCheck: report.rateCheck,
-    filingRateCheck: rateCheckForFiling(report, nilRated),
+    filingRateCheck: filing,
     lock,
     driftSinceLock,
     postedThrough: report.postedThrough,
@@ -141,7 +154,7 @@ export async function exportVat201(
     billTaxCodeWarningPotentialVat: exceptionsReport.billTaxCodeWarningPotentialVat,
   };
 
-  if (format === 'csv') return { ...base, csv: toCsv(report) };
+  if (format === 'csv') return { ...base, csv: toCsv(report, filing) };
 
   return {
     ...base,

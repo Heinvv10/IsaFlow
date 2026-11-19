@@ -10,9 +10,9 @@
  *          from computeVatLockFigures). Refuses a period failing SARS's 15%
  *          check on the taxed output base (rateCheckForFiling, after the
  *          nil-rated give-back) unless force:true (unrelated to overrideReason
- *          — see below). The response's `rateCheck` is that verdict
- *          (rateCheckPayload); for a period already locked nothing is judged
- *          and it is the report's, as before.
+ *          — see below). The response's `filingRateCheck` is that verdict
+ *          (null for a period already locked: nothing judged, nothing read);
+ *          `rateCheck` is the report's per-box diagnostic, unmodified.
  *          Idempotent on the period.
  *          Separately, refuses when getVatExceptions reports blocking
  *          exceptions, UNLESS the caller is owner/admin and supplies a
@@ -42,7 +42,7 @@ import { VatPeriodAmendRequired } from '@/modules/accounting/services/returns/li
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
 import {
-  rateCheckFailure, rateCheckForFiling, rateCheckPayload,
+  rateCheckFailure, rateCheckForFiling,
 } from '@/modules/accounting/services/reports/vat201RateCheck';
 import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
@@ -119,7 +119,7 @@ async function lockChecked(
   });
   log.info('VAT period lock via API', { companyId, lockId: result.lock.id, created: result.created }, 'accounting-api');
   return apiResponse.success(res, {
-    lock: result.lock, created: result.created, rateCheck: filing ? rateCheckPayload(report, filing) : report.rateCheck,
+    lock: result.lock, created: result.created, rateCheck: report.rateCheck, filingRateCheck: filing,
     exceptionsOverridden: gate.overridden,
   });
 }

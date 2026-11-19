@@ -37,7 +37,7 @@ export const vatStatusTool: McpTool = {
   description:
     'The VAT201 for a period, computed live from posted journals. Give the VAT period start and end dates (YYYY-MM-DD; South African VAT periods are normally two calendar months). '
     + 'Returns the SARS boxes, each with BOTH the value of the supply (base) and the tax posted against it, plus totals: box 4 output tax, box 19 input tax, box 20 net VAT payable (positive) or refundable (negative). '
-    + 'filingRateCheck is SARS\'s own 15% test on the figures the return files, the same verdict lock_vat_period and finalise refuse on: output tax against the taxed output base (taxedOutputBase: every taxed output box, after nilRatedGivenBack of zero-rated or exempt supplies on journals that also carry output VAT is given back to fields 2 and 3; uncodedGivenBack is the revenue with no VAT code on documents that recorded no VAT inside that give-back, which coded credit notes can net below it). Decide whether to lock or file on filingRateCheck.ties; when it is false the return will be queried — read the variances, then the per-box rateCheck and detail="full" for the journals behind them. '
+    + 'filingRateCheck is SARS\'s own 15% test on the figures the return files: output tax against taxedOutputBase (every taxed output box, after nilRatedGivenBack of zero-rated or exempt supplies on journals that also carry output VAT is given back to fields 2 and 3; uncodedGivenBack is the revenue with no VAT code on documents that recorded no VAT inside that give-back, which coded credit notes can net below it). It is computed by the same function lock_vat_period and finalise refuse on, on the ledger as read at call time, whether or not the period is locked. This tool takes no lock and reads the boxes and the nil-rated supplies as two statements, so a posting committed between them, or before you lock, can change the verdict; lock_vat_period and finalise recompute it under the VAT lock. Decide whether to lock or file on filingRateCheck.ties; when it is false the return will be queried — read the variances, then the per-box rateCheck and detail="full" for the journals behind them. Both are returned on every page. '
     + 'rateCheck is the per-box diagnostic: impliedTax is each box\'s base x 15% and variance is tax minus that, measured BEFORE the give-back, so it can read ties=false for a correct period with zero-rated or exempt lines on taxed journals. '
     + 'inputVariance (in both) is NOT the box total: it is the input tax OVER-claimed, summed journal by journal (an under-claim on one bill cannot hide an over-claim on another), so it can be non-zero while every input box variance reads 0. '
     + 'The check proves output VAT is 15% of the base CODED taxable; it cannot prove the coding, so a taxable line coded exempt ties: check nilRatedGivenBack. '
@@ -67,6 +67,12 @@ export const vatStatusTool: McpTool = {
     if (start > end) return toolError('period_start must not be after period_end');
 
     const detail = detailArg(args);
+    // rateCheck is built from the whole period on every page, so filingRateCheck is too: one more statement per
+    // call (vat201NilRatedSupplies: the period's revenue lines, bounded by entry_date, against taxed_entries,
+    // cancelled_entries and untaxed_documents, which scan the company's VAT output lines and customer documents
+    // unbounded by date). Accepted: it matches the cost model of the boxes, rebuilt on every page already.
+    // No lock: under the request's READ COMMITTED transaction the two reads are separate snapshots (see the
+    // description); a failure of either fails the call whole, never a missing verdict.
     const [report, nilRated] = await Promise.all([
       getVat201Report(ctx.companyId, start, end, {
         detail,
