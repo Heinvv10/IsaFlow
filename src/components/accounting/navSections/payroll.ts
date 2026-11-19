@@ -27,6 +27,7 @@ export const payrollTab: Tab = {
       section: 'Current Period',
       items: [
         { label: 'Payroll Runs',        href: '/payroll/runs' },
+        { label: 'Off-cycle Run',       href: '/payroll/runs/off-cycle' },
         { label: 'Batch Transactions',  href: '/payroll/batches' },
         { label: 'Employee Loans',      href: '/payroll/loans' },
         { label: 'Leave Capture',       href: '/payroll/leave/new' },
