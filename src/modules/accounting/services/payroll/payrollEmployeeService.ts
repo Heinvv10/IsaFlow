@@ -68,18 +68,22 @@ export async function listPayrollEmployees(
  */
 export async function listPayrollRunEmployees(
   companyId: string,
-  period: { year: number; month: number },
+  period: { year: number; month: number; start?: string; end?: string },
   payFrequency: PayFrequency | UnsupportedValue = 'monthly',
 ): Promise<PayrollEmployee[]> {
+  // The run's own dates when it has them (a weekly or fortnightly run, wave 6 FQc), else the calendar month.
   const rows = (await sql`
-    WITH p AS (SELECT make_date(${period.year}::int, ${period.month}::int, 1) AS start)
+    WITH p AS (
+      SELECT COALESCE(${period.start ?? null}::date, make_date(${period.year}::int, ${period.month}::int, 1)) AS start,
+             COALESCE(${period.end ?? null}::date + 1, make_date(${period.year}::int, ${period.month}::int, 1) + INTERVAL '1 month')::date AS stop
+    )
     SELECT e.* FROM payroll_employees e, p
     WHERE e.company_id = ${companyId}::uuid
       AND e.pay_frequency = ${payFrequency}
-      AND e.start_date < p.start + INTERVAL '1 month'
+      AND e.start_date < p.stop
       AND (
-        (e.end_date >= p.start AND e.end_date < p.start + INTERVAL '1 month')
-        OR (e.end_date >= p.start + INTERVAL '1 month' AND e.status IN ('active', 'terminated'))
+        (e.end_date >= p.start AND e.end_date < p.stop)
+        OR (e.end_date >= p.stop AND e.status IN ('active', 'terminated'))
         OR (e.end_date IS NULL AND e.status = 'active')
       )
     ORDER BY e.last_name, e.first_name

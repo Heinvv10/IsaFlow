@@ -17,12 +17,14 @@ export interface LineExplainParts {
   taxYear: number;
   periodDate: Date;
   paye: Omit<PayeExplainInput, 'taxYear'>;
-  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null };
+  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null; monthToDate?: number };
   sdl: {
     outsideReason: string | null; sdlApplicable: number; parts: EarningPart[]; deduction: number; retirementDeduction: number; donationDeduction: number;
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';
   };
   eti: { eti: EtiResult; hasPayeShare: boolean; hoursAssumed: boolean };
+  /** A weekly or fortnightly line's period share (FQc); absent on a monthly line. */
+  periodShare?: number;
 }
 
 export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
@@ -35,5 +37,6 @@ export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
     uif: explainUif({ taxYear, ...parts.uif }),
     sdl: explainSdl({ taxYear, ...parts.sdl }),
     eti: explainEti({ taxYear, periodDate: parts.periodDate, ...parts.eti }),
+    ...(parts.periodShare === undefined ? {} : { periodShare: parts.periodShare }),
   };
 }
