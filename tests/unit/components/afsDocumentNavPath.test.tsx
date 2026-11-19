@@ -1,6 +1,7 @@
 /**
- * The AFS document page tells the layout which secondary-nav section it belongs to: a management pack (same URL as an
- * AFS document) passes navPath with ?type=management_pack; an AFS document passes none, so the router's path stands.
+ * The AFS document page tells the layout which nav item it belongs to: a management pack (same URL as an AFS
+ * document) passes navPath with ?type=management_pack; an AFS document passes its own path. The layout's menus mark
+ * Pack Documents from that navPath: afsPackNavHighlight.test.tsx.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
