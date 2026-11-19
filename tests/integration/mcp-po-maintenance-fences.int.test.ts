@@ -9,12 +9,20 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
-import { auditOf, callTool, dropMaintExtras, glCount, poLines, poRow, seedQtyPo, type Json } from './helpers/poMaintHarness';
+import { auditOf, callTool, dropMaintExtras, glCount, poLines, poRow, seedGrn, seedQtyPo, type Json } from './helpers/poMaintHarness';
+import { seedBill } from './helpers/poBillLinkHarness';
+import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
 import { updatePurchaseOrderTool as update } from '@/lib/mcp/tools/writeUpdatePurchaseOrder';
 import { cancelPurchaseOrderTool as cancel } from '@/lib/mcp/tools/writeCancelPurchaseOrder';
 import { closePurchaseOrderTool as close } from '@/lib/mcp/tools/writeClosePurchaseOrder';
 import { setPurchaseOrderStatusTool as setStatus } from '@/lib/mcp/tools/writeSetPurchaseOrderStatus';
 import type { McpTool } from '@/lib/mcp/types';
+import { als } from '@/lib/als';
+import { resolvePoId } from '@/lib/mcp/tools/purchaseOrderMaintenanceArgs';
+import { updatePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderUpdate';
+import { cancelPurchaseOrder, closePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderMaintenance';
+import { setImportedPurchaseOrderStatus } from '@/modules/accounting/services/ap/purchaseOrderSetStatus';
+import { lockPoForMaintenance, poHasBillLinks, poHasReceipts } from '@/modules/accounting/services/ap/purchaseOrderMaintenanceGuards';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -56,6 +64,47 @@ describe('another company\'s PO', () => {
     for (const [, tool, args] of TOOLS) {
       expect(await callTool(pool, f, tool, args({ po_id: crypto.randomUUID() }))).toMatchObject({ isError: true, text: 'Not found' });
     }
+  });
+});
+
+/**
+ * Row security already hides another company's PO from app_user, so the tests above cannot tell whether the queries are scoped
+ * themselves. Here the SERVICES run as the superuser (row security bypassed) asking company f for company `other`'s PO: only the
+ * company_id in each query can answer "not found".
+ */
+describe('the queries are company-scoped on their own (row security bypassed)', () => {
+  async function asSuperuser<T>(fn: () => Promise<T>): Promise<T> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      return await als.run({ client, companyId: f.co, userId: f.owner, claims: { sub: f.owner } } as never, fn);
+    } finally { await client.query('ROLLBACK'); client.release(); }
+  }
+
+  it('resolve, lock, update, cancel, close, set status and the receipt / link guards never see the other company\'s PO', async () => {
+    // Their PO has a receipt and a bill linked: asked as company f, the guards must still answer "none" (their rows are not f's).
+    const theirs = await seedQtyPo(pool, other, { external: true, lines: [{ qty: 4, price: 25, received: 1 }] });
+    await seedGrn(pool, other, theirs);
+    const bill = await seedBill(pool, other, { lines: [100] });
+    expect((await callTool(pool, other, link, { links: [{ po_id: theirs.po, bill_id: bill.id }] })).isError).toBe(false);
+    const auditBefore = await auditOf(pool, other, theirs.po);
+    const miss = { name: 'PurchaseOrderNotFoundError' };
+    await asSuperuser(async () => {
+      expect(await resolvePoId(f.co, { poId: theirs.po, poNumber: null })).toBeNull();
+      expect(await resolvePoId(f.co, { poId: null, poNumber: theirs.number })).toBeNull();
+      expect(await lockPoForMaintenance(f.co, theirs.po)).toBeNull();
+      expect(await poHasReceipts(f.co, theirs.po)).toBe(false);
+      expect(await poHasBillLinks(f.co, theirs.po)).toBe(false);
+      expect(await poHasReceipts(other.co, theirs.po)).toBe(true);
+      expect(await poHasBillLinks(other.co, theirs.po)).toBe(true);
+      const o = { userId: f.owner, via: 'test', budgetFigures: false };
+      await expect(updatePurchaseOrder(f.co, { poId: theirs.po, header: { notes: 'x' }, replace: null }, o)).rejects.toMatchObject(miss);
+      await expect(cancelPurchaseOrder(f.co, theirs.po, 'x', o)).rejects.toMatchObject(miss);
+      await expect(closePurchaseOrder(f.co, theirs.po, 'x', o)).rejects.toMatchObject(miss);
+      await expect(setImportedPurchaseOrderStatus(f.co, theirs.po, 'closed', 'x', o)).rejects.toMatchObject(miss);
+    });
+    expect((await poRow(pool, theirs.po)).status).toBe('approved');
+    expect(await auditOf(pool, other, theirs.po)).toEqual(auditBefore);
   });
 });
 

@@ -122,6 +122,8 @@ describe('what refuses it', () => {
     const po = await seedQtyPo(pool, f, { external: true, lines: [{ qty: 1, price: 100 }] });
     const bill = await seedBill(pool, f, { lines: [100] });
     expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] })).isError).toBe(false);
+    // The link made the bill's header name the PO too: clear it, so the link row alone is what refuses.
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = NULL WHERE id = $1', [bill.id]);
     for (const target of ['draft', 'cancelled']) {
       const r = await set(po, target);
       expect(r.isError).toBe(true);

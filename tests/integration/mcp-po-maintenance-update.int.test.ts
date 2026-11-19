@@ -156,6 +156,8 @@ describe('what refuses an update', () => {
     const billA = await seedBill(pool, f, { lines: [100] });
     expect((await callTool(pool, f, link, { links: [{ po_id: a.po, bill_id: billA.id }] })).isError).toBe(false);
     expect(await linkRows(pool, f, `l.purchase_order_id = '${a.po}'`)).toHaveLength(1);
+    // The link made the bill's header name the PO too: clear it, so the link row alone is what refuses.
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = NULL WHERE id = $1', [billA.id]);
     const viaLink = await callTool(pool, f, update, { po_id: a.po, notes: 'x' });
     expect(viaLink.text).toContain('Bills are linked to this purchase order');
     expect(viaLink.text).toContain('unlink_bill_from_purchase_order');
