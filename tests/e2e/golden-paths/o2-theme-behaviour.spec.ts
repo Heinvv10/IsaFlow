@@ -264,10 +264,10 @@ test.describe('reports pin the header row and the first column to the page scrol
   }
 });
 
-test('the reports sub-navigation border spans the whole row at 1920', async ({ page }) => {
+test('the section bar border spans the whole row at 1920 (Inventory: Reports has no bar, its main-row menu holds it)', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await seedTheme(page, 'dark');
-  await page.goto('/accounting/reports/income-statement', { waitUntil: 'domcontentloaded' });
+  await page.goto('/accounting/items', { waitUntil: 'domcontentloaded' });
   await settle(page);
   await page.waitForSelector('div.relative.z-40 nav');
   const widths = await page.evaluate(() => {

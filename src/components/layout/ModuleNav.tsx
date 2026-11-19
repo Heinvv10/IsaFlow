@@ -34,7 +34,7 @@ export interface ModuleNavProps {
   accentColor: AccentColor;
   /** Mark the open menu's items as if the page were at this path (the router's own when absent): see AppLayout's navPath. */
   navPath?: string;
-  /** The landmark's name ("Main", "Sales sections"): two unnamed nav landmarks on one page cannot be told apart. */
+  /** The landmark's name ("Main", "Inventory sections"): two unnamed nav landmarks on one page cannot be told apart. */
   ariaLabel?: string;
 }
 
