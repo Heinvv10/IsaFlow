@@ -118,7 +118,7 @@ export default function Emp501Page() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <Scale className="h-6 w-6 text-teal-500" />
@@ -128,7 +128,7 @@ export default function Emp501Page() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Monthly PAYE variance — EMP201 vs IRP5</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <select
                 aria-label="Tax year"
                 value={taxYear}
@@ -136,15 +136,6 @@ export default function Emp501Page() {
                 className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
               >
                 {yearOptions.map(y => <option key={y} value={y}>{taxYearLabel(y)}</option>)}
-              </select>
-              <select
-                aria-label="Reconciliation period"
-                value={kind}
-                onChange={e => setKind(e.target.value as Emp501Kind)}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-              >
-                <option value="interim">Interim (Mar – Aug)</option>
-                <option value="annual">Annual (Mar – Feb)</option>
               </select>
               <button
                 onClick={handleExport}
@@ -159,16 +150,17 @@ export default function Emp501Page() {
         </div>
 
         <div className="p-6 space-y-6">
-          <Emp501ReturnSection taxYear={taxYear} />
+          {/* One selector (the section's "Reconciliation") drives the return and the table below (review #1622 L-K). */}
+          <Emp501ReturnSection taxYear={taxYear} kind={kind} onKindChange={setKind} />
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
           ) : blocked ? (
-            <div role="alert" className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
-              <AlertCircle className="h-5 w-5 shrink-0" /><span className="flex-1 min-w-0">{blocked}</span>
+            <div role="alert" className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
+              <div className="flex items-start gap-2 flex-1 min-w-0"><AlertCircle className="h-5 w-5 shrink-0" /><span>{blocked}</span></div>
               <button type="button" onClick={() => setKind('interim')}
-                className="px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
+                className="self-start sm:self-auto shrink-0 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
                 Show the interim
               </button>
             </div>

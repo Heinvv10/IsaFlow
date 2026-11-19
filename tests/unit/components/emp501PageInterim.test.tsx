@@ -8,7 +8,14 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/payroll/emp501/Emp501ReturnSection', () => ({ Emp501ReturnSection: () => null }));
+// The section's own "Reconciliation" selector, held by the page (its lifecycle bar is emp501ReturnSection.test's).
+vi.mock('@/components/payroll/emp501/Emp501ReturnSection', () => ({
+  Emp501ReturnSection: ({ kind, onKindChange }: { kind: string; onKindChange: (k: string) => void }) => (
+    <select aria-label="Reconciliation" value={kind} onChange={(e) => onKindChange(e.target.value)}>
+      <option value="interim">Interim</option><option value="annual">Annual</option>
+    </select>
+  ),
+}));
 
 import Emp501Page from '@/../pages/payroll/emp501/index';
 import { defaultEmp501Kind } from '@/components/payroll/emp501/emp501Kind';
@@ -45,13 +52,13 @@ describe('the EMP501 page', () => {
     render(<Emp501Page />);
     expect(await screen.findByText('M3 2026')).toBeTruthy();
     expect(urls()[0]).toContain('/api/payroll/emp501/reconciliation?taxYear=2027&period=interim');
-    expect((screen.getByLabelText('Reconciliation period') as HTMLSelectElement).value).toBe('interim');
+    expect((screen.getByLabelText('Reconciliation') as HTMLSelectElement).value).toBe('interim');
   });
 
   it('an annual blocked by weekly runs says so plainly, names the run, and leads to the interim', async () => {
     render(<Emp501Page />);
     await screen.findByText('M3 2026');
-    fireEvent.change(screen.getByLabelText('Reconciliation period'), { target: { value: 'annual' } });
+    fireEvent.change(screen.getByLabelText('Reconciliation'), { target: { value: 'annual' } });
     const banner = await screen.findByRole('alert');
     expect(banner.textContent).toContain('The annual EMP501 for 2026/2027 is blocked by weekly or fortnightly pay runs');
     expect(banner.textContent).toContain('the weekly run for 7–13 Sep 2026');
