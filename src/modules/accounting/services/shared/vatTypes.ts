@@ -21,6 +21,12 @@ const VAT_TYPE_INFO: Record<VatType, { label: string; rated: boolean }> = {
   no_vat: { label: 'No VAT', rated: false },
 };
 
+/** Every type, at run time (a column's CHECK is pinned against it). The Record above keeps it complete. */
+export const VAT_TYPES = Object.keys(VAT_TYPE_INFO) as VatType[];
+
+/** The types that charge the standard rate (a report's standard-rated base reads lines of these). */
+export const RATED_VAT_TYPES = VAT_TYPES.filter((t) => VAT_TYPE_INFO[t].rated);
+
 /**
  * The types a document line may be given today. Short on purpose: a type is added when the document's
  * posting codes its ledger lines with it, so the screen never offers a choice the VAT201 cannot report.
