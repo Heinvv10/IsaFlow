@@ -41,13 +41,14 @@ import {
 } from '@/modules/accounting/services/reports/glLineExportService';
 import {
   GL_EXPORT_EXTRA_SCOPE,
-  GL_EXPORT_TABLES,
+  GL_MCP_EXPORT_TABLES,
   GL_TABLE_CURSOR_KINDS,
   countExportDimensionTable,
   getExportDimensionTablePage,
   isGlDimensionTable,
-  isGlExportTable,
+  isGlMcpExportTable,
   missingExportScope,
+  mcpExportTableRefusal,
   type GlDimensionTable,
   type GlExportTable,
 } from '@/modules/accounting/services/reports/glLineExportTables';
@@ -56,7 +57,7 @@ import {
   buildComputedTable,
   isGlComputedTable,
   pageComputedTable,
-  type GlComputedTable,
+  type GlPagedComputedTable,
 } from '@/modules/accounting/services/reports/glExportComputedTables';
 import {
   GL_EXPORT_GROUP_BY,
@@ -95,7 +96,7 @@ const DESCRIPTION = [
   'summary is the §9 control block — rowCount = rows paging to exhaustion yields, controlTotal = Σ Amount_Excl_VAT over Posted rows (must be 0.00), unbalancedTxnCount (must be 0) — and comes with the FIRST page only (no cursor); later pages return summary null and carry rowsTotal from the first. detail "summary" returns only that. group_by=account|month|source|status (table lines only) adds groups (line_count, total_debit, total_credit, net per group over the same window; they sum to the summary; at most 200 groups, the rest summed in other) and implies detail "summary"; it takes no cursor. A 500-row page passes 90 KB: size the window with group_by first. Page with next_cursor, sending the same date_from, date_to and status (a cursor is refused with any other). Omit dates for full history. status "all" (default) includes Draft and Reversed journals, labelled; "posted" exports only what feeds the statements.',
   'table: "accounts" | "cost_centres" | "business_units" | "counterparties" returns that dimension master instead, paged the same way (limit, next_cursor; row_count on every page) — every code a line carries resolves to a row there. "counterparties" (names and VAT numbers) also needs the read:contacts scope.',
   'table "ap_open_items" / "ar_open_items": one row per open bill / customer invoice as at today (Doc_Type invoice) plus the unconsumed credit notes (credit_note) and on-account cash (unapplied_payment / unapplied_receipt) as NEGATIVE rows, with Days_Overdue, Age_Bucket (current|30|60|90|120+, the aging\'s own bucketing), Outstanding, Disputed, CC1/CC2/BU codes (MIXED when the lines differ) and Has_Document; the first page\'s summary carries controlTotal (Σ Outstanding + Σ Disputed, schema isaflow-open-items-1.1), agedTotal (the aged_creditors / aged_debtors net total, computed through that report\'s own functions) and difference (an internal consistency check on the same data, 0.00 — not a tie to the GL control account), plus grossTotal, unappliedTotal, disputedTotal (what Outstanding leaves out but is still owed, so it is already inside controlTotal and grossTotal: do not add it to them; Outstanding + Disputed = the document\'s balance; AR only) and the gross buckets. Credit and cash rows have blank Days_Overdue and Age_Bucket: only invoices are aged. table "bank_accounts" (also needs read:bank-tx): one row per bank / card account with Ledger_Balance (GL, as at today; blank for an account cash.balance does not hold, counted in summary.noLedgerBalanceCount), last statement date and closing balance (possibly on a reconciliation still in progress — later than the last reconciled date), last completed reconciliation, unreconciled and unallocated line counts, last transaction date, Is_Active. These three are as at today: date_from, date_to and status are refused; page with next_cursor, and a cursor is refused once the table has changed.',
-  'The same files download as CSV from /api/accounting/gl-lines-export, with a browser session or a Personal Access Token holding the same scopes.',
+  'The same files download as CSV from /api/accounting/gl-lines-export, with a browser session or a Personal Access Token holding the same scopes. The budget tables (budget_versions, budgets) are CSV only: here, use list_budget_versions and get_budget.',
 ].join(' ');
 
 /** A count carried in a cursor: digits only, so a forged one cannot reach a query. */
@@ -111,7 +112,7 @@ function tableDigest(rows: ReadonlyArray<Record<string, unknown>>, columns: read
 }
 
 async function computedPage(
-  table: GlComputedTable, args: Record<string, unknown>, ctx: McpToolContext,
+  table: GlPagedComputedTable, args: Record<string, unknown>, ctx: McpToolContext,
 ): Promise<McpToolResult> {
   if (['date_from', 'date_to', 'status'].some((k) => strArg(args, k) !== undefined)) {
     return toolError(`table "${table}" is as at today: date_from, date_to and status apply to table lines only`);
@@ -192,7 +193,7 @@ export const exportGlLinesTool: McpTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      table: { type: 'string', enum: [...GL_EXPORT_TABLES], description: 'Default lines.' },
+      table: { type: 'string', enum: [...GL_MCP_EXPORT_TABLES], description: 'Default lines.' },
       date_from: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD. Omit for full history.' },
       date_to: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
       status: { type: 'string', enum: ['all', 'posted'], description: 'Default all.' },
@@ -207,7 +208,7 @@ export const exportGlLinesTool: McpTool = {
     const guard = guardCastableArgs(args, { date: ['date_from', 'date_to'] });
     if (guard) return guard;
     const table = strArg(args, 'table') ?? 'lines';
-    if (!isGlExportTable(table)) return toolError(`table must be one of ${GL_EXPORT_TABLES.join(', ')}`);
+    if (!isGlMcpExportTable(table)) return toolError(mcpExportTableRefusal(table));
     // `detail` keeps its existing reading here (an unknown value is "standard"); only group_by is new.
     const wanted = parseSummaryRequest(args, GL_EXPORT_GROUP_BY, true);
     if (!wanted.ok) return wanted.error;
