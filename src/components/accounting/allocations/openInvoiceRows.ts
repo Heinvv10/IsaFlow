@@ -12,7 +12,7 @@ const toCents = (v: unknown): number | null => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 };
-const dateText = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : typeof v === 'string' ? v : '');
+const dateText = (v: unknown): string => (typeof v === 'string' ? v : ''); // JSON: dates arrive as strings
 
 function toRow(r: Raw, f: { number: string; date: string; total: string; paid: string; balance?: string }): OpenInvoiceRow | null {
   const total = toCents(r[f.total]);
