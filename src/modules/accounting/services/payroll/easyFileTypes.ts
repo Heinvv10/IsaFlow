@@ -2,6 +2,7 @@
  * The input types of the e@syFile IRP5 export (moved out of easyFileExportService.ts, unchanged, for the 300-line cap).
  * easyFileExportService re-exports them, so every importer is as before.
  */
+import type { PspCertificateInput } from './easyFilePspCertificate';
 import type { MedicalCertificateInput } from './easyFileMedicalFields';
 import type { RetirementContributions } from './easyFileRetirementFields';
 
@@ -80,4 +81,6 @@ export interface LumpSumInput {
 export interface BuildInput {
   employer: EmployerInput;
   employees: EmployeeInput[];
+  /** Wave 6 PSP-H: each PSP's own nature-of-person H certificate (easyFilePspCertificate), after the natural persons'. */
+  pspCertificates?: PspCertificateInput[];
 }

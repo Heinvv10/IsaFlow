@@ -47,6 +47,7 @@ import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { buildPspCertificateRecord } from './easyFilePspCertificate';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
 import { employerFundContributionFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
@@ -215,7 +216,8 @@ export function buildTrailerRecord(recordCount: number): string[] {
 }
 
 export function buildIrp5File(input: BuildInput): string {
-  if (input.employees.length === 0) {
+  const psp = input.pspCertificates ?? [];
+  if (input.employees.length + psp.length === 0) {
     throw new UsageError('Cannot build an IRP5 file with zero employees');
   }
   const lines: string[] = [];
@@ -223,7 +225,8 @@ export function buildIrp5File(input: BuildInput): string {
   for (const emp of input.employees) {
     lines.push(...buildEmployeeRecord(emp));
   }
-  const recordCount = 1 + input.employees.length; // 2010 + each 3010
+  for (const c of psp) lines.push(...buildPspCertificateRecord(c)); // wave 6 PSP-H: nature of person H
+  const recordCount = 1 + input.employees.length + psp.length; // 2010 + each 3010
   lines.push(...buildTrailerRecord(recordCount));
   // BRS §3 file is newline-delimited. Use CRLF — e@syFile Thin Client accepts
   // both but CRLF is what the reference importer samples produce.

@@ -35,6 +35,7 @@ import { loadRetirementContributions } from '@/modules/accounting/services/payro
 import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { loadPspCertificates, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -55,6 +56,8 @@ export interface EasyFileInput {
   unlinkedPaymentIds: string[];
   /** The payroll employee each certificate is for, by certificate number (wave 6 SS-c: the employee portal's IRP5). */
   certificateEmployees: Array<{ certificateNumber: string; employeeId: string }>;
+  /** Wave 6 PSP-H: each PSP's own H certificate, numbered after the natural persons'. */
+  pspCertificates: PspCertificateInput[];
 }
 
 /** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
@@ -145,7 +148,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   const employees: EmployeeInput[] = [];
   const certificateEmployees: EasyFileInput['certificateEmployees'] = [];
   // A PSP's months are on no natural-person certificate (loadCertificateAggregates and every reader leave them out): named (wave 6 PSP).
-  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).map((t) => pspFilingWarning(t, 'e@syFile file'));
+  // Only one on no certificate: a PSP with its particulars is on its own H certificate in this file (PSP-H).
+  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).filter((t) => !t.certifiedAs).map((t) => pspFilingWarning(t, 'e@syFile file'));
   const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {
@@ -243,7 +247,10 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     });
   }
 
-  if (employees.length === 0) {
+  // Wave 6 PSP-H: each PSP with its particulars gets its own H certificate, numbered after these; one without stays off, named.
+  // Never in certificateEmployees: an H certificate is the entity's, so the employee portal never shows it to the person.
+  const pspCertificates = await loadPspCertificates(companyId, bounds, payeRef, taxYear, period.mm, seq);
+  if (employees.length + pspCertificates.length === 0) {
     throw new EasyFileInputRefusal('bad_request', `No employees with payroll activity in the selected ${kind === 'interim' ? 'interim period' : 'tax year'}`);
   }
 
@@ -281,5 +288,6 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
 
   return {
     employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId), certificateEmployees,
+    pspCertificates,
   };
 }

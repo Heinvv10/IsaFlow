@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { buildIrp5File, UsageError, type EmployeeInput, type EmployerInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '@/modules/accounting/services/payroll/easyFileInput';
+import type { PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import type { Emp501Kind, Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
@@ -46,6 +47,8 @@ export interface Emp501Figures {
    * check (the certificates are), and never in emp501PublicFigures. Absent on a version finalised before SS-c.
    */
   certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }>;
+  /** Wave 6 PSP-H: each PSP's own H certificate, in the file after the natural persons'. Absent on a version finalised before. */
+  pspCertificates?: PspCertificateInput[];
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -65,14 +68,18 @@ export function canonical(v: unknown): string {
   return JSON.stringify(norm(v) ?? null);
 }
 
-export function emp501Totals(employees: Array<Pick<EmployeeInput, 'paye4102' | 'lumpSums' | 'uifEmployee' | 'uifEmployer' | 'sdl4142'>>): Emp501Totals {
+export function emp501Totals(
+  employees: Array<Pick<EmployeeInput, 'paye4102' | 'lumpSums' | 'uifEmployee' | 'uifEmployer' | 'sdl4142'>>,
+  psp: Array<Pick<PspCertificateInput, 'paye4102' | 'uif4141' | 'sdl4142'>> = [],
+): Emp501Totals {
   let paye = 0, uif = 0, sdl = 0;
   for (const e of employees) {
     paye += e.paye4102 + (e.lumpSums ?? []).reduce((t, l) => t + l.paye, 0);
     uif += e.uifEmployee + e.uifEmployer;
     sdl += e.sdl4142;
   }
-  return { certificates: employees.length, paye: cents(paye), uif: cents(uif), sdl: cents(sdl) };
+  for (const c of psp) { paye += c.paye4102; uif += c.uif4141; sdl += c.sdl4142; } // wave 6 PSP-H: the H certificates
+  return { certificates: employees.length + psp.length, paye: cents(paye), uif: cents(uif), sdl: cents(sdl) };
 }
 
 /** The final runs of the period; at finalise share-locked, so a reopen waits for its transaction. */
@@ -105,14 +112,16 @@ export async function buildEmp501Figures(companyId: string, p: Emp501Period, loc
     throw new ReturnRefusal(409, err.message, null, err.details ?? null);
   }
   try {
-    buildIrp5File({ employer: input.employer, employees: input.employees });
+    buildIrp5File({ employer: input.employer, employees: input.employees, pspCertificates: input.pspCertificates });
   } catch (err) {
     if (err instanceof UsageError) throw new ReturnRefusal(409, err.message);
     throw err;
   }
   return {
     taxYear: p.taxYear, kind: p.kind, employer: input.employer, employees: input.employees.map(storeEmployee), warnings: input.warnings,
-    totals: emp501Totals(input.employees), runs: await finalRuns(companyId, p, lock), certificateEmployees: input.certificateEmployees,
+    totals: emp501Totals(input.employees, input.pspCertificates), runs: await finalRuns(companyId, p, lock), certificateEmployees: input.certificateEmployees,
+    // Only when there are any: a version with none stores (and so compares) exactly as before PSP-H.
+    ...(input.pspCertificates.length > 0 ? { pspCertificates: input.pspCertificates } : {}),
   };
 }
 
@@ -132,7 +141,7 @@ export async function emp501Drift(companyId: string, p: Emp501Period, recorded: 
   const same = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
   const changed = [
     ...(same(recorded.employer, now.employer) ? [] : ['employer']),
-    ...(same(recorded.employees, now.employees) ? [] : ['certificates']),
+    ...(same(recorded.employees, now.employees) && same(recorded.pspCertificates ?? [], now.pspCertificates ?? []) ? [] : ['certificates']),
     ...(same(recorded.runs, now.runs) ? [] : ['runs']),
   ];
   return { drifted: fields.length + changed.length > 0, fields, changed, unfinalRuns: 0 };

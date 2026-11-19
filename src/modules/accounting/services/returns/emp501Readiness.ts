@@ -35,7 +35,7 @@ export interface Emp501Readiness {
   driftedEmp201Months: string[];
   /**
    * explained_psp (wave 6 PSP; coordinator ruling 2026-11-19): months whose filed EMP201 equals the certificates plus the
-   * month's PSP lines, which are on no certificate until PSP-H. Never blocks; also in `warnings`.
+   * month's PSP lines that are on no certificate (a PSP without its entity particulars; PSP-H). Never blocks; also in `warnings`.
    */
   emp201ExplainedByPsp: string[];
   /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501); an EMP201 filed without figures. */
@@ -119,7 +119,7 @@ export async function assertEmp501Ready(companyId: string, p: Emp501Period): Pro
  * The EMP501's totals (its certificates) must equal the sum of the period's filed EMP201s, in cents (review #1568 rounds
  * 2-3), always: PAYE on an EMP201 no certificate carries (a directive naming no employee, an employee with no
  * certificate) refuses. The one exception is a PSP's lines (wave 6 PSP; coordinator ruling 2026-11-19): declared on the
- * EMP201, on no certificate until PSP-H, so the certificates plus them must equal the EMP201s (explained_psp, a warning). A legacy row without usable totals counts as its months' certificates (filedPeriodTotals).
+ * EMP201, on no certificate when the PSP has no particulars (PSP-H), so the certificates plus them must equal the EMP201s (explained_psp, a warning). A legacy row without usable totals counts as its months' certificates (filedPeriodTotals).
  */
 export async function assertEmp501MatchesFiledEmp201s(companyId: string, p: Emp501Period, totals: MonthTotals): Promise<void> {
   const filings = await emp501Filings(companyId, p);

@@ -13,6 +13,7 @@ import returns from '../../pages/api/payroll/emp501/returns/index';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import file from '../../pages/api/accounting/sars/returns/[form]/file';
 import filingFile from '../../pages/api/accounting/sars/returns/[form]/filing-file';
+import { emp501FileOf } from '../../src/modules/accounting/services/returns/emp501FilingFile';
 
 type Row = Record<string, unknown>;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -33,12 +34,15 @@ async function company(tag: string): Promise<ReturnFixture> {
     physical_postal_code = '0001', physical_city = 'Pretoria' WHERE id = ${rf.fx.companyId}::UUID`;
   return rf;
 }
-async function employee(rf: ReturnFixture, last: string, psp = false): Promise<string> {
+/** `particulars` (wave 6 PSP-H): the entity's trading name, registration number and tax reference, so its H certificate is filed. */
+async function employee(rf: ReturnFixture, last: string, psp = false, particulars = false): Promise<string> {
+  const p = psp && particulars;
   return String(((await sql`
     INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number,
-      tax_status, psp_entity_type)
+      tax_status, psp_entity_type, psp_entity_name, psp_registration_number, psp_tax_reference)
     VALUES (${rf.fx.companyId}::UUID, ${last}, 'Test', ${last}, '2020-01-01', '1980-01-01', '8001015009087', '0123456789',
-      ${psp ? 'personal_service_provider' : 'employee'}, ${psp ? 'company' : null})
+      ${psp ? 'personal_service_provider' : 'employee'}, ${psp ? 'company' : null},
+      ${p ? 'Pspco Consulting (Pty) Ltd' : null}, ${p ? '2015/123456/07' : null}, ${p ? '9012345678' : null})
     RETURNING id`) as Row[])[0]!.id);
 }
 /** A final March run: Alice on the tables (UIF 354.24), the PSP at 27% of 40 000 (no UIF), SDL 1% each; header = lines. */
@@ -103,7 +107,7 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     await fileEmp201(rf, 3); // declares 14 800 PAYE: Alice's 4 000 + the PSP's 10 800
     const g = await readiness(rf);
     expect(g.emp201Mismatches).toEqual([]);
-    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP PAYE 10800.00 and SDL 400.00 (PSP-H pending)']);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP PAYE 10800.00 and SDL 400.00 (on no certificate: add the PSP\'s entity particulars)']);
     expect((g.warnings as string[]).some((w) => w.includes('explained by PSP'))).toBe(true);
     expect(g.ready).toBe(true);
     const r = await finaliseEmp501(rf);
@@ -128,7 +132,7 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true), 0, 400);
     await fileEmp201(rf, 3);
     const g = await readiness(rf);
-    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP SDL 400.00 (PSP-H pending)']);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025: explained by PSP SDL 400.00 (on no certificate: add the PSP\'s entity particulars)']);
     expect((await finaliseEmp501(rf)).status).toBe(200);
   });
 
@@ -137,8 +141,30 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true));
     await legacyMarch(rf, 14_800, 700, 'L-B');
     const g = await readiness(rf);
-    expect(g.emp201ExplainedByPsp).toEqual(['March 2025 (reference L-B): explained by PSP PAYE 10800.00 and SDL 400.00 (PSP-H pending)']);
+    expect(g.emp201ExplainedByPsp).toEqual(['March 2025 (reference L-B): explained by PSP PAYE 10800.00 and SDL 400.00 (on no certificate: add the PSP\'s entity particulars)']);
     expect((await finaliseEmp501(rf)).status).toBe(200);
+  });
+
+  it('PSP-H: with its particulars the PSP is on its own H certificate: no explained_psp, totals include it, the file carries it', async () => {
+    const rf = await company('PSP-H');
+    await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true, true));
+    await fileEmp201(rf, 3); // 14 800 PAYE: now all of it on certificates
+    const g = await readiness(rf);
+    expect([g.emp201Mismatches, g.emp201ExplainedByPsp, g.ready]).toEqual([[], [], true]);
+    const r = await finaliseEmp501(rf);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const id = String(((r.body as { data: { version: Row } }).data.version).id);
+    const v = ((await sql`SELECT form_type, figures FROM tax_return_versions WHERE id = ${id}::UUID AND company_id = ${rf.fx.companyId}::UUID`) as Row[])[0]!;
+    const f = v.figures as { totals: Row; warnings: string[]; certificateEmployees: Row[] };
+    expect(f.totals).toMatchObject({ certificates: 2, paye: 14800, sdl: 700 });
+    expect(f.warnings.some((w) => w.includes('personal service provider'))).toBe(false); // the e@syFile file names only the uncertified
+    expect(f.certificateEmployees).toHaveLength(1); // the H certificate is the entity's: never in the employee portal's map
+    const lines = emp501FileOf({ formType: 'EMP501', figures: v.figures as Record<string, unknown> }).body.split('\r\n');
+    const h = lines.slice(lines.indexOf('3020,"H"') - 2, lines.indexOf('4142,400.00') + 1);
+    expect(h).toEqual(['3010,"712345678920260800000000000002"', '3015,"IRP5"', '3020,"H"', '3025,2026', '3030,"Pspco Consulting (Pty) Ltd"',
+      '3065,1', '3066,"2015/123456/07"', '3100,9012345678', '3170,20250301', '3180,20250331', '3200,12.0000', '3210,1.0000',
+      '3601,40000', '4102,10800.00', '4141,0.00', '4142,400.00']);
+    expect(lines).toContain('6010,3');
   });
 
   it('C (review L4): a legacy EMP201 that left the PSP out refuses, and the message says the figure is certificates plus PSP', async () => {
