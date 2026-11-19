@@ -16,6 +16,7 @@ vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: tru
 
 let a: Awaited<ReturnType<typeof rig>>;
 let mid = '';
+let other = '';
 let bonusComponent = '';
 
 async function asApp(text: string, params: unknown[] = []): Promise<unknown[]> {
@@ -40,6 +41,7 @@ beforeAll(async () => {
   a = await rig('w6-oc-forge');
   await a.setup();
   mid = (await a.employee(15_000)).employee;
+  other = (await a.employee(9_000)).employee;
   bonusComponent = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
     VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [a.company])).rows[0].id;
   const regular = await a.calculatedRun(11);
@@ -80,12 +82,13 @@ describe('the approval history is never removed or invented below the service', 
     await expect(reinsert('approved', null)).rejects.toThrow(/a new pay run starts without an approval history and is not final/);
 
     // Append-only (review #1679e): the history is never cleared or rewritten as app_user (the first step of the
-    // clear-then-delete bypass); adding a range to it, as a reopen does, is allowed.
+    // clear-then-delete bypass); nor added to outside a reopen (#1679f: only the UPDATE leaving approved grows it).
     await expect(asApp(`UPDATE payroll_run_headers SET approval_history = '{}'::tstzmultirange WHERE id = $1`, [id]))
       .rejects.toThrow(/approval history is only added to, never rewritten or cleared/);
     await expect(asApp(`UPDATE payroll_run_headers SET approval_history = tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]))
       .rejects.toThrow(/approval history is only added to, never rewritten or cleared/);
-    await asApp(`UPDATE payroll_run_headers SET approval_history = approval_history + tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]);
+    await expect(asApp(`UPDATE payroll_run_headers SET approval_history = approval_history + tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]))
+      .rejects.toThrow(/approval history grows only when the run is reopened/);
     await expect(asApp('DELETE FROM payroll_run_headers WHERE id = $1', [id])).rejects.toThrow(/cancel it instead/);
 
     // (ii) The state the class aimed at, made by an exempt superuser: history, no snapshot, R80 000 of lines.
@@ -110,5 +113,52 @@ describe('the approval history is never removed or invented below the service', 
     expect(flipped.statusCode).not.toBe(200);
     expect(JSON.stringify(flipped.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
     expect((await a.header(id)).status).toBe('calculated');
+  });
+});
+
+describe('the guards bind the app, not trusted ops roles (review #1679 ops M), and history grows only at a reopen (#1679f)', () => {
+  it('a NOSUPERUSER ops role (migration_admin, as postgres is on Supabase) restores and deletes an approved header with its history', async () => {
+    const id = crypto.randomUUID();
+    const c = await a.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE migration_admin');
+      expect((await c.query("SELECT current_setting('is_superuser') AS s")).rows[0].s).toBe('off');
+      // A restored row, as COPY writes it (the ALWAYS row triggers fire as they do for INSERT): final, with its history
+      // and its snapshot, kept as written.
+      const back = await c.query(`INSERT INTO payroll_run_headers (id, company_id, period_month, period_year, pay_frequency, run_kind,
+        off_cycle_reason, period_start, period_end, run_date, status, approved_at, approval_history, off_cycle_paid_gross)
+        VALUES ($1, $2, 10, 2026, 'monthly', 'off_cycle', 'bonus', '2026-10-01', '2026-10-31', '2026-10-20', 'approved', now(),
+          tstzmultirange(tstzrange(now() - interval '3 days', now() - interval '2 days')), jsonb_build_object($3::text, 1234))
+        RETURNING off_cycle_paid_gross`, [id, a.company, mid]);
+      expect(back.rows[0].off_cycle_paid_gross).toEqual({ [mid]: 1234 });
+      await c.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]);
+      await c.query('COMMIT');
+    } catch (err) {
+      await c.query('ROLLBACK');
+      throw err;
+    } finally {
+      c.release();
+    }
+    // The same insert as app_user is refused.
+    await expect(asApp(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind, off_cycle_reason,
+      period_start, period_end, run_date, status) VALUES ($1, 10, 2026, 'monthly', 'off_cycle', 'bonus', '2026-10-01', '2026-10-31', '2026-10-20', 'approved')`,
+    [a.company])).rejects.toThrow(/a new pay run starts without an approval history and is not final/);
+  });
+
+  it('a never-approved run past its pay date: history added outside a reopen is refused, so D1 still holds', async () => {
+    const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
+      body: { month: 11, year: 2026, reason: 'bonus', runDate: '2026-11-18', employees: [{ employeeId: other, componentId: bonusComponent, amount: 1_000 }] },
+    });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await a.api.calculate(id)).statusCode).toBe(200);
+    await asApp(`UPDATE payroll_run_headers SET run_date = '2026-11-17' WHERE id = $1`, [id]); // its pay date passed
+    for (const status of ['approved', 'calculated']) await asApp('UPDATE payroll_run_headers SET status = $2 WHERE id = $1', [id, status]);
+    await expect(asApp(`UPDATE payroll_run_headers SET approval_history = tstzmultirange(tstzrange(now() - interval '2 days', now() - interval '1 day')) WHERE id = $1`, [id]))
+      .rejects.toThrow(/approval history grows only when the run is reopened/);
+    const ap = await a.api.approve(id);
+    expect(ap.statusCode).not.toBe(200);
+    expect(JSON.stringify(ap.body)).toMatch(/before today/);
   });
 });

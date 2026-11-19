@@ -163,7 +163,7 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect((await patch(run, { employeeId: mid, amount: 4_000 })).statusCode).toBe(200);
     expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 5_000 });
     // Review #1679 L1: no write to the header moves the snapshot (it is the trigger's, taken as the run left approved).
-    await a.pool.query(`UPDATE payroll_run_headers SET off_cycle_paid_gross = jsonb_build_object($2::text, 999999),
+    await asApp(`UPDATE payroll_run_headers SET off_cycle_paid_gross = jsonb_build_object($2::text, 999999),
       reopened_at = reopened_at + interval '1 second' WHERE id = $1`, [run, mid]);
     expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 5_000 });
     // An amount raised another way (below the service, on the draft run) is refused at approval.

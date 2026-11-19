@@ -19,7 +19,8 @@
 --   payroll_run_headers.off_cycle_paid_gross  each employee's gross on an off-cycle run as last approved, as JSONB
 --     {employee_id: gross}: taken by payroll_off_cycle_paid_snapshot (BEFORE INSERT OR UPDATE, ENABLE ALWAYS, INVOKER)
 --     from the run's lines at the status transition out of 'approved' (a reopen), on the row that transition writes.
---     Every other INSERT or UPDATE keeps it as it was (NULL on insert), whatever the statement says, so no app_user
+--     For the app's roles (payroll_run_app_role; a trusted ops role writes it as given, so a restore keeps it, #1679
+--     ops M), every other INSERT or UPDATE keeps it as it was (NULL on insert), whatever the statement says, so no app_user
 --     write can set or move it (review #1679 L1: approved_amount, stamped from a reopened_at app_user may UPDATE, could
 --     be forged). A re-snapshot never rises (review #1679b: a status flip by app_user over raised lines): each
 --     employee keeps the LEAST of the old snapshot and the lines, nil when absent from it. After a run's pay date its gross may not rise above it (payrollOffCycleCorrection: bonus and
@@ -58,6 +59,7 @@
 --   DROP TRIGGER IF EXISTS payroll_off_cycle_paid_snapshot ON public.payroll_run_headers;
 --   DROP TRIGGER IF EXISTS payroll_run_headers_history_guard ON public.payroll_run_headers;
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_history_guard();
+--   DROP FUNCTION IF EXISTS public.payroll_run_app_role();
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_paid_snapshot();
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_paid_gross;
 --   and re-run 951's approval_request_document_facts definition.
@@ -145,9 +147,23 @@ ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS off_cycle_paid_g
 COMMENT ON COLUMN public.payroll_run_headers.off_cycle_paid_gross IS
   'Off-cycle runs (999x): each employee''s gross as last approved, {employee_id: gross}, taken by payroll_off_cycle_paid_snapshot when the run leaves approved (a reopen). Written by that trigger only.';
 
+-- The application's roles (review #1679 ops M): the request role app_user, the service role app_service and their
+-- login roles. Exact names, not membership: postgres may be a member of app_user (to SET ROLE), and is not bound.
+CREATE OR REPLACE FUNCTION public.payroll_run_app_role() RETURNS boolean
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT current_user IN ('app_user', 'app_service', 'isaflow_app', 'isaflow_service')
+$$;
+
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_paid_snapshot() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
+  -- The app's roles only (review #1679 ops M): a trusted ops role (postgres, the migration and deploy roles) restores
+  -- or edits the column as written; only a reopen (approved -> not approved) still snapshots for it.
+  IF NOT public.payroll_run_app_role()
+     AND NOT (TG_OP = 'UPDATE' AND OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved'
+              AND NEW.off_cycle_paid_gross IS NOT DISTINCT FROM OLD.off_cycle_paid_gross) THEN
+    RETURN NEW;
+  END IF;
   IF TG_OP = 'INSERT' THEN
     NEW.off_cycle_paid_gross := NULL;
     RETURN NEW;
@@ -179,37 +195,46 @@ CREATE TRIGGER payroll_off_cycle_paid_snapshot BEFORE INSERT OR UPDATE ON public
   FOR EACH ROW EXECUTE FUNCTION public.payroll_off_cycle_paid_snapshot();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_paid_snapshot;
 
--- A run's approval history is never removed or invented (review #1679d, the delete/re-insert class): a header approved
--- once (non-empty approval_history) is not deleted (cancel or reverse it instead), no header is inserted carrying
--- an approval history or a final status (new runs start without history), and the history is append-only (review
--- #1679e: an UPDATE's new history contains all of the old; reopenPayrollRun, its only writer, only adds a range). The app never deletes a header and inserts
--- them as draft. Exempt, as 999n: a SUPERUSER session (fixtures, the integration rig) and the Demo company (wiped
--- and reseeded by scripts/lib/demoReseed).
+-- A run's approval history is never removed, invented or grown outside a reopen (reviews #1679d-f). For the APP's
+-- roles only (payroll_run_app_role: app_user, app_service and their login roles isaflow_app and isaflow_service), the
+-- threat model being the application; trusted ops roles (postgres, which is NOSUPERUSER on Supabase, the migration and
+-- deploy roles, supabase_admin) are not bound, so a restore (COPY fires ALWAYS row triggers, and pg_restore
+-- --disable-triggers needs a superuser), a restore drill, a dev clone or a QA company delete still works (#1679 ops M).
+--   DELETE  a header approved once (non-empty approval_history) is not deleted: cancel or reverse it instead.
+--   INSERT  a new header carries no approval history and is not final (approved, paid).
+--   UPDATE OF approval_history  append-only (the new value contains the old, #1679e), and it changes only in the
+--     UPDATE that moves the run out of approved or paid, which is what reopenPayrollRun (its one writer) does (#1679f).
+-- The Demo company stays exempt: scripts/lib/demoReseed reopens and wipes its runs, and may run under the app's role
+-- (runOwnedContext); its money is not real.
 CREATE OR REPLACE FUNCTION public.payroll_run_headers_history_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  co uuid := CASE WHEN TG_OP = 'INSERT' THEN NEW.company_id ELSE OLD.company_id END;
 BEGIN
-  IF current_setting('is_superuser') = 'on' THEN
+  IF NOT public.payroll_run_app_role() OR co = '00000000-0000-0000-0000-000000000001'::uuid THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
   END IF;
-  -- Append-only (review #1679e): a NEW history holds every approval OLD held (reopenPayrollRun only adds a range).
   IF TG_OP = 'UPDATE' THEN
-    IF OLD.company_id <> '00000000-0000-0000-0000-000000000001'::uuid AND OLD.approval_history IS NOT NULL
-       AND NOT COALESCE(NEW.approval_history @> OLD.approval_history, false) THEN
-      RAISE EXCEPTION 'payroll_run_headers: a pay run''s approval history is only added to, never rewritten or cleared'
-        USING ERRCODE = 'check_violation';
+    IF NEW.approval_history IS DISTINCT FROM OLD.approval_history THEN
+      IF OLD.approval_history IS NOT NULL AND NOT COALESCE(NEW.approval_history @> OLD.approval_history, false) THEN
+        RAISE EXCEPTION 'payroll_run_headers: a pay run''s approval history is only added to, never rewritten or cleared'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      IF NOT (OLD.status IN ('approved', 'paid') AND NEW.status NOT IN ('approved', 'paid')) THEN
+        RAISE EXCEPTION 'payroll_run_headers: a pay run''s approval history grows only when the run is reopened'
+          USING ERRCODE = 'check_violation';
+      END IF;
     END IF;
     RETURN NEW;
   END IF;
   IF TG_OP = 'DELETE' THEN
-    IF OLD.company_id <> '00000000-0000-0000-0000-000000000001'::uuid
-       AND OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history) THEN
+    IF OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history) THEN
       RAISE EXCEPTION 'payroll_run_headers: a pay run that was approved before is not deleted; cancel it instead'
         USING ERRCODE = 'check_violation';
     END IF;
     RETURN OLD;
   END IF;
-  IF NEW.company_id <> '00000000-0000-0000-0000-000000000001'::uuid
-     AND ((NEW.approval_history IS NOT NULL AND NOT pg_catalog.isempty(NEW.approval_history)) OR NEW.status IN ('approved', 'paid')) THEN
+  IF (NEW.approval_history IS NOT NULL AND NOT pg_catalog.isempty(NEW.approval_history)) OR NEW.status IN ('approved', 'paid') THEN
     RAISE EXCEPTION 'payroll_run_headers: a new pay run starts without an approval history and is not final'
       USING ERRCODE = 'check_violation';
   END IF;
