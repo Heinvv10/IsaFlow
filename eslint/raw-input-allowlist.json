@@ -27,7 +27,6 @@
   "pages/accounting/customer-statements/index.tsx": 1,
   "pages/accounting/customers/index.tsx": 1,
   "pages/accounting/customers/statement.tsx": 1,
-  "pages/accounting/debtors-manager/index.tsx": 1,
   "pages/accounting/document-capture/[docId].tsx": 7,
   "pages/accounting/expenses/[id].tsx": 7,
   "pages/accounting/expenses/new.tsx": 1,

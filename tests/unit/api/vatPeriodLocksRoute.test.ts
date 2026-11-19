@@ -71,7 +71,9 @@ vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => {
 
 import handler from '../../../pages/api/accounting/vat-period-locks';
 import { apiResponse } from '@/lib/apiResponse';
-import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, TYING_REPORT } from '../services/reports/helpers/vat201MixedJournal';
+import {
+  FILING_MIXED_PARTIAL, FILING_MIXED_TIES, FILING_RATE_CHECK_KEYS, MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, TYING_REPORT, keysOf,
+} from '../services/reports/helpers/vat201MixedJournal';
 import {
   VatLockTimeoutError, VatPeriodLockRefusal, VatPeriodUnlockRefusal,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
@@ -165,33 +167,31 @@ describe('lock', () => {
     expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
   });
 
-  it('returns the verdict the gate judged: rateCheck is the taxed output base\'s, every other key the report\'s', async () => {
+  it('returns rateCheck unmodified and filingRateCheck, the verdict the gate judged (the shared key set)', async () => {
     m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
     m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
-    const out = await call('admin', lockBody) as { data?: { rateCheck?: unknown } };
-    expect(out.data?.rateCheck).toEqual({
-      ...MIXED_REPORT.rateCheck, ties: true, outputImpliedTax: 150, outputVariance: 0,
-      taxedOutputBase: 1000, nilRatedGivenBack: 500, uncodedGivenBack: 0,
-    });
+    const out = await call('admin', lockBody) as { data?: { rateCheck?: unknown; filingRateCheck?: unknown } };
+    expect(out.data?.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(out.data?.filingRateCheck).toEqual(FILING_MIXED_TIES);
+    expect(keysOf(out.data?.filingRateCheck)).toEqual(FILING_RATE_CHECK_KEYS);
   });
 
   it('a forced lock reports the failing verdict it was forced past, with the give-back', async () => {
     m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
     m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
-    const forced = await call('admin', { ...lockBody, force: true }) as { data?: { rateCheck?: unknown } };
-    expect(forced.data?.rateCheck).toEqual({
-      ...MIXED_REPORT.rateCheck, outputImpliedTax: 180, outputVariance: -30,
-      taxedOutputBase: 1200, nilRatedGivenBack: 300, uncodedGivenBack: 0,
-    });
+    const forced = await call('admin', { ...lockBody, force: true }) as { data?: { rateCheck?: unknown; filingRateCheck?: unknown } };
+    expect(forced.data?.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(forced.data?.filingRateCheck).toEqual(FILING_MIXED_PARTIAL);
   });
 
-  it('an existing lock judges nothing: no nil-rated read, the report\'s rateCheck as before', async () => {
+  it('an existing lock judges nothing: filingRateCheck null, no nil-rated read, rateCheck as before', async () => {
     m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
     m.getVatPeriodLock.mockResolvedValue({ id: LOCK_ID });
-    const again = await call('admin', lockBody) as { kind: string; data?: { rateCheck?: unknown } };
+    const again = await call('admin', lockBody) as { kind: string; data?: { rateCheck?: unknown; filingRateCheck?: unknown } };
     expect(again.kind).toBe('success');
     expect(m.getNilRatedSupplies).not.toHaveBeenCalled();
     expect(again.data?.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(again.data?.filingRateCheck).toBeNull();
   });
 
   it('a failed nil-rated read on a forced lock throws before the gate or the lock writes', async () => {
