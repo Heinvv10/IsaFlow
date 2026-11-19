@@ -30,6 +30,7 @@ import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErr
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
+import { assertMayApproveCreditNote } from '@/modules/accounting/services/core/approvePermission';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -69,6 +70,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     switch (parsed.data.action) {
       case 'approve': {
         const { creditNoteId, autoApply } = parsed.data;
+        await assertMayApproveCreditNote(companyId, userId, creditNoteId); // #1656: the note module's Approve, pre-read (403)
         const creditNote = await withJournalDateRefusal(res, () => approveCreditNote(companyId, creditNoteId, userId, {
           autoApply: autoApply ?? 'fifo',
         }));

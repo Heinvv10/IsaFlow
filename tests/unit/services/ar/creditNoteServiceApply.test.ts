@@ -4,8 +4,6 @@
  * for the 300-line limit; same harness, assertions unchanged.
  */
 import { describe, it, expect, vi } from 'vitest';
-// #1656: the approver's module Approve is the subject of tests/unit/api/approvePermissionPaths; granted here.
-vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true), assertMayApprove: vi.fn(async () => undefined) }));
 import { mockSql, COMPANY_ID, CN_ID, USER_ID, creditNoteRow } from './creditNoteService.harness';
 import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
 import { approveCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';

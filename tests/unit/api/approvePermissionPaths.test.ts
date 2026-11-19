@@ -1,10 +1,9 @@
 /**
  * #1656 review of #1670 (M2): every other AP/AR approval path asks the module's Approve
  * (core/approvePermission.ts), before it reads or writes the document:
- *   - credit notes: approveCreditNote itself (both routes, the MCP tool and the MCP bulk tool go
- *     through it), by the note's type (customer: Customers & AR, supplier: Suppliers & AP); the
- *     credit-notes-action route answers the refusal 403; the MCP tool and bulk tool refuse / skip
- *     from a read;
+ *   - credit notes, by the note's type (customer: Customers & AR, supplier: Suppliers & AP):
+ *     credit-notes-action approve and supplier-credit-notes post answer 403 (the MCP tool and bulk
+ *     tool refuse / skip from a read: creditNoteToolsApprove / bulkApproveCreditNotesTool tests);
  *   - purchase-order approve, payment-batch approve, and approving an approval request for a
  *     supplier invoice: Suppliers & AP.
  * A manager with the default (approve) is let through each, so the refusal is the permission's.
@@ -25,18 +24,15 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
-vi.mock('@/lib/auth/impersonationGuard', async (orig) => ({ ...(await orig<object>()), assertNotImpersonating: vi.fn() }));
-vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({ lockCreditNoteForUpdate: vi.fn() }));
-vi.mock('@/modules/accounting/services/ar/creditNotePostingChecks', async (orig) => ({ ...(await orig<object>()), lockInvoiceCreditNotes: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({ ...(await orig<object>()), assertApprovalCleared: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/creditNoteService', async (orig) => ({ ...(await orig<object>()),
+  approveCreditNote: vi.fn(async () => ({ id: ID, status: 'approved' })), getCreditNoteById: vi.fn(async () => ({ id: ID, type: 'supplier' })) }));
+vi.mock('@/modules/accounting/services/shared/creditNoteFifo', async (orig) => ({ ...(await orig<object>()), listCreditNoteAllocations: vi.fn(async () => []) }));
 vi.mock('@/modules/accounting/services/ap/purchaseOrderApprove', async (orig) => ({ ...(await orig<object>()), approvePurchaseOrder: vi.fn(async () => ({ purchaseOrder: { id: ID } })) }));
 vi.mock('@/modules/accounting/services/ap/batchPaymentApproval', async (orig) => ({ ...(await orig<object>()), approveBatch: vi.fn(async () => 'approved') }));
 vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({ ...(await orig<object>()), decideRequest: vi.fn(async () => ({ id: ID })) }));
 
 import { sql } from '@/lib/neon';
-import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
-import { assertApprovalCleared } from '@/modules/accounting/services/gl/approvalGate';
-import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
+import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
 import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
 import { approvePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderApprove';
@@ -45,16 +41,18 @@ import { decideRequest } from '@/modules/accounting/services/gl/approvalService'
 import poApprove from '../../../pages/api/accounting/purchase-orders/[id]/approve';
 import batchAction from '../../../pages/api/accounting/batch-payments-action';
 import approvalRequests from '../../../pages/api/accounting/approval-requests';
+import creditNotesAction from '../../../pages/api/accounting/credit-notes-action';
+import supplierCreditNotes from '../../../pages/api/accounting/supplier-credit-notes';
 
-const STOP = new Error('reached the approval gate');
+let noteType = 'customer';
 
 function member(role: string, module?: string, canApprove?: boolean) {
   db.members.set(`${C}:${U}`, role);
   if (module) db.rows.set(`${C}:${U}:${module}`, { can_read: true, can_write: true, can_approve: canApprove });
 }
 
-function call(handler: unknown, body: unknown, query: Record<string, string> = {}) {
-  const req = { method: 'POST', query, body, companyId: C, companyRole: 'manager', user: { id: U } } as unknown as NextApiRequest;
+function call(handler: unknown, body: unknown, query: Record<string, string> = {}, method = 'POST') {
+  const req = { method, query, body, companyId: C, companyRole: 'manager', user: { id: U } } as unknown as NextApiRequest;
   const res = {
     statusCode: 200, sent: undefined as unknown,
     setHeader() { return this; }, status(c: number) { this.statusCode = c; return this; },
@@ -67,36 +65,40 @@ beforeEach(() => {
   vi.clearAllMocks();
   db = permissionDb();
   requestDocType = 'supplier_invoice';
-  vi.mocked(sql).mockImplementation(permissionSql(db, (text) =>
-    (text.includes('FROM approval_requests') ? [{ document_type: requestDocType, document_id: ID }] : [])) as never);
-  vi.mocked(assertApprovalCleared).mockRejectedValue(STOP);
+  noteType = 'customer';
+  vi.mocked(sql).mockImplementation(permissionSql(db, (text) => {
+    if (text.includes('FROM approval_requests')) return [{ document_type: requestDocType, document_id: ID }];
+    if (text.includes('FROM credit_notes')) return [{ type: noteType }];
+    return [];
+  }) as never);
 });
 
-describe('approveCreditNote (every credit-note approval path)', () => {
-  const note = (type: string) => vi.mocked(lockCreditNoteForUpdate).mockResolvedValue({ id: ID, status: 'draft', type } as never);
-
-  it('a supplier note: no Suppliers & AP Approve is refused before the approval gate or any write', async () => {
-    note('supplier'); member('manager', 'suppliers', false);
-    const err = await approveCreditNote(C, ID, U).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(ApprovePermissionError);
-    expect((err as ApprovePermissionError).module).toBe('suppliers');
-    expect(assertApprovalCleared).not.toHaveBeenCalled();
-  });
-
-  it("a customer note asks Customers & AR, not Suppliers & AP", async () => {
-    note('customer'); member('manager', 'customers', false);
+describe('credit notes (by the note type)', () => {
+  it('credit-notes-action approve of a customer note asks Customers & AR: 403 before approve; a Suppliers grant does not count', async () => {
+    member('manager', 'customers', false);
     db.rows.set(`${C}:${U}:suppliers`, { can_approve: true });
-    const err = await approveCreditNote(C, ID, U).catch((e: unknown) => e);
-    expect((err as ApprovePermissionError).module).toBe('customers');
+    const res = await call(creditNotesAction, { action: 'approve', creditNoteId: ID });
+    expect(res.statusCode).toBe(403);
+    expect(JSON.stringify(res.sent)).toMatch(/customer credit notes/);
     expect(db.reads.map((r) => r.moduleKey)).toEqual(['customers']);
+    expect(approveCreditNote).not.toHaveBeenCalled();
   });
 
-  it('a manager with the default goes on to the approval gate', async () => {
-    note('supplier'); member('manager');
-    expect(await approveCreditNote(C, ID, U).catch((e: unknown) => e)).toBe(STOP);
+  it('credit-notes-action approve of a supplier note asks Suppliers & AP; the default manager approves', async () => {
+    noteType = 'supplier'; member('manager');
+    expect((await call(creditNotesAction, { action: 'approve', creditNoteId: ID })).statusCode).toBe(200);
+    expect(db.reads.map((r) => r.moduleKey)).toEqual(['suppliers']);
+    expect(approveCreditNote).toHaveBeenCalledTimes(1);
   });
 
-  it('a route answers the refusal 403 with its message', () => {
+  it('supplier-credit-notes post: 403 before approve without Suppliers & AP Approve', async () => {
+    member('manager', 'suppliers', false);
+    const res = await call(supplierCreditNotes, { id: ID, action: 'post' }, {}, 'PATCH');
+    expect(res.statusCode).toBe(403);
+    expect(approveCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('a route answers the refusal 403 with its message (respondIfApprovePermissionRefused)', () => {
     const res = { statusCode: 0, sent: undefined as unknown, status(c: number) { this.statusCode = c; return this; }, json(p: unknown) { this.sent = p; return this; } };
     expect(respondIfApprovePermissionRefused(res as never, new ApprovePermissionError('suppliers', 'supplier credit notes'))).toBe(true);
     expect(res.statusCode).toBe(403);

@@ -40,7 +40,7 @@ import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplie
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
-import { ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
+import { ApprovePermissionError, assertMayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -132,6 +132,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         let posted: CreditNote;
         try {
           // Not wrapped: the note was created above, so a window refusal stays the 500 that rolls both back.
+          await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656
           posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
         } catch (err) {
           // R-035: the draft above STAYS — a 409 is committed by withAuth, and
@@ -190,6 +191,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (existing.type !== 'supplier') return apiResponse.notFound(res, 'Supplier Credit Note', id);
 
       if (action === 'post') {
+        await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656: pre-write (403)
         const posted = await withJournalDateRefusal(res, () => approveCreditNote(companyId, id, userId, { autoApply: parsedAutoApply }));
         if (posted === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, {

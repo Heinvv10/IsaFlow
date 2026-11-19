@@ -40,7 +40,6 @@ import {
   assertSupplierNoteHeaderTags, creditNoteExpenseJournalLines, recordCreditNoteExpenseAllocations,
 } from '../ap/supplierCreditNoteExpenseLines';
 import { ackMatchesOf, assertMirroredNoteVatStands, isoOf } from '../ap/supplierCreditNoteMirrorApprove';
-import { APPROVE_MODULE_BY_DOCUMENT, assertMayApprove } from '../core/approvePermission';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -77,9 +76,6 @@ export async function approveCreditNote(
     const lockedDocument = cn.customer_invoice_id ?? cn.supplier_invoice_id;
     if (lockedDocument) await lockInvoiceCreditNotes(String(lockedDocument));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
-    // #1656: the approver's Approve on the note's module (customer: Customers & AR; supplier: Suppliers & AP), before
-    // any write. Every approval path comes through here: both routes, the MCP tool and the MCP bulk tool.
-    await assertMayApprove(companyId, userId, APPROVE_MODULE_BY_DOCUMENT[creditNoteApprovalType(String(cn.type))]!, `${cn.type} credit notes`);
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
