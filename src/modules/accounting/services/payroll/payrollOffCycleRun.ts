@@ -82,11 +82,15 @@ export function judgeOffCycleShape(input: OffCycleRunInput, today: string): void
     }
     if (typeof e.componentId !== 'string' || !UUID.test(e.componentId)) throw bad('Each bonus needs its annual-payment earning.');
     const a = e.amount;
-    // Whole cents within float error (1.15 * 100 is 114.99999999999999), as payrollEmployeeTerms judges an amount.
-    if (typeof a !== 'number' || !Number.isFinite(a) || a <= 0 || a > MAX_BONUS || Math.abs(a * 100 - Math.round(a * 100)) > 1e-6) {
+    if (typeof a !== 'number' || !Number.isFinite(a) || a <= 0 || a > MAX_BONUS || !isWholeCents(a)) {
       throw bad('Each bonus amount must be more than nil, in rand and cents.');
     }
   }
+}
+
+/** Whole cents within float error (1.15 * 100 is 114.99999999999999), as payrollEmployeeTerms judges an amount. */
+export function isWholeCents(amount: number): boolean {
+  return Math.abs(amount * 100 - Math.round(amount * 100)) <= 1e-6;
 }
 
 /** Every refusal the company's state decides, before any write. */
