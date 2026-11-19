@@ -185,6 +185,19 @@ export function buildInvoiceRevenueLines(input: {
     .filter((l): l is JournalLineInput => l !== null);
 }
 
+/** What each leg still carries (cents): its net, less the replayed pre-874 notes and what recorded notes took. */
+export function remainingCarries(legs: readonly RevenueLeg[], legacyNotes: readonly number[] = []): number[] {
+  let carries = legs.map((l) => cents(l.net));
+  for (const earlier of legacyNotes) {
+    const took = noteShares(carries, cents(earlier));
+    carries = carries.map((c, i) => c - took[i]!);
+  }
+  return carries.map((c, i) => {
+    const left = c - cents(legs[i]!.taken ?? 0);
+    return legs[i]!.net >= 0 ? Math.max(0, left) : Math.min(0, left);
+  });
+}
+
 /**
  * The note's revenue debit, split over the invoice journal's revenue legs, and
  * the allocation rows that record it.
@@ -212,15 +225,7 @@ export function allocateCreditNote(
   /** 'debit' reverses revenue (customer notes); 'credit' reverses a bill's expense legs (supplier notes). */
   side: 'debit' | 'credit' = 'debit',
 ): { lines: JournalLineInput[]; allocations: CreditNoteAllocation[] } {
-  let carries = legs.map((l) => cents(l.net));
-  for (const earlier of legacyNotes) {
-    const took = noteShares(carries, cents(earlier));
-    carries = carries.map((c, i) => c - took[i]!);
-  }
-  carries = carries.map((c, i) => {
-    const left = c - cents(legs[i]!.taken ?? 0);
-    return legs[i]!.net >= 0 ? Math.max(0, left) : Math.min(0, left);
-  });
+  const carries = remainingCarries(legs, legacyNotes);
   const total = cents(amount);
   const shares = noteShares(carries, total);
   const excess = total - shares.reduce((a, b) => a + b, 0);

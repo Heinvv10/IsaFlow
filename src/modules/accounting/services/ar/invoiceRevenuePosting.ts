@@ -14,8 +14,8 @@ import { storedInvoiceLines, storedLinesRefusal } from './invoiceLineCodingGuard
 import {
   allocateCreditNote, isRevenueCoded, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
-import type { StoredVatLine } from './invoiceVatLegs';
-import { normaliseVatType } from '../shared/vatTypes';
+import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
+import { allocateTypedCreditNote, legsAreTyped } from './creditNoteTypedSplit';
 
 /**
  * The invoice's stored lines (with their VAT, migration 1008), held to every
@@ -73,7 +73,11 @@ export async function postableInvoiceLines(
  */
 export async function creditNoteRevenueJournalLines(
   companyId: string,
-  note: { id: string; number: string; amount: number; customerInvoiceId: string | null; tags: LegTags },
+  note: {
+    id: string; number: string; amount: number; customerInvoiceId: string | null; tags: LegTags;
+    /** The note's VAT and date: against a TYPED invoice they decide its rated part (creditNoteTypedSplit). */
+    taxAmount: number; date: string | Date;
+  },
   defaultRevenueAccountId: string,
 ): Promise<{ lines: JournalLineInput[]; allocations: CreditNoteAllocation[] }> {
   if (!note.customerInvoiceId) {
@@ -129,9 +133,15 @@ export async function creditNoteRevenueJournalLines(
     taken: takenByLeg.get(String(r.journal_line_id)) ?? 0,
     journalLineId: String(r.journal_line_id),
     // A typed invoice's leg (migration 1008): the note reverses it on the same VAT type. Uncoded stays uncoded.
-    vatType: normaliseVatType(r.vat_type),
+    vatType: storedVatType(r.vat_type),
   }));
-  return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, legacy.map((e) => Number(e.subtotal)));
+  const replayed = legacy.map((e) => Number(e.subtotal));
+  // Every leg coded (a typed invoice): the note's VAT decides its rated part. Otherwise pro rata over every leg, as before.
+  if (legsAreTyped(legs)) {
+    return allocateTypedCreditNote(legs, { subtotal: note.amount, taxAmount: note.taxAmount, date: note.date },
+      note.number, defaultRevenueAccountId, replayed);
+  }
+  return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, replayed);
 }
 
 /**

@@ -72,6 +72,19 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
     expect(await fields('2026-08-01', '2026-08-31')).toEqual([0, 0, 0, 0]);
   });
 
+  it('a 200 + VAT 30 note against a mixed invoice debits standard 200 only, and the VAT201 moves consistently', async () => {
+    const id = await approvedInvoice('2026-10-10', [
+      { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
+    ], { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] }, 150);
+    expect(await fields('2026-10-01', '2026-10-31')).toEqual([1000, 300, 200, 150]);
+    const je = await note(id, '2026-10-20', 200, 15);
+    expect(await journalLegs(f, je)).toEqual([
+      L('1100', 0, 230), L('2120', 30, 0, { vat: 'standard' }), L('4000', 200, 0, { vat: 'standard' }),
+    ]);
+    // field 1 -200, output VAT -30, fields 2 and 3 unchanged.
+    expect(await fields('2026-10-01', '2026-10-31')).toEqual([800, 300, 200, 120]);
+  });
+
   it('a note against a legacy invoice keeps its uncoded revenue debit, as before', async () => {
     const id = await approvedInvoice('2026-09-10', [{ description: 'A', unitPrice: 1000 }]);
     const je = await note(id, '2026-09-20', 400, 15);
