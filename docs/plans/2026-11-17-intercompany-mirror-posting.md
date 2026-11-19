@@ -144,8 +144,8 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
   (the application never runs these writers at another level). A party's own read-only user that keeps a transaction open can keep that pair's
   leave failing with 55P03 until it lets go: an accepted limit (a direct party, and an API request is too short to hold). platform_admin can still
   `LOCK TABLE` the group tables. `intercompany_company_locks` has a foreign key to `companies` that cascades (a company delete waits for a held
-  lock row), and the changer's retry backs off exponentially (5 ms doubling to 1 s; about 18 attempts in 10 s, fewer than the 64 sub-transactions a
-  backend can hold before its subxid cache overflows). The companies trigger and the join triggers are origin-only (a restore in replica mode skips them; the lock table restores itself, and a
+  lock row), and the changer's retry backs off exponentially (5 ms doubling to 1 s, jittered; about 18 attempts in 10 s) and is capped at 60 attempts as well as
+  the time budget, so the bound is deterministic (same 55P03). The companies trigger and the join triggers are origin-only (a restore in replica mode skips them; the lock table restores itself, and a
   decider recreates a missing row). Tests: `company-locks-scope`, `group-race-matrix` (every kind of membership change x every kind of writer x
   both orders), `group-race-single`, `group-race-bulk`, `group-tables-grants`, `migration-backfill`. `intercompany_in_one_group` answers only for
   a signed-in user of one of the two companies (`auth.user_companies()`), never on the strength of the session's company GUC, so it is false when

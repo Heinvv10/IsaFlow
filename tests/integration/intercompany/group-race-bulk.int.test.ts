@@ -205,6 +205,29 @@ describe('the retry backs off exponentially (a backend holds at most 64 sub-tran
   }, 60000);
 });
 
+describe('the attempt cap bounds the retry whatever the clock', () => {
+  it('with a 30 s budget but a cap of 4 attempts the leave fails with 55P03 within a second or two, and nothing changed', async () => {
+    await withWorld(async (w) => {
+      const holder = await inFlight(U.ab, w.a, ASK, [w.a, w.b]);
+      const leaver = await pool.connect();
+      try {
+        await leaver.query("SET app.intercompany_changer_budget_ms = '30000'");
+        await leaver.query("SET app.intercompany_changer_max_attempts = '4'");
+        const t0 = Date.now();
+        const error = await leaver.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [w.gAB, w.b]).then(() => null, (e: { code: string; message: string }) => e);
+        expect(error).toMatchObject({ code: '55P03' });
+        expect(error?.message).toMatch(/try again in a moment/);
+        expect(Date.now() - t0).toBeLessThan(2500);
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+        leaver.release();
+      }
+      expect((await pool.query('SELECT left_date FROM company_group_members WHERE group_id = $1 AND company_id = $2', [w.gAB, w.b])).rows[0].left_date).toBeNull();
+    });
+  }, 60000);
+});
+
 describe('a leave that cannot find a gap gives up cleanly after its budget', () => {
   it('holder keeps a and b; the leave of b fails with 55P03 after about the budget, the membership and the connection are as they were', async () => {
     await withWorld(async (w) => {

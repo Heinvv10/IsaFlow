@@ -57,7 +57,8 @@
 --         a lock that is held rolls the attempt back (nothing is held while it waits, so it delays no one and cannot deadlock) and it
 --         tries again a moment later. Once it holds the set it re-reads (a new snapshot); if a member joined, a connection appeared
 --         or a candidate went it starts again, until the set is stable. It then revokes the candidates and releases their sides.
---       * the wait is BOUNDED: app.intercompany_changer_budget_ms (default 10000, at most 30000). When it elapses the statement fails
+--       * the wait is BOUNDED: app.intercompany_changer_budget_ms (default 10000, at most 30000) and at most 60 attempts
+--         (app.intercompany_changer_max_attempts, never above 60), whichever comes first. Then the statement fails
 --         with SQLSTATE 55P03 (lock_not_available, "try again in a moment") and rolls back, so the leave did not happen and the
 --         connection stays as it was. withErrorHandler answers 55P03 from any route as 503 with Retry-After and a neutral message
 --         (lockTimeout / apiDocumentLock): removeMember, deleteGroup, addMember and every other membership or group writer need no
@@ -398,6 +399,7 @@ AS $$
 DECLARE
   budget interval := LEAST(COALESCE(NULLIF(pg_catalog.current_setting('app.intercompany_changer_budget_ms', true), '')::int, 10000), 30000)
                      * interval '1 millisecond';
+  max_attempts int := LEAST(COALESCE(NULLIF(pg_catalog.current_setting('app.intercompany_changer_max_attempts', true), '')::int, 60), 60);
   started timestamptz := pg_catalog.clock_timestamp();
   attempt int := 0;
   seeds uuid[];
@@ -409,10 +411,10 @@ DECLARE
 BEGIN
   PERFORM public.intercompany_require_read_committed();
   LOOP
-    attempt := attempt + 1;
-    IF pg_catalog.clock_timestamp() - started > budget THEN
+    IF attempt >= max_attempts OR pg_catalog.clock_timestamp() - started > budget THEN
       RAISE EXCEPTION 'a group membership change is waiting on other work in the group; try again in a moment' USING ERRCODE = '55P03';
     END IF;
+    attempt := attempt + 1;
     BEGIN                                           -- a sub-transaction: a lock that is held rolls back everything taken here
       seeds := (SELECT COALESCE(array_agg(DISTINCT x), '{}'::uuid[])
                   FROM (SELECT unnest(p_seeds) AS x
@@ -439,8 +441,10 @@ BEGIN
       END IF;
       RAISE EXCEPTION 'the group-membership set changed' USING ERRCODE = '55P03';
     EXCEPTION WHEN lock_not_available THEN
-      -- Exponential backoff, 5 ms doubling to 1 s with jitter: about 18 attempts in 10 s and about 40 in the 30 s maximum, well
-      -- under the 64 sub-transactions a backend can hold before its subxid cache overflows and slows everyone's snapshots.
+      -- Exponential backoff, 5 ms doubling to 1 s, times a jitter of 0.5 to 1.5: about 18 attempts in 10 s on average, and at most
+      -- about 68 in 30 s if the jitter stayed at its minimum. An aborted sub-transaction does not stay in the backend's subxid
+      -- cache, so this is not about snapshot overflow: it keeps the polling off the lock manager. The attempt cap below (60) makes
+      -- the bound deterministic whatever the clock does, and ends in the same 55P03 as the time budget.
       PERFORM pg_catalog.pg_sleep(LEAST(1.0, 0.005 * power(2, LEAST(attempt - 1, 8))) * (0.5 + random()));
     END;
   END LOOP;
