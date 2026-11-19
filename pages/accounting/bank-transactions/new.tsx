@@ -20,6 +20,7 @@ import {
   VAT_OPTIONS, card, inp, lbl, todayISO, type AllocType, type FormState, type SelectOption, type TxType, type VatCode,
 } from '@/components/accounting/bank-transaction-new/newBankTxForm';
 import { useNewBankTxReferenceData } from '@/components/accounting/bank-transaction-new/useNewBankTxReferenceData';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 export default function NewBankTransactionPage() {
   const router = useRouter();
@@ -172,7 +173,7 @@ export default function NewBankTransactionPage() {
                       </div>
                       <div>
                         <label htmlFor="bank-transactions-new-amount" className={lbl}>Amount (ZAR) *</label>
-                        <input id="bank-transactions-new-amount" type="number" name="amount" min="0.01" step="0.01" value={form.amount} onChange={e => patch({ amount: e.target.value })} placeholder="0.00" className={inp} required />
+                        <AmountInput id="bank-transactions-new-amount" name="amount" min={0.01} value={form.amount} onValueChange={(_n, text) => patch({ amount: text })} placeholder="0.00" className={inp} required />
                       </div>
                     </div>
                   </div>
