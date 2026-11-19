@@ -106,11 +106,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   `) as Row[];
 
 
+  const psp = await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear));
+  // A viewer who may not see PSP figures (fewer than 2 PSP payees) gets IRP5 PAYE on the old basis, PSP lines included,
+  // so no variance it can read recovers one person's PAYE (security review of #1566, M).
+  const pspHidden = !detail && !pspTotalsVisibleToViewer(psp);
   const lineMap = new Map<string, number>();
-  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0)));
+  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0) + (pspHidden ? Number(r.psp_paye) : 0)));
   const pspMap = new Map(lineRows.map(r => [`${r.period_year}-${r.period_month}`, Number(r.psp_paye)]));
 
-  const psp = await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear));
   const months = taxYearMonths(taxYear);
   const rows: ReconciliationRow[] = months.map(({ month, year }) => {
     const key = `${year}-${month}`;

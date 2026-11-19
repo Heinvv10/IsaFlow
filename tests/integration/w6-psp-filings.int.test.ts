@@ -203,6 +203,12 @@ describe('a PSP trust in March, an employee from April', () => {
     expect(['totalPspPaye' in data, 'totalUnexplainedVariance' in data, data.pspNote]).toEqual([false, false, 'PSP detail is available to payroll roles']);
     const text = JSON.stringify(body.data.runWarnings);
     expect(text).not.toMatch(/TSB-psp-switch|Extra|22[ ,]?500|payee/);
+    // Security review M: with one PSP payee the viewer's IRP5 PAYE is on the old basis (PSP lines in), so no variance it
+    // reads is the PSP's PAYE; the detail role above still sees the split (variance 22 500 = pspPaye).
+    const vmar = body.data.rows.find((r) => r.month === 3)! as { variance: number; emp201Paye: number; irp5Paye: number };
+    expect(vmar.variance).toBeCloseTo(0, 2);
+    expect(vmar.irp5Paye).toBeCloseTo(vmar.emp201Paye, 2);
+    expect((body.data as unknown as { totalVariance: number }).totalVariance).toBeCloseTo(0, 2);
     expect(body.data.runWarnings.filter((w) => w.includes('PSP detail is available to payroll roles'))).toHaveLength(1);
   });
 });
@@ -284,6 +290,9 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
     const viewer = await (await viewerOf(f))(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
     expect(JSON.stringify(viewer.body)).not.toMatch(/TSB-psp-ye|Extra/);
     const vEmp = (viewer.body as unknown as { data: { emp501: Record<string, unknown> } }).data.emp501;
+    // Security review M: the viewer's totals are on the old basis, so the variance is not the PSP's 10 800.
+    expect(Number(vEmp.totalVariance)).toBeCloseTo(0, 2);
+    expect(Number(vEmp.totalIrp5)).toBeCloseTo(Number(vEmp.totalEmp201), 2);
     expect(['pspPaye' in vEmp, 'unexplainedVariance' in vEmp, vEmp.pspNote]).toEqual([false, false, 'PSP detail is available to payroll roles']);
     // The PSP fields and lines carry no figure. KNOWN LIMIT (reported): emp501.totalVariance (EMP201 - IRP5) still equals it here.
     expect(JSON.stringify((viewer.body as unknown as { data: { runWarnings: string[] } }).data.runWarnings)).not.toMatch(/10[ ,]?800|payee/);

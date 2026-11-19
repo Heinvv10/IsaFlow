@@ -133,12 +133,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   const totalEmp201 = Array.from(emp201ByMonth.values()).reduce((s, v) => s + v, 0);
-  const totalIrp5 = empRows.reduce((s, emp) => {
+  const totalIrp5Certificates = empRows.reduce((s, emp) => {
     const agg = aggMap.get(String(emp.id));
     return s + (agg ? Number(agg.total_paye) : 0);
   }, 0);
-  const totalVariance = totalEmp201 - totalIrp5;
   const pspPaye = Math.round(pspTotals.reduce((s, t) => s + t.paye, 0) * 100) / 100;
+  // A viewer who may not see PSP figures (fewer than 2 PSP payees) gets IRP5 PAYE on the old basis, PSP lines included,
+  // so no total or variance it can read recovers one person's PAYE (security review of #1566, M).
+  const pspHidden = !canWrite(companyRole) && !pspTotalsVisibleToViewer(pspTotals);
+  const totalIrp5 = pspHidden ? totalIrp5Certificates + pspPaye : totalIrp5Certificates;
+  const totalVariance = totalEmp201 - totalIrp5;
 
   // ─── 6. Period lock ────────────────────────────────────────────────────────
   const lockDate = company.lockdown_date ? fmtDate(company.lockdown_date) : null;
