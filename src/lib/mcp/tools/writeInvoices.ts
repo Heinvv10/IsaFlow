@@ -20,6 +20,7 @@ import { customerBelongsToCompany } from '@/modules/accounting/services/core/con
 import { mcpPostingOpts } from '../mcpActor';
 import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { itemIdArg } from './itemToolArgs';
 import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './customerInvoiceCreateArgs';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
 
@@ -27,6 +28,7 @@ interface LineIn {
   description: string;
   quantity?: number;
   unitPrice: number;
+  itemId?: string | null;
 }
 
 function parseLines(raw: unknown): LineIn[] | null {
@@ -54,6 +56,7 @@ const LINE_ITEMS_SCHEMA = {
       description: { type: 'string' },
       quantity: { type: 'number', exclusiveMinimum: 0 },
       unit_price: { type: 'number', minimum: 0 },
+      item_id: { type: 'string', description: 'Catalogue item (list_items). With no account of its own the line takes the item\'s sales account. An inactive item is refused.' },
       // The FNO defaults from the customer; a project under another FNO is refused.
       ...DIMENSION_LINE_PROPERTIES,
     },
@@ -158,6 +161,11 @@ export const createDraftQuoteTool: McpTool = {
     if (!customerName) return toolError('customer_name is required');
     const items = parseLines(args.items);
     if (!items) return toolError('items must be a non-empty array of {description, unit_price, quantity?}');
+    for (const [i, line] of (args.items as Record<string, unknown>[]).entries()) {
+      const item = itemIdArg(line.item_id, `items[${i}]`);
+      if (typeof item === 'string') return toolError(item);
+      if (item.itemId !== undefined) items[i]!.itemId = item.itemId;
+    }
     try {
       const quote = await createQuote(
         ctx.companyId,
@@ -171,6 +179,7 @@ export const createDraftQuoteTool: McpTool = {
             description: l.description,
             quantity: l.quantity ?? 1,
             unitPrice: l.unitPrice,
+            ...(l.itemId ? { itemId: l.itemId } : {}),
           })),
         },
         ctx.userId,

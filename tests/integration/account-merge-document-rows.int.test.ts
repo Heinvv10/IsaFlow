@@ -143,6 +143,7 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
       expect(await accountsOf(c, docs)).toEqual([f.targetId, f.targetId, f.targetId, f.targetId, f.targetId]);
       expect(result.documentRowsRepointed).toEqual({
         supplier_invoice_items: 1, customer_invoice_items: 1, expense_claim_lines: 1, po_items: 1, capture_events: 1,
+        item_sales_accounts: 0, item_purchases_accounts: 0,
       });
       const { rows } = await c.query<{ moved: Record<string, string[]> }>(
         'SELECT moved_document_rows AS moved FROM gl_account_merges WHERE id = $1 AND company_id = $2',
@@ -153,6 +154,8 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
         expense_claim_lines: [docs.expenseClaimLine],
         po_items: [docs.poItem],
         capture_events: [docs.captureEvent],
+        item_sales_accounts: [],
+        item_purchases_accounts: [],
       });
       // The line's account is in the invoice's approval digest: the merger is now an author of it.
       const authored = await c.query<{ a: string[] }>(
@@ -175,6 +178,7 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
       const preview = await previewAccountMerge(f.companyId, f.cleanSourceId, f.targetId);
       expect(preview.documentRowsToRepoint).toEqual({
         supplier_invoice_items: 1, customer_invoice_items: 1, expense_claim_lines: 1, po_items: 1, capture_events: 1,
+        item_sales_accounts: 0, item_purchases_accounts: 0,
       });
 
       await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER);
@@ -224,6 +228,7 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
       const preview = await previewAccountMerge(f.companyId, f.cleanSourceId, f.targetId);
       const expected = {
         supplier_invoice_items: 3, customer_invoice_items: 3, expense_claim_lines: 3, po_items: 3, capture_events: 2,
+        item_sales_accounts: 0, item_purchases_accounts: 0,
       };
       expect(preview.documentRowsToRepoint).toEqual(expected);
 
@@ -262,4 +267,54 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
         f.targetChildId, f.targetChildId, f.targetChildId, f.targetChildId, f.targetChildId]);
     });
   }, 120_000);
+
+  // The item master's default accounts (migration 1005): refusing a merge because an imported catalogue names the account would
+  // block every merge of a cost-of-sales account, so they are repointed and recorded like the document rows.
+  describe('(g) the item master\'s default accounts', () => {
+    const item = async (c: PoolClient, companyId: string, code: string, sales: string | null, purchases: string | null, deleted = false) => one(c,
+      `INSERT INTO items (company_id, code, description, sales_account_id, purchases_account_id, deleted_at)
+       VALUES ($1, $2, 'merge fixture', $3, $4, CASE WHEN $5::boolean THEN NOW() END) RETURNING id`, [companyId, code, sales, purchases, deleted]);
+    const accountsOfItem = async (c: PoolClient, id: string) => (await c.query<{ s: string | null; p: string | null }>(
+      'SELECT sales_account_id::text AS s, purchases_account_id::text AS p FROM items WHERE id = $1', [id])).rows[0]!;
+
+    it('moves items\' sales and purchases defaults onto the target, records the ids, leaves other accounts and other companies alone, and does not refuse', async () => {
+      await withFixture(async (c, f) => {
+        const other = await otherTenant(c);
+        const salesOnly = await item(c, f.companyId, 'ZZ-IS', f.cleanSourceId, f.targetChildId);
+        const purchasesOnly = await item(c, f.companyId, 'ZZ-IP', f.targetChildId, f.cleanSourceId);
+        const both = await item(c, f.companyId, 'ZZ-IB', f.cleanSourceId, f.cleanSourceId);
+        const deleted = await item(c, f.companyId, 'ZZ-ID', f.cleanSourceId, null, true);
+        const untouched = await item(c, f.companyId, 'ZZ-IU', f.targetChildId, f.targetChildId);
+        const forged = await item(c, other.companyId, 'ZZ-IF', f.cleanSourceId, f.cleanSourceId); // another company's row naming our source
+
+        const preview = await previewAccountMerge(f.companyId, f.cleanSourceId, f.targetId);
+        expect(preview.documentRowsToRepoint).toMatchObject({ item_sales_accounts: 3, item_purchases_accounts: 2 });
+
+        const result = await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER);
+        expect(result.documentRowsRepointed).toMatchObject({ item_sales_accounts: 3, item_purchases_accounts: 2 });
+        expect(await accountsOfItem(c, salesOnly)).toEqual({ s: f.targetId, p: f.targetChildId });
+        expect(await accountsOfItem(c, purchasesOnly)).toEqual({ s: f.targetChildId, p: f.targetId });
+        expect(await accountsOfItem(c, both)).toEqual({ s: f.targetId, p: f.targetId });
+        expect(await accountsOfItem(c, deleted)).toEqual({ s: f.targetId, p: null });
+        expect(await accountsOfItem(c, untouched)).toEqual({ s: f.targetChildId, p: f.targetChildId });
+        expect(await accountsOfItem(c, forged)).toEqual({ s: f.cleanSourceId, p: f.cleanSourceId });
+
+        const { rows } = await c.query<{ moved: Record<string, string[]> }>(
+          'SELECT moved_document_rows AS moved FROM gl_account_merges WHERE id = $1 AND company_id = $2', [result.mergeRecordId, f.companyId]);
+        expect(rows[0]!.moved.item_sales_accounts).toEqual([salesOnly, both, deleted].sort());
+        expect(rows[0]!.moved.item_purchases_accounts).toEqual([purchasesOnly, both].sort());
+      });
+    }, 120_000);
+
+    it('the configuration sweep no longer names items, while another configuration row (a bank rule) still blocks the merge', async () => {
+      await withFixture(async (c, f) => {
+        await item(c, f.companyId, 'ZZ-IS2', f.cleanSourceId, f.cleanSourceId);
+        await c.query(
+          `INSERT INTO bank_rules (company_id, name, match_type, match_field, match_value, gl_account_id)
+           VALUES ($1, 'item fixture rule', 'contains', 'description', 'zzz', $2)`, [f.companyId, f.cleanSourceId]);
+        const err = await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER).then(() => null, (e: unknown) => e);
+        expect((err as AccountMergeError).references.map((r) => r.table)).toEqual(['bank_rules']);
+      });
+    }, 120_000);
+  });
 });
