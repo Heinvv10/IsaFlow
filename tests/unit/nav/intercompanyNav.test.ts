@@ -19,3 +19,14 @@ describe('intercompany connections nav entry', () => {
     expect(documentTitle(HREF, buildPageIndex(true))).toBe('Intercompany connections · Settings · IsaFlow');
   });
 });
+
+const PAIRING = '/accounting/settings/intercompany/pairing';
+
+describe('intercompany pairing nav entry', () => {
+  it('sits beside the connections entry in the same Settings section, lights Settings and has its own document title', () => {
+    const section = settingsTab.items.find((s) => 'section' in s && s.section === 'Intercompany');
+    expect(JSON.stringify(section)).toContain(`"label":"Intercompany pairing","href":"${PAIRING}"`);
+    expect(getActiveModuleId(PAIRING, {})).toBe('settings');
+    expect(documentTitle(PAIRING, buildPageIndex(true))).toBe('Intercompany pairing · Settings · IsaFlow');
+  });
+});

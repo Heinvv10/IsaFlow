@@ -12,6 +12,7 @@ import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import { DimensionValue } from '../bank-transactions/BankTxDimensionValue';
 import { VAT_OPTIONS, type AllocType, type BankTx, type BankTxTableProps, type RowSelection, type SelectOption, type VatCode } from './bankTxTypes';
 import { getOptionsForType } from './bankTxOptions';
+import { cc2AfterCc1Change, cc2OptionsForCc1 } from './cc2ForCc1';
 import { useBankTxSelectSize } from './useBankTxSelectSize';
 
 /** The "no dimension" row, stored as ''. */
@@ -60,7 +61,11 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
   const selectSize = useBankTxSelectSize();
   const { cc1Options, cc2Options, buOptions, showCC, showBU, onRowVatChange, onRowDimensionChange } = table;
   const cc1Kit = useMemo(() => dimensionOptions(cc1Options, true), [cc1Options]);
-  const cc2Kit = useMemo(() => dimensionOptions(cc2Options, true), [cc2Options]);
+  // #1653: the CC2s on offer are the chosen CC1's own (by the FNO each CC2's chain reaches).
+  const cc2Kit = useMemo(
+    () => dimensionOptions(cc2OptionsForCc1(cc2Options, cc1Options, sel?.cc1Id, sel?.cc2Id), true),
+    [cc2Options, cc1Options, sel?.cc1Id, sel?.cc2Id],
+  );
   const buKit = useMemo(() => dimensionOptions(buOptions, false), [buOptions]);
   // s17(2)(a) denies input tax on entertainment — but its proviso
   // lets a vendor who continuously supplies entertainment claim it,
@@ -138,7 +143,10 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
             label={`Cost centre 1, ${label}`} labelClassName="sr-only" size={selectSize} touchTarget searchable
             options={cc1Kit} value={toKit(sel?.cc1Id)}
             valueOption={storedOption(sel?.cc1Id, cc1Kit, 'Inactive cost centre', tx.cc1Id, tx.cc1Code, tx.cc1Name)}
-            onChange={v => onRowDimensionChange(tx.id, fromKit(v), sel?.cc2Id || '', sel?.buId || '')}
+            onChange={v => {
+              const cc1Id = fromKit(v);
+              onRowDimensionChange(tx.id, cc1Id, cc2AfterCc1Change(sel?.cc2Id || '', cc1Id, cc2Options, cc1Options), sel?.buId || '');
+            }}
           />
         ) : (
           <DimensionValue code={tx.cc1Code} name={tx.cc1Name} source={tx.dimensionSource} />

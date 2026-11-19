@@ -13,6 +13,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+import { seedInvoice } from './helpers/l1FifoFixture';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
 import { fileV, fin, genFile, PRN, row, useFixture, versionOf } from './helpers/returnFileCalls';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
 
@@ -40,26 +42,29 @@ const JUN = { periodStart: '2026-06-01', periodEnd: '2026-07-31' };
 const sha = (b: unknown) => createHash('sha256').update(b as Buffer).digest('hex');
 const text = (b: unknown) => (b as Buffer).toString('utf8');
 let n = 0;
-/** The mixed journal's zero-rated 500 sits in the box 1 base, so the 15% check fails; finalise records that (force). */
-const MIXED = { force: true };
-
-/** A posted sale in the period: standard-rated 1000 + 150 VAT, and 500 zero-rated on the same journal. */
-async function sale(date: string, scale = 1): Promise<void> {
+/**
+ * A posted sale in the period: standard-rated 1000 + 150 VAT, and 500 zero-rated on the same journal. `vat` and
+ * `zeroRated` vary it (a zero-rated amount of 0 posts no zero-rated line); `code` is the 1000's VAT code (null: none).
+ * Returns the journal's id.
+ */
+async function sale(date: string, scale = 1, vat = 150, zeroRated = 500, code: string | null = 'standard'): Promise<string> {
   const acct = async (subtype: string) => String(((await sql`SELECT id FROM gl_accounts
     WHERE company_id = ${a.fx.companyId}::UUID AND account_subtype = ${subtype} LIMIT 1`) as Row[])[0]!.id);
   const ar = await acct('receivable');
-  const vat = await acct('vat_output');
+  const vatAcct = await acct('vat_output');
   const sales = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
     normal_balance, is_active) VALUES (${a.fx.companyId}::UUID, ${`40${n += 1}0`}, ${`Sales ${n}`}, 'revenue', 'sales', 'credit', true)
     RETURNING id`) as Row[])[0]!.id);
   const je = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, source,
     created_by) VALUES (${a.fx.companyId}::UUID, ${`EFV-${n}`}, ${date}::DATE, 'EFa VAT sale', 'posted', 'manual', ${a.admin.userId})
     RETURNING id`) as Row[])[0]!.id);
-  for (const [acc, dr, cr, vt] of [[ar, 1650 * scale, 0, null], [sales, 0, 1000 * scale, 'standard'], [vat, 0, 150 * scale, 'standard'],
-    [sales, 0, 500 * scale, 'zero_rated']] as Array<[string, number, number, string | null]>) {
+  const legs = [[ar, (1000 + vat + zeroRated) * scale, 0, null], [sales, 0, 1000 * scale, code],
+    [vatAcct, 0, vat * scale, 'standard'], [sales, 0, zeroRated * scale, 'zero_rated']] as Array<[string, number, number, string | null]>;
+  for (const [acc, dr, cr, vt] of legs.filter(([, d, c]) => d !== 0 || c !== 0)) {
     await sql`INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit, vat_type)
       VALUES (${je}::UUID, ${a.fx.companyId}::UUID, ${acc}::UUID, ${dr}, ${cr}, ${vt})`;
   }
+  return je;
 }
 const drawer = async (p: typeof APR, token = a.admin.token, form = 'vat201') =>
   callRoute(versions, a.fx.companyId, token, 'GET', { form, ...p });
@@ -81,7 +86,9 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
   }, 120000);
 
   it('finalise records the SARS form; the drawer straight after shows no drift; a later journal is drift', async () => {
-    const v = versionOf(await fin(APR, MIXED));
+    // No force: the mixed journal's zero-rated 500 sits in box 1's base (the report's own check reads 75 out), but
+    // the gate judges field 1, which gives it back (vat201RateCheck): 1 000 x 15% = 150 = the output tax.
+    const v = versionOf(await fin(APR));
     const figures = (await row(String(v.id))).figures as { sarsForm: Array<{ field: string; amount: number | null }>; sarsFields: unknown[] };
     const form = Object.fromEntries(figures.sarsForm.map((f) => [f.field, f.amount]));
     expect(figures.sarsFields.length).toBeGreaterThan(0); // a period with VAT: the false drift needs boxes to reorder
@@ -98,7 +105,7 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
   });
 
   it('the sheet is the recorded form field for field; then it is served as stored, whatever the generator says now', async () => {
-    const id = String(versionOf(await fin(JUN, MIXED)).id);
+    const id = String(versionOf(await fin(JUN)).id);
     const first = await genFile(id, 'vat201', 'csv');
     expect(first.status).toBe(200);
     const csv = text(first.body);
@@ -184,6 +191,37 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
     } finally {
       await sql`UPDATE companies SET vat_number = '4123456789' WHERE id = ${a.fx.companyId}::UUID`;
     }
+  });
+
+  it('a period genuinely out at 15% is refused without force and finalised with it', async () => {
+    // One sale of 1 000 standard-rated with 100 of VAT, nothing nil-rated: the taxed output base is 1 000, 15% is
+    // 150, output tax 100, so the check is 50 out, past the R1 tolerance.
+    const DEC = { periodStart: '2025-12-01', periodEnd: '2026-01-31' };
+    await sale('2025-12-15', 1, 100, 0);
+    const refused = await fin(DEC);
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/RATE_CHECK_FAILED/);
+    expect(JSON.stringify(refused.body)).toContain('output tax is out by -50.00 against 15% of the taxed output supplies of 1000.00,');
+    expect(((await sql`SELECT COUNT(*)::INT AS n FROM tax_return_versions WHERE company_id = ${a.fx.companyId}::UUID
+      AND period_start = '2025-12-01'`) as Row[])[0]!.n).toBe(0);
+    const forced = versionOf(await fin(DEC, { force: true }));
+    expect((await row(String(forced.id))).status).toBe('finalised');
+  });
+
+  it('an invoice that recorded no VAT, on a journal carrying output VAT on uncoded revenue: given back, so refused', async () => {
+    // The revenue line has no VAT code and the invoice's tax_amount is unset, so getNilRatedSupplies reads the 1 000
+    // as zero-rated on a taxed journal and gives it all back (the return's field 1 already did): base 0, tax 150.
+    const OCT = { periodStart: '2025-10-01', periodEnd: '2025-11-30' };
+    const je = await sale('2025-10-15', 1, 150, 0, null);
+    const inv = await seedInvoice(a.fx, { number: 'EFV-UNCODED', date: '2025-10-15', total: 1150 });
+    await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je}::UUID WHERE id = ${inv}::UUID AND company_id = ${a.fx.companyId}::UUID`;
+    expect(await getNilRatedSupplies(a.fx.companyId, OCT.periodStart, OCT.periodEnd))
+      .toMatchObject({ zeroRated: 1000, onTaxedJournals: 1000, uncodedAssumedZeroRated: 1000, uncodedOnTaxedJournals: 1000 });
+    const refused = await fin(OCT);
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toContain('output tax is out by 150.00 against 15% of the taxed output supplies of 0.00, '
+      + 'which exclude 1000.00 of zero-rated or exempt supplies');
+    expect(JSON.stringify(refused.body)).toContain('1000.00 of it is revenue with no VAT code on documents that recorded no VAT');
   });
 
   it('EMP201 versions are payroll detail: a viewer gets 403 and no figures; VAT201 versions stay readable', async () => {

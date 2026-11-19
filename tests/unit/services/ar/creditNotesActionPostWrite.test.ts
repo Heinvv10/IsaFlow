@@ -32,6 +32,7 @@ import handler from '../../../../pages/api/accounting/credit-notes-action';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
+import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { afterJournalWritten } from '@/modules/accounting/services/ar/creditNotePostingChecks';
 import { apiResponse } from '@/lib/apiResponse';
 
@@ -59,6 +60,13 @@ describe('credit-notes-action approve: a failure after the journal is written is
     await call();
     expect(apiResponse.badRequest).toHaveBeenLastCalledWith(expect.anything(), expect.stringMatching(/^VAT_ALREADY_REVERSED/),
       { code: 'VAT_ALREADY_REVERSED' });
+  });
+
+  it('answers a typed-invoice VAT split refusal 400 with its code (pre-write: creditNoteApproveTypedSplit.test.ts)', async () => {
+    approveMock.mockRejectedValueOnce(new CreditNoteVatSplitRefusal('Credit note CN-1: 600.00 of it carries no VAT'));
+    await call();
+    expect(apiResponse.badRequest).toHaveBeenLastCalledWith(expect.anything(), 'Credit note CN-1: 600.00 of it carries no VAT',
+      { code: 'CREDIT_NOTE_VAT_SPLIT_REFUSED' });
   });
 
   it('still answers a pre-write refusal 400', async () => {

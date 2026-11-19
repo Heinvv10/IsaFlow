@@ -79,7 +79,7 @@ the sender's own data only; the sender never reads the receiver's ledger.
 
 ## Revised after P1 review (2026-11-17)
 
-These supersede the Data model above wherever they differ (migration 1000 carries them).
+These supersede the Data model above wherever they differ (migrations 1000 and 1002 carry them).
 
 - **Pair-level agreement.** `settlement_mode`, `cutover_date` and `interest_rate_pct` live on `intercompany_connections`, not on a
   side: they are one agreement between the two companies. A group connection's change needs a write role in BOTH companies (service and
@@ -104,6 +104,81 @@ These supersede the Data model above wherever they differ (migration 1000 carrie
 - **Messages.** `handled_via` (`user` | `auto`) is set server-side; the payload is at most 256 KiB; a dismissed message can be restored to
   pending; a message is accepted only while its connection is active. For the `allocation` and `payment` kinds `source_doc` is the allocation /
   payment ROW id, so a repeat event is a distinct message. `error` holds a generic sentence for a person, never raw SQL or exception text.
+
+### Round 2 (2026-11-18)
+
+- **Migration.** Round 1 is `1000_intercompany_connections.sql` (master took 999p). Round 2 is a FORWARD migration, `1002_intercompany_round2.sql` (1001 is another open PR's): 1000 may reach prod before round 2 merges, so it is never edited. 1002 adds no column and drops none, replaces function bodies and indexes, is idempotent, and backfills rows 1000 may hold (stale group connections are revoked, revoked connections release their links).
+- **A revoked connection releases its customer and supplier links** (registered definer `intercompany_release_links`, trigger on the connection's status), so the per-company unique indexes never hold a customer or supplier on a dead connection; re-activating does not restore them (the checklist shows them undone). The other side settings are kept.
+- **Viewers read only.** Every app_user write on the five tables needs `intercompany_user_can_write(<acting company>)` in the table's
+  guard: a connection's status (revoke, accept, re-activate), a side, a message's sending or handling, a link's insert, confirmation or
+  unlink, a key. P2's auto-accept worker therefore runs with the claims of a write-role user of the RECEIVER (it sets
+  `request.jwt.claims` and `app.current_company_id` for that company); there is no user-less write path, by design.
+- **A deleted group ends its connections.** `intercompany_in_one_group` and the revoke-on-leave trigger both require `company_groups.is_active`;
+  a trigger on `company_groups` (is_active, DELETE) revokes the connections of a group that is deleted (`deleteGroup` clears `is_active`).
+  The revocation is stamped `system:group-membership`; the connections guard accepts it only from migration_admin with a transaction-local
+  flag set by the definer trigger function (the flag alone is settable by any session, so it proves nothing by itself).
+- **`intercompany_in_one_group` is not a membership oracle.** It is false unless the caller is a party (a user of one of the two companies, or
+  a session whose company is one of them); the unrestricted check is internal (`intercompany_shared_group`, executable by migration_admin only).
+- **Group topology is serialised (closed).** Under READ COMMITTED a check of "do A and B share a group" is stale by the time its writer commits,
+  and two memberships changed at the same moment each see the other's change uncommitted (write skew: both leaves pass, no group is left,
+  the connection stays active). One lock protocol, documented in 1002's header, on `intercompany_company_locks` (one row per company, closed to
+  every app role, a row for every company from the start: backfilled as migration_admin, and made by a trigger on `companies`). DECIDERS
+  (`intercompany_in_one_group`: a connection created or re-activated, auto-accept switched on, a message sent) check that the caller is a party,
+  read whether the pair shares a group WITHOUT a lock, and only a pair that does takes its two companies' rows FOR SHARE (then reads again).
+  JOINERS take ALL the group's members' rows and their own FOR SHARE, so a join cannot commit while a changer holds one of them. CHANGERS are
+  STATEMENT-level triggers with transition tables (members and groups, UPDATE and DELETE): one firing sees every row of the statement, so a bulk
+  leave, a group deleted with its members and a multi-row update lock ONE set in ONE sub-transaction (a row-level trigger kept the first row's
+  locks while a later row waited: a stall of unrelated pairs and a wait cycle no deadlock detector sees). They return early only for a statement
+  that changed nothing that can end a connection, and otherwise take the SEEDS (the leavers, or a deactivated group's members), the other party
+  of every CANDIDATE (a live group connection of a seed that would no longer share a group) and the group's members that hold a live group
+  connection to a seed; a member with no connection to a seed is not locked, so a viewer holding it two hops away cannot veto the change. They
+  take the whole set or none (rows `NOWAIT` in a sub-transaction, retrying), re-read under the locks and restart if the set changed, so a
+  waiting changer holds nothing and cannot deadlock. The wait is bounded (`app.intercompany_changer_budget_ms`, default 10 s, at most 30 s): then
+  the statement fails with SQLSTATE 55P03 ("try again in a moment"), nothing changes, and `withErrorHandler` answers it from any route as a 503
+  with `Retry-After` and a neutral message (`removeMember`, `deleteGroup`, `addMember` need no code of their own; the polling is the retry).
+  A session can only delay work that involves a company its user belongs to, or a connected company in a group of its company: a stranger, an
+  ungrouped pair, a claim-less session and a no-op hold nothing, and since 1002 revokes app_user's table-level UPDATE, DELETE and TRUNCATE on
+  `company_group_members` and `company_groups` (column-level UPDATE stays for what the application writes) it cannot `LOCK TABLE` them
+  either. The protocol needs READ COMMITTED's per-statement snapshot for its re-reads, so every path that relies on one (`intercompany_in_one_group`, every
+  changer, the joiner, the sides guard) refuses with SQLSTATE 40001 at REPEATABLE READ or SERIALIZABLE, as migration 886 does for `company_users`
+  (the application never runs these writers at another level). A party's own read-only user that keeps a transaction open can keep that pair's
+  leave failing with 55P03 until it lets go: an accepted limit (a direct party, and an API request is too short to hold). platform_admin can still
+  `LOCK TABLE` the group tables. `intercompany_company_locks` has a foreign key to `companies` that cascades (a company delete waits for a held
+  lock row), and the changer's retry backs off exponentially (5 ms doubling to 1 s, jittered; about 18 attempts in 10 s) and is capped at 60 attempts as well as
+  the time budget, so the bound is deterministic (same 55P03). The companies trigger and the join triggers are origin-only (a restore in replica mode skips them; the lock table restores itself, and a
+  decider recreates a missing row). Tests: `company-locks-scope`, `group-race-matrix` (every kind of membership change x every kind of writer x
+  both orders), `group-race-single`, `group-race-bulk`, `group-tables-grants`, `migration-backfill`. `intercompany_in_one_group` answers only for
+  a signed-in user of one of the two companies (`auth.user_companies()`), never on the strength of the session's company GUC, so it is false when
+  `auth.uid()` is NULL: **the P2 auto-accept worker needs its own definer path** (it must not reuse this check on a company GUC). A side's first
+  save, a message send, accepting a message and a link insert or update hold their connection FOR SHARE, so a revoke in flight is waited for and
+  seen. Active links and their slots survive a revoke until a party unlinks. Limits: row share locks do not queue behind a changer and a changer
+  polls, so continuous overlapping traffic of one company pair can keep that pair's leave from finding a gap (it fails with 55P03 after the
+  budget); an in-transaction "company share, then a row a changer holds" ends in 40P01 only. A message is still only an inbox item until a person
+  (or, from P2, the receiver's auto-accept worker) acts on it.
+- **Links.** A pending pairing holds no unique slot (the unique indexes cover ACTIVE links only; confirming re-checks them), so a partner
+  cannot squat a document by proposing it. Confirming needs the connection active (unlinking does not), and the confirmed side's document must
+  exist in its company (`intercompany_document_exists_as_writer`, a registered definer that answers only for a company in which the caller
+  writes). One mirror link per message.
+- **Messages and their documents.** An invoice / credit_note / interest_invoice message names a SOURCE document that exists in the sending
+  company when it is sent (invoice, interest_invoice: a customer invoice; credit_note: a customer credit note), and an accepted one names a
+  TARGET that exists in the receiving company (a supplier invoice; a supplier credit note); any target a handler sets is held to the same
+  rule. A kind that creates no document (payment, allocation, reject, credit_request) carries no target (cleared). The mirror link re-checks
+  both documents (`intercompany_message_documents_ok`, a registered definer that answers only for the receiver's session, because the
+  receiver cannot see the sender's documents). `handled_via = 'auto'` only when the receiver's side has auto_accept on an active group
+  connection; accept, reject and restore need the connection active (holding its row FOR SHARE, so a revocation at the same moment waits). A receiver
+  document is the target of ONE accepted message per RECEIVING COMPANY, whatever the connection (guard + unique index `intercompany_messages_target_uq`).
+- **A company document is in ONE link at a time, whatever the connection and the position.** `intercompany_document_slots` (a normalised
+  company / type / id with a primary key; closed to every app role) is kept by a definer trigger on the links: an active link holds both
+  documents, a pending pairing only the side its inserter confirmed (that document was checked to be the inserter's own). The other side of a
+  pending pairing names an unchecked document, so it holds nothing (a partner cannot squat a document by proposing it); confirming takes the
+  confirmed side's slot. The primary key serialises concurrent pairings (the second waits, then is refused), also across positions (doc_a of the
+  low company on one connection, doc_b of the high company on another). The per-position unique indexes on active links stay as a second line.
+  1002 refuses to be applied over duplicates, naming them, and backfills the slots of existing links.
+- **A revoked connection also switches auto-accept off** (the release trigger), so a re-activated connection never starts auto-handling
+  by itself; a no-op UPDATE of a connection (`SET status = status`) needs the same write role as a change (the migration's own backfill
+  runs it as the system path).
+- **Hard deletes.** A side's references are `ON DELETE SET NULL`; the foreign key's own UPDATE (one trigger level down, only references going to
+  NULL) passes the sides guard whatever the connection's state, so a purge or a migration rollback is never blocked by a revoked connection.
 
 ## Phases (each = one PR, TDD, blind `/review`; GL-writing PRs get the adversarial ledger reviewer)
 

@@ -16,6 +16,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP, PHONE_TAP_ICON } from '@/components/accounting/formActionBar';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface Client { id: string; name: string }
 interface OutstandingInvoice {
@@ -228,7 +229,7 @@ export default function NewCustomerPaymentPage() {
                             <option key={i.id} value={i.id}>{i.invoice_number} — Balance: {fmt(Number(i.total_amount) - Number(i.amount_paid))}</option>
                           ))}
                         </select>
-                        <input type="number" name="amount" aria-label="Amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} flex-1 sm:flex-none sm:w-36`} />
+                        <AmountInput name="amount" aria-label="Amount" min={0} max={balance || undefined} value={alloc.amount || ''} onValueChange={n => updateAllocation(alloc.key, 'amount', n)} placeholder="Amount" className={`${inp} flex-1 sm:flex-none sm:w-36`} />
                         {allocations.length > 1 && (
                           <button type="button" aria-label={`Remove allocation ${idx + 1}`} onClick={() => removeAllocation(alloc.key)} className={`p-1.5 ${PHONE_TAP_ICON} rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors`}><Trash2 className="h-4 w-4" /></button>
                         )}

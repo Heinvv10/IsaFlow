@@ -20,7 +20,7 @@ transaction, and prove the result with read-only post-checks. Entry point
 - Exit 0 done or clean, 1 a post-check failed (rolled back) or `--check-only` found a failure, 2 refused
   before any write.
 - Refuses when: the company is missing or not `is_demo`; the role neither bypasses RLS nor is a
-  superuser; a table with Demo rows is in neither the wipe nor the keep list (`censusUnclassified`);
+  superuser; an intercompany connection, message or link names the Demo company (`intercompanyRelationRows`: they have no company_id, so the census cannot see them); a table with Demo rows is in neither the wipe nor the keep list (`censusUnclassified`);
   the wipe plan names a table the database lacks; `intercompany_transactions` name Demo journals;
   `supplier_payment` approval is enforced (paid payments cannot be seeded without forging approvals); a
   child row of a multi-FK wipe step names a Demo parent AND another company's parent (`crossTenantChildren`).
@@ -29,7 +29,7 @@ transaction, and prove the result with read-only post-checks. Entry point
 **Main signatures:** `runReseed(opts) -> { exitCode, inserted, deleted }` (run.ts);
 `generateDemoData({ today, seed, accounts, docs, payroll, ... }) -> DemoData` (generate.ts, pure: no
 database, no clock, no unseeded randomness); `runPostChecks(tx, { companyId, win, before?, extraChecks? })`
-(postCheck.ts); `WIPE_STEPS`, `KEEP_TABLES`, `KEEP_PREFIXES`, `stepWhere` (wipePlan.ts);
+(postCheck.ts); `WIPE_STEPS`, `KEEP_TABLES`, `KEEP_PREFIXES` (wipePlan.ts); `stepWhere`, `countSql`, `deleteSql` (wipeSql.ts, re-exported by wipePlan.ts);
 `findDeniedNames(text)` (denylist.ts).
 
 **Business rules:**

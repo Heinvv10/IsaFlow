@@ -19,7 +19,7 @@ import { PurchaseOrderImportRefusal } from '@/modules/accounting/services/ap/pur
 import { BudgetExceededError } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import type { McpToolContext } from '@/lib/mcp/types';
 
-const ctx = { userId: 'u1', companyId: 'c1', scopes: ['write:invoices'], tokenJti: null, oauthAppId: null } as unknown as McpToolContext;
+const ctx = { userId: 'u1', companyId: 'c1', scopes: ['write:invoices'], tokenJti: null, oauthAppId: null, companyRole: 'owner' } as unknown as McpToolContext;
 const PO = {
   po_number: 'PO0000197', supplier_id: '11111111-1111-4111-8111-111111111111', order_date: '2026-06-10',
   lines: [{ description: 'Cable', quantity: 1, unit_price: 10 }],
@@ -33,7 +33,7 @@ const body = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.te
 
 beforeEach(() => {
   importMock.mockReset();
-  prepareMock.mockReset().mockResolvedValue({ items: [{ index: 0 }], warnings: [] });
+  prepareMock.mockReset().mockResolvedValue({ items: [{ index: 0 }], warnings: [], warningsByIndex: new Map() });
   store.client = {};
 });
 
@@ -96,5 +96,69 @@ describe('bulk_create_purchase_orders handler', () => {
 
     importMock.mockRejectedValue(new Error('boom'));
     await expect(call({})).rejects.toThrow('boom');
+  });
+});
+
+describe('bulk_create_purchase_orders: budget_check in the dry run and skip_budget_check_for_import', () => {
+  const check = (over: Record<string, unknown> = {}) => ({ outcome: 'ok', policy: 'block', reasons: [], skipped: false, would_have_failed: false, ...over });
+  const blockedPo = (skipped: boolean) => created({ budget_check: check({ outcome: 'block', reasons: ['Over budget: BB-6100'], skipped, would_have_failed: true }) });
+
+  it('is owner / admin only: refused before the batch is parsed, prepared or run, in a dry run too', async () => {
+    for (const companyRole of ['manager', 'viewer', null, undefined]) {
+      for (const dry_run of [false, true]) {
+        const r = await tool.handler({ idempotency_key: 'k', purchase_orders: [], skip_budget_check_for_import: true, dry_run }, { ...ctx, companyRole } as McpToolContext);
+        expect(r).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('only an owner or admin may do') }] });
+      }
+    }
+    expect(prepareMock).not.toHaveBeenCalled();
+    expect(importMock).not.toHaveBeenCalled();
+    expect(await call({ skip_budget_check_for_import: 'yes' })).toMatchObject({ isError: true, content: [{ text: 'skip_budget_check_for_import must be true or false' }] });
+  });
+
+  it('an owner or admin passes the flag and dry_run to the service', async () => {
+    importMock.mockResolvedValue(created());
+    for (const companyRole of ['owner', 'admin']) {
+      await tool.handler({ idempotency_key: 'k', purchase_orders: [PO], skip_budget_check_for_import: true, dry_run: true }, { ...ctx, companyRole } as McpToolContext);
+      expect(importMock.mock.calls.at(-1)![2]).toMatchObject({ skipBudgetCheck: true, dryRun: true });
+    }
+    await call({});
+    expect(importMock.mock.calls.at(-1)![2]).toMatchObject({ skipBudgetCheck: false, dryRun: false });
+  });
+
+  it('a dry run with a PO the live call would refuse is would_succeed false and lists it; the other POs keep their own check', async () => {
+    importMock.mockResolvedValue({
+      purchaseOrders: [{ ...created().purchaseOrders[0], budget_check: check() }, { ...blockedPo(false).purchaseOrders[0], index: 1, po_number: 'PO0000198' }],
+      counter: { prefix: 'PO', next_number: 199, raised: true },
+    });
+    const r = await call({ dry_run: true });
+    expect(body(r)).toMatchObject({ dry_run: true, would_succeed: false, budget_blocked: [{ index: 1, po_number: 'PO0000198', reasons: ['Over budget: BB-6100'] }] });
+    expect(body(r)).not.toHaveProperty('skip_budget_check_for_import');
+    const pos = body(r).purchase_orders as Array<{ id: string | null; budget_check: { outcome: string } }>;
+    expect(pos.map((p) => [p.id, p.budget_check.outcome])).toEqual([[null, 'ok'], [null, 'block']]);
+    expect(r).toMatchObject({ wroteNothing: true, billable: false });
+  });
+
+  it('with the flag: would_succeed, and the POs the block would have refused are listed (dry run and live)', async () => {
+    importMock.mockResolvedValue(blockedPo(true));
+    const dry = await call({ dry_run: true, skip_budget_check_for_import: true });
+    expect(body(dry)).toMatchObject({ would_succeed: true, skip_budget_check_for_import: true, would_have_failed: [{ index: 0, po_number: 'PO0000197', reasons: ['Over budget: BB-6100'] }] });
+    expect(body(dry)).not.toHaveProperty('budget_blocked');
+    const live = await call({ skip_budget_check_for_import: true });
+    expect(body(live)).toMatchObject({ created: 1, skip_budget_check_for_import: true, would_have_failed: [{ index: 0 }] });
+    importMock.mockResolvedValue(created({ budget_check: check({ skipped: true }) }));
+    expect(body(await call({ skip_budget_check_for_import: true }))).toMatchObject({ would_have_failed: [] });
+  });
+
+  it('each created PO carries its own dimension_warnings (dry run and live), a replay none', async () => {
+    prepareMock.mockResolvedValue({ items: [{ index: 0 }, { index: 1 }], warnings: ['purchase_orders[1].lines[0]: cos'], warningsByIndex: new Map([[1, ['purchase_orders[1].lines[0]: cos']]]) });
+    importMock.mockResolvedValue({
+      purchaseOrders: [{ ...created().purchaseOrders[0] }, { ...created().purchaseOrders[0], index: 1, id: 'p2', po_number: 'PO0000198' }],
+      counter: { prefix: 'PO', next_number: 199, raised: true },
+    });
+    const dry = await call({ dry_run: true });
+    expect((body(dry).purchase_orders as Array<Record<string, unknown>>).map((p) => p.dimension_warnings)).toEqual([undefined, ['purchase_orders[1].lines[0]: cos']]);
+    expect(body(dry).dimension_warnings).toEqual(['purchase_orders[1].lines[0]: cos']);
+    const live = await call({});
+    expect((body(live).purchase_orders as Array<Record<string, unknown>>).map((p) => p.dimension_warnings)).toEqual([undefined, ['purchase_orders[1].lines[0]: cos']]);
   });
 });

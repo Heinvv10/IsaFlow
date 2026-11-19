@@ -10,6 +10,7 @@ import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface SupplierReturn {
   id: string; return_number: string; supplier_name: string;
@@ -50,7 +51,7 @@ export default function SupplierReturnsPage() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.supplierId) { notify.error('Please select a supplier'); return; }
-    if (!form.amount || Number(form.amount) <= 0) { notify.error('Please enter a valid amount'); return; }
+    if (!(Number(form.amount) > 0)) { notify.error('Please enter a valid amount'); return; }
     setSubmitting(true);
     try {
       const res = await apiFetch('/api/accounting/supplier-returns', {
@@ -147,7 +148,7 @@ export default function SupplierReturnsPage() {
                     <label className={lbl}>Amount *</label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm font-medium">R</span>
-                      <input type="number" min="0.01" step="0.01" className={`${inp} pl-7`} placeholder="0.00" value={form.amount} onChange={e => setField('amount', e.target.value)} required />
+                      <AmountInput min={0.01} className={`${inp} pl-7`} placeholder="0.00" value={form.amount} onValueChange={(_n, text) => setField('amount', text)} required />
                     </div>
                   </div>
                   <div>

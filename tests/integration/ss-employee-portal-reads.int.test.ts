@@ -108,9 +108,12 @@ describe('employee portal reads', () => {
   it('a run that is not final is not shown, even with its approval time and snapshot still in place', async () => {
     // A reopen clears approved_at, so the snapshot rule alone would hide it; this proves the finality rule on its own.
     const setStatus = async (s: string) => {
-      await a.pool.query('ALTER TABLE payroll_run_headers DISABLE TRIGGER USER');
+      // Only 999n's freeze trigger is set aside, and it is restored as ENABLE ALWAYS: ENABLE TRIGGER USER would leave
+      // it an ordinary trigger, which session_replication_role = replica skips, turning a later suite on this database
+      // (fz-payroll-final-run-frozen's replica cases) red by shard order.
+      await a.pool.query('ALTER TABLE payroll_run_headers DISABLE TRIGGER trg_payroll_run_headers_final_frozen');
       try { await a.pool.query('UPDATE payroll_run_headers SET status = $2 WHERE id = $1', [run1, s]); }
-      finally { await a.pool.query('ALTER TABLE payroll_run_headers ENABLE TRIGGER USER'); }
+      finally { await a.pool.query('ALTER TABLE payroll_run_headers ENABLE ALWAYS TRIGGER trg_payroll_run_headers_final_frozen'); }
     };
     await setStatus('draft');
     try {
@@ -143,11 +146,11 @@ describe('employee portal reads', () => {
 
   it('a final slip whose details were not frozen at this approval (a run approved before PS3) is not shown', async () => {
     expect(await runs(jars.two!)).toContain(run2);
-    await a.pool.query('ALTER TABLE payroll_run_lines DISABLE TRIGGER USER');
+    await a.pool.query('ALTER TABLE payroll_run_lines DISABLE TRIGGER trg_payroll_run_lines_final_frozen');
     try {
       await a.pool.query('UPDATE payroll_run_lines SET payslip_snapshot = NULL WHERE run_id = $1', [run2]);
     } finally {
-      await a.pool.query('ALTER TABLE payroll_run_lines ENABLE TRIGGER USER');
+      await a.pool.query('ALTER TABLE payroll_run_lines ENABLE ALWAYS TRIGGER trg_payroll_run_lines_final_frozen');
     }
     expect(await runs(jars.two!)).toEqual([run1]);
     expect((await getSlip(jars.two!, run2)).statusCode).toBe(404);

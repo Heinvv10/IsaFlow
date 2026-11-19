@@ -53,7 +53,7 @@ export interface ParsedPo {
   lines: ParsedPoLine[];
 }
 
-type Obj = Record<string, unknown>;
+export type Obj = Record<string, unknown>;
 
 /** The keys each object may carry: anything else (a misspelt line_total, an item_id) is refused, never ignored. */
 const PO_KEYS = new Set(['po_number', 'supplier_id', 'order_date', 'delivery_date', 'reference', 'notes', 'status', 'inclusive',
@@ -61,13 +61,13 @@ const PO_KEYS = new Set(['po_number', 'supplier_id', 'order_date', 'delivery_dat
 const TOTAL_KEYS = new Set(['subtotal', 'tax_amount', 'total']);
 const LINE_KEYS = new Set(['description', 'quantity', 'unit_price', 'tax_rate', 'line_total', 'tax_amount', 'gl_account_id', 'cc1', 'cc2', 'bu']);
 
-function unknownKey(o: Obj, allowed: ReadonlySet<string>, label: string): string | null {
+export function unknownKey(o: Obj, allowed: ReadonlySet<string>, label: string): string | null {
   const extra = Object.keys(o).find((k) => !allowed.has(k));
   return extra === undefined ? null : `${label}.${extra} is not a field of this tool (allowed: ${[...allowed].join(', ')})`;
 }
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-function text(o: Obj, key: string, max: number, label: string, required: boolean): string | null | { error: string } {
+export function text(o: Obj, key: string, max: number, label: string, required: boolean): string | null | { error: string } {
   const v = o[key];
   if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
     return required ? { error: `${label}.${key} is required` } : null;
@@ -77,14 +77,14 @@ function text(o: Obj, key: string, max: number, label: string, required: boolean
   return v.trim();
 }
 
-function date(o: Obj, key: string, label: string, required: boolean): string | null | { error: string } {
+export function date(o: Obj, key: string, label: string, required: boolean): string | null | { error: string } {
   const v = o[key];
   if (v === undefined || v === null || v === '') return required ? { error: `${label}.${key} is required (YYYY-MM-DD)` } : null;
   if (typeof v !== 'string' || !DATE_RE.test(v) || !isRealCalendarDate(v)) return { error: `${label}.${key} must be a real date, YYYY-MM-DD` };
   return v;
 }
 
-function num(o: Obj, key: string, label: string, opts: { min: number; max: number; exclusiveMin?: boolean; cents?: boolean }): number | undefined | { error: string } {
+export function num(o: Obj, key: string, label: string, opts: { min: number; max: number; exclusiveMin?: boolean; cents?: boolean }): number | undefined | { error: string } {
   const v = o[key];
   if (v === undefined || v === null) return undefined;
   if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${label}.${key} must be a number` };
@@ -94,7 +94,7 @@ function num(o: Obj, key: string, label: string, opts: { min: number; max: numbe
   return v;
 }
 
-const err = (v: unknown): v is { error: string } => isObj(v) && typeof v.error === 'string';
+export const err = (v: unknown): v is { error: string } => isObj(v) && typeof v.error === 'string';
 
 /** external_ref as the flat trio, or as {system, id, document_number}; a numeric Sage id is accepted. */
 function refOf(o: Obj): ParsedCreateRef | null | string {

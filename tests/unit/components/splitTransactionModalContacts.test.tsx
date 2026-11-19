@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { SplitTransactionModal } from '@/components/accounting/SplitTransactionModal';
+import { SplitTransactionModal, cents } from '@/components/accounting/SplitTransactionModal';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
@@ -78,7 +78,7 @@ it('an account line still posts its account, VAT and project; a customer line of
   fireEvent.click(screen.getByRole('button', { name: /add line/i }));
   fireEvent.change(screen.getByLabelText('Line 2 type'), { target: { value: 'customer' } });
   expect(screen.queryByRole('button', { name: 'Southern Elements' })).toBeNull();
-  fireEvent.change(screen.getByLabelText('Line 2 amount'), { target: { value: '959.475' } }); // rounds to cents
+  fireEvent.change(screen.getByLabelText('Line 2 amount'), { target: { value: '959.48' } }); // a third decimal is refused at the field now (AmountInput); cents() still rounds
   pick('Select customer', 'Acme');
 
   fireEvent.click(screen.getByRole('button', { name: 'Split & Allocate' }));
@@ -115,3 +115,10 @@ it('an account line with VAT and a project, switched to a supplier, posts none o
   expect((posts[0] as { lines: unknown[] }).lines).toEqual([{ amount: 1959.48, contactType: 'supplier', contactId: 'sup-se' }]);
 });
 
+
+it('cents() still rounds a third decimal that reaches it (the field refuses typing one, a parent could still hand one in)', () => {
+  expect(cents('959.475')).toBe(959.48);
+  expect(cents('959.474')).toBe(959.47);
+  expect(cents('.')).toBe(0);
+  expect(cents('')).toBe(0);
+});

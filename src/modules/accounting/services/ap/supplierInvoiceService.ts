@@ -15,6 +15,7 @@ import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
+import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
   SupplierInvoiceItem,
@@ -138,6 +139,9 @@ export async function createSupplierInvoice(
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
+      // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
+      // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
+      await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
@@ -183,6 +187,10 @@ export async function createSupplierInvoice(
           )
         `;
       }
+
+      // Migration 1006: the table is the one list of bill <-> PO links. The header PO and every PO the lines name (of this
+      // supplier, in a linkable status) get an `app` link, in the bill's own transaction.
+      await recordBillLinks(companyId, invoiceId, userId, tx);
 
       return rows[0] as Row;
     });

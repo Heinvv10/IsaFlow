@@ -91,6 +91,7 @@
   "tests/integration/k144-match-line-lock-timeout.int.test.ts": 6,
   "tests/integration/k144-match-table-lock-not-a-race.int.test.ts": 6,
   "tests/integration/link-revoke-locking.int.test.ts": 6,
+  "tests/integration/mcp-po-maintenance-races.int.test.ts": 4,
   "tests/integration/migration-parity-gate.int.test.ts": 3,
   "tests/integration/numrace-admin-invoice.int.test.ts": 6,
   "tests/integration/numrace-grn-held.int.test.ts": 6,
