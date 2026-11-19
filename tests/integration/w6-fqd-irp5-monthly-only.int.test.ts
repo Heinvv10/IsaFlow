@@ -20,6 +20,10 @@ import sarsEmp501 from '../../pages/api/accounting/sars/emp501';
 import preValidation from '../../pages/api/payroll/pre-validation';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { RunKindUnsupportedError } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { assembleEasyFileInput } from '@/modules/accounting/services/payroll/easyFileInput';
+import { buildEmp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
+import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
+import emp501Returns from '../../pages/api/payroll/emp501/returns';
 
 let a: R;
 let b: R;
@@ -69,6 +73,26 @@ describe('IRP5 and EMP501 are monthly-only this wave', () => {
   it('the IRP5 data service (MCP irp5_data) refuses it too', async () => {
     const e = await getIrp5EmployeeTotals(a.company, 2027).catch((x: unknown) => x);
     expect([e instanceof RunKindUnsupportedError, (e as RunKindUnsupportedError).action]).toEqual([true, 'irp5']);
+  });
+
+  // EFb #1568's EMP501 lifecycle reads the same e@syFile input: the export, the figures a finalise snapshots (the filing
+  // file is built from that snapshot only), and the finalise itself. The interim (Mar-Aug) is refused too: the year has
+  // a weekly run, even though this one (Jan 2027) is outside the interim's months.
+  it.each(['annual', 'interim'] as const)('EFb: the %s e@syFile input and the EMP501 figures refuse it', async (kind) => {
+    const e = await assembleEasyFileInput(a.company, 2027, kind).catch((x: unknown) => x);
+    expect([e instanceof RunKindUnsupportedError, (e as Error).message]).toEqual([true, expect.stringContaining('weekly run for 4–10 Jan 2027')]);
+    const f = await buildEmp501Figures(a.company, emp501Period(2027, kind), false).catch((x: unknown) => x) as { status?: number; refusalCode?: string; message?: string };
+    expect([f.status, f.refusalCode]).toEqual([409, 'RUN_KIND_UNSUPPORTED']);
+    expect(f.message).toContain('IRP5 and EMP501 certificates cover monthly runs only in this release');
+  });
+
+  // Today the 2027 annual has not ended (finalise refuses it 400 for that), so the ended interim (Mar-Aug 2026) is used.
+  it('EFb: an EMP501 interim finalise for that year is refused (409, named) and stores no version', async () => {
+    const res = await a.call(emp501Returns as Route, 'POST', '/api/payroll/emp501/returns', undefined,
+      { body: { action: 'finalise', periodStart: '2026-03-01', periodEnd: '2026-08-31' } });
+    expect([res.statusCode, res.body.error?.message]).toEqual([409, expect.stringContaining('weekly run for 4–10 Jan 2027')]);
+    const stored = await a.pool.query("SELECT count(*)::int AS n FROM tax_return_versions WHERE company_id = $1", [a.company]);
+    expect(stored.rows[0]!.n).toBe(0);
   });
 
   // The legacy /api/accounting/sars/emp501 reads payroll_runs/payslips, tables that no longer exist (a 500 on master

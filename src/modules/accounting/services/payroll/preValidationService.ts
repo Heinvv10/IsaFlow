@@ -56,7 +56,8 @@ export interface PreValidationResult {
   employees: PreValidationEmployee[];
 }
 
-export type PreValidationScope = { taxYear?: number; employeeId?: string; runId?: string };
+/** `throughMonth` (YYYYMM): only runs up to that month of the tax year (the interim EMP501, wave 6 EFb). */
+export type PreValidationScope = { taxYear?: number; employeeId?: string; runId?: string; throughMonth?: number };
 
 export function fixFor(employeeId: string, m: ValidationMessage): { fixHref: string; fixLabel: string } {
   const profile = `/payroll/employees/${employeeId}`;
@@ -94,7 +95,7 @@ export async function preValidateTaxYear(companyId: string, scope: PreValidation
   if (taxYear === null) return null;
   await assertCertificateYearMonthlyOnly(companyId, taxYear); // IRP5 pre-validation: monthly-only certificates this wave
   const codeReleaseLoaded = (await listSarsCodes(taxYear)).length > 0;
-  const rows = await loadFinalLineTotals(companyId, taxYear, scope.employeeId ?? null, scope.runId ?? null);
+  const rows = await loadFinalLineTotals(companyId, taxYear, scope.employeeId ?? null, scope.runId ?? null, scope.throughMonth ?? null);
   const severance = await loadSeveranceDirectives(companyId, taxYear, rows.map((r) => r.employee_id));
 
   const employees: PreValidationEmployee[] = [];
