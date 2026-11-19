@@ -10,10 +10,11 @@ import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preVal
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import {
-  cents, emp201Mismatches as mismatchesOf, emp501Filings, filedPeriodTotals, legacyWarnings, monthName, notFinalRunMonths, pspExplainedMonths,
+  cents, emp201Mismatches as mismatchesOf, emp501Filings, filedPeriodTotals, legacyWarnings, monthName, notFinalRunMonths,
   pspPeriodTotals, type MonthTotals,
 } from './emp501Months';
 import { driftOf } from './returnDrift';
+import { pspExplainedMonths } from './emp501Psp';
 import { ReturnRefusal } from './returnVersionTypes';
 
 export const EMP501_NOT_READY = 'EMP501_NOT_READY';

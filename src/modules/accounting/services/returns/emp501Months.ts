@@ -221,18 +221,8 @@ export function pspPeriodTotals(f: Emp501Filings): MonthTotals {
   return [...f.psp.values()].reduce(add, ZERO);
 }
 
-/**
- * explained_psp (coordinator ruling 2026-11-19): a filed EMP201 that equals the certificates plus the month's PSP lines,
- * with PSP PAYE above nil. Never a refusal: 'March 2026: explained by PSP PAYE 4050.00 (PSP-H pending)'.
- */
-export function pspExplainedMonths(f: Emp501Filings): string[] {
-  return f.months.flatMap((m) => {
-    const psp = f.psp.get(m.month);
-    if (m.emp201.kind !== 'version' || !psp || psp.paye <= 0) return [];
-    return differences(versionTotals(m.emp201.version), add(m.totals, psp)).length === 0
-      ? [`${monthName(m.month)}: explained by PSP PAYE ${psp.paye.toFixed(2)} (PSP-H pending)`] : [];
-  });
-}
+/** Any PSP figure not nil (wave 6 PSP; pspExplainedMonths in emp501Psp.ts names them). */
+export const anyNonZero = (t: MonthTotals | null | undefined): t is MonthTotals => !!t && (t.paye !== 0 || t.uif !== 0 || t.sdl !== 0);
 
 /** 'PAYE 4000.00 filed, 9000.00 on the certificates' for each total that differs (in cents). */
 export function differences(filed: MonthTotals, certs: MonthTotals): string[] {
@@ -250,14 +240,14 @@ export function emp201Mismatches(f: Emp501Filings): string[] {
   for (const m of f.months) {
     if (m.emp201.kind !== 'version') continue;
     const d = differences(versionTotals(m.emp201.version), add(m.totals, f.psp.get(m.month) ?? ZERO));
-    if (d.length > 0) out.push(`${monthName(m.month)}: ${d.join(', ')}${f.psp.has(m.month) ? ' (certificates plus PSP lines)' : ''}`);
+    if (d.length > 0) out.push(`${monthName(m.month)}: ${d.join(', ')}${anyNonZero(f.psp.get(m.month)) ? ' (certificates plus PSP lines)' : ''}`);
   }
   for (const row of f.legacyRows) {
     if (!row.stored || !row.spanCertificates) continue;
     const d = differences(row.stored, add(row.spanCertificates, row.spanPsp ?? ZERO));
     const name = monthsName([row.start.slice(0, 7), row.end.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i));
     const label = [row.span > 1 ? 'one EMP201' : null, row.reference ? `reference ${row.reference}` : null].filter(Boolean).join(', ');
-    if (d.length > 0) out.push(`${name}${label ? ` (${label})` : ''}: ${d.join(', ')}`);
+    if (d.length > 0) out.push(`${name}${label ? ` (${label})` : ''}: ${d.join(', ')}${anyNonZero(row.spanPsp) ? ' (certificates plus PSP lines)' : ''}`);
   }
   return out;
 }
