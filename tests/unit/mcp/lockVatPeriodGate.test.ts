@@ -19,7 +19,9 @@ const m = vi.hoisted(() => ({
   assertVatGateClear: vi.fn(),
   getCompanyRoleForUser: vi.fn(),
   getVatExceptions: vi.fn(),
+  getNilRatedSupplies: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({ getNilRatedSupplies: m.getNilRatedSupplies }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => ({
   getVatPeriodLock: m.getVatPeriodLock,
   lockVatPeriod: m.lockVatPeriod,
@@ -48,12 +50,13 @@ vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => {
 
 import { lockVatPeriodTool } from '@/lib/mcp/tools/vatReports';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, TYING_REPORT } from '../services/reports/helpers/vat201MixedJournal';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
 const ctx: McpToolContext = { userId: USER, companyId: COMPANY, scopes: ['read:vat', 'write:vat'], tokenJti: 'tok-1', oauthAppId: null };
 const FIGURES = { outputTax: 150, inputTax: 45, netVat: 105, postedThrough: '2026-04-30T10:00:00.000Z' };
-const REPORT = { rateCheck: { ties: true }, excludedRows: [] };
+const REPORT = { ...TYING_REPORT, excludedRows: [] };
 const args = { period_start: '2026-03-01', period_end: '2026-04-30', idempotency_key: 'key-1' };
 
 function text(result: { content: { text: string }[] }) {
@@ -69,6 +72,7 @@ beforeEach(() => {
   m.getCompanyRoleForUser.mockResolvedValue('owner');
   m.assertVatGateClear.mockResolvedValue({ overridden: false, counts: { totalExceptions: 0 } });
   m.lockVatPeriod.mockResolvedValue({ lock: { id: 'lock-1' }, created: true });
+  m.getNilRatedSupplies.mockResolvedValue(NIL_NONE);
 });
 
 describe('dry_run', () => {
@@ -112,6 +116,31 @@ describe('live call', () => {
   it('locks when the gate passes clean', async () => {
     const result = await lockVatPeriodTool.handler(args, ctx);
     expect(result.isError).toBeUndefined();
+    expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the 15% check is judged on field 1, after the nil-rated give-back', () => {
+  const mixed = () => m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { ...MIXED_REPORT, excludedRows: [] } });
+
+  it('locks a mixed-journal period without force when the nil-rated share explains box 1', async () => {
+    mixed();
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    const result = await lockVatPeriodTool.handler(args, ctx);
+    expect(result.isError).toBeUndefined();
+    expect(m.getNilRatedSupplies).toHaveBeenCalledWith(COMPANY, '2026-03-01', '2026-04-30');
+    expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the same box 1 when nothing nil-rated explains it, dry run included; force locks it', async () => {
+    mixed();
+    for (const call of [args, { ...args, dry_run: true }]) {
+      const refused = await lockVatPeriodTool.handler(call, ctx);
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0]!.text).toContain('box 1 is out by -75');
+    }
+    expect(m.lockVatPeriod).not.toHaveBeenCalled();
+    expect((await lockVatPeriodTool.handler({ ...args, force: true }, ctx)).isError).toBeUndefined();
     expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
   });
 });

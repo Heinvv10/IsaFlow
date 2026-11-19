@@ -16,6 +16,8 @@ import {
   lockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { rateCheckForFiling } from '@/modules/accounting/services/reports/vat201RateCheck';
 import { VatPeriodLockRefusal, assertLockablePeriod } from '@/modules/accounting/services/reports/vatPeriodLockBounds';
 import {
   assertVatGateClear, getCompanyRoleForUser, vatGateExceptionCounts, VatGateBlockedError, VatGateOverrideForbiddenError,
@@ -119,7 +121,8 @@ export const lockVatPeriodTool: McpTool = {
     'Records that a VAT period has been filed and stops it being changed. Stores the return that was filed — output tax, input tax, net VAT — together with the posted_through those figures were computed at, so that a later disagreement between the filed return and the ledger can be told apart from an arithmetic error. '
     + 'WHY YOU NEED IT: nothing else stops a journal being posted into a period that has already been filed. One live ledger accepts a 2022 posting made today, and the return submitted for 2022 no longer agrees with the ledger it came from, with nothing recording that it ever did. '
     + 'RUN dry_run FIRST. The dry run runs every guard the live call runs — the period must not run backwards, must not already be locked, and its 15% check is reported — and writes nothing. '
-    + 'It REFUSES to lock a period whose rateCheck.ties is false unless you pass force:true, because a return that fails SARS\'s own check is not one to freeze; fix it or record explicitly that you are filing it as it stands. '
+    + 'It REFUSES to lock a period that fails SARS\'s 15% check on the return\'s field 1 unless you pass force:true, because a return that fails SARS\'s own check is not one to freeze; fix it or record explicitly that you are filing it as it stands. '
+    + 'Field 1 gives back the zero-rated and exempt share of a journal that also carries output VAT, so rateCheck.ties (box 1 before that give-back) can read false on a period this tool locks. '
     + 'BOUNDS: the period must end on or before today, span at most 12 months, and not overlap another active lock. '
     + 'IDEMPOTENT BY THE PERIOD ITSELF: locking a period that is already locked returns the EXISTING lock and does not overwrite its figures, so a retry can never rewrite what was filed. '
     + 'ENFORCED: once locked, every posting that would move a VAT-return figure dated inside the period is refused (a journal with no VAT line still posts), and a reversal whose default date falls inside it is dated forward past the lock. '
@@ -174,11 +177,15 @@ export const lockVatPeriodTool: McpTool = {
       throw err;
     }
 
-    if (!existing && report.rateCheck.ties === false && args.force !== true) {
-      return toolError(
-        `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is over-claimed by ${report.rateCheck.inputVariance} (summed per journal). `
-        + 'Read vat_status detail="full" to find which journals, or pass force:true to lock it as it stands.',
-      );
+    if (!existing && args.force !== true) {
+      const nilRated = await getNilRatedSupplies(ctx.companyId, period.start, period.end);
+      const rateCheck = rateCheckForFiling(report, nilRated);
+      if (!rateCheck.ties) {
+        return toolError(
+          `This period fails SARS's 15% check: box 1 is out by ${rateCheck.outputVariance} and input tax is over-claimed by ${rateCheck.inputVariance} (summed per journal). `
+          + 'Read vat_status detail="full" to find which journals, or pass force:true to lock it as it stands.',
+        );
+      }
     }
 
     const actor = actorForMcp(ctx, 'mcp:lock_vat_period:v1');

@@ -73,7 +73,7 @@ const NOT_EXCHANGE_RATES: Record<string, { sites: number; why: string }> = {
   'src/modules/accounting/services/practice/wipInvoiceGuards.ts': { sites: 1, why: 'hourly billing rate' },
   'src/modules/accounting/services/reports/beeComplianceService.ts': { sites: 1, why: 'B-BBEE spend percentage' },
   'src/modules/accounting/services/reports/timeTrackingReportService.ts': { sites: 1, why: 'hourly billing rate' },
-  'src/modules/accounting/services/reports/vat201LedgerFields.ts': { sites: 1, why: 'VAT rate' },
+  'src/modules/accounting/services/reports/vat201RateCheck.ts': { sites: 1, why: 'VAT rate (field 1 x 15%, moved from vat201LedgerFields)' },
   'src/modules/accounting/services/reports/vatInputOverclaim.ts': { sites: 1, why: 'VAT rate' },
   'src/modules/accounting/services/reports/vatInputSupport.ts': { sites: 2, why: 'VAT fraction of a bank amount' },
   'pages/api/accounting/time-entries-invoice.ts': { sites: 3, why: 'hourly billing rate (twice) and the VAT rate percentage' },

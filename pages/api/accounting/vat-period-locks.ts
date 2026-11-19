@@ -8,7 +8,8 @@
  *        { action: 'lock', periodStart, periodEnd, notes?, force?, overrideReason? }
  *          Records the filed return (the same figures lock_vat_period records,
  *          from computeVatLockFigures). Refuses a period failing SARS's 15%
- *          check unless force:true (unrelated to overrideReason — see below).
+ *          check on field 1 (rateCheckForFiling, after the nil-rated
+ *          give-back) unless force:true (unrelated to overrideReason — see below).
  *          Idempotent on the period.
  *          Separately, refuses when getVatExceptions reports blocking
  *          exceptions, UNLESS the caller is owner/admin and supplies a
@@ -36,6 +37,8 @@ import {
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { VatPeriodAmendRequired } from '@/modules/accounting/services/returns/liveVersionGuard';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { rateCheckForFiling } from '@/modules/accounting/services/reports/vat201RateCheck';
 import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
@@ -85,10 +88,14 @@ async function lockChecked(
 ) {
   const { figures, report } = await computeVatLockFigures(companyId, body.periodStart, body.periodEnd);
   const existing = await getVatPeriodLock(companyId, body.periodStart, body.periodEnd);
-  if (!existing && report.rateCheck.ties === false && body.force !== true) {
-    return apiResponse.badRequest(res,
-      `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is `
-      + `over-claimed by ${report.rateCheck.inputVariance} (summed per journal). Correct it, or lock with force to record it as filed.`);
+  if (!existing && body.force !== true) {
+    const nilRated = await getNilRatedSupplies(companyId, body.periodStart, body.periodEnd);
+    const rateCheck = rateCheckForFiling(report, nilRated);
+    if (!rateCheck.ties) {
+      return apiResponse.badRequest(res,
+        `This period fails SARS's 15% check: box 1 is out by ${rateCheck.outputVariance} and input tax is `
+        + `over-claimed by ${rateCheck.inputVariance} (summed per journal). Correct it, or lock with force to record it as filed.`);
+    }
   }
   // Blocking VAT exceptions — separate from the rateCheck/force refusal above.
   // Runs before lockVatPeriod's write; only an owner/admin with a reason may

@@ -41,7 +41,9 @@ const m = vi.hoisted(() => ({
   listVatPeriodLocks: vi.fn(),
   computeVatLockFigures: vi.fn(),
   assertVatGateClear: vi.fn(),
+  getNilRatedSupplies: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({ getNilRatedSupplies: m.getNilRatedSupplies }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => {
   class VatPeriodLockRefusal extends Error {}
   return {
@@ -69,6 +71,7 @@ vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => {
 
 import handler from '../../../pages/api/accounting/vat-period-locks';
 import { apiResponse } from '@/lib/apiResponse';
+import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, TYING_REPORT } from '../services/reports/helpers/vat201MixedJournal';
 import {
   VatLockTimeoutError, VatPeriodLockRefusal, VatPeriodUnlockRefusal,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
@@ -103,7 +106,8 @@ beforeEach(() => {
   headers = {};
   m.unlockVatPeriod.mockResolvedValue({ id: LOCK_ID, active: false });
   m.getVatPeriodLock.mockResolvedValue(null);
-  m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { rateCheck: { ties: true } } });
+  m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: TYING_REPORT });
+  m.getNilRatedSupplies.mockResolvedValue(NIL_NONE);
   m.lockVatPeriod.mockResolvedValue({ lock: { id: LOCK_ID }, created: true });
   m.assertVatGateClear.mockResolvedValue({ overridden: false, counts: { totalExceptions: 0 } });
 });
@@ -144,13 +148,20 @@ describe('lock', () => {
   });
 
   it('refuses a period failing the 15% check unless forced', async () => {
-    m.computeVatLockFigures.mockResolvedValue({
-      figures: FIGURES, report: { rateCheck: { ties: false, outputVariance: 12, inputVariance: 0 } },
-    });
+    // Box 1 is R75 out and no nil-rated supply on a taxed journal explains it.
+    m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
     const refused = await call('admin', lockBody);
     expect(refused.kind).toBe('badRequest');
     expect(m.lockVatPeriod).not.toHaveBeenCalled();
     expect((await call('admin', { ...lockBody, force: true })).kind).toBe('success');
+    expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
+  });
+
+  it('judges the 15% check on field 1: a mixed journal\'s nil-rated share given back locks without force', async () => {
+    m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    expect((await call('admin', lockBody)).kind).toBe('success');
+    expect(m.getNilRatedSupplies).toHaveBeenCalledWith(COMPANY, '2026-03-01', '2026-04-30');
     expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
   });
 

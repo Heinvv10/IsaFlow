@@ -51,9 +51,7 @@
 import { generateVAT201, type VAT201Data } from './vat201Service';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
 import { getNilRatedSupplies, type NilRatedSupplies } from './vat201NilRatedSupplies';
-
-/** Output boxes whose value is reported in field 2 or field 3, not field 1. */
-const NIL_RATED_OUTPUT_BOXES: readonly string[] = ['2', '2A', '3'];
+import { field1OutputVariance, taxedOutputBase } from './vat201RateCheck';
 
 export interface LedgerVAT201 extends VAT201Data {
   /**
@@ -75,26 +73,6 @@ function boxTax(report: Vat201Report, boxes: readonly string[]): number {
 
 function boxBase(report: Vat201Report, boxes: readonly string[]): number {
   return r2(report.boxes.filter((b) => boxes.includes(b.box)).reduce((s, b) => s + b.base, 0));
-}
-
-/**
- * Field 1 is every TAXED output supply, not only box 1.
- *
- * Boxes 12 (imported services / other output) and `unclassified` (an output VAT
- * type outside the box map) carry tax that field 5 counts. Leaving their base
- * out of field 1 would file output tax with no supply value behind it and break
- * the same 15% relation the return is checked on, so field 1 is every output
- * box except the two nil-rated ones, whose values come from the documents.
- */
-function taxedOutputBase(report: Vat201Report, nilRatedInside: number): number {
-  const taxed = report.boxes
-    .filter((b) => b.direction === 'output' && !NIL_RATED_OUTPUT_BOXES.includes(b.box))
-    .reduce((s, b) => s + b.base, 0);
-  // `deriveVatBoxes` apportions a journal's whole base pro-rata by tax, so a
-  // nil-rated line sharing a journal with a taxed one lands here. It is
-  // declared in field 2 or 3, so field 1 gives it up rather than the same rand
-  // being reported in two boxes.
-  return r2(taxed - nilRatedInside);
 }
 
 /**
@@ -252,8 +230,8 @@ export function evaluateVat201Filability(
   // cannot check a return at a rate the boxes were not derived at. It also
   // keeps the file out of the vat-guard gate's rate-constant rule without an
   // allowlist entry, which is the honest outcome: nothing here posts.
-  const outputVariance = r2(
-    vat201.field5_outputVAT - vat201.field1_standardRatedSupplies * vat201.rateCheck.rate,
+  const outputVariance = field1OutputVariance(
+    vat201.field5_outputVAT, vat201.field1_standardRatedSupplies, vat201.rateCheck.rate,
   );
   const { inputVariance } = vat201.rateCheck;
   if (

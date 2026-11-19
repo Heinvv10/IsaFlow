@@ -23,6 +23,7 @@ vi.mock('@/modules/accounting/services/returns/returnVersionStore', () => ({
 
 import { finaliseVatReturn } from '@/modules/accounting/services/returns/finaliseVatReturn';
 import { buildVat201SarsFields } from '@/modules/accounting/services/reports/vat201SarsFields';
+import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED } from '../reports/helpers/vat201MixedJournal';
 
 const actor = { userId: 'u1', role: 'admin' };
 const lock = { id: 'lock-1', outputTax: 111, inputTax: 22, netVat: 89, postedThrough: '2026-06-30T00:00:00.000Z' };
@@ -33,7 +34,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.computeVatLockFigures.mockResolvedValue({
     figures: { outputTax: 999, inputTax: 999, netVat: 0, postedThrough: 'x' },
-    report: { rateCheck: { ties: true }, totals: { outputTax: 999, inputTax: 999, netVat: 0 }, boxes: [{ box: '1' }] },
+    // 999 of output tax on a box 1 base of 6 660: 15% exactly.
+    report: {
+      rateCheck: { ...MIXED_REPORT.rateCheck, outputVariance: 0, ties: true },
+      totals: { outputTax: 999, inputTax: 999, netVat: 0 },
+      boxes: [{ box: '1', direction: 'output', base: 6660 }],
+    },
   });
   m.getNilRatedSupplies.mockResolvedValue(NIL);
   m.assertVatGateClear.mockResolvedValue({ overridden: false });
@@ -51,7 +57,7 @@ describe('finaliseVatReturn', () => {
     expect(m.getNilRatedSupplies).toHaveBeenCalledWith('c1', '2026-02-01', '2026-03-31');
     expect(m.insertVersion).toHaveBeenCalledWith(expect.objectContaining({
       vatPeriodLockId: 'lock-1', postedThrough: lock.postedThrough,
-      figures: { outputTax: 111, inputTax: 22, netVat: 89, sarsFields: [{ box: '1' }], sarsForm: buildVat201SarsFields(report, NIL) },
+      figures: { outputTax: 111, inputTax: 22, netVat: 89, sarsFields: report.boxes, sarsForm: buildVat201SarsFields(report, NIL) },
     }));
     // The form is read before the first write (the gate's override row, the lock).
     expect(m.getNilRatedSupplies.mock.invocationCallOrder[0]).toBeLessThan(m.assertVatGateClear.mock.invocationCallOrder[0]!);
@@ -71,13 +77,32 @@ describe('finaliseVatReturn', () => {
 
   it('refuses a period failing the 15% check, before the gate and the lock; force records it', async () => {
     m.computeVatLockFigures.mockResolvedValue({
-      figures: {}, report: { rateCheck: { ties: false, outputVariance: 5, inputVariance: 0 }, totals: {}, boxes: [] },
+      figures: {}, report: MIXED_REPORT,
     });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_NONE); // nothing nil-rated explains box 1's R75
     await expect(run()).rejects.toMatchObject({ status: 400, refusalCode: 'RATE_CHECK_FAILED' });
     expect(m.assertVatGateClear).not.toHaveBeenCalled();
     expect(m.lockVatPeriod).not.toHaveBeenCalled();
     await run({ force: true });
     expect(m.insertVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the 15% check on field 1: a mixed journal\'s nil-rated share given back is not a variance (no force)', async () => {
+    m.computeVatLockFigures.mockResolvedValue({ figures: {}, report: MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    await run();
+    expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
+    expect(m.insertVersion).toHaveBeenCalledTimes(1);
+    expect(m.getNilRatedSupplies).toHaveBeenCalledTimes(1); // the form and the check read one copy
+  });
+
+  it('refuses a mixed-journal period whose variance the give-back only partly explains', async () => {
+    m.computeVatLockFigures.mockResolvedValue({ figures: {}, report: MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
+    await expect(run()).rejects.toMatchObject({
+      status: 400, refusalCode: 'RATE_CHECK_FAILED', message: expect.stringContaining('box 1 is out by -30'),
+    });
+    expect(m.lockVatPeriod).not.toHaveBeenCalled();
   });
 
   it('refuses a submitted vat_returns record with other figures before the gate; acknowledging keeps the reason', async () => {
