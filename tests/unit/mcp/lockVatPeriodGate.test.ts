@@ -50,7 +50,9 @@ vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => {
 
 import { lockVatPeriodTool } from '@/lib/mcp/tools/vatReports';
 import type { McpToolContext } from '@/lib/mcp/types';
-import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, TYING_REPORT } from '../services/reports/helpers/vat201MixedJournal';
+import {
+  FILING_MIXED_PARTIAL, FILING_MIXED_TIES, FILING_RATE_CHECK_KEYS, MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, TYING_REPORT, keysOf,
+} from '../services/reports/helpers/vat201MixedJournal';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
@@ -145,40 +147,42 @@ describe('the 15% check is judged on the taxed output base, after the nil-rated 
   });
 });
 
-describe('the output carries the verdict the gate judged', () => {
-  const FILING = {
-    ...MIXED_REPORT.rateCheck, ties: true, outputImpliedTax: 150, outputVariance: 0,
-    taxedOutputBase: 1000, nilRatedGivenBack: 500, uncodedGivenBack: 0,
-  };
+describe('rateCheck is the report\'s per-box diagnostic; filingRateCheck is the verdict this call judged', () => {
   beforeEach(() => {
     m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { ...MIXED_REPORT, excludedRows: [] } });
     m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
   });
 
-  it('live: rateCheck is the taxed output base\'s (ties), every other key the report\'s', async () => {
-    expect(text(await lockVatPeriodTool.handler(args, ctx)).rateCheck).toEqual(FILING);
+  it('live: rateCheck unmodified, filingRateCheck the verdict (the shared key set)', async () => {
+    const out = text(await lockVatPeriodTool.handler(args, ctx));
+    expect(out.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(out.filingRateCheck).toEqual(FILING_MIXED_TIES);
+    expect(keysOf(out.filingRateCheck)).toEqual(FILING_RATE_CHECK_KEYS);
   });
 
-  it('dry run: the same rateCheck the live call would lock on', async () => {
-    expect(text(await lockVatPeriodTool.handler({ ...args, dry_run: true }, ctx)).rateCheck).toEqual(FILING);
+  it('dry run: the same pair the live call would lock on', async () => {
+    const out = text(await lockVatPeriodTool.handler({ ...args, dry_run: true }, ctx));
+    expect(out.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(out.filingRateCheck).toEqual(FILING_MIXED_TIES);
   });
 
   it('forced: the failing filing verdict, by the unexplained part; a refusal quotes that part too', async () => {
     m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
     const refused = await lockVatPeriodTool.handler(args, ctx);
     expect(refused.content[0]!.text).toContain('output tax is out by -30.00 against 15% of the taxed output supplies of 1200.00');
-    expect(text(await lockVatPeriodTool.handler({ ...args, force: true }, ctx)).rateCheck)
-      .toEqual({
-        ...MIXED_REPORT.rateCheck, outputImpliedTax: 180, outputVariance: -30,
-        taxedOutputBase: 1200, nilRatedGivenBack: 300, uncodedGivenBack: 0,
-      });
+    const forced = text(await lockVatPeriodTool.handler({ ...args, force: true }, ctx));
+    expect(forced.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(forced.filingRateCheck).toEqual(FILING_MIXED_PARTIAL);
   });
 
-  it('an existing lock judges nothing: no nil-rated read, the report\'s rateCheck as before (live and dry run)', async () => {
+  it('an existing lock judges nothing: filingRateCheck null, no nil-rated read (live and dry run)', async () => {
     m.getVatPeriodLock.mockResolvedValue({ id: 'lock-0' });
     m.lockVatPeriod.mockResolvedValue({ lock: { id: 'lock-0' }, created: false });
-    expect(text(await lockVatPeriodTool.handler(args, ctx)).rateCheck).toEqual(MIXED_REPORT.rateCheck);
-    expect(text(await lockVatPeriodTool.handler({ ...args, dry_run: true }, ctx)).rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    for (const call of [args, { ...args, dry_run: true }]) {
+      const out = text(await lockVatPeriodTool.handler(call, ctx));
+      expect(out.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+      expect(out.filingRateCheck).toBeNull();
+    }
     expect(m.getNilRatedSupplies).not.toHaveBeenCalled();
   });
 

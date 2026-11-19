@@ -53,3 +53,21 @@ export const TYING_REPORT = {
   totals: { ...MIXED_REPORT.totals, standardRatedSupplies: 1000 },
   rateCheck: { ...MIXED_REPORT.rateCheck, outputImpliedTax: 150, outputVariance: 0, ties: true },
 };
+
+/**
+ * The `filingRateCheck` contract: the same keys on every surface (vat_status, vat201_export, lock_vat_period, POST
+ * /vat-period-locks), all built by vat201RateCheck.rateCheckForFiling. Sorted.
+ */
+export const FILING_RATE_CHECK_KEYS = [
+  'inputVariance', 'nilRatedGivenBack', 'outputVariance', 'taxedOutputBase', 'ties', 'uncodedGivenBack',
+];
+export const keysOf = (o: unknown) => Object.keys(o as object).sort();
+
+/** filingRateCheck for MIXED_REPORT with NIL_ON_TAXED: the R500 given back, R1 000 at 15% ties. */
+export const FILING_MIXED_TIES = {
+  ties: true, outputVariance: 0, inputVariance: 0, taxedOutputBase: 1000, nilRatedGivenBack: 500, uncodedGivenBack: 0,
+};
+/** ...with only R300 given back: R30 out on R1 200. */
+export const FILING_MIXED_PARTIAL = {
+  ties: false, outputVariance: -30, inputVariance: 0, taxedOutputBase: 1200, nilRatedGivenBack: 300, uncodedGivenBack: 0,
+};

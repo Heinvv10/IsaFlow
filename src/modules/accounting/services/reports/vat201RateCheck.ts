@@ -17,7 +17,12 @@
  * ONE PLACE. The taxed output base and its variance are computed here for the return (`vat201LedgerFields`), the
  * ISV filability decision (`evaluateVat201Filability`, through `filedRateVariance`) and its audit event, and the three gates that refuse a
  * failing period unless forced (`finaliseVatReturn`, POST /vat-period-locks, MCP `lock_vat_period`), which also
- * share the refusal wording (`rateCheckFailure`) and the payload (`rateCheckPayload`).
+ * share the refusal wording (`rateCheckFailure`).
+ *
+ * ONE CONTRACT. `rateCheckForFiling` builds the `filingRateCheck` object every surface returns (vat_status,
+ * vat201_export, lock_vat_period live and dry run, POST /vat-period-locks), beside `rateCheck`, which is always the
+ * report's per-box diagnostic, unmodified. The gates compute it under the exclusive VAT lock; the read tools on the
+ * ledger as read at call time, with no lock.
  *
  * WHAT IS KEPT FROM THE REPORT, unchanged: the input variance (the per-journal over-claim, see vatInputOverclaim),
  * the demand that no journal carry tax without a base, and the R1 absolute RATE_CHECK_TOLERANCE. Only the output
@@ -29,7 +34,7 @@
  * NAMED LIMIT: the check proves output VAT is 15% of the base CODED taxable; it cannot prove the coding. A taxable
  * line miscoded exempt or zero-rated on a journal that carries output VAT ties, because the VAT charged is exactly
  * 15% of what is coded standard. The excluded amounts are visible in fields 2 and 3 of the return and in the
- * give-back each refusal and each lock or dry-run payload states (`nilRatedGivenBack`).
+ * give-back each refusal and each `filingRateCheck` states (`nilRatedGivenBack`).
  *
  * The rate comes off the report, so the check cannot run at a rate the boxes were not derived at.
  */
@@ -105,7 +110,7 @@ function judgeRateCheck(
   };
 }
 
-/** The verdict the filing gates refuse on (unless forced). Pure. */
+/** The verdict the filing gates refuse on (unless forced), and the `filingRateCheck` every surface returns. Pure. */
 export function rateCheckForFiling(
   report: Pick<Vat201Report, 'boxes' | 'totals' | 'rateCheck'>,
   nilRated: Pick<NilRatedSupplies, 'onTaxedJournals' | 'uncodedOnTaxedJournals'>,
@@ -184,25 +189,4 @@ export function rateCheckFailure(f: FilingRateCheck): string {
   return `This period fails SARS's 15% check: output tax is out by ${f.outputVariance.toFixed(2)} against 15% of `
     + `the taxed output supplies of ${f.taxedOutputBase.toFixed(2)}${givenBack}, and input tax is over-claimed by `
     + `${f.inputVariance.toFixed(2)} (summed per journal).`;
-}
-
-/**
- * The report's `rateCheck` with the verdict a filing gate judged in place of the report's: `ties`,
- * `outputVariance` and `outputImpliedTax` (15% of the taxed output base, so output tax less it is still the
- * variance), plus that base and what was given back to reach it. Every other key is the report's, so a lock or
- * dry run never answers `ties: false` for a period it locks on.
- */
-export function rateCheckPayload(
-  report: Pick<Vat201Report, 'totals' | 'rateCheck'>, filing: FilingRateCheck,
-): Vat201Report['rateCheck'] & Pick<FilingRateCheck, 'taxedOutputBase' | 'nilRatedGivenBack' | 'uncodedGivenBack'> {
-  return {
-    ...report.rateCheck,
-    ties: filing.ties,
-    outputImpliedTax: r2(report.totals.outputTax - filing.outputVariance),
-    outputVariance: filing.outputVariance,
-    inputVariance: filing.inputVariance,
-    taxedOutputBase: filing.taxedOutputBase,
-    nilRatedGivenBack: filing.nilRatedGivenBack,
-    uncodedGivenBack: filing.uncodedGivenBack,
-  };
 }
