@@ -12,12 +12,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import { dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { asOwner, callTool } from './helpers/poImportHarness';
 import { approveBill, billHeader, ledgerSnapshot, lineLinks, linkRows, poStatus, seedBill, seedPo } from './helpers/poBillLinkHarness';
 import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
 import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
 import { getPurchaseOrderTool as getPo } from '@/lib/mcp/tools/getPurchaseOrder';
+import { refreshAppBillLinks } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
 import { readCommitments } from '@/modules/accounting/services/budgets/remainingCommitted';
 
 assertDisposable();
@@ -99,6 +100,35 @@ describe('unlink', () => {
     expect((await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).map((l) => [l.bill, l.closed_po_from_status])).toEqual([[b1.id, 'received']]);
     const second = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b1.id, reason: 'gone' });
     expect(second.body).toMatchObject({ po_status: 'received', reopened_to: 'received' });
+  });
+
+  it('the closing record moves only to a link on a BILLED bill, never a draft\'s app link; and a draft\'s remade link carries a record it held', async () => {
+    const po = await seedPo(pool, f, { lines: [100], status: 'received' });
+    const draft = await seedBill(pool, f, { lines: [40], status: 'draft' });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [draft.id, po.po]);
+    // The draft's app link exists FIRST (oldest), so a naive "any other link" heir would pick it.
+    await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 40, 'app')", [f.co, po.po, draft.id]);
+    const b1 = await seedBill(pool, f, { lines: [100] });
+    const b2 = await seedBill(pool, f, { lines: [100] });
+    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b1.id }] });
+    await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b2.id }], close_when_fully_billed: true });
+    const recordOn = async () => (await linkRows(pool, f, `l.purchase_order_id = '${po.po}' AND l.closed_po_from_status IS NOT NULL`)).map((l) => l.bill);
+    expect(await recordOn()).toEqual([b2.id]);
+    const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: b2.id, reason: 'dup' });
+    expect(r.body).toMatchObject({ po_status: 'closed', fully_billed: true });
+    expect(await recordOn()).toEqual([b1.id]);
+    // The draft is edited: its link is made again (the subtotal moved); the record on b1's link is untouched and is not on the draft's.
+    await pool.query('UPDATE supplier_invoices SET subtotal = 30 WHERE id = $1', [draft.id]);
+    const req = await openRequest(pool, f, f.owner);
+    try { await req.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await req.commit(); } catch (e) { await req.rollback(); throw e; }
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ amount: '30.00', closed_po_from_status: null });
+    expect(await recordOn()).toEqual([b1.id]);
+    // A record a draft's link did hold (set here as old data could carry it) survives the remake.
+    await pool.query("UPDATE purchase_order_bill_links SET closed_po_from_status = 'approved' WHERE supplier_invoice_id = $1", [draft.id]);
+    await pool.query('UPDATE supplier_invoices SET subtotal = 20 WHERE id = $1', [draft.id]);
+    const again = await openRequest(pool, f, f.owner);
+    try { await again.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await again.commit(); } catch (e) { await again.rollback(); throw e; }
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ amount: '20.00', closed_po_from_status: 'approved' });
   });
 
   it('a PO closed by hand, or cancelled meanwhile, is not touched', async () => {

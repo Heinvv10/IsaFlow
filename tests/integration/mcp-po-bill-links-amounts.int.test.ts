@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
-import { linkRows, seedPo, seedRawBill, seedSupplier } from './helpers/poBillLinkHarness';
+import { approveBill, linkRows, seedBill, seedPo, seedRawBill, seedSupplier } from './helpers/poBillLinkHarness';
 import { sql } from '@/lib/neon';
 import { postedExpenseLines } from '@/modules/accounting/services/budgets/remainingCommitted';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '@/modules/accounting/services/ap/supplierInvoiceLineOrder';
@@ -113,7 +113,7 @@ describe('the backfill and recordBillLinks give the same links', () => {
       cancelled: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: c.po, status: 'cancelled' }),
       overSubtotal: await seedRawBill(pool, f, { items: [{ total: 500, poItem: c.items[0] }, { total: -50 }], subtotal: 450, total: 517.5 }),
     };
-    // R3: a draft or pending bill is never backfilled (its app links come from the create and every edit); recordBillLinks does link it.
+    // Round 3: a draft or pending bill is backfilled too (approving writes no link), by the same rule as recordBillLinks.
     const unposted = [
       await seedRawBill(pool, f, { items: [{ total: 40 }], subtotal: 40, total: 46, header: b.po, status: 'draft' }),
       await seedRawBill(pool, f, { items: [{ total: 41 }], subtotal: 41, total: 47.15, header: b.po, status: 'pending_approval' }),
@@ -122,7 +122,7 @@ describe('the backfill and recordBillLinks give the same links', () => {
       await seedRawBill(pool, f, { items: [{ total: 42 }], subtotal: 42, total: 48.3, header: b.po, status: 'paid' }),
       await seedRawBill(pool, f, { items: [{ total: 43 }], subtotal: 43, total: 49.45, header: b.po, status: 'partially_paid' }),
     ];
-    const ids = [...Object.values(bills), ...posted].map((x) => x.id);
+    const ids = [...Object.values(bills), ...posted, ...unposted].map((x) => x.id);
     const snapshot = async () => new Map((await linkRows(pool, f)).map((l) => [`${l.bill}|${l.po}`, l.amount]));
 
     await pool.query('SELECT purchase_order_bill_links_backfill()');
@@ -152,11 +152,36 @@ describe('the backfill and recordBillLinks give the same links', () => {
     expect(at(bills.overSubtotal, c)).toBe('450.00');            // a negative last line: the lines' 500.00 is capped at the subtotal, in SQL and TypeScript alike
     expect(at(posted[0]!, b)).toBe('42.00');
     expect(at(posted[1]!, b)).toBe('43.00');
-    expect(unposted.map((u) => [...fromSql.keys()].filter((k) => k.startsWith(u.id)))).toEqual([[], []]);
-    for (const u of unposted) {
-      await inRequest(() => recordBillLinks(f.co, u.id, f.owner));
-      expect((await linkRows(pool, f, `l.supplier_invoice_id = '${u.id}'`)).map((l) => [l.po, l.source])).toEqual([[b.po, 'app']]);
+    expect(at(unposted[0]!, b)).toBe('40.00');                   // a draft and a pending bill are backfilled, in SQL and TypeScript alike
+    expect(at(unposted[1]!, b)).toBe('41.00');
+  });
+
+  it('a bill that is a draft at the release is linked by the backfill and keeps its link when it is approved with no edit', async () => {
+    const po = await seedPo(pool, f, { lines: [60] });
+    const draft = await seedBill(pool, f, { lines: [60], status: 'draft' });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [draft.id, po.po]);
+    await pool.query('SELECT purchase_order_bill_links_backfill()');
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ po: po.po, amount: '60.00', source: 'backfill' });
+    await approveBill(pool, f, draft.id);
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`)).map((l) => [l.po, l.amount])).toEqual([[po.po, '60.00']]);
+  });
+
+  it('re-running the backfill never pushes a bill\'s links past its subtotal: an old-colour header PO and an MCP link to another PO that took the whole subtotal', async () => {
+    const p1 = await seedPo(pool, f, { lines: [100] });
+    const p2 = await seedPo(pool, f, { lines: [100] });
+    const bill = await seedBill(pool, f, { lines: [100] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, p1.po]);   // the old colour wrote only the header
+    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by) VALUES ($1, $2, $3, 100, 'mcp', 'u')`, [f.co, p2.po, bill.id]);
+    for (let i = 0; i < 2; i++) {
+      await pool.query('SELECT purchase_order_bill_links_backfill()');
+      expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill.id}'`)).map((l) => [l.po, l.amount, l.source])).toEqual([[p2.po, '100.00', 'mcp']]);
     }
+    // With room left (the mcp link holds 30), the header PO gets the remainder, in TypeScript and SQL alike.
+    const bill2 = await seedBill(pool, f, { lines: [100] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill2.id, p1.po]);
+    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by) VALUES ($1, $2, $3, 30, 'mcp', 'u')`, [f.co, p2.po, bill2.id]);
+    await pool.query('SELECT purchase_order_bill_links_backfill()');
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill2.id}'`)).map((l) => [l.po, l.amount]).sort()).toEqual([[p1.po, '70.00'], [p2.po, '30.00']].sort());
   });
 });
 

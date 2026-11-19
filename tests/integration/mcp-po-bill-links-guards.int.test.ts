@@ -298,6 +298,8 @@ describe('the guards hold for every role and every session setting', () => {
     const reg = await pool.query(`SELECT r.body_md5 = public.app_definer_hash(p.oid) AS current FROM public.app_definer_reviews r, pg_proc p
                                    WHERE r.signature = 'purchase_order_bill_links_supplier_guard()' AND p.proname = 'purchase_order_bill_links_supplier_guard'`);
     expect(reg.rows).toEqual([{ current: true }]);
+    const read = await pool.query(`SELECT has_table_privilege('migration_admin', 'public.purchase_order_bill_links', 'SELECT') AS r`);
+    expect(read.rows[0].r).toBe(true);
     const exec = await pool.query(`SELECT has_function_privilege('app_user', 'public.purchase_order_bill_links_supplier_guard()', 'EXECUTE') AS a`);
     expect(exec.rows[0].a).toBe(false);
   });
