@@ -248,6 +248,9 @@
    {"line":28,"text":"SELECT max(h.period_end) + 1 FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): the day after the employee's last final day at another frequency: the new frequency's first day"},
    {"line":35,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): the employee's not-final runs of another frequency from the new frequency's first day, any number"}
   ],
+  "src/modules/accounting/services/payroll/payrollFrequencyAcks.ts": [
+   {"line":44,"text":"JOIN payroll_run_headers h ON h.id = a.entity_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M-F): every acknowledged pay-frequency change at one frequency, with its run's dates and finality (one audit row each)"}
+  ],
   "src/modules/accounting/services/payroll/payrollFrequencyGuard.ts": [
    {"line":62,"text":"SELECT 1 FROM payroll_employee_components c","class":"S","owner":"FQc","why":"EXISTS: an employee holds a row the frequency cannot cost in the run's window"},
    {"line":111,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"EXISTS-style list: other regular runs of the frequency whose dates overlap this run's (review #1575 G6), any number a month"},

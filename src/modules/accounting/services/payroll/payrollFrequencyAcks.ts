@@ -33,6 +33,7 @@ export interface StraddleAck {
  * paid at `frequency` now (a create, which has no lines yet). Read-only.
  */
 export async function straddleAcks(db: TxSql, companyId: string, frequency: string, employeeIds: string[] | null): Promise<StraddleAck[]> {
+  const ids = employeeIds ?? [];
   const rows = (await db`
     SELECT a.entity_id::text AS run_id, e.id::text AS employee_id, e.first_name, e.last_name,
            to_char(h.period_start, 'YYYY-MM-DD') AS run_start, to_char(h.period_end, 'YYYY-MM-DD') AS run_end,
@@ -44,7 +45,7 @@ export async function straddleAcks(db: TxSql, companyId: string, frequency: stri
       JOIN payroll_employees e ON e.id::text = a.changes->'metadata'->>'employeeId' AND e.company_id = ${companyId}::uuid
      WHERE a.company_id = ${companyId}::uuid AND a.entity_type = ${STRADDLE_ENTITY}
        AND h.run_kind = 'regular' AND h.status <> 'cancelled' AND h.pay_frequency = ${frequency}
-       AND ((${employeeIds === null}::boolean AND e.pay_frequency = ${frequency}) OR e.id = ANY(${employeeIds ?? []}::uuid[]))
+       AND ((${employeeIds === null}::boolean AND e.pay_frequency = ${frequency}) OR e.id = ANY(${ids}::uuid[]))
      ORDER BY h.period_start, a.entity_id
   `) as DbRow[];
   return rows.map((r) => ({
