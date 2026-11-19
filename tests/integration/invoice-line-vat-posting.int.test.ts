@@ -89,6 +89,18 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
     expect((await inTx(f.fx, () => getVATReturn(f.fx.companyId, '2026-09-01', '2026-09-30'))).standardRatedSupplies).toBe(0);
   });
 
+  it('an inclusive invoice posts each line\'s stored net and VAT: unit price 115 incl., amount 100, VAT 15', async () => {
+    const id = await draft('2026-11-10', [{ description: 'Inclusive', unitPrice: 100 }]);
+    await typeLines(id, { Inclusive: ['standard', 15] }, { tax: 15 });
+    await sql`UPDATE customer_invoice_items SET unit_price = 115 WHERE invoice_id = ${id}::UUID`;
+    await sql`UPDATE customer_invoices SET amounts_are = 'inclusive' WHERE id = ${id}::UUID`;
+    const { glJournalEntryId } = await approve(id);
+    expect(await journalLegs(f, glJournalEntryId!)).toEqual([
+      L('1100', 115, 0), L('2120', 0, 15, { vat: 'standard' }), L('4000', 0, 100, { vat: 'standard' }),
+    ]);
+    expect((await inTx(f.fx, () => getVATReturn(f.fx.companyId, '2026-11-01', '2026-11-30'))).standardRatedSupplies).toBe(100);
+  });
+
   it('refuses a partly typed invoice at approve, writing nothing', async () => {
     const id = await draft('2026-10-15', [{ description: 'Typed', unitPrice: 100 }, { description: 'Plain', unitPrice: 100 }]);
     await typeLines(id, { Typed: ['standard', 15] });
