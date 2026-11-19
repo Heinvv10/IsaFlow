@@ -3,11 +3,11 @@
  * the rate comes from the VAT type and the document date, never from the caller.
  */
 import { describe, expect, it } from 'vitest';
-import { SA_STANDARD_VAT_RATE_PCT, standardVatRatePctOn } from '@/lib/vat/standardRate';
+import { SA_STANDARD_VAT_RATE_PCT, isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import {
   DOCUMENT_LINE_VAT_TYPES, normaliseVatType, vatRatePctOn, vatTypeLabel,
 } from '@/modules/accounting/services/shared/vatTypes';
-import { vatDocumentTotals, vatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
+import { lineAmount, vatDocumentTotals, vatLineAmounts, vatTotalLabel } from '@/modules/accounting/services/shared/vatLineAmounts';
 
 describe('standardVatRatePctOn', () => {
   it('is the rate in force on the date, on either side of a change', () => {
@@ -29,6 +29,23 @@ describe('standardVatRatePctOn', () => {
   it('refuses a date that is not a calendar day or predates VAT', () => {
     expect(() => standardVatRatePctOn('not-a-date')).toThrow();
     expect(() => standardVatRatePctOn('1990-01-01')).toThrow();
+  });
+
+  it('refuses a day the month does not have (Date.parse rolls it over)', () => {
+    expect(() => standardVatRatePctOn('2026-02-31')).toThrow(/not a calendar day/);
+    expect(() => standardVatRatePctOn('2026-13-01')).toThrow();
+    expect(standardVatRatePctOn('2024-02-29')).toBe(15);
+  });
+
+  it('refuses a date that is not a string or a Date, as its own error', () => {
+    expect(() => standardVatRatePctOn(20261119 as unknown as string)).toThrow(/not a string/);
+    expect(() => standardVatRatePctOn(null as unknown as string)).toThrow(/not a string/);
+  });
+
+  it('isRatedDate answers for a form field mid-edit without throwing', () => {
+    for (const bad of ['', '2026-1', '2026-02-31', '1990-01-01', null, undefined, 5]) expect(isRatedDate(bad)).toBe(false);
+    expect(isRatedDate('2026-11-19')).toBe(true);
+    expect(isRatedDate(new Date(2026, 10, 19))).toBe(true);
   });
 });
 
@@ -115,5 +132,34 @@ describe('vatDocumentTotals', () => {
   it('has no float drift', () => {
     const lines = [vatLineAmounts(0.1, 'exempt', '2026-11-19'), vatLineAmounts(0.2, 'exempt', '2026-11-19')];
     expect(vatDocumentTotals(lines).subtotal).toBe(0.3);
+  });
+});
+
+describe('lineAmount', () => {
+  it('multiplies as decimals (the float product of 3 x 1.005 rounds down)', () => {
+    expect(3 * 1.005).not.toBe(3.015);
+    expect(lineAmount(3, 1.005)).toBe(3.02);
+    expect(lineAmount(0.001, 499)).toBe(0.5);
+    expect(lineAmount(2, 250)).toBe(500);
+    expect(lineAmount(1.5, 0)).toBe(0);
+  });
+
+  it('throws on a number that is not finite', () => {
+    expect(() => lineAmount(Number.NaN, 1)).toThrow();
+    expect(() => lineAmount(1, Number.POSITIVE_INFINITY)).toThrow();
+  });
+});
+
+describe('vatTotalLabel', () => {
+  it('quotes the rate when the VAT is that rate on the whole subtotal', () => {
+    expect(vatTotalLabel(1000, 15, 150)).toBe('VAT (15%)');
+    expect(vatTotalLabel(800, 0, 0)).toBe('VAT (0%)');
+    // seven lines of 14.29, VAT rounded per line: two cents under 15% of the subtotal
+    expect(vatTotalLabel(100.03, 15, 14.98)).toBe('VAT (15%)');
+  });
+
+  it('drops the rate on a document mixing rated and unrated lines', () => {
+    expect(vatTotalLabel(1750, 15, 150)).toBe('VAT');
+    expect(vatTotalLabel(1000, 15, 149.89)).toBe('VAT');
   });
 });

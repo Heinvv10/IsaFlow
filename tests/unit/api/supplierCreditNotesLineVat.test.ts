@@ -76,6 +76,39 @@ describe('supplier-credit-notes POST: VAT per line', () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it('reads only an absent type as standard: an empty one is refused', async () => {
+    await post([{ description: 'a', quantity: 1, unitPrice: 100, vatType: null }]);
+    expect(created()).toMatchObject({ taxAmount: 15 });
+    createMock.mockClear();
+    const r = await post([{ description: 'a', quantity: 1, unitPrice: 100, vatType: '' }]);
+    expect(r.kind).toBe('badRequest');
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('prices quantity x unit price as decimals', async () => {
+    await post([{ description: 'a', quantity: 3, unitPrice: 1.005, vatType: 'exempt' }]);
+    expect(created()).toMatchObject({ subtotal: 3.02, taxAmount: 0 });
+  });
+
+  it.each([
+    ['a missing unit price', { quantity: 1 }],
+    ['a NaN unit price', { quantity: 1, unitPrice: Number.NaN }],
+    ['a text unit price', { quantity: 1, unitPrice: '100' }],
+    ['an infinite quantity', { quantity: Number.POSITIVE_INFINITY, unitPrice: 1 }],
+    ['an absurd unit price', { quantity: 1, unitPrice: 1e300 }],
+  ])('answers %s with a 400, not a 500', async (_name, amounts) => {
+    const r = await post([{ description: 'a', vatType: 'standard', ...amounts } as unknown as Line]);
+    expect(r.kind).toBe('badRequest');
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it.each([['a number', 20261119], ['an object', {}], ['a day the month lacks', '2026-02-31']])(
+    'answers a credit date that is %s with a 400', async (_name, creditDate) => {
+      const r = await post([{ description: 'a', quantity: 1, unitPrice: 100, vatType: 'standard' }], creditDate as unknown as string);
+      expect(r.kind).toBe('badRequest');
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
   it('refuses a credit date that is not a calendar day', async () => {
     const r = await post([{ description: 'a', quantity: 1, unitPrice: 100, vatType: 'standard' }], 'soon');
     expect(r.kind).toBe('badRequest');

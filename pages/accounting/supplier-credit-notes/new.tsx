@@ -12,9 +12,9 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { localISODate } from '@/lib/dateUtils';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
-import { standardVatRatePctOn } from '@/lib/vat/standardRate';
+import { isRatedDate } from '@/lib/vat/standardRate';
 import { DOCUMENT_LINE_VAT_TYPES, vatTypeLabel } from '@/modules/accounting/services/shared/vatTypes';
-import { vatDocumentTotals, vatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
+import { lineAmount, vatDocumentTotals, vatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
 
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: (typeof DOCUMENT_LINE_VAT_TYPES)[number] }
 
@@ -22,11 +22,10 @@ const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
-
-/** The credit date when a rate can be read for it, else today (a date mid-edit must not throw in render). */
-const ratedDate = (iso: string): string => {
-  try { standardVatRatePctOn(iso); return iso; } catch { return localISODate(); }
-};
+/** The line's amount as the server prices it; 0 while a field is mid-edit (empty, NaN, absurd). */
+const pricedAmount = (li: LineItem): number =>
+  (Number.isFinite(li.quantity) && Number.isFinite(li.unitPrice) && Math.abs(li.quantity * li.unitPrice) < 1e13
+    ? lineAmount(li.quantity, li.unitPrice) : 0);
 
 const emptyLine = (): LineItem => ({ description: '', quantity: 1, unitPrice: 0, vatType: 'standard' });
 
@@ -49,10 +48,10 @@ export default function NewSupplierCreditNotePage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
 
   // As the server prices it (shared/vatLineAmounts): VAT per line, by its type, at the rate of the credit date.
-  const vatDate = ratedDate(form.creditDate);
+  // A date mid-edit has no rate to read and must not throw in render: preview at today's until it is whole.
+  const vatDate = isRatedDate(form.creditDate) ? form.creditDate : localISODate();
   const { subtotal, vat: vatAmount, total } = vatDocumentTotals(lineItems.map((li) => {
-    const amount = li.quantity * li.unitPrice;
-    return vatLineAmounts(Number.isFinite(amount) ? amount : 0, li.vatType, vatDate);
+    return vatLineAmounts(pricedAmount(li), li.vatType, vatDate);
   }));
 
   const updateLine = (idx: number, patch: Partial<LineItem>) =>
@@ -193,7 +192,7 @@ export default function NewSupplierCreditNotePage() {
                             </select>
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            {formatCurrency(li.quantity * li.unitPrice)}
+                            {formatCurrency(pricedAmount(li))}
                           </td>
                           <td className="px-2 py-2">
                             <button type="button" aria-label={`Remove line ${idx + 1}`} onClick={() => removeLine(idx)} disabled={lineItems.length === 1} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">

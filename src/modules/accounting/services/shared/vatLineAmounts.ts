@@ -37,6 +37,17 @@ const divRound = (n: bigint, d: bigint): bigint => {
   return n < 0n ? -q : q;
 };
 
+/**
+ * quantity × unit price to the cent, multiplied as decimals: the float product of 3 × 1.005 is
+ * 3.0149999999999997, which rounds to 3.01. Throws NotADecimalError on a non-finite input.
+ */
+export function lineAmount(quantity: number, unitPrice: number): number {
+  const q = parseDecimal(quantity);
+  const p = parseDecimal(unitPrice);
+  const product = roundTo({ digits: q.digits * p.digits, scale: q.scale + p.scale }, 2);
+  return rands(product.digits * 10n ** BigInt(2 - product.scale));
+}
+
 /** One line's net, VAT and gross (see the header). Throws NotADecimalError on a non-finite amount. */
 export function vatLineAmounts(
   amount: number, vatType: VatType, date: string | Date, amountsAre: AmountsAre = 'exclusive',
@@ -57,4 +68,15 @@ export function vatDocumentTotals(lines: ReadonlyArray<Pick<VatLineAmounts, 'net
   const subtotal = lines.reduce((s, l) => s + toCents(l.net), 0n);
   const vat = lines.reduce((s, l) => s + toCents(l.vat), 0n);
   return { subtotal: rands(subtotal), vat: rands(vat), total: rands(subtotal + vat) };
+}
+
+/**
+ * The label of a document's VAT total. A header holds ONE rate, so the rate is quoted only when the VAT is
+ * that rate on the whole subtotal, give or take ten cents of per-line rounding (twenty lines at half a cent
+ * each). A document mixing rated and unrated lines is further out than that and reads plain "VAT".
+ */
+export function vatTotalLabel(subtotal: number, ratePct: number, vat: number): string {
+  const implied = divRound(toCents(subtotal) * toCents(ratePct), 10000n);
+  const out = implied - toCents(vat);
+  return (out < 0n ? -out : out) <= 10n ? `VAT (${ratePct}%)` : 'VAT';
 }

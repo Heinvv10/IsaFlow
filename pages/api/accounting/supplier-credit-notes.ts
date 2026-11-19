@@ -16,7 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { VatRateDateError } from '@/lib/vat/standardRate';
 import { DOCUMENT_LINE_VAT_TYPES, normaliseVatType } from '@/modules/accounting/services/shared/vatTypes';
-import { vatDocumentTotals, vatLineAmounts, type VatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
+import { lineAmount, vatDocumentTotals, vatLineAmounts, type VatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   getCreditNotes,
@@ -106,6 +106,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         if (Number(li.unitPrice) < 0) {
           return apiResponse.badRequest(res, 'Line unit prices cannot be negative');
         }
+        // NaN passes both tests above, and Infinity the first: either would throw in the pricing below (a 500).
+        if (typeof li.quantity !== 'number' || typeof li.unitPrice !== 'number'
+            || !Number.isFinite(li.quantity) || !Number.isFinite(li.unitPrice)
+            || Math.abs(li.quantity) >= 1e12 || Math.abs(li.unitPrice) >= 1e12) {
+          return apiResponse.badRequest(res, 'Line quantities and unit prices must be numbers');
+        }
       }
 
       // VAT per line, by the line's VAT type at the rate of the credit date (shared/vatLineAmounts). A line naming
@@ -117,12 +123,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       let lines: VatLineAmounts[];
       try {
-        lines = lineItems.map((li, i) => vatLineAmounts(li.quantity * li.unitPrice, vatTypes[i]!, creditDate));
+        lines = lineItems.map((li, i) => vatLineAmounts(lineAmount(li.quantity, li.unitPrice), vatTypes[i]!, creditDate));
       } catch (err) {
         if (err instanceof VatRateDateError) return apiResponse.badRequest(res, 'creditDate must be a date (YYYY-MM-DD)');
         throw err;
       }
       const totals = vatDocumentTotals(lines);
+      // The header has one rate column: the rate of the note's rated lines, 0 when it has none. On a note mixing
+      // rated and unrated lines tax_amount is NOT tax_rate × subtotal, so readers that print the rate beside the
+      // VAT label go through vatTotalLabel, and the journal posts tax_amount.
       const taxRate = Math.max(0, ...lines.map((l) => l.ratePct));
 
       const note = await createCreditNote(companyId, {

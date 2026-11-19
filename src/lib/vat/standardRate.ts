@@ -29,13 +29,27 @@ const pad = (n: number): string => String(n).padStart(2, '0');
 
 /** The standard rate in force on `date`: a 'YYYY-MM-DD…' string, or a Date read by its local calendar day. */
 export function standardVatRatePctOn(date: string | Date): number {
+  if (!(date instanceof Date) && typeof date !== 'string') throw new VatRateDateError('the date is not a string');
   const day = date instanceof Date
     ? `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
     : date.slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`))) {
+  // Round-tripped, because Date.parse rolls 2026-02-31 over to 3 March rather than refusing it.
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(`${day}T00:00:00Z`) : Number.NaN;
+  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== day) {
     throw new VatRateDateError(`${JSON.stringify(day)} is not a calendar day`);
   }
   const row = SA_STANDARD_VAT_RATES.filter((r) => r.from <= day).pop();
   if (!row) throw new VatRateDateError(`${day} is before VAT began (${SA_STANDARD_VAT_RATES[0]!.from})`);
   return row.pct;
+}
+
+/** Whether a rate can be read for `date`: for a form, whose date field may be empty or mid-edit. */
+export function isRatedDate(date: unknown): date is string | Date {
+  try {
+    standardVatRatePctOn(date as string | Date);
+    return true;
+  } catch (err) {
+    if (err instanceof VatRateDateError) return false;
+    throw err;
+  }
 }
