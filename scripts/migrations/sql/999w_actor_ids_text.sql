@@ -36,9 +36,18 @@ LOCK TABLE public.payroll_external_imports, public.payroll_leave_requests, publi
 
 ALTER TABLE public.payroll_run_headers
   ALTER COLUMN approved_by TYPE TEXT USING approved_by::text,
-  ALTER COLUMN cancelled_by TYPE TEXT USING cancelled_by::text,
   ALTER COLUMN created_by TYPE TEXT USING created_by::text,
   ALTER COLUMN prepared_by TYPE TEXT USING prepared_by::text;
+-- payroll_run_headers.cancelled_by is not created by any migration: it exists where the schema came from the
+-- baseline (CI, dev) but not on prod, where this file failed with 42703 on 19 Nov 2026. No code reads or writes
+-- it. Convert it only where it exists.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'payroll_run_headers' AND column_name = 'cancelled_by') THEN
+    ALTER TABLE public.payroll_run_headers ALTER COLUMN cancelled_by TYPE TEXT USING cancelled_by::text;
+  END IF;
+END $$;
 ALTER TABLE public.payroll_leave_requests ALTER COLUMN approved_by TYPE TEXT USING approved_by::text;
 ALTER TABLE public.payroll_external_imports ALTER COLUMN created_by TYPE TEXT USING created_by::text;
 -- Together (see above).
