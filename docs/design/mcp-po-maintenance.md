@@ -21,9 +21,14 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
 1. **`update_purchase_order`** - `po_id | po_number`, header fields `supplier_id`, `order_date`, `delivery_date`, `reference`,
    `notes` (omitted = unchanged, `null` clears), `lines` (REPLACE every line; omitted = lines and totals unchanged),
    optional `expected_totals`.
-   - Statuses: **draft, submitted and approved.** The app's PUT edits draft and submitted, so those two are parity; approved is
-     new (the PUT refuses it and no app action edits an approved PO). partially_received / received / closed / cancelled are
-     refused with the status.
+   - Statuses: **draft, submitted and approved.** The app's PUT edits draft and submitted (any writer), so those two are parity;
+     approved is new (the PUT refuses it and no app action edits an approved PO) and is **owner / admin only** (Hein's R1: an
+     edit changes what the PO commits), refused after one status read, before the edit is validated, locked or written, dry run
+     too. partially_received / received / closed / cancelled are refused with the status.
+   - On an approved PO the edit RESTAMPS `approved_by` / `approved_at` to the editor (they approved what it now says); the previous
+     approver and time are in the audit row (`prior_approved_by` / `prior_approved_at`). Under the BLOCK policy every replacement
+     line needs a `gl_account_id` (a line with none cannot meet a budget and would escape the re-check). The re-check judges the
+     NEW lines in the order date's (new) month; the month the PO leaves only loses commitment, which cannot put anything over.
    - Lines: as `bulk_create_purchase_orders` (`description`, `quantity`, `unit_price`, `tax_rate`, source `line_total` /
      `tax_amount`, `gl_account_id`, `cc1` / `cc2` / `bu` as code / alias / UUID) plus `item_id` or `item_code` (migration 1005:
      a line naming an item and no account takes the item's purchases account and, with no rate, the item's VAT type;
@@ -46,24 +51,32 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      is not checked. A header-only edit of an approved PO re-checks only when the order date moves to another month (the month is
      what the lines are judged against); a notes / reference / delivery edit commits nothing new, so an approved PO that has since
      gone over budget can still be annotated under block.
-2. **`cancel_purchase_order`** - `reason` required (audited). Draft / submitted: cancelled as the PUT does (any writer), now
-   audited and row-locked. Approved: `cancelApprovedPurchaseOrder` (**owner / admin only**, `PO_CANCEL_ROLES`; refuses with a
+2. **`cancel_purchase_order`** - `reason` required (audited, `source: mcp:cancel_purchase_order`). Draft / submitted: cancelled as
+   the PUT does (any writer), now audited and row-locked, and refused (like an approved one) while a receipt or any bill tie
+   stands (the same wide check as the update: a link row, a bill line naming a PO line, a bill naming it). Approved: `cancelApprovedPurchaseOrder` (**owner / admin only**, `PO_CANCEL_ROLES`; refuses with a
    receipt and, since #1627, with bill links - "unlink first"). partially_received / received / closed / cancelled: refused
    with the status.
 3. **`close_purchase_order`** (short close) - approved / partially_received / received -> `closed`, `reason` required,
    **owner / admin only** (closing releases commitment; Hein's R1 for link-close). Records the status it came from in the new
-   column `purchase_orders.closed_from_status` (migration **1007**, below) so a later reopen can restore it. Audit row:
+   column `purchase_orders.closed_from_status` (migration **1007**, below). NOTHING restores a status from it today: it is a record
+   for a person (`get_purchase_order` shows it) and for a future reopen tool. Audit row:
    `status_before`, received and billed ex-VAT amounts at that moment, the reason. The reply lists, per line that was
    short-closed, the ordered-not-received quantity and ex-VAT amount. Bills and links stay.
 4. **`set_purchase_order_status`** - for IMPORTED POs: target `draft | approved | closed | cancelled`, `reason` required,
    **owner / admin only**, audited (old -> new). Refused unless the PO carries `external_ref`, when it has a goods receipt, and
-   for a move that would orphan bill links (-> draft or -> cancelled while links exist). -> approved runs the budget check
+   for a move that would orphan bill links (-> draft or -> cancelled while links exist). **-> closed only from approved** (closing
+   a draft / submitted / cancelled PO would make it billable without it ever having been approved; the import creates closed POs
+   directly). **Leaving closed clears the closing records on the PO's links** (`closed_po_from_status`, 1006), so a later unlink
+   cannot reopen a PO someone deliberately reopened and closed again (review M3; the 4-step case is tested). -> approved runs the budget check
    NORMALLY (the import's `skip_budget_check_for_import` does not apply: a status fix is not a load) and stamps
-   `approved_by` / `approved_at`; -> closed records `closed_from_status` as `close_purchase_order` does; leaving closed clears it.
+   `approved_by` / `approved_at`; -> closed records `closed_from_status` (always `approved`) as `close_purchase_order` does; leaving
+   closed clears it.
    partially_received / received are never targets (they come from receipts) and refused as sources.
 5. **`bulk_create_purchase_orders` changes:**
    - `dry_run` reports per PO `budget_check` (`outcome` ok | warn | block, `policy`, `reasons`; null for a PO that is not
-     imported approved) decided by the same check the live call runs, and the existing `dimension_warnings` per PO. A PO the live
+     imported approved) decided by the same check the live call runs (`reasons` lists the first 10, `reasons_total` counts them all),
+     and the existing `dimension_warnings` per PO. A PO reported as `block` does not count as committed for the POs after it (they
+     are judged as the live call would judge them without it); with the skip flag it does (it is created). A PO the live
      call would refuse on a block no longer fails the dry run: it comes back `would_succeed: false` with the blocked POs listed.
      (The live call still refuses the whole batch.)
    - New `skip_budget_check_for_import` (**owner / admin only**, refused for anyone else before any read, dry run too): an
@@ -74,9 +87,11 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
 
 ## Migration 1007: `purchase_orders.closed_from_status`
 
-`TEXT NULL`, CHECK in (draft, submitted, approved, partially_received, received, cancelled). No existing column fits: the link
-table's `closed_po_from_status` belongs to a link and a short-closed PO may have none. Written by close / set status (-> closed),
-cleared when the PO leaves closed (set status; the unlink's reopen). The old colour never writes or reads it, and `SELECT po.*`
+`TEXT NULL`, CHECK `closed_from_status IS NULL OR (status = 'closed' AND closed_from_status IN (approved, partially_received,
+received))`: it holds a value only while the PO is closed. No existing column fits: the link table's `closed_po_from_status`
+belongs to a link and a short-closed PO may have none. Written by close / set status (-> closed), cleared in the same UPDATE by
+every writer that moves a PO out of closed (set status; the unlink's reopen). A close made by `link_bills_to_purchase_order`
+(`close_when_fully_billed`) does NOT set it: that closing is recorded on the link. The old colour never writes or reads it, and `SELECT po.*`
 readers pass it through. `get_purchase_order` shows it. 1007 was free on every branch, worktree and open PR on 19 Nov (1008
 is `feat/invoice-line-vat-schema-readers-20261119`).
 
@@ -84,6 +99,7 @@ is `feat/invoice-line-vat-schema-readers-20261119`).
 
 | Writer | Order |
 |---|---|
+| bill create (REST / MCP, `createSupplierInvoice`) | the named POs `FOR KEY SHARE` in id order, re-checking the PO lines under it (review M1: before this, an update could replace the lines between the check and the line insert), BEFORE the bill and its lines are written; the bill row is new, so no other writer can hold it first; then `recordBillLinks`' same KEY SHARE (re-entrant) |
 | `update_purchase_order` | prepare reads (account rows `FOR SHARE`, items, suppliers) -> budget gate (**approved PO only**, block policy only) -> PO row `FOR UPDATE` -> reads of receipts / links / bill lines (no bill row locks) -> writes -> budget check (reads) |
 | `cancel_purchase_order` | PO row `FOR UPDATE` (draft / submitted / approved: the existing "PO cancel" row) |
 | `close_purchase_order` | PO row `FOR UPDATE`; reads links (no bill locks); takes no budget gate (releasing a commitment cannot overspend) |
@@ -98,6 +114,9 @@ PO row (link and unlink hold it `FOR NO KEY UPDATE`, which still conflicts with 
 
 ## Known limits
 
+- Short-closing a partially_received / received PO drops goods received and not yet billed from committed spend (committed counts
+  open PO lines only); a bill for them can still be created: bill lines naming a line of a CLOSED PO are accepted
+  (`assertBillPoLinks` takes `LINKABLE_PO_STATUSES`, as the link tool does), but, closed POs committing nothing, they net nothing.
 - An approved PO's update checks the budget after the write (inside the savepoint) where the Approve action checks before it;
   the outcome is the same, a refusal leaves nothing.
 - A bill header naming the PO counts as a link for the update guard even when the bill is a draft that was never linked.
