@@ -30,8 +30,29 @@ async function data<T>(url: string, failed: string): Promise<T> {
   return (json.data ?? json) as T;
 }
 
+/** An existing off-cycle run of a month, as the run list gives it (its pay date and status). */
+export interface OffCycleRunOption { periodYear: number; periodMonth: number; runDate?: string | null; status: string }
+
+/**
+ * The first day a NEW off-cycle run of `run`'s month may be paid (UI review #1620 L4, as the server's
+ * offCycleOrderRefusal judges it): today or later, inside the month, and after every non-cancelled off-cycle run of it.
+ */
+export function firstOffCyclePayDay(run: RegularRunOption, offCycle: OffCycleRunOption[], today: string): string {
+  const monthStart = `${monthKey(run)}-01`;
+  const latest = offCycle
+    .filter((o) => o.status !== 'cancelled' && o.periodYear === run.periodYear && o.periodMonth === run.periodMonth && o.runDate)
+    .map((o) => String(o.runDate).slice(0, 10)).sort().at(-1);
+  const after = latest ? (() => {
+    const [y, m, d] = latest.split('-').map(Number) as [number, number, number];
+    const next = new Date(y, m - 1, d + 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+  })() : monthStart;
+  return [today, monthStart, after].sort().at(-1)!;
+}
+
 export function useOffCycleSources() {
   const [runs, setRuns] = useState<RegularRunOption[]>([]);
+  const [offCycle, setOffCycle] = useState<OffCycleRunOption[]>([]);
   const [components, setComponents] = useState<ComponentOption[]>([]);
   const [leavers, setLeavers] = useState<Array<PersonOption & { endDate: string }>>([]);
   const [error, setError] = useState('');
@@ -46,6 +67,7 @@ export function useOffCycleSources() {
           '/api/payroll/employees?include=terminated', 'Could not load the employees');
         if (!live) return;
         setRuns(all.filter((r) => r.status === 'approved' && (r.runKind ?? 'regular') === 'regular' && (r.payFrequency ?? 'monthly') === 'monthly'));
+        setOffCycle(all.filter((r) => r.runKind === 'off_cycle'));
         setComponents(comps.filter((c) => c.componentType === 'earning' && c.sarsSourceCode.trim() === '3605').map((c) => ({ id: c.id, name: c.name })));
         setLeavers(people.filter((p) => p.endDate).map((p) => ({
           employeeId: p.id, label: `${p.employeeNumber} ${p.firstName} ${p.lastName}`.trim(), endDate: String(p.endDate).slice(0, 10),
@@ -58,7 +80,7 @@ export function useOffCycleSources() {
     })();
     return () => { live = false; };
   }, []);
-  return { runs, components, leavers, error, loading };
+  return { runs, offCycle, components, leavers, error, loading };
 }
 
 /** The employees on the chosen regular run (a bonus pays only them). */

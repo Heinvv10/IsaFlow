@@ -146,7 +146,12 @@ export default function PayrollRunDetailPage() {
                 </span>
               )}
             </div>
-            {run.lines.length === 0 ? (
+            {run.status === 'cancelled' ? (
+              <div className="p-8 text-center text-[var(--ff-text-secondary)] text-sm">
+                This run was cancelled{run.cancelledAt ? ` on ${formatDisplayDate(run.cancelledAt)}` : ''}{run.cancelledByName ? ` by ${run.cancelledByName}` : ''}.
+                {' '}Nothing was paid, posted or declared.
+              </div>
+            ) : run.lines.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)] text-sm">
                 No lines yet{canWrite(companyRole)
                   ? <> — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.</>

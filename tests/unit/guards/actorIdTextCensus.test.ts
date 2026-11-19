@@ -75,7 +75,14 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 117: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end' },
+  [`${S}payroll/payrollRunHeaders.ts`]: {
+    122: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end',
+    // Wave 6 OC: the canceller's name, read as text through the company's member view (cancelled_by is TEXT, 999w/999f).
+    141: 'SELECT h.*, CASE WHEN h.cancelled_by IS NULL THEN NULL',
+    142: 'ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name',
+  },
+  // Wave 6 OC: Cancel run stamps who cancelled it, an untyped bind (TEXT column).
+  [`${S}payroll/payrollOffCycleCancel.ts`]: { 74: 'cancelled_by = ${userId}, cancelled_at = now()' },
   // Wave 6 OC: an off-cycle run's header and its employees (payroll_off_cycle_employees.created_by is TEXT, 999x).
   [`${S}payroll/payrollOffCycleRun.ts`]: {
     168: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',
@@ -148,7 +155,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
     180: 'VALUES (${companyId}::uuid, ${String(run.id)}::uuid, ${e.employeeId}::uuid, ${e.componentId ?? null}::uuid, ${e.amount == null ? null : Math.round(e.amount * 100) / 100}, ${createdBy})',
   },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 120: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 125: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 234: "'draft', ${generatedByUserId}, NOW()" },

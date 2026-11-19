@@ -70,7 +70,8 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
     const rows = (await tx`
       UPDATE payroll_run_headers
          SET status = 'cancelled', total_gross = 0, total_taxable = 0, total_paye = 0, total_uif = 0, total_sdl = 0,
-             total_eti = 0, total_net = 0, employee_count = 0, approval_plan_hash = NULL
+             total_eti = 0, total_net = 0, employee_count = 0, approval_plan_hash = NULL,
+             cancelled_by = ${userId}, cancelled_at = now()
        WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
        RETURNING *
     `) as DbRow[];

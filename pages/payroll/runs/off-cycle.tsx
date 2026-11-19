@@ -12,11 +12,11 @@ import { DateField } from '@/components/ui/DateField';
 import { MoneyField } from '@/components/ui/MoneyField';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { FocusedAlert } from '@/components/payroll/offCycle/FocusedAlert';
+import { FocusedAlert } from '@/components/ui/FocusedAlert';
 import { log } from '@/lib/logger';
 import { todayInSast } from '@/lib/saDateParser';
 import { ArrowLeft, Gift, Loader2 } from 'lucide-react';
-import { lastOffCyclePayDay, monthKey, monthLabel, useOffCycleSources, useRunPeople } from '@/components/payroll/offCycle/useOffCycleSources';
+import { firstOffCyclePayDay, lastOffCyclePayDay, monthKey, monthLabel, useOffCycleSources, useRunPeople } from '@/components/payroll/offCycle/useOffCycleSources';
 
 type Reason = 'bonus' | 'termination';
 const REASONS = [{ value: 'bonus', label: 'Bonus (annual payment)' }, { value: 'termination', label: 'Termination pay-outs' }];
@@ -24,7 +24,7 @@ const card = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-s
 
 export default function NewOffCycleRunPage() {
   const router = useRouter();
-  const { runs, components, leavers, error: loadError, loading } = useOffCycleSources();
+  const { runs, offCycle, components, leavers, error: loadError, loading } = useOffCycleSources();
   const [runId, setRunId] = useState<string | null>(null);
   const [reason, setReason] = useState<Reason>('bonus');
   const [runDate, setRunDate] = useState<string | null>(null);
@@ -43,6 +43,8 @@ export default function NewOffCycleRunPage() {
   const picked = people.filter((p) => chosen[p.employeeId]);
   // The last pay day allowed: the day before the regular run's pay date (it closed the month's UIF and ETI).
   const lastDay = run ? lastOffCyclePayDay(run) : undefined;
+  // The first allowed day: today, the month's first, or the day after its latest off-cycle run (the server's order rule).
+  const firstDay = run ? firstOffCyclePayDay(run, offCycle, today) : undefined;
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -103,13 +105,13 @@ export default function NewOffCycleRunPage() {
             <Select id="oc-reason" label="Reason" required value={reason} options={REASONS}
               onChange={(v) => { setReason((v ?? 'bonus') as Reason); setChosen({}); }} />
             <DateField id="oc-date" label="Pay date" required value={runDate} onChange={(iso) => setRunDate(iso)}
-              minDate={run && lastDay && today <= lastDay ? (today > `${monthKey(run)}-01` ? today : `${monthKey(run)}-01`) : undefined}
-              maxDate={lastDay} disabled={!run || !lastDay || today > lastDay} resetKey={runId ?? ''}
-              helperText={!run || !lastDay
+              minDate={firstDay && lastDay && firstDay <= lastDay ? firstDay : undefined}
+              maxDate={lastDay} disabled={!run || !lastDay || !firstDay || firstDay > lastDay} resetKey={runId ?? ''}
+              helperText={!run || !lastDay || !firstDay
                 ? 'Choose the month first. The pay date is today or later, before that month\'s regular run is paid.'
-                : today > lastDay
-                  ? 'Too late for that month: an off-cycle run is paid today or later, before the regular run is paid.'
-                  : `Today or later, and no later than ${formatDisplayDate(lastDay)} (the day before the regular run is paid).`} />
+                : firstDay > lastDay
+                  ? 'No pay date is left in that month: it must be today or later, after the month\'s last off-cycle run and before the regular run is paid.'
+                  : `From ${formatDisplayDate(firstDay)} to ${formatDisplayDate(lastDay)}: today or later, after the month's last off-cycle run, and before the regular run is paid.`} />
             {reason === 'bonus' && (
               <Select id="oc-component" label="Bonus earning (SARS 3605)" required value={componentId}
                 options={components.map((c) => ({ value: c.id, label: c.name }))} emptyText="No annual-payment (3605) earning: add one under Pay components"

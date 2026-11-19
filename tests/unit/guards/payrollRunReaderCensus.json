@@ -353,7 +353,7 @@
    {"line":65,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"list of runs"},
    {"line":76,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): latestPayrollRun, the latest in pay order (period context, was ORDER BY month LIMIT 1 in the route)"},
    {"line":119,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQb1 converted (R): ON CONFLICT on the 999a regular-period key, not the per-month unique FQx drops"},
-   {"line":145,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":143,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"by run id (getPayrollRun; OC adds the canceller's name)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunHoursGate.ts": [
    {"line":24,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"FQc converted (R): leaver test against the run's first day (h.period_start)"},

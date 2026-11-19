@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { FocusedAlert } from '@/components/payroll/offCycle/FocusedAlert';
+import { FocusedAlert } from '@/components/ui/FocusedAlert';
 
 describe('FocusedAlert', () => {
   it('renders nothing without a message', () => {

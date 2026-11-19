@@ -48,6 +48,9 @@ export interface RunDetail {
   runKind?: string;
   offCycleReason?: string | null;
   runDate?: string | null;
+  /** A cancelled off-cycle run: when and by whom (wave 6 OC). */
+  cancelledAt?: string | null;
+  cancelledByName?: string | null;
   approval: DocumentApprovalState | null;
   /** Who decided the approval and whether it was the requester's own (sole-approver exception); null when not approved or grandfathered. */
   approvalDecision?: PayRunDecisionSummary | null;

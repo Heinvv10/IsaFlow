@@ -10,7 +10,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withTransaction: vi.f
 import { judgeOffCycleShape, OffCycleRunRefusedError, type OffCycleRunInput } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { offCyclePayDateRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
 import { runJournalDescriptionOf } from '@/modules/accounting/services/payroll/payrollJournalDescription';
-import { lastOffCyclePayDay } from '@/components/payroll/offCycle/useOffCycleSources';
+import { firstOffCyclePayDay, lastOffCyclePayDay } from '@/components/payroll/offCycle/useOffCycleSources';
 
 const E1 = '11111111-1111-4111-8111-111111111111';
 const E2 = '22222222-2222-4222-8222-222222222222';
@@ -90,5 +90,18 @@ describe('the form\'s last pay day: the day before the regular run\'s pay date (
     expect(lastOffCyclePayDay({ id: 'r', periodYear: 2026, periodMonth: 11, runDate: '2026-11-25', periodEnd: '2026-11-30' })).toBe('2026-11-24');
     expect(lastOffCyclePayDay({ id: 'r', periodYear: 2026, periodMonth: 11, runDate: null, periodEnd: '2026-11-30' })).toBe('2026-11-29');
     expect(lastOffCyclePayDay({ id: 'r', periodYear: 2027, periodMonth: 3, runDate: null, periodEnd: null })).toBe('2027-03-30');
+  });
+});
+
+describe('the form\'s first pay day: after the month\'s last off-cycle run (UI review #1620 L4, as offCycleOrderRefusal)', () => {
+  const nov = { id: 'r', periodYear: 2026, periodMonth: 11 };
+  const oc = (runDate: string, status = 'approved', periodMonth = 11) => ({ periodYear: 2026, periodMonth, runDate, status });
+  it('the day after the latest non-cancelled off-cycle run of the month, never before today', () => {
+    expect(firstOffCyclePayDay(nov, [], '2026-11-17')).toBe('2026-11-17');
+    expect(firstOffCyclePayDay(nov, [oc('2026-11-20'), oc('2026-11-24', 'draft')], '2026-11-17')).toBe('2026-11-25');
+    expect(firstOffCyclePayDay(nov, [oc('2026-11-26', 'cancelled'), oc('2026-11-20')], '2026-11-17')).toBe('2026-11-21');
+    expect(firstOffCyclePayDay(nov, [oc('2026-10-28', 'approved', 10)], '2026-11-17')).toBe('2026-11-17');
+    expect(firstOffCyclePayDay(nov, [oc('2026-11-10')], '2026-11-17')).toBe('2026-11-17');
+    expect(firstOffCyclePayDay(nov, [oc('2026-11-30')], '2026-11-17')).toBe('2026-12-01');
   });
 });

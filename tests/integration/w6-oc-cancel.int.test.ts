@@ -18,6 +18,7 @@ import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrol
 import { readPayroll } from '@/modules/accounting/services/cashForecast13/readPayroll';
 import { getOwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
 import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
+import { getPayrollRun } from '@/modules/accounting/services/payroll/payrollRunHeaders';
 
 vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
@@ -128,6 +129,29 @@ describe('Cancel run', () => {
     expect(await n(`SELECT count(*)::int AS n FROM approval_requests WHERE company_id = $1 AND status = 'pending'`, [a.company])).toBe(0);
     expect(await n(`SELECT count(*)::int AS n FROM audit_log WHERE company_id = $1 AND entity_type = 'payroll_run' AND entity_id = $2
       AND action = 'reject' AND changes->'metadata'->>'requestId' = $3`, [a.company, id, requestId])).toBe(1);
+  });
+
+  it('a run whose approval was already cleared (request approved, run not final): cancelled, the cleared request stays history and can approve nothing', async () => {
+    await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-21', termination_reason = 'resignation',
+      termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [p.young]);
+    const made = await create({ reason: 'termination', runDate: '2026-11-27', employees: [{ employeeId: p.young }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await a.api.calculate(id)).statusCode).toBe(200);
+    await a.authorise(id);
+    const cleared = (await a.pool.query(`SELECT id FROM approval_requests WHERE document_id = $1 AND status = 'approved'`, [id])).rows;
+    expect(cleared).toHaveLength(1);
+    const done = await cancelRun(a, id);
+    expect(done.statusCode, JSON.stringify(done.body)).toBe(200);
+    const run = await getPayrollRun(id, a.company);
+    expect(run).toMatchObject({ status: 'cancelled' });
+    expect(run?.cancelledAt).toBeTruthy();
+    expect((await a.pool.query('SELECT cancelled_by FROM payroll_run_headers WHERE id = $1', [id])).rows[0].cancelled_by).toBe(a.admin);
+    expect((await a.pool.query('SELECT status FROM approval_requests WHERE id = $1', [cleared[0].id])).rows[0].status).toBe('approved');
+    // Inert: approval refuses a cancelled run, so the cleared request can never post it.
+    const planHash = (await a.api.preview(id)).body.data?.planHash;
+    expect((await a.api.approveWith(id, planHash, { user: a.admin })).statusCode).not.toBe(200);
+    expect((await a.header(id)).status).toBe('cancelled');
   });
 
   it('a regular run is never cancelled here: 409, nothing changed', async () => {

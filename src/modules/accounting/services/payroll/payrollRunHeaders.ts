@@ -37,6 +37,9 @@ export interface PayrollRunSummary {
   periodEnd: string | null;
   /** The pay date, 'YYYY-MM-DD' (an off-cycle run's, wave 6 OC); null when not set. */
   runDate: string | null;
+  /** A cancelled off-cycle run (wave 6 OC): when, and who by (getPayrollRun only); null otherwise. */
+  cancelledAt?: string | null;
+  cancelledByName?: string | null;
 }
 
 export function mapRunRow(r: Row): PayrollRunSummary {
@@ -60,6 +63,8 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     periodStart: dateColumnOf(r.period_start),
     periodEnd: dateColumnOf(r.period_end),
     runDate: dateColumnOf(r.run_date),
+    cancelledAt: r.cancelled_at == null ? null : new Date(String(r.cancelled_at instanceof Date ? r.cancelled_at.toISOString() : r.cancelled_at)).toISOString(),
+    ...(r.cancelled_by_name !== undefined ? { cancelledByName: r.cancelled_by_name == null ? null : String(r.cancelled_by_name) } : {}),
   };
 }
 
@@ -131,9 +136,12 @@ export async function getPayrollRun(
   id: string,
   companyId: string,
 ): Promise<PayrollRunSummary | null> {
+  // The canceller's name through approval_company_member_name (mig 714), the company's own member view (wave 6 OC).
   const rows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    SELECT h.*, CASE WHEN h.cancelled_by IS NULL THEN NULL
+                     ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name
+      FROM payroll_run_headers h
+     WHERE h.id = ${id}::uuid AND h.company_id = ${companyId}::uuid
   `) as Row[];
   return rows.length > 0 && rows[0] ? mapRunRow(rows[0]) : null;
 }
