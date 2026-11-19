@@ -10,6 +10,8 @@ import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
 import { billLineAccountRefusal } from './billLineAccountGuard';
+import { ItemLineRefusal } from '../items/itemLineDefaults';
+import { resolveEditLineItems } from '../items/itemEditLines';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY, storedLineOrder } from './supplierInvoiceLineOrder';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
@@ -75,22 +77,35 @@ export async function planLines(
   companyId: string,
   invoiceId: string,
   number: string,
-  items: SupplierInvoiceItemInput[],
+  sentItems: SupplierInvoiceItemInput[],
   taxRate: number,
+  taxRateGiven = false,
 ): Promise<(SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null> {
   try {
-    assertSupplierInvoiceLines(items, false);
+    assertSupplierInvoiceLines(sentItems, false);
   } catch (err) {
     throw new SupplierInvoiceDraftUpdateRefusal((err as Error).message);
   }
-  const accountRefusal = await billLineAccountRefusal(companyId, items.map((i) => i.glAccountId));
-  if (accountRefusal) throw new SupplierInvoiceDraftUpdateRefusal(accountRefusal);
   const kept = (await sql`
-    SELECT description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id,
+    SELECT description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id, item_id,
            po_item_id, project_id, cost_center_id, vat_classification, cc1_id, cc2_id, bu_id
     FROM supplier_invoice_items sii
     WHERE supplier_invoice_id = ${invoiceId}::UUID
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}`) as DbRow[];
+  // Migration 1005: a line naming a NEW item is checked and defaulted to its purchases account; a line sent without one
+  // inherits an identical stored line's item (items/itemEditLines). Before the account check, which sees the default.
+  let items: SupplierInvoiceItemInput[];
+  try {
+    items = await resolveEditLineItems(companyId, 'purchase', sentItems, kept.map((l) => ({
+      itemId: l.item_id ? String(l.item_id) : null, description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price),
+      taxRate: l.tax_rate === null || l.tax_rate === undefined ? null : Number(l.tax_rate),
+    })), (i) => `lines[${i}]`, { deriveTax: !taxRateGiven });
+  } catch (err) {
+    if (err instanceof ItemLineRefusal) throw new SupplierInvoiceDraftUpdateRefusal(err.message);
+    throw err;
+  }
+  const accountRefusal = await billLineAccountRefusal(companyId, items.map((i) => i.glAccountId));
+  if (accountRefusal) throw new SupplierInvoiceDraftUpdateRefusal(accountRefusal);
   let inheritedDimensions: InheritedDimension[] = [];
   let totals: SupplierInvoiceTotals;
   try {
@@ -112,11 +127,12 @@ export async function planLines(
   // Structural, not a joined string: description is free text and may carry
   // any separator, so a joined form lets one sent line equal two stored ones.
   const key = (l: Pick<ComputedSupplierInvoiceItem,
-    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId'
+    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId' | 'itemId'
     | 'cc1Id' | 'cc2Id' | 'buId'>) =>
     JSON.stringify([l.description, l.quantity.toFixed(4), l.unitPrice.toFixed(2), l.taxRate.toFixed(2),
       l.taxAmount.toFixed(2), l.lineTotal.toFixed(2), l.glAccountId ?? null,
-      l.cc1Id?.toLowerCase() ?? null, l.cc2Id?.toLowerCase() ?? null, l.buId?.toLowerCase() ?? null]);
+      l.cc1Id?.toLowerCase() ?? null, l.cc2Id?.toLowerCase() ?? null, l.buId?.toLowerCase() ?? null,
+      l.itemId?.toLowerCase() ?? null]);
   const stored = kept.map((l) => key({
     description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price),
     taxRate: Number(l.tax_rate), taxAmount: Number(l.tax_amount), lineTotal: Number(l.line_total),
@@ -124,6 +140,7 @@ export async function planLines(
     cc1Id: l.cc1_id ? String(l.cc1_id) : undefined,
     cc2Id: l.cc2_id ? String(l.cc2_id) : undefined,
     buId: l.bu_id ? String(l.bu_id) : undefined,
+    itemId: l.item_id ? String(l.item_id) : undefined,
   })).sort();
   const sent = totals.items.map(key).sort();
   if (stored.length === sent.length && stored.every((k, i) => k === sent[i])) return null;

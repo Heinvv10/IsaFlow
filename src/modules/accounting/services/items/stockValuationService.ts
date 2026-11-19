@@ -7,9 +7,9 @@
  * that is actually used. This service reads the third, and says so, because a
  * valuation built on either of the empty two would confidently return zero.
  *
- * `stock_movements` and `stock_levels` HAVE NO `company_id` COLUMN. They are
- * tenant-scopable only by joining `products`, which is what every query here
- * does — the join is the tenant boundary, so it is an INNER join and the
+ * `stock_movements` and `stock_levels` gained their own `company_id` in migration 1005 (backfilled
+ * from the product; legacy rows of a company-less product stay NULL). Every query here still
+ * scopes by joining `products`, the model that holds data — the join is the tenant boundary, so it is an INNER join and the
  * predicate lives in WHERE. A row whose product carries a NULL `company_id`
  * (the column is nullable) belongs to no tenant and is DISCLOSED — outside the
  * completeness identity, since it is not in this company's universe — rather
@@ -102,6 +102,8 @@ export async function getStockValuation(
   //  · `p.company_id` sits in WHERE because the join to products IS the tenant
   //    boundary. In a LEFT JOIN's ON clause it would restrict nothing and
   //    unmatched movements would survive into the SUM.
+  //  · `sm.company_id = p.company_id` also sits in the ON clause (migration 1005): the composite FK refuses a row naming another
+  //    company's product, and this keeps a row written around it (a superuser's) out of this company's figures.
   //  · `sm.created_at <= asOf` sits in the LEFT JOIN's ON clause, and MUST. In
   //    WHERE it would turn the outer join inner and drop any product whose only
   //    movements fall after the as-of date — a product that should be reported
@@ -135,6 +137,7 @@ export async function getStockValuation(
     FROM products p
     LEFT JOIN stock_movements sm
            ON sm.product_id = p.id
+          AND sm.company_id = p.company_id
           AND sm.created_at <= (${asOf}::DATE + INTERVAL '1 day')
     WHERE p.company_id = ${companyId}::UUID
     GROUP BY p.id, p.code, p.name, p.unit
