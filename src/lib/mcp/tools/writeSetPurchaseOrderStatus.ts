@@ -24,7 +24,7 @@ export const setPurchaseOrderStatusTool: McpTool = {
     + `status = ${SETTABLE_PO_STATUSES.join(' | ')} (approved is what the import calls open; closed is what it calls billed). Owner or admin only; a reason is required and audited (old -> new). Posts nothing. `
     + 'Refused for a PO with no external_ref (use update / cancel / close for those), a PO with goods received against it, a received or partially_received one, one already in that status, '
     + 'and a move that would orphan bill links: to draft or cancelled while bills are linked (unlink_bill_from_purchase_order first). '
-    + 'approved runs the PO approval budget check normally (block refuses, warn returns budget_warnings) and stamps who approved it; closed records the status it was closed from (as close_purchase_order). '
+    + 'approved runs the PO approval budget check normally (block refuses, warn returns budget_warnings) and stamps who approved it; closed is allowed from approved only (a never-approved PO is not closed into a billable state) and records closed_from_status as close_purchase_order does; leaving closed clears that and the closing records on its links. '
     + 'dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,

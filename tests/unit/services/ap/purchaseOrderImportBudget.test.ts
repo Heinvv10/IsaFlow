@@ -27,7 +27,7 @@ beforeEach(() => { checkMock.mockReset(); });
 describe('runImportBudgetCheck', () => {
   it('a passing check is ok; one that warns carries its warnings; the check runs with the gate held on channel mcp', async () => {
     checkMock.mockResolvedValue({ policy: 'block', outcome: 'pass', lines: [], warnings: [] });
-    expect(await run({ enforce: true, skipped: false })).toEqual({ outcome: 'ok', policy: 'block', reasons: [], skipped: false, would_have_failed: false });
+    expect(await run({ enforce: true, skipped: false })).toEqual({ outcome: 'ok', policy: 'block', reasons: [], reasons_total: 0, allReasons: [], skipped: false, would_have_failed: false });
     expect(checkMock.mock.calls[0]![3]).toEqual({ channel: 'mcp', lock: 'held', gate, figures: true });
     checkMock.mockResolvedValue({ policy: 'warn', outcome: 'warn', lines: [], warnings: ['Over budget: x'] });
     expect(await run({ enforce: true, skipped: false })).toMatchObject({ outcome: 'warn', policy: 'warn', reasons: ['Over budget: x'] });
@@ -55,5 +55,16 @@ describe('runImportBudgetCheck', () => {
     expect(blockReasons(refusal(), true)[0]).toMatch(/^Over budget: .*BB-6100 Opex/);
     expect(blockReasons(refusal(), true)[0]).toMatch(/\d/);
     expect(blockReasons(refusal(), false)[0]).not.toContain('300');
+  });
+
+  it('a PO over budget on many lines lists the first 10 reasons and counts them all (the reply stays bounded), warn and block alike', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...over, glAccountId: `a${i}`, accountLabel: `BB-${6100 + i} Opex` }));
+    checkMock.mockRejectedValue(new BudgetExceededError('Over', { ...refusal().event, lines: many }));
+    const block = await run({ enforce: false, skipped: false });
+    expect(block.reasons).toHaveLength(10);
+    expect(block).toMatchObject({ reasons_total: 12 });
+    expect(block.allReasons).toHaveLength(12);
+    checkMock.mockResolvedValue({ policy: 'warn', outcome: 'warn', lines: [], warnings: Array.from({ length: 11 }, (_, i) => `w${i}`) });
+    expect(await run({ enforce: true, skipped: false })).toMatchObject({ outcome: 'warn', reasons_total: 11, allReasons: expect.any(Array) });
   });
 });

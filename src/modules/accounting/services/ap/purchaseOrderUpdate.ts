@@ -9,6 +9,13 @@
  * block throws `BudgetExceededError` and the savepoint takes the edit with it; a warn comes back as `budgetWarnings`. A draft /
  * submitted PO commits nothing and is not checked. The status is read before the gate to decide whether to take it; under the
  * row lock a changed status is `PurchaseOrderChangedError` (a draft approved meanwhile would need the gate AFTER the row).
+ *
+ * Editing an APPROVED PO is OWNER / ADMIN only (`mayEditApproved`, Hein's R1 as for closing: an edit changes what the PO commits),
+ * refused at the first status read, before the gate, the lock or any write. The edit RESTAMPS approved_by / approved_at to the
+ * editor (they approved what it now says); the previous approver and time are kept in the audit row (`prior_approved_by` /
+ * `prior_approved_at`). Under the BLOCK policy every replacement line needs an expense account: a line with none cannot meet a
+ * budget, so it would escape the check the edit exists to re-run. The check judges the PO's NEW lines in the order date's (new)
+ * month; the month the PO leaves only loses commitment, which cannot put anything over.
  * The caller (`purchaseOrderUpdatePrepare`) has validated and priced everything; this writes it.
  */
 import { sql, withSavepoint } from '@/lib/neon';
@@ -26,6 +33,8 @@ import { receiptOrLinkRefusal } from './purchaseOrderMaintenanceGuards';
 import type { PoCents } from './purchaseOrderImportAmounts';
 
 /** The statuses an update accepts: the PUT's (draft, submitted) and approved. */
+export const APPROVED_EDIT_REFUSAL = 'Editing an approved purchase order changes what it commits, which only an owner or admin may do';
+
 export const UPDATABLE_PO_STATUSES: readonly string[] = ['draft', 'submitted', 'approved'];
 
 export interface PoUpdateRequest {
@@ -36,7 +45,7 @@ export interface PoUpdateRequest {
   replace: { lines: readonly PoLineRow[]; totals: PoCents } | null;
 }
 
-export interface PoUpdateOptions { userId: string; via: string; budgetFigures: boolean }
+export interface PoUpdateOptions { userId: string; via: string; budgetFigures: boolean; /** Owner / admin: may edit an APPROVED PO. */ mayEditApproved?: boolean }
 
 export interface PoUpdateResult {
   poId: string;
@@ -59,7 +68,7 @@ async function lockFull(companyId: string, poId: string): Promise<DbRow | undefi
   const rows = await withRowLockBudget(async () => (await sql`
     SELECT po_number, status, supplier_id::TEXT AS supplier_id, to_char(order_date, 'YYYY-MM-DD') AS order_date,
            to_char(expected_delivery_date, 'YYYY-MM-DD') AS delivery_date, reference, notes,
-           subtotal::TEXT AS subtotal, tax_amount::TEXT AS tax_amount, total::TEXT AS total
+           subtotal::TEXT AS subtotal, tax_amount::TEXT AS tax_amount, total::TEXT AS total, approved_by, approved_at::TEXT AS approved_at
       FROM purchase_orders WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID
        FOR UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError());
@@ -70,6 +79,7 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
   const { poId, header, replace } = req;
   const seen = (await sql`SELECT status FROM purchase_orders WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   if (!seen[0]) throw new PurchaseOrderNotFoundError();
+  if (seen[0].status === 'approved' && opts.mayEditApproved !== true) throw new PurchaseOrderMaintenanceRefusal(APPROVED_EDIT_REFUSAL);
 
   return withSavepoint('update_purchase_order', async () => {
     const gate: BudgetGate | null = seen[0]!.status === 'approved' ? await openBudgetGate(companyId, 'take') : null;
@@ -80,8 +90,12 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
     if (!UPDATABLE_PO_STATUSES.includes(status)) {
       throw new PurchaseOrderMaintenanceRefusal(`Only a draft, submitted or approved purchase order can be edited (this one is ${status.replace(/_/g, ' ')})`);
     }
+    if (status === 'approved' && opts.mayEditApproved !== true) throw new PurchaseOrderMaintenanceRefusal(APPROVED_EDIT_REFUSAL);
     const refusal = await receiptOrLinkRefusal(companyId, poId, 'its lines and header cannot be edited');
     if (refusal) throw new PurchaseOrderMaintenanceRefusal(refusal);
+    if (status === 'approved' && gate?.policy === 'block' && replace?.lines.some((l) => l.glAccountId === null)) {
+      throw new PurchaseOrderMaintenanceRefusal('Under the block budget policy every line of an approved purchase order needs an expense account: a line with none cannot be checked against a budget');
+    }
 
     const newDate = header.orderDate ?? String(po.order_date);
     const updated = (await sql`
@@ -94,6 +108,8 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
         subtotal               = COALESCE(${replace ? r2(replace.totals.subtotal) : null}::NUMERIC, subtotal),
         tax_amount             = COALESCE(${replace ? r2(replace.totals.tax) : null}::NUMERIC, tax_amount),
         total                  = COALESCE(${replace ? r2(replace.totals.total) : null}::NUMERIC, total),
+        approved_by            = CASE WHEN ${status === 'approved'}::BOOLEAN THEN ${opts.userId}::TEXT ELSE approved_by END,
+        approved_at            = CASE WHEN ${status === 'approved'}::BOOLEAN THEN NOW() ELSE approved_at END,
         updated_at = NOW(), updated_by = ${opts.userId}
        WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status = ${status}
       RETURNING subtotal::TEXT AS subtotal, tax_amount::TEXT AS tax_amount, total::TEXT AS total
@@ -140,7 +156,7 @@ export async function updatePurchaseOrder(companyId: string, req: PoUpdateReques
         metadata: {
           source: opts.via, status, changed: changed.join(',').slice(0, 200),
           ...(replace ? { lines: String(replace.lines.length), subtotal: String(updated[0].subtotal), total: String(updated[0].total) } : {}),
-          ...(status === 'approved' ? { budgetChecked: String(budgetChecked), ...(budgetWarnings.length > 0 ? { budgetWarnings: String(budgetWarnings.length) } : {}) } : {}),
+          ...(status === 'approved' ? { prior_approved_by: String(po.approved_by ?? ''), prior_approved_at: String(po.approved_at ?? ''), budgetChecked: String(budgetChecked), ...(budgetWarnings.length > 0 ? { budgetWarnings: String(budgetWarnings.length) } : {}) } : {}),
         },
       },
     });

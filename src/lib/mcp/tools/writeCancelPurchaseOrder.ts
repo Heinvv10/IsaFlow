@@ -19,7 +19,7 @@ export const cancelPurchaseOrderTool: McpTool = {
   name: TOOL,
   description:
     'Cancel a purchase order (po_id or po_number) with a reason (required; recorded in the audit trail). Posts nothing; a cancelled PO commits nothing. '
-    + 'A draft or submitted one can be cancelled by any writer. An APPROVED one only by an owner or admin, and only while no goods have been received against it and no bill is linked to it (unlink_bill_from_purchase_order first). '
+    + 'A draft or submitted one can be cancelled by any writer. An APPROVED one only by an owner or admin. Any of them is refused while goods have been received against it or a bill is tied to it (a link, a bill line on one of its lines, a bill naming it): unlink_bill_from_purchase_order first. '
     + 'A partially_received, received, closed or already cancelled purchase order is refused with its status (use close_purchase_order to finish a received / part-received one). '
     + 'dry_run runs every check and writes nothing.',
   scope: 'write:invoices',

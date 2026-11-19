@@ -12,6 +12,7 @@
  * mandatory reason, audited.
  *
  * Refused while any bill is linked to it (migration 1006; brief section 4): the commitment it releases is what those bills billed.
+ * `via` (the MCP tool's name) is recorded as the audit row's `source`.
  * Locks: the PO row `FOR UPDATE` only (no budget lock: releasing a commitment cannot overspend). The goods receipt
  * takes its number lock (620) then the same PO row, and re-checks the status under it, so cancel and receipt
  * serialise on the row and exactly one wins. All in one savepoint; every refusal comes before the write.
@@ -26,7 +27,7 @@ import {
 
 export { PurchaseOrderNotCancellableError } from './purchaseOrderErrors';
 
-export async function cancelApprovedPurchaseOrder(companyId: string, poId: string, userId: string, reason: string): Promise<DbRow> {
+export async function cancelApprovedPurchaseOrder(companyId: string, poId: string, userId: string, reason: string, via?: string): Promise<DbRow> {
   const why = reason.trim();
   if (why === '') throw new PurchaseOrderNotCancellableError('Give a reason to cancel an approved purchase order');
   await assertNotImpersonating();
@@ -61,7 +62,7 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
       companyId, userId, action: 'update', entityType: 'purchase_order', entityId: poId, entityRef: po.poNumber.slice(0, 100),
       changes: {
         fields: [{ field: 'status', old: 'approved', new: 'cancelled', label: 'Status' }],
-        metadata: { cancelled: 'true', reason: why },
+        metadata: { cancelled: 'true', reason: why, ...(via ? { source: via } : {}) },
       },
     });
     return updated[0];

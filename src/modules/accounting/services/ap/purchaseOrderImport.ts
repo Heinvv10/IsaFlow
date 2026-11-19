@@ -194,12 +194,21 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
     const id = await insertPo(companyId, p, opts.userId);
     let budgetWarnings: string[] = [];
     let budgetCheck: ImportBudgetCheck | undefined;
+    let allReasons: string[] = [];
     if (p.status === 'approved' && gate) {
-      budgetCheck = await runImportBudgetCheck(
+      const run = await runImportBudgetCheck(
         companyId, { id, poNumber: p.poNumber, status: 'approved', month: p.orderDate.slice(0, 7) }, gate, opts.budgetFigures, opts.userId,
         { enforce: opts.dryRun !== true && opts.skipBudgetCheck !== true, skipped: opts.skipBudgetCheck === true },
       );
-      budgetWarnings = budgetCheck.outcome === 'warn' ? budgetCheck.reasons : [];
+      const { allReasons: reasons, ...shown } = run;
+      budgetCheck = shown;
+      allReasons = reasons;
+      budgetWarnings = shown.outcome === 'warn' ? reasons : [];
+      // A dry run (no skip) that reports a block: the live call would end here, so this PO must not count as committed for the POs
+      // after it. They are judged as if it were not there (the savepoint is rolled back anyway).
+      if (opts.dryRun === true && opts.skipBudgetCheck !== true && shown.outcome === 'block') {
+        await sql`UPDATE purchase_orders SET status = 'draft' WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
+      }
     }
     await logAuditOrThrow({
       companyId, userId: opts.userId, action: 'create', entityType: 'purchase_order', entityId: id, entityRef: p.poNumber.slice(0, 100),
@@ -210,7 +219,7 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
           ...(p.ref ? { externalSystem: p.ref.system, externalRef: p.ref.ref } : {}),
           ...(budgetCheck?.skipped ? {
             budgetCheckSkipped: 'true', wouldHaveFailed: String(budgetCheck.would_have_failed),
-            ...(budgetCheck.reasons.length > 0 ? { budgetReasons: budgetCheck.reasons.join(' | ').slice(0, 1000) } : {}),
+            ...(allReasons.length > 0 ? { budgetReasons: allReasons.join(' | ').slice(0, 1000) } : {}),
           } : {}),
         },
       },

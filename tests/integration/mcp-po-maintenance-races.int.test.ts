@@ -24,7 +24,7 @@ let f: BillFixture;
 
 beforeAll(async () => { f = await seedBillFixture(pool, 'po-maint-races'); }, 60_000);
 afterAll(async () => {
-  try { await dropMaintExtras(pool, f); await dropBillFixture(pool, f); } finally { await setPolicy(pool, f, 'warn').catch(() => undefined); await pool.end(); }
+  try { await setPolicy(pool, f, 'warn'); await dropMaintExtras(pool, f); await dropBillFixture(pool, f); } finally { await pool.end(); }
 }, 60_000);
 
 const line = (price: number) => ({ description: 'Raced', quantity: 1, unit_price: price, tax_rate: 0, gl_account_id: f.acc.nob });
@@ -59,6 +59,11 @@ describe('races', () => {
         ['update P4', callTool(pool, f, update, { po_id: p4.po, lines: [line(20 + i)] })],
       ];
       const settled = await Promise.allSettled(ops.map(([, p]) => p));
+      // The ops on one PO exclude each other: at least one terminal op won (a loser is a clean refusal, never nothing at all).
+      const won = (name: string) => { const k = ops.findIndex(([n]) => n === name); const r = settled[k]!; return r.status === 'fulfilled' && (r.value as { isError?: boolean }).isError === false; };
+      expect(['close P1', 'cancel P1', 'set P1 cancelled'].filter(won).length, `round ${i}: P1 has a terminal winner`).toBeGreaterThanOrEqual(1);
+      expect(['unlink P2', 'close P2'].some(won), `round ${i}: P2 has a winner`).toBe(true);
+      expect(won('set P3 approved'), `round ${i}: P3 reopened`).toBe(true);
       settled.forEach((r, k) => { if (r.status === 'rejected') unexpected.push(`${ops[k]![0]}: ${(r.reason as { code?: string }).code ?? ''} ${(r.reason as Error).message}`); });
 
       for (const p of [p1, p2, p3, p4]) {

@@ -12,11 +12,12 @@
  *   - dry_run runs the real service in a rolled-back savepoint and writes nothing (the key stays free).
  */
 import type { McpTool } from '../types';
-import { updatePurchaseOrder, type PoUpdateResult } from '@/modules/accounting/services/ap/purchaseOrderUpdate';
+import { canCancelApprovedPo } from '@/lib/auth/writeRoles';
+import { APPROVED_EDIT_REFUSAL, updatePurchaseOrder, type PoUpdateResult } from '@/modules/accounting/services/ap/purchaseOrderUpdate';
 import { mayReadBudgetFigures } from './budgetFigures';
 import { DIMENSION_LINE_PROPERTIES } from './dimensionArgs';
 import { MAX_LINES } from './invoiceCreateArgs';
-import { dryRunNeedsTx, dryRunResult, isToolResult, runMaintenance } from './purchaseOrderMaintenanceArgs';
+import { dryRunNeedsTx, dryRunResult, isToolResult, readPoStatus, resolvePoId, runMaintenance } from './purchaseOrderMaintenanceArgs';
 import { PO_TEXT_LIMITS } from './purchaseOrderImportArgs';
 import { parseUpdateArgs } from './purchaseOrderUpdateArgs';
 import { prepareUpdate } from './purchaseOrderUpdatePrepare';
@@ -56,10 +57,10 @@ export const updatePurchaseOrderTool: McpTool = {
   name: TOOL,
   description:
     'Edit a purchase order (po_id or po_number): header fields (supplier_id, order_date, delivery_date, reference, notes; leave out = unchanged, null clears reference / notes / delivery_date) '
-    + 'and/or lines, which REPLACE every line (lines left out keep the lines and the totals). Allowed on a draft, submitted or APPROVED purchase order; a partially_received, received, closed or cancelled one is refused with its status. Posts nothing to the ledger. '
+    + 'and/or lines, which REPLACE every line (lines left out keep the lines and the totals). Allowed on a draft or submitted purchase order by any writer, and on an APPROVED one by an owner or admin only (it changes what the PO commits; the approver is then restamped to the editor and the previous one kept in the audit trail); a partially_received, received, closed or cancelled one is refused with its status. Posts nothing to the ledger. '
     + 'Refused when goods have been received against the PO or any bill is tied to it (a link, a bill line on one of its lines, or a bill naming it): unlink the bills (unlink_bill_from_purchase_order) or cancel the receipt first, and its supplier cannot change while bills are linked. '
     + 'Totals are recomputed from the lines; send expected_totals (subtotal / tax_amount / total) to have them checked to the cent. A line may send the source\'s line_total / tax_amount, and name an item by item_id or item_code (no account sent: the item\'s purchases account; no tax_rate: the item\'s VAT type). '
-    + 'Each line has exactly the cc1 / cc2 / bu it names. Editing an APPROVED PO\'s lines or order date re-runs the PO approval budget check on the new lines: under the block policy an over-budget edit is refused and nothing changes; under warn it succeeds and returns budget_warnings. A draft is not checked. '
+    + 'Each line has exactly the cc1 / cc2 / bu it names. Editing an APPROVED PO\'s lines or order date re-runs the PO approval budget check on the new lines: under the block policy an over-budget edit is refused and nothing changes (and every new line needs an expense account: a line with none cannot be budget-checked); under warn it succeeds and returns budget_warnings. The check judges the new lines in the order date\'s month. A draft is not checked. '
     + 'dry_run runs every check (the real edit in a rolled-back savepoint) and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -87,11 +88,18 @@ export const updatePurchaseOrderTool: McpTool = {
     if (typeof parsed === 'string') return toolError(parsed);
     const needsTx = dryRunNeedsTx(parsed.dryRun);
     if (needsTx) return toolError(needsTx);
+    // Editing an APPROVED PO is the owner's / admin's call (it changes what the PO commits): refused after one status read, before the
+    // edit is validated or anything is locked, dry run too. The service decides again under its lock.
+    const mayEditApproved = canCancelApprovedPo(ctx.companyRole);
+    if (!mayEditApproved) {
+      const id = await resolvePoId(ctx.companyId, parsed);
+      if (id && (await readPoStatus(ctx.companyId, id)) === 'approved') return toolError(`${APPROVED_EDIT_REFUSAL}.`);
+    }
     const prepared = await prepareUpdate(ctx.companyId, parsed);
     if (typeof prepared === 'string') return toolError(prepared);
 
     const out = await runMaintenance(`${TOOL}_dry`, parsed.dryRun, () => updatePurchaseOrder(ctx.companyId, prepared.request, {
-      userId: ctx.userId, via: `mcp:${TOOL}`, budgetFigures: mayReadBudgetFigures(ctx),
+      userId: ctx.userId, via: `mcp:${TOOL}`, budgetFigures: mayReadBudgetFigures(ctx), mayEditApproved,
     }));
     if (isToolResult(out)) return out;
     return parsed.dryRun ? dryRunResult({ would_update: true, ...body(out.value, prepared.warnings) }) : ok({ updated: true, ...body(out.value, prepared.warnings) });

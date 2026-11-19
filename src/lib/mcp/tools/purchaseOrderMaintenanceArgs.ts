@@ -27,6 +27,12 @@ export async function resolvePoId(companyId: string, po: { poId: string | null; 
   return rows.length === 1 ? String(rows[0]!.id) : null;
 }
 
+/** The status of the PO an `{ po_id | po_number }` names (this company's only), or null. One read, no lock. */
+export async function readPoStatus(companyId: string, poId: string): Promise<string | null> {
+  const rows = (await sql`SELECT status FROM purchase_orders WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  return rows[0] ? String(rows[0].status) : null;
+}
+
 export interface MaintenanceArgs { poId: string | null; poNumber: string | null; reason: string; dryRun: boolean }
 
 /** Selector, `reason` (required, audited) and `dry_run`, for the tools that carry them. */

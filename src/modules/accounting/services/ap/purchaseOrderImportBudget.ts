@@ -16,8 +16,10 @@ import { checkPurchaseOrderBudget, type PoHeader } from './purchaseOrderBudget';
 export interface ImportBudgetCheck {
   outcome: 'ok' | 'warn' | 'block';
   policy: BudgetPolicy;
-  /** The over-budget / off-slice lines in words (warn: the warnings; block: what refused it). */
+  /** The over-budget / off-slice lines in words (warn: the warnings; block: what refused it), the first `REASONS_SHOWN`. */
   reasons: string[];
+  /** How many there were (more than `reasons` when a PO is over on many lines). */
+  reasons_total: number;
   /** The caller asked to skip the block (skip_budget_check_for_import). */
   skipped: boolean;
   /** The check blocked this PO (whether or not the block was enforced). */
@@ -30,14 +32,19 @@ export function blockReasons(err: BudgetExceededError, figures: boolean): string
   return d.kind === 'proceed' && d.warnings.length > 0 ? d.warnings : [err.message];
 }
 
+/** A PO over budget on many lines must not make the reply (or the audit row) unbounded: this many reasons are listed, the count says the rest. */
+export const REASONS_SHOWN = 10;
+const capped = (reasons: string[]) => ({ reasons: reasons.slice(0, REASONS_SHOWN), reasons_total: reasons.length });
+
 export async function runImportBudgetCheck(
   companyId: string, po: PoHeader, gate: BudgetGate, figures: boolean, userId: string, mode: { enforce: boolean; skipped: boolean },
-): Promise<ImportBudgetCheck> {
+): Promise<ImportBudgetCheck & { allReasons: string[] }> {
   try {
     const r = await checkPurchaseOrderBudget(companyId, po, gate, { channel: 'mcp', lock: 'held', gate, figures }, userId);
-    return { outcome: r.warnings.length > 0 ? 'warn' : 'ok', policy: r.policy, reasons: r.warnings, skipped: mode.skipped, would_have_failed: false };
+    return { outcome: r.warnings.length > 0 ? 'warn' : 'ok', policy: r.policy, ...capped(r.warnings), allReasons: r.warnings, skipped: mode.skipped, would_have_failed: false };
   } catch (err) {
     if (!(err instanceof BudgetExceededError) || mode.enforce) throw err;
-    return { outcome: 'block', policy: err.event.policy, reasons: blockReasons(err, figures), skipped: mode.skipped, would_have_failed: true };
+    const all = blockReasons(err, figures);
+    return { outcome: 'block', policy: err.event.policy, ...capped(all), allReasons: all, skipped: mode.skipped, would_have_failed: true };
   }
 }

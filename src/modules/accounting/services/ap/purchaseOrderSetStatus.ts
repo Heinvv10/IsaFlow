@@ -8,8 +8,11 @@
  * while a link stands: links are valid on approved and closed POs, so those moves stay open).
  *   -> approved: the Approve action's budget check runs NORMALLY on its lines (channel mcp; the import's skip flag does not apply
  *      to a status fix), before the write, under the budget gate taken FIRST; approved_by / approved_at are stamped.
- *   -> closed: the status it came from is recorded in `closed_from_status` (migration 1007), as close_purchase_order does.
- *   -> anything else: closed_from_status is cleared; -> draft also clears approved_by / approved_at.
+ *   -> closed: from APPROVED only (closing a never-approved PO would make it linkable; the import creates closed POs directly). The
+ *      status it came from is recorded in `closed_from_status` (migration 1007), as close_purchase_order does.
+ *   -> anything else: closed_from_status is cleared (its CHECK holds a value only while closed); -> draft also clears approved_by /
+ *      approved_at. LEAVING closed also clears the closing record on the PO's links (`closed_po_from_status`, 1006), so a later
+ *      unlink cannot reopen a PO someone deliberately reopened and closed again (review M3).
  * Locks: the budget gate (-> approved, block policy) -> the PO row `FOR UPDATE`. No bill row is locked.
  */
 import { sql, withSavepoint } from '@/lib/neon';
@@ -53,6 +56,9 @@ export async function setImportedPurchaseOrderStatus(
     if (po.status === 'partially_received' || po.status === 'received') {
       throw refuse(`This purchase order is ${words(po.status)}: its status comes from its goods receipts and cannot be set here`);
     }
+    if (target === 'closed' && po.status !== 'approved') {
+      throw refuse(`A purchase order is closed from approved only (this one is ${words(po.status)}): approve it first, so it is not made billable without ever having been approved`);
+    }
     if (await poHasReceipts(companyId, poId)) {
       throw refuse('Goods have been received against this purchase order (a receipt is on record), so its status cannot be set; unlink or cancel the receipt first');
     }
@@ -71,6 +77,13 @@ export async function setImportedPurchaseOrderStatus(
       budgetPolicy = check.policy;
     }
     const closedFrom = target === 'closed' ? po.status : null;
+    // Leaving closed: the link closing records go first, while the PO is still closed (a link's record is valid only then).
+    if (po.status === 'closed') {
+      await sql`
+        UPDATE purchase_order_bill_links SET closed_po_from_status = NULL
+         WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID AND closed_po_from_status IS NOT NULL
+      `;
+    }
     const updated = (await sql`
       UPDATE purchase_orders SET
         status = ${target}, closed_from_status = ${closedFrom}::TEXT,

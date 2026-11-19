@@ -29,8 +29,11 @@ export async function cancelPurchaseOrder(companyId: string, poId: string, reaso
     const done: CancelResult = { poId, poNumber: po.poNumber, statusBefore: po.status, status: 'cancelled' };
     if (po.status === 'approved') {
       if (opts.mayCancelApproved !== true) throw refuse('Cancelling an approved purchase order releases its commitment, which only an owner or admin may do');
-      // The existing action: refuses with a receipt and (migration 1006) with bill links, audits with the reason.
-      await cancelApprovedPurchaseOrder(companyId, poId, opts.userId, why);
+      // The same wide receipt / bill-tie check as the draft path (a bill line naming a PO line counts, not only a link row), then the
+      // existing action: it refuses with a receipt and with link rows too, and audits with the reason.
+      const tied = await receiptOrLinkRefusal(companyId, poId, 'it cannot be cancelled');
+      if (tied) throw refuse(tied);
+      await cancelApprovedPurchaseOrder(companyId, poId, opts.userId, why, opts.via);
       return done;
     }
     if (po.status !== 'draft' && po.status !== 'submitted') {

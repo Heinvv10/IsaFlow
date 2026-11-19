@@ -178,6 +178,18 @@ describe('what refuses an update', () => {
     expect((await callTool(pool, f, update, { po_id: c.po, notes: 'free again' })).isError).toBe(false);
   });
 
+  it('a header-only supplier change on a linked PO is refused with the supplier-specific wording (the PUT\'s check runs with no lines too)', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const bill = await seedBill(pool, f, { lines: [100] });
+    expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id }] })).isError).toBe(false);
+    const second = await seedSupplier(pool, f, 'Another supplier');
+    const r = await callTool(pool, f, update, { po_id: po.po, supplier_id: second });
+    expect(r.isError).toBe(true);
+    expect(r.text).toBe('Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.');
+    expect((await poRow(pool, po.po)).supplier_id).toBe(f.supplier);
+    expect((await callTool(pool, f, update, { po_id: po.po, supplier_id: other.supplier })).text).toBe('Not found');
+  });
+
   it.each(['partially_received', 'received', 'closed', 'cancelled'])('a %s PO is refused with its status', async (status) => {
     const po = await seedPo(pool, f, { status, lines: [100] });
     const r = await callTool(pool, f, update, { po_id: po.po, notes: 'x' });

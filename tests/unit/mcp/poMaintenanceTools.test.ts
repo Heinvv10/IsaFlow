@@ -15,7 +15,7 @@ vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({
   inRolledBackSavepoint: async (name: string, fn: () => Promise<unknown>) => { rolledBack(name); await fn(); },
 }));
 vi.mock('@/modules/accounting/services/budgets/budgetCheck', () => ({ recordBudgetRefusal: (...a: unknown[]) => recordRefusal(...a) }));
-vi.mock('@/modules/accounting/services/ap/purchaseOrderUpdate', () => ({ updatePurchaseOrder: (...a: unknown[]) => updateMock(...a) }));
+vi.mock('@/modules/accounting/services/ap/purchaseOrderUpdate', async (orig) => ({ ...(await orig<object>()), updatePurchaseOrder: (...a: unknown[]) => updateMock(...a) }));
 vi.mock('@/lib/mcp/tools/purchaseOrderUpdatePrepare', () => ({ prepareUpdate: (...a: unknown[]) => prepareMock(...a) }));
 vi.mock('@/modules/accounting/services/ap/purchaseOrderMaintenance', () => ({
   cancelPurchaseOrder: (...a: unknown[]) => cancelMock(...a), closePurchaseOrder: (...a: unknown[]) => closeMock(...a),
@@ -52,7 +52,7 @@ beforeEach(() => {
 
 describe('registration', () => {
   const NAMES = ['update_purchase_order', 'cancel_purchase_order', 'close_purchase_order', 'set_purchase_order_status'];
-  it('all four are write:invoices writes, free, and every service refusal code is surfaced', () => {
+  it('all four are write:invoices writes needing an idempotency_key, free of Flows, and the maintenance refusal code is registered', () => {
     for (const name of NAMES) {
       const t = MCP_TOOLS.find((x) => x.name === name)!;
       expect(t, name).toMatchObject({ scope: 'write:invoices', write: true });
@@ -76,6 +76,22 @@ describe('update_purchase_order handler', () => {
     expect(prepareMock).not.toHaveBeenCalled();
   });
 
+  it('editing an APPROVED PO is owner / admin only: a manager is refused after one status read, before the edit is prepared (dry run too); a draft is open to them', async () => {
+    sqlMock.mockResolvedValue([{ id: PO, status: 'approved' }]);
+    for (const dry of [false, true]) {
+      expect(await call({ dry_run: dry }, ctx('manager'))).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('only an owner or admin may do') }] });
+    }
+    expect(prepareMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+    sqlMock.mockResolvedValue([{ id: PO, status: 'draft' }]);
+    prepareMock.mockResolvedValue({ request: { poId: PO, header: {}, replace: null }, warnings: [] });
+    updateMock.mockResolvedValue(result);
+    await call({}, ctx('manager'));
+    expect(updateMock.mock.calls.at(-1)![2]).toMatchObject({ mayEditApproved: false });
+    await call({}, ctx('admin'));
+    expect(updateMock.mock.calls.at(-1)![2]).toMatchObject({ mayEditApproved: true });
+  });
+
   it('a prepare refusal is the tool error and nothing is written', async () => {
     prepareMock.mockResolvedValue('lines[0].item_code: no item with the code "X" in this company');
     expect(await call({})).toMatchObject({ isError: true, content: [{ text: 'lines[0].item_code: no item with the code "X" in this company' }] });
@@ -86,7 +102,7 @@ describe('update_purchase_order handler', () => {
     prepareMock.mockResolvedValue({ request: { poId: PO, header: { notes: 'n' }, replace: null }, warnings: ['lines[0]: cost-of-sales line with no project'] });
     updateMock.mockResolvedValue(result);
     const live = await call({});
-    expect(updateMock).toHaveBeenCalledWith('c1', { poId: PO, header: { notes: 'n' }, replace: null }, { userId: 'u1', via: 'mcp:update_purchase_order', budgetFigures: false });
+    expect(updateMock).toHaveBeenCalledWith('c1', { poId: PO, header: { notes: 'n' }, replace: null }, { userId: 'u1', via: 'mcp:update_purchase_order', budgetFigures: false, mayEditApproved: true });
     expect(body(live)).toMatchObject({ updated: true, po_number: 'PO1', total: 115, budget_warning: null, dimension_warnings: ['lines[0]: cost-of-sales line with no project'] });
     expect(live.wroteNothing).toBeUndefined();
     const dry = await call({ dry_run: true });

@@ -1,8 +1,8 @@
 /**
  * MCP write tool: close_purchase_order — short-close a purchase order (design: docs/design/mcp-po-maintenance.md, decision 3):
  * approved / partially_received / received -> closed, reason required, OWNER / ADMIN only (closing releases the commitment: the
- * same rule as close_when_fully_billed). Posts nothing; bills and links stay. The status it came from is kept (closed_from_status)
- * so a reopen can restore it. The reply lists what was ordered and not received, per line. The role is refused before any read,
+ * same rule as close_when_fully_billed). Posts nothing; bills and links stay. The status it came from is recorded (closed_from_status;
+ * nothing restores from it yet). The reply lists what was ordered and not received, per line. The role is refused before any read,
  * dry run too. dry_run runs the real service in a rolled-back savepoint and leaves the key free.
  */
 import type { McpTool } from '../types';
@@ -22,7 +22,7 @@ export const closePurchaseOrderTool: McpTool = {
   description:
     'Short-close a purchase order (po_id or po_number): an approved, partially_received or received PO becomes closed, so what was ordered and never received (or never will be) stops counting as committed spend. '
     + 'Owner or admin only (closing releases a commitment). A reason is required and audited with the status it was closed from and the received and billed amounts at that moment. Posts nothing: bills and links to the PO stay. '
-    + 'The reply gives, per line that was short-closed, the ordered, received and remaining quantity and the remaining ex-VAT amount. The status it came from is kept so a later reopen can restore it. '
+    + 'The reply gives, per line that was short-closed, the ordered, received and remaining quantity and the remaining ex-VAT amount. The status it came from is recorded on the PO (get_purchase_order shows closed_from_status); no tool restores from it yet. Closing from partially_received / received also drops goods received and not yet billed from committed spend. '
     + 'Refused for a draft, submitted, already closed or cancelled PO (cancel_purchase_order cancels). dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,

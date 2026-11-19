@@ -3,8 +3,8 @@
  * po_items no company_id, and the line's PO link nets that PO line's budget commitment (`budgets/remainingCommitted`)
  * and drives the 3-way match: a bill naming ANOTHER company's PO line would release that company's commitment.
  * So every named `po_item_id` must be a line of one of this company's purchase orders, of the bill's own supplier, in
- * a status that commits spend (approved / partially_received / received: a draft, submitted or cancelled order has
- * nothing to bill against) and, when the bill names a `purchase_order_id`, of that order. Reads only, before any
+ * a status a bill can be billed against (`LINKABLE_PO_STATUSES`: approved / partially_received / received, and closed: a Sage
+ * Invoiced or short-closed PO still has bills; a draft, submitted or cancelled order has nothing to bill against) and, when the bill names a `purchase_order_id`, of that order. Reads only, before any
  * write; refusal = 400. The REST create is the only writer of the column (census 7): `createSupplierInvoice`, and
  * the route ahead of its number reservation.
  * Named limit: the header `purchase_order_id` alone (no line naming a PO line) is not checked here.
@@ -19,7 +19,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
-import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
+import { LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
 
 export class SupplierInvoicePoLinkRefusal extends Error {
   readonly code = 'SUPPLIER_INVOICE_PO_LINK_REFUSED';
@@ -65,7 +65,7 @@ export async function assertBillPoLinks(
   if (found.some((r) => String(r.supplier).toLowerCase() !== supplierId.toLowerCase())) {
     throw new SupplierInvoicePoLinkRefusal('A bill line names a purchase order line of another supplier\'s purchase order');
   }
-  if (found.some((r) => !(COMMITTING_PO_STATUSES as readonly string[]).includes(String(r.status)))) {
+  if (found.some((r) => !(LINKABLE_PO_STATUSES as readonly string[]).includes(String(r.status)))) {
     throw new SupplierInvoicePoLinkRefusal('A bill line names a purchase order line of an order that is not approved (draft, submitted or cancelled)');
   }
 }

@@ -30,7 +30,15 @@ export async function prepareUpdate(companyId: string, parsed: ParsedUpdate): Pr
   if (!poId) return NOT_FOUND;
   const { header, lines } = parsed;
   if (header.supplierId && !(await supplierBelongsToCompany(companyId, header.supplierId))) return NOT_FOUND;
-  if (!lines) return { request: { poId, header, replace: null }, warnings: [] };
+  if (!lines) {
+    // No lines to check, but the supplier checks of the PUT still run (a linked PO's supplier cannot change).
+    try { await validatePoEdit(companyId, poId, header.supplierId, undefined); } catch (err) {
+      if (err instanceof SupplierNotInCompanyError) return NOT_FOUND;
+      if (err instanceof PurchaseOrderEditRefusal) return err.message;
+      throw err;
+    }
+    return { request: { poId, header, replace: null }, warnings: [] };
+  }
 
   const label = (i: number) => `lines[${i}]`;
   const byCode = await itemIdsByCode(companyId, lines.flatMap((l) => (l.itemCode ? [l.itemCode] : [])));

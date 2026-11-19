@@ -57,6 +57,17 @@ describe('dry_run reports the budget decision per PO', () => {
     expect(await committed()).toEqual([]);
   });
 
+  it('a PO reported as block does not count as committed for the POs after it (they are judged as the live call would judge them without it)', async () => {
+    await setPolicy(pool, f, 'block');
+    const r = await callTool(pool, f, create, { purchase_orders: [opexPo('open', 150), opexPo('open', 700), opexPo('open', 100)], dry_run: true });
+    expect(checks(r).map((c) => c!.outcome)).toEqual(['ok', 'block', 'ok']); // 300 + 200 fits; with the blocked 1 400 counted it would not
+    const without = await callTool(pool, f, create, { purchase_orders: [opexPo('open', 150), opexPo('open', 100)], dry_run: true });
+    expect(checks(without).map((c) => c!.outcome)).toEqual(['ok', 'ok']);
+    // With the skip flag the over-budget PO IS created, so it does count for the ones after it.
+    const skipped = await callTool(pool, f, create, { purchase_orders: [opexPo('open', 150), opexPo('open', 700), opexPo('open', 100)], dry_run: true, skip_budget_check_for_import: true });
+    expect(checks(skipped).map((c) => c!.outcome)).toEqual(['ok', 'block', 'block']);
+  });
+
   it('the live call without the flag refuses the same batch whole; the batch without the second PO passes and matches the dry run', async () => {
     await setPolicy(pool, f, 'block');
     const batch = [opexPo('open', 150), opexPo('open', 400)];

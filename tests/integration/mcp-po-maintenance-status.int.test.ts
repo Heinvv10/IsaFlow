@@ -77,12 +77,23 @@ describe('transitions of an imported PO', () => {
     expect(await committed()).toEqual([]);
   });
 
-  it('a closed PO that was closed from draft records draft, and leaving closed to cancelled clears the record', async () => {
-    const po = await seedQtyPo(pool, f, { external: true, status: 'draft', lines: [{ qty: 1, price: 100 }] });
-    expect((await set(po, 'closed')).body).toMatchObject({ closed_from_status: 'draft' });
-    expect((await poRow(pool, po.po)).closed_from_status).toBe('draft');
+  it('leaving closed to cancelled clears the record; closed_from_status holds a value only while closed (the CHECK)', async () => {
+    const po = await seedQtyPo(pool, f, { external: true, lines: [{ qty: 1, price: 100 }] });
+    expect((await set(po, 'closed')).body).toMatchObject({ closed_from_status: 'approved' });
+    expect((await poRow(pool, po.po)).closed_from_status).toBe('approved');
+    await expect(pool.query("UPDATE purchase_orders SET status = 'approved' WHERE id = $1", [po.po])).rejects.toMatchObject({ constraint: 'purchase_orders_closed_from_status_check' });
     expect((await set(po, 'cancelled')).isError).toBe(false);
     expect(await poRow(pool, po.po)).toMatchObject({ status: 'cancelled', closed_from_status: null });
+  });
+
+  it('closing is from approved only: a draft, submitted or cancelled PO is refused (it would become billable without being approved)', async () => {
+    for (const status of ['draft', 'submitted', 'cancelled']) {
+      const po = await seedQtyPo(pool, f, { external: true, status, lines: [{ qty: 1, price: 100 }] });
+      const r = await set(po, 'closed');
+      expect(r.isError, status).toBe(true);
+      expect(r.text).toContain('closed from approved only');
+      expect(await poRow(pool, po.po)).toMatchObject({ status, closed_from_status: null });
+    }
   });
 });
 
