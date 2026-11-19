@@ -24,6 +24,7 @@ vi.mock('@/modules/accounting/services/returns/emp501Months', async (orig) => ({
       filedVersions: months.flatMap((x) => (x.emp201.kind === 'version' ? [x.emp201.version] : [])),
       legacyRows: [],
       certificates: new Map(months.map((x) => [x.month, x.totals])),
+      psp: new Map(), // wave 6 PSP: no PSP lines in these cases
       conflicts: [],
     };
   },
