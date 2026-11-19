@@ -159,11 +159,11 @@ describe('races', () => {
     expect(await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).toHaveLength(1);
   });
 
-  it('one external_ref on two different pairs at once: one link, one clean refusal (never a unique violation)', async () => {
-    const po = await seedPo(pool, f, { lines: [100, 100] });
-    const [b1, b2] = [await seedBill(pool, f, { lines: [100] }), await seedBill(pool, f, { lines: [100] })];
+  it('one external_ref on two pairs of DIFFERENT POs at once (only the reference lock joins them): one link, one clean refusal, never a unique violation', async () => {
+    const pos = [await seedPo(pool, f, { lines: [100] }), await seedPo(pool, f, { lines: [100] })];
+    const bills = [await seedBill(pool, f, { lines: [100] }), await seedBill(pool, f, { lines: [100] })];
     const ref = { external_system: 'sage', external_ref: 'RACE-1' };
-    const results = await Promise.all([b1, b2].map((b) => callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: b.id, ...ref }] })));
+    const results = await Promise.all([0, 1].map((i) => callTool(pool, f, link, { links: [{ po_id: pos[i]!.po, bill_id: bills[i]!.id, ...ref }] })));
     expect(results.filter((r) => !r.isError)).toHaveLength(1);
     expect(results.find((r) => r.isError)!.text).toContain('is already used by another purchase order link');
   });
