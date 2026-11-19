@@ -15,6 +15,7 @@ import {
   allocateCreditNote, isRevenueCoded, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
 import type { StoredVatLine } from './invoiceVatLegs';
+import { normaliseVatType } from '../shared/vatTypes';
 
 /**
  * The invoice's stored lines (with their VAT, migration 1008), held to every
@@ -87,7 +88,7 @@ export async function creditNoteRevenueJournalLines(
   // group, then one re-tagged, reopened the group's capacity — review #685).
   const invoiceLegs = (await sql`
     SELECT jl.id AS journal_line_id, jl.gl_account_id, a.is_active, jl.project_id, jl.cc1_id, jl.cc2_id, jl.bu_id,
-           jl.credit - jl.debit AS net
+           jl.vat_type, jl.credit - jl.debit AS net
     FROM customer_invoices ci
     JOIN gl_journal_lines jl
       ON jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
@@ -127,6 +128,8 @@ export async function creditNoteRevenueJournalLines(
     net: Number(r.net),
     taken: takenByLeg.get(String(r.journal_line_id)) ?? 0,
     journalLineId: String(r.journal_line_id),
+    // A typed invoice's leg (migration 1008): the note reverses it on the same VAT type. Uncoded stays uncoded.
+    vatType: normaliseVatType(r.vat_type),
   }));
   return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, legacy.map((e) => Number(e.subtotal)));
 }

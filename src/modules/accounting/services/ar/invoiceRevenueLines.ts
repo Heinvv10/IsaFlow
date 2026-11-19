@@ -26,9 +26,12 @@
  * the lines, because an invoice posted before this change credited
  * default_revenue whatever its lines said.
  */
-import type { JournalLineInput } from '../../types/gl.types';
+import type { JournalLineInput, VatType } from '../../types/gl.types';
 import { hasDimensions, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { InvoiceLineCodingRefusal, isCoded, type InvoiceLineCoding } from './invoiceLineCoding';
+import { allocateByWeight, noteShares } from './revenueAllocationMath';
+
+export { allocateByWeight, noteShares } from './revenueAllocationMath';
 
 export interface StoredRevenueLine extends InvoiceLineCoding, DimensionIds {
   amount: number;
@@ -64,6 +67,8 @@ export interface RevenueLeg extends LegTags {
   taken?: number;
   /** The invoice journal line the leg was read from (its first); the allocation row references it. */
   journalLineId?: string;
+  /** The leg's VAT type (a typed invoice, migration 1008); a note's debit of it carries the same. Null: uncoded. */
+  vatType?: VatType | null;
 }
 
 /** What a note took, per invoice leg, plus what no leg could take (`isExcess`, default_revenue untagged). */
@@ -78,30 +83,6 @@ export interface CreditNoteAllocation extends LegTags {
 const cents = (n: number): number => Math.round(n * 100);
 const rands = (c: number): number => c / 100;
 const money = (c: number): string => rands(c).toFixed(2);
-
-/**
- * `total` (an integer, cents) split in proportion to `weights`, each share
- * rounded to the cent; the rounding residual is then placed one cent at a
- * time, largest weight first (the first on a tie), so no share moves more than
- * a cent from its rounded value — the whole residual on one share turned a 1c
- * credit into a 49c debit (100 tiny lines that do not foot, review #685). The
- * shares always sum to `total`. Weights must sum to more than zero.
- */
-export function allocateByWeight(total: number, weights: readonly number[]): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  // The residual loop below never ends on NaN; a hang would hold the invoice's locks.
-  if (!(sum > 0) || !Number.isFinite(total)) throw new Error(`allocateByWeight: cannot split ${total} over weights summing to ${sum}`);
-  const shares = weights.map((w) => Math.round((total * w) / sum));
-  const order = weights.map((_, i) => i).sort((a, b) => Math.abs(weights[b]!) - Math.abs(weights[a]!) || a - b);
-  let residual = total - shares.reduce((a, b) => a + b, 0);
-  for (let k = 0; residual !== 0; k++) {
-    const i = order[k % order.length]!;
-    const step = Math.sign(residual);
-    shares[i] = shares[i]! + step;
-    residual -= step;
-  }
-  return shares;
-}
 
 /**
  * Whether the split depends on the lines: one names an account or a job, or
@@ -205,20 +186,6 @@ export function buildInvoiceRevenueLines(input: {
 }
 
 /**
- * One note's share of each leg (cents): pro rata to what each leg still
- * carries, then clamped to it — that caps a note larger than what is left, and
- * the rounding cent that can push a leg past it (it takes ten legs:
- * allocateByWeight hands the residual to the largest weight).
- */
-export function noteShares(carries: readonly number[], total: number): number[] {
-  const carried = carries.reduce((a, b) => a + b, 0);
-  return (carried <= 0 ? carries.map(() => 0) : allocateByWeight(total, carries)).map((share, i) => {
-    const cap = carries[i]!;
-    return cap >= 0 ? Math.min(share, cap) : Math.max(share, cap);
-  });
-}
-
-/**
  * The note's revenue debit, split over the invoice journal's revenue legs, and
  * the allocation rows that record it.
  *
@@ -232,7 +199,9 @@ export function noteShares(carries: readonly number[], total: number): number[] 
  * No leg is debited past what it carries; whatever the legs cannot take goes
  * to `default_revenue`, untagged, merged with an untagged default leg the
  * invoice itself has, so an uncoded invoice posts exactly the one line it did
- * before. Lines landing on the same (account, job, CC1, CC2, BU) merge.
+ * before. Lines landing on the same (account, job, CC1, CC2, BU, VAT type) merge. Each debit carries the VAT
+ * type of the leg it reverses (migration 1008: a note against an exempt line reduces the exempt supplies, not the
+ * zero-rated ones); an uncoded leg, and the excess, stay uncoded.
  */
 export function allocateCreditNote(
   legs: readonly RevenueLeg[],
@@ -255,15 +224,15 @@ export function allocateCreditNote(
   const total = cents(amount);
   const shares = noteShares(carries, total);
   const excess = total - shares.reduce((a, b) => a + b, 0);
-  const merged = new Map<string, { account: string; tags: LegTags; amount: number }>();
-  const add = (account: string, tags: LegTags, amountCents: number) => {
-    const key = tagKey(account, tags);
-    const m = merged.get(key) ?? { account, tags, amount: 0 };
+  const merged = new Map<string, { account: string; tags: LegTags; vatType: VatType | null; amount: number }>();
+  const add = (account: string, tags: LegTags, vatType: VatType | null, amountCents: number) => {
+    const key = `${tagKey(account, tags)}|${vatType ?? ''}`;
+    const m = merged.get(key) ?? { account, tags, vatType, amount: 0 };
     m.amount += amountCents;
     merged.set(key, m);
   };
-  legs.forEach((l, i) => add(l.postAccountId ?? l.glAccountId, tagsOf(l), shares[i]!));
-  add(defaultRevenueAccountId, NO_TAGS, excess);
+  legs.forEach((l, i) => add(l.postAccountId ?? l.glAccountId, tagsOf(l), l.vatType ?? null, shares[i]!));
+  add(defaultRevenueAccountId, NO_TAGS, null, excess);
   const description = `Credit note ${creditNoteNumber}`;
   const allocations: CreditNoteAllocation[] = legs
     .map((l, i) => ({ journalLineId: l.journalLineId ?? null, glAccountId: l.glAccountId, ...tagsOf(l),
@@ -275,7 +244,10 @@ export function allocateCreditNote(
   }
   return {
     lines: [...merged.values()]
-      .map((m) => leg(m.account, m.amount, side, description, m.tags))
+      .map((m) => {
+        const line = leg(m.account, m.amount, side, description, m.tags);
+        return line && m.vatType ? { ...line, vatType: m.vatType } : line;
+      })
       .filter((l): l is JournalLineInput => l !== null),
     allocations,
   };
