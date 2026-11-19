@@ -6,14 +6,20 @@
  *
  * Every figure comes from the McpToolContext the transport built from the authenticated token
  * (bearerPipeline -> pages/api/mcp). No args, no SQL; two reads, both scoped to ctx.companyId: the
- * company name and the token user as an active member of that company (practiceUsersService
- * getCompanyUser, through company_member_directory), so a connector can show who it is connected as.
- * Not a member (or no name set): those user fields are null. Never returns token material: token_id
- * is the PAT / authorisation row id that audit_trail already shows, not a secret.
+ * company name and the token holder's OWN user (ctx.userId) as an active member of that company
+ * (practiceUsersService getCompanyUser, through company_member_directory), so a connector can show
+ * who it is connected as. Never another member. No name set: name null. A non-member never gets
+ * here: the bearer pipeline admits members only, and the company read (RLS) finds nothing for one
+ * (generic not-found). Backstop: should the directory still refuse (42501, not a member), the read
+ * runs in a savepoint so the call's transaction survives, and email and name are null with a warning.
+ * Never returns token material: token_id is the PAT / authorisation row id that audit_trail already
+ * shows, not a secret.
  */
+import { withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext } from '../types';
 import { getCompany } from '@/modules/accounting/services/core/companyService';
-import { getCompanyUser } from '@/modules/accounting/services/practice/practiceUsersService';
+import { getCompanyUser, type CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
 
 function secondsUntil(iso: string | null | undefined): number | null {
@@ -28,11 +34,22 @@ function reconnectBy(ctx: McpToolContext): string | null {
   return ctx.tokenExpiresAt ?? null;
 }
 
+/** The token holder as a member of the token's company; null when the directory refuses them (42501, not a member). */
+async function tokenHolder(ctx: McpToolContext): Promise<CompanyUserSummary | null> {
+  try {
+    return await withSavepoint('token_info_user', () => getCompanyUser(ctx.companyId, ctx.userId));
+  } catch (err) {
+    if ((err as { code?: unknown }).code !== '42501') throw err;
+    log.warn('token_info: the token user is not a member of the token company', { companyId: ctx.companyId, userId: ctx.userId }, 'mcp');
+    return null;
+  }
+}
+
 export const tokenInfoTool: McpTool = {
   name: 'token_info',
   description:
-    'The token this connection uses: the company it is bound to (id and name), the user it acts as (id, email, name; '
-    + 'email and name null when not readable), how it authenticated (pat or oauth), '
+    'The token this connection uses: the company it is bound to (id and name), user = the token holder\'s own id, email '
+    + 'and name (never another member; email and name null when not readable), how it authenticated (pat or oauth), '
     + 'its scopes, your role in the company, and when it expires. expires_at is the credential on this call; for OAuth '
     + 'the access token renews itself, so reconnect_by (the refresh token\'s expiry) is when the connector must be '
     + 're-authorised. Call it before a long run, or when a write is refused for a missing scope.',
@@ -42,7 +59,7 @@ export const tokenInfoTool: McpTool = {
   handler: async (_args, ctx) => {
     const company = await getCompany(ctx.companyId); // companyId from ctx ONLY
     if (!company) return toolError(NOT_FOUND);
-    const member = await getCompanyUser(ctx.companyId, ctx.userId);
+    const member = await tokenHolder(ctx);
     const name = member ? [member.firstName, member.lastName].filter(Boolean).join(' ') : '';
     return ok({
       company: { id: ctx.companyId, name: company.name },

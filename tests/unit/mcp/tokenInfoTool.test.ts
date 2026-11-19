@@ -7,9 +7,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const h = vi.hoisted(() => ({ warn: vi.fn(), savepoint: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  log: { info: vi.fn(), error: vi.fn(), warn: h.warn, debug: vi.fn() },
 }));
+vi.mock('@/lib/neon', () => ({ withSavepoint: h.savepoint }));
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({ getCompanyUser: vi.fn() }));
 
@@ -47,6 +49,8 @@ describe('token_info', () => {
     vi.setSystemTime(NOW);
     vi.mocked(getCompany).mockReset();
     vi.mocked(getCompany).mockResolvedValue({ name: 'Acme (Pty) Ltd' } as never);
+    h.warn.mockReset();
+    h.savepoint.mockReset().mockImplementation((_name: string, fn: () => Promise<unknown>) => fn());
     vi.mocked(getCompanyUser).mockReset();
     vi.mocked(getCompanyUser).mockResolvedValue({
       id: 'user-1', email: 'lew@acme.co.za', firstName: 'Lew', lastName: 'Smith', displayName: 'Lew Smith', companyRole: 'admin',
@@ -115,6 +119,23 @@ describe('token_info', () => {
     vi.mocked(getCompanyUser).mockResolvedValueOnce(null);
     expect(parse(await tokenInfoTool.handler({}, ctx())).user).toEqual({ id: 'user-1', email: null, name: null });
     expect(getCompanyUser).toHaveBeenLastCalledWith(COMPANY, 'user-1');
+  });
+
+  it('describes the user as the token holder\'s OWN id, email and name, never another member', () => {
+    expect(tokenInfoTool.description).toContain("the token holder's own id, email and name");
+    expect(tokenInfoTool.description).toContain('never another member');
+  });
+
+  it('a refusal of the member read (42501: not a member) answers null fields, in a savepoint, with a warning', async () => {
+    vi.mocked(getCompanyUser).mockRejectedValueOnce(Object.assign(new Error('caller is not a member'), { code: '42501' }));
+    expect(parse(await tokenInfoTool.handler({}, ctx())).user).toEqual({ id: 'user-1', email: null, name: null });
+    expect(h.savepoint).toHaveBeenCalledWith('token_info_user', expect.any(Function));
+    expect(h.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ userId: 'user-1', companyId: COMPANY }), expect.any(String));
+  });
+
+  it('any other failure of the member read fails the call', async () => {
+    vi.mocked(getCompanyUser).mockRejectedValueOnce(Object.assign(new Error('deadlock'), { code: '40P01' }));
+    await expect(tokenInfoTool.handler({}, ctx())).rejects.toThrow('deadlock');
   });
 
   it('returns the generic not-found when the bound company cannot be read', async () => {
