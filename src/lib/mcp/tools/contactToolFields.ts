@@ -9,7 +9,7 @@ import {
   type AutoAllocateStrategy,
 } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { PAYMENT_TERMS_TYPES, TERMS_NOT_SET } from '@/modules/accounting/services/shared/paymentTerms';
-import { strArg } from './toolHelpers';
+import { boolArg, strArg } from './toolHelpers';
 
 // inputSchema.enum below is DOCUMENTATION ONLY — the MCP transport does not
 // validate against it (see the house rule in allocationLine.ts). An
@@ -178,7 +178,4 @@ function numArg(args: Record<string, unknown>, key: string): number | undefined 
   if (v === undefined || v === null || v === '') return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
-}
-function boolArg(args: Record<string, unknown>, key: string): boolean | undefined {
-  return typeof args[key] === 'boolean' ? (args[key] as boolean) : undefined;
 }

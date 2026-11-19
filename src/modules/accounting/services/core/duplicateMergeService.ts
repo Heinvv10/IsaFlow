@@ -182,8 +182,61 @@ async function mergeItems(companyId: string, primaryId: string, duplicateId: str
   `;
   count += r3.length;
 
+  // Migration 1005: the other lines that may name an item, and its stock movements. Each is scoped through its document's company.
+  const r4 = await sql`
+    UPDATE po_items pi SET item_id = ${primaryId}::UUID
+    FROM purchase_orders po
+    WHERE pi.purchase_order_id = po.id AND po.company_id = ${companyId}::UUID AND pi.item_id = ${duplicateId}::UUID
+    RETURNING pi.id
+  `;
+  const r5 = await sql`
+    UPDATE supplier_invoice_items sii SET item_id = ${primaryId}::UUID
+    FROM supplier_invoices si
+    WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID AND sii.item_id = ${duplicateId}::UUID
+    RETURNING sii.id
+  `;
+  const r6 = await sql`
+    UPDATE customer_quote_lines cql SET item_id = ${primaryId}::UUID
+    FROM customer_quotes cq
+    WHERE cql.quote_id = cq.id AND cq.company_id = ${companyId}::UUID AND cql.item_id = ${duplicateId}::UUID
+    RETURNING cql.id
+  `;
+  // Also a legacy row with NO company (a product of no company: only a superuser could write one) that names this company's
+  // duplicate: left behind, it would keep the duplicate from ever being purged.
+  const r7 = await sql`
+    UPDATE stock_movements SET item_id = ${primaryId}::UUID
+    WHERE item_id = ${duplicateId}::UUID
+      AND (company_id = ${companyId}::UUID
+           OR (company_id IS NULL AND NOT EXISTS (SELECT 1 FROM products p WHERE p.id = stock_movements.product_id AND p.company_id <> ${companyId}::UUID)))
+    RETURNING id
+  `;
+  count += r4.length + r5.length + r6.length + r7.length;
+
+  // The duplicate's external identity (migration 1005): left on the soft-deleted row it would refuse every re-sync of that
+  // reference (item_deleted / external_ref_in_use) for good. Free it first (the unique index counts deleted rows), then give it to
+  // the primary when the primary has none; otherwise it is only cleared, and the duplicate's notes keep what it was.
+  const [dup] = (await sql`
+    SELECT code, external_system, external_ref, external_document_number FROM items
+    WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
+  `) as Array<{ code: string; external_system: string | null; external_ref: string | null; external_document_number: string | null }>;
+  let movedRef = false;
+  if (dup?.external_ref) {
+    await sql`
+      UPDATE items SET external_system = NULL, external_ref = NULL, external_document_number = NULL
+      WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
+    `;
+    const given = (await sql`
+      UPDATE items SET external_system = ${dup.external_system}::TEXT, external_ref = ${dup.external_ref}::TEXT,
+             external_document_number = COALESCE(external_document_number, ${dup.external_document_number}::TEXT), updated_at = NOW()
+      WHERE id = ${primaryId}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL
+      RETURNING id
+    `) as unknown[];
+    movedRef = given.length > 0;
+  }
+
   await sql`
-    UPDATE items SET deleted_at = NOW()
+    UPDATE items SET deleted_at = NOW(),
+           notes = concat_ws(E'\n', NULLIF(notes, ''), ${`Merged into another item. ${dup?.external_ref ? `Its external reference ${dup.external_system}/${dup.external_ref} ${movedRef ? 'moved to the primary item' : 'was cleared (the primary item has its own)'}.` : ''}`.trim()}::TEXT)
     WHERE id = ${duplicateId}::UUID AND company_id = ${companyId}::UUID
   `;
 
