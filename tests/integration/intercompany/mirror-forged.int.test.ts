@@ -125,6 +125,60 @@ describe('the database sends the sender\'s document, and only that', () => {
     expect(await groupRows()).toHaveLength(0);
   });
 
+  describe('the recorded journal must be the document\'s OWN approval posting (the third security scan, 1)', () => {
+    const journalOf = async (inv: string) => (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;
+    const refused = async (inv: string, why: RegExp) => {
+      const rowsBefore = (await groupRows()).length;
+      const out = await sendFor('customer_invoice', inv);
+      expect(out).toMatchObject({ message_id: null, reason: 'no_journal', detail: expect.stringMatching(why) });
+      expect(await messageOf(inv)).toBeUndefined();
+      expect(await groupRows()).toHaveLength(rowsBefore);
+    };
+
+    it('another document\'s journal (the invoice\'s link points at it) is not its posting', async () => {
+      const mine = await plantArInvoice(pool, { status: 'approved' });
+      const theirs = await plantArInvoice(pool, { status: 'approved' });
+      await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [mine.id, await journalOf(theirs.id)]);
+      await refused(mine.id, /posting of another document|not the posting of this document/);
+    });
+    it('a journal whose text names the document but that another document links is refused (text is not identity)', async () => {
+      const mine = await plantArInvoice(pool, { status: 'approved' });
+      const other = await plantArInvoice(pool, { status: 'approved' });
+      const shared = await journalOf(mine.id);                                       // `mine`'s own posting ...
+      await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [other.id, shared]);   // ... which another invoice also links
+      await refused(mine.id, /posting of another document/);
+    });
+    it('a journal that another document\'s message already records is refused', async () => {
+      const first = await sentInvoice(pool);                                         // its message records its journal J
+      const second = await plantArInvoice(pool, { status: 'approved' });
+      const j = await journalOf(first.inv.id);
+      await pool.query('UPDATE customer_invoices SET invoice_number = invoice_number || $2, gl_journal_entry_id = NULL WHERE id = $1', [first.inv.id, '-x']);
+      await pool.query('UPDATE customer_invoices SET invoice_number = $2, gl_journal_entry_id = $3 WHERE id = $1', [second.id, first.inv.number, j]);
+      await refused(second.id, /recorded on another document/);
+    });
+    it('a reversal entry is not an approval posting', async () => {
+      const inv = await plantArInvoice(pool, { status: 'approved' });
+      const j = await journalOf(inv.id);
+      const reversal = (await pool.query(
+        `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
+         SELECT entry_date, description, source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1 RETURNING id`, [j])).rows[0].id as string;
+      await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [inv.id, reversal]);
+      await refused(inv.id, /not an original posted entry/);
+    });
+    it('another company\'s journal, and a journal with the wrong text, are not the posting', async () => {
+      const inv = await plantArInvoice(pool, { status: 'approved' });
+      const foreign = (await pool.query(
+        `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', $1, 'auto_invoice', 'posted', $2, $3) RETURNING id`,
+        [`Customer invoice ${inv.number}`, U.ab, co.B])).rows[0].id as string;
+      await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [inv.id, foreign]);
+      await refused(inv.id, /not this company/);
+      const wrong = (await pool.query(
+        `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', 'Something else', 'manual', 'posted', $1, $2) RETURNING id`, [U.ab, co.A])).rows[0].id as string;
+      await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [inv.id, wrong]);
+      await refused(inv.id, /not the posting of this document/);
+    });
+  });
+
   it('an unapproved document, an unknown type and a made-up id send nothing', async () => {
     const draft = await plantArInvoice(pool);
     expect(await sendFor('customer_invoice', draft.id)).toMatchObject({ message_id: null, reason: 'not_approved' });

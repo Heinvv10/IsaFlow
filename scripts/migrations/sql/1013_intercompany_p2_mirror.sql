@@ -48,12 +48,12 @@
 --   DROP FUNCTION IF EXISTS public.intercompany_auto_accept_queue(integer, boolean), public.intercompany_withdraw_for_source(text, uuid),
 --     public.intercompany_sync_group_row(text, uuid), public.intercompany_send_for_source(text, uuid), public.intercompany_message_source_changed(uuid),
 --     public.intercompany_build_payload(text, uuid, uuid), public.intercompany_release_group_row(uuid), public.intercompany_journal_chain_length(uuid, uuid),
---     public.intercompany_clean_text(text, integer), public.intercompany_auto_accept_exhausted(), public.intercompany_group_row_ok(uuid, uuid, uuid, uuid);
+--     public.intercompany_clean_text(text, integer), public.intercompany_auto_accept_exhausted(), public.intercompany_group_row_ok(uuid, uuid, uuid, uuid), public.intercompany_own_posting_problem(text, uuid, uuid, uuid);
 --   DROP TRIGGER IF EXISTS trg_intercompany_sides_auto_since ON intercompany_connection_sides; DROP FUNCTION IF EXISTS public.intercompany_sides_auto_since();
 --   (the 1002 body of intercompany_messages_guard and the 999r body of intercompany_transaction_parties_immutable return by re-applying them)
 --   ALTER TABLE intercompany_messages DROP COLUMN IF EXISTS source_cancelled_at, DROP COLUMN IF EXISTS manual_only,
 --     DROP COLUMN IF EXISTS auto_attempts, DROP COLUMN IF EXISTS auto_next_attempt_at, DROP COLUMN IF EXISTS source_journal_entry_id, DROP COLUMN IF EXISTS group_transaction_id;
---   ALTER TABLE intercompany_transactions DROP COLUMN IF EXISTS variance_reason;
+--   ALTER TABLE intercompany_transactions DROP COLUMN IF EXISTS variance_reason, DROP COLUMN IF EXISTS first_target_journal_entry_id;
 --   ALTER TABLE intercompany_connection_sides DROP COLUMN IF EXISTS auto_accept_since;
 --   DELETE FROM app_definer_reviews WHERE signature IN ('intercompany_auto_accept_queue(integer,boolean)', 'intercompany_withdraw_for_source(text,uuid)',
 --     'intercompany_sync_group_row(text,uuid)', 'intercompany_send_for_source(text,uuid)', 'intercompany_message_source_changed(uuid)',
@@ -74,6 +74,8 @@ ALTER TABLE intercompany_messages
   ADD COLUMN IF NOT EXISTS group_transaction_id UUID;
 -- Why a group row is a variance (written by intercompany_sync_group_row only: the parties trigger below refuses a request's write).
 ALTER TABLE intercompany_transactions ADD COLUMN IF NOT EXISTS variance_reason TEXT;
+-- The first journal a row was matched to: written by intercompany_sync_group_row only and never cleared by a release (the target above is).
+ALTER TABLE intercompany_transactions ADD COLUMN IF NOT EXISTS first_target_journal_entry_id UUID;
 ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS auto_accept_since TIMESTAMPTZ;
 
 DO $$
@@ -148,6 +150,50 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_journal_chain_length(uuid, uuid) TO migration_admin;
+
+-- Why p_je is NOT the approval posting of p_doc (a customer invoice / customer credit note of p_company), or NULL when it is: the company's own,
+-- an ORIGINAL posted entry (not a reversal), the one the approval writes (source and description name this document), referenced by no other
+-- customer invoice / credit note of the company, and recorded on no other document's message. Whether it still STANDS is the caller's question
+-- (a cancelled document's journal is reversed and is still its posting). SECURITY INVOKER, migration_admin only.
+CREATE OR REPLACE FUNCTION public.intercompany_own_posting_problem(p_kind text, p_doc uuid, p_company uuid, p_je uuid)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  j RECORD;
+  v_num text;
+  v_source text;
+  v_prefix text;
+BEGIN
+  IF p_je IS NULL THEN RETURN 'the document has no journal'; END IF;
+  SELECT je.company_id, je.status, je.reversal_of_id, je.source, je.description INTO j FROM public.gl_journal_entries je WHERE je.id = p_je;
+  IF NOT FOUND OR j.company_id IS DISTINCT FROM p_company THEN RETURN 'the journal is not this company''s'; END IF;
+  IF j.status IS DISTINCT FROM 'posted' OR j.reversal_of_id IS NOT NULL THEN RETURN 'the journal is not an original posted entry'; END IF;
+  IF p_kind = 'invoice' THEN
+    SELECT ci.invoice_number INTO v_num FROM public.customer_invoices ci WHERE ci.id = p_doc AND ci.company_id = p_company;
+    v_source := 'auto_invoice'; v_prefix := 'Customer invoice ';
+  ELSIF p_kind = 'credit_note' THEN
+    SELECT cn.credit_note_number INTO v_num FROM public.credit_notes cn WHERE cn.id = p_doc AND cn.company_id = p_company AND cn.type = 'customer';
+    v_source := 'auto_credit_note'; v_prefix := 'Credit note ';
+  ELSE
+    RETURN 'this kind carries no document';
+  END IF;
+  IF v_num IS NULL OR j.source IS DISTINCT FROM v_source OR j.description IS DISTINCT FROM v_prefix || v_num THEN RETURN 'the journal is not the posting of this document'; END IF;
+  IF EXISTS (SELECT 1 FROM public.customer_invoices x WHERE x.company_id = p_company AND x.gl_journal_entry_id = p_je AND x.id <> p_doc)
+     OR EXISTS (SELECT 1 FROM public.credit_notes x WHERE x.company_id = p_company AND x.gl_journal_entry_id = p_je AND x.id <> p_doc) THEN
+    RETURN 'the journal is the posting of another document';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.intercompany_messages m WHERE m.source_journal_entry_id = p_je AND m.source_doc_id <> p_doc) THEN
+    RETURN 'the journal is recorded on another document''s message';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_own_posting_problem(text, uuid, uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_own_posting_problem(text, uuid, uuid, uuid) TO migration_admin;
 
 -- Whether p_row is the sender's own group row for a message: the sender's side (p_from) and the partner's (p_to), the sender's journal the
 -- message was sent with, and both companies members of the row's group. Whatever a payload says about a group row is the sender's word; this is
@@ -308,6 +354,7 @@ DECLARE
   v_gtx uuid;
   v_msg uuid;
   v_payload jsonb;
+  v_jp text;
 BEGIN
   IF v_kind IS NULL OR v_co IS NULL THEN RETURN QUERY SELECT NULL::uuid, 'not_found'::text, NULL::text; RETURN; END IF;
   IF v_kind = 'invoice' THEN
@@ -337,9 +384,13 @@ BEGIN
   END IF;
   SELECT * INTO b FROM public.intercompany_build_payload(v_kind, p_doc_id, v_co);
   -- An approved document is in the books: its approval journal is posted and stands. One without (a status set by hand, an import) is not
-  -- sent, so every message carries the journal the cancel is later proved against.
-  IF b.problem IS NULL AND (b.journal_entry_id IS NULL OR public.intercompany_journal_chain_length(b.journal_entry_id, v_co) % 2 = 0) THEN
-    RETURN QUERY SELECT NULL::uuid, 'no_journal'::text, NULL::text; RETURN;
+  -- sent, and the journal must be the document's OWN approval posting (not another document's, not a reversal, not one another message records),
+  -- so every message carries the journal the cancel is later proved against.
+  IF b.problem IS NULL THEN
+    v_jp := public.intercompany_own_posting_problem(v_kind, p_doc_id, v_co, b.journal_entry_id);
+    IF v_jp IS NOT NULL OR public.intercompany_journal_chain_length(b.journal_entry_id, v_co) % 2 = 0 THEN
+      RETURN QUERY SELECT NULL::uuid, 'no_journal'::text, v_jp; RETURN;
+    END IF;
   END IF;
   IF b.problem IS NOT NULL THEN
     RETURN QUERY SELECT NULL::uuid, split_part(b.problem, ':', 1),
@@ -703,6 +754,12 @@ BEGIN
       RAISE EXCEPTION 'intercompany_transactions: the target journal is cleared only with an unmatch' USING ERRCODE = '23514';
     END IF;
   END IF;
+  -- the first journal a row was matched to: written by the definer, never cleared (a release does not touch it)
+  IF NEW.first_target_journal_entry_id IS DISTINCT FROM OLD.first_target_journal_entry_id
+     AND (current_user <> 'migration_admin' OR NEW.first_target_journal_entry_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM public.gl_journal_entries je WHERE je.id = NEW.first_target_journal_entry_id AND je.company_id = NEW.target_company_id)) THEN
+    RAISE EXCEPTION 'intercompany_transactions: the first matched journal is written by the database, to a journal of the target company, and never cleared' USING ERRCODE = '23514';
+  END IF;
   -- variance_reason is the definer's account of why a row is not matched: no request's caller writes it.
   IF NEW.variance_reason IS DISTINCT FROM OLD.variance_reason AND current_user <> 'migration_admin' THEN
     RAISE EXCEPTION 'intercompany_transactions: the variance reason is written by the database, not by a request' USING ERRCODE = '23514';
@@ -718,6 +775,24 @@ BEGIN
 END;
 $$;
 
+
+-- A request's new row names no match and no reason (the 999r body, plus the two columns of 1013).
+CREATE OR REPLACE FUNCTION public.intercompany_transaction_recorded_fresh()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_user = 'app_user' THEN
+    IF NEW.match_status IS DISTINCT FROM 'unmatched' OR NEW.matched_by IS NOT NULL OR NEW.matched_at IS NOT NULL
+       OR COALESCE(NEW.variance_amount, 0) <> 0 OR NEW.first_target_journal_entry_id IS NOT NULL OR NEW.variance_reason IS NOT NULL THEN
+      RAISE EXCEPTION 'intercompany_transactions: a new transaction is unmatched, unsigned and without variance' USING ERRCODE = '23514';
+    END IF;
+    NEW.created_at := pg_catalog.now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
 
 -- Called after the receiver's bill / supplier credit note is approved, cancelled or deleted. For the session company only, a signed-in user of
 -- it with a write role, and only for a document that is the target of an accepted message to that company with a group row. It sets the row
@@ -742,7 +817,8 @@ DECLARE
   d RECORD;
   t RECORD;
   j RECORD;
-  v_src_status text;
+  v_chain integer;
+  v_first_chain integer;
   v_period RECORD;
   v_expense numeric := 0;
   v_other bigint := 0;
@@ -750,7 +826,6 @@ DECLARE
   v_reason text;
   v_variance numeric := 0;
   v_side_supplier uuid;
-  v_target uuid;
 BEGIN
   IF v_co IS NULL OR NOT public.intercompany_user_can_write(v_co) THEN RETURN NULL; END IF;
   SELECT x.connection_id, x.from_company_id, x.source_doc_type, x.source_doc_id, x.source_cancelled_at, x.source_journal_entry_id AS source_je, x.group_transaction_id AS gtx INTO m
@@ -773,17 +848,21 @@ BEGIN
   IF NOT FOUND THEN RETURN NULL; END IF;
   -- The row is the one the DATABASE recorded for this message (never a payload field): the sender's row to this company for the journal it was sent with.
   IF NOT public.intercompany_group_row_ok(m.gtx, m.from_company_id, v_co, m.source_je) THEN RETURN NULL; END IF;
-  SELECT it.amount, it.transaction_date, it.match_status, it.target_journal_entry_id INTO t FROM public.intercompany_transactions it
+  SELECT it.amount, it.transaction_date, it.match_status, it.target_journal_entry_id, it.first_target_journal_entry_id AS first_je INTO t FROM public.intercompany_transactions it
    WHERE it.id = m.gtx FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
 
-  v_src_status := CASE m.source_doc_type
-    WHEN 'customer_invoice' THEN (SELECT ci.status FROM public.customer_invoices ci WHERE ci.id = m.source_doc_id AND ci.company_id = m.from_company_id)
-    WHEN 'credit_note' THEN (SELECT cn.status FROM public.credit_notes cn WHERE cn.id = m.source_doc_id AND cn.company_id = m.from_company_id) END;
+  -- The sender's cancel as the LEDGER has it: its message was stamped by the withdrawal (which proved it), or the sender's journal the message
+  -- recorded has had its reversal chain taken out. The sender's status column is not read.
+  v_chain := CASE WHEN m.source_je IS NULL THEN 0 ELSE public.intercompany_journal_chain_length(m.source_je, m.from_company_id) END;
+  v_first_chain := CASE WHEN t.first_je IS NULL THEN 0 ELSE public.intercompany_journal_chain_length(t.first_je, v_co) END;
 
-  IF NOT (COALESCE(d.ok, false) AND d.je IS NOT NULL) THEN
+  IF m.source_cancelled_at IS NOT NULL OR (v_chain > 0 AND v_chain % 2 = 0) THEN
     v_status := 'unmatched';
-  ELSIF m.source_cancelled_at IS NOT NULL OR v_src_status IS NULL OR v_src_status = 'cancelled' THEN
+  ELSIF NOT (COALESCE(d.ok, false) AND d.je IS NOT NULL) THEN
+    -- The bill says it is not approved (its status is the receiver's writable column). The row is released only when the journal it was FIRST
+    -- matched to is really out of the ledger (cancelled and reversed); a status that changed while the journal stands changes nothing.
+    IF t.first_je IS NOT NULL AND v_first_chain > 0 AND v_first_chain % 2 <> 0 THEN RETURN t.match_status; END IF;
     v_status := 'unmatched';
   ELSE
     SELECT je.company_id, je.status, je.source, je.description, je.entry_date INTO j FROM public.gl_journal_entries je WHERE je.id = d.je;
@@ -797,11 +876,12 @@ BEGIN
     ELSIF public.intercompany_journal_chain_length(d.je, v_co) % 2 = 0 THEN
       v_reason := 'the bill''s journal has been reversed';
     -- The link from a document to its journal is the document's own column (a writer can point it anywhere), and the journal's text is a
-    -- writer's too: so the journal must also be NO OTHER document's posting, and the first journal this row was matched to is the one it keeps.
+    -- writer's too: so the journal must also be NO OTHER document's posting, and the first journal this row was matched to is the one it keeps
+    -- (until that one is out of the ledger).
     ELSIF EXISTS (SELECT 1 FROM public.supplier_invoices x WHERE x.company_id = v_co AND x.gl_journal_entry_id = d.je AND x.id <> p_doc_id)
        OR EXISTS (SELECT 1 FROM public.credit_notes x WHERE x.company_id = v_co AND x.gl_journal_entry_id = d.je AND x.id <> p_doc_id) THEN
       v_reason := 'the journal is the posting of another document';
-    ELSIF t.target_journal_entry_id IS NOT NULL AND t.target_journal_entry_id <> d.je THEN
+    ELSIF t.first_je IS NOT NULL AND t.first_je <> d.je AND v_first_chain > 0 AND v_first_chain % 2 <> 0 THEN
       v_reason := 'the bill''s journal is not the one this row was first matched to';
     ELSIF EXISTS (SELECT 1 FROM public.intercompany_transactions o WHERE o.target_journal_entry_id = d.je AND o.id <> m.gtx) THEN
       v_reason := 'the journal is already matched to another transaction';
@@ -829,11 +909,16 @@ BEGIN
     PERFORM public.intercompany_release_group_row(m.gtx);
     RETURN v_status;
   END IF;
-  -- Only a MATCH binds the row to a journal (the first one it keeps): a variance names no journal.
-  v_target := CASE WHEN v_status = 'matched' THEN d.je END;
+  -- Only a MATCH binds the row to a journal. A row whose first journal is out of the ledger may bind a new one (the target is cleared first:
+  -- only an unmatch clears it); the first journal itself is never cleared by a release.
+  IF v_status = 'matched' AND t.target_journal_entry_id IS NOT NULL AND t.target_journal_entry_id <> d.je THEN
+    UPDATE public.intercompany_transactions SET match_status = 'unmatched', variance_amount = 0, variance_reason = NULL, matched_at = NULL, matched_by = NULL,
+           target_journal_entry_id = NULL WHERE id = m.gtx;
+  END IF;
   UPDATE public.intercompany_transactions
      SET match_status = v_status, variance_amount = v_variance, variance_reason = v_reason, matched_at = clock_timestamp(), matched_by = auth.uid()::uuid,
-         target_journal_entry_id = COALESCE(target_journal_entry_id, v_target)
+         target_journal_entry_id = CASE WHEN v_status = 'matched' THEN COALESCE(target_journal_entry_id, d.je) ELSE target_journal_entry_id END,
+         first_target_journal_entry_id = CASE WHEN v_status = 'matched' THEN d.je ELSE first_target_journal_entry_id END
    WHERE id = m.gtx;
   IF v_status <> 'matched' THEN
     UPDATE public.consolidation_adjustments SET status = 'reversed', updated_at = clock_timestamp() WHERE source_intercompany_id = m.gtx AND status IN ('draft', 'posted');
@@ -922,24 +1007,42 @@ GRANT EXECUTE ON FUNCTION public.intercompany_auto_accept_exhausted() TO app_ser
 
 -- ── 6b. Messages written before the database recorded their journal and group row ──
 -- source_journal_entry_id and group_transaction_id are the database's own record (set by intercompany_send_for_source). A message that has none
--- gets them from the sender's document / the payload's reference only where the database can confirm them (the journal is the document's own
--- standing or reversed approval journal of the sender; the group row is the sender's to this receiver for that journal); otherwise they stay NULL,
--- and the definers fail closed on NULL (nothing is withdrawn, nothing is synced). It runs as migration_admin through the guard's own 'backfill'
--- system update (the guard stays on; only these two NULL columns may be set).
+-- gets them only where the database can PROVE them: the journal is the group row's source journal (written by the send) or the document's own
+-- link, and in either case the document's approval posting (intercompany_own_posting_problem: the company's, original, named for this document,
+-- no other document's, on no other message); the group row is the payload's reference only when it is the sender's to this receiver for that
+-- journal (intercompany_group_row_ok). Anything else stays NULL, and the definers fail closed on NULL. It runs as migration_admin through the
+-- guard's own 'backfill' system update (the guard stays on; only these two NULL columns may be set).
 DO $$
+DECLARE
+  r RECORD;
+  v_g uuid;
+  v_cand uuid;
+  v_je uuid;
 BEGIN
   SET LOCAL ROLE migration_admin;
   PERFORM pg_catalog.set_config('app.intercompany_system_update', 'backfill', true);
-  UPDATE public.intercompany_messages m SET source_journal_entry_id = ci.gl_journal_entry_id
-    FROM public.customer_invoices ci
-   WHERE m.source_journal_entry_id IS NULL AND m.kind = 'invoice' AND m.source_doc_type = 'customer_invoice'
-     AND ci.id = m.source_doc_id AND ci.company_id = m.from_company_id AND ci.gl_journal_entry_id IS NOT NULL
-     AND EXISTS (SELECT 1 FROM public.gl_journal_entries je WHERE je.id = ci.gl_journal_entry_id AND je.company_id = m.from_company_id);
-  UPDATE public.intercompany_messages m SET source_journal_entry_id = cn.gl_journal_entry_id
-    FROM public.credit_notes cn
-   WHERE m.source_journal_entry_id IS NULL AND m.kind = 'credit_note' AND m.source_doc_type = 'credit_note'
-     AND cn.id = m.source_doc_id AND cn.company_id = m.from_company_id AND cn.type = 'customer' AND cn.gl_journal_entry_id IS NOT NULL
-     AND EXISTS (SELECT 1 FROM public.gl_journal_entries je WHERE je.id = cn.gl_journal_entry_id AND je.company_id = m.from_company_id);
+  FOR r IN SELECT m.id, m.kind, m.from_company_id, m.to_company_id, m.source_doc_id, m.payload->>'groupTransactionId' AS gtx
+             FROM public.intercompany_messages m
+            WHERE m.source_journal_entry_id IS NULL AND m.kind IN ('invoice', 'credit_note')
+            ORDER BY m.created_at, m.id
+  LOOP
+    v_je := NULL;
+    v_g := CASE WHEN r.gtx ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN r.gtx::uuid END;
+    IF v_g IS NOT NULL THEN
+      SELECT it.source_journal_entry_id INTO v_cand FROM public.intercompany_transactions it
+       WHERE it.id = v_g AND it.source_company_id = r.from_company_id AND it.target_company_id = r.to_company_id;
+      IF v_cand IS NOT NULL AND public.intercompany_own_posting_problem(r.kind, r.source_doc_id, r.from_company_id, v_cand) IS NULL THEN v_je := v_cand; END IF;
+    END IF;
+    IF v_je IS NULL THEN
+      v_cand := CASE r.kind
+        WHEN 'invoice' THEN (SELECT ci.gl_journal_entry_id FROM public.customer_invoices ci WHERE ci.id = r.source_doc_id AND ci.company_id = r.from_company_id)
+        ELSE (SELECT cn.gl_journal_entry_id FROM public.credit_notes cn WHERE cn.id = r.source_doc_id AND cn.company_id = r.from_company_id AND cn.type = 'customer') END;
+      IF v_cand IS NOT NULL AND public.intercompany_own_posting_problem(r.kind, r.source_doc_id, r.from_company_id, v_cand) IS NULL THEN v_je := v_cand; END IF;
+    END IF;
+    IF v_je IS NOT NULL THEN
+      UPDATE public.intercompany_messages SET source_journal_entry_id = v_je WHERE id = r.id;
+    END IF;
+  END LOOP;
   UPDATE public.intercompany_messages m SET group_transaction_id = (m.payload->>'groupTransactionId')::uuid
    WHERE m.group_transaction_id IS NULL AND m.kind IN ('invoice', 'credit_note') AND m.payload->>'groupTransactionId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
      AND public.intercompany_group_row_ok((m.payload->>'groupTransactionId')::uuid, m.from_company_id, m.to_company_id, m.source_journal_entry_id);
@@ -981,6 +1084,7 @@ BEGIN
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_auto_accept_exhausted()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_row_ok(uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_own_posting_problem(text, uuid, uuid, uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_release_group_row(uuid)', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_journal_chain_length(uuid, uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION '1013: a role it must not reach can execute an intercompany P2 definer function';

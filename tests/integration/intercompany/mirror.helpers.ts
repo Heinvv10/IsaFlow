@@ -115,7 +115,8 @@ export async function plantPostedJournal(pool: Pool, company: string, descriptio
 
 /** A customer credit note of A set to approved the way a fixture does, with its approval journal (posted, standing). */
 export async function approveCreditNoteRow(pool: Pool, id: string): Promise<void> {
-  const je = await plantPostedJournal(pool, co.A, `Credit note ${id.slice(0, 8)}`, 'auto_credit_note');
+  const number = (await pool.query('SELECT credit_note_number AS n FROM credit_notes WHERE id = $1', [id])).rows[0].n as string;
+  const je = await plantPostedJournal(pool, co.A, `Credit note ${number}`, 'auto_credit_note');
   await pool.query("UPDATE credit_notes SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [id, je]);
 }
 
@@ -129,7 +130,7 @@ export async function plantArInvoice(pool: Pool, over: { date?: string; customer
   const subtotal = lines.reduce((s, [, q, p]) => s + q * p, 0);
   const tax = Math.round(subtotal * 15) / 100;
   const customer = over.customer ?? party.aCustomer;
-  const journal = over.status && over.status !== 'draft' ? await plantPostedJournal(pool, co.A, `Invoice ${number}`) : null;
+  const journal = over.status && over.status !== 'draft' ? await plantPostedJournal(pool, co.A, `Customer invoice ${number}`) : null;
   await pool.query(
     `INSERT INTO customer_invoices(id, company_id, invoice_number, customer_id, client_id, invoice_date, due_date, subtotal, tax_rate, tax_amount,
        total_amount, currency_code, exchange_rate, status, created_by, gl_journal_entry_id)

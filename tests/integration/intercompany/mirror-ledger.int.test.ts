@@ -13,6 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { approveSupplierInvoice, cancelSupplierInvoice } from '../../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/ar/customerInvoiceCancelService';
 import { autoGenerateEliminations, postEliminationAdjustment } from '../../../src/modules/accounting/services/reports/consolidatedReportingService';
 import { asAppUser, outcome, withoutTrigger } from './intercompany.helpers';
@@ -52,6 +53,12 @@ const rows = async () => (await pool.query('SELECT * FROM intercompany_transacti
 const groupRow = async () => (await rows())[0];
 const adjustments = async () => (await pool.query('SELECT id, status FROM consolidation_adjustments WHERE group_id = $1 ORDER BY created_at', [co.G])).rows as Array<{ id: string; status: string }>;
 const eliminate = () => autoGenerateEliminations(co.G, '2026-01-01', '2026-12-31');
+/** The sender's cancel in the LEDGER only (no hook): the approval journal reversed, the link cleared, the status cancelled. */
+const senderReverse = (inv: string) => asService(pool, U.a, co.A, async (q) => {
+  const je = (await q.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;
+  await reverseJournalEntry(co.A, je, U.a);
+  await q.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = NULL WHERE id = $1", [inv]);
+});
 const approveBill = (bill: string, user = U.b) => asService(pool, user, co.B, () => approveSupplierInvoice(co.B, bill, user));
 const cancelSender = (inv: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, inv, U.a));
 const sync = (user: string, company: string, bill: string) =>
@@ -104,12 +111,55 @@ describe('the sender cancels AFTER the receiver approved (the reviewer\'s ledger
     expect(await eliminate()).toHaveLength(0);
   });
 
-  it('the sender\'s document cancelled WITHOUT the hook (its status flipped by hand) is not matched either: the sync reads the sender\'s document, not only the stamp', async () => {
+  it('the sender\'s document cancelled in the LEDGER without the hook (its journal reversed): the receiver\'s approval does not match it', async () => {
     const m = await accepted();
-    await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [m.inv.id]);
+    await senderReverse(m.inv.id);
     await approveBill(m.bill);
     expect(await groupRow()).toMatchObject({ match_status: 'unmatched' });
     expect(await eliminate()).toHaveLength(0);
+  });
+
+  it('a sender\'s status flipped by hand is not a cancel: the row stays matched (the ledger carries the revenue)', async () => {
+    const m = await accepted();
+    await approveBill(m.bill);
+    await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [m.inv.id]);
+    expect(await sync(U.b, co.B, m.bill)).toBe('matched');
+    expect(await groupRow()).toMatchObject({ match_status: 'matched' });
+    expect(await eliminate()).toHaveLength(1);
+  });
+});
+
+describe('a bill\'s status is not the ledger (the third security scan, 2)', () => {
+  it('a bill flipped back to draft while its journal stands releases nothing: the row stays matched, its first journal and eliminations stand', async () => {
+    const m = await accepted();
+    await approveBill(m.bill);
+    await eliminate();
+    const before = await groupRow();
+    await pool.query("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [m.bill]);
+    expect(await sync(U.b, co.B, m.bill)).toBe('matched');
+    expect(await groupRow()).toEqual(before);
+    expect(before.first_target_journal_entry_id).toBe(before.target_journal_entry_id);
+    expect(await adjustments()).toEqual([expect.objectContaining({ status: 'draft' })]);
+  });
+
+  it('a real cancel (the journal reversed) releases the row but keeps the first journal; no request can clear or set it', async () => {
+    const m = await accepted();
+    await approveBill(m.bill);
+    const first = (await groupRow()).target_journal_entry_id as string;
+    await asService(pool, U.b, co.B, () => cancelSupplierInvoice(co.B, m.bill, U.b));
+    expect(await groupRow()).toMatchObject({ match_status: 'unmatched', target_journal_entry_id: null, first_target_journal_entry_id: first });
+    const tx = (await groupRow()).id as string;
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_transactions SET first_target_journal_entry_id = NULL WHERE id = $1', [tx])).toMatch(/^23514: intercompany_transactions: the first matched journal/);
+    });
+    const reversal = (await pool.query('SELECT id FROM gl_journal_entries WHERE company_id = $1 AND reversal_of_id = $2', [co.B, first])).rows[0].id as string;
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_transactions SET first_target_journal_entry_id = $2 WHERE id = $1', [tx, reversal])).toMatch(/^23514: intercompany_transactions: the first matched journal/);
+    });
+    await asAppUser(pool, U.ab, co.A, async (q) => {
+      expect(await outcome(q, `INSERT INTO intercompany_transactions(group_id, source_company_id, target_company_id, transaction_type, amount, currency, description, transaction_date, first_target_journal_entry_id)
+        VALUES ($1, $2, $3, 'sale', 5, 'ZAR', 'forged', '2026-09-01', $4)`, [co.G, co.A, co.B, first])).toMatch(/^23514: intercompany_transactions: a new transaction is unmatched/);
+    });
   });
 });
 
