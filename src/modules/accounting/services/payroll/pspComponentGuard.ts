@@ -9,8 +9,18 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { sql } from '@/lib/neon';
 import { IRP3C_MARKER, PspComponentRefused, PspStatusChangedSinceApproval, pspRefusalMessage, pspRefusedKind, type PspRefusedKind } from './pspLineRules';
 import { pspLineFlag } from './payrollOutsideTables';
+import { payrollRunReadDate } from './payrollRunReadDate';
+import type { PayrollPeriod } from './payrollTypes';
 
 const PSP = 'personal_service_provider';
+
+/**
+ * The days a run pays (review of #1566, merge L1): a weekly or fortnightly run's own dates (FQc, runPeriodOf), else the
+ * calendar month, ending on the run's read date (payrollRunReadDate). A component live only outside them is not on it.
+ */
+export function pspGuardWindow(period: PayrollPeriod): { start: string; end: string } {
+  return { start: period.start ?? `${period.year}-${String(period.month).padStart(2, '0')}-01`, end: payrollRunReadDate(period) };
+}
 
 /** Assignment: the employee is a PSP and the component is one a PSP cannot carry. */
 export async function refusePspAssignment(tx: TxSql, companyId: string, employeeId: string, componentId: string): Promise<void> {
