@@ -41,6 +41,8 @@ describe('the VAT cap is the note\'s share of the VAT the invoice charged', () =
       'refused: its VAT of 30.00 is more than the 15.00 of VAT the invoice charged on the 100.00 of standard-rated supplies it reverses. Correct its VAT.'],
     ['mixed, 100 + 15.02', MIXED, 150, 100, 15.02,
       'refused: its VAT of 15.02 is more than the 15.00 of VAT the invoice charged on the 100.00 of standard-rated supplies it reverses. Correct its VAT.'],
+    ['100 x 0.10, 5.00 + 2.00 (allowed 1.00 on 5.00 of 10.00)', HUNDRED_X_0_10, 2, 5, 2,
+      'refused: its VAT of 2.00 is more than the 1.00 of VAT the invoice charged on the 5.00 of standard-rated supplies it reverses. Correct its VAT.'],
     ['mixed, 1100 + 165 (over-allocation)', MIXED, 150, 1100, 165,
       'refused: its VAT of 165.00 is VAT on 1100.00 of standard-rated supplies, but the invoice\'s rated lines have 1000.00 left to credit (100.00 over). Reduce the note, or its VAT.'],
   ] as const)('%s is refused', (_label, legs, rem, sub, tax, expected) => {
@@ -68,5 +70,23 @@ describe('cent-level residues', () => {
 
   it('(b) a single cent of such residue still passes, so one note\'s drift is always reversible', () => {
     expect(outcome([leg(100, 'standard', 's', 100), leg(50, 'exempt', 'e')], 0.01, 10, 0.01)).toBe('exempt 10.00');
+  });
+});
+
+// Round 4 follow-up: partial notes against line-rounded VAT, both directions.
+describe('partial notes against VAT the lines rounded', () => {
+  it('ten R10.10 lines: a first note at the rate (50.50 + 7.58) leaves 7.62, which the final 50.50 takes', () => {
+    expect(outcome(TEN_X_10_10, 15.2, 50.5, 7.58)).toBe('standard 50.50');
+    // What remains: 50.50 of net, 15.20 - 7.58 = 7.62 of VAT; the final note reverses all of it.
+    expect(outcome([leg(101, 'standard', 's', 50.5)], 7.62, 50.5, 7.62)).toBe('standard 50.50');
+  });
+
+  // Ten R10.03 lines each carry 1.50 (1.5045 rounded DOWN): 15.00 on 100.30. The invoice charged 7.50 on 50.15 of it,
+  // so a note at the standard rate on 50.15 (7.52) asks back VAT the invoice never charged: refused, naming 7.50.
+  const TEN_X_10_03 = [leg(100.3, 'standard', 's')];
+  it('lines that rounded down: a note at exactly the rate is refused, the message naming the VAT the invoice charged', () => {
+    expect(outcome(TEN_X_10_03, 15, 50.15, 7.52)).toBe('refused: its VAT of 7.52 is more than the 7.50 of VAT the invoice '
+      + 'charged on the 50.15 of standard-rated supplies it reverses. Correct its VAT.');
+    expect(outcome(TEN_X_10_03, 15, 50.15, 7.5)).toBe('standard 50.15');
   });
 });

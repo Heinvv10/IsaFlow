@@ -179,6 +179,19 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
     expect(await fields('2026-06-01', '2026-06-30')).toEqual([0, 0, 0, 0]);
   });
 
+  // Item 7 follow-up: the same invoice credited in two halves, each 50.50 + 7.60: VAT above 15% of 50.50 (7.58) but
+  // exactly what the invoice charged on it, so the share cap lets it through; the second reverses what is left.
+  it('ten R10.10 lines credited in two notes of 50.50 + 7.60 post and return the VAT201 to zero', async () => {
+    const items = Array.from({ length: 10 }, (_, i) => ({ description: `Half ${i + 1}`, unitPrice: 10.1 }));
+    const id = await approvedInvoice('2026-04-10', items,
+      Object.fromEntries(items.map((it) => [it.description, ['standard', 1.52] as [string, number]])), 15.2);
+    for (const date of ['2026-04-15', '2026-04-20']) {
+      const je = await note(id, date, 50.5, 15, 7.6);
+      expect(await journalLegs(f, je)).toEqual([L('1100', 0, 58.1), L('2120', 7.6, 0, { vat: 'standard' }), L('4000', 50.5, 0, { vat: 'standard' })]);
+    }
+    expect(await fields('2026-04-01', '2026-04-30')).toEqual([0, 0, 0, 0]);
+  });
+
   it('a note against a legacy invoice keeps its uncoded revenue debit, as before', async () => {
     const id = await approvedInvoice('2026-09-10', [{ description: 'A', unitPrice: 1000 }]);
     const je = await note(id, '2026-09-20', 400, 15);

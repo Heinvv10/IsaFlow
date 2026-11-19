@@ -160,8 +160,8 @@ describe('a note dated where no VAT rate can be read', () => {
     expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['zero_rated', 120], ['exempt', 80]]);
   });
 
-  it('a note with VAT is refused with the refusal class, naming the date', () => {
-    expect(() => allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 30, date: '1980-01-01', remainingRatedVat: 150 }, 'CN-9', DEFAULT))
+  it('a note whose VAT needs the rate (not the invoice\'s own share) is refused with the refusal class, naming the date', () => {
+    expect(() => allocateTypedCreditNote(MIXED, { subtotal: 300, taxAmount: 15, date: '1980-01-01', remainingRatedVat: 150 }, 'CN-9', DEFAULT))
       .toThrow(new CreditNoteVatSplitRefusal('Credit note CN-9: its date cannot be read for a VAT rate '
         + '(1980-01-01 is before VAT began (1991-09-30)).'));
   });

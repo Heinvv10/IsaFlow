@@ -79,6 +79,18 @@ function reversesAllRated(note: TypedNote, ratedLeft: number): number | null {
 }
 
 /**
+ * Whether the note's VAT is, within a cent, the invoice's own share on its whole subtotal (round(remaining rated VAT x
+ * subtotal / rated net left)): then all of it is rated. The rate-implied figure alone refused the exact partial credit
+ * of lines whose VAT rounded DOWN: ten R10.03 lines carry 15.00 on 100.30, so 50.15 + 7.50 (what the invoice charged on
+ * 50.15) read as 50.00 rated at 15% and 0.15 unrated (review round 4, item 7 follow-up).
+ */
+function isShareOfSubtotal(note: TypedNote, ratedLeft: number): boolean {
+  const tax = cents(note.taxAmount);
+  if (tax <= 0 || ratedLeft <= 0) return false;
+  return Math.abs(Math.round((cents(note.remainingRatedVat) * cents(note.subtotal)) / ratedLeft) - tax) <= 1;
+}
+
+/**
  * A note's VAT may not exceed, by more than a cent, the VAT the invoice charged on the rated net it reverses: its
  * proportional share of the rated legs' REMAINING VAT (round(remaining x ratedPart / ratedLeft); 0 when either is 0).
  * Not the rate on its subtotal: line by line the invoice's VAT may sit above the rate on its net (ten R10.10 lines carry
@@ -110,7 +122,7 @@ export function allocateTypedCreditNote(
   const ratedLeft = legs.reduce((s, l, i) => s + (isRated(l) ? carries[i]! : 0), 0);
   let rated: number;
   try {
-    rated = reversesAllRated(note, ratedLeft) ?? noteRatedCents(note);
+    rated = reversesAllRated(note, ratedLeft) ?? (isShareOfSubtotal(note, ratedLeft) ? cents(note.subtotal) : noteRatedCents(note));
   } catch (err) {
     // A note WITH VAT dated where no rate can be read: refused before any write, not a 500.
     if (err instanceof VatRateDateError) {
