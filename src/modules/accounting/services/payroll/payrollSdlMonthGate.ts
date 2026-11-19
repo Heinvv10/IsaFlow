@@ -16,6 +16,7 @@ import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { estimateAnnualRemuneration, lineSdlShares, sdlCatchUp } from './sdlLeviabilityService';
 import { isSdlExempt } from './sdlEngine';
 import { getTaxYear } from './taxTables';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 /** This run's SDL, re-judged on the month as it stands now, when it differs from what the run stores; null otherwise. */
 export async function sdlRecalculateRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
@@ -33,12 +34,12 @@ export async function sdlRecalculateRefusal(companyId: string, runId: string): P
   const up = await sdlCatchUp(companyId, runId, !isSdlExempt(annual, getTaxYear(period.month, period.year)));
   const fresh = lineSdlShares(lines.map((l) => Number(l.leviable)), up);
   const stored = lines.map((l) => Number(l.sdl));
-  const sum = (v: number[]) => (Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100).toFixed(2);
+  const sum = (v: number[]) => Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100;
   // The run's total and the month's decision (a cent the catch-up places on one of two equal lines is the same SDL).
-  if (sum(fresh) === sum(stored) && lines.every((l) => l.sdl_exempt === !up.liable)) return null;
+  if (Math.abs(sum(fresh) - sum(stored)) < 0.005 && lines.every((l) => l.sdl_exempt === !up.liable)) return null;
   return {
     code: 'sdl_recalculate',
     detail: `The month's SDL has moved since this run was calculated (another run of the month was approved or recalculated): `
-      + `this run now carries R${sum(fresh)} SDL, not R${sum(stored)}. Recalculate this run, then approve it.`,
+      + `this run now carries ${formatMoney(sum(fresh))} SDL, not ${formatMoney(sum(stored))}. Recalculate this run, then approve it.`,
   };
 }
