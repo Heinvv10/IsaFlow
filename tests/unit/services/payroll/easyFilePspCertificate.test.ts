@@ -1,7 +1,7 @@
 /**
  * Wave 6 PSP-H: the nature-of-person H certificate record (SARS PAYE Employer Reconciliation BRS V25.3.0): 3020 H (p. 17),
  * 3030 the trading name and never 3040 / 3050 / 3060 / 3080 (pp. 20-26), 3065 1 or 2 with 3066 (pp. 23-24), 3100 (pp. 26-27),
- * 3170 / 3180 (pp. 31-32), 3200 / 3210 (p. 32), 3601 (G21 p. 31), 4102, 4141 nil, 4142.
+ * 3170 / 3180 (p. 32), 3200 / 3210 (p. 33), 3601 (G21 p. 31), 4102, 4141 nil, 4142.
  */
 import { describe, expect, it } from 'vitest';
 import { buildPspCertificateRecord, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';

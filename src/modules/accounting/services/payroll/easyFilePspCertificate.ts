@@ -6,8 +6,8 @@
  *
  * Fields (BRS V25.3.0): 3010, 3015 IRP5, 3020 H (p. 17), 3025, 3030 the trading name (p. 20), never 3040 / 3050 / 3060 / 3080
  * (pp. 20-26), 3065 1 (company / CC) or 2 (trust) with 3066 the registration number when one is held (pp. 23-24), 3100 the
- * entity's tax reference starting with 9 (pp. 26-27), 3170 / 3180 the certificate's tax period (pp. 31-32), 3200 / 3210 the
- * pay periods in the year and worked (p. 32), 3230 any IRP3(b) directive number (p. 41), 3601 the payments (PAYE-GEN-01-G21
+ * entity's tax reference starting with 9 (pp. 26-27), 3170 / 3180 the certificate's tax period (p. 32), 3200 / 3210 the
+ * pay periods in the year and worked (p. 33), 3230 any IRP3(b) directive number (p. 41), 3601 the payments (PAYE-GEN-01-G21
  * p. 31), 4102 the PAYE, 4141 the UIF (nil on a PSP's lines), 4142 the SDL.
  *
  * Certified only with a trading name and a tax reference (3100 is mandatory when 4102 is above nil, p. 26); without them the
