@@ -13,7 +13,7 @@ export const getPurchaseOrderTool: McpTool = {
   name: 'get_purchase_order',
   description:
     'One purchase order by po_id or po_number: header, lines (quantity ordered / received / billed, line_total, amount_billed and what is outstanding to receive and to bill), '
-    + 'the bills linked to it (link_bills_to_purchase_order; counts_as_billed is true for approved / paid / partially_paid bills), goods received notes with their items, filed documents, '
+    + 'EVERY bill tying it, one row each with its tie kind: link (a link row, link_bills_to_purchase_order; a link on a deleted bill is listed with deleted: true), line (a bill line names one of its lines, no link row) or header (the bill names it in its purchase_order_id, no link row, and could be linked); unlink_bill_from_purchase_order clears any of them (counts_as_billed is true for approved / paid / partially_paid bills that are not deleted), goods received notes with their items, filed documents, '
     + 'billed_total (the linked ex-VAT amounts on those bills), outstanding_to_bill and fully_billed (billed_total >= subtotal less 1 cent). '
     + 'closed_under_billed is true when a link call closed the PO and its billed total has since fallen below that (a bill cancelled or unlinked): the PO is NOT reopened by a bill cancel, a person decides. '
     + 'Credit notes do not reduce billed. '

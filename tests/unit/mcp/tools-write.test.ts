@@ -730,6 +730,11 @@ describe('write-tool manifest invariants', () => {
       // Refuse the missing links array / the missing selector before any query; behaviour in poBillLinkTools.test.ts.
       link_bills_to_purchase_order: { ...KEY },
       unlink_bill_from_purchase_order: { ...KEY },
+      // Refuse the missing selector / reason / status before any query; behaviour in poMaintenanceTools.test.ts.
+      update_purchase_order: { ...KEY },
+      cancel_purchase_order: { ...KEY },
+      close_purchase_order: { ...KEY },
+      set_purchase_order_status: { ...KEY },
       // Voids refuse the missing document id before any query; behaviour in
       // voidPaymentTools.test.ts.
       // Refuses on the missing subledger before reading anything; behaviour in

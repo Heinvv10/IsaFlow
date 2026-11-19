@@ -24,7 +24,10 @@ import type { DbRow } from '@/lib/neon';
 import { toCents } from '../budgets/grid/cents';
 import { BILLED_STATUSES, postedExpenseLines } from '../budgets/remainingCommitted';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
+import { withRowLockBudget } from '../core/rowLockBudget';
 import { LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
+import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
+import { tieRefusalText } from './purchaseOrderTies';
 
 type Db = typeof sql | TxSql;
 
@@ -86,12 +89,14 @@ export async function recordBillLinks(companyId: string, billId: string, userId:
   `) as DbRow[];
   const header = bill.purchase_order_id ? String(bill.purchase_order_id).toLowerCase() : null;
   const named = [...new Set([header, ...items.map((i) => (i.item_po ? String(i.item_po).toLowerCase() : null))].filter((v): v is string => !!v))];
-  const usable = new Set(named.length === 0 ? [] : ((await db`
+  // Bounded like every PO lock (5 s, typed retryable PURCHASE_ORDER_LOCK_TIMEOUT): a PO held FOR UPDATE by an edit / cancel / approval must
+  // not pin a bill create or a draft edit; the statement is before this sync's first write, and the caller's transaction takes the rest back.
+  const usable = new Set(named.length === 0 ? [] : (await withRowLockBudget(async () => (await db`
     SELECT id::TEXT AS id FROM purchase_orders
      WHERE id = ANY(${named}::UUID[]) AND company_id = ${companyId}::UUID AND supplier_id = ${String(bill.supplier_id)}::UUID
        AND status = ANY(${[...LINKABLE_PO_STATUSES]}::TEXT[])
      ORDER BY id FOR KEY SHARE
-  `) as DbRow[]).map((r) => String(r.id).toLowerCase()));
+  `) as DbRow[], () => new PurchaseOrderLockTimeoutError())).map((r) => String(r.id).toLowerCase()));
   const posted = new Map<string, number>();
   for (const l of postedExpenseLines(bill, items)) posted.set(String(l.description), (posted.get(String(l.description)) ?? 0) + toCents(l.debit));
 
@@ -152,5 +157,5 @@ export async function poSupplierChangeBlocked(companyId: string, poId: string, s
     SELECT 1 FROM purchase_order_bill_links l JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
      WHERE po.id = ${poId}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplierId}::UUID LIMIT 1
   `) as DbRow[];
-  return linked.length > 0 ? 'Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.' : null;
+  return linked.length > 0 ? await tieRefusalText(companyId, poId, 'its supplier cannot change', ['link']) : null;
 }
