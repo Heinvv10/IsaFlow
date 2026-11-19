@@ -221,9 +221,13 @@ export function lineSdlShares(leviables: number[], up: SdlCatchUp): number[] {
   if (!up.liable || leviables.length === 0) return leviables.map(() => 0);
   const own = leviables.reduce((a, b) => a + b, 0);
   const cents = Math.max(0, Math.round((up.earlierLeviable + own) * SDL_RATE * 100) - Math.round(up.earlierSdl * 100));
-  const shares = leviables.map((v, i) => (own > 0 ? Math.floor((cents * v) / own) : i === 0 ? cents : 0));
+  const exact = leviables.map((v, i) => (own > 0 ? (cents * v) / own : i === 0 ? cents : 0));
+  const shares = exact.map((x) => Math.floor(x));
   let left = cents - shares.reduce((a, b) => a + b, 0);
-  const order = leviables.map((v, i) => [v, i] as const).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
+  // The cents left go to the largest remainders (then the largest leviable pay): each line as close to its share as
+  // the cents allow, so a run with nothing to catch up rounds each line as its own 1% would.
+  const order = exact.map((x, i) => [x - Math.floor(x), leviables[i]!, i] as const)
+    .sort((a, b) => b[0] - a[0] || b[1] - a[1]).map(([, , i]) => i);
   for (let k = 0; left > 0; k = (k + 1) % order.length, left -= 1) shares[order[k]!] = shares[order[k]!]! + 1;
   return shares.map((c) => c / 100);
 }

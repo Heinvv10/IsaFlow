@@ -214,7 +214,7 @@ describe('the run-kind guard (wave 6 FQa, called by the EMP201 and the IRP5)', (
     // IRP5 certificates stay monthly-only this wave (coordinator, #1622 x EFb #1568): refused by name, never summed.
     const i = await getIrp5EmployeeTotals(D, TAX_YEAR).catch((x: unknown) => x);
     expect([i instanceof RunKindUnsupportedError, (i as RunKindUnsupportedError).action]).toEqual([true, 'irp5']);
-    expect((i as Error).message).toContain('IRP5 certificates cover monthly runs only');
+    expect((i as Error).message).toContain('IRP5 and EMP501 certificates cover monthly runs only');
   });
   it('company A (monthly runs only) is not refused', async () => {
     await expect(generateEMP201(A, '2028-09-01', '2028-11-30')).resolves.toBeTruthy();
