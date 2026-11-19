@@ -1,10 +1,12 @@
 /**
  * Wave 6 RLS-L (migration 1011): payroll_run_lines under ENABLE + FORCE row level security, tenant through the parent
- * payroll_run_headers row (tenant_isolation_via_parent). Two tenants on the disposable fixture, every statement run
+ * payroll_run_headers row (tenant_isolation_via_parent_select/_insert/_update/_delete). Two tenants on the disposable fixture, every statement run
  * as app_user with withAuth's claims (sub + app.current_company_id) inside a transaction that is rolled back:
  *  - tenant A cannot SELECT, UPDATE or DELETE B's lines, by line id or by B's run id;
  *  - A cannot INSERT a line onto B's run, nor move its own line onto it;
- *  - a user of both tenants reads both (the header's USING), but writes only into the ACTIVE company's runs;
+ *  - a user of both tenants reads both (the header's USING), but inserts, updates and deletes only the ACTIVE
+ *    company's lines (breaker #1673 L1);
+ *  - a line's employee must be an employee of its run's company (breaker #1673 L2: the FK ignores RLS);
  *  - a session with no claims sees nothing; the service role (app_service) keeps its mirror and sees both;
  *  - deleting a header as app_user still cascades to its lines;
  *  - a run_id lookup stays an index probe under RLS (not a scan of the table).
@@ -22,6 +24,7 @@ const UAB = crypto.randomUUID();
 const EA = crypto.randomUUID();
 const EB = crypto.randomUUID();
 const EA2 = crypto.randomUUID();
+const EB2 = crypto.randomUUID();
 const YEAR = 2100 + Math.floor(Math.random() * 800);
 let HA = '';
 let HB = '';
@@ -38,7 +41,7 @@ beforeAll(async () => {
     ($1, $3, 'admin'), ($2, $4, 'admin'), ($1, $5, 'admin'), ($2, $5, 'admin')`, [A, B, UA, UB, UAB]);
   await su.query(`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date) VALUES
     ($1, $3, 'RL-A', 'Ann', 'A', '2025-01-01'), ($2, $4, 'RL-B', 'Ben', 'B', '2025-01-01'),
-    ($5, $3, 'RL-A2', 'Amy', 'A', '2025-01-01')`, [EA, EB, A, B, EA2]);
+    ($5, $3, 'RL-A2', 'Amy', 'A', '2025-01-01'), ($6, $4, 'RL-B2', 'Bea', 'B', '2025-01-01')`, [EA, EB, A, B, EA2, EB2]);
   const run = async (company: string) => (await one(`INSERT INTO payroll_run_headers
       (company_id, period_month, period_year, status, run_date, total_gross, total_paye, total_net, employee_count)
     VALUES ($1, 3, $2, 'calculated', make_date($2, 3, 28), 1000, 200, 800, 1) RETURNING id`, [company, YEAR])).id as string;
@@ -98,7 +101,12 @@ describe('RLS-L: payroll_run_lines is under ENABLE + FORCE with one app_user pol
     const pols = (await su.query(`SELECT policyname, roles::text[] AS roles, cmd FROM pg_policies
       WHERE schemaname = 'public' AND tablename = 'payroll_run_lines' ORDER BY policyname`)).rows;
     expect(pols.filter((p) => p.roles.includes('app_user') || p.roles.includes('public')))
-      .toEqual([{ policyname: 'tenant_isolation_via_parent', roles: ['app_user'], cmd: 'ALL' }]);
+      .toEqual([
+        { policyname: 'tenant_isolation_via_parent_delete', roles: ['app_user'], cmd: 'DELETE' },
+        { policyname: 'tenant_isolation_via_parent_insert', roles: ['app_user'], cmd: 'INSERT' },
+        { policyname: 'tenant_isolation_via_parent_select', roles: ['app_user'], cmd: 'SELECT' },
+        { policyname: 'tenant_isolation_via_parent_update', roles: ['app_user'], cmd: 'UPDATE' },
+      ]);
     expect(pols.filter((p) => p.roles.includes('app_service')).map((p) => p.policyname))
       .toEqual(['app_service_delete', 'app_service_insert', 'app_service_select', 'app_service_update']);
   });
@@ -137,14 +145,27 @@ describe('RLS-L: tenant A cannot reach tenant B\'s lines', () => {
     await refused(as({ user: UAB, company: A }, (c) => c.query('UPDATE payroll_run_lines SET run_id = $2 WHERE id = $1', [LA, HB])));
   });
 
-  it('a user of both tenants reads both, but writes only into the active company\'s runs', async () => {
+  it('a user of both tenants reads both, but inserts, updates and deletes only the active company\'s lines', async () => {
     await as({ user: UAB, company: A }, async (c) => {
       expect(await ids(c, 'id = ANY($1)', [[LA, LB]])).toEqual([LA, LB].sort());
       expect((await c.query('INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [HA, EA2])).rowCount).toBe(1);
+      expect((await c.query('UPDATE payroll_run_lines SET net_pay = 1 WHERE id = $1', [LB])).rowCount).toBe(0);
+      expect((await c.query('DELETE FROM payroll_run_lines WHERE id = $1', [LB])).rowCount).toBe(0);
+      expect((await c.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [HB])).rowCount).toBe(0);
     });
+    // B's own employee onto B's run: only the active-company rule refuses it.
     await refused(as({ user: UAB, company: A }, (c) => c.query(
-      'INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [HB, EA2])));
-    await refused(as({ user: UAB, company: A }, (c) => c.query('UPDATE payroll_run_lines SET net_pay = 1 WHERE id = $1', [LB])));
+      'INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [HB, EB2])));
+    expect(await one('SELECT net_pay::text AS net FROM payroll_run_lines WHERE id = $1', [LB])).toEqual({ net: '800.00' });
+  });
+
+  it('a line\'s employee is an employee of its run\'s company: A cannot put B\'s employee on A\'s run', async () => {
+    await refused(asA((c) => c.query(
+      'INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [HA, EB2])));
+    await refused(asA((c) => c.query('UPDATE payroll_run_lines SET employee_id = $2 WHERE id = $1', [LA, EB2])));
+    // A user of both, with A active, cannot either: the employee rule is about the run's company, not the user's reach.
+    await refused(as({ user: UAB, company: A }, (c) => c.query(
+      'INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [HA, EB2])));
   });
 
   it('A still writes its own run: insert, update, delete', async () => {

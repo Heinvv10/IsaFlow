@@ -54,7 +54,10 @@ function residue(expr: string | null): string {
 const REVIEWED: Record<string, string> = {
   'bank_transaction_attachments.tenant_isolation_via_parent': 'tenant through the parent row; the FK requires the parent',
   'payroll_batch_lines.tenant_isolation_via_parent': 'tenant through the parent row; the FK requires the parent',
-  'payroll_run_lines.tenant_isolation_via_parent': 'tenant through the parent run header (1011); the FK requires the parent',
+  'payroll_run_lines.tenant_isolation_via_parent_select': 'tenant through the parent run header (1011); the FK requires the parent',
+  'payroll_run_lines.tenant_isolation_via_parent_insert': 'tenant through the parent run header (1011), plus the employee is the run company\'s: data only, no reach',
+  'payroll_run_lines.tenant_isolation_via_parent_update': 'tenant through the parent run header (1011), plus the employee is the run company\'s: data only, no reach',
+  'payroll_run_lines.tenant_isolation_via_parent_delete': 'tenant through the parent run header (1011)',
   'portal_payment_links.tenant_isolation_via_parent': 'tenant through the parent row; the FK requires the parent',
   'procurement_documents.tenant_isolation_via_parent': 'tenant through the parent row, plus six entity_type values: a service path could write another entity_type, data only, no reach',
   'company_invitations.invites_by_token': 'SELECT only; invites_tenant admits the same rows to forged claims',
