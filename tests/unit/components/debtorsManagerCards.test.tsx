@@ -33,6 +33,9 @@ describe('debtors manager on touch', () => {
     expect(labels(tables[0].querySelector('tbody tr'))).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Total']);
     expect(labels(tables[0].querySelector('tfoot tr'))).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Total']);
     expect(labels(tables[1].querySelector('tbody tr'))).toEqual(['Customer', 'Due Date', 'Days Overdue', 'Outstanding']);
+    // Chevron sits in the card corner and the empty totals cell is hidden, so neither adds a blank line to a card.
+    expect(tables[0].querySelector('tbody tr td:first-child')?.className).toContain('max-lg:!absolute');
+    expect(tables[0].querySelector('tfoot tr td:first-child')?.className).toContain('max-lg:!hidden');
     expect(screen.getByRole('link', { name: 'Acme' }).className).toContain('max-lg:min-h-11');
     expect(screen.getByRole('link', { name: 'INV-1' }).className).toContain('max-lg:min-h-11');
     expect(screen.getByLabelText('Search customer').className).toContain('max-lg:min-h-11');

@@ -124,7 +124,7 @@ export default function DebtorsManagerPage() {
             <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3 px-4 py-3 border-b border-[var(--ff-border-light)]">
               <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Aging by Customer</h2>
               <div className="flex items-center gap-2 max-lg:w-full">
-                <Search className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
+                <Search className="h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)]" />
                 <input
                   type="text"
                   placeholder="Search customer..."
@@ -158,9 +158,9 @@ export default function DebtorsManagerPage() {
                     <Fragment key={d.clientId}>
                       <tr
                         {...rowProps(d.clientId)}
-                        className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer"
+                        className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer max-lg:relative"
                       >
-                        <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
+                        <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-lg:!absolute max-lg:right-1 max-lg:top-2 max-lg:!w-auto">
                           {expandedId === d.clientId
                             ? <ChevronDown className="h-4 w-4" />
                             : <ChevronRight className="h-4 w-4" />}
@@ -186,7 +186,7 @@ export default function DebtorsManagerPage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
-                    <td className="px-4 py-3"></td>
+                    <td className="px-4 py-3 max-lg:!hidden"></td>
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
                     <td data-label="Current" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-teal-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
                     <td data-label="1–30 Days" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-amber-500">{fmt(filtered.reduce((s, d) => s + d.days30, 0))}</td>

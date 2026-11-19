@@ -56,7 +56,7 @@ export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string
 
   return (
     <tr>
-      <td colSpan={COL_SPAN} className="px-0 py-0 bg-[var(--ff-bg-primary)]">
+      <td colSpan={COL_SPAN} className="px-0 py-0 max-lg:!p-0 bg-[var(--ff-bg-primary)]">
         <table className="table-cards w-full">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)]">
