@@ -33,7 +33,11 @@ const JOINED_FIELDS = ['project_name', 'client_name', 'client_address', 'client_
   'client_vat', 'client_terms', 'client_terms_immediate'] as const;
 
 export type InvoicePdfHeader = Record<(typeof INVOICE_FIELDS)[number] | (typeof JOINED_FIELDS)[number], unknown>;
-export interface InvoicePdfLine { description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown }
+/** `vat_type` / `tax_amount`: the line's own VAT (migration 1008), NULL on a legacy line; absent from an unsaved preview. */
+export interface InvoicePdfLine {
+  description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown;
+  vat_type?: unknown; tax_amount?: unknown;
+}
 export interface InvoicePdfModel { company: PrintedCompany; invoice: InvoicePdfHeader; items: InvoicePdfLine[] }
 export interface InvoiceDigests { shown: string; draft: string }
 
@@ -70,7 +74,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
   const r = rows[0];
   if (!r) return null;
   const items = (await q`
-    SELECT cii.description, cii.quantity, cii.unit_price, cii.amount, cii.tax_rate
+    SELECT cii.description, cii.quantity, cii.unit_price, cii.amount, cii.tax_rate, cii.vat_type, cii.tax_amount
     FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956); as the detail GET

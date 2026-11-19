@@ -6,6 +6,7 @@
 import { log } from '@/lib/logger';
 import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
+import { typedInvoicePdfTable } from './invoicePdfTypedLines';
 import { PREVIEW_WATERMARK, renderPreviewNotes, renderPreviewWatermark, type InvoicePdfPreviewOptions } from './invoicePdfPreviewMarks';
 import {
   fmtZAR, fmtDate, COLORS,
@@ -15,6 +16,16 @@ import {
   renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
   type TotalLine,
 } from '../core/pdfShared';
+
+/** The typed table's columns: the legacy five with the VAT type before the VAT. */
+const TYPED_COLUMNS = {
+  0: { cellWidth: 'auto' },
+  1: { halign: 'right', cellWidth: 14 },
+  2: { halign: 'right', cellWidth: 26 },
+  3: { cellWidth: 26 },
+  4: { halign: 'right', cellWidth: 24 },
+  5: { halign: 'right', cellWidth: 28, fontStyle: 'bold' },
+} as const;
 
 /**
  * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
@@ -144,7 +155,9 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
   // account for: a data disagreement rather than rounding, printed and logged
   // rather than absorbed into a line that would then print the wrong rate.
   const headerVat = Number(inv.tax_amount || 0);
-  const { lineVats, unattributed } = allocateVatToLines(
+  // Lines carrying their own VAT (migration 1008) print it as stored, with their type: nothing to allocate.
+  const typed = typedInvoicePdfTable(items, inv);
+  const { lineVats, unattributed } = typed ? { lineVats: [], unattributed: 0 } : allocateVatToLines(
     headerVat,
     items.map((item) => Number(item.amount || 0) * (lineRate(item) / 100)),
   );
@@ -155,8 +168,8 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
   }
   autoTable(doc, {
     startY: y,
-    head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
-    body: items.map((item, index: number) => {
+    head: [typed?.head ?? ['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
+    body: typed?.body ?? items.map((item, index: number) => {
       const lineAmount = Number(item.amount || 0);
       return [
         String(item.description || '—'),
@@ -179,7 +192,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
       cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
     },
     alternateRowStyles: { fillColor: COLORS.SURFACE },
-    columnStyles: {
+    columnStyles: typed ? TYPED_COLUMNS : {
       0: { cellWidth: 'auto' },
       1: { halign: 'right', cellWidth: 16 },
       2: { halign: 'right', cellWidth: 30 },
@@ -220,7 +233,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
 
   const totalLines: TotalLine[] = [
     { label: 'Subtotal', value: fmtZAR(subtotal) },
-    { label: totalsVatLabel, value: fmtZAR(taxAmount) },
+    { label: typed?.vatLabel ?? totalsVatLabel, value: fmtZAR(taxAmount) },
     { label: 'TOTAL DUE', value: fmtZAR(totalAmount), isTotal: true },
   ];
   if (amountPaid > 0) {

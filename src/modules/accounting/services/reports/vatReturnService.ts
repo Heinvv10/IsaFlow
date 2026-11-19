@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VATReturnReport } from '../../types/gl.types';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+import { RATED_VAT_TYPES } from '../shared/vatTypes';
 
 type Row = DbRow;
 
@@ -177,16 +178,25 @@ export async function getVATReturn(companyId: string,
       .filter((b) => Math.abs(b.amount) > 0.001)
       .map((b) => ({ accountCode: b.box, accountName: b.label, amount: b.amount }));
 
-    // Query taxable base from invoices so effective VAT rate can be verified (~15%)
+    // Query taxable base from invoices so effective VAT rate can be verified (~15%).
+    // An invoice whose lines carry their VAT type (migration 1008: every line typed) contributes the net of its
+    // RATED lines; its header rate says nothing about a mix of standard, zero-rated and exempt lines. A legacy
+    // invoice contributes its subtotal when its header rate is above zero, as before.
     const [salesRows, purchaseRows] = await Promise.all([
       sql`
-        SELECT COALESCE(SUM(subtotal), 0) AS base
-        FROM customer_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND status NOT IN ('draft','cancelled')
-          AND invoice_date >= ${periodStart}
-          AND invoice_date <= ${periodEnd}
-          AND tax_rate > 0
+        SELECT COALESCE(SUM(CASE WHEN t.typed THEN t.rated_net WHEN ci.tax_rate > 0 THEN ci.subtotal ELSE 0 END), 0) AS base
+        FROM customer_invoices ci
+        CROSS JOIN LATERAL (
+          SELECT COUNT(*) > 0 AND COUNT(*) = COUNT(cii.vat_type) AS typed,
+                 COALESCE(SUM(cii.amount - CASE WHEN ci.amounts_are = 'inclusive' THEN cii.tax_amount ELSE 0 END)
+                   FILTER (WHERE cii.vat_type = ANY(${RATED_VAT_TYPES as string[]}::TEXT[])), 0) AS rated_net
+          FROM customer_invoice_items cii
+          WHERE cii.invoice_id = ci.id
+        ) t
+        WHERE ci.company_id = ${companyId}::UUID
+          AND ci.status NOT IN ('draft','cancelled')
+          AND ci.invoice_date >= ${periodStart}
+          AND ci.invoice_date <= ${periodEnd}
       ` as unknown as Row[],
       sql`
         SELECT COALESCE(SUM(subtotal), 0) AS base

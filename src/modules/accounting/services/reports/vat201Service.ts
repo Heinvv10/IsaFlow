@@ -73,14 +73,29 @@ export async function generateVAT201(companyId: string,
         ci.total_amount,
         ci.tax_rate,
         COALESCE(c.name, cl.name) AS customer_name,
+        -- The drill-down label only (no field reads it: vat201LedgerFields). The invoice's VAT Output leg first:
+        -- since migration 1008 a typed invoice's revenue legs are coded too, so any coded line was arbitrary. A
+        -- journal with no VAT leg (a wholly zero-rated or exempt typed invoice) takes the one type its coded lines
+        -- share; then the header rate, as before.
         COALESCE(
           (
             SELECT jl.vat_type
             FROM gl_journal_lines jl
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
             WHERE jl.journal_entry_id = ci.gl_journal_entry_id
               AND jl.company_id = ${companyId}::UUID
               AND jl.vat_type IS NOT NULL
+              AND COALESCE(ga.account_subtype, '') = 'vat_output'
+            ORDER BY jl.created_at, jl.id
             LIMIT 1
+          ),
+          (
+            SELECT MIN(jl.vat_type)
+            FROM gl_journal_lines jl
+            WHERE jl.journal_entry_id = ci.gl_journal_entry_id
+              AND jl.company_id = ${companyId}::UUID
+              AND jl.vat_type IS NOT NULL
+            HAVING COUNT(DISTINCT jl.vat_type) = 1
           ),
           CASE WHEN ci.tax_rate = 0 THEN 'zero_rated' ELSE 'standard' END
         ) AS vat_type
