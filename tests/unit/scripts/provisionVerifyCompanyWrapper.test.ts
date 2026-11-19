@@ -42,7 +42,7 @@ describe('provision-verify-company.sh', () => {
     expect(r.got.DB).toBe(OWNER_DB);
     expect(r.got.GOTRUE).toBe('http://g:7770/auth/v1');
     expect(r.got.KEY).toBe('svc.key.value');
-    expect(r.got.ARGS).toContain('--expect-database isaflow --base-url http://127.0.0.1:3101 --env-file /x/deploy.env --dry-run');
+    expect(r.got.ARGS).toContain('--expect-database isaflow --base-url http://localhost:3101 --env-file /x/deploy.env --dry-run');
     for (const secret of ['owner:o', 'svc.key.value']) expect(r.got.ARGS).not.toContain(secret);
   });
 

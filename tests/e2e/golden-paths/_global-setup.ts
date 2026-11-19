@@ -20,9 +20,16 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { loginGolden } from './helpers/goldenLogin';
 import { readGoldenSlot } from './helpers/goldenSlot';
-import { approverCompanyProblems, budgetYearWarning, budgetYears, isVerifyLogin, startMonthOf, verifyCompanyProblems, type UserCompany } from './helpers/verifyCompany';
+import { approverFailure, approverProblems, suitePreconditionProblems, type SuiteGet } from './helpers/suitePreconditions';
+import { budgetYearWarning, budgetYears, isVerifyLogin, startMonthOf } from './helpers/verifyCompany';
 
 export const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
+
+/** One GET in `ctx`'s session, as the shared checks take it (helpers/suitePreconditions.ts). */
+const getIn = (ctx: APIRequestContext): SuiteGet => async (path) => {
+  const res = await ctx.get(path);
+  return { status: res.status(), body: await res.json().catch(() => null) };
+};
 
 /** The approver login (E2E_APPROVER_*, set by verify-deploy.sh from E2E_VERIFY_APPROVER_*) must reach the verify company and nothing else. */
 async function verifyApprover(baseURL: string): Promise<void> {
@@ -33,10 +40,8 @@ async function verifyApprover(baseURL: string): Promise<void> {
   try {
     const login = await actx.post('/api/auth/login', { data: { email, password } });
     if (login.status() !== 200) throw new Error(`golden-paths: the approver login failed: ${login.status()}`);
-    const res = await actx.get('/api/accounting/companies?action=user-companies');
-    const body = (await res.json().catch(() => null)) as { data?: { items?: UserCompany[] } } | null;
-    const problems = approverCompanyProblems(body?.data?.items ?? []);
-    if (problems.length > 0) throw new Error(`golden-paths: ${problems.join('; ')}. No spec runs: re-run scripts/deploy/provision-verify-company.sh or fix the approver's memberships.`);
+    const problems = await approverProblems(getIn(actx), baseURL);
+    if (problems.length > 0) throw new Error(approverFailure(problems, 're-run scripts/deploy/provision-verify-company.sh or fix the approver\'s memberships.'));
   } finally {
     await actx.dispose();
   }
@@ -63,43 +68,13 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   const ctx = await pwRequest.newContext({ baseURL });
   await loginGolden(ctx, readGoldenSlot(process.env));
 
-  // Precondition: GL-on-approve needs the company's system-account mappings.
-  // Fail HERE with an actionable message instead of letting spec b/c/e fail
-  // mysteriously on an environment whose Demo company is missing them (dev
-  // Demo was, until 2026-07-05 — see the baseline doc).
-  const missing: string[] = [];
-  for (const subtype of [
-    'receivable',
-    'default_revenue',
-    'vat_output',
-    'payable',
-    'vat_input',
-    'default_expense',
-  ]) {
-    const res2 = await ctx.get(`/api/accounting/chart-of-accounts?subtype=${subtype}`);
-    const body = await res2.json().catch(() => null);
-    const accounts = body?.data ?? [];
-    // The resolver requires is_system_account=true as well as the subtype.
-    const ok =
-      Array.isArray(accounts) && accounts.some((a: any) => a.isSystemAccount === true);
-    if (!ok) missing.push(subtype);
-  }
-  if (missing.length > 0) {
-    throw new Error(
-      `golden-paths precondition failed: company has no system account for [${missing.join(', ')}]. ` +
-        `Set account_subtype + is_system_account on the chart of accounts (mirror prod Demo: 1120 receivable, 4100 default_revenue, 2120 vat_output).`,
-    );
-  }
-
-  // The post-deploy run as the dedicated verify user: prove the company, never trust the email (see helpers/verifyCompany.ts).
-  if (!readGoldenSlot(process.env) && isVerifyLogin(process.env)) {
-    const res3 = await ctx.get('/api/accounting/companies?action=user-companies');
-    const body3 = (await res3.json().catch(() => null)) as { data?: { items?: UserCompany[]; activeCompanyId?: string } } | null;
-    const problems = verifyCompanyProblems(body3?.data?.items ?? [], String(body3?.data?.activeCompanyId ?? ''));
-    if (problems.length > 0) {
-      throw new Error(`golden-paths: the verify login is not in the Deploy Verification company: ${problems.join('; ')}. `
-        + 'No spec runs: they would write to the wrong company. Re-run scripts/deploy/provision-verify-company.sh, or fix the login\'s memberships.');
-    }
+  // The session first (a login whose cookie never comes back reads as an empty everything), then, as the verify user, the company
+  // proof, then the chart's system accounts: one shared list (helpers/suitePreconditions.ts), which the verify provisioner's readiness
+  // gate runs too. Dev Demo lacked the system accounts until 2026-07-05 (see the baseline doc).
+  const verifyRun = !readGoldenSlot(process.env) && isVerifyLogin(process.env);
+  const problems = await suitePreconditionProblems(getIn(ctx), { baseUrl: baseURL, verifyLogin: verifyRun });
+  if (problems.length > 0) throw new Error(problems.join(' '));
+  if (verifyRun) {
     process.stdout.write('golden-paths: verified: the active company is "Deploy Verification" (is_demo) and the verify login owns nothing else\n');
     await verifyApprover(baseURL);
     await warnBudgetYear(ctx);
