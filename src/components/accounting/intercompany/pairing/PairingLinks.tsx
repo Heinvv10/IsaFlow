@@ -3,12 +3,14 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
-import type { PairingLinkView } from '@/modules/accounting/services/intercompany/pairingTypes';
+import type { PairingDirection, PairingLinkView } from '@/modules/accounting/services/intercompany/pairingTypes';
 import { DocCells, DocHeads, TD, TH } from './DocCells';
+import { docLabels } from './pairingFormat';
 
 interface Props {
   connectionId: string;
   partnerName: string;
+  direction: PairingDirection;
   links: PairingLinkView[];
   /** A pairing can be changed (not read only). */
   canWrite: boolean;
@@ -27,7 +29,8 @@ function statusOf(l: PairingLinkView): { label: string; tone: keyof typeof BADGE
   return { label: 'Waiting for the partner', tone: 'waiting' };
 }
 
-export function PairingLinks({ connectionId, partnerName, links, canWrite, onChanged, onError }: Props) {
+export function PairingLinks({ connectionId, partnerName, direction, links, canWrite, onChanged, onError }: Props) {
+  const label = docLabels(direction, partnerName);
   const [busy, setBusy] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState<PairingLinkView | null>(null);
   const url = (id: string) => `/api/accounting/intercompany/connections/${connectionId}/pairing/links/${id}`;
@@ -62,7 +65,7 @@ export function PairingLinks({ connectionId, partnerName, links, canWrite, onCha
           <caption className="sr-only">Pairings of documents between the two companies</caption>
           <thead>
             <tr className="border-b border-[var(--ff-border-light)]">
-              <DocHeads side="Your" /><DocHeads side={`${partnerName}'s`} />
+              <DocHeads side={label.mine} /><DocHeads side={label.theirs} />
               <th scope="col" className={TH}>Status</th><th scope="col" className={TH}><span className="sr-only">Actions</span></th>
             </tr>
           </thead>

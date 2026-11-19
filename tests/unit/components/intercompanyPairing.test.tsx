@@ -98,7 +98,7 @@ describe('the page', () => {
 describe('suggestions: select, review, confirm', () => {
   const suggestions = () => [pair(1), pair(2), pair(3, { ambiguous: true }), pair(4, { openDiffers: true })];
 
-  it('selects nothing by itself; "Select all unflagged" skips a repeated number; the review step shows the count and total before anything is sent', async () => {
+  it('selects nothing by itself; "Select all unflagged" skips a repeated number and a pair whose open amounts differ; the review step shows the count and total before anything is sent', async () => {
     view = () => envelope(VIEW({ matches: { ...EMPTY, suggestions: suggestions() } }));
     render(<PairingPage />);
     const table = await screen.findByRole('table', { name: /Suggested pairs/ });
@@ -108,9 +108,11 @@ describe('suggestions: select, review, confirm', () => {
     expect(screen.getByText('Open amounts differ')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Select all unflagged' }));
-    expect(screen.getByRole('button', { name: 'Review 3 selected' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Review 2 selected' })).toBeEnabled();
     expect(screen.getByLabelText('Pair INV-3 with INV-3')).not.toBeChecked();
+    expect(screen.getByLabelText('Pair INV-4 with INV-4')).not.toBeChecked();
     fireEvent.click(screen.getByLabelText('Pair INV-3 with INV-3'));
+    fireEvent.click(screen.getByLabelText('Pair INV-4 with INV-4'));
     fireEvent.click(screen.getByRole('button', { name: 'Review 4 selected' }));
 
     const review = screen.getByTestId('review');

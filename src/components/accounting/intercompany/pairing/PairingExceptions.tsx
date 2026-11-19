@@ -1,12 +1,13 @@
 /** What cannot be paired: an amount mismatch, a document with no counterpart on the other side, a foreign-currency document. */
 import { formatCurrency } from '@/utils/formatters';
-import type { PairingDoc, PairingMatches } from '@/modules/accounting/services/intercompany/pairingTypes';
+import type { PairingDirection, PairingDoc, PairingMatches } from '@/modules/accounting/services/intercompany/pairingTypes';
 import { DocCells, DocHeads, NUM, TD, TH } from './DocCells';
-import { sumCents } from './pairingFormat';
+import { docLabels, sumCents } from './pairingFormat';
 
 interface Props {
   matches: PairingMatches;
   partnerName: string;
+  direction: PairingDirection;
 }
 
 function Block({ id, title, hint, count, children }: { id: string; title: string; hint: string; count: number; children: React.ReactNode }) {
@@ -37,7 +38,8 @@ function SingleList({ caption, side, docs, showTotal = true }: { caption: string
   );
 }
 
-export function PairingExceptions({ matches, partnerName }: Props) {
+export function PairingExceptions({ matches, partnerName, direction }: Props) {
+  const label = docLabels(direction, partnerName);
   const { mismatches, unmatchedMine, unmatchedTheirs, unsupported } = matches;
   const total = mismatches.length + unmatchedMine.length + unmatchedTheirs.length + unsupported.length;
   return (
@@ -53,7 +55,7 @@ export function PairingExceptions({ matches, partnerName }: Props) {
         hint="The invoice number is the same on both sides but the totals disagree: one side was captured wrongly.">
         <table className="min-w-full text-left">
           <caption className="sr-only">Documents with the same number and different totals</caption>
-          <thead><tr className="border-b border-[var(--ff-border-light)]"><DocHeads side="Your" /><DocHeads side={`${partnerName}'s`} /><th scope="col" className={`${TH} text-right`}>Difference</th></tr></thead>
+          <thead><tr className="border-b border-[var(--ff-border-light)]"><DocHeads side={label.mine} /><DocHeads side={label.theirs} /><th scope="col" className={`${TH} text-right`}>Difference</th></tr></thead>
           <tbody className="divide-y divide-[var(--ff-border-light)]">
             {mismatches.map((m) => (
               <tr key={m.mine.id}>
@@ -66,15 +68,15 @@ export function PairingExceptions({ matches, partnerName }: Props) {
       </Block>
       <Block id="unmatched-mine" title="Only on your side" count={unmatchedMine.length}
         hint={`Open here, with no document of the same number open at ${partnerName}. It may be missing there, or numbered differently.`}>
-        <SingleList caption="Your open documents with no counterpart" side="Your" docs={unmatchedMine} />
+        <SingleList caption="Your open documents with no counterpart" side={label.mine} docs={unmatchedMine} />
       </Block>
       <Block id="unmatched-theirs" title={`Only at ${partnerName}`} count={unmatchedTheirs.length}
         hint="Open there, with no document of the same number open here. It may not be captured in your books yet.">
-        <SingleList caption="The partner's open documents with no counterpart" side={`${partnerName}'s`} docs={unmatchedTheirs} />
+        <SingleList caption="The partner's open documents with no counterpart" side={label.theirs} docs={unmatchedTheirs} />
       </Block>
       <Block id="unsupported" title="Foreign currency" count={unsupported.length}
         hint="Pairing is for rand documents only; these stay unpaired.">
-        <SingleList caption="Foreign-currency documents" side="" docs={unsupported} showTotal={false} />
+        <SingleList caption="Foreign-currency documents" side="Document" docs={unsupported} showTotal={false} />
       </Block>
     </section>
   );

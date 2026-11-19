@@ -9,7 +9,7 @@ import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import type { PairingCandidate, PairingDirection } from '@/modules/accounting/services/intercompany/pairingTypes';
 import { DocCells, DocHeads, TD, TH } from './DocCells';
-import { sumCents } from './pairingFormat';
+import { docLabels, sumCents } from './pairingFormat';
 
 interface Props {
   connectionId: string;
@@ -28,8 +28,7 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
   const [reviewing, setReviewing] = useState(false);
   const [saving, setSaving] = useState(false);
   const reviewHeading = useRef<HTMLHeadingElement>(null);
-  const mineLabel = direction === 'ar' ? 'Your' : 'Your bill';
-  const theirLabel = direction === 'ar' ? `${partnerName}'s bill` : `${partnerName}'s`;
+  const { mine: mineLabel, theirs: theirLabel } = docLabels(direction, partnerName);
 
   // A reload that removes a pair (paired by someone else, paid) must not leave it selected.
   useEffect(() => {
@@ -38,7 +37,7 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
   }, [suggestions]);
   useEffect(() => { if (reviewing) reviewHeading.current?.focus(); }, [reviewing]);
 
-  const unflagged = useMemo(() => suggestions.filter((s) => !s.ambiguous), [suggestions]);
+  const unflagged = useMemo(() => suggestions.filter((s) => !s.ambiguous && !s.openDiffers), [suggestions]);
   const chosen = suggestions.filter((s) => selected.has(s.mine.id));
   const allUnflagged = unflagged.length > 0 && unflagged.every((s) => selected.has(s.mine.id));
   const toggle = (id: string) => setSelected((cur) => { const next = new Set(cur); if (!next.delete(id)) next.add(id); return next; });
@@ -117,7 +116,7 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
-            <caption className="sr-only">Suggested pairs of {mineLabel.toLowerCase()} invoices and {theirLabel}</caption>
+            <caption className="sr-only">Suggested pairs of {mineLabel.toLowerCase()} and {theirLabel}</caption>
             <thead>
               <tr className="border-b border-[var(--ff-border-light)]">
                 <th scope="col" className={`${TH} w-10`}>

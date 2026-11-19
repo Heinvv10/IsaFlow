@@ -100,7 +100,7 @@ export default function IntercompanyPairingPage() {
           <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button>
         </div>
       )}
-      <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--ff-text-primary)]">Intercompany pairing</h1>
           <p className="text-sm text-ink-muted mt-1">
@@ -163,7 +163,7 @@ export default function IntercompanyPairingPage() {
                 {view.truncated && (
                   <p className="text-xs text-amber-700 dark:text-amber-400" role="status">Very long lists are cut at 2 000 documents a side; pair these, then reload for the rest.</p>
                 )}
-                <PairingLinks connectionId={view.connectionId} partnerName={view.partnerName} links={view.links}
+                <PairingLinks connectionId={view.connectionId} partnerName={view.partnerName} direction={direction} links={view.links}
                   canWrite={mayWrite} onChanged={done} onError={(m) => say(m, false)} />
                 {!view.blocked && (
                   <>
@@ -177,7 +177,7 @@ export default function IntercompanyPairingPage() {
                           : `No open documents dated before the cut-over for ${view.partnerName}. If you expected some, check that both companies linked the right ${direction === 'ar' ? 'customer and supplier' : 'supplier and customer'} on the connection.`}
                       </p>
                     ) : (
-                      <PairingExceptions matches={view.matches} partnerName={view.partnerName} />
+                      <PairingExceptions matches={view.matches} partnerName={view.partnerName} direction={direction} />
                     )}
                   </>
                 )}

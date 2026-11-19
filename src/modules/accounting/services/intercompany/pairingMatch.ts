@@ -14,7 +14,8 @@ export function normaliseNumber(raw: string): string {
 }
 
 const cents = (amount: number): number => Math.round(amount * 100);
-const byDateThenId = (a: PairingDoc, b: PairingDoc): number => a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
+const byDateThenId = (a: PairingDoc, b: PairingDoc): number =>
+  a.date.localeCompare(b.date) || a.number.localeCompare(b.number) || a.id.localeCompare(b.id);
 
 function group(docs: PairingDoc[]): Map<string, PairingDoc[]> {
   const out = new Map<string, PairingDoc[]>();

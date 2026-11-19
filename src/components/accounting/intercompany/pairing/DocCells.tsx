@@ -15,8 +15,8 @@ export function DocCells({ doc }: { doc: PairingDoc | null }) {
   }
   return (
     <>
-      <td className={`${TD} font-medium`}>{doc.number}</td>
-      <td className={TD}>{formatDate(doc.date)}</td>
+      <td className={`${TD} font-medium whitespace-nowrap`}>{doc.number}</td>
+      <td className={`${TD} whitespace-nowrap`}>{formatDate(doc.date)}</td>
       <td className={`${TD} ${NUM}`}>{money(doc, doc.total)}</td>
       <td className={`${TD} ${NUM}`}>{money(doc, doc.open)}</td>
     </>
@@ -26,7 +26,7 @@ export function DocCells({ doc }: { doc: PairingDoc | null }) {
 export function DocHeads({ side }: { side: string }) {
   return (
     <>
-      <th scope="col" className={TH}>{side} invoice no.</th>
+      <th scope="col" className={TH}>{side} no.</th>
       <th scope="col" className={TH}>Date</th>
       <th scope="col" className={`${TH} text-right`}>Total</th>
       <th scope="col" className={`${TH} text-right`}>Open</th>
