@@ -33,8 +33,10 @@ A browser download (signed-in session) works exactly as before and needs no toke
 | `ap_open_items` | Open supplier bills, plus unconsumed supplier credit notes and unapplied supplier payments as negative rows, as at today | `X-Control-Total` = Σ Outstanding + Σ Disputed; `X-Aged-Total` = the aged creditors net total; `X-Control-Difference`; `X-Disputed-Total` = Σ Disputed, already inside `X-Control-Total` |
 | `ar_open_items` | The same for customer invoices, customer credit notes and unapplied receipts | as above, against aged debtors |
 | `bank_accounts` | One row per bank or card account (needs `read:bank-tx`) | `X-Control-Total` = Σ Ledger_Balance; `X-No-Ledger-Balance-Count` |
+| `budget_versions` | One row per budget version, every status | — (no amount, so no `X-Control-Total`) |
+| `budgets` | One row per budget cell of every version, per-head accounts rolled up (see below) | `X-Control-Total` = Σ Amount |
 
-Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The computed tables (`ap_open_items`, `ar_open_items`, `bank_accounts`) also carry `X-As-At` and `X-Row-Count`. They are always as at today: `date_from`, `date_to` and `status` are refused with `400` on them, so a caller expecting an earlier as-at date never silently gets today's figures.
+Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The computed tables (`ap_open_items`, `ar_open_items`, `bank_accounts`, `budget_versions`, `budgets`) also carry `X-As-At` and `X-Row-Count`. They are always as at today: `date_from`, `date_to` and `status` are refused with `400` on them, so a caller expecting an earlier as-at date never silently gets today's figures.
 
 **`X-Control-Difference` is a consistency check, not a reconciliation.** `X-Aged-Total` is computed through the aged report's own functions from the same data the rows come from, so the difference is `0.00` unless the export itself is wrong. It does not tie the subledger to the AP/AR control account in the general ledger: a subledger that disagrees with its control account still shows `0.00` here. Use the `reconcile_subledger` MCP tool, or the trial balance, for that.
 
@@ -58,6 +60,24 @@ Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The compute
 - `Ledger_Balance` is the posted GL balance as at today. It is blank for an account that is not an asset-typed cash account, such as a credit card held on a liability account. `X-Control-Total` sums only the rows that carry one; `X-No-Ledger-Balance-Count` says how many rows it leaves out.
 - `Last_Statement_Date` and `Last_Statement_Closing_Balance` come from the latest statement entered on a reconciliation of the account, whatever its status. `Last_Reconciled_Date` is the statement date of the latest completed reconciliation. When `Last_Statement_Date` is later than `Last_Reconciled_Date`, that statement's reconciliation is still in progress: the closing balance is the bank's figure, but the reconciliation has not been signed off.
 - `Account_Number_Masked` shows `****` and the last four characters, and only `****` for a number shorter than eight characters, so at least four characters always stay hidden.
+
+### `budget_versions` and `budgets` columns
+
+Both need `read:reports` only, are as at today, and carry `Schema_Version` (and `X-Schema-Version`) `isaflow-budgets-1.0`. They are CSV only: the MCP tool `export_gl_lines` refuses them and points at `list_budget_versions` and `get_budget`.
+
+`budget_versions`: `Version_ID, Fiscal_Year, Name, Kind, Status, Is_Primary, Updated_At, Approved_At, Locked_At, Schema_Version`, sorted by `Version_ID`.
+
+- `Kind` is `original`, `reforecast` or `scenario`; `Status` is `draft`, `approved` or `locked`. `Is_Primary` marks the version the reports read for its financial year.
+- `Updated_At` is the version's change token as ISAFlow gives it (UTC ISO text with microseconds); it moves on every amount or status change. `Approved_At` and `Locked_At` are blank when the version was never approved or locked.
+
+`budgets`: `Version_ID, GL_Account_ID, GL_Account_Code, Month, CC1_ID, CC2_ID, BU_ID, Amount, Source, Schema_Version`, one row per budget cell of every version, sorted by `Version_ID`, `GL_Account_Code`, `GL_Account_ID`, `Month`, `CC1_ID`, `CC2_ID`, `BU_ID` (blank first).
+
+- The cells are those the budget grid and the budget variance read: revenue and expense accounts, months of the version's own financial year. `Month` is `YYYY-MM`.
+- `Amount` is the stored amount with its natural sign, two decimals. `X-Control-Total` is Σ `Amount` over every row, summed in cents.
+- A row has at most one of `CC1_ID`, `CC2_ID` and `BU_ID`; all three blank is a company-level row. Join them to `cost_centres` and `business_units`.
+- `Source` is where the figure came from: `manual`, `driver`, `override`, `actual`, or `per_head_rollup`.
+- **Per-head roll-up (salary privacy).** In a version, an account that has any per-head driver line is exported only as one company-level row per month, `Source` = `per_head_rollup`, whose `Amount` is the sum of every cell of that account in that month (every source and every cost centre or unit). None of its cost-centre or unit rows appears, so the per-person figures cannot be recovered by subtraction, and no rate or headcount is exported. The roll-up keeps the total: `X-Control-Total` is the same as it would be without it. The same account in a version without a per-head line is exported cell for cell.
+- For one financial year's primary version, Σ `Amount` of the revenue accounts over a range of months equals the budget column of the budget variance report for that range, and likewise for the expense accounts.
 
 ## Format
 
