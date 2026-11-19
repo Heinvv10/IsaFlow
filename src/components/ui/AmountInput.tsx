@@ -15,6 +15,12 @@ import { normaliseAmountText, amountValidity } from './amountInputText';
 
 const asText = (v: string | number): string => (typeof v === 'number' ? (v === 0 ? '' : String(v)) : v);
 const isZeroText = (t: string): boolean => t.trim() !== '' && /^0*\.?0*$/.test(t.trim());
+const patterns = new Map<number, RegExp>();
+const amountPattern = (decimals: number): RegExp => {
+  let re = patterns.get(decimals);
+  if (!re) { re = new RegExp(`^\\d*(\\.\\d{0,${decimals}})?$`); patterns.set(decimals, re); }
+  return re;
+};
 const REFUSED = 'Enter an amount like 100 or 100.50.';
 
 export interface AmountInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'min' | 'max'> {
@@ -45,9 +51,9 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
   React.useEffect(() => {
     setRefused(false);
     if (typeof value === 'string') {
-      // A `x || ''` parent hands back '' for 0: remember that, so the same number coming back later is shown again.
-      emitted.current = Number(value) || 0;
-      setDraft(prev => (prev === value ? prev : value));
+      // A `n || ''` parent hands back '' for a typed 0 (and "0.75" is 0.75 once typed): an equal number keeps the draft.
+      emitted.current = Number(value) || 0; // so the same number coming back from the parent later is shown again
+      setDraft(prev => (prev === value || (Number(prev) || 0) === (Number(value) || 0) ? prev : value));
       return;
     }
     if (value === emitted.current) return;
@@ -70,7 +76,8 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
         if (isZeroText(e.currentTarget.value)) { justFocused.current = true; e.currentTarget.select(); }
         onFocus?.(e);
       }}
-      onBlur={e => { justFocused.current = false; setRefused(false); onBlur?.(e); }}
+      // A refusal outlives blur: clicking Submit blurs first, and the refused text must still block that submit.
+      onBlur={e => { justFocused.current = false; onBlur?.(e); }}
       onMouseUp={e => {
         // The mouseup of the click that focused the field would drop the selection and park the caret after the 0.
         if (justFocused.current) { e.preventDefault(); justFocused.current = false; }
@@ -78,7 +85,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
       }}
       onChange={e => {
         const text = normaliseAmountText(e.target.value, decimals);
-        if (!new RegExp(`^\\d*(\\.\\d{0,${decimals}})?$`).test(text)) { setRefused(true); return; }
+        if (!amountPattern(decimals).test(text)) { setRefused(true); return; }
         setRefused(false);
         setDraft(text);
         emitted.current = Number(text) || 0;
