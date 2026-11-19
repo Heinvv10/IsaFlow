@@ -29,6 +29,7 @@ export const purchasesTab: Tab = {
         { label: 'Purchase Orders', href: '/accounting/purchase-orders' },
         { label: 'Goods Received', href: '/accounting/goods-received' },
         { label: 'Invoices', href: '/accounting/supplier-invoices' },
+        { label: 'Intercompany Inbox', href: '/accounting/supplier-invoices/intercompany' },
         { label: 'Returns', href: '/accounting/supplier-returns' },
         { label: 'Payments', href: '/accounting/supplier-payments' },
         { label: 'Batch Payments', href: '/accounting/batch-payments' },

@@ -14,7 +14,7 @@ import { AlertCircle, Download, FileText, Plus } from 'lucide-react';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { useSupplierInvoiceListState } from '@/components/accounting/supplier-invoices/useSupplierInvoiceListState';
@@ -43,6 +43,7 @@ export default function SupplierInvoicesPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
+  const [intercompany, setIntercompany] = useState<{ count: number; active: false } | null>(null);
 
   const listParams = useMemo(() => {
     const p = new URLSearchParams();
@@ -114,6 +115,13 @@ export default function SupplierInvoicesPage() {
     }
   }, []);
 
+  // The Intercompany tab (P2): shown only for a company that has an intercompany connection; its badge counts what needs a person.
+  useEffect(() => {
+    apiJson('/api/accounting/intercompany/inbox-count', undefined, 'Could not load the intercompany count')
+      .then((s) => setIntercompany(s.enabled ? { count: s.openCount, active: false } : null))
+      .catch((err: unknown) => log.warn('Failed to load the intercompany inbox count', { error: err }, 'supplier-invoices'));
+  }, []);
+
   useEffect(() => { if (hydrated) void loadInvoices(); }, [hydrated, loadInvoices]);
   useEffect(() => { void loadCounts(); }, [loadCounts]);
 
@@ -157,7 +165,7 @@ export default function SupplierInvoicesPage() {
         <Header total={total} filtersActive={filtersActive} onExport={exportCsv} />
 
         <div className="p-6 space-y-4">
-          <StatusTabs active={filters.tab} counts={counts} onChange={state.setTab} />
+          <StatusTabs active={filters.tab} counts={counts} onChange={state.setTab} intercompany={intercompany} />
 
           <FilterBar
             filters={filters}

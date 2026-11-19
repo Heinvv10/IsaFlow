@@ -72,6 +72,7 @@ describe('credit-note writers', () => {
       'src/lib/mcp/tools/writeCreditNotesCreate.ts', // MCP create_credit_note: a draft
       'src/modules/accounting/services/ar/creditNoteService.ts', // the definition
       'src/modules/accounting/services/ar/disputeResolution.ts', // resolve_with_credit: a draft
+      'src/modules/accounting/services/intercompany/acceptDocuments.ts', // intercompany accept: a DRAFT supplier note from a message
     ]);
   });
 
