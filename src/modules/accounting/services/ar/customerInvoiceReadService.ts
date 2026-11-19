@@ -11,6 +11,7 @@
 
 import { sql } from '@/lib/neon';
 import { invoiceDigests } from './invoicePdfModel';
+import { lineVatShape } from './invoiceVatLegs';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
 import { hasEntityDocumentSql } from '../core/documentPresenceSql';
@@ -225,7 +226,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            EXISTS (SELECT 1 FROM portal_payment_links l
                    WHERE l.invoice_id = ci.id AND l.status = 'active' AND l.charges_balance
                      AND NOT ${linkExpiredSql()}) AS has_standing_link,
-           ci.currency_code, ci.exchange_rate, ci.functional_total,
+           ci.currency_code, ci.exchange_rate, ci.functional_total, ci.amounts_are,
            to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
            ci.created_at, ci.updated_at,
@@ -269,5 +270,19 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956), as the PDF model
   `) as Row[];
 
-  return { ...rows[0], items };
+  // Per-line VAT (migration 1008): every line typed, or none (legacy); each line's type as the VAT reports read it.
+  const vatPerLine = lineVatShape(items.map((r) => ({
+    vatType: r.vat_type == null ? null : String(r.vat_type), taxAmount: r.tax_amount == null ? null : Number(r.tax_amount),
+  })));
+  return { ...rows[0], vat_per_line: vatPerLine === 'typed',
+    items: items.map((r) => ({ ...r, vat_type_effective: effectiveLineVatType(r, rows[0]!.tax_rate) })) };
+}
+
+/**
+ * A line's VAT type as the VAT reports have always read it: its own type; else, a legacy line, 'standard' when its
+ * rate (or the header's, when the line has none) is above zero and 'zero_rated' when it is not.
+ */
+function effectiveLineVatType(line: Row, headerTaxRate: unknown): string {
+  if (line.vat_type != null) return String(line.vat_type);
+  return Number(line.tax_rate ?? headerTaxRate ?? 0) > 0 ? 'standard' : 'zero_rated';
 }
