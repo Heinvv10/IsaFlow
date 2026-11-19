@@ -5,12 +5,15 @@
  * expiry up front lets it check before a long job and tell its operator when to reconnect.
  *
  * Every figure comes from the McpToolContext the transport built from the authenticated token
- * (bearerPipeline -> pages/api/mcp). No args, no SQL; the one read is the company name, scoped to
- * ctx.companyId. Never returns token material: token_id is the PAT / authorisation row id that
- * audit_trail already shows, not a secret.
+ * (bearerPipeline -> pages/api/mcp). No args, no SQL; two reads, both scoped to ctx.companyId: the
+ * company name and the token user as an active member of that company (practiceUsersService
+ * getCompanyUser, through company_member_directory), so a connector can show who it is connected as.
+ * Not a member (or no name set): those user fields are null. Never returns token material: token_id
+ * is the PAT / authorisation row id that audit_trail already shows, not a secret.
  */
 import type { McpTool, McpToolContext } from '../types';
 import { getCompany } from '@/modules/accounting/services/core/companyService';
+import { getCompanyUser } from '@/modules/accounting/services/practice/practiceUsersService';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
 
 function secondsUntil(iso: string | null | undefined): number | null {
@@ -28,7 +31,8 @@ function reconnectBy(ctx: McpToolContext): string | null {
 export const tokenInfoTool: McpTool = {
   name: 'token_info',
   description:
-    'The token this connection uses: the company it is bound to (id and name), how it authenticated (pat or oauth), '
+    'The token this connection uses: the company it is bound to (id and name), the user it acts as (id, email, name; '
+    + 'email and name null when not readable), how it authenticated (pat or oauth), '
     + 'its scopes, your role in the company, and when it expires. expires_at is the credential on this call; for OAuth '
     + 'the access token renews itself, so reconnect_by (the refresh token\'s expiry) is when the connector must be '
     + 're-authorised. Call it before a long run, or when a write is refused for a missing scope.',
@@ -38,8 +42,11 @@ export const tokenInfoTool: McpTool = {
   handler: async (_args, ctx) => {
     const company = await getCompany(ctx.companyId); // companyId from ctx ONLY
     if (!company) return toolError(NOT_FOUND);
+    const member = await getCompanyUser(ctx.companyId, ctx.userId);
+    const name = member ? [member.firstName, member.lastName].filter(Boolean).join(' ') : '';
     return ok({
       company: { id: ctx.companyId, name: company.name },
+      user: { id: ctx.userId, email: member?.email ?? null, name: name === '' ? null : name },
       auth_method: ctx.authMethod ?? null,
       token_id: ctx.tokenJti,
       oauth_app_id: ctx.oauthAppId,

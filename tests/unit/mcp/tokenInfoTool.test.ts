@@ -11,8 +11,10 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({ getCompanyUser: vi.fn() }));
 
 import { getCompany } from '@/modules/accounting/services/core/companyService';
+import { getCompanyUser } from '@/modules/accounting/services/practice/practiceUsersService';
 import { tokenInfoTool } from '@/lib/mcp/tools/tokenInfo';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -45,6 +47,10 @@ describe('token_info', () => {
     vi.setSystemTime(NOW);
     vi.mocked(getCompany).mockReset();
     vi.mocked(getCompany).mockResolvedValue({ name: 'Acme (Pty) Ltd' } as never);
+    vi.mocked(getCompanyUser).mockReset();
+    vi.mocked(getCompanyUser).mockResolvedValue({
+      id: 'user-1', email: 'lew@acme.co.za', firstName: 'Lew', lastName: 'Smith', displayName: 'Lew Smith', companyRole: 'admin',
+    });
   });
   afterEach(() => vi.useRealTimers());
 
@@ -58,8 +64,10 @@ describe('token_info', () => {
   it('reports a PAT: company, sorted scopes, role and expiry from the context', async () => {
     const data = parse(await tokenInfoTool.handler({}, ctx({ scopes: ['write:post', 'read:reports'] })));
     expect(getCompany).toHaveBeenCalledWith(COMPANY);
+    expect(getCompanyUser).toHaveBeenCalledWith(COMPANY, 'user-1');
     expect(data).toEqual({
       company: { id: COMPANY, name: 'Acme (Pty) Ltd' },
+      user: { id: 'user-1', email: 'lew@acme.co.za', name: 'Lew Smith' },
       auth_method: 'pat',
       token_id: 'tok-1',
       oauth_app_id: null,
@@ -97,6 +105,16 @@ describe('token_info', () => {
   it('never echoes credential material', async () => {
     const text = (await tokenInfoTool.handler({}, ctx())).content[0]!.text;
     expect(text).not.toMatch(/pat_|oat_|ort_|token_hash|secret/i);
+  });
+
+  it('user: the token user as this company\'s member; null fields when not a member or no name is set', async () => {
+    vi.mocked(getCompanyUser).mockResolvedValueOnce({
+      id: 'user-1', email: 'x@acme.co.za', firstName: null, lastName: null, displayName: 'x@acme.co.za', companyRole: 'viewer',
+    });
+    expect(parse(await tokenInfoTool.handler({}, ctx())).user).toEqual({ id: 'user-1', email: 'x@acme.co.za', name: null });
+    vi.mocked(getCompanyUser).mockResolvedValueOnce(null);
+    expect(parse(await tokenInfoTool.handler({}, ctx())).user).toEqual({ id: 'user-1', email: null, name: null });
+    expect(getCompanyUser).toHaveBeenLastCalledWith(COMPANY, 'user-1');
   });
 
   it('returns the generic not-found when the bound company cannot be read', async () => {
