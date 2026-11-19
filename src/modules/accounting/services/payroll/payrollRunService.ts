@@ -3,6 +3,7 @@ import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmpl
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
+import { assertPspRunComponents, assertReopenedRunKeepsPspTreatment, pspGuardWindow } from './pspComponentGuard';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
@@ -77,6 +78,10 @@ export async function calculatePayrollRun(
   // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
   const frequencyRun = frequencyRunOf(run);
   if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
+  // Wave 6 PSP (M3/M4): a PSP with a retirement fund, s18A, fringe-benefit or loan item is refused (409) before any write.
+  await assertPspRunComponents(companyId, pspGuardWindow(period), employees.map((e) => e.id)); // the run's own dates (FQc)
+  // M2: a reopened month is not re-costed under a different PSP treatment than it was approved with (409).
+  await assertReopenedRunKeepsPspTreatment(companyId, runId, employees.map((e) => e.id));
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;

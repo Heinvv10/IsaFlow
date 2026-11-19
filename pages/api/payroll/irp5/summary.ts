@@ -28,6 +28,8 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import {
   listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 
 type Row = DbRow;
 
@@ -101,6 +103,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
         AND ${sql.unsafe(payRunFinalSql('prh'))}
+        -- A personal service provider's line: on no natural-person certificate, decided per line (pspFiling, wave 6 PSP).
+        AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
         AND (
           (prh.period_year = ${periods.startYear} AND prh.period_month >= ${periods.startMonth})
           OR
@@ -138,6 +142,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     listRunNonCashBenefits(companyId, bounds),
     listRunUnflaggedFringe(companyId, bounds),
   ]);
+  const pspByEmployee = new Map((await listPspFilingTotals(companyId, bounds)).map((t) => [t.employeeId, t]));
 
   const employeesWithSeveranceDirective = new Set(
     directiveRows.map((r) => String(r.employee_id)),
@@ -184,6 +189,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
     }, taxYear);
     // 3801 items paid in cash (costed before the benefit was non-cash) are in 3601: the e@syFile export warns too.
+    const psp = pspByEmployee.get(String(emp.id));
+    if (psp) messages.push({ severity: 'warning', code: 'IRP5_PSP_NOT_CERTIFIED', field: 'gross', message: pspFilingWarning(psp, 'IRP5 certificate') });
     const inCash = unflaggedFringe.get(String(emp.id));
     if (inCash) {
       messages.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross',

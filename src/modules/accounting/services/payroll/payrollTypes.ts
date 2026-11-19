@@ -7,7 +7,9 @@ import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
-export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
+/** A personal service provider's entity (migration 1013): it picks the rate (taxTables personalServiceProviderRates). */
+export type PspEntityType = 'company' | 'trust';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
 export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
@@ -38,6 +40,8 @@ export interface PayrollEmployee {
   paymentMethod?: 'eft' | 'cash';
   /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
+  /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
+  pspEntityType?: PspEntityType | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
@@ -147,7 +151,9 @@ export interface ValidationResult {
   /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
   etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none' | 'directive';
+  treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'flat_psp' only: the PSP's entity and rate (the payslip states them; wave 6 PSP). */
+  psp?: { entity: PspEntityType; rate: number };
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
   directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */

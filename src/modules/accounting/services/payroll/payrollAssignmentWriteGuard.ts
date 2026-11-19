@@ -11,6 +11,7 @@
 import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import { refusePspAssignment } from './pspComponentGuard';
 import type { PaidPeriod } from './payrollComponentPaidMonths';
 import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
 import { refuseComponentAtFrequency } from './payrollFrequencyGuard';
@@ -42,6 +43,8 @@ async function refuseOverlap(tx: TxSql, companyId: string, a: AssignmentWrite): 
 export async function refuseAssignmentWrite(
   tx: TxSql, companyId: string, a: AssignmentWrite, opts: WriteGuardOptions = {},
 ): Promise<void> {
+  // Wave 6 PSP (M3/M4): a component a PSP cannot carry is refused (409, PspComponentRefused) whatever its dates.
+  await refusePspAssignment(tx, companyId, a.employeeId, a.componentId);
   try {
     await refuseComponentAtFrequency(tx, companyId, a.employeeId, a.componentId, a.percentOfRfi ?? null);
     if (!a.recurring) {

@@ -34,6 +34,7 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
+import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 
 /** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
 export class EasyFileInputRefusal extends Error {
@@ -143,7 +144,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
 
   const employees: EmployeeInput[] = [];
   const certificateEmployees: EasyFileInput['certificateEmployees'] = [];
-  const warnings: string[] = [];
+  // A PSP's months are on no natural-person certificate (loadCertificateAggregates and every reader leave them out): named (wave 6 PSP).
+  const warnings: string[] = (await listPspFilingTotals(companyId, bounds)).map((t) => pspFilingWarning(t, 'e@syFile file'));
   const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {
