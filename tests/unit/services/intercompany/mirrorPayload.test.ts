@@ -1,17 +1,12 @@
 /**
- * Intercompany P2: the pure rules of a mirror message's payload. The sender builds a snapshot of its own invoice or credit note
- * (cents-exact, so the receiver's draft carries the same number, VAT and total); the receiver treats whatever it reads as
+ * Intercompany P2: the pure rules of a mirror message's payload. The DATABASE builds a snapshot of the sender's invoice or credit note
+ * (cents-exact, so the receiver's draft carries the same number, VAT and total; the reference builder here is what the SQL builder is
+ * compared with in mirror-build.int.test.ts); the receiver treats whatever it reads as
  * untrusted input and refuses a payload that does not add up, names a path outside the sender's storage prefix, or is not ZAR.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  allocateLineVat,
-  buildCreditNotePayload,
-  buildInvoicePayload,
-  parseMirrorPayload,
-  payloadBlocker,
-  type InvoiceSource,
-} from '@/modules/accounting/services/intercompany/mirrorPayload';
+import { parseMirrorPayload, payloadBlocker } from '@/modules/accounting/services/intercompany/mirrorPayload';
+import { allocateLineVat, buildCreditNotePayload, buildInvoicePayload, type InvoiceSource } from '../../../helpers/mirrorReference';
 
 const SENDER = '11111111-1111-4111-8111-111111111111';
 const DOC = '22222222-2222-4222-8222-222222222222';

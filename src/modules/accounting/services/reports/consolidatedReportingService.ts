@@ -260,11 +260,18 @@ export async function autoGenerateEliminations(
       FROM intercompany_transactions ict
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
         AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
+      FOR UPDATE OF ict
     `) as DbRow[];
 
     const created: ConsolidationAdjustment[] = [];
 
     for (const tx of icTxRows) {
+      // One elimination per matched row: a second run (or two at once: the row locks above make the second wait, then see this one) skips a
+      // row whose elimination already stands. A reversed one (the row was unmatched since) does not stand, so a re-matched row is eliminated again.
+      const standing = (await sql`
+        SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
+      `) as DbRow[];
+      if (standing.length > 0) continue;
       const txType = String(tx.transaction_type);
       const amount = Number(tx.amount);
       const srcId = String(tx.source_company_id);

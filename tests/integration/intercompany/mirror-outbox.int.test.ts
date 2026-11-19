@@ -13,7 +13,7 @@ import { approveCreditNote } from '../../../src/modules/accounting/services/ar/c
 import { vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { enableFxDocuments } from '../r035-approval.helpers';
-import { asAppUser, count } from './intercompany.helpers';
+import { asAppUser, asOwner, count } from './intercompany.helpers';
 import {
   approveInvoice, asService, co, connect, mirrorCleanup, mirrorSetup, party, plantArCreditNote, plantArInvoice, U, wipeConnections,
 } from './mirror.helpers';
@@ -66,12 +66,12 @@ describe('approving an invoice for a connected customer', () => {
     expect(await send(inv.id)).toEqual({ sent: false, reason: 'already_sent' });
     expect(await messages(inv.id)).toHaveLength(1);
     expect(await gtx()).toHaveLength(1);
-    // the database's own key: a second INSERT of the same document and kind is refused
-    await asAppUser(pool, U.a, co.A, async (q) => {
-      await expect(q.query(
-        `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-         VALUES ($1, $2, $3, 'invoice', 'customer_invoice', $4, $5::jsonb)`, [conn, co.A, co.B, inv.id, JSON.stringify((await messages(inv.id))[0].payload)])).rejects.toMatchObject({ code: '23505' });
-    });
+    // the sender's own INSERT of a document message is refused (the database writes it), and the database's own key refuses a second one
+    const payload = JSON.stringify((await messages(inv.id))[0].payload);
+    const insert = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
+                    VALUES ($1, $2, $3, 'invoice', 'customer_invoice', $4, $5::jsonb)`;
+    await asAppUser(pool, U.a, co.A, (q) => expect(q.query(insert, [conn, co.A, co.B, inv.id, payload])).rejects.toMatchObject({ code: '42501' }));
+    await asOwner(pool, U.a, co.A, (q) => expect(q.query(insert, [conn, co.A, co.B, inv.id, payload])).rejects.toMatchObject({ code: '23505' }));
   });
 
   it('a second approval of the same invoice is refused and writes no second message', async () => {
@@ -118,12 +118,32 @@ describe('approving an invoice for a connected customer', () => {
     expect((await messages(usd.id))[0].payload).toMatchObject({ currency: 'USD' });
   });
 
-  it('a message that cannot be written (a viewer\'s session) is logged AT ERROR (it is never re-sent: P5\'s reconciliation lists unsent documents) and never fails the caller', async () => {
+  it('a viewer\'s session writes no message: the database answers forbidden, the approval is told, and nothing is written', async () => {
     const inv = await plantArInvoice(pool, { status: 'approved' });
-    const spy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const spy = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const out = await asService(pool, U.va, co.A, () => mirrorApprovedInvoice(co.A, inv.id)); const calls = spy.mock.calls.slice(); spy.mockRestore();
-    expect(calls).toContainEqual([expect.stringMatching(/not sent/), expect.objectContaining({ kind: 'invoice', sourceId: inv.id, code: '42501' }), 'intercompany']);
+    expect(out).toEqual({ sent: false, reason: 'forbidden' });
+    expect(calls).toContainEqual([expect.stringMatching(/not sent/), expect.objectContaining({ kind: 'invoice', sourceId: inv.id, reason: 'forbidden' }), 'intercompany']);
+    expect(await messages(inv.id)).toHaveLength(0);
+    expect(await gtx()).toHaveLength(0);
+  });
+
+  it('a message the database refuses is logged AT ERROR (it is never re-sent: P5\'s reconciliation lists unsent documents) and never fails the caller', async () => {
+    const inv = await plantArInvoice(pool, { status: 'approved' });
+    // a database refusal at the INSERT (23514, as any of the messages guard's checks): a trigger that is there for this test only
+    await pool.query(`CREATE FUNCTION public.zz_ic_refuse() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused' USING ERRCODE = '23514'; END $$`);
+    await pool.query('CREATE TRIGGER zz_ic_refuse BEFORE INSERT ON intercompany_messages FOR EACH ROW EXECUTE FUNCTION public.zz_ic_refuse()');
+    const spy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    let out: unknown; let calls: unknown[][] = [];
+    try {
+      out = await asService(pool, U.a, co.A, () => mirrorApprovedInvoice(co.A, inv.id)); calls = spy.mock.calls.slice();
+    } finally {
+      spy.mockRestore();
+      await pool.query('DROP TRIGGER zz_ic_refuse ON intercompany_messages');
+      await pool.query('DROP FUNCTION public.zz_ic_refuse()');
+    }
     expect(out).toEqual({ sent: false, reason: 'failed' });
+    expect(calls).toContainEqual([expect.stringMatching(/not sent/), expect.objectContaining({ kind: 'invoice', sourceId: inv.id, code: '23514' }), 'intercompany']);
     expect(await messages(inv.id)).toHaveLength(0);
     expect(await gtx()).toHaveLength(0);
   });

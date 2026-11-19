@@ -14,26 +14,19 @@ import { autoGenerateEliminations } from '../../../src/modules/accounting/servic
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { asAppUser, outcome } from './intercompany.helpers';
 import {
-  acc, asService, clearMirrorRows, co, connect, errorOf, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U,
+  asService, clearMirrorRows, co, connect, eliminationCleanup, eliminationSetup, errorOf, groupAccounts, inbox, mirrorCleanup, mirrorSetup, plantArCreditNote, sentInvoice, U,
 } from './mirror.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
-const ga = { rev: crypto.randomUUID(), exp: crypto.randomUUID() };
+const ga = groupAccounts;
 
 beforeAll(async () => {
   await mirrorSetup(pool);
-  await pool.query(
-    `INSERT INTO group_accounts(id, group_id, account_code, account_name, account_type) VALUES ($1, $3, 'G-REV', 'Group revenue', 'revenue'), ($2, $3, 'G-EXP', 'Group expense', 'expense')`,
-    [ga.rev, ga.exp, co.G]);
-  const aRev = (await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'default_revenue'", [co.A])).rows[0].id;
-  await pool.query('INSERT INTO group_coa_mappings(group_id, group_account_id, company_id, company_account_id) VALUES ($1, $2, $3, $4), ($1, $5, $6, $7)',
-    [co.G, ga.rev, co.A, aRev, ga.exp, co.B, acc.bExp1]);
+  await eliminationSetup(pool);
 }, 60000);
 afterAll(async () => {
-  await pool.query('DELETE FROM consolidation_adjustments WHERE group_id = $1', [co.G]).catch(() => undefined);
-  await pool.query('DELETE FROM group_coa_mappings WHERE group_id = $1', [co.G]).catch(() => undefined);
-  await pool.query('DELETE FROM group_accounts WHERE group_id = $1', [co.G]).catch(() => undefined);
+  await eliminationCleanup(pool);
   await mirrorCleanup(pool);
 }, 60000);
 beforeEach(async () => {
@@ -118,8 +111,9 @@ describe('the target journal is the definer\'s to set', () => {
     await asAppUser(pool, U.b, co.B, async (q) => {
       expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = NULL, match_status = \'unmatched\' WHERE id = $1', [tx])).toMatch(/^23514: intercompany_transactions: a recorded transaction keeps/);
     });
+    expect(other, 'the sender\'s own approval journal, a journal of another company to point the row at').toBeDefined();
     await asAppUser(pool, U.ab, co.A, async (q) => {
-      if (other) expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = $2 WHERE id = $1', [tx, other])).toMatch(/^23514/);
+      expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = $2 WHERE id = $1', [tx, other])).toMatch(/^23514/);
     });
     expect((await groupRow()).target_journal_entry_id).toBe(journal);
   });

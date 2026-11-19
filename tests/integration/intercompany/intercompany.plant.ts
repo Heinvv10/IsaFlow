@@ -54,9 +54,8 @@ export async function plantLink(pool: Pool, connection: string, over: Partial<{ 
 }
 
 /**
- * The payload an invoice / credit_note message must carry (1013): the sender's document as the sender's books have it. Approves the
- * planted document (the guard refuses an unapproved source). `'{}'` when the document is not `company`'s customer document, so a
- * test of the source rules still sends a payload the source rules refuse first.
+ * A payload for an invoice / credit_note message a fixture plants (the DATABASE builds the real one, `intercompany_send_for_source`): the sender's
+ * document as its books have it. Approves the planted document. `'{}'` when the document is not `company`'s customer document.
  */
 export async function payloadFor(pool: Pool, kind: string, doc: string, company: string): Promise<string> {
   const credit = kind === 'credit_note';
@@ -88,7 +87,10 @@ export async function plantMessage(pool: Pool, connection: string, from: string,
   const sourceType = kind === 'credit_note' ? 'credit_note' : DOCUMENT_KINDS.includes(kind) ? 'customer_invoice' : 'payment';
   const doc = over.doc ?? (DOCUMENT_KINDS.includes(kind) ? await plantDocument(pool, sourceType as 'credit_note' | 'customer_invoice', from) : crypto.randomUUID());
   const payload = DOCUMENT_KINDS.includes(kind) ? await payloadFor(pool, kind, doc, from) : '{"number":"INV-1"}';
-  return asAppUser(pool, over.user ?? U.ab, from, async (q) => (await q.query(
+  // A document message is written by the database (1013): app_user cannot INSERT one, so a fixture plants it as the table owner with the
+  // sender's claims (the guard's other rules - connection, group, write role, source document - all run).
+  const as = kind === 'invoice' || kind === 'credit_note' ? asOwner : asAppUser;
+  return as(pool, over.user ?? U.ab, from, async (q) => (await q.query(
     `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
     [connection, from, to, kind, sourceType, doc, payload])).rows[0].id as string, true);

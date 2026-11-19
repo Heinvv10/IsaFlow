@@ -1,6 +1,7 @@
 // Drop into tests/unit/services/intercompany/. FAILS on head 3292d0e368: legit 12-line invoice is unacceptable to its receiver.
 import { describe, it, expect } from 'vitest';
-import { buildInvoicePayload, parseMirrorPayload } from '@/modules/accounting/services/intercompany/mirrorPayload';
+import { parseMirrorPayload } from '@/modules/accounting/services/intercompany/mirrorPayload';
+import { buildInvoicePayload } from '../../../helpers/mirrorReference';
 
 describe('P2 VAT drift: header VAT = ROUND(sum x 15%) (invoiceTotals) but payload lines are rounded one by one', () => {
   it('12 lines of R10.10 mirror and parse', () => {

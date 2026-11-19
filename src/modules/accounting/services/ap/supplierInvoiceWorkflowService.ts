@@ -109,6 +109,8 @@ async function approveInner(
       log.info('Approved supplier invoice that already carried a journal', {
         id, journalEntryId: invoice.glJournalEntryId,
       }, 'accounting');
+      // Intercompany P2: this bill is approved too (the journal was posted earlier): the sender's group row follows it.
+      await syncGroupRowFor(companyId, 'supplier_invoice', id);
       return mapInvoiceRow(reused[0]!);
     }
 

@@ -201,3 +201,21 @@ export async function messageFor(pool: Pool, source: string): Promise<Record<str
 }
 
 export { acct };
+
+/** The group's chart for eliminations: group accounts for revenue and expense, mapped to A's default revenue and B's first expense account. */
+export const groupAccounts = { rev: '', exp: '' };
+export async function eliminationSetup(pool: Pool): Promise<void> {
+  groupAccounts.rev = crypto.randomUUID();
+  groupAccounts.exp = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO group_accounts(id, group_id, account_code, account_name, account_type) VALUES ($1, $3, 'G-REV', 'Group revenue', 'revenue'), ($2, $3, 'G-EXP', 'Group expense', 'expense')`,
+    [groupAccounts.rev, groupAccounts.exp, co.G]);
+  const aRev = (await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'default_revenue'", [co.A])).rows[0].id;
+  await pool.query('INSERT INTO group_coa_mappings(group_id, group_account_id, company_id, company_account_id) VALUES ($1, $2, $3, $4), ($1, $5, $6, $7)',
+    [co.G, groupAccounts.rev, co.A, aRev, groupAccounts.exp, co.B, acc.bExp1]);
+}
+export async function eliminationCleanup(pool: Pool): Promise<void> {
+  for (const text of ['DELETE FROM consolidation_adjustments WHERE group_id = $1', 'DELETE FROM group_coa_mappings WHERE group_id = $1', 'DELETE FROM group_accounts WHERE group_id = $1']) {
+    await pool.query(text, [co.G]).catch((err: unknown) => process.stderr.write(`elimination cleanup: ${text}: ${String(err)}\n`));
+  }
+}

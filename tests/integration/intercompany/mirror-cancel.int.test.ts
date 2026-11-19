@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/ar/customerInvoiceCancelService';
+import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { cancelCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteCancelService';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
@@ -24,6 +25,12 @@ beforeEach(async () => { await clearMirrorRows(pool); await connect(pool); });
 
 const row = async (id: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [id])).rows[0];
 const cancelInvoice = (id: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, id, U.a));
+/** What cancelling does to the books WITHOUT telling the mirror (no hook): the approval journal reversed, the status cancelled, the link cleared. */
+const reverseOnly = (inv: string) => asService(pool, U.a, co.A, async (q) => {
+  const je = (await q.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;
+  await reverseJournalEntry(co.A, je, U.a);
+  await q.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = NULL WHERE id = $1", [inv]);
+});
 const bills = async () => (await pool.query('SELECT * FROM supplier_invoices WHERE company_id = $1', [co.B])).rows;
 
 describe('a message the receiver has not handled', () => {
@@ -95,21 +102,35 @@ describe('a message the receiver already accepted', () => {
 });
 
 describe('who can withdraw', () => {
-  it('only the sender\'s session, only for a document cancelled in its own books; a stranger, the receiver and an uncancelled document change nothing', async () => {
+  it('only the sender\'s session, only for a document cancelled in its own books and reversed in its ledger; a stranger, the receiver and an uncancelled document change nothing', async () => {
     const live = await sentInvoice(pool);
     const call = (user: string, company: string, type: string, doc: string) =>
       asAppUser(pool, user, company, async (q) => Number((await q.query('SELECT public.intercompany_withdraw_for_source($1, $2) AS n', [type, doc])).rows[0].n), true);
     expect(await call(U.a, co.A, 'customer_invoice', live.inv.id)).toBe(0);              // not cancelled: no way to withdraw at will
-    await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [live.inv.id]);
+    await reverseOnly(live.inv.id);
     expect(await call(U.b, co.B, 'customer_invoice', live.inv.id)).toBe(0);              // the receiver
     expect(await call(U.c, co.C, 'customer_invoice', live.inv.id)).toBe(0);              // a stranger
     expect(await call(U.ab, co.B, 'customer_invoice', live.inv.id)).toBe(0);             // a user of both, acting as B
     expect(await call(U.c, co.A, 'customer_invoice', live.inv.id)).toBe(0);             // a stranger who sets the company GUC to A: not a user of A
+    expect(await call(U.va, co.A, 'customer_invoice', live.inv.id)).toBe(0);            // a viewer of the sender: no write role
     expect(await call(U.a, co.A, 'journal_entry', live.inv.id)).toBe(0);                 // another type
     expect((await row(live.id)).status).toBe('pending');
     expect(await call(U.a, co.A, 'customer_invoice', live.inv.id)).toBe(1);              // the sender, a cancelled document
     expect((await row(live.id)).status).toBe('withdrawn');
     expect(await call(U.a, co.A, 'customer_invoice', live.inv.id)).toBe(0);              // once
+  });
+
+  it('the status column is not the ledger: flipping an invoice to cancelled (the journal still stands) withdraws nothing, and flipping it back changes nothing (the breaker\'s P4)', async () => {
+    const live = await sentInvoice(pool);
+    const call = () => asAppUser(pool, U.a, co.A, async (q) => Number((await q.query("SELECT public.intercompany_withdraw_for_source('customer_invoice', $1) AS n", [live.inv.id])).rows[0].n), true);
+    await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [live.inv.id]);
+    expect(await call()).toBe(0);
+    expect(await row(live.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });
+    await pool.query("UPDATE customer_invoices SET status = 'approved' WHERE id = $1", [live.inv.id]);
+    expect(await call()).toBe(0);
+    expect(await row(live.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });
+    // the group row was never touched either
+    expect((await pool.query('SELECT match_status FROM intercompany_transactions WHERE id = $1', [live.message.payload.groupTransactionId])).rows[0].match_status).toBe('unmatched');
   });
 
   it('no session can withdraw, stamp or reopen a message by an UPDATE of its own', async () => {
