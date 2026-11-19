@@ -109,7 +109,10 @@ export async function assertMayDecide(
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            (${decidedBy} = ANY (ar.past_requesters::TEXT[])) AS was_requester,
            ar.requested_by::TEXT AS requester, ar.content_authors::TEXT[] AS snapshot_authors, ar.document_type,
-           approval_document_authors(ar.company_id, ar.document_type, ar.document_id)::TEXT[] AS live_authors,
+           -- Only an approval reads the authors (contentAuthorRefusal below): a reject or a withdrawal never depends on
+           -- them, so a document whose authors cannot be computed (999w: a non-UUID pay-run preparer) can still be closed.
+           CASE WHEN ${decision} = 'approved'
+             THEN approval_document_authors(ar.company_id, ar.document_type, ar.document_id)::TEXT[] END AS live_authors,
            ar.rule_id,
            ar.required_role,
            rl.id AS resolved_rule_id,

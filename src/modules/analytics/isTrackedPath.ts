@@ -6,12 +6,15 @@
  *  And the person opening a shared pack is a third party who never agreed to
  *  be measured.
  *
- *  Derived from `isSharePath` rather than restating it: the share page is the
- *  only thing excluded from tracking today, and if that ever stops being true
- *  the extra reason belongs here, not in a second copy of the same predicate.
+ *  Derived from `isSharePath` rather than restating it.
+ *
+ *  The employee self-service portal (wave 6 SS, review #1576 M1) is excluded too:
+ *  its visitors are a company's employees, not IsaFlow users, who never agreed
+ *  to be measured, and its pages carry payroll personal data (the tracker sent
+ *  `document.title`, which named the employee). The boundary is the segment.
  */
 import { isSharePath } from '@/lib/paths/isSharePath';
 
 export function isTrackedPath(pathname: string): boolean {
-  return !isSharePath(pathname);
+  return !isSharePath(pathname) && pathname !== '/employee-portal' && !pathname.startsWith('/employee-portal/');
 }

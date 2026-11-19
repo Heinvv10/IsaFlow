@@ -58,7 +58,15 @@ describe('writers of the content an invoice is converted from', () => {
       'src/modules/accounting/services/ar/quoteService.ts', // create (created_by); updateQuote inside withSourceEditorStamp; status (terminal once converted)
       'src/modules/accounting/services/ar/sourceContentEditor.ts', // the stamp
     ]);
-    expect(writers('customer_quote_lines')).toEqual(['src/modules/accounting/services/ar/quoteService.ts']);
+    expect(writers('customer_quote_lines')).toEqual([
+      'src/modules/accounting/services/ar/quoteService.ts',
+      // The item merge re-points a line's item_id (duplicate -> primary) and nothing else: a catalogue link, not what the
+      // quote bills (description, quantity, price, VAT rate, amount, account: sourceContentEditor's fingerprint). No stamp.
+      'src/modules/accounting/services/core/duplicateMergeService.ts',
+    ]);
+    const mergeQuoteLineWrites = text('src/modules/accounting/services/core/duplicateMergeService.ts').match(/UPDATE customer_quote_lines[^`]*/g) ?? [];
+    expect(mergeQuoteLineWrites).toHaveLength(1);
+    expect(mergeQuoteLineWrites[0]).toMatch(/^UPDATE customer_quote_lines cql SET item_id = \$\{primaryId\}::UUID\s+FROM customer_quotes cq\s+WHERE /);
     expect(text('src/modules/accounting/services/ar/quoteService.ts'))
       .toMatch(/withSourceEditorStamp\(companyId, \{ kind: 'quote', id \}, editedBy/);
     expect(text('src/modules/accounting/services/ar/quoteService.ts')).toMatch(/status NOT IN \('converted', 'converted_to_order'\)/);

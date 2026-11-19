@@ -26,16 +26,18 @@ const sideMode = (page: Page) => page.addInitScript(() => localStorage.setItem('
 test.describe('390 x 844', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  for (const [name, button] of [
-    ['Create new', { name: /create new/i }],
-    ['Settings', { name: /settings/i }],
-    ['Account and display settings', { name: 'Account and display settings' }],
+  // The popup each button opens. The Settings popover is a group (Display toggles + the menu of pages): its inner
+  // menu scrolls inside it, so the popover, not the menu, is what must fit the screen.
+  for (const [name, button, popup] of [
+    ['Create new', { name: /create new/i }, ['menu', 'Create new']],
+    ['Settings', { name: /settings/i }, ['group', 'Settings']],
+    ['Account and display settings', { name: 'Account and display settings' }, ['group', 'Account and display settings']],
   ] as const) {
     test(`the ${name} menu opens inside the screen`, async ({ page }) => {
       await page.goto(INVOICES);
       await ready(page);
       await page.locator('header').getByRole('button', button).first().click();
-      const menu = page.locator('[role="menu"], [role="group"][aria-label="Account and display settings"]').last();
+      const menu = page.getByRole(popup[0], { name: popup[1], exact: true });
       await expect(menu).toBeVisible();
       const box = (await menu.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
@@ -175,4 +177,51 @@ test('a utility that opts out of the outline wins over the base focus ring; a pl
   expect(plain.style).toBe('solid');
   expect(plain.w).toBeGreaterThanOrEqual(2);
   expect(plain.color).not.toBe('rgba(0, 0, 0, 0)');
+});
+
+/** The shell's own scroll offsets and the header's box: a focus() that scrolled the overflow-hidden shell moves them. */
+const shellState = (page: Page) => page.evaluate(() => ({
+  scroll: [...document.querySelectorAll<HTMLElement>('[data-app-shell], [data-app-shell] > div')].map((e) => [e.scrollTop, e.scrollLeft]).flat(),
+  header: (({ left, top }) => [Math.round(left), Math.round(top)])(document.querySelector('header')!.getBoundingClientRect()),
+}));
+
+const insideViewport = async (page: Page, locator: ReturnType<Page['locator']>) => {
+  const box = (await locator.boundingBox())!;
+  const vp = page.viewportSize()!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(vp.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(vp.height);
+};
+
+test('1024 x 768 top nav: every level of Library opens inside the screen and its third level is clickable', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto(INVOICES);
+  await ready(page);
+  const library = page.locator('nav[aria-label="Main"] [data-tour="nav-library"]');
+  await library.hover();
+  await library.getByRole('button', { name: 'Accounting', exact: true }).hover();
+  await library.getByRole('button', { name: 'General Ledger', exact: true }).hover();
+  const chart = library.getByRole('link', { name: 'Chart of Accounts', exact: true });
+  await expect(chart).toBeVisible();
+  for (const panel of await library.locator('[data-nav-panel]').all()) await insideViewport(page, panel);
+  // Nothing covers it: the link itself is the element under its centre.
+  expect(await chart.evaluate((a) => { const r = a.getBoundingClientRect(); return a.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })).toBe(true);
+});
+
+test('1366 x 768 top nav: the keyboard reaches the last entry of Sales > Transactions without scrolling the shell', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto(INVOICES);
+  await ready(page);
+  const before = await shellState(page);
+  const sales = page.locator('nav[aria-label="Main"] [data-tour="nav-sales"]');
+  await sales.getByRole('button', { name: 'Sales menu' }).focus();
+  await page.keyboard.press('Enter');
+  await sales.getByRole('button', { name: 'Transactions', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('End');
+  const last = sales.getByRole('link', { name: 'Adjustments', exact: true });
+  await expect(last).toBeFocused();
+  await insideViewport(page, last);
+  expect(await shellState(page)).toEqual(before);
 });

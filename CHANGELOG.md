@@ -30,6 +30,49 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-18 — Payroll Annualisation (AN), VAT Returns Unify, Slot Email Migration, Bank WP4b
+
+**Payroll — Wave 6 / Annualisation (AN)**
+
+- Statutory period ratios use the frequency's period count P, not a hard-coded 12; deduction-to-date bounded before the AE is taxed; donation spill past the year takes the taxed deduction (#1578)
+- `payeExplain` retirement and annual-payment steps split to `payeExplainRetirement.ts`
+
+**VAT Returns — VR (Wave 6)**
+
+- Settlement clearing journal exempted from the next period's VAT lock (coordinator ruling); nil top-up after a tax-neutral amend; typed 409 for the settlement race; lock exemption scoped to the company's own net-VAT account only (security round 3 T10) (#1555)
+- Ledger-gap reason CHECK uses the visible set from migration 971, capped at 1 000 chars
+- Migration 999g adds `vat_returns_return_version`
+
+**Settings**
+
+- Post-save re-read scoped to the company it was read for; merges server-derived fields and fails softly; year panel re-read after a fiscal year start move (#1581)
+
+**Bank / Mobile**
+
+- WP4b round 6: opt-in menu Escape marker for `useFocusTrap`; page size base guarded and skipped on the server
+- Mobile card layout and 44 px touch targets on bank Rules and Provisional pages; select-all and sort controls at mobile breakpoint (#1573)
+
+**SARS / Cash Flow**
+
+- Cash-flow SARS section: "Total SARS" label; assumed-paid one-line warning; pay and SARS dates moved off SA public holidays
+- Legacy SARS compliance marks match after holiday-shifted due dates; stable list keys
+- Migration 999m seeds 2024/2025 SARS source codes
+
+**Intercompany / MCP**
+
+- Revoked side of an intercompany connection still takes `ON DELETE SET NULL`; migration renamed `999p_intercompany_connections → 1000_intercompany_connections` (999p taken on prod)
+- Migration 999q adds `mcp_upload_intents` table
+
+**Golden Paths / CI**
+
+- Slot-email migration CLI hardened: strict args, `--apply` flag, env-file discovery, deploy-env write, exactly-one-user check, write-root prefix guard, per-file allowlist; test/QA logins moved from `@isaflow.dev` to `@isaflow.co.za` (#1599)
+- z24 golden path waits for animations and settles after resize before axe (#1582)
+- Pack timing/load tests made robust (#1572)
+
+Migrations: **999g** (`vat_returns_return_version`), **999m** (`sars_source_codes_2024_2025`), **999p** (`payment_journal_entry_indexes`), **999q** (`mcp_upload_intents`), **1000** (`intercompany_connections`)
+
+---
+
 ## 2026-11-17 — Payroll Wave 6 (PE/BF/EF), Bank WP4a/WP5/WP7, MCP Budget Excel
 
 **Payroll — Wave 6**

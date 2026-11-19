@@ -13,6 +13,7 @@ import type { TaxStatus } from '@/modules/accounting/services/payroll/payrollTyp
 import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import type { Employee } from './EmployeeProfileCard';
 import { EmployeeEmailField } from './EmployeeEmailField';
+import { EmployeePortalCard } from './EmployeePortalCard';
 
 const TAX_STATUS = [
   { value: 'employee', label: 'Employee' },
@@ -122,6 +123,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>
       <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
+      <EmployeePortalCard employeeId={employee.id} canEdit={canEditPriced} />
     </div>
   );
 }

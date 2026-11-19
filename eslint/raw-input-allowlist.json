@@ -167,7 +167,6 @@
   "src/components/accounting/share/ShareLinkDialog.tsx": 1,
   "src/components/accounting/supplier-invoices/FilterBar.tsx": 3,
   "src/components/accounting/suppliers/ActivityTab.tsx": 1,
-  "src/components/accounting/suppliers/BillLineItemsTable.tsx": 1,
   "src/components/accounting/suppliers/ContactsTab.tsx": 4,
   "src/components/accounting/suppliers/InvoiceNumberField.tsx": 1,
   "src/components/accounting/time-tracking/TimeEntriesTable.tsx": 2,

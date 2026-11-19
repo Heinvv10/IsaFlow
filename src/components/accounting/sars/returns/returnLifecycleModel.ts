@@ -57,7 +57,9 @@ export function availableActions(
   }
   const acts = ACT_ROLES.includes(role ?? '');
   const finalise = live === null && canWrite(role);
-  const file = live?.status === 'finalised' && acts;
+  // Wave 6 EFa: filed only once the version's filing file was generated (the server refuses otherwise). A version
+  // finalised before 999v's cut-off needs none (filingFileRequired false): a VAT201 of that age cannot generate one.
+  const file = live?.status === 'finalised' && acts && (live.filingFileSha256 !== null || live.filingFileRequired === false);
   const amend = live !== null && acts;
   let note: string | null = null;
   if (live === null && !canWrite(role)) note = 'You have read-only access to this company, so you cannot finalise the return.';

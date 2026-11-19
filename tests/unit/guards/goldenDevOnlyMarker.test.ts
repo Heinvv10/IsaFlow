@@ -63,13 +63,13 @@ describe('golden dev-only marker', () => {
       'n-a11y-main-screens', 'o-theme-contrast', 'o2-theme-behaviour', 'o3-banner-titles', 'q2-top-nav-axe', 'r-command-palette',
       's-shell-cls-mobile', 't-report-filter-dates', 'v-budget-workspace-axe', 'v-empty-states', 'w-setup-checklist', 'x-contrast-sweep',
       'y1-invoice-form-kit', 'y2-bank-tx-naming', 'y3-employee-create-kit', 'y5-document-dates-sales', 'y6-document-dates-rest', 'y7-dashboard-aging-tie',
-      'y8-purchase-forms-390', 'z1-invoice-defaults', 'z2-invoice-autosave-send', 'z2b-invoice-held-back', 'z3-pnl-pdf', 'z4-employee-pay-on-create',
+      'y8-purchase-forms-390', 'y8b-supplier-invoice-lines-width', 'z1-invoice-defaults', 'z2-invoice-autosave-send', 'z2b-invoice-held-back', 'z3-pnl-pdf', 'z4-employee-pay-on-create',
       'z5-employee-bank-details', 'z6-payrun-review-grid',
       'z7-undo-drawers', 'z8-budget-tracking', 'z9-employee-readiness', 'z10-payslips',
       'z11-kit-select', 'z12-bank-tx-selects', 'z13-invoice-preview-unsaved', 'z15-density', 'z16-return-lifecycle', 'z17-return-drill', 'z19-native-selects',
       'z18-explain', 'z20-budgets-three-way', 'z20-comments', 'z21-ask', 'z29-pre-validation',
-      'z28-late-claims', 'z30-bank-bulk-accept', 'z26-salary-bank-file', 'z24-payslip-email', 'z31-bank-tx-modal-a11y',
-      'z32-bank-tx-layout',
+      'z28-late-claims', 'z30-bank-bulk-accept', 'z26-salary-bank-file', 'z24-payslip-email', 'z31-bank-tx-modal-a11y', 'z27-filing-files',
+      'z32-bank-tx-layout', 'z25-employee-portal',
     ].sort());
   });
 });

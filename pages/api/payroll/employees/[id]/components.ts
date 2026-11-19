@@ -24,6 +24,7 @@ import {
 import { updateEmployeeComponentDates } from '@/modules/accounting/services/payroll/payrollComponentDateEdit';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -74,6 +75,7 @@ async function handler(
       return;
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      if (respondIfRunKindUnsupported(res, err)) return; // wave 6 FQc: refused for a weekly or fortnightly employee (400)
       throw err;
     }
   }
