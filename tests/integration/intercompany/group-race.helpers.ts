@@ -16,10 +16,10 @@ export function makeRace(pool: Pool) {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const pidOf = async (c: PoolClient) => (await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
 
-  /** Wait until the backend is blocked on a lock (or has already finished: then the poll gives up and the test's assertion fails). */
+  /** Wait until the backend is blocked on a lock, or polling for one (a changer sleeps between attempts) (or has already finished: then the poll gives up and the test's assertion fails). */
   async function waitsOnLock(pid: number, settled: () => boolean): Promise<boolean> {
     for (let i = 0; i < 100 && !settled(); i++) {
-      const r = await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pid]);
+      const r = await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND (wait_event_type = 'Lock' OR wait_event = 'PgSleep')", [pid]);
       if (r.rowCount) return true;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
