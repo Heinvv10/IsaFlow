@@ -124,7 +124,8 @@ const APT_MIRROR_FN = [
   "  3) printf '%s\\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;",
   '  esac; }',
 ];
-const aptInstall = (pkgs: string): string => `{ sudo timeout 90 apt-get update -q && sudo timeout 240 apt-get install -y -q --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-debs" ${pkgs}; }`;
+/** A failed or stalled `apt-get update` only warns: the install still runs from the restored .deb cache and existing lists, and alone decides the attempt. */
+const aptInstall = (pkgs: string): string => `sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" ${pkgs}; }`;
 const APT_RETRY = "echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done";
 /**
  * The apt steps of a group, exactly: week bucket, .deb cache, the required install (the `locale-gen` tail is the velo group's, for the
