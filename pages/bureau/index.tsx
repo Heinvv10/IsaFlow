@@ -28,6 +28,7 @@ import type { ClientTriage } from '@/modules/bureau/services/bureauClientTriageS
 
 import { notify } from '@/utils/toast';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import type { BureauRole } from '@/lib/auth/companyRoles';
 interface WorkItem {
   bureauId: string;
   bureauName: string;
@@ -45,7 +46,7 @@ interface BureauRef {
   id: string;
   name: string;
   ownerUserId: string;
-  role: 'owner' | 'accountant' | 'viewer';
+  role: BureauRole;
 }
 
 interface DashboardData {

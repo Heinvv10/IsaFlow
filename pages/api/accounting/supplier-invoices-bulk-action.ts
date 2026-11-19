@@ -48,6 +48,7 @@ import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClai
 import { assertNotImpersonating, ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { BUDGET_REASON_MAX, BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 
 const Schema = z.object({
@@ -119,6 +120,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { action, invoiceIds, budgetReason } = parsed.data;
   const userId = req.user.id;
+  // #1656: Suppliers & AP "Approve" (User Access), for the whole batch before any bill is read.
+  if (action === 'approve' && !(await mayApproveSupplierInvoices(companyId, userId, (req as CompanyAuthedRequest).companyRole))) {
+    return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
+  }
   const results: ItemResult[] = [];
   let held = 0;
 

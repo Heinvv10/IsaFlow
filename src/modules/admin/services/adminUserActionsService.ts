@@ -16,6 +16,7 @@ import { cancelPendingInvitations, deletedUserIdentity } from './deletedUserInvi
 import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
+import { NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
 // Admin password reset lives in its own module (this one passed 300 lines); re-exported so callers keep one import.
 export { resetPassword, resetPasswordRefusal, type ResetPasswordRefusal, type ResetPasswordTarget } from './adminPasswordResetService';
@@ -155,8 +156,8 @@ export async function forceLogout(userId: string): Promise<void> {
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
 }
 
-/** The roles the admin portal may grant (never `owner`; migration 883 refuses it too). */
-export const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
+/** The roles the admin portal may grant: the app's company roles but `owner` (#1656; migrations 883/1010 refuse owner too). */
+export const ALLOWED_COMPANY_ROLES: readonly string[] = NON_OWNER_COMPANY_ROLES;
 
 /** The refusal for removing or demoting a company's last owner (the admin site shows it). */
 export const ONLY_OWNER_MESSAGE = "This user is the company's only owner. Make someone else owner first.";

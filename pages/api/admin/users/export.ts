@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
+import { PLATFORM_USER_ROLES } from '@/lib/auth/companyRoles';
 
 type Row = DbRow;
 
@@ -29,11 +30,11 @@ const CSV_HEADERS = [
 ];
 
 /**
- * Allowlists, so the audit row only records known values: the roles users.role may hold (users_role_check)
- * plus the two the Users page also offers (storeman, technician; they match no one), and the page's statuses
- * ('inactive' is offered and, as in listUsers, matches no one).
+ * Allowlists, so the audit row only records known values: the users.role values the Users page offers
+ * (PLATFORM_USER_ROLES, #1656; migration 1010 mapped the legacy accountant/bookkeeper rows to viewer), and the
+ * page's statuses ('inactive' is offered and, as in listUsers, matches no one).
  */
-const ROLES = new Set(['super_admin', 'admin', 'manager', 'accountant', 'bookkeeper', 'viewer', 'system', 'storeman', 'technician']);
+const ROLES = new Set<string>(PLATFORM_USER_ROLES);
 const STATUSES = new Set(['active', 'suspended', 'inactive']);
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {

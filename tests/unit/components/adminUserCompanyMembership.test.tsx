@@ -47,21 +47,21 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('admin user detail: linked company role', () => {
   it('changing the role and saving sends PATCH company-role with the company and role', async () => {
-    await openCompanies(on('PATCH', '/company-role', () => ok({ role: 'accountant' })));
-    fireEvent.change(screen.getByLabelText('Role in ISAFlow Demo'), { target: { value: 'accountant' } });
+    await openCompanies(on('PATCH', '/company-role', () => ok({ role: 'manager' })));
+    fireEvent.change(screen.getByLabelText('Role in ISAFlow Demo'), { target: { value: 'manager' } });
     fireEvent.click(screen.getByRole('button', { name: /Save role/ }));
     await waitFor(() => expect(writes('PATCH', '/api/admin/users/u-1/company-role')).toHaveLength(1));
     const init = writes('PATCH', '/company-role')[0]![1] as RequestInit;
-    expect(JSON.parse(String(init.body))).toEqual({ company_id: DEMO, role: 'accountant' });
+    expect(JSON.parse(String(init.body))).toEqual({ company_id: DEMO, role: 'manager' });
     expect(new Headers(init.headers).get('X-Admin-Request')).toBe('true');
   });
 
-  it("an owner's row shows Owner (not grantable) and offers only the portal roles; no Save until changed", async () => {
+  it("an owner's row shows Owner (not grantable) and offers the app's roles (#1656); no Save until changed", async () => {
     await openCompanies();
     const select = screen.getByLabelText('Role in Owner Co') as HTMLSelectElement;
     expect(select.value).toBe('owner');
     const options = Array.from(select.options).map(o => [o.value, o.disabled]);
-    expect(options).toEqual([['owner', true], ['admin', false], ['accountant', false], ['bookkeeper', false], ['viewer', false]]);
+    expect(options).toEqual([['owner', true], ['admin', false], ['manager', false], ['viewer', false]]);
     expect(screen.queryByRole('button', { name: /Save role/ })).toBeNull();
   });
 
@@ -99,5 +99,28 @@ describe('admin user detail: remove a company link', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^Remove$/ })[1]!);
     fireEvent.click(screen.getByRole('button', { name: 'Confirm remove' }));
     expect(await screen.findByText('Cannot remove the last owner of the company')).toBeDefined();
+  });
+});
+
+describe("admin user detail: a linked company's per-module permissions (#1656)", () => {
+  const PERMS_URL = `/api/admin/users/u-1/permissions?company_id=${DEMO}`;
+  const SUPPLIERS = { moduleKey: 'suppliers', moduleName: 'Suppliers & AP', canRead: true, canWrite: true, canDelete: false,
+    canExport: true, canApprove: true, accountRangeFrom: null, accountRangeTo: null };
+
+  it("opens the app's permission grid on the admin route; a toggle saves to it with the company, as an admin request", async () => {
+    await openCompanies(
+      on('GET', PERMS_URL, () => ok({ role: 'manager', modules: [], permissions: [SUPPLIERS] })),
+      on('POST', PERMS_URL, () => ok({ ok: true })),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Permissions in ISAFlow Demo' }));
+    expect(await screen.findByText('Suppliers & AP')).toBeDefined();
+    // Read, Write, Delete, Export, Approve: the fifth toggle is Approve, ticked by the manager default.
+    const toggles = screen.getAllByRole('button').filter((b) => b.className.includes('rounded-full'));
+    fireEvent.click(toggles[4]!);
+    await waitFor(() => expect(writes('POST', PERMS_URL)).toHaveLength(1), { timeout: 3000 });
+    const init = writes('POST', PERMS_URL)[0]![1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({ company_id: DEMO, moduleKey: 'suppliers', canApprove: false });
+    expect(JSON.parse(String(init.body))).not.toHaveProperty('userId');
+    expect(new Headers(init.headers).get('X-Admin-Request')).toBe('true');
   });
 });

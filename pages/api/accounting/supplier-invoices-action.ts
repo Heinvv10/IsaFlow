@@ -26,6 +26,7 @@ import { respondIfBudgetRefused } from '@/lib/budgetCheckResponse';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { BUDGET_REASON_MAX } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
 //   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
@@ -69,6 +70,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
+        // #1656: Suppliers & AP "Approve" (User Access), before the bill is read or locked.
+        if (!(await mayApproveSupplierInvoices(companyId, userId, (req as CompanyAuthedRequest).companyRole))) {
+          return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
+        }
         // A person approving: a bill dated in a filed VAT period claims its input
         // VAT late (s16(3)) where the law allows, and `lateClaim` says so.
         // Budget check (P5-2): channel ui, the company budget lock taken inside approve, first.

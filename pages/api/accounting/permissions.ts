@@ -16,7 +16,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
 import {
   getPermissionModules,
-  getUserPermissions,
+  getEffectivePermissions,
+  getMemberRole,
   setUserModulePermission,
   resetUserPermissions,
 } from '@/lib/auth/permissionService';
@@ -43,26 +44,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
 
-    const [modules, customMap] = await Promise.all([
+    // #1656: a module the user has no row for shows the role default, the permission
+    // checkPermission enforces (it showed all-off, so one toggle saved a row that also
+    // took away the default read/write/export).
+    const role = await getMemberRole(companyId, userId);
+    if (role === null) return apiResponse.notFound(res, 'User');
+    const [modules, permissions] = await Promise.all([
       getPermissionModules(),
-      getUserPermissions(companyId, userId),
+      getEffectivePermissions(companyId, userId, role),
     ]);
-
-    const permissions = modules.map((mod) => {
-      const custom = customMap.get(mod.moduleKey);
-      return custom ?? {
-        moduleKey: mod.moduleKey,
-        moduleName: mod.moduleName,
-        canRead: false,
-        canWrite: false,
-        canDelete: false,
-        canExport: false,
-        canApprove: false,
-        accountRangeFrom: null,
-        accountRangeTo: null,
-        restrictions: {},
-      };
-    });
 
     return apiResponse.success(res, { modules, permissions });
   }

@@ -1,11 +1,14 @@
 /**
  * PermissionsGrid — module-level toggle grid for a single user.
- * Shown in an expandable panel inside the User Access page.
+ * Shown in an expandable panel inside the User Access page, and (#1656) in the admin portal's
+ * linked-companies table: both edit the same company_user_permissions rows, each through its
+ * own route (`permissionsUrl` is read with GET, saved to with POST, reset with DELETE).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { isFullAccessRole } from '@/lib/auth/companyRoles';
 
 interface ModulePermission {
   moduleKey: string;
@@ -23,6 +26,12 @@ interface PermissionsGridProps {
   userId: string;
   userRole: string;
   onFeedback: (msg: string) => void;
+  /** Default: the app's /api/accounting/permissions?userId=<userId>. */
+  permissionsUrl?: string;
+  /** Fields every save sends besides the permission. Default: { userId }. */
+  saveFields?: Record<string, string>;
+  /** Default apiFetch; the admin portal passes adminFetch. */
+  fetcher?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 const ACTIONS: Array<{ key: keyof ModulePermission; label: string }> = [
@@ -32,8 +41,6 @@ const ACTIONS: Array<{ key: keyof ModulePermission; label: string }> = [
   { key: 'canExport',  label: 'Export'  },
   { key: 'canApprove', label: 'Approve' },
 ];
-
-const FULL_ACCESS_ROLES = ['owner', 'admin'];
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
@@ -48,12 +55,14 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
-export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGridProps) {
+export function PermissionsGrid({ userId, userRole, onFeedback, permissionsUrl, saveFields, fetcher = apiFetch }: PermissionsGridProps) {
   const [perms, setPerms] = useState<ModulePermission[]>([]);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const isFullAccess = FULL_ACCESS_ROLES.includes(userRole);
+  const isFullAccess = isFullAccessRole(userRole);
+  const url = permissionsUrl ?? `/api/accounting/permissions?userId=${encodeURIComponent(userId)}`;
+  const fields = saveFields ?? { userId };
 
   // Debounce map: moduleKey → timeout id
   const debounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -61,7 +70,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
   const loadPerms = useCallback(async () => {
     setLoading(true); setLoadError(null);
     try {
-      const r = await apiFetch(`/api/accounting/permissions?userId=${userId}`);
+      const r = await fetcher(url);
       await assertOk(r, 'Could not load the permissions - try again');
       const res = await r.json();
       setPerms((res.data?.permissions as ModulePermission[]) ?? []);
@@ -71,17 +80,17 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [url, fetcher]);
 
   useEffect(() => { void loadPerms(); }, [loadPerms]);
 
   async function savePermission(mod: ModulePermission) {
     try {
-      const res = await apiFetch('/api/accounting/permissions', {
+      const res = await fetcher(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId,
+          ...fields,
           moduleKey: mod.moduleKey,
           canRead: mod.canRead,
           canWrite: mod.canWrite,
@@ -133,7 +142,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
   async function handleReset() {
     setResetting(true);
     try {
-      const res = await apiFetch(`/api/accounting/permissions?userId=${userId}`, { method: 'DELETE' });
+      const res = await fetcher(url, { method: 'DELETE' });
       await assertOk(res, 'Could not reset the permissions - try again');
       onFeedback('Permissions reset to role defaults.');
       void loadPerms();

@@ -16,13 +16,13 @@
  * gains a price this must become a per-element debit, not a flat one.
  */
 import type { McpTool } from '../types';
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierInvoiceLineAccountRefusals } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
@@ -180,6 +180,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
   handler: async (args, ctx) => {
     const ids = parseDocumentIds(args.invoice_ids, 'invoice_ids');
     if (typeof ids === 'string') return toolError(ids);
+    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId, ctx.companyRole))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED); // #1656, before any read
 
     // A chart missing one of these roles fails EVERY element, so it is a
     // refusal about the request's preconditions rather than 100 identical

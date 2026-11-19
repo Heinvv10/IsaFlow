@@ -116,19 +116,20 @@ describe('admin: remove a company link', () => {
 describe('admin: change a linked company role', () => {
   it('changes the role and audits it', async () => {
     await link(alice, company, 'viewer');
-    const r = await setRole(alice, company, 'accountant');
+    const r = await setRole(alice, company, 'manager');
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(await roleOf(alice, company)).toBe('accountant');
+    expect(await roleOf(alice, company)).toBe('manager');
     expect(await audits('user.change_company_role', alice))
-      .toEqual([{ company_id: company, previous_role: 'viewer', role: 'accountant' }]);
+      .toEqual([{ company_id: company, previous_role: 'viewer', role: 'manager' }]);
   }, 30000);
 
   it('refuses a role outside the allowed set, owner included (400), and changes nothing', async () => {
-    for (const role of ['superuser', 'owner', 'manager']) {
+    // #1656: the retired portal roles (accountant, bookkeeper) are refused too.
+    for (const role of ['superuser', 'owner', 'accountant', 'bookkeeper']) {
       const r = await setRole(alice, company, role);
       expect(r.status, role).toBe(400);
     }
-    expect(await roleOf(alice, company)).toBe('accountant');
+    expect(await roleOf(alice, company)).toBe('manager');
   }, 30000);
 
   it('an unlinked user is a 404', async () => {
@@ -190,7 +191,7 @@ describe('admin: no-op and audit failure', () => {
     await pool.query(`CREATE TRIGGER fail_member_audit_test BEFORE INSERT ON admin_audit_log
       FOR EACH ROW EXECUTE FUNCTION pg_temp_fail_member_audit()`);
     try {
-      const changed = await setRole(bob, company, 'accountant');
+      const changed = await setRole(bob, company, 'manager');
       expect(changed.status).toBe(500);
       expect(await roleOf(bob, company)).toBe('viewer');
       const removed = await remove(bob, company);

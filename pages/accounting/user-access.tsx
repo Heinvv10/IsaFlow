@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { COMPANY_ROLES } from '@/lib/auth/companyRoles';
 
 interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
 // Note: no `token` field — the API never returns the raw token for
@@ -18,7 +19,7 @@ interface PendingInvitation {
   emailSentAt: string | null; emailError: string | null;
 }
 
-const ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+const ROLES = COMPANY_ROLES;
 const ADMIN_ROLES = ['owner', 'admin'];
 const ROLE_BADGE: Record<string, string> = {
   owner: 'bg-teal-900 text-teal-300', admin: 'bg-blue-900 text-blue-300',

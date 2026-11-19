@@ -127,7 +127,8 @@ describe('as platform_admin, raw SQL cannot', () => {
   it.each([
     ['grant owner by insert', "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')"],
     ['grant owner by update', "UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND role = 'admin' AND $2::TEXT IS NOT NULL"],
-    ['grant a role the portal never offers (manager)', "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'manager')"],
+    // #1656 (migration 1010): the portal grants admin, manager, viewer; bookkeeper is a retired legacy role.
+    ['grant a role the portal never offers (bookkeeper)', "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'bookkeeper')"],
   ])('%s (RC007)', async (_label, statement) => {
     const c = await company(pool, p, companies);
     expect(await outcome(asPortal(c, (cl) => cl.query(statement, [c, p.x])))).toBe('RC007');

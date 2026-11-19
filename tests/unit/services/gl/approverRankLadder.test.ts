@@ -10,9 +10,9 @@
  * company_users.role values the ladder must cover.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { ROLE_HIERARCHY } from '@/lib/auth/types';
 import { ALLOWED_COMPANY_ROLES } from '@/modules/admin/services/adminUserActionsService';
+import { LEGACY_ROLE_MAP, NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
 import { VALID_ROLES as ACCESS_SERVICE_ROLES } from '@/modules/accounting/services/core/userAccessService';
 import { VALID_ROLES as INVITATION_SERVICE_ROLES } from '@/modules/accounting/services/core/userInvitationService';
 import { APPROVER_RANK, APPROVER_ROLES, isApproverRole } from '@/modules/accounting/services/gl/approvalAuthority';
@@ -20,16 +20,12 @@ import { APPROVER_RANK, APPROVER_ROLES, isApproverRole } from '@/modules/account
 const sharedRoles = Object.keys(ROLE_HIERARCHY);
 
 /**
- * The invitation route's allowlist is an inline literal in a Next.js page, which
- * cannot be imported here without dragging withAuth in. Read the list out of the
- * source instead of copying it, so adding a role there fails this test rather
- * than silently excluding that role from every approval.
+ * #1656: every writer of company_users.role / company_invitations.role reads one list,
+ * src/lib/auth/companyRoles.ts (tests/unit/auth/roleListCensus.test.ts fails on any other).
+ * The legacy invitation route and the platform-admin route grant NON_OWNER_COMPANY_ROLES.
  */
-function invitableRoles(): string[] {
-  const source = readFileSync('pages/api/invitations/index.ts', 'utf8');
-  const match = /!\[((?:\s*'[a-z_]+'\s*,?)+)\]\.includes\(role\)/.exec(source);
-  if (!match) throw new Error('invitation role allowlist not found — update this test with it');
-  return [...match[1]!.matchAll(/'([a-z_]+)'/g)].map(m => m[1]!);
+function invitableRoles(): readonly string[] {
+  return NON_OWNER_COMPANY_ROLES;
 }
 
 describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
@@ -49,7 +45,13 @@ describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
   // role". 'bookkeeper' was exactly that until this test enumerated the source.
   it('covers every role the platform-admin route can assign', () => {
     for (const role of ALLOWED_COMPANY_ROLES) expect(APPROVER_RANK).toHaveProperty(role);
-    expect(ALLOWED_COMPANY_ROLES).toContain('bookkeeper');
+    expect(ALLOWED_COMPANY_ROLES).toEqual(['admin', 'manager', 'viewer']);
+  });
+
+  // Rows written before #1656 may still name a legacy role (an approval rule's approver_role, a
+  // row the 1010 migration has not reached): each keeps a rank, so none silently ranks as nothing.
+  it('still ranks every legacy role', () => {
+    for (const role of Object.keys(LEGACY_ROLE_MAP)) expect(APPROVER_RANK).toHaveProperty(role);
   });
 
   it('covers every role the invitation route can assign', () => {
@@ -85,8 +87,8 @@ describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
     expect(APPROVER_RANK.accountant!).toBeLessThan(APPROVER_RANK.manager!);
     expect(APPROVER_RANK.user!).toBeGreaterThan(APPROVER_RANK.viewer!);
     expect(APPROVER_RANK.accountant!).toBeGreaterThan(APPROVER_RANK.viewer!);
-    // ALLOWED_COMPANY_ROLES is written in descending authority, which is the
-    // only evidence there is for where a bookkeeper sits.
+    // The pre-#1656 portal list (admin, accountant, bookkeeper, viewer) was written in
+    // descending authority, the only evidence there is for where a bookkeeper sits.
     expect(APPROVER_RANK.bookkeeper!).toBeLessThan(APPROVER_RANK.accountant!);
     expect(APPROVER_RANK.bookkeeper!).toBeGreaterThan(APPROVER_RANK.viewer!);
   });

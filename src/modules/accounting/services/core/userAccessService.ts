@@ -7,11 +7,12 @@
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 
 export { OwnerProtectedError } from './ownerLock';
 
 
-export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+export { COMPANY_ROLES as VALID_ROLES } from '@/lib/auth/companyRoles';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
     userId: r.user_id as string,
     name: `${(r.first_name as string) ?? ''} ${(r.last_name as string) ?? ''}`.trim() || (r.email as string),
     email: r.email as string,
-    role: r.role as string,
+    role: normalizeCompanyRole(r.role as string),
     joinedAt: toIso(r.created_at as string | Date | null) ?? '',
   }));
 }

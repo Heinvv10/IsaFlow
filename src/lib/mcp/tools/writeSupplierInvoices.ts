@@ -24,6 +24,7 @@ import { invoiceVatRefusals } from '@/modules/accounting/services/capture/captur
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, supplierBillWarningsOrRefusal } from './dimensionArgs';
 import { dueDateTermsWarnings } from './dueDateTermsWarning';
 import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
@@ -189,6 +190,8 @@ export const approveSupplierInvoiceTool: McpTool = {
     if (!invoiceId) return toolError('invoice_id is required');
     const bad = guardCastableArgs(args, { uuid: ['invoice_id'] });
     if (bad) return bad;
+    // #1656: the token owner's Suppliers & AP "Approve", before the bill is read.
+    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId, ctx.companyRole))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED);
 
     // Both refusals are answered from a READ so the service call below needs
     // no catch. approveSupplierInvoice raises the status one itself, but a

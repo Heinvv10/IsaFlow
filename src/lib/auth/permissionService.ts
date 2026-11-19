@@ -1,11 +1,14 @@
 /**
  * Permission Service — Granular module-level permissions (WS-4.1).
- * Role defaults: owner/admin → full, manager → read+write+export, viewer → read+export.
+ * Role defaults (roleDefaultPermission in companyRoles.ts, #1656): owner/admin → full,
+ * manager → all but delete, viewer → read+export. A company_user_permissions row overrides
+ * them for that user and module; the app's User Access page and the admin portal edit the same rows.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isFullAccessRole, normalizeCompanyRole, roleDefaultPermission, type PermissionAction } from './companyRoles';
 
 export interface ModulePermission {
   moduleKey: string; moduleName: string;
@@ -22,17 +25,10 @@ export interface UserWithPermissions {
   role: string; permissions: ModulePermission[];
 }
 
-type Action = 'read' | 'write' | 'delete' | 'export' | 'approve';
+type Action = PermissionAction;
 type Row = DbRow;
 
-const FULL_ACCESS_ROLES = ['owner', 'admin'];
-
-function roleDefault(role: string, action: Action): boolean {
-  if (FULL_ACCESS_ROLES.includes(role)) return true;
-  if (role === 'manager') return action === 'read' || action === 'write' || action === 'export';
-  if (role === 'viewer') return action === 'read' || action === 'export';
-  return false;
-}
+const roleDefault = roleDefaultPermission;
 
 function defaultPerm(role: string, moduleKey: string, moduleName: string): ModulePermission {
   return {
@@ -118,10 +114,32 @@ export async function resetUserPermissions(companyId: string, userId: string): P
   log.info('User permissions reset to defaults', { companyId, userId }, 'PermissionService');
 }
 
+/**
+ * One user's permission on every module as it is enforced: the user's row where there is one,
+ * else the role default (owner/admin: everything). What the User Access grid and the admin
+ * portal show, so a toggle saves from the effective state, not from all-off.
+ */
+/** The member's stored role in the company, or null when they are not a member. */
+export async function getMemberRole(companyId: string, userId: string): Promise<string | null> {
+  const rows = await sql`
+    SELECT role FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId} LIMIT 1
+  `;
+  return ((rows[0] as Row | undefined)?.role as string | undefined) ?? null;
+}
+
+export async function getEffectivePermissions(
+  companyId: string, userId: string, companyRole: string,
+): Promise<ModulePermission[]> {
+  const [modules, custom] = await Promise.all([getPermissionModules(), getUserPermissions(companyId, userId)]);
+  const role = normalizeCompanyRole(companyRole);
+  return modules.map((mod) => (isFullAccessRole(role) ? null : custom.get(mod.moduleKey))
+    ?? defaultPerm(role, mod.moduleKey, mod.moduleName));
+}
+
 export async function checkPermission(
   companyId: string, userId: string, companyRole: string, moduleKey: string, action: Action
 ): Promise<boolean> {
-  if (FULL_ACCESS_ROLES.includes(companyRole)) return true;
+  if (isFullAccessRole(normalizeCompanyRole(companyRole))) return true;
 
   const rows = await sql`
     SELECT can_read, can_write, can_delete, can_export, can_approve
@@ -169,10 +187,10 @@ export async function getCompanyUsersWithPermissions(companyId: string): Promise
   }
 
   return (userRows as Row[]).map((u: Row) => {
-    const role = u.role as string;
+    const role = normalizeCompanyRole(u.role as string);
     const uid = u.user_id as string;
     const custom = customMap.get(uid);
-    const isFullAccess = FULL_ACCESS_ROLES.includes(role);
+    const isFullAccess = isFullAccessRole(role);
 
     const permissions: ModulePermission[] = modules.map((mod) => {
       if (isFullAccess) {

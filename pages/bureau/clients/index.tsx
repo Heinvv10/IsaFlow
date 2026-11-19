@@ -14,12 +14,13 @@ import {
   Briefcase, AlertCircle, Loader2, Building2, Plus, Trash2, ArrowLeft,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import type { BureauRole } from '@/lib/auth/companyRoles';
 
 interface BureauRef {
   id: string;
   name: string;
   ownerUserId: string;
-  role: 'owner' | 'accountant' | 'viewer';
+  role: BureauRole;
 }
 
 interface BureauClient {
