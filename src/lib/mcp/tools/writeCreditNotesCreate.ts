@@ -31,6 +31,7 @@ export const createCreditNoteTool: McpTool = {
     'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
     'An identical open draft (same counterparty, linked invoice, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one. ' +
     'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named. ' +
+    'A customer note linked to an invoice with a VAT type per line must carry that invoice\'s remaining VAT in proportion to the net it credits (not the rate on its subtotal); approve_credit_note refuses any other figure and states the one required. ' +
     'A supplier note linked to a bill credits that bill\'s own expense accounts and CC1/CC2/BU pro rata at approve; mirror_bill also takes its VAT from the bill as it stands now (see document_vat_history). ' +
     'Pass external_system + external_ref (e.g. the Sage RTN id) to make the create idempotent: a live note already carrying them is returned instead (already_existed: true).',
   scope: 'write:invoices',

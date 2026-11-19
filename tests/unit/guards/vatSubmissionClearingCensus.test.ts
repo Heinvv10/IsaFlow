@@ -28,6 +28,7 @@ const ALLOWED: Record<string, string> = {
   'src/modules/accounting/services/gl/integrityChecks/vatChecks.ts': 'per bank-line displayed-vs-posted code check; the clearing journal has no bank line',
   'src/modules/accounting/services/gl/nonControlPostingAccounts.ts': 'account eligibility lists, sums nothing',
   'src/modules/accounting/services/gl/reclassification/planGuards.ts': 'account reclassification guards, sums nothing',
+  'src/modules/accounting/services/ar/invoiceRevenuePosting.ts': 'reads ONE customer invoice\'s own journal (ci.gl_journal_entry_id) for the VAT it has left, which a credit note against it reverses in proportion; the clearing journal is no invoice\'s',
   'src/modules/accounting/services/reports/vat201NilRatedSupplies.ts': 'reads zero_rated/exempt CODED lines; every clearing-journal line is uncoded',
   'src/modules/accounting/services/reports/vat201Service.ts': 'reads ONE customer invoice\'s own journal (ci.gl_journal_entry_id) for its drill-down VAT label; the clearing journal is no invoice\'s',
   'src/modules/accounting/services/reports/vatAllocationMismatchService.ts': 'bank-allocation journals only (documented V-05 census note)',
