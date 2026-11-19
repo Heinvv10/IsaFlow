@@ -136,7 +136,7 @@ describe('skip_budget_check_for_import', () => {
     expect(failed[0]!.reasons[0]).toContain('Over budget');
     const pos = live.body.purchase_orders as Array<{ id: string; po_number: string; budget_check?: Check }>;
     expect(pos.map((p) => p.budget_check && [p.budget_check.skipped, p.budget_check.would_have_failed])).toEqual([[true, false], [true, true], undefined]);
-    expect(await committed()).toEqual([300, 800]);
+    expect((await committed()).sort((a, b) => a - b)).toEqual([300, 800]);
 
     const [a, b, c] = await Promise.all(pos.map((p) => auditOf(pool, f, p.id)));
     expect(a![0]!.changes.metadata).toMatchObject({ budgetCheckSkipped: 'true', wouldHaveFailed: 'false' });
