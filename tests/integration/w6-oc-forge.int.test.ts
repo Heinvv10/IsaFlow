@@ -1,9 +1,12 @@
 /**
- * Review #1679c (b): the paid-gross snapshot lost below the service. As app_user, a reopened, paid bonus run's header
- * is deleted and inserted again with its id and approval_history: the snapshot comes back NULL (the trigger never
- * takes one on insert). The cap fails closed: a run approved before with no snapshot caps every employee at nil, so
- * R80 000 is refused at approval after the pay date. (Wiping approval_history instead brings back D1's pay-date
- * refusal.) A legitimate reopen of the paid run, with its lines, always takes a snapshot.
+ * Reviews #1679c and #1679d, the delete/re-insert class: a header's approval history is never removed or invented
+ * below the service.
+ *  - As app_user, a header approved before is not deleted, and no header is inserted with an approval history or a
+ *    final status (999x payroll_run_headers_history_guard).
+ *  - The state that class aimed at (approval history, no snapshot), made here as an exempt superuser, still fails
+ *    closed: the cap is nil for every employee in TS (paidCaps), and the snapshot trigger takes nil for every employee
+ *    when app_user flips the run through 'approved' over raised lines. R80 000 is refused at approval after the pay date.
+ *  - A legitimate reopen of the paid run, with its lines, always takes a snapshot.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
@@ -50,8 +53,8 @@ afterAll(async () => {
   vi.useRealTimers();
 }, 120_000);
 
-describe('a lost snapshot fails closed', () => {
-  it('a paid run re-inserted with its approval_history and no snapshot is capped at nil: R80 000 refused at approval', async () => {
+describe('the approval history is never removed or invented below the service', () => {
+  it('app_user cannot delete a reopened run or insert history; a lost snapshot fails closed (TS and trigger)', async () => {
     const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
       body: { month: 11, year: 2026, reason: 'bonus', runDate: '2026-11-17', employees: [{ employeeId: mid, componentId: bonusComponent, amount: 5_000 }] },
     });
@@ -65,20 +68,38 @@ describe('a lost snapshot fails closed', () => {
     // The legitimate reopen of a paid run with lines takes a snapshot, so a real correction is never capped at nil.
     expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s).toEqual({ [mid]: 5_000 });
     expect((await a.api.reverse(journal)).statusCode).toBe(200);
-    // Below the service, as app_user: the header deleted and inserted again with its id and approval history.
     const h = (await a.pool.query('SELECT approval_history::text AS hist, reopened_at, created_by FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
-    await asApp('DELETE FROM payroll_run_headers WHERE id = $1', [id]);
-    const back = await asApp(`INSERT INTO payroll_run_headers (id, company_id, period_month, period_year, pay_frequency, run_kind, off_cycle_reason,
+
+    // (i) As app_user: no delete of a run approved before; no insert carrying history or a final status.
+    await expect(asApp('DELETE FROM payroll_run_headers WHERE id = $1', [id]))
+      .rejects.toThrow(/a pay run that was approved before is not deleted; cancel it instead/);
+    const reinsert = (status: string, hist: string | null) => asApp(`INSERT INTO payroll_run_headers (company_id, period_month, period_year,
+      pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date, status, approval_history)
+      VALUES ($1, 12, 2026, 'monthly', 'off_cycle', 'bonus', '2026-12-01', '2026-12-31', '2026-12-29', $2, $3::tstzmultirange)`, [a.company, status, hist]);
+    await expect(reinsert('draft', h.hist)).rejects.toThrow(/a new pay run starts without an approval history and is not final/);
+    await expect(reinsert('approved', null)).rejects.toThrow(/a new pay run starts without an approval history and is not final/);
+
+    // (ii) The state the class aimed at, made by an exempt superuser: history, no snapshot, R80 000 of lines.
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]);
+    await a.pool.query(`INSERT INTO payroll_run_headers (id, company_id, period_month, period_year, pay_frequency, run_kind, off_cycle_reason,
       period_start, period_end, run_date, approval_history, reopened_at, created_by)
-      VALUES ($1, $2, 11, 2026, 'monthly', 'off_cycle', 'bonus', '2026-11-01', '2026-11-30', '2026-11-17', $3::tstzmultirange, $4, $5)
-      RETURNING off_cycle_paid_gross`, [id, a.company, h.hist, h.reopened_at, h.created_by]) as Array<{ off_cycle_paid_gross: unknown }>;
-    expect(back[0]!.off_cycle_paid_gross).toBeNull();
+      VALUES ($1, $2, 11, 2026, 'monthly', 'off_cycle', 'bonus', '2026-11-01', '2026-11-30', '2026-11-17', $3::tstzmultirange, $4, $5)`,
+    [id, a.company, h.hist, h.reopened_at, h.created_by]);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s).toBeNull();
     await asApp('INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount) VALUES ($1, $2, $3, $4, 80000)',
       [a.company, id, mid, bonusComponent]);
     expect((await a.api.calculate(id)).statusCode).toBe(200);
+    // TS fails closed: capped at nil.
     const ap = await a.api.approve(id);
     expect(ap.statusCode).not.toBe(200);
     expect(JSON.stringify(ap.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
+    // The trigger fails closed too: app_user flips the run through 'approved' over the raised lines; the first snapshot
+    // of a run with history takes nil for every employee, and approval still refuses.
+    for (const status of ['approved', 'calculated']) await asApp('UPDATE payroll_run_headers SET status = $2 WHERE id = $1', [id, status]);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [id])).rows[0].s).toEqual({ [mid]: 0 });
+    const flipped = await a.api.approve(id);
+    expect(flipped.statusCode).not.toBe(200);
+    expect(JSON.stringify(flipped.body)).toMatch(/can't be raised after the pay date \(last approved R\s0\.00\)/);
     expect((await a.header(id)).status).toBe('calculated');
   });
 });

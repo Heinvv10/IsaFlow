@@ -40,6 +40,8 @@
 --     NOT NULL (getPayrollRun/mapRunRow tolerate NULL), and the old colour never names it.
 --
 -- OLD COLOUR (the previous release against this schema):
+--   payroll_run_headers_history_guard  the old colour never deletes a header and inserts them as draft without
+--     history, so it is never refused.
 --   payroll_run_headers.off_cycle_paid_gross  it never names the column; its header writes pass through
 --     payroll_off_cycle_paid_snapshot, which keeps the column as it was and snapshots only an off-cycle run leaving
 --     'approved' (which the old colour never reopens).
@@ -54,6 +56,8 @@
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS cancelled_at;  (only where this file added it: prod)
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_employees_guard();
 --   DROP TRIGGER IF EXISTS payroll_off_cycle_paid_snapshot ON public.payroll_run_headers;
+--   DROP TRIGGER IF EXISTS payroll_run_headers_history_guard ON public.payroll_run_headers;
+--   DROP FUNCTION IF EXISTS public.payroll_run_headers_history_guard();
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_paid_snapshot();
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_paid_gross;
 --   and re-run 951's approval_request_document_facts definition.
@@ -151,8 +155,12 @@ BEGIN
   IF OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved' THEN
     -- Never rises (review #1679b): a re-snapshot keeps, per employee, the LEAST of what was last snapshotted and the
     -- lines now; an employee absent from an existing snapshot stays nil. The first snapshot takes the lines as they are.
+    -- A run approved before with no snapshot lost it below the service (review #1679d): every employee at nil, as
+    -- payrollOffCycleCorrection.paidCaps fails closed.
     SELECT pg_catalog.jsonb_object_agg(s.employee_id::text,
-             CASE WHEN OLD.off_cycle_paid_gross IS NULL THEN s.gross
+             CASE WHEN OLD.off_cycle_paid_gross IS NULL
+                       AND OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history) THEN 0
+                  WHEN OLD.off_cycle_paid_gross IS NULL THEN s.gross
                   ELSE LEAST(s.gross, COALESCE((OLD.off_cycle_paid_gross ->> s.employee_id::text)::numeric, 0)) END)
       INTO NEW.off_cycle_paid_gross
       FROM (SELECT l.employee_id, pg_catalog.sum(l.gross_pay) AS gross
@@ -170,6 +178,39 @@ DROP TRIGGER IF EXISTS payroll_off_cycle_paid_snapshot ON public.payroll_run_hea
 CREATE TRIGGER payroll_off_cycle_paid_snapshot BEFORE INSERT OR UPDATE ON public.payroll_run_headers
   FOR EACH ROW EXECUTE FUNCTION public.payroll_off_cycle_paid_snapshot();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_paid_snapshot;
+
+-- A run's approval history is never removed or invented (review #1679d, the delete/re-insert class): a header approved
+-- once (non-empty approval_history) is not deleted (cancel or reverse it instead), and no header is inserted carrying
+-- an approval history or a final status (new runs start without history). The app never deletes a header and inserts
+-- them as draft. Exempt, as 999n: a SUPERUSER session (fixtures, the integration rig) and the Demo company (wiped
+-- and reseeded by scripts/lib/demoReseed).
+CREATE OR REPLACE FUNCTION public.payroll_run_headers_history_guard() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.company_id <> '00000000-0000-0000-0000-000000000001'::uuid
+       AND OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history) THEN
+      RAISE EXCEPTION 'payroll_run_headers: a pay run that was approved before is not deleted; cancel it instead'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF NEW.company_id <> '00000000-0000-0000-0000-000000000001'::uuid
+     AND ((NEW.approval_history IS NOT NULL AND NOT pg_catalog.isempty(NEW.approval_history)) OR NEW.status IN ('approved', 'paid')) THEN
+    RAISE EXCEPTION 'payroll_run_headers: a new pay run starts without an approval history and is not final'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+DROP TRIGGER IF EXISTS payroll_run_headers_history_guard ON public.payroll_run_headers;
+CREATE TRIGGER payroll_run_headers_history_guard BEFORE INSERT OR DELETE ON public.payroll_run_headers
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_history_guard();
+ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_history_guard;
 
 ALTER TABLE public.payroll_off_cycle_employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_off_cycle_employees FORCE ROW LEVEL SECURITY;
