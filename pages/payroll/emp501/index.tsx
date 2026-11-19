@@ -9,6 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { formatCurrency } from '@/utils/formatters';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { Emp501ReturnSection } from '@/components/payroll/emp501/Emp501ReturnSection';
+import { defaultEmp501Kind, type Emp501Kind } from '@/components/payroll/emp501/emp501Kind';
 
 interface ReconciliationRow {
   month: number;
@@ -43,9 +44,21 @@ function taxYearLabel(y: number) {
   return `${y - 1}/${y} (Mar ${y - 1} – Feb ${y})`;
 }
 
+interface RunKindRefusal { error?: { details?: { code?: string; reasons?: Array<{ detail?: string }> } } }
+
+/** The annual blocked by weekly or fortnightly runs (409 RUN_KIND_UNSUPPORTED), said plainly, naming the run. */
+function blockedAnnualMessage(taxYear: number, body: RunKindRefusal | null): string | null {
+  if (body?.error?.details?.code !== 'RUN_KIND_UNSUPPORTED') return null;
+  const why = body.error.details.reasons?.[0]?.detail;
+  return `The annual EMP501 for ${taxYear - 1}/${taxYear} is blocked by weekly or fortnightly pay runs`
+    + `${why ? `: ${why}` : ''}. The interim (March to August) can still be reconciled and filed.`;
+}
+
 export default function Emp501Page() {
   const currentYear = new Date().getFullYear();
   const [taxYear, setTaxYear] = useState(currentYear + 1);
+  const [kind, setKind] = useState<Emp501Kind>(() => defaultEmp501Kind(currentYear + 1));
+  const [blocked, setBlocked] = useState('');
   const [summary, setSummary] = useState<Emp501Summary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -54,8 +67,17 @@ export default function Emp501Page() {
   const load = useCallback(async () => {
     setIsLoading(true);
     setError('');
+    setBlocked('');
     try {
-      const res = await apiFetch(`/api/payroll/emp501/reconciliation?taxYear=${taxYear}`);
+      const res = await apiFetch(`/api/payroll/emp501/reconciliation?taxYear=${taxYear}&period=${kind}`);
+      if (res.status === 409 && kind === 'annual') {
+        const plain = blockedAnnualMessage(taxYear, await res.clone().json().catch(() => null) as RunKindRefusal | null);
+        if (plain) {
+          setSummary(null);
+          setBlocked(plain);
+          return;
+        }
+      }
       await assertOk(res, 'Could not load the EMP501 reconciliation - try again');
       const json = await res.json() as { data?: Emp501Summary };
       setSummary((json.data ?? null) as Emp501Summary | null);
@@ -65,7 +87,7 @@ export default function Emp501Page() {
     } finally {
       setIsLoading(false);
     }
-  }, [taxYear]);
+  }, [taxYear, kind]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -110,10 +132,19 @@ export default function Emp501Page() {
               <select
                 aria-label="Tax year"
                 value={taxYear}
-                onChange={e => setTaxYear(Number(e.target.value))}
+                onChange={e => { const y = Number(e.target.value); setTaxYear(y); setKind(defaultEmp501Kind(y)); }}
                 className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
               >
                 {yearOptions.map(y => <option key={y} value={y}>{taxYearLabel(y)}</option>)}
+              </select>
+              <select
+                aria-label="Reconciliation period"
+                value={kind}
+                onChange={e => setKind(e.target.value as Emp501Kind)}
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
+              >
+                <option value="interim">Interim (Mar – Aug)</option>
+                <option value="annual">Annual (Mar – Feb)</option>
               </select>
               <button
                 onClick={handleExport}
@@ -132,6 +163,14 @@ export default function Emp501Page() {
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+            </div>
+          ) : blocked ? (
+            <div role="alert" className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
+              <AlertCircle className="h-5 w-5 shrink-0" /><span className="flex-1 min-w-0">{blocked}</span>
+              <button type="button" onClick={() => setKind('interim')}
+                className="px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
+                Show the interim
+              </button>
             </div>
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-4">
