@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VATReturnReport } from '../../types/gl.types';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+import { RATED_VAT_TYPES } from '../shared/vatTypes';
 
 type Row = DbRow;
 
@@ -177,16 +178,28 @@ export async function getVATReturn(companyId: string,
       .filter((b) => Math.abs(b.amount) > 0.001)
       .map((b) => ({ accountCode: b.box, accountName: b.label, amount: b.amount }));
 
-    // Query taxable base from invoices so effective VAT rate can be verified (~15%)
+    // Query taxable base from invoices so effective VAT rate can be verified (~15%).
+    // A legacy invoice contributes its subtotal when its header rate is above zero. An invoice whose lines carry their
+    // VAT type (migration 1008: every line typed) contributes its RATED lines' amount (a line's amount is its net on
+    // every invoice), whatever its header rate: the query returns those lines' sums by VAT type and
+    // standardRatedSalesBase keeps the rated ones (RATED_VAT_TYPES).
+    // ONE sql call each (no spliced fragments): the unit suites answer this function's statements by position.
     const [salesRows, purchaseRows] = await Promise.all([
       sql`
-        SELECT COALESCE(SUM(subtotal), 0) AS base
-        FROM customer_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND status NOT IN ('draft','cancelled')
-          AND invoice_date >= ${periodStart}
-          AND invoice_date <= ${periodEnd}
-          AND tax_rate > 0
+        SELECT 'legacy' AS kind, NULL::TEXT AS vat_type, COALESCE(SUM(ci.subtotal), 0) AS base
+        FROM customer_invoices ci
+        WHERE ci.company_id = ${companyId}::UUID AND ci.status NOT IN ('draft','cancelled')
+          AND ci.invoice_date >= ${periodStart} AND ci.invoice_date <= ${periodEnd} AND ci.tax_rate > 0
+          AND NOT (EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id)
+                   AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.vat_type IS NULL))
+        UNION ALL
+        SELECT 'typed', cii.vat_type, SUM(cii.amount)
+        FROM customer_invoices ci
+        JOIN customer_invoice_items cii ON cii.invoice_id = ci.id
+        WHERE ci.company_id = ${companyId}::UUID AND ci.status NOT IN ('draft','cancelled')
+          AND ci.invoice_date >= ${periodStart} AND ci.invoice_date <= ${periodEnd}
+          AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.vat_type IS NULL)
+        GROUP BY cii.vat_type
       ` as unknown as Row[],
       sql`
         SELECT COALESCE(SUM(subtotal), 0) AS base
@@ -198,7 +211,7 @@ export async function getVATReturn(companyId: string,
           AND tax_rate > 0
       ` as unknown as Row[],
     ]);
-    const standardRatedSupplies  = Number(salesRows[0]?.base ?? 0);
+    const standardRatedSupplies  = standardRatedSalesBase(salesRows);
     const standardRatedPurchases = Number(purchaseRows[0]?.base ?? 0);
 
     return {
@@ -215,4 +228,12 @@ export async function getVATReturn(companyId: string,
     log.error('Failed to generate VAT return', { error: err }, 'accounting');
     throw err;
   }
+}
+
+/** The legacy invoices' rated subtotal plus the typed invoices' RATED lines (rows: kind, vat_type, base). */
+export function standardRatedSalesBase(rows: readonly Row[]): number {
+  const cents = rows
+    .filter((r) => r.kind === 'legacy' || (RATED_VAT_TYPES as readonly unknown[]).includes(r.vat_type))
+    .reduce((sum, r) => sum + Math.round(Number(r.base ?? 0) * 100), 0);
+  return cents / 100;
 }

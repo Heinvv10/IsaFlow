@@ -16,6 +16,8 @@ const db = vi.hoisted(() => ({
   header: null as null | Record<string, unknown>, line: null as null | Record<string, unknown>,
   // When set, EVERY otherwise-unrecognised query returns an hours row: a live read of any table would pick it up.
   hoursEverywhere: false,
+  // GA: the run's garnishee deductions (payrollGarnisheeRun.runGarnisheePayslipItems).
+  garnishees: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('@/lib/neon', () => ({
@@ -30,6 +32,7 @@ vi.mock('@/lib/neon', () => ({
       const run_final = !!h && ['approved', 'paid'].includes(String(h.status)) && !!(h.approved_at ?? h.approval_grandfathered_at);
       return [{ ...(db.line ?? LINE_ROW), run_final }];
     }
+    if (q.includes('FROM payroll_garnishee_deductions')) return db.garnishees;
     if (q.includes('FROM payroll_components')) return [{ id: 'c-salary', component_type: 'earning' }, { id: 'c-med', component_type: 'deduction' }];
     if (q.includes('prl.taxable_income')) return [{ run_id: RUN, employee_id: EMP, gross_pay: 30000, taxable_income: 30000, paye: 5000, uif_employee: 177.12, net_pay: 23022.88 }];
     if (q.includes('quantity')) return db.hoursEverywhere ? [HOURS_ROW] : []; // a live reader of hours finds them only when the flag is set
@@ -69,7 +72,7 @@ async function pdfText(pdf: Buffer): Promise<string> {
   return (await new PDFParse({ data: pdf }).getText()).text.replace(/\s+/g, ' ');
 }
 
-beforeEach(() => { db.header = null; db.line = null; db.hoursEverywhere = false; });
+beforeEach(() => { db.header = null; db.line = null; db.hoursEverywhere = false; db.garnishees = []; });
 
 describe('getPayslips: the figures', () => {
   it('earnings, deductions, PAYE, UIF and net equal the stored line', async () => {
@@ -82,6 +85,17 @@ describe('getPayslips: the figures', () => {
       deductions: [{ label: 'Medical Aid', code: '4005', amount: 1800 }],
     });
     expect(slip!.yearToDate).toEqual({ grossPay: 30000, taxableIncome: 30000, paye: 5000, uifEmployee: 177.12, netPay: 23022.88 });
+  });
+
+  it('GA: a garnishee deduction is its own deduction line (named by order and creditor), not "Not itemised"', async () => {
+    db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
+    db.line = { ...LINE_ROW, net_pay: '18022.88' };
+    db.garnishees = [{ employee_id: EMP, reference: 'EAO 12/2026', creditor_name: 'Acme Credit', amount: '5000.00' }];
+    const [slip] = (await getPayslips(CO, RUN)).payslips;
+    expect(slip).toMatchObject({
+      netPay: 18022.88, otherDeductions: 6800, notItemised: false,
+      deductions: [{ label: 'Medical Aid', code: '4005', amount: 1800 }, { label: 'Garnishee order EAO 12/2026 (Acme Credit)', code: '', amount: 5000 }],
+    });
   });
 
   it('a breakdown stored as a JSON string is typed from the catalogue too, not left "Not itemised"', async () => {

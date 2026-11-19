@@ -5,6 +5,7 @@
 import type {
   EmployeeComponent, LineCadence, PayeYearToDate, PayrollEmployee, PayrollLineInput, TaxStatus,
 } from '@/modules/accounting/services/payroll/payrollTypes';
+import type { GarnisheeKind } from '@/modules/accounting/services/payroll/payrollGarnishee';
 import { closesPayMonth, dayNumber, isoOfDay, PERIOD_DAYS, periodShareOf } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
 import { addEtiMonthParts, NO_ETI_PARTS } from '@/modules/accounting/services/payroll/payrollLineEtiMonth';
 import { withFringeBenefits } from './fringeInput';
@@ -39,6 +40,18 @@ export function oracleTaxStatus(label: string): TaxStatus {
 }
 
 const numberOf = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+
+/** The case's garnishee orders (GA): kind and monthly amount, open-ended, in the order listed. */
+function oracleGarnishees(c: OracleCase): Pick<PayrollLineInput, 'garnisheeOrders'> {
+  const raw = c.input.unmodelled?.garnisheeOrders;
+  if (!Array.isArray(raw)) return {};
+  return {
+    garnisheeOrders: raw.map((o: { kind: GarnisheeKind; monthlyAmount: number }, i) => ({
+      id: `${c.id}-garnishee-${i}`, kind: o.kind, reference: `${c.id}-${i}`, creditorName: 'Oracle creditor',
+      instalment: o.monthlyAmount, balance: null, priority: i, createdAt: '2026-01-01T00:00:00Z',
+    })),
+  };
+}
 
 /** An IRP3(b) percentage or IRP3(c) amount from the case, as the run's directive for the period (DR). */
 function oracleDirective(c: OracleCase): Pick<PayrollLineInput, 'regularPayDirective'> {
@@ -109,6 +122,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     ...(input.priorPeriods ? { ytd: priorYearToDate(input.priorPeriods, employee) } : {}),
     ...(cadence ? { cadence } : {}),
     ...oracleDirective(c),
+    ...oracleGarnishees(c),
   };
 }
 

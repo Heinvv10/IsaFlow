@@ -1,8 +1,10 @@
 /**
  * Customer invoice GL posting: DR AR / CR Revenue / CR VAT Output.
  * Extracted from customerPaymentAllocationService.ts (2026-10-05) so the
- * VAT-guard allowlist entry for this poster's `vatType: 'standard'` covers it
- * alone, not the payment-allocation code beside it.
+ * VAT-guard allowlist entry for this poster's VAT codes covers it alone, not
+ * the payment-allocation code beside it. A legacy invoice's VAT leg is coded
+ * 'standard' here; a typed invoice's legs carry its stored lines' own types
+ * (invoiceVatLegs, a declared line builder of this file).
  */
 
 import { sql } from '@/lib/neon';
@@ -18,9 +20,11 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
-import { invoiceRevenueJournalLines } from './invoiceRevenuePosting';
+import { postableInvoiceLines } from './invoiceRevenuePosting';
+import { buildInvoiceRevenueLines } from './invoiceRevenueLines';
+import { lineVatShape, typedInvoiceCreditLegs } from './invoiceVatLegs';
 import { assertDocumentPostable } from '../shared/documentCurrency';
-import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
+import { POST_AS_STORED, isApprovingFrom } from '../gl/dimensions/dimensionStoredPosting';
 
 type Row = DbRow;
 
@@ -89,17 +93,30 @@ export async function postCustomerInvoiceToGL(
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
     const vatAccount = await getSystemAccount('vat_output', companyId);
 
+    // What posts is what is stored (and approved): approving refuses a line saved before its customer's
+    // FNO, or its project's, existed; one already approved posts as stored (dimensionStoredPosting).
+    const postingFrom = opts?.approvingFromStatus ?? String(inv.status);
+    const stored = await postableInvoiceLines(companyId, invoiceId, String(inv.invoice_number), postingFrom);
+    const legacy = lineVatShape(stored) === 'legacy';
     const lines: JournalLineInput[] = [
       { glAccountId: arAccount.id, debit: Number(inv.total_amount), credit: 0,
         description: `AR: ${inv.invoice_number}` },
-      // What posts is what is stored (and approved): approving refuses a line saved before its customer's
-      // FNO, or its project's, existed; one already approved posts as stored (dimensionStoredPosting).
-      ...(await invoiceRevenueJournalLines(companyId, invoiceId, {
-        number: String(inv.invoice_number), documentSubtotal: Number(inv.subtotal), credit: Number(inv.subtotal),
-      }, revenueAccount.id, opts?.approvingFromStatus ?? String(inv.status))),
+      // Lines carrying their VAT type (migration 1008) post a revenue leg per type and a VAT Output leg per
+      // rated type, each coded with the stored line's own type; a partly typed invoice is refused (invoiceVatLegs).
+      ...(legacy
+        ? buildInvoiceRevenueLines({
+          invoiceNumber: String(inv.invoice_number), documentSubtotal: Number(inv.subtotal), credit: Number(inv.subtotal),
+          lines: stored, defaultRevenueAccountId: revenueAccount.id, strict: isApprovingFrom(postingFrom),
+        })
+        : typedInvoiceCreditLegs({
+          invoiceNumber: String(inv.invoice_number), lines: stored,
+          header: { subtotal: Number(inv.subtotal), taxAmount: Number(inv.tax_amount ?? 0),
+            totalAmount: Number(inv.total_amount), invoiceDate: inv.invoice_date instanceof Date ? inv.invoice_date : String(inv.invoice_date) },
+          defaultRevenueAccountId: revenueAccount.id, vatOutputAccountId: vatAccount.id,
+        })),
     ];
 
-    if (Number(inv.tax_amount) > 0) {
+    if (legacy && Number(inv.tax_amount) > 0) {
       // Coded 'standard' (2026-10-05), as credit notes since 2026-09-25: an
       // uncoded VAT leg is a blocking pre-filing exception, and 'standard' is
       // what the VAT201 already read it as. Migration 856 backfills the

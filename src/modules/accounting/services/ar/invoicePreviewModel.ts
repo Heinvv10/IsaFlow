@@ -69,7 +69,8 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
     invoice_number: null, invoice_date: invoiceDate, due_date: dueDate, status: 'preview', payment_terms: null,
     subtotal, tax_rate: rate, tax_amount: tax, total_amount: total, amount_paid: 0,
     currency_code: currency.currencyCode, exchange_rate: currency.exchangeRate, notes: body.notes,
-    billing_period_start: null, billing_period_end: null, project_name: r.project_name ?? null,
+    // amounts_are: the preview prices legacy lines only (no VAT type), so the legacy table prints.
+    billing_period_start: null, billing_period_end: null, amounts_are: null, project_name: r.project_name ?? null,
     client_name: r.client_name ?? null, client_address: r.client_address ?? null, client_contact: r.client_contact ?? null,
     client_email: r.client_email ?? null, client_phone: r.client_phone ?? null, client_vat: r.client_vat ?? null,
     ...printedTerms({ ...r, invoice_date: invoiceDate, due_date: dueDate }, companyId),

@@ -1,38 +1,42 @@
 /**
- * The revenue legs `postCustomerInvoiceToGL` and `approveCreditNote` post —
- * each poster makes ONE call here and keeps its AR and VAT legs as they were.
- * The allocation is pure (`invoiceRevenueLines.ts`); this file reads what it
+ * What `postCustomerInvoiceToGL` and `approveCreditNote` read to build their
+ * revenue legs — the invoice's checked stored lines, and a note's share of the
+ * invoice journal's revenue legs. The allocation is pure
+ * (`invoiceRevenueLines.ts`, `invoiceVatLegs.ts`); this file reads what it
  * allocates.
  */
 import { sql } from '@/lib/neon';
 import { creditNoteHeaderOf } from './creditNoteHeaderTags';
 import type { JournalLineInput } from '../../types/gl.types';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
-import { assertPostsStoredDimensions, isApprovingFrom } from '../gl/dimensions/dimensionStoredPosting';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { storedInvoiceLines, storedLinesRefusal } from './invoiceLineCodingGuard';
 import {
-  allocateCreditNote, buildInvoiceRevenueLines, isRevenueCoded, type CreditNoteAllocation, type LegTags, type RevenueLeg,
+  allocateCreditNote, isRevenueCoded, type CreditNoteAllocation, type LegTags, type RevenueLeg,
 } from './invoiceRevenueLines';
+import { storedVatType, type StoredVatLine } from './invoiceVatLegs';
+import { allocateTypedCreditNote, legsAreTyped } from './creditNoteTypedSplit';
 
 /**
- * The invoice's revenue credit legs. `credit` is the amount the journal
- * carries; the stored lines decide only where it goes. An invoice with no
- * coded line gets the single default_revenue leg it always got. `status` is
+ * The invoice's stored lines (with their VAT, migration 1008), held to every
+ * rule posting must meet before its journal is created. The caller builds the
+ * credit legs from them: buildInvoiceRevenueLines for a legacy invoice (an
+ * invoice with no coded line gets the single default_revenue leg it always
+ * got), invoiceVatLegs for one whose lines carry their VAT type. `status` is
  * the one the invoice is posted FROM: approving (draft, pending_approval)
  * refuses a line its customer's or project's FNO would add to, or a dimension
  * no longer an active master; past draft it posts as stored (#675).
  */
-export async function invoiceRevenueJournalLines(
+export async function postableInvoiceLines(
   companyId: string,
   invoiceId: string,
-  invoice: { number: string; documentSubtotal: number; credit: number },
-  defaultRevenueAccountId: string,
+  invoiceNumber: string,
   status: string,
-): Promise<JournalLineInput[]> {
+): Promise<StoredVatLine[]> {
   const stored = await storedInvoiceLines(companyId, invoiceId);
   const lines = stored?.lines ?? [];
   await assertPostsStoredDimensions(companyId, status, lines,
-    (i) => `Invoice ${invoice.number} line ${i + 1}`, stored?.customerFnoId ?? null);
+    (i) => `Invoice ${invoiceNumber} line ${i + 1}`, stored?.customerFnoId ?? null);
   if (lines.some(isRevenueCoded)) {
     // Under lock, against the chart as it is now — approve already refused
     // this before its first write; Post to GL and the backfills meet it here,
@@ -40,14 +44,7 @@ export async function invoiceRevenueJournalLines(
     const refusal = await storedLinesRefusal(companyId, stored);
     if (refusal) throw new InvoiceLineCodingRefusal(refusal);
   }
-  return buildInvoiceRevenueLines({
-    invoiceNumber: invoice.number,
-    documentSubtotal: invoice.documentSubtotal,
-    credit: invoice.credit,
-    lines,
-    defaultRevenueAccountId,
-    strict: isApprovingFrom(status),
-  });
+  return lines;
 }
 
 /**
@@ -76,7 +73,11 @@ export async function invoiceRevenueJournalLines(
  */
 export async function creditNoteRevenueJournalLines(
   companyId: string,
-  note: { id: string; number: string; amount: number; customerInvoiceId: string | null; tags: LegTags },
+  note: {
+    id: string; number: string; amount: number; customerInvoiceId: string | null; tags: LegTags;
+    /** The note's VAT and date: against a TYPED invoice they decide its rated part (creditNoteTypedSplit). */
+    taxAmount: number; date: string | Date;
+  },
   defaultRevenueAccountId: string,
 ): Promise<{ lines: JournalLineInput[]; allocations: CreditNoteAllocation[] }> {
   if (!note.customerInvoiceId) {
@@ -91,7 +92,7 @@ export async function creditNoteRevenueJournalLines(
   // group, then one re-tagged, reopened the group's capacity — review #685).
   const invoiceLegs = (await sql`
     SELECT jl.id AS journal_line_id, jl.gl_account_id, a.is_active, jl.project_id, jl.cc1_id, jl.cc2_id, jl.bu_id,
-           jl.credit - jl.debit AS net
+           jl.vat_type, jl.credit - jl.debit AS net
     FROM customer_invoices ci
     JOIN gl_journal_lines jl
       ON jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
@@ -131,8 +132,16 @@ export async function creditNoteRevenueJournalLines(
     net: Number(r.net),
     taken: takenByLeg.get(String(r.journal_line_id)) ?? 0,
     journalLineId: String(r.journal_line_id),
+    // A typed invoice's leg (migration 1008): the note reverses it on the same VAT type. Uncoded stays uncoded.
+    vatType: storedVatType(r.vat_type),
   }));
-  return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, legacy.map((e) => Number(e.subtotal)));
+  const replayed = legacy.map((e) => Number(e.subtotal));
+  // Every leg coded (a typed invoice): the note's VAT decides its rated part. Otherwise pro rata over every leg, as before.
+  if (legsAreTyped(legs)) {
+    return allocateTypedCreditNote(legs, { subtotal: note.amount, taxAmount: note.taxAmount, date: note.date },
+      note.number, defaultRevenueAccountId, replayed);
+  }
+  return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, replayed);
 }
 
 /**
