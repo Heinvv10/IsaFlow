@@ -41,6 +41,8 @@ export function typedInvoicePdfTable(
       fmtZAR(Number(item.tax_amount)),
       fmtZAR(Number(item.amount || 0)),
     ]),
-    vatLabel: vatTotalLabel(Number(invoice.subtotal || 0), standardVatRatePctOn(date), Number(invoice.tax_amount || 0)),
+    vatLabel: vatTotalLabel({
+      subtotal: Number(invoice.subtotal || 0), ratePct: standardVatRatePctOn(date), vat: Number(invoice.tax_amount || 0),
+    }),
   };
 }
