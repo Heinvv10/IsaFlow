@@ -14,7 +14,7 @@ describe('termsOfCreate', () => {
   it('defaults to employee / monthly with nothing else', () => {
     expect(termsOfCreate({}, refuse)).toEqual({
       taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null, occupation: null,
-      etiIdDocument: null,
+      etiIdDocument: null, pspEntityType: null,
     });
   });
 
@@ -24,7 +24,7 @@ describe('termsOfCreate', () => {
       etiIdDocument: 'refugee_id',
     }, refuse)).toEqual({
       taxStatus: 'independent_contractor', payBasis: 'daily', hoursPerWeek: 45, hoursPerDay: 9, hourlyRate: 120.5, dailyRate: 900, occupation: 'Driver',
-      etiIdDocument: 'refugee_id',
+      etiIdDocument: 'refugee_id', pspEntityType: null,
     });
   });
 
@@ -132,7 +132,7 @@ describe('priced terms', () => {
   });
 
   it('the log mask names every term', () => {
-    expect([...EMPLOYEE_TERM_LOG_KEYS].sort()).toEqual(['dailyRate', 'etiIdDocument', 'hourlyRate', 'hoursPerDay', 'hoursPerWeek', 'occupation', 'payBasis', 'taxStatus']);
+    expect([...EMPLOYEE_TERM_LOG_KEYS].sort()).toEqual(['dailyRate', 'etiIdDocument', 'hourlyRate', 'hoursPerDay', 'hoursPerWeek', 'occupation', 'payBasis', 'pspEntityType', 'taxStatus']);
   });
 });
 

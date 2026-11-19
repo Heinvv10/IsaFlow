@@ -1,8 +1,8 @@
 /**
- * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, notifications, settings, nav-mode
- * and density toggles, theme, the user and log out. Below `lg` (where the hamburger drawer carries the nav) the
- * toggles, the user and Log out live in MobileHeaderMenu, so the bar fits at 768 and 1024; the user's name shows
- * from `xl`.
+ * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, notifications, settings
+ * (whose menu holds the density and theme toggles), the nav-mode toggle, the user and log out. Below `lg` (where the
+ * hamburger drawer carries the nav) the toggles, the user and Log out live in MobileHeaderMenu, so the bar fits at 768
+ * and 1024; the user's name shows from `xl`.
  */
 import type { RefObject } from 'react';
 import Image from 'next/image';
@@ -99,8 +99,9 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
           unread badge must show on a phone too, so it is not folded into MobileHeaderMenu. */}
       {!isAdminHost && <NotificationBell />}
 
-      {/* Settings cog (hidden on admin subdomain) */}
-      {!isAdminHost && <SettingsMenu />}
+      {/* Settings cog (hidden on admin subdomain). Its popover shows the density and theme toggles from the breakpoint
+          where they used to sit inline here; below it MobileHeaderMenu has them, so they are in one place at every width. */}
+      {!isAdminHost && <SettingsMenu displayClassName={inline} />}
 
       {/* Nav mode toggle (hidden on admin subdomain: its sidebar is the accounting one) */}
       {!isAdminHost && (
@@ -115,11 +116,10 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
         </button>
       )}
 
-      {/* Table density toggle (below lg these live in MobileHeaderMenu) */}
-      <div className={inline}><TableDensityToggle /></div>
-
-      {/* Theme: Light / Dark / System */}
-      <div className={inline}><ThemeToggle /></div>
+      {/* Table density and theme are set-once controls: in the app they live in the Settings cog's popover (and below
+          lg, xl in sidebar mode, in MobileHeaderMenu). The admin host has no cog, so there they stay inline from lg. */}
+      {isAdminHost && <div className={inline}><TableDensityToggle /></div>}
+      {isAdminHost && <div className={inline}><ThemeToggle /></div>}
 
       <MobileHeaderMenu
         className={showSidebar ? 'xl:hidden' : 'lg:hidden'}

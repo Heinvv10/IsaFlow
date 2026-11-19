@@ -18,8 +18,12 @@ function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
   return checkWorkflowRunsCi(load(yamlText), scripts, WORKFLOW_FILES);
 }
 
-/** The hosted apt steps' first three lines (apt timeouts, the fallback mirror, then update), as ci.yml writes them. */
-const APT_HEAD = `          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\n          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null\n          sudo apt-get update -q\n`;
+/** The hosted apt required-install steps' lines before the loop (apt timeouts, the fallback mirror, the .deb cache dir, the mirror rotation), as ci.yml writes them. */
+const APT_HEAD = `          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\n          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null\n          mkdir -p "$HOME/apt-debs/partial"\n          sudo chmod -R a+rwX "$HOME/apt-debs"\n          apt_mirror() { case "$1" in\n`;
+/** The rest of the mirror-rotation function after its first line. */
+const APT_FN_REST = `            2) printf '%s\\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;\n            3) printf '%s\\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;\n            esac; }\n`;
+/** The start of the required install loop (3 attempts, each rotating the mirror, bounded and repeating the update), up to the package list. */
+const APT_LOOP = `          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" `;
 
 /** The hosted playwright step's run line as ci.yml writes it (bounded, one retry). */
 const PW_RUN = `        run: 'for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break; [ "$i" = 2 ] && exit 1; echo ''::warning::playwright install stalled or failed; retrying once''; sudo dpkg --configure -a; done'`;
@@ -320,8 +324,8 @@ describe('the required check passes only when both gate groups passed', () => {
     ['aggregator accepts any static result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$STATIC" = "success" ]', ''))],
     ['the velo fallback back in the aggregator (it queues forever once velo is paused)', edit('    needs: [route, static, velo]\n', '    needs: [route, static, static-fallback, velo]\n')],
     ['aggregator accepts skipped', edit(AGGREGATE, AGGREGATE.replace('[ "$STATIC" = "success" ]', '[ "$STATIC" != "failure" ]'))],
-    ['static apt step installs something else', edit(' --no-install-recommends ghostscript && break;', ' --no-install-recommends ghostscript && printf "exit 0\\n" > scripts/ci/run-ci.sh && break;')],
-    ['velo apt step installs something else', edit(' libreoffice-calc-nogui poppler-utils && break;', ' libreoffice-calc-nogui poppler-utils && printf "exit 0\\n" > scripts/ci/run-ci.sh && break;')],
+    ['static apt step installs something else', edit('ghostscript; } && break;', 'ghostscript; } && printf "exit 0\\n" > scripts/ci/run-ci.sh && break;')],
+    ['velo apt step installs something else', edit(' poppler-utils; } && break;', ' poppler-utils; } && printf "exit 0\\n" > scripts/ci/run-ci.sh && break;')],
     ['velo browser step rewriting what the gate runs', edit(PW_RUN + '\n\n      - name: CI gate (scripts/ci/run-ci.sh velo)', '        run: bunx playwright install --with-deps chromium && true\n\n      - name: CI gate (scripts/ci/run-ci.sh velo)')],
     ['aggregator neutralised with || true', edit(AGGREGATE, AGGREGATE.replace('\n', ' || true\n'))],
     ['aggregator reads a result that is not the job\'s', edit('          VELO: ${{ needs.velo.result }}\n', "          VELO: success\n")],
@@ -331,7 +335,7 @@ describe('the required check passes only when both gate groups passed', () => {
     ['static hosted part cut at 20 (a slow runner took 22 min of unit tests)', edit("hosted == 'true' && 40 || 75 }}", "hosted == 'true' && 20 || 75 }}")],
     ['static no longer needs route (its runs-on reads route\'s output)', edit(`${STATIC_HEADER}    needs: route\n`, STATIC_HEADER)],
     ['velo no longer needs route', edit(`${VELO_HEADER}    needs: route\n`, VELO_HEADER)],
-    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + '          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16', '      - run: |\n' + APT_HEAD + '          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16')],
+    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + APT_FN_REST + APT_LOOP + 'postgresql-16', '      - run: |\n' + APT_HEAD + APT_FN_REST + APT_LOOP + 'postgresql-16')],
     ['velo without its browser install (browser-tests cannot launch Chromium)', edit("      # As in static: Chromium for browser-tests.\n      - if: ${{ runner.environment == 'github-hosted' }}\n" + PW_RUN + '\n', '')],
     ['a hosted setup step that runs on velo too (static)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 0)],
     ['a hosted setup step that runs on velo too (velo)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 1)],
@@ -340,6 +344,23 @@ describe('the required check passes only when both gate groups passed', () => {
     ['another bun version on hosted (static)', editNth('          bun-version: 1.3.9\n', '          bun-version: latest\n', 0)],
     ['another bun version on hosted (velo)', editNth('          bun-version: 1.3.9\n', '          bun-version: latest\n', 1)],
     ['node_modules restored from the cache (static)', editNth('          path: ~/.bun/install/cache\n', '          path: node_modules\n', 0)],
+    ['apt .deb cache path pointed at the checkout (static)', editNth('          path: ~/apt-debs/*.deb\n', '          path: scripts\n', 0)],
+    ['apt .deb cache path pointed at the checkout (velo)', editNth('          path: ~/apt-debs/*.deb\n', '          path: scripts\n', 1)],
+    ['postgres moved into the best-effort LibreOffice install', edit(' libreoffice-calc-nogui; } && exit 0;', ' libreoffice-calc-nogui postgresql-16; } && exit 0;')],
+    ['the velo required apt install made best-effort (exit 0 on the last attempt)', editNth('[ "$i" = 3 ] && exit 1;', '[ "$i" = 3 ] && exit 0;', 1)],
+    ['the static required apt install made best-effort (exit 0 on the last attempt)', editNth('[ "$i" = 3 ] && exit 1;', '[ "$i" = 3 ] && exit 0;', 0)],
+    ['continue-on-error on the velo required apt install', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + APT_FN_REST + APT_LOOP + 'postgresql-16 postgresql-16-pgvector poppler-utils', "      - if: ${{ runner.environment == 'github-hosted' }}\n        continue-on-error: true\n        run: |\n" + APT_HEAD + APT_FN_REST + APT_LOOP + 'postgresql-16 postgresql-16-pgvector poppler-utils')],
+    ['continue-on-error on the best-effort LibreOffice install (must stay a plain run step)', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          apt_mirror() { case", "      - if: ${{ runner.environment == 'github-hosted' }}\n        continue-on-error: true\n        run: |\n          apt_mirror() { case")],
+    ['the LibreOffice step rewriting the gate after its failure', edit('          rm -f "$HOME"/apt-debs/*.deb\n', '          rm -f "$HOME"/apt-debs/*.deb; printf "exit 0\\n" > scripts/ci/run-ci.sh\n')],
+    ['a retry that keeps the stalled mirror (rotation dropped from the velo loop)', edit(APT_LOOP.trimStart() + 'postgresql-16 postgresql-16-pgvector poppler-utils', APT_LOOP.trimStart().replace('apt_mirror "$i"; ', '') + 'postgresql-16 postgresql-16-pgvector poppler-utils')],
+    ['apt week step also rewriting the gate (static)', editNth('        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"\n', '        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"; printf "exit 0\\n" > scripts/ci/run-ci.sh\n', 0)],
+    ['apt week step also rewriting the gate (velo)', editNth('        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"\n', '        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"; printf "exit 0\\n" > scripts/ci/run-ci.sh\n', 1)],
+    ['apt cache step running on velo too (velo)', (() => {
+      const from = "      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/cache@v4\n        with:\n          path: ~/apt-debs/*.deb\n";
+      const parts = REAL.split(from);
+      expect(parts.length - 1, 'static and velo only (golden-chunks has an extra condition)').toBe(2);
+      return parts[0] + from + parts[1] + '      - uses: actions/cache@v4\n        with:\n          path: ~/apt-debs/*.deb\n' + parts[2];
+    })()],
     ['node_modules restored from the cache (velo)', editNth('          path: ~/.bun/install/cache\n', '          path: node_modules\n', 1)],
     ['route output widened to another key', edit('      hosted: ${{ steps.route.outputs.hosted }}\n', '      hosted: ${{ steps.route.outputs.hosted }}\n      labels: x\n')],
     ['route step swaps the runner\'s bun before static runs on velo', edit('          if [ "$CI_HOSTED" = "off" ]; then\n', '          cp /bin/true "$HOME/.bun/bin/bun"\n          if [ "$CI_HOSTED" = "off" ]; then\n')],
@@ -348,7 +369,7 @@ describe('the required check passes only when both gate groups passed', () => {
     ['static renamed to the required check', edit(STATIC_NAME, '    name: Type Check, Lint & Test\n')],
     ['golden-paths renamed (its required check never reports)', edit('    name: Golden Paths E2E (blocking)\n', '    name: Golden Paths E2E\n')],
     ['a decoy whose name renders as the required check through an expression', edit('    name: Golden Paths lane\n', "    name: \"Type Check, Lint ${{ '&' }} Test\"\n")],
-    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + '          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends ghostscript', '      - run: |\n' + APT_HEAD + '          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends ghostscript')],
+    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + APT_FN_REST + APT_LOOP + 'ghostscript', '      - run: |\n' + APT_HEAD + APT_FN_REST + APT_LOOP + 'ghostscript')],
     ['the browser step rewriting what the gate runs', edit(PW_RUN + '\n\n      # The gate list', '        run: bunx playwright install --with-deps chromium && printf "exit 0\\n" > scripts/ci/run-ci.sh\n\n      # The gate list')],
     ['TZ set to dodge the local-day tests', edit('          # day, and a hosted runner is UTC.\n          TZ: Africa/Johannesburg\n', '          # day, and a hosted runner is UTC.\n          TZ: UTC\n')],
     ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],

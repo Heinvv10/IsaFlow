@@ -16,9 +16,10 @@
  *
  * Who logs in: GOLDEN_PLATFORM_ADMIN_EMAIL/_PASSWORD whenever both are set, in every environment (hosted CI sets them
  * to a throwaway super_admin seeded by scripts/ci/golden-hosted/up.sh; setting them for the post-deploy verify swaps
- * the shared login for a dedicated principal with no code change). Otherwise E2E_ADMIN_* (today the post-deploy
- * verify and local runs: admin@isaflow.co.za, which must be a super_admin with at least one company there; see the
- * deploy pre-check in PR #1377), reusing the session the global setup already opened for that user. Failure
+ * the shared login for a dedicated principal with no code change; the post-deploy verify does that with the pair that
+ * was E2E_ADMIN_*, once the suite's own login is the Deploy Verification user). Otherwise E2E_ADMIN_* (local runs and the
+ * post-deploy verify without a verify login: admin@isaflow.co.za, which must be a super_admin with at least one company
+ * there; see the deploy pre-check in PR #1377), reusing the session the global setup already opened for that user. Failure
  * messages name only the login's email domain.
  *
  * How it reaches the admin host: middleware serves the console only for Host admin.isaflow.co.za, and on any other

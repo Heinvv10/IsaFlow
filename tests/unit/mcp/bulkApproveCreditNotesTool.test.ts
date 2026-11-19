@@ -59,6 +59,7 @@ import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplie
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { listCreditNoteAllocations } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
+import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const ID = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -224,5 +225,24 @@ describe('bulk_approve_credit_notes', () => {
     expect((res.credit_notes as Array<Record<string, unknown>>)[0]!
       .applied_to_invoice_ids).toEqual([]);
     expect(res.applied_count).toBeUndefined();
+  });
+
+  // Round 4, item 4: through the real runner (savepoint per element): the note its invoice cannot carry is skipped
+  // with its reason, the other approves; the dry run does not foresee it.
+  it('skips a vat_split_refused note and approves the rest; the dry run cannot foresee the skip', async () => {
+    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01', credit_note_number: 'CN-1', type: 'customer' },
+         { id: ID(2), status: 'draft', credit_date: '2026-09-01', credit_note_number: 'CN-2', type: 'customer' });
+    vi.mocked(approveCreditNote).mockImplementation((async (_c: string, id: string) => {
+      if (id === ID(1)) throw new CreditNoteVatSplitRefusal('Credit note CN-1: 600.00 of it carries no VAT');
+      return { id, creditNoteNumber: 'CN-2', type: 'customer', status: 'approved', totalAmount: 57.5, glJournalEntryId: 'je-2' };
+    }) as never);
+    const dry = payload(await bulkApproveCreditNotesTool.handler(
+      { credit_note_ids: [ID(1), ID(2)], dry_run: true, idempotency_key: 'k' }, ctx) as Result);
+    expect(dry.would_post_ids).toEqual([ID(1), ID(2)]);
+    const live = payload(await bulkApproveCreditNotesTool.handler(
+      { credit_note_ids: [ID(1), ID(2)], idempotency_key: 'k2' }, ctx) as Result);
+    expect((live.credit_notes as Array<Record<string, unknown>>).map((r) => r.id)).toEqual([ID(2)]);
+    expect(live.skipped).toEqual([expect.objectContaining({ document_id: ID(1),
+      reason: 'vat_split_refused: Credit note CN-1: 600.00 of it carries no VAT' })]);
   });
 });

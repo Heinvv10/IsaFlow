@@ -41,7 +41,7 @@ describe('a PR cannot reach the raw-input gate through ci.yml', () => {
     [
       'an env on the install step',
       edit(QUALITY_INSTALL, QUALITY_INSTALL.replace('--ignore-scripts\n', '--ignore-scripts\n        env:\n          RAW_INPUT_BASE_REF: HEAD\n')),
-      /^jobs\.static step 6 must be only `run: bun install --frozen-lockfile --ignore-scripts`/,
+      /^jobs\.static step 8 must be only `run: bun install --frozen-lockfile --ignore-scripts`/,
     ],
     [
       'an env on the checkout step',

@@ -21,6 +21,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { pspLineFlag } from './payrollOutsideTables';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payRunFinalSql } from './payRunFinalSql';
@@ -94,6 +95,8 @@ export async function listRunAnnualPayments(
         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
         AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
         AND (item->>'isTaxable')::boolean
+        -- A personal service provider's line is on no natural-person certificate (pspLineFlag, wave 6 PSP).
+        AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
       GROUP BY l.id, l.employee_id
     ) per_line
     GROUP BY per_line.employee_id
@@ -123,6 +126,7 @@ export async function listRunLumpSums(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->'directive' IS NOT NULL
+      AND NOT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false) -- a PSP's line: on no natural-person certificate
       -- Lump sums only (DR): a regular-pay directive is never a breakdown item's directive; refused here if one were.
       AND d.directive_type = ANY(${[...LUMP_SUM_DIRECTIVE_TYPES]}::text[])
     GROUP BY l.employee_id, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g'), d.id, d.directive_number, d.effective_date, d.issued_date

@@ -11,7 +11,7 @@
  *     member category factor (Seventh Schedule para 12D(3); definedBenefitFund.ts). A retirement annuity fund (3828) is never
  *     a defined-benefit fund: refused, and logged.
  * Assignments: `percent_of_rfi` is a fraction (0 < p <= 1, four decimals; NUMERIC(6,4)) with amount 0, on a retirement
- * contribution only (rfi.percentOfRfiRefusal). `db_member_category_factor` (DBF, migration 999s) is judged by judgeDbFactor.
+ * contribution only (rfi.percentOfRfiRefusal). `db_member_category_factor` (DBF, migration 1014) is judged by judgeDbFactor.
  * Changing `counts_as_rfi` after a run was calculated changes what its percent rows should cost: the change is audited
  * (entity payroll_component), and the approval gate refuses such a run until it is recalculated (payrollRunRecalcGate).
  */

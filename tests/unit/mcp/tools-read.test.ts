@@ -19,6 +19,8 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlFn,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+    // token_info reads its user in a savepoint; with no request transaction the real one just runs fn.
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
   };
 });
 
@@ -111,6 +113,10 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => 
   getBankTransactions: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ getVat201Report: vi.fn() }));
+// vat_status's filingRateCheck reads the nil-rated supplies; scripted here rather than run against the stub sql.
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({
+  getNilRatedSupplies: vi.fn().mockResolvedValue({ onTaxedJournals: 0, uncodedOnTaxedJournals: 0 }),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceById: vi.fn(),
@@ -367,9 +373,12 @@ describe('contact + bank + vat tools', () => {
 
   it('vat_status requires the period and passes companyId first', async () => {
     vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
-    parseOk(await tool('vat_status').handler(
+    const status = parseOk(await tool('vat_status').handler(
       { period_start: '2026-05-01', period_end: '2026-06-30' }, ctx(),
     ));
+    expect(status.filingRateCheck).toEqual({
+      ties: true, outputVariance: 0, inputVariance: 0, taxedOutputBase: 0, nilRatedGivenBack: 0, uncodedGivenBack: 0,
+    });
     expect(getVat201Report).toHaveBeenCalledWith(
       COMPANY_ID, '2026-05-01', '2026-06-30',
       expect.objectContaining({ detail: 'standard' }),

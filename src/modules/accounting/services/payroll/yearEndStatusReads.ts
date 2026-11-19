@@ -12,13 +12,15 @@ import {
 } from '@/modules/accounting/utils/payeTaxYear';
 import { payRunFinalSql } from './payRunFinalSql';
 import { emp201PayeByMonth } from './payrollEmp201Paye';
+import { pspLineFlag } from './payrollOutsideTables';
+import { listPspFilingTotals } from './pspFiling';
 
 export async function readYearEndStatusRows(companyId: string, taxYear: number) {
   const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
   const bounds = payeTaxYearBounds(taxYear);
   // The checklist reports on the runs the IRP5 and EMP501 actually declare: FINAL runs (payRunFinalSql, wave 6 EF).
 
-  const [companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows] =
+  const [companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows, pspTotals] =
     await Promise.all([
       sql`
         SELECT
@@ -46,6 +48,8 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
         JOIN payroll_run_headers prh ON prh.id = prl.run_id
         WHERE prh.company_id = ${companyId}::uuid
           AND ${sql.unsafe(payRunFinalSql('prh'))}
+          -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): decided per line.
+          AND NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)
           AND (
             (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
             OR
@@ -88,6 +92,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
           AND  effective_date <= ${bounds.end}::date
           AND  (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
       ` as Promise<DbRow[]>,
+      listPspFilingTotals(companyId, bounds),
     ]);
-  return { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows };
+  return { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows, pspTotals };
 }

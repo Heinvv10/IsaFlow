@@ -2,13 +2,14 @@
  * Dropdown panels for ModuleNav: the flat list, the sectioned flyout, and the
  * nested sub-panels.
  *
- * Mouse: a section row opens its sub-panel on hover (150 ms close delay).
+ * Mouse: a section row opens its sub-panel on hover (150 ms close delay), with hover intent (useFlyoutSection).
+ * Every panel is placed inside the viewport (useFlyoutPlacement) and focus never scrolls the shell (focusInPanel).
  * Keyboard: Enter, Space or ArrowRight opens a row and focuses its first item;
  * ArrowUp/Down/Home/End move within a panel; Escape or ArrowLeft closes the
  * sub-panel and returns focus to its row.
  */
 
-import { useState, useRef, useEffect, useId } from 'react';
+import { useRef, useEffect, useLayoutEffect, useId } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Settings } from 'lucide-react';
@@ -18,9 +19,13 @@ import {
   type Tab, type DropdownItem, type NavItem,
 } from '../accounting/accountingNavConfig';
 import type { AccentTokens } from './moduleNavAccent';
+import type { FlyoutDir } from './menuPosition';
+import { useOpenSection, type OpenSection } from './useFlyoutSection';
+import { useFlyoutPlacement, focusInPanel } from './useFlyoutPlacement';
 
-const panelCls =
-  'absolute left-full top-0 bg-surface-raised border border-line rounded-r-lg shadow-xl min-w-[210px] py-1';
+// w-min: the width the panel had as an absolute child of its row, wherever it is placed now.
+const panelCls = (dir: FlyoutDir) =>
+  `bg-surface-raised border border-line ${dir === 'left' ? 'rounded-l-lg' : 'rounded-r-lg'} shadow-xl min-w-[210px] w-min py-1`;
 
 const inactiveLinkCls =
   'text-ink-muted hover:text-ink hover:bg-surface-sunken';
@@ -60,28 +65,8 @@ export function panelArrowKeys(e: ReactKeyboardEvent<HTMLElement>): void {
   else next = at === -1 ? (move > 0 ? 0 : items.length - 1) : (at + move + items.length) % items.length;
   e.preventDefault();
   e.stopPropagation();
-  items[next]?.focus();
+  focusInPanel(items[next]);
 }
-
-// ─── One open section at a time per panel ─────────────────────────────────────
-
-function useOpenSection() {
-  const [open, setOpen] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const viaKeyboard = useRef(false);
-  const cancel = () => { if (timer.current) clearTimeout(timer.current); };
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  return {
-    open,
-    cancel,
-    /** True once if the open was keyboard-initiated, so focus moves into the panel. */
-    takeKeyboardOpen: () => { const was = viaKeyboard.current; viaKeyboard.current = false; return was; },
-    show: (section: string, keyboard = false) => { cancel(); viaKeyboard.current = keyboard; setOpen(section); },
-    hide: () => { cancel(); setOpen(null); },
-    later: () => { cancel(); timer.current = setTimeout(() => setOpen(null), 150); },
-  };
-}
-type OpenSection = ReturnType<typeof useOpenSection>;
 
 interface SectionGroupProps {
   section: string;
@@ -90,17 +75,24 @@ interface SectionGroupProps {
   onClose: () => void;
   accent: AccentTokens;
   state: OpenSection;
+  /** The way the panel holding this row opened: the sub-panel tries the same way first. */
+  dir: FlyoutDir;
+  /** Where the panel holding this row is: the sub-panel is re-placed when it moves. */
+  parentAt: string;
 }
 
-function SectionGroup({ section, items, asPath, onClose, accent, state }: SectionGroupProps) {
+function SectionGroup({ section, items, asPath, onClose, accent, state, dir, parentAt }: SectionGroupProps) {
   const isOpen = state.open === section;
+  const wrapRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  const place = useFlyoutPlacement(isOpen, () => wrapRef.current, panelRef, { side: 'beside', prefer: dir, nested: items.some(isFlyout), follow: parentAt });
 
+  useLayoutEffect(() => { if (isOpen) state.register(panelRef.current); }, [isOpen, state]);
   useEffect(() => {
     if (!isOpen || !state.takeKeyboardOpen()) return;
-    if (panelRef.current) panelItems(panelRef.current)[0]?.focus();
+    if (panelRef.current) focusInPanel(panelItems(panelRef.current)[0]);
   }, [isOpen, state]);
 
   const closeToRow = (e: ReactKeyboardEvent) => {
@@ -108,11 +100,11 @@ function SectionGroup({ section, items, asPath, onClose, accent, state }: Sectio
     e.preventDefault();
     e.stopPropagation();
     state.hide();
-    rowRef.current?.focus();
+    focusInPanel(rowRef.current);
   };
 
   return (
-    <div className="relative" onMouseEnter={() => state.show(section)} onMouseLeave={state.later} onKeyDown={closeToRow}>
+    <div ref={wrapRef} onMouseEnter={e => state.hover(section, { x: e.clientX, y: e.clientY })} onMouseLeave={state.later} onKeyDown={closeToRow}>
       <button
         ref={rowRef}
         type="button"
@@ -128,8 +120,8 @@ function SectionGroup({ section, items, asPath, onClose, accent, state }: Sectio
       </button>
       {isOpen && (
         <div ref={panelRef} id={panelId} data-nav-panel onMouseEnter={state.cancel} onMouseLeave={state.later}
-          onKeyDown={panelArrowKeys} className={panelCls}>
-          <SubMenuItems items={items} asPath={asPath} onClose={onClose} accent={accent} />
+          onKeyDown={panelArrowKeys} style={place.style} className={panelCls(place.dir)}>
+          <SubMenuItems items={items} asPath={asPath} onClose={onClose} accent={accent} dir={place.dir} parentAt={place.at} />
         </div>
       )}
     </div>
@@ -143,9 +135,11 @@ interface SubMenuItemsProps {
   asPath: string;
   onClose: () => void;
   accent: AccentTokens;
+  dir?: FlyoutDir;
+  parentAt?: string;
 }
 
-export function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
+export function SubMenuItems({ items, asPath, onClose, accent, dir = 'right', parentAt = '' }: SubMenuItemsProps) {
   const state = useOpenSection();
   const activeHref = activeHrefAmong(items, asPath);
 
@@ -154,7 +148,7 @@ export function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsPro
       {items.map(item => {
         if (isFlyout(item)) {
           return <SectionGroup key={item.section} section={item.section} items={item.items}
-            asPath={asPath} onClose={onClose} accent={accent} state={state} />;
+            asPath={asPath} onClose={onClose} accent={accent} state={state} dir={dir} parentAt={parentAt} />;
         }
         if (item.isSetting) {
           return (
@@ -190,9 +184,11 @@ interface DropdownProps {
 
 export function FlatDropdown({ items, asPath, onClose, accent, id }: DropdownProps & { items: DropdownItem[] }) {
   const activeHref = activeHrefAmong(items, asPath);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const place = useFlyoutPlacement(true, () => panelRef.current?.parentElement, panelRef, { side: 'below' });
   return (
-    <div id={id} data-nav-panel onKeyDown={panelArrowKeys}
-      className="absolute top-full left-0 bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
+    <div ref={panelRef} id={id} data-nav-panel onKeyDown={panelArrowKeys} style={place.style}
+      className="bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[220px] w-min py-1 z-40">
       {items.map(item => (
         <Link key={item.href} href={item.href} onClick={onClose} className={makeLinkCls(item.href === activeHref, accent)}>
           {item.label}
@@ -209,11 +205,14 @@ export function FlyoutDropdown({ tab, asPath, onClose, accent, id }: DropdownPro
   const settingsItems = allSections.filter(s => s.section === 'Settings').flatMap(s => s.items);
   const settingsActiveHref = activeHrefAmong(settingsItems, asPath);
   const regularSections = allSections.filter(s => s.section !== 'Settings');
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Anchored to the zero-size wrapper, which sits at the tab's bottom-left corner.
+  const place = useFlyoutPlacement(true, () => panelRef.current?.parentElement, panelRef, { side: 'below' });
 
   return (
     <div id={id} className="absolute top-full left-0 z-40">
-      <div data-nav-panel onKeyDown={panelArrowKeys}
-        className="bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[200px] py-1">
+      <div ref={panelRef} data-nav-panel onKeyDown={panelArrowKeys} style={place.style}
+        className="bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[200px] w-min py-1">
         <NavLinksBlock
           links={tab.links}
           tabItems={tab.items}
@@ -238,7 +237,7 @@ export function FlyoutDropdown({ tab, asPath, onClose, accent, id }: DropdownPro
 
         {regularSections.map(section => (
           <SectionGroup key={section.section} section={section.section} items={section.items}
-            asPath={asPath} onClose={onClose} accent={accent} state={state} />
+            asPath={asPath} onClose={onClose} accent={accent} state={state} dir={place.dir} parentAt={place.at} />
         ))}
 
         {/* Settings items — rendered inline with separator, no flyout */}

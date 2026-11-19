@@ -14,6 +14,7 @@ import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes'
 import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useIdempotencyKey } from '@/hooks/useIdempotencyKey';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 /** Under manual-journal enforcement a transfer a rule matches is held: a draft journal and an approval request (202). */
 interface HeldTransfer { journalId: string; message: string }
@@ -72,7 +73,7 @@ export default function BankTransfersPage() {
       setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
       return;
     }
-    if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
+    if (!fromAccount || !toAccount || !(parseFloat(amount) > 0) || fromAccount === toAccount) {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
     }
@@ -147,7 +148,7 @@ export default function BankTransfersPage() {
                     value={fromAccount}
                     disabled={isSubmitting}
                     onChange={(e) => setFromAccount(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
+                    className="w-full px-3 py-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                   >
                     <option value="">Select source account...</option>
                     {bankAccounts.map(a => (
@@ -166,7 +167,7 @@ export default function BankTransfersPage() {
                     value={toAccount}
                     disabled={isSubmitting}
                     onChange={(e) => setToAccount(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
+                    className="w-full px-3 py-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                   >
                     <option value="">Select destination account...</option>
                     {bankAccounts.map(a => (
@@ -178,20 +179,18 @@ export default function BankTransfersPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Amount (ZAR)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
+                    <AmountInput
+                      min={0}
                       value={amount}
                       disabled={isSubmitting}
-                      onChange={(e) => setAmount(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
+                      onValueChange={(_n, text) => setAmount(text)}
+                      className="w-full px-3 py-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                       placeholder="0.00"
                     />
                   </div>
                   <div>
                     <DateField label="Date" name="transferDate" value={transferDate || null} disabled={isSubmitting}
-                      onChange={dates.bind('transferDate', setTransferDate, transferDate)} />
+                      onChange={dates.bind('transferDate', setTransferDate, transferDate)} className="max-lg:min-h-11" />
                   </div>
                 </div>
 
@@ -202,7 +201,7 @@ export default function BankTransfersPage() {
                     value={reference}
                     disabled={isSubmitting}
                     onChange={(e) => setReference(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
+                    className="w-full px-3 py-2 max-lg:min-h-11 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                     placeholder="e.g. Inter-account transfer"
                   />
                 </div>
@@ -233,7 +232,7 @@ export default function BankTransfersPage() {
                   <button
                     onClick={() => { void handleTransfer(true); }}
                     disabled={isSubmitting}
-                    className="w-full px-4 py-2.5 border border-amber-500/60 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 rounded-lg text-sm font-medium"
+                    className="w-full px-4 py-2.5 max-lg:min-h-11 border border-amber-500/60 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 rounded-lg text-sm font-medium"
                   >
                     It is a separate transfer — post it anyway
                   </button>
@@ -242,7 +241,7 @@ export default function BankTransfersPage() {
                 <button
                   onClick={() => { void handleTransfer(); }}
                   disabled={isSubmitting}
-                  className="w-full px-4 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-medium"
+                  className="w-full px-4 py-2.5 max-lg:min-h-11 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-medium"
                 >
                   {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4" />}
                   Process Transfer

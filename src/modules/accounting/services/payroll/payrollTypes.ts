@@ -3,10 +3,13 @@ import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
 import type { RegularPayDirectiveType } from './taxDirectiveKinds';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
+import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
-export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
+/** A personal service provider's entity (migration 1013): it picks the rate (taxTables personalServiceProviderRates). */
+export type PspEntityType = 'company' | 'trust';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
 export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
@@ -37,6 +40,8 @@ export interface PayrollEmployee {
   paymentMethod?: 'eft' | 'cash';
   /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
+  /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
+  pspEntityType?: PspEntityType | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;
@@ -100,7 +105,7 @@ export interface EmployeeComponent {
   rfiBase?: number;
   /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
   employerFundAsCash?: boolean;
-  /** DBF (migration 999s): a defined-benefit fund member category factor; the run values `amount` from it (definedBenefitFund.ts). */
+  /** DBF (migration 1014): a defined-benefit fund member category factor; the run values `amount` from it (definedBenefitFund.ts). */
   dbMemberCategoryFactor?: number | null;
   /** Set by costDefinedBenefitFund: C, the employee's own contributions to that fund the value was reduced by. */
   dbEmployeeContribution?: number;
@@ -112,8 +117,8 @@ export interface EmployeeComponent {
   dbEmployerContribution?: number;
 }
 
-export type { OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
-import type { PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
+export type { EtiMonthParts, LineCadence, OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
+import type { EtiMonthParts, LineCadence, PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
 
 export interface PayeInput {
   annualTaxableIncome: number;
@@ -149,10 +154,16 @@ export interface ValidationResult {
   message: string;
   field?: string;
   deepLink?: string;
-  /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
+  /** PAYE_LATER_PERIODS_APPROVED only: the later periods it names, for people (YYYY-MM; a weekly run's YYYY-MM-DD start). */
   periods?: string[];
+  /** PAYE_LATER_PERIODS_APPROVED only (wave 6 FQc): the later runs' ids. The approval gate matches on these. */
+  runs?: string[];
+  /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
+  etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none' | 'directive';
+  treatment?: 'flat_25' | 'flat_psp' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'flat_psp' only: the PSP's entity and rate (the payslip states them; wave 6 PSP). */
+  psp?: { entity: PspEntityType; rate: number };
   /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
   directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
@@ -191,6 +202,10 @@ export interface PayrollLineInput {
   notEmployedInPeriod?: boolean;
   /** The employee's IRP3(b)/(c) directive on regular pay for the period (payrollRunRegularDirective); absent = none. */
   regularPayDirective?: RegularPayDirectiveState;
+  /** The employee's garnishee orders for the period (payrollGarnisheeRun; GA); absent = none. Taken from net pay last. */
+  garnisheeOrders?: GarnisheeOrderInput[];
+  /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
+  cadence?: LineCadence;
 }
 
 export interface ComponentBreakdownItem {
@@ -227,7 +242,7 @@ export interface ComponentBreakdownItem {
   /** RF (migration 975): a percent_of_rfi row, as costed: amount = round2(percentOfRfi x rfiBase). */
   percentOfRfi?: number;
   rfiBase?: number;
-  /** DBF (migration 999s): a defined-benefit row, as costed: amount = max(0, round2(factor x rfiBase - dbEmployeeContribution)). */
+  /** DBF (migration 1014): a defined-benefit row, as costed: amount = max(0, round2(factor x rfiBase - dbEmployeeContribution)). */
   dbMemberCategoryFactor?: number;
   dbEmployeeContribution?: number;
   /** DBF: the contribution the employer pays the fund (GL 2175, IRP5 4472 / 4473, or 4585 / 4586 when dbMemberRetired). */
@@ -289,7 +304,10 @@ export interface PayrollLineResult {
   donationBase: number;
   donationDeduction: number;
   eti: EtiResult;
+  /** After any garnishee deductions (GA), never below nil. */
   netPay: number;
+  /** The garnishee deductions taken from net pay (payrollGarnishee); stored in payroll_garnishee_deductions. */
+  garnishees: GarnisheeDeduction[];
   componentBreakdown: ComponentBreakdownItem[];
   validationResults: ValidationResult[];
   /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */

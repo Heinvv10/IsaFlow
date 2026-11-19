@@ -44,11 +44,13 @@ function describe(form: ReturnForm, action: ReturnAction, n: number): { title: s
     return { title: `Finalise ${form} v${n}`, cta: 'Finalise',
       text: form === 'VAT201'
         ? `Locks the VAT period and records these figures as version ${n}. Postings into the period are refused until the return is amended.`
-        : `Records these figures as version ${n}. Every pay run it sums must be approved.` };
+        : form === 'EMP501'
+          ? `Records the e@syFile certificates as version ${n}. Refused while IRP5 pre-validation shows an error or a month's EMP201 is not filed.`
+          : `Records these figures as version ${n}. Every pay run it sums must be approved.` };
   }
   if (action === 'file') {
     return { title: `Mark ${form} v${n} filed`, cta: 'Mark filed',
-      text: 'Records that you filed this version on SARS eFiling. IsaFlow does not send the return to SARS: enter the reference eFiling gave you.' };
+      text: 'Records that you filed this version on SARS eFiling. IsaFlow does not send the return to SARS: enter the payment reference number (PRN) eFiling shows on the return.' };
   }
   return { title: `Amend ${form} v${n}`, cta: 'Amend',
     text: `Version ${n} becomes superseded${form === 'VAT201' ? ' and its VAT period lock is released so postings can be corrected' : ''}. `

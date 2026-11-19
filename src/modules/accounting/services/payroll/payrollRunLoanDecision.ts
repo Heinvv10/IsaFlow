@@ -3,8 +3,9 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { appendLoanComponents, fringeOnlyLoanApplications, type LoanComponents } from './payrollRunLoanComponents';
 import type { ApplyLoanResult } from './payrollLoanService';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
+import type { GarnisheeOrderInput } from './payrollGarnishee';
 import type {
-  EmployeeComponent, PayeYearToDate, PayrollEmployee, PayrollPeriod, ValidationResult,
+  EmployeeComponent, LineCadence, PayeYearToDate, PayrollEmployee, PayrollPeriod, ValidationResult,
 } from './payrollTypes';
 
 export interface LoanLineBasis {
@@ -21,6 +22,10 @@ export function judgeLoanApplications(input: {
   period: PayrollPeriod;
   taxYear: number;
   ytd?: PayeYearToDate;
+  /** GA: the same garnishee orders the stored line is costed with, so a loan is judged on the pay left after them. */
+  garnisheeOrders?: GarnisheeOrderInput[];
+  /** The stored line's cadence (wave 6 FQc), so a weekly preview costs as its line does. */
+  cadence?: LineCadence;
 }): { allowed: boolean; rawNet: number } {
   if (!input.basis) {
     return { allowed: false, rawNet: -input.applications.reduce((sum, app) => sum + app.installment, 0) };
@@ -31,7 +36,8 @@ export function judgeLoanApplications(input: {
       input.basis.components, fringeOnlyLoanApplications(input.applications), input.loanComponents,
     ),
     period: input.period, taxYear: input.taxYear, annualPayrollEstimate: 'defer', ytd: input.ytd,
-    regularPayDirective: input.basis.regularPayDirective,
+    regularPayDirective: input.basis.regularPayDirective, garnisheeOrders: input.garnisheeOrders,
+    ...(input.cadence ? { cadence: input.cadence } : {}),
   });
   const availableCents = Math.round(Math.max(0, benefitOnly.netPay) * 100);
   const deductionCents = Math.round(input.applications.reduce((sum, app) => sum + app.principal + app.interest, 0) * 100);

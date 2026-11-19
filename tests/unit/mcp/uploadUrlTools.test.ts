@@ -107,6 +107,16 @@ describe('create_upload_urls', () => {
     expect(sweepExpiredUploadsThrottled).toHaveBeenCalledTimes(1);
   });
 
+  it('takes a purchase order as an entity target, typed-checked, with document_type purchase_order by default', async () => {
+    const res = body(await createUploadUrlsTool.handler({
+      files: [file({ target: { entity_type: 'purchase_order', entity_id: BILL }, file_name: 'PO0000197.pdf' })], idempotency_key: 'k',
+    }, ctx(['write:invoices'])));
+    expect(res.urls_issued).toBe(1);
+    expect(vi.mocked(verifyEntityOwnershipTyped)).toHaveBeenCalledWith('purchase_order', BILL, ctx().companyId);
+    expect(vi.mocked(store.insertUploadIntent).mock.calls[0]![2]).toMatchObject({
+      targetKind: 'purchase_order', targetId: BILL, documentType: 'purchase_order' });
+  });
+
   it('issues no url, and reads nothing, when the server key for upload tokens is missing', async () => {
     const saved = process.env.JWT_SECRET;
     delete process.env.JWT_SECRET;

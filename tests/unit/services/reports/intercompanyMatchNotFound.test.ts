@@ -13,6 +13,7 @@ import { IntercompanyNotFoundError, matchIntercompanyTransactions } from '@/modu
 const mockSql = sql as unknown as ReturnType<typeof vi.fn>;
 const G = '80000000-0000-4000-8000-000000000001';
 const T1 = '60000000-0000-4000-8000-000000000001';
+const U = '90000000-0000-4000-8000-000000000001'; // the matching user
 const T2 = '60000000-0000-4000-8000-000000000002';
 
 beforeEach(() => { mockSql.mockReset(); });
@@ -24,7 +25,7 @@ describe('matchIntercompanyTransactions', () => {
     ['both missing', [[], []], [T1, T2]],
   ] as const)('%s → IntercompanyNotFoundError, no UPDATE', async (_n, results, missing) => {
     for (const r of results) mockSql.mockResolvedValueOnce(r);
-    const err = await matchIntercompanyTransactions(T1, T2, G).catch((e: unknown) => e);
+    const err = await matchIntercompanyTransactions(T1, T2, G, U).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(IntercompanyNotFoundError);
     expect(err).toMatchObject({ missing });
     expect(mockSql).toHaveBeenCalledTimes(2);

@@ -4,24 +4,27 @@
 
 import { useState } from 'react';
 import { Plus, Loader2, Save, Trash2, Pencil } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   CompanyGroup, GroupMember, SimpleCompany,
   INPUT_CLS, LABEL_CLS, BTN_PRIMARY, BTN_SECONDARY, SECTION_CLS,
   CONSOLIDATION_METHODS,
 } from './types';
 import { addMemberBody, updateMemberBody, removeMemberQuery } from './groupRequests';
+import { disabledAction, isActiveCompany, rowHint, switchToAdd } from './groupActiveCompany';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Props {
   group: CompanyGroup;
   members: GroupMember[];
   availableCompanies: SimpleCompany[];
+  /** The company the user is working in: a member row is changed only with its own company active. */
+  activeCompanyId: string | null;
   onRefresh: () => Promise<void>;
   onFlash: (msg: string, type: 'success' | 'error') => void;
 }
 
-export function GroupMembersSection({ group, members, availableCompanies, onRefresh, onFlash }: Props) {
+export function GroupMembersSection({ group, members, availableCompanies, activeCompanyId, onRefresh, onFlash }: Props) {
   const [saving, setSaving] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMember, setNewMember] = useState({ companyId: '', ownershipPct: 100, consolidationMethod: 'full' });
@@ -37,13 +40,13 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(addMemberBody(group.id, newMember)),
       });
-      if (!res.ok) throw new Error('Add member failed');
+      await assertOk(res, 'Could not add the member - try again');
       onFlash('Member added', 'success');
       setShowAddMember(false);
       setNewMember({ companyId: '', ownershipPct: 100, consolidationMethod: 'full' });
       await onRefresh();
-    } catch {
-      onFlash('Failed to add member', 'error');
+    } catch (err) {
+      onFlash(apiErrorMessage(err, 'Could not add the member - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -57,12 +60,12 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updateMemberBody(group.id, memberId, editMember)),
       });
-      if (!res.ok) throw new Error('Update failed');
+      await assertOk(res, 'Could not update the member - try again');
       onFlash('Member updated', 'success');
       setEditingMemberId(null);
       await onRefresh();
-    } catch {
-      onFlash('Failed to update member', 'error');
+    } catch (err) {
+      onFlash(apiErrorMessage(err, 'Could not update the member - try again'), 'error');
     } finally {
       setSaving(false);
     }
@@ -75,11 +78,11 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
         removeMemberQuery(group.id, memberId),
         { method: 'DELETE' },
       );
-      if (!res.ok) throw new Error('Remove failed');
+      await assertOk(res, 'Could not remove the member - try again');
       onFlash('Member removed', 'success');
       await onRefresh();
-    } catch {
-      onFlash('Failed to remove member', 'error');
+    } catch (err) {
+      onFlash(apiErrorMessage(err, 'Could not remove the member - try again'), 'error');
     }
   };
 
@@ -92,6 +95,13 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
         </button>
       </div>
 
+      {!activeCompanyId && (
+        <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-[var(--ff-text-primary)]">
+          <span>Your active company could not be loaded, so member changes are paused.</span>
+          <button onClick={() => window.location.reload()} className={BTN_SECONDARY}>Retry</button>
+        </div>
+      )}
+
       {showAddMember && (
         <div className="mb-4 p-4 bg-[var(--ff-bg-primary)] rounded-lg border border-[var(--ff-border-primary)] space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -103,7 +113,11 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
                 onChange={e => setNewMember({ ...newMember, companyId: e.target.value })}
               >
                 <option value="">-- Select Company --</option>
-                {availableCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {availableCompanies.map(c => (
+                  <option key={c.id} value={c.id} disabled={!isActiveCompany(c.id, activeCompanyId)}>
+                    {isActiveCompany(c.id, activeCompanyId) ? c.name : switchToAdd(c.name, !!activeCompanyId)}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -149,9 +163,18 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
               </tr>
             </thead>
             <tbody>
-              {members.map(m => (
+              {members.map(m => {
+                const here = isActiveCompany(m.companyId, activeCompanyId);
+                const name = m.companyName ?? 'that company';
+                const hint = here ? undefined : rowHint(name, !!activeCompanyId);
+                const editName = here ? 'Edit' : disabledAction('Edit', name, !!activeCompanyId);
+                const removeName = here ? 'Remove' : disabledAction('Remove', name, !!activeCompanyId);
+                return (
                 <tr key={m.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                  <td className="py-3 text-[var(--ff-text-primary)]">{m.companyName}</td>
+                  <td className="py-3 text-[var(--ff-text-primary)]">
+                    {m.companyName}
+                    {hint && <span className="block text-xs text-[var(--ff-text-tertiary)]">{hint}</span>}
+                  </td>
                   <td className="py-3 text-[var(--ff-text-secondary)]">
                     {editingMemberId === m.id ? (
                       <input type="number" min={0} max={100} className={INPUT_CLS + ' w-20'}
@@ -191,19 +214,23 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
                             setEditingMemberId(m.id);
                             setEditMember({ ownershipPct: m.ownershipPct, consolidationMethod: m.consolidationMethod });
                           }}
-                          className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]" title="Edit"
+                          disabled={!here}
+                          className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={editName} aria-label={editName}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button onClick={() => void handleRemoveMember(m.id)}
-                          className="p-1.5 rounded hover:bg-red-500/10 text-red-400" title="Remove">
+                        <button onClick={() => void handleRemoveMember(m.id)} disabled={!here}
+                          className="p-1.5 rounded hover:bg-red-500/10 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={removeName} aria-label={removeName}>
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

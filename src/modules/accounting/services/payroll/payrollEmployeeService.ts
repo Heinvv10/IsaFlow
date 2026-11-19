@@ -1,3 +1,4 @@
+import { pspEntityChangeWarning, pspSwitchWarning } from './pspFiling';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -8,6 +9,7 @@ import type { PayFrequency, PayrollEmployee, UnsupportedValue } from './payrollT
 import { payFrequencyOf } from './payrollFrequency';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 import { EmployeeTermsRefused, judgeTerms, movedTerms, termsFromRow, TERM_KEYS, type EmployeeTerms } from './payrollEmployeeTerms';
+import { pspEntityOfPatch } from './payrollEmployeeTaxStatus';
 
 type Row = DbRow;
 
@@ -68,18 +70,22 @@ export async function listPayrollEmployees(
  */
 export async function listPayrollRunEmployees(
   companyId: string,
-  period: { year: number; month: number },
+  period: { year: number; month: number; start?: string; end?: string },
   payFrequency: PayFrequency | UnsupportedValue = 'monthly',
 ): Promise<PayrollEmployee[]> {
+  // The run's own dates when it has them (a weekly or fortnightly run, wave 6 FQc), else the calendar month.
   const rows = (await sql`
-    WITH p AS (SELECT make_date(${period.year}::int, ${period.month}::int, 1) AS start)
+    WITH p AS (
+      SELECT COALESCE(${period.start ?? null}::date, make_date(${period.year}::int, ${period.month}::int, 1)) AS start,
+             COALESCE(${period.end ?? null}::date + 1, make_date(${period.year}::int, ${period.month}::int, 1) + INTERVAL '1 month')::date AS stop
+    )
     SELECT e.* FROM payroll_employees e, p
     WHERE e.company_id = ${companyId}::uuid
       AND e.pay_frequency = ${payFrequency}
-      AND e.start_date < p.start + INTERVAL '1 month'
+      AND e.start_date < p.stop
       AND (
-        (e.end_date >= p.start AND e.end_date < p.start + INTERVAL '1 month')
-        OR (e.end_date >= p.start + INTERVAL '1 month' AND e.status IN ('active', 'terminated'))
+        (e.end_date >= p.start AND e.end_date < p.stop)
+        OR (e.end_date >= p.stop AND e.status IN ('active', 'terminated'))
         OR (e.end_date IS NULL AND e.status = 'active')
       )
     ORDER BY e.last_name, e.first_name
@@ -128,7 +134,7 @@ export async function createPayrollEmployee(
       company_id, employee_number, first_name, last_name,
       id_number, tax_number, employment_type, start_date, end_date,
       date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held,
-      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation, eti_id_document
+      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation, eti_id_document, psp_entity_type
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
@@ -137,7 +143,7 @@ export async function createPayrollEmployee(
       ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
       ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld},
       ${data.taxStatus ?? 'employee'}, ${data.payBasis ?? 'monthly'}, ${data.hoursPerWeek ?? null}, ${data.hoursPerDay ?? null},
-      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}, ${data.etiIdDocument ?? null}
+      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}, ${data.etiIdDocument ?? null}, ${data.pspEntityType ?? null}
     )
     RETURNING *
   `) as Row[];
@@ -150,8 +156,10 @@ export async function updatePayrollEmployee(
   companyId: string,
   data: Partial<Omit<PayrollEmployee, 'id' | 'companyId'>>,
   userId?: string,
-): Promise<PayrollEmployee | null> {
+): Promise<(PayrollEmployee & { warnings?: string[] }) | null> {
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
+  // Moving off personal service provider with no entity named clears the entity (wave 6 PSP), for every caller.
+  data = { ...data, ...pspEntityOfPatch(data, data.taxStatus, (m) => new EmployeeTermsRefused(m)) };
 
   const toIso = (v: unknown): string | null => (v ? fmtDate(v) : null);
   const dobIso = toIso(data.dateOfBirth);
@@ -171,7 +179,7 @@ export async function updatePayrollEmployee(
   // The date of birth and the ID number decide ETI (age, ETI Act s6(a); the document, s6(b); wave 5 ET): they take the lock too.
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
     || dobIso !== null || data.idNumber !== undefined
-    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument'] as const).some(has);
+    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const).some(has);
   const write = (db: typeof sql, now: Row) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -194,6 +202,7 @@ export async function updatePayrollEmployee(
       daily_rate                   = CASE WHEN ${has('dailyRate')} THEN ${data.dailyRate ?? null}::numeric ELSE daily_rate END,
       occupation                   = CASE WHEN ${has('occupation')} THEN ${data.occupation ?? null} ELSE occupation END,
       eti_id_document              = CASE WHEN ${has('etiIdDocument')} THEN ${data.etiIdDocument ?? null} ELSE eti_id_document END,
+      psp_entity_type              = CASE WHEN ${has('pspEntityType')} THEN ${data.pspEntityType ?? null} ELSE psp_entity_type END,
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
@@ -240,7 +249,13 @@ export async function updatePayrollEmployee(
     });
   }
 
-  return updated;
+  // H2 (wave 6 PSP): a move into or out of PSP in a year with final runs is named, not refused.
+  const warnings = updated && locked ? [
+    await pspSwitchWarning(companyId, id, String(locked.tax_status ?? ''), updated.taxStatus ?? null),
+    // Round 3: an entity change names the months approved at the other entity (a reopen of one refuses).
+    await pspEntityChangeWarning(companyId, id, locked.psp_entity_type == null ? null : String(locked.psp_entity_type), updated.pspEntityType ?? null),
+  ].filter((w): w is string => w !== null) : [];
+  return updated && warnings.length > 0 ? { ...updated, warnings } : updated;
 }
 
 export async function listTaxNumbersForCompany(

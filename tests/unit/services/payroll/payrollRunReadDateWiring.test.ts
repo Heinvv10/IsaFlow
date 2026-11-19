@@ -5,6 +5,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/pspComponentGuard', async (orig) => ({
+  ...(await orig<object>()), assertPspRunComponents: vi.fn(async () => undefined), assertReopenedRunKeepsPspTreatment: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
@@ -13,6 +16,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
 // Both loan components exist: the fail-closed path has its own integration suites.
 // Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
 // A rehire's earlier ETI months (etiPriorEmployment) have their own tests (etiEligibility.test.ts).
+// Wave 6 FQc: the frequency guard and the weekly cadence read the database; a monthly run passes and has none.
+vi.mock('@/modules/accounting/services/payroll/payrollFrequencyGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollFrequencyGuard')>(), assertFrequencyCostable: vi.fn(async () => undefined),
+}));
+vi.mock('@/modules/accounting/services/payroll/payrollRunCadence', () => ({ loadLineCadences: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/payroll/etiPriorEmployment', () => ({ withEtiPriorMonths: async (_c: string, e: unknown[]) => e }));
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
@@ -37,6 +45,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveUses', () => (
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(() => Promise.resolve([]))),
+}));
+// GA: the run's garnishee orders are read and recorded by payrollGarnisheeRun (proven in w6-garnishee.int.test.ts).
+vi.mock('@/modules/accounting/services/payroll/payrollGarnisheeRun', () => ({
+  loadRunGarnisheeOrders: vi.fn(async () => new Map()), replaceRunGarnisheeDeductions: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({

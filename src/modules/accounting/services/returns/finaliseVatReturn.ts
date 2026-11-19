@@ -8,11 +8,19 @@
  * insert and may still fire for a lock that then rolls back; that is a forensic copy, not a record).
  * A lock that already exists was not made by this finalise, so `created: false` is a 409; when a
  * version names that lock, the loser of a race is told so. The version row copies the lock row's
- * figures: nothing is computed a second time.
+ * figures: nothing is computed a second time. Wave 6 EFa: it also records the SARS form as IsaFlow lays it out
+ * (buildVat201SarsFields: fields 1 to 20, from the same report and the period's nil-rated supplies, read under the same
+ * exclusive VAT key) as figures.sarsForm, which the filing file renders field for field and the drift check compares.
+ * The 15% check is judged on the taxed output base after the nil-rated give-back (vat201RateCheck.rateCheckForFiling;
+ * the ledger's field1_standardRatedSupplies, not the form's VAT-inclusive field 1), as the lock route and the MCP lock
+ * tool judge it, not on the report's own rateCheck.
  */
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import { lockVatPeriod } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { buildVat201SarsFields } from '@/modules/accounting/services/reports/vat201SarsFields';
+import { rateCheckFailure, rateCheckForFiling } from '@/modules/accounting/services/reports/vat201RateCheck';
 import { assertNoLiveOverlap, insertVersion, listVersionRows, nextVersion } from './returnVersionStore';
 import { getVatReturnRecord } from './vatReturnRecord';
 import {
@@ -25,13 +33,15 @@ export async function finaliseVatReturn(
   companyId: string, periodStart: string, periodEnd: string, actor: ReturnActor, opts: FinaliseOptions,
 ): Promise<{ version: ReturnVersion; vatReturn: VatReturnRecord | null }> {
   const { figures, report } = await computeVatLockFigures(companyId, periodStart, periodEnd);
+  const nilRated = await getNilRatedSupplies(companyId, periodStart, periodEnd);
+  const sarsForm = buildVat201SarsFields(report, nilRated);
   // The exclusive VAT key is held now: a finalise that committed while this one waited is seen here.
   await assertNoLiveOverlap(companyId, 'VAT201', periodStart, periodEnd);
-  if (report.rateCheck.ties === false && opts.force !== true) {
+  const rateCheck = rateCheckForFiling(report, nilRated);
+  if (!rateCheck.ties && opts.force !== true) {
     throw new ReturnRefusal(400,
-      `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is `
-      + `over-claimed by ${report.rateCheck.inputVariance} (summed per journal). Correct the postings, or finalise anyway and `
-      + 'record that it fails the check.', 'RATE_CHECK_FAILED');
+      `${rateCheckFailure(rateCheck)} Correct the postings, or finalise anyway and record that it fails the check.`,
+      'RATE_CHECK_FAILED');
   }
   const vatReturn = await getVatReturnRecord(companyId, periodStart, periodEnd, figures);
   const mismatched = vatReturn?.status === 'submitted' && vatReturn.mismatch;
@@ -59,7 +69,7 @@ export async function finaliseVatReturn(
   const version = await insertVersion({
     companyId, form: 'VAT201', periodStart, periodEnd, ...nextVersion(existing),
     figures: {
-      outputTax: lock.outputTax, inputTax: lock.inputTax, netVat: lock.netVat, sarsFields: report.boxes,
+      outputTax: lock.outputTax, inputTax: lock.inputTax, netVat: lock.netVat, sarsFields: report.boxes, sarsForm,
       ...(meta ? { meta } : {}),
     },
     postedThrough: lock.postedThrough,

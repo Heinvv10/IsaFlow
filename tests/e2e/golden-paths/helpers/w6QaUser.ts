@@ -1,5 +1,5 @@
 /**
- * The wave-6 golden QA user: golden-qa-w6@isaflow.dev, owner of its own sandbox "0W6 Golden Sandbox" and of nothing
+ * The wave-6 golden QA user: golden-qa-w6@isaflow.co.za, owner of its own sandbox "0W6 Golden Sandbox" and of nothing
  * else (dev GoTrue / isaflow_dev only; scripts/ci/golden/provision-w6-qa.ts makes it and writes the login to
  * ~/.secrets/isaflow-dev-golden-qa.env). A wave-6 golden that writes signs in as it, so it never shares a session or an
  * active company with the reporting-qa users other work switches around. Existing goldens are unchanged.

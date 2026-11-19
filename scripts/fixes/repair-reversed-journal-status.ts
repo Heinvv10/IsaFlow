@@ -1,4 +1,10 @@
 /**
+ * RETIRED (wave 6 FZ, migration 999n). Do not run. Since 999n a reversed journal is final: "a posted journal leaves
+ * posted only to reversed", so the reversed -> posted UPDATE below (line ~205) is refused for every non-superuser
+ * role. The script is obsolete as well: production held 0 status = 'reversed' rows (scripts/mcp-recon-benchmark.ts:18),
+ * so there is nothing left for it to heal. Kept for the history of the reversal-semantics fix only.
+ */
+/**
  * Data correction: flip legacy status='reversed' originals back to 'posted'.
  *
  * Before the reversal-semantics fix, reverseJournalEntry marked the ORIGINAL

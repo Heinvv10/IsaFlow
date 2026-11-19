@@ -1,5 +1,6 @@
 /** One connection: who, what kind, whether it is live, what is still to set up, and this company's own settings. */
 import { useState } from 'react';
+import Link from 'next/link';
 import { Loader2, Link2 } from 'lucide-react';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import type { ConnectionView, SideOptions } from '@/modules/accounting/services/intercompany/connectionTypes';
@@ -88,6 +89,12 @@ export function ConnectionCard({ connection, options, canEdit, onChanged, onNoti
         </p>
       )}
       {live && <ChecklistBadges checklist={connection.checklist} />}
+      {live && settings.cutoverDate && (
+        <p className="text-xs">
+          <Link href={`/accounting/settings/intercompany/pairing?connection=${connection.id}`} className="text-blue-600 dark:text-blue-400 underline"
+            data-testid="pairing-link">Pair the documents that were open before the cut-over</Link>
+        </p>
+      )}
       {live && panel === 'pair' && canEdit && connection.canEditSettings && (
         <PairSettingsForm connection={connection} onSaved={(c) => { onChanged(c); onNotice('Connection settings saved', true); }}
           onError={(m) => onNotice(m, false)} />
@@ -96,7 +103,7 @@ export function ConnectionCard({ connection, options, canEdit, onChanged, onNoti
         <SideForm connection={connection} options={options} onSaved={(c) => { onChanged(c); onNotice('Settings saved', true); }}
           onError={(m) => onNotice(m, false)} />
       )}
-      {!live && <p className="text-xs text-ink-muted">This connection was revoked. Its settings are kept and return if it is reconnected.</p>}
+      {!live && <p className="text-xs text-ink-muted">This connection was revoked. Its customer and supplier links were released; your other settings are kept and return if it is reconnected.</p>}
     </section>
   );
 }

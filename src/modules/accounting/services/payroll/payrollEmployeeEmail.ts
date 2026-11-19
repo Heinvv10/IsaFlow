@@ -14,6 +14,7 @@
  */
 import { sql } from '@/lib/neon';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { endPortalAccessForAddressChange } from './employeePortalAddressChange';
 
 const PART = String.raw`[^@\s,;<>"()\[\]\\\u0000-\u001f\u007f]+`;
 const EMAIL = new RegExp(`^${PART}@${PART}\\.${PART}$`);
@@ -68,6 +69,8 @@ export async function setEmployeeEmail(
     UPDATE payroll_employees SET email = ${email}, updated_at = now()
      WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid
   `;
+  // Wave 6 SS (review #1570 M2b): a portal login belonged to the old address; it ends, sessions included.
+  await endPortalAccessForAddressChange(companyId, employeeId, actor);
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'update', entityType: 'payroll_employee',
     entityId: employeeId, changes: { fields: [{ field: 'email', old, new: email, label: 'Payslip email' }] },

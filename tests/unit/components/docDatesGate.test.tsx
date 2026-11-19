@@ -136,7 +136,7 @@ const cases: GateCase[] = [
     ready: async () => {
       fireEvent.click(screen.getByText('pick-supplier'));
       change(byPlaceholder('Item description'), 'Bolts');
-      const [, price] = screen.getAllByRole('spinbutton');
+      const [, price] = document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]');
       change(price!, '10');
     },
     submit: submitForm },

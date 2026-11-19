@@ -136,7 +136,7 @@ describe('assigning: every refusal writes nothing', () => {
     expect(await assignmentRows(A)).toBe(before);
   });
 
-  it('migration 999s refuses the pair, a negative amount, a factor over 1, retired without a factor, a marked factor row, a bad fund_type', async () => {
+  it('migration 1014 refuses the pair, a negative amount, a factor over 1, retired without a factor, a marked factor row, a bad fund_type', async () => {
     const ins = (cols: string, vals: unknown[]) => pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, effective_from, ${cols}) VALUES ($1, $2, '2026-03-01', ${vals.map((_, i) => `$${i + 3}`).join(', ')})`,
       [emp[A], dbComp[A], ...vals]);

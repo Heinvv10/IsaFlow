@@ -8,6 +8,8 @@
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { explainPaye, type PayeExplainInput } from './payeExplain';
 import { withDefinedBenefitCaution } from './definedBenefitExplain';
+import { explainPspPaye } from './pspExplain';
+import type { PspFacts } from './taxStatusTreatment';
 import { explainEti, explainSdl, explainUif } from './statutoryExplain';
 import type { SdlLeviableTrace } from './sdlLeviableCumulative';
 import type { EtiResult, UifResult } from './payrollTypes';
@@ -17,13 +19,18 @@ import type { EarningPart } from './payrollLineAccumulate';
 export interface LineExplainParts {
   taxYear: number;
   periodDate: Date;
+  /** A personal service provider's entity and rate (wave 6 PSP), else null. */
+  /** A PSP's entity and rate, with the flat rate's base (pspLineRules.pspPayeBase). */
+  psp: (PspFacts & { base: number }) | null;
   paye: Omit<PayeExplainInput, 'taxYear'>;
-  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null };
+  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null; monthToDate?: number };
   sdl: {
     outsideReason: string | null; sdlApplicable: number; parts: EarningPart[]; deduction: number; retirementDeduction: number; donationDeduction: number;
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';
   };
   eti: { eti: EtiResult; hasPayeShare: boolean; hoursAssumed: boolean };
+  /** A weekly or fortnightly line's period share (FQc); absent on a monthly line. */
+  periodShare?: number;
 }
 
 export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
@@ -32,9 +39,10 @@ export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
     schema: 1,
     taxYear,
     calculationVersion: PAYROLL_CALCULATION_VERSION,
-    paye: withDefinedBenefitCaution(explainPaye({ taxYear, ...parts.paye }), parts.paye.earningParts),
+    paye: withDefinedBenefitCaution(parts.psp ? explainPspPaye({ taxYear, ...parts.paye }, parts.psp) : explainPaye({ taxYear, ...parts.paye }), parts.paye.earningParts),
     uif: explainUif({ taxYear, ...parts.uif }),
     sdl: explainSdl({ taxYear, ...parts.sdl }),
     eti: explainEti({ taxYear, periodDate: parts.periodDate, ...parts.eti }),
+    ...(parts.periodShare === undefined ? {} : { periodShare: parts.periodShare }),
   };
 }

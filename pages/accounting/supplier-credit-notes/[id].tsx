@@ -17,6 +17,7 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { vatTotalLabel } from '@/modules/accounting/services/shared/vatLineAmounts';
 
 /** R-035: the detail GET adds the derived approval state while the note is a draft. */
 type NoteWithApproval = CreditNote & { approval?: DocumentApprovalState | null };
@@ -247,7 +248,7 @@ export default function SupplierCreditNoteDetailPage() {
                 <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(note.subtotal))}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[var(--ff-text-secondary)]">VAT ({note.taxRate}%)</span>
+                <span className="text-[var(--ff-text-secondary)]">{vatTotalLabel({ subtotal: Number(note.subtotal), ratePct: Number(note.taxRate), vat: Number(note.taxAmount) })}</span>
                 <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(note.taxAmount))}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-[var(--ff-border-light)] text-base font-semibold">

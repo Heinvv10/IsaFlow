@@ -1,4 +1,5 @@
 import { sql, withTransaction } from '@/lib/neon';
+import { assertComponentAssignableAtFrequency } from './payrollFrequencyGuard';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
@@ -27,7 +28,7 @@ export interface EmployeeComponentAssignment {
   percentOfRfi: number | null;
   /** RF: a pre-RF employer fund row kept as cash (migration 975's opt-out). */
   employerFundAsCash: boolean;
-  /** DBF (migration 999s): the defined-benefit fund member category factor; amount is then what the employer pays the fund. */
+  /** DBF (migration 1014): the defined-benefit fund member category factor; amount is then what the employer pays the fund. */
   dbMemberCategoryFactor: number | null;
   /** DBF: a para 12D(6) member (retired, or a deceased member's dependant or nominee). */
   dbMemberRetired: boolean;
@@ -148,6 +149,7 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
+    await assertComponentAssignableAtFrequency(companyId, employeeId, componentId, percentOfRfi); // wave 6 FQc, §0a.11
     await judgeFundAssignment(tx, companyId, componentId);
     // DBF before RF: a factor beside a percentage is refused as that pair, whatever the percentage says.
     if (dbMemberCategoryFactor !== null) await judgeDbFactor(tx, companyId, componentId, { factor: dbMemberCategoryFactor, percentOfRfi, amount, isRecurring });

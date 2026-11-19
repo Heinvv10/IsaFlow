@@ -22,6 +22,8 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
+import { pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { canWrite } from '@/lib/auth/writeRoles';
 import {
   validateCompanyComponents,
   validateEmployeeIrp5,
@@ -36,14 +38,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
   // Pentest M17: bound numeric query params — reject year 9999 / -1 / NaN.
   const taxYearRaw = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
   if (!Number.isInteger(taxYearRaw) || taxYearRaw < 2000 || taxYearRaw > 2100) {
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
-  const { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows } =
+  const { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows, pspTotals } =
     await readYearEndStatusRows(companyId, taxYear);
 
   const retired4001 = await listRetiredMemberWith4001(companyId, bounds);
@@ -93,7 +95,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   let certificatesReady = 0;
   let empWithPayroll = 0;
 
+  // Paid only as a PSP this year: no natural-person certificate to ready, so not validated or counted (wave 6 PSP).
+  const pspOnly = new Set(pspTotals.filter((t) => !t.alsoEmployee).map((t) => t.employeeId));
   for (const emp of empRows) {
+    if (pspOnly.has(String(emp.id))) continue;
     const agg = aggMap.get(String(emp.id));
     const totalGross = agg ? Number(agg.total_gross) : 0;
     if (totalGross > 0) empWithPayroll += 1;
@@ -130,10 +135,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   const totalEmp201 = Array.from(emp201ByMonth.values()).reduce((s, v) => s + v, 0);
-  const totalIrp5 = empRows.reduce((s, emp) => {
+  const totalIrp5Certificates = empRows.reduce((s, emp) => {
     const agg = aggMap.get(String(emp.id));
     return s + (agg ? Number(agg.total_paye) : 0);
   }, 0);
+  const pspPaye = Math.round(pspTotals.reduce((s, t) => s + t.paye, 0) * 100) / 100;
+  // Roles without payroll-detail access NEVER see a PSP split (security ruling 2026-11-19): their IRP5 PAYE is on the old
+  // basis, PSP lines in, so totalPaye, the variance and balanced carry no PSP figure.
+  const detail = canWrite(companyRole);
+  const totalIrp5 = detail ? totalIrp5Certificates : totalIrp5Certificates + pspPaye;
   const totalVariance = totalEmp201 - totalIrp5;
 
   // ─── 6. Period lock ────────────────────────────────────────────────────────
@@ -161,9 +171,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalEmp201,
       totalIrp5,
       totalVariance,
+      // The PSP split: payroll-detail roles only.
+      ...(detail ? { pspPaye, unexplainedVariance: Math.round((totalVariance - pspPaye) * 100) / 100 } : {}),
     },
     periodLock: { locked: lockedAtYearEnd, lockdownDate: lockDate },
-    runWarnings: await notFinalRunWarnings(companyId, bounds, 'year-end check'),
+    runWarnings: [
+      ...await notFinalRunWarnings(companyId, bounds, 'year-end check'),
+      // PSP PAYE, by name, for payroll-detail roles only (this route is aggregate-only for a viewer, d3-employee-personal-data).
+      ...(detail ? pspTotals.map((t) => pspFilingWarning(t, 'IRP5 certificates')) : []),
+    ],
   };
 
   return apiResponse.success(res, payload);

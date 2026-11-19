@@ -24,6 +24,7 @@ export const VALID_ENTITY_TYPES = [
   'customer_invoice',
   'customer_payment',
   'credit_note',
+  'purchase_order',
 ] as const;
 
 export const VALID_DOCUMENT_TYPES = [
@@ -33,6 +34,7 @@ export const VALID_DOCUMENT_TYPES = [
   'credit_note_doc',
   'invoice',
   'receipt',
+  'purchase_order',
   'other',
 ] as const;
 
@@ -89,6 +91,7 @@ export async function verifyEntityOwnership(entityId: string, companyId: string)
     UNION ALL SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     LIMIT 1
   `;
   return !!owner;
@@ -121,6 +124,9 @@ export async function verifyEntityOwnershipTyped(
       break;
     case 'credit_note':
       rows = await sql`SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'purchase_order':
+      rows = await sql`SELECT 1 FROM purchase_orders WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
       break;
     default:
       return false;
@@ -245,10 +251,15 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     `;
     if (!invoice) return;
 
-    const poId = invoice.purchase_order_id as string | null;
     const grnId = invoice.grn_id as string | null;
+    // The header PO and every PO the bill is linked to (migration 1006: a bill may name several).
+    const linkedPos = (await sql`
+      SELECT purchase_order_id::text AS id FROM purchase_order_bill_links
+      WHERE supplier_invoice_id = ${invoiceId}::uuid AND company_id = ${companyId}::uuid
+    `) as Array<{ id: string }>;
+    const poIds = [...new Set([invoice.purchase_order_id as string | null, ...linkedPos.map((l) => l.id)].filter((v): v is string => !!v))];
 
-    if (poId) {
+    for (const poId of poIds) {
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
         VALUES (${docId}::uuid, 'purchase_order', ${poId}::uuid, 'po_invoice_link')
@@ -263,7 +274,7 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
       `;
     }
 
-    if (poId) {
+    for (const poId of poIds) {
       const poDocs = await sql`
         SELECT id FROM procurement_documents
         WHERE entity_type = 'purchase_order' AND entity_id = ${poId}::uuid AND is_active = true

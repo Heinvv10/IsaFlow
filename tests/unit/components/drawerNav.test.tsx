@@ -27,12 +27,11 @@ describe('DrawerNav', () => {
     expect(screen.getByRole('link', { name: 'Sales Orders' }).getAttribute('href')).toBe('/accounting/customer-sales-orders');
   });
 
-  it('"Customers" once: a daily link named like the section that lists its page is dropped (W2 H)', () => {
+  it('"Customers" once: the daily link to the list is "Customer List", not a second "Customers" (W2 H)', () => {
     render(<DrawerNav />);
     fireEvent.click(button('Sales'));
     fireEvent.click(button('Customers'));
-    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
-    expect(hrefs.filter((h) => h === '/accounting/customers')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Customer List' }).getAttribute('href')).toBe('/accounting/customers');
     expect(screen.queryByRole('link', { name: 'Customers' })).toBeNull();
     expect(screen.getByRole('link', { name: 'List of Customers' })).toBeTruthy();
     expect(screen.getAllByText('Customers')).toHaveLength(1);

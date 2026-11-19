@@ -54,7 +54,7 @@ export async function writeRunRow(w: RunRowWrite): Promise<void> {
       await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor, { removed: { employeeId } });
     } else if (rowId) {
       // RF / DBF: a percent_of_rfi row's amount is the run's to cost (its CHECK holds 0), and a defined-benefit row's amount is the employer's
-      // payment, set on the employee profile beside its factor (999s: amount >= 0): neither is a grid figure, so a 400.
+      // payment, set on the employee profile beside its factor (1014: amount >= 0): neither is a grid figure, so a 400.
       const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}
         WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid AND percent_of_rfi IS NULL AND db_member_category_factor IS NULL RETURNING id`) as DbRow[];
       if (updated.length === 0) {

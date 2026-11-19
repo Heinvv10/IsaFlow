@@ -1,7 +1,9 @@
 /**
- * Approving a purchase order (budgets P5-3; spec §0 decision 8c, §3b call site 3, §3c). The ONE writer of
- * `purchase_orders.status = 'approved'` from a draft or submitted PO: the PUT refuses that status (census item 2;
- * the goods-received service only keeps an already approved PO approved).
+ * Approving a purchase order (budgets P5-3; spec §0 decision 8c, §3b call site 3, §3c). The writer of
+ * `purchase_orders.status = 'approved'` from a draft or submitted PO in the APP: the PUT refuses that status (census item 2; the
+ * goods-received service only keeps an already approved PO approved). Two MCP writers also make approved POs, each under the
+ * same budget check and its own audit row: `purchaseOrderImport` (a PO imported open) and `purchaseOrderSetStatus` (an imported
+ * PO moved to approved); the update (`purchaseOrderUpdate`) re-checks an already approved PO.
  *
  * Order (block policy; warn / off take no budget lock):
  *   1. the company budget gate (`budget_check:<company>`, seed 954, bounded 5 s → 503) — FIRST, as the bill paths;

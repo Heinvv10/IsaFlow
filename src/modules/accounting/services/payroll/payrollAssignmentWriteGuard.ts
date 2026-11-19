@@ -5,16 +5,22 @@
  * would be paid; a once-off is additive and never clashes), as Edit dates refuses it. The siblings are read FOR UPDATE. Batch post reads the paid months once
  * and passes them in (`paid`), and names the employee in a refusal (`named`: a batch holds many).
  * Package apply cuts the overlapping rows first (payPackageSupersede), so it skips the overlap (`overlap: false`).
+ * Wave 6 FQc (review #1575 M5): first, a 38xx, 3701 or percent-of-RFI row for a weekly or fortnightly employee
+ * (payrollFrequencyGuard.refuseComponentAtFrequency), so every writer through here refuses it, before any write.
  */
 import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import { refusePspAssignment } from './pspComponentGuard';
 import type { PaidPeriod } from './payrollComponentPaidMonths';
 import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
 import { refuseDbComponentWithoutFactor } from './definedBenefitAssignment';
+import { refuseComponentAtFrequency } from './payrollFrequencyGuard';
 
 /** `dbFactor`: the row carries a defined-benefit factor (DBF); a defined_benefit component without one is refused on every path. */
-export interface AssignmentWrite { employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean; dbFactor?: boolean }
+export interface AssignmentWrite {
+  employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean; percentOfRfi?: number | null; dbFactor?: boolean;
+}
 export interface WriteGuardOptions { paid?: PaidPeriod[]; named?: boolean; overlap?: boolean }
 
 async function refuseOverlap(tx: TxSql, companyId: string, a: AssignmentWrite): Promise<void> {
@@ -39,8 +45,11 @@ async function refuseOverlap(tx: TxSql, companyId: string, a: AssignmentWrite): 
 export async function refuseAssignmentWrite(
   tx: TxSql, companyId: string, a: AssignmentWrite, opts: WriteGuardOptions = {},
 ): Promise<void> {
+  // Wave 6 PSP (M3/M4): a component a PSP cannot carry is refused (409, PspComponentRefused) whatever its dates.
+  await refusePspAssignment(tx, companyId, a.employeeId, a.componentId);
   try {
     await refuseDbComponentWithoutFactor(tx, companyId, a.componentId, a.dbFactor === true);
+    await refuseComponentAtFrequency(tx, companyId, a.employeeId, a.componentId, a.percentOfRfi ?? null);
     if (!a.recurring) {
       refuseOnceOffSpan(a.from, a.to);
       await refuseOnceOffInPaidMonth(tx, companyId, a.from, a.to, null, opts.paid);

@@ -1,5 +1,5 @@
 /**
- * The assignment-side rules of a defined-benefit fund (wave 6 DBF, migration 999s; #1571 adversarial round), apart from
+ * The assignment-side rules of a defined-benefit fund (wave 6 DBF, migration 1014; #1571 adversarial round), apart from
  * the run's valuation (definedBenefitFund.ts):
  * - a component created as a defined-benefit fund (payroll_components.fund_type) is assigned only with its fund member
  *   category factor, on every write path (assign, batch post, package apply, the run grid: refuseAssignmentWrite);

@@ -1,5 +1,5 @@
 /**
- * An employer's contribution to a DEFINED-BENEFIT pension or provident fund (wave 6 DBF, migration 999s). Pure.
+ * An employer's contribution to a DEFINED-BENEFIT pension or provident fund (wave 6 DBF, migration 1014). Pure.
  *
  * Seventh Schedule para 12D (Income Tax Act 58 of 1962; acts.co.za, sch7_12d "Valuation of contribution"):
  * - 12D(2): a fund member category with ONLY defined-contribution components: the cash equivalent (para 2(l)) is the
@@ -60,7 +60,7 @@ const isDbRow = (c: EmployeeComponent): boolean => c.dbMemberCategoryFactor != n
 /**
  * Why a fund member category factor cannot go on this assignment, or null when it can: a recurring assignment of an employer
  * pension (3817) or provident (3825) contribution earning not created as a defined-contribution fund, whose amount (what the
- * employer pays the fund) is 0 or more, never together with percent_of_rfi (the 999s CHECK holds the last rule too).
+ * employer pays the fund) is 0 or more, never together with percent_of_rfi (the 1014 CHECK holds the last rule too).
  * `factor` is a fraction, 0 < A <= 1, four decimals.
  */
 export function dbFactorRefusal(a: { componentType: string; code: string; factor: unknown; percentOfRfi: number | null; amount: number; isRecurring: boolean; fundType?: string | null }): string | null {

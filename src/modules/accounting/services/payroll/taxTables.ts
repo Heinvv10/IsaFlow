@@ -27,6 +27,11 @@ export interface TaxYearConfig {
    * Employment"; the summary table's R394 line). null = not verified for that year: a case that turns on it is undetermined.
    */
   nonStandardDailyThreshold: number | null;
+  /**
+   * A personal service provider's flat rate (taxStatusTreatment): SARS PAYE-GEN-01-G01-A06 row 6, "Apply trusts' or
+   * companies' income tax rate": 27% for a company including a close corporation, 45% for a trust.
+   */
+  personalServiceProviderRates: { company: number; trust: number };
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -70,6 +75,10 @@ const TAX_2025: TaxYearConfig = {
   // UNVERIFIED for 2025: the G19 guide (PAYE-GEN-01-G19) could not be fetched, so no daily threshold is stated and a case
   // that turns on it is undetermined (employmentTerms.ts). 2026 is R383 (G20 p. 28).
   nonStandardDailyThreshold: null,
+  // SARS PAYE-GEN-01-G01-A06-2025 (2025 Other Employment Tax Deduction Tables) row 6, Personal Service Provider: "Deduct
+  // 27% for a company including a close corporation", "Deduct 45% for a Trust"
+  // (https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/Tables/2024/PAYE-GEN-01-G01-A06-2025-Other-Employment-Tax-Deduction-Tables-External-Annexure.pdf).
+  personalServiceProviderRates: { company: 0.27, trust: 0.45 },
 };
 
 const TAX_2026: TaxYearConfig = {
@@ -114,6 +123,10 @@ const TAX_2027: TaxYearConfig = {
   retirementDeductionCap: 430_000,
   // R394 a day: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 28, "Deemed Standard Employment" and the summary table.
   nonStandardDailyThreshold: 394,
+  // UNVERIFIED for 2026 and 2027 as an A06 edition: none newer than PAYE-GEN-01-G01-A06-2025 is published (tables page read
+  // 2026-11-16). The A06 rule is "the trusts' or companies' income tax rate", and both are unchanged: companies 27% for years
+  // of assessment ending on or after 31 March 2023, trusts 45% (SARS rates of tax, companies and trusts).
+  personalServiceProviderRates: TAX_2025.personalServiceProviderRates,
 };
 
 const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {

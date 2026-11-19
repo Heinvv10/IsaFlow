@@ -40,7 +40,7 @@ describe('BankTransfersPage', () => {
     const [fromSelect, toSelect] = screen.getAllByRole('combobox');
     fireEvent.change(fromSelect!, { target: { value: FROM } });
     fireEvent.change(toSelect!, { target: { value: TO } });
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '125.50' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '125.50' } });
     fireEvent.click(screen.getByRole('button', { name: /transfer/i }));
 
     await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledWith('/api/accounting/bank-transfers', expect.anything()));
@@ -62,7 +62,7 @@ describe('BankTransfersPage', () => {
     const [fromSelect, toSelect] = screen.getAllByRole('combobox');
     fireEvent.change(fromSelect!, { target: { value: FROM } });
     fireEvent.change(toSelect!, { target: { value: TO } });
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2000' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '2000' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     expect(await screen.findByText('Awaiting approval')).toBeTruthy();
     expect(screen.getByText(/saved as a draft journal awaiting admin approval/)).toBeTruthy();
@@ -88,13 +88,13 @@ describe('BankTransfersPage', () => {
     const [fromSelect, toSelect] = screen.getAllByRole('combobox');
     fireEvent.change(fromSelect!, { target: { value: FROM } });
     fireEvent.change(toSelect!, { target: { value: TO } });
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '500' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     expect(await screen.findByText(/already in the ledger as JE-2026-00042/)).toBeTruthy();
     // An edit withdraws the offer: the confirmation covers the transfer that was checked (brk-nrfa round 4 LOW-2).
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '501' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '501' } });
     expect(screen.queryByRole('button', { name: /post it anyway/i })).toBeNull();
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '500' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     expect(await screen.findByRole('button', { name: /post it anyway/i })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /post it anyway/i }));
@@ -119,9 +119,9 @@ describe('BankTransfersPage', () => {
     const [fromSelect, toSelect] = screen.getAllByRole('combobox');
     fireEvent.change(fromSelect!, { target: { value: FROM } });
     fireEvent.change(toSelect!, { target: { value: TO } });
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '500' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
-    const fields = () => [...screen.getAllByRole('combobox'), screen.getByRole('spinbutton'),
+    const fields = () => [...screen.getAllByRole('combobox'),
       ...screen.getAllByRole('textbox')] as (HTMLInputElement | HTMLSelectElement)[];
     await waitFor(() => expect(fields().every((f) => f.disabled)).toBe(true));
     expect(fields()).toHaveLength(5);
