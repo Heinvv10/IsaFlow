@@ -25,14 +25,15 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h 
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/ar/creditNoteService', async (orig) => ({ ...(await orig<object>()),
-  approveCreditNote: vi.fn(async () => ({ id: ID, status: 'approved' })), getCreditNoteById: vi.fn(async () => ({ id: ID, type: 'supplier' })) }));
+  approveCreditNote: vi.fn(async () => ({ id: ID, status: 'approved' })), getCreditNoteById: vi.fn(async () => ({ id: ID, type: 'supplier' })),
+  createCreditNote: vi.fn(async () => ({ id: ID, status: 'draft' })) }));
 vi.mock('@/modules/accounting/services/shared/creditNoteFifo', async (orig) => ({ ...(await orig<object>()), listCreditNoteAllocations: vi.fn(async () => []) }));
 vi.mock('@/modules/accounting/services/ap/purchaseOrderApprove', async (orig) => ({ ...(await orig<object>()), approvePurchaseOrder: vi.fn(async () => ({ purchaseOrder: { id: ID } })) }));
 vi.mock('@/modules/accounting/services/ap/batchPaymentApproval', async (orig) => ({ ...(await orig<object>()), approveBatch: vi.fn(async () => 'approved') }));
 vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({ ...(await orig<object>()), decideRequest: vi.fn(async () => ({ id: ID })) }));
 
 import { sql } from '@/lib/neon';
-import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { approveCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
 import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
 import { approvePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderApprove';
@@ -91,6 +92,15 @@ describe('credit notes (by the note type)', () => {
     expect(approveCreditNote).toHaveBeenCalledTimes(1);
   });
 
+  it('supplier-credit-notes create-and-post (POST): 403 BEFORE the draft is created, so a retry duplicates nothing', async () => {
+    member('manager', 'suppliers', false);
+    const res = await call(supplierCreditNotes, { submitAction: 'post', supplierId: ID, creditDate: '2026-11-19',
+      lineItems: [{ description: 'x', quantity: 1, unitPrice: 10 }] });
+    expect(res.statusCode).toBe(403);
+    expect(createCreditNote).not.toHaveBeenCalled();
+    expect(approveCreditNote).not.toHaveBeenCalled();
+  });
+
   it('supplier-credit-notes post: 403 before approve without Suppliers & AP Approve', async () => {
     member('manager', 'suppliers', false);
     const res = await call(supplierCreditNotes, { id: ID, action: 'post' }, {}, 'PATCH');
@@ -133,9 +143,40 @@ describe('purchase order, payment batch and approval request (Suppliers & AP)', 
     expect(decideRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('a request for a document no module governs (a manual journal) is not asked about', async () => {
-    member('manager', 'suppliers', false);
-    requestDocType = 'manual_journal';
-    expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(200);
+  it.each([['customer_invoice', 'customers'], ['manual_journal', 'accounts'], ['pay_run', 'payroll'], ['purchase_order', 'suppliers']])(
+    'a %s request takes %s Approve', async (type, module) => {
+      member('manager', module, false);
+      requestDocType = type;
+      expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
+      expect(db.reads.map((r) => r.moduleKey)).toEqual([module]);
+      expect(decideRequest).not.toHaveBeenCalled();
+    });
+
+  it.each([['customer', 'customers'], ['supplier', 'suppliers']])(
+    "a legacy credit_note request takes the note's own module (a %s note: %s)", async (type, module) => {
+      member('manager', module, false);
+      requestDocType = 'credit_note'; noteType = type;
+      expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
+      expect(db.reads.map((r) => r.moduleKey)).toEqual([module]);
+      db.rows.clear();
+      expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(200);
+    });
+
+  it('fails closed: an unknown type, or a legacy credit_note whose note this company does not have, is refused', async () => {
+    member('owner');
+    requestDocType = 'something_new';
+    expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
+    requestDocType = 'credit_note'; noteType = 'gone';
+    expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
+    expect(decideRequest).not.toHaveBeenCalled();
+  });
+
+  it('the listed ungated legacy types (payment, journal_entry) are decided without a module Approve', async () => {
+    member('viewer');
+    for (const type of ['payment', 'journal_entry']) {
+      requestDocType = type;
+      expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(200);
+    }
+    expect(db.reads).toEqual([]);
   });
 });
