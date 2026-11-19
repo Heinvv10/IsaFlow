@@ -115,3 +115,18 @@ describe('PAYE on the month\'s AE (G21 2027 pp. 32-33; spec F2)', () => {
     expect(bonus.paye.monthlyPaye).toBe(5_200);
   });
 });
+
+describe('a weekly line before its month\'s last run (no off-cycle): the ETI explanation is the stored line\'s', () => {
+  it('explains nil ETI with the pending reason, not the resolved month\'s figure', () => {
+    const line = calculatePayrollLine({
+      employee: employee(), components: [earning('basic', '3601', 1_500)],
+      period: { month: 6, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
+      cadence: { frequency: 'weekly', periodStart: '2026-06-01', periodEnd: '2026-06-07', uifMonthToDate: 0, etiMonthToDate: null },
+    });
+    expect(line.eti.monthlyEti).toBe(0);
+    expect(line.eti.ineligibilityReason).toMatch(/^ETI is monthly/);
+    const explained = line.explanations.eti;
+    expect(explained.result).toBe(0);
+    expect(JSON.stringify(explained.steps)).toContain('ETI is monthly');
+  });
+});

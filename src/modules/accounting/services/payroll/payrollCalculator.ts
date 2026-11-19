@@ -238,7 +238,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     },
     // The ETI base takes a taxable cash 3701 at its PAYE share and no 38xx or non-cash item (etiHours.etiRemunerationOf).
     ...(input.monthEarlier ? { offCycle: { earlier: input.monthEarlier, monthEti: lineEti.eti.monthlyEti, eti: eti.monthlyEti } } : {}),
-    eti: { eti: lineEti.eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
+    eti: { eti: input.monthEarlier ? lineEti.eti : eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
   });
 
   return {
