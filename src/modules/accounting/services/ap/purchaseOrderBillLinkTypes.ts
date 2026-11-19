@@ -1,0 +1,107 @@
+/**
+ * Purchase order <-> bill links (migration 1006; design docs/design/mcp-po-bill-links.md): the typed refusal and the
+ * shapes the planner (`purchaseOrderBillLinkPlan`, pure), the reader under lock (`purchaseOrderBillLinkRead`) and the
+ * writers (`purchaseOrderBillLink`, `purchaseOrderBillUnlink`) share. Money is integer cents inside, rand on the wire.
+ */
+import { BILLED_STATUSES } from '../budgets/remainingCommitted';
+
+/** PO statuses a bill may be linked to: the committing ones, and closed (a Sage Invoiced PO is imported closed). */
+export const LINKABLE_PO_STATUSES = ['approved', 'partially_received', 'received', 'closed'] as const;
+/** The statuses a close_when_fully_billed call moves to closed (and an unlink restores). */
+export const CLOSABLE_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
+export const BILLED_BILL_STATUSES: readonly string[] = BILLED_STATUSES;
+/** A PO is fully billed from this many cents short of its subtotal (Hein, 19 Nov). */
+export const FULLY_BILLED_TOLERANCE_CENTS = 1;
+export const MAX_LINKS_PER_CALL = 200;
+
+export interface LinkRowRefusal { index: number; reason: string }
+
+/** The refused rows as a sentence: every row (to 50) with its index. */
+export function linkRefusalText(total: number, rows: readonly LinkRowRefusal[]): string {
+  const shown = rows.slice(0, 50).map((r) => `links[${r.index}]: ${r.reason}`).join('; ');
+  return `${rows.length} of ${total} links cannot be made; nothing was linked. ${shown}${rows.length > 50 ? `; and ${rows.length - 50} more` : ''}`;
+}
+
+/** A refusal decided before the first write (the whole call is refused, each bad row listed): nothing was written. */
+export class PurchaseOrderBillLinkRefusal extends Error {
+  readonly code = 'PURCHASE_ORDER_BILL_LINK_REFUSED';
+  constructor(message: string, readonly rows: readonly LinkRowRefusal[] = []) {
+    super(message);
+    this.name = 'PurchaseOrderBillLinkRefusal';
+  }
+}
+
+export interface LinkRequest {
+  index: number;
+  poId: string | null;
+  poNumber: string | null;
+  billId: string;
+  amountCents: number | null;
+  lines: { poItemId: string; billLineId: string }[];
+  ref: { system: string; ref: string } | null;
+}
+
+export interface PoFacts { id: string; poNumber: string; status: string; supplierId: string; subtotalCents: number }
+
+export interface BillLineFacts {
+  id: string;
+  poItemId: string | null;
+  /** The purchase order owning `poItemId` (null: no link, or a line of no PO of this company). */
+  poItemPoId: string | null;
+  /** What APPROVE posts for the line, ex-VAT, in cents (0 when folded away). */
+  postedCents: number;
+}
+
+export interface BillFacts {
+  id: string;
+  invoiceNumber: string;
+  status: string;
+  supplierId: string;
+  subtotalCents: number;
+  lines: BillLineFacts[];
+}
+
+export interface ExistingLink {
+  id: string;
+  poId: string;
+  billId: string;
+  billStatus: string;
+  amountCents: number;
+  refSystem: string | null;
+  refRef: string | null;
+  closedFrom: string | null;
+}
+
+export interface PlannedLink {
+  index: number;
+  poId: string;
+  poNumber: string;
+  billId: string;
+  invoiceNumber: string;
+  amountCents: number;
+  ref: { system: string; ref: string } | null;
+  /** Bill lines whose po_item_id must be written (a line already naming the same PO line is not listed). */
+  lineWrites: { poItemId: string; billLineId: string }[];
+  linesLinked: number;
+  /** The PO status this link's call moved the PO from to closed. */
+  closedFrom: string | null;
+  /** Set when the pair was already linked under the same reference: nothing is written for it. */
+  existing: ExistingLink | null;
+}
+
+export interface PoAfter {
+  poId: string;
+  statusBefore: string;
+  statusAfter: string;
+  billedCents: number;
+  subtotalCents: number;
+  fullyBilled: boolean;
+}
+
+export interface LinkPlan {
+  planned: PlannedLink[];
+  poAfter: Map<string, PoAfter>;
+}
+
+export const isFullyBilled = (billedCents: number, subtotalCents: number): boolean =>
+  billedCents >= subtotalCents - FULLY_BILLED_TOLERANCE_CENTS;

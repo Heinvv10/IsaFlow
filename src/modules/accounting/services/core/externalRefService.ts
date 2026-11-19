@@ -20,7 +20,7 @@ import type { DbRow } from '@/lib/neon';
 
 export const EXTERNAL_REF_KINDS = [
   'supplier_invoice', 'customer_invoice', 'credit_note', 'journal', 'bank_transaction', 'supplier', 'customer',
-  'purchase_order',
+  'purchase_order', 'po_bill_link',
 ] as const;
 export type ExternalRefKind = (typeof EXTERNAL_REF_KINDS)[number];
 
@@ -46,6 +46,9 @@ export interface ExternalRefMatch {
   live: boolean;
   externalDocumentNumber: string | null;
   creditNoteType?: string;
+  /** A po_bill_link: the two documents it joins. */
+  purchaseOrderId?: string;
+  supplierInvoiceId?: string;
 }
 
 export interface ExternalRefValue {
@@ -100,6 +103,16 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
                (status IS DISTINCT FROM 'cancelled') AS live
         FROM purchase_orders
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
+    case 'po_bill_link':
+      // A link is deleted when it is unlinked, so every row found is live; `number` reads "PO <- bill".
+      return (await sql`
+        SELECT l.id, po.po_number || ' <- ' || si.invoice_number AS number, po.status, l.created_at::DATE AS date,
+               l.amount AS total_amount, NULL::TEXT AS external_document_number, true AS live,
+               l.purchase_order_id, l.supplier_invoice_id
+        FROM purchase_order_bill_links l
+        JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+        JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
+        WHERE l.company_id = ${companyId}::UUID AND lower(l.external_system) = lower(${system}) AND l.external_ref = ${ref}`) as DbRow[];
     case 'supplier':
       return (await sql`
         SELECT id, name AS number, NULL::TEXT AS status, NULL::DATE AS date, NULL::NUMERIC AS total_amount, external_document_number,
@@ -136,6 +149,7 @@ export async function findByExternalRef(
       live: r.live === true,
       externalDocumentNumber: r.external_document_number == null ? null : String(r.external_document_number),
       ...(r.credit_note_type != null ? { creditNoteType: String(r.credit_note_type) } : {}),
+      ...(r.purchase_order_id != null ? { purchaseOrderId: String(r.purchase_order_id), supplierInvoiceId: String(r.supplier_invoice_id) } : {}),
     }))
     .sort((a, b) => Number(b.live) - Number(a.live));
 }

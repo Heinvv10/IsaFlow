@@ -384,13 +384,15 @@ export async function performThreeWayMatch(
   const invoice = await getSupplierInvoiceById(companyId, invoiceId);
   if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
-  if (!invoice.purchaseOrderId) {
+  // A bill linked to several POs has no header PO (migration 1006) but its lines name PO lines.
+  const poItemIds = (invoice.items ?? []).map((i) => i.poItemId).filter((v): v is string => !!v);
+  if (!invoice.purchaseOrderId && poItemIds.length === 0) {
     log.info('performThreeWayMatch: invoice has no linked PO — returning unmatched', { invoiceId }, 'accounting');
     return { invoiceId, matchStatus: 'unmatched', itemResults: [] };
   }
 
   const inputs = await readMatchInputs(companyId, {
-    supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId, grnId: invoice.grnId,
+    supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId ?? null, grnId: invoice.grnId, poItemIds,
   });
 
   const itemResults: ThreeWayMatchItemResult[] = [];
