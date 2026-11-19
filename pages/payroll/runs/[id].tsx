@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { CancelOffCycleRun } from '@/components/payroll/offCycle/CancelOffCycleRun';
+import { OffCycleBonusAmounts } from '@/components/payroll/offCycle/OffCycleBonusAmounts';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { PayrollApproveDialog } from '@/components/payroll/PayrollApproveDialog';
@@ -105,6 +106,7 @@ export default function PayrollRunDetailPage() {
           calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()} />
 
         <div className="p-6 space-y-6">
+          <OffCycleBonusAmounts runId={runId} run={run} companyRole={companyRole} onChanged={() => void load()} />
           <CancelOffCycleRun runId={runId} run={run} companyRole={companyRole} onCancelled={() => void load()} />
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />

@@ -22,21 +22,51 @@ import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
 
 /**
- * Why this off-cycle run cannot be reopened today (review #1620 breaker delta H): its pay date has passed, so it was
- * paid. A paid run is corrected by a later run, never reopened (a reopened run could never be approved again: its pay
- * date has passed). Null when it can be, or it is not off-cycle.
+ * Why this off-cycle run cannot be reopened today (review #1620 final breaker M, coordinator ruling): once its pay date
+ * has passed it was paid, and it is reopened (to correct an over-payment keyed in error) only while its month's EMP201
+ * is not filed: no finalised or filed EMP201 version for the month, and no legacy submitted or accepted EMP201 covering
+ * it. Once filed, the month's declaration stands; a correction run is wave 7. Null when it can be, or it is not
+ * off-cycle, or its pay date has not passed.
  */
-export function offCyclePaidReopenRefusal(run: { run_kind?: unknown; run_date?: unknown }, today: string = todayInSast()): string | null {
+export async function offCyclePaidReopenRefusal(
+  companyId: string, run: { run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown }, today: string = todayInSast(),
+): Promise<string | null> {
   if (run.run_kind !== 'off_cycle') return null;
   const payDate = dateColumnOf(run.run_date);
-  return payDate !== null && payDate < today
-    ? `This off-cycle run was paid on ${formatDisplayDate(payDate)}, so it is not reopened: a paid run is corrected by a later run.`
+  if (payDate === null || payDate >= today) return null;
+  const year = Number(run.period_year);
+  const month = Number(run.period_month);
+  const filed = (await sql`
+    SELECT 1 FROM tax_return_versions v
+     WHERE v.company_id = ${companyId}::uuid AND v.form_type = 'EMP201' AND v.status IN ('finalised', 'filed')
+       AND v.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
+       AND v.period_end >= make_date(${year}::int, ${month}::int, 1)
+    UNION ALL
+    SELECT 1 FROM sars_submissions s
+     WHERE s.company_id = ${companyId}::uuid AND s.form_type = 'EMP201' AND s.status IN ('submitted', 'accepted')
+       AND s.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
+       AND s.period_end >= make_date(${year}::int, ${month}::int, 1)
+    LIMIT 1
+  `) as DbRow[];
+  return filed.length > 0
+    ? `This off-cycle run was paid on ${formatDisplayDate(payDate)} and its month's EMP201 is filed, so it is not reopened: `
+      + 'the filed declaration stands. A correction after filing is made outside payroll for now.'
     : null;
 }
 
+/** A run's approval_history (migration 925, a tstzmultirange): non-empty once it was approved and reopened. */
+function wasApprovedBefore(history: unknown): boolean {
+  if (history == null) return false;
+  const text = String(history).trim();
+  return text !== '' && text !== '{}';
+}
+
 /** Why this off-cycle run cannot be approved today; null when it can (or it is not off-cycle). */
-export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unknown }, today: string = todayInSast()): string | null {
+export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unknown; approval_history?: unknown }, today: string = todayInSast()): string | null {
   if (run.run_kind !== 'off_cycle') return null;
+  // A run approved before and reopened to correct it (final breaker M): its money is already out, so the cash-forecast
+  // reason for this refusal (D1) does not apply; re-approving it after its pay date is allowed.
+  if (wasApprovedBefore(run.approval_history)) return null;
   const payDate = dateColumnOf(run.run_date);
   if (payDate === null) return 'This off-cycle run has no pay date. Create it again with one.';
   return payDate < today

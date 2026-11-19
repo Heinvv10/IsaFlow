@@ -1,7 +1,9 @@
 -- 999x: off-cycle bonus and termination runs (wave 6 OC). Expand-only.
 --
 -- WHAT.
---   payroll_off_cycle_employees  who an off-cycle run pays, written once when the run is created, never changed:
+--   payroll_off_cycle_employees  who an off-cycle run pays, written when the run is created; only a bonus row's amount
+--     changes after that (review #1620 final breaker M: correcting an amount keyed in error, on a draft or calculated
+--     bonus run, including one reopened before its month's EMP201 is filed):
 --     bonus        one row per employee, with the annual-payment earning (a 3605 component of the company) and the
 --                  amount; the line pays that alone (no salary, recurring component, loan or deduction);
 --     termination  one row per employee, with neither: the line pays the leaver's termination pay-outs.
@@ -10,7 +12,8 @@
 --     the month's regular run when that run is reopened and recalculated.
 --     payroll_off_cycle_employees_guard  a BEFORE INSERT trigger (INVOKER, under the caller's RLS): the run is this
 --     company's, an off-cycle run, still a draft; the employee is this company's; a bonus row names one of this
---     company's 3605 earnings and a termination row names none. app_user may INSERT and SELECT only.
+--     company's 3605 earnings and a termination row names none. On UPDATE (app_user may update the amount column
+--     only): the run is this company's draft or calculated BONUS run. app_user may INSERT, SELECT and UPDATE (amount).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
 --     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
 --     run's reference is unchanged
@@ -49,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_off_cycle_employees (
 );
 
 COMMENT ON TABLE public.payroll_off_cycle_employees IS
-  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation only.';
+  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation; a bonus amount may be corrected while the run is draft or calculated.';
 
 CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.payroll_off_cycle_employees (company_id, run_id);
 
@@ -60,6 +63,13 @@ DECLARE
 BEGIN
   SELECT run_kind, off_cycle_reason, status INTO h
     FROM public.payroll_run_headers WHERE id = NEW.run_id AND company_id = NEW.company_id;
+  IF TG_OP = 'UPDATE' THEN
+    IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.off_cycle_reason IS DISTINCT FROM 'bonus' OR h.status NOT IN ('draft', 'calculated') THEN
+      RAISE EXCEPTION 'payroll_off_cycle_employees: only a draft or calculated bonus run''s amount changes'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.status <> 'draft' THEN
     RAISE EXCEPTION 'payroll_off_cycle_employees: the run is not a draft off-cycle run of this company'
       USING ERRCODE = 'check_violation';
@@ -85,7 +95,7 @@ END
 $$;
 
 DROP TRIGGER IF EXISTS payroll_off_cycle_employees_guard ON public.payroll_off_cycle_employees;
-CREATE TRIGGER payroll_off_cycle_employees_guard BEFORE INSERT ON public.payroll_off_cycle_employees
+CREATE TRIGGER payroll_off_cycle_employees_guard BEFORE INSERT OR UPDATE ON public.payroll_off_cycle_employees
   FOR EACH ROW EXECUTE FUNCTION public.payroll_off_cycle_employees_guard();
 ALTER TABLE public.payroll_off_cycle_employees ENABLE ALWAYS TRIGGER payroll_off_cycle_employees_guard;
 
@@ -98,6 +108,7 @@ CREATE POLICY tenant_isolation ON public.payroll_off_cycle_employees FOR ALL TO 
 REVOKE ALL ON public.payroll_off_cycle_employees FROM app_user;
 GRANT SELECT ON public.payroll_off_cycle_employees TO app_user;
 GRANT INSERT (company_id, run_id, employee_id, component_id, amount, created_by) ON public.payroll_off_cycle_employees TO app_user;
+GRANT UPDATE (amount) ON public.payroll_off_cycle_employees TO app_user;
 
 CREATE OR REPLACE FUNCTION public.approval_request_document_facts(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid

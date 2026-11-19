@@ -202,7 +202,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     }));
     expect(got.refusal?.code).toBe('sdl_month_split');
     // Wave 6 OC (review #1620 final breaker H): the gate re-judges this run alone, on the month to date.
-    expect(got.direct?.detail).toMatch(/on this run \(liable\), but it was costed with R0\.00 \(exempt\)\. To approve: recalculate this run\.$/);
+    expect(got.direct?.detail).toMatch(/on this run \(liable\), but it was costed with R\s0\.00 \(exempt\)\. To approve: recalculate this run\.$/);
     expect(got.recalculated).toBe(840000);
     expect(got.regular).toBe(840000);
   });
@@ -254,7 +254,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
       await seedRun(c, A, { ...BONUS, gross: 20000, status: 'cancelled', approvedAt: null, sdlExempt: false });
     }, () => sdlMonthSplitRefusal(A.company, regular));
     // 30 000 x 12 = 360 000 now: exempt, but the run was costed liable on 50 000.
-    expect(got?.detail).toMatch(/on this run \(exempt\), but it was costed with R0\.00 \(liable\)\. To approve: recalculate this run\.$/);
+    expect(got?.detail).toMatch(/on this run \(exempt\), but it was costed with R\s0\.00 \(liable\)\. To approve: recalculate this run\.$/);
   });
 
   it('a paid run is final: never named, never blocking', async () => {

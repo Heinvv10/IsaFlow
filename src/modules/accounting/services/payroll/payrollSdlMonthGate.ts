@@ -14,8 +14,9 @@ import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { applySdlToLines, estimateAnnualRemuneration, type SdlLine } from './sdlLeviabilityService';
 import { loadMonthToDateSdl } from './payrollSdlMonthToDate';
 import { getTaxYear } from './taxTables';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const r2 = (n: number): string => (Math.round(n * 100) / 100).toFixed(2);
+const cents = (n: number): number => Math.round(n * 100);
 
 /** This run's SDL no longer matches its month as it stands now; null when it does (or nothing is stored yet). */
 export async function sdlMonthSplitRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
@@ -29,7 +30,7 @@ export async function sdlMonthSplitRefusal(companyId: string, runId: string): Pr
   const lines: SdlLine[] = rows.map((r) => ({ sdl: 0, sdlLeviable: Number(r.sdl_leviable) || 0, employeeId: String(r.employee_id) }));
   const estimate = await estimateAnnualRemuneration(companyId, period, 'stored', runId);
   applySdlToLines(lines, estimate, getTaxYear(period.month, period.year), await loadMonthToDateSdl(companyId, runId));
-  const stale = rows.filter((r, i) => r.sdl_exempt !== lines[i]!.sdlExempt || r2(Number(r.sdl)) !== r2(lines[i]!.sdl));
+  const stale = rows.filter((r, i) => r.sdl_exempt !== lines[i]!.sdlExempt || cents(Number(r.sdl)) !== cents(lines[i]!.sdl));
   if (stale.length === 0) return null;
   const stored = rows.reduce((t, r) => t + Number(r.sdl), 0);
   const now = lines.reduce((t, l) => t + l.sdl, 0);
@@ -37,7 +38,7 @@ export async function sdlMonthSplitRefusal(companyId: string, runId: string): Pr
   const side = (exempt: unknown) => (exempt === true ? 'exempt' : 'liable');
   return {
     code: 'sdl_month_split',
-    detail: `SDL is settled for the month to date (SDLA s4(b)): ${month}, judged now on its runs, puts R${r2(now)} of SDL on this run `
-      + `(${side(lines[0]!.sdlExempt)}), but it was costed with R${r2(stored)} (${side(rows[0]!.sdl_exempt)}). To approve: recalculate this run.`,
+    detail: `SDL is settled for the month to date (SDLA s4(b)): ${month}, judged now on its runs, puts ${formatMoney(now)} of SDL on this run `
+      + `(${side(lines[0]!.sdlExempt)}), but it was costed with ${formatMoney(stored)} (${side(rows[0]!.sdl_exempt)}). To approve: recalculate this run.`,
   };
 }

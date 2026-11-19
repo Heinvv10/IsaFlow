@@ -70,6 +70,9 @@ describe('approval: never after the pay date (carried item 2)', () => {
     expect(offCyclePayDateRefusal({ run_kind: 'off_cycle', run_date: TODAY }, TODAY)).toBeNull();
     expect(offCyclePayDateRefusal({ run_kind: 'off_cycle', run_date: '2026-11-28' }, TODAY)).toBeNull();
     expect(offCyclePayDateRefusal({ run_kind: 'regular', run_date: '2020-01-01' }, TODAY)).toBeNull();
+    // Review #1620 final breaker M: a run approved before (and reopened to correct it) is re-approved after its pay date.
+    expect(offCyclePayDateRefusal({ run_kind: 'off_cycle', run_date: '2026-11-16', approval_history: '{["2026-11-16 10:00:00+02","2026-11-18 09:00:00+02")}' }, TODAY)).toBeNull();
+    expect(offCyclePayDateRefusal({ run_kind: 'off_cycle', run_date: '2026-11-16', approval_history: '{}' }, TODAY)).toMatch(/before today/);
   });
 });
 
