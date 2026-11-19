@@ -10,7 +10,9 @@
  * change between the read and the insert:
  *   - the same period again: PayrollRunDuplicateError (the regular-period key of 999a also refuses it);
  *   - a period that OVERLAPS a non-cancelled regular run of the same frequency (the pay week was changed between
- *     them): PayrollRunOverlapError, since both runs would pay the overlapping days.
+ *     them): PayrollRunOverlapError, since both runs would pay the overlapping days;
+ *   - a period starting before an approved run that holds an acknowledged pay-frequency change for an employee paid at
+ *     this frequency now (breaker #1622 M-F): PayrollRunOverlapError naming that run, since its once-off settled them.
  */
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -20,11 +22,12 @@ import { formatDayRange, resolveRunPeriod, type PeriodFrequency, type RunPeriod 
 import { readPayWeekSettings } from './payrollPayWeekSettings';
 import { dateColumnOf } from './payrollFrequency';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
+import { acknowledgedLater, acknowledgedLaterDetail, straddleAcks } from './payrollFrequencyAcks';
 
 export class PayrollRunOverlapError extends Error {
   readonly code = 'PAY_PERIOD_OVERLAP';
-  constructor(f: PeriodFrequency, p: RunPeriod, other: { start: string; end: string }) {
-    super(`The ${f} period ${p.periodStart} to ${p.periodEnd} overlaps the run for ${other.start} to ${other.end}; both would pay the same days.`);
+  constructor(f: PeriodFrequency, p: RunPeriod, other: { start: string; end: string }, message?: string) {
+    super(message ?? `The ${f} period ${p.periodStart} to ${p.periodEnd} overlaps the run for ${other.start} to ${other.end}; both would pay the same days.`);
     this.name = 'PayrollRunOverlapError';
   }
 }
@@ -38,7 +41,13 @@ async function periodClash(db: TxSql, companyId: string, frequency: PeriodFreque
      ORDER BY period_start LIMIT 1
   `) as DbRow[];
   const other = clash[0];
-  if (!other) return null;
+  if (!other) {
+    // An approved run at this frequency holding an acknowledged pay-frequency change for an employee paid at it now:
+    // a run starting before it would pay the days its once-off settled (breaker #1622 M-F (1)).
+    const later = acknowledgedLater(await straddleAcks(db, companyId, frequency, null), period.periodStart, period.periodEnd);
+    return later ? new PayrollRunOverlapError(frequency, period, { start: later.runStart, end: later.runEnd },
+      acknowledgedLaterDetail(later, frequency, period.periodStart)) : null;
+  }
   const start = dateColumnOf(other.period_start) ?? '';
   const end = dateColumnOf(other.period_end) ?? '';
   if (start !== period.periodStart) return new PayrollRunOverlapError(frequency, period, { start, end });

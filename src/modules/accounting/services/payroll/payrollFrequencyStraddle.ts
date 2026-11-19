@@ -22,6 +22,7 @@ import { dateColumnOf } from './payrollFrequency';
 import { dayNumber, isoOfDay } from './payFrequencyPeriods';
 import type { RunKindReason } from './payrollRunKindGuard';
 import { formatDay, formatDayRange } from './payrollPayWeek';
+import { acknowledgedLater, acknowledgedLaterDetail, settledOverlap, straddleAcks } from './payrollFrequencyAcks';
 
 /** An employee's name as the user reads it ("Wendy Weekly"), from a row with first_name and last_name. */
 export function employeeName(r: DbRow): string {
@@ -35,9 +36,10 @@ export interface FrequencyStraddle {
   employeeNumber: string;
   employeeName: string;
   /** straddle: this is the employee's first run at the new frequency, and it pays days twice or leaves days unpaid
-   *  (acknowledgeable); first_pending: a later run, while that first run is not calculated; settled_days: a later run
-   *  paying days an acknowledgement settled with a once-off (breaker #1622 M-C). */
-  kind: 'straddle' | 'first_pending' | 'settled_days';
+   *  (acknowledgeable); first_pending: a later run, while that first run is not calculated; settled_days: a run paying
+   *  days ANY acknowledgement settled with a once-off (breaker #1622 M-C, M-F); before_acknowledged: a run starting
+   *  before an approved run that holds an acknowledgement (M-F). */
+  kind: 'straddle' | 'first_pending' | 'settled_days' | 'before_acknowledged';
   oldFrequency: string;
   /** The last day the old frequency paid. */
   oldEnd: string;
@@ -86,13 +88,8 @@ export async function frequencyStraddles(companyId: string, run: StraddleRun, em
          ORDER BY h2.period_start, h2.created_at, h2.id LIMIT 1
       ) f ON true
   `) as DbRow[];
-  const runIds = [...new Set([run.id, ...rows.map((r) => (r.first_id == null ? null : String(r.first_id)))].filter((x): x is string => x !== null))];
-  const acks = runIds.length === 0 ? [] : (await sql`
-    SELECT entity_id::text AS run_id, changes FROM audit_log
-     WHERE company_id = ${companyId}::uuid AND entity_type = ${STRADDLE_ENTITY} AND entity_id = ANY(${runIds}::uuid[])
-  `) as DbRow[];
-  const ackOf = (runId: string, employeeId: string) => acks.map((a) => ({ runId: String(a.run_id), m: ((a.changes as { metadata?: Record<string, unknown> } | null)?.metadata ?? {}) }))
-    .filter((a) => a.runId === runId && a.m.employeeId === employeeId).map((a) => a.m);
+  // Every acknowledgement of these employees at this frequency (M-F), on this run (its own straddle) or any other.
+  const acks = await straddleAcks(sql, companyId, run.frequency, employeeIds);
   const start = dayNumber(run.start);
   const end = dayNumber(run.end);
   const out: FrequencyStraddle[] = [];
@@ -103,32 +100,32 @@ export async function frequencyStraddles(companyId: string, run: StraddleRun, em
     const base = { employeeId, employeeNumber: String(r.employee_number), employeeName: employeeName(r), oldFrequency: String(r.pay_frequency), oldEnd, start: run.start };
     const firstId = r.first_id == null ? null : String(r.first_id);
     const isFirst = firstId === null || firstId === run.id || (run.id === null && String(r.first_start) >= run.start);
-    if (!isFirst) {
-      const firstRange = formatDayRange(String(r.first_start), String(r.first_end));
-      if (r.first_has_line !== true) {
-        out.push({ ...base, kind: 'first_pending', overlap: null, gap: null, acknowledged: false,
-          message: `${base.employeeName}'s first ${run.frequency} run after the change is the one for ${firstRange}. Calculate that run first: the days after ${formatDay(oldEnd)} are judged there.` });
-        continue;
-      }
-      // Days an acknowledgement on the first run settled with a once-off are never paid again here.
-      for (const m of ackOf(firstId!, employeeId)) {
-        const ackStart = dayNumber(String(m.start));
-        const ackLast = dayNumber(String(m.oldEnd));
-        const settled = ackStart > ackLast + 1 ? [ackLast + 1, ackStart - 1] : [ackStart, Math.min(ackLast, dayNumber(String(m.end)))];
-        const from = Math.max(settled[0]!, start);
-        const to = Math.min(settled[1]!, end);
-        if (from <= to) {
-          out.push({ ...base, kind: 'settled_days', overlap: null, gap: null, acknowledged: false,
-            message: `${base.employeeName}'s days ${formatDayRange(isoOfDay(from), isoOfDay(to))} were settled with a once-off when the change was acknowledged on the ${run.frequency} run for ${firstRange}: this run cannot pay them again.` });
-          break;
-        }
-      }
+    // This change's acknowledgements on OTHER runs (M-F): judged on every run, the first included.
+    const others = acks.filter((k) => k.employeeId === employeeId && k.runId !== run.id && k.oldEnd === oldEnd);
+    const later = acknowledgedLater(others, run.start, run.end);
+    if (later) {
+      out.push({ ...base, kind: 'before_acknowledged', overlap: null, gap: null, acknowledged: false,
+        message: acknowledgedLaterDetail(later, run.frequency, run.start) });
       continue;
     }
+    if (!isFirst && r.first_has_line !== true) {
+      out.push({ ...base, kind: 'first_pending', overlap: null, gap: null, acknowledged: false,
+        message: `${base.employeeName}'s first ${run.frequency} run after the change is the one for ${formatDayRange(String(r.first_start), String(r.first_end))}. Calculate that run first: the days after ${formatDay(oldEnd)} are judged there.` });
+      continue;
+    }
+    // Days an acknowledgement settled with a once-off are never paid again, by any run.
+    const settled = settledOverlap(others, run.start, run.end);
+    if (settled) {
+      out.push({ ...base, kind: 'settled_days', overlap: null, gap: null, acknowledged: false,
+        message: `${base.employeeName}'s days ${formatDayRange(settled.from, settled.to)} were settled with a once-off when the change was acknowledged on the ${run.frequency} run for ${formatDayRange(settled.ack.runStart, settled.ack.runEnd)}: this run cannot pay them again.` });
+      continue;
+    }
+    if (!isFirst) continue;
     if (start === last + 1) continue;
     const overlap = start <= last ? { from: run.start, to: isoOfDay(Math.min(last, end)) } : null;
     const gap = start > last + 1 ? { from: isoOfDay(last + 1), to: isoOfDay(start - 1) } : null;
-    const acknowledged = run.id !== null && ackOf(run.id, employeeId).some((m) => m.oldEnd === oldEnd && m.start === run.start && m.end === run.end);
+    const acknowledged = run.id !== null && acks.some((k) => k.runId === run.id && k.employeeId === employeeId
+      && k.oldEnd === oldEnd && k.start === run.start && k.end === run.end);
     const found = { ...base, kind: 'straddle' as const, overlap, gap, acknowledged };
     out.push({ ...found, message: straddleDetail(found, run.frequency) });
   }

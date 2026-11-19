@@ -113,7 +113,9 @@ function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): Expl
     steps.push({
       key: 'sdl.month', label: m.covered
         ? "The month's SDL is already covered by earlier approved runs: nothing more is due on this run"
-        : "This run's SDL is the month's: 1% of the month's approved runs' leviable pay with this run's, less the SDL they carried, shared by leviable pay",
+        : m.runSdl < 0
+          ? "The earlier approved runs carried more SDL than the month now owes: this run reduces the month's SDL to 1% of its leviable pay"
+          : "This run's SDL is the month's: 1% of the month's approved runs' leviable pay with this run's, less the SDL they carried, shared by leviable pay",
       amount: m.runSdl, formula: `${pct(SDL_RATE)} × (${r(m.earlierLeviable)} + this run's leviable pay) − ${r(m.earlierSdl)}`,
     });
   }

@@ -192,8 +192,9 @@ export async function estimateAnnualRemuneration(
  * the same model as UIF's month cap. OC extends it for off-cycle runs. At each run of a month:
  *   - liable = this run's estimate says liable, OR any other FINAL run of the month stored liable: monotonic over what
  *     is approved, while a run not yet final judges itself and never props up another (review M-A);
- *   - this run's SDL = liable ? max(0, 1% x (the month's FINAL runs' leviable pay + this run's) - the SDL those FINAL
- *     runs carried) : 0, split across this run's lines by leviable share to the cent (lineSdlShares). So whenever the
+ *   - this run's SDL = liable ? 1% x (the month's FINAL runs' leviable pay + this run's) - the SDL those FINAL runs
+ *     carried : 0, NEGATIVE when they carried more (M-E: floored at the month, which never goes below 0), split
+ *     across this run's lines by leviable share to the cent (lineSdlShares). So whenever the
  *     month ends liable its SDL is 1% of its leviable pay, across reopen and re-approval and any mix of frequencies
  *     (review M-B), and no run is ever sent back to reopen for SDL.
  */
@@ -220,7 +221,11 @@ export async function sdlCatchUp(companyId: string, runId: string, liableNow: bo
 export function lineSdlShares(leviables: number[], up: SdlCatchUp): number[] {
   if (!up.liable || leviables.length === 0) return leviables.map(() => 0);
   const own = leviables.reduce((a, b) => a + b, 0);
-  const cents = Math.max(0, Math.round((up.earlierLeviable + own) * SDL_RATE * 100) - Math.round(up.earlierSdl * 100));
+  // Floored at the MONTH, not the run (breaker #1622 M-E): a run may carry negative SDL, a within-month refund of what
+  // the month's approved runs over-caught-up (a caught-up run reopened and corrected down), but never below what they
+  // carried, so the month's SDL is never negative.
+  const earlier = Math.round(up.earlierSdl * 100);
+  const cents = Math.max(-earlier, Math.round((up.earlierLeviable + own) * SDL_RATE * 100) - earlier);
   const exact = leviables.map((v, i) => (own > 0 ? (cents * v) / own : i === 0 ? cents : 0));
   const shares = exact.map((x) => Math.floor(x));
   let left = cents - shares.reduce((a, b) => a + b, 0);

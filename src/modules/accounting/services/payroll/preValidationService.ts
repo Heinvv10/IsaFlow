@@ -93,7 +93,8 @@ async function resolveTaxYear(companyId: string, scope: PreValidationScope): Pro
 export async function preValidateTaxYear(companyId: string, scope: PreValidationScope): Promise<PreValidationResult | null> {
   const taxYear = await resolveTaxYear(companyId, scope);
   if (taxYear === null) return null;
-  await assertCertificateYearMonthlyOnly(companyId, taxYear); // IRP5 pre-validation: monthly-only certificates this wave
+  // Monthly-only certificates this wave, judged over the months pre-validated (an interim EMP501's: March to August, L-G).
+  await assertCertificateYearMonthlyOnly(companyId, taxYear, scope.throughMonth ?? undefined);
   const codeReleaseLoaded = (await listSarsCodes(taxYear)).length > 0;
   const rows = await loadFinalLineTotals(companyId, taxYear, scope.employeeId ?? null, scope.runId ?? null, scope.throughMonth ?? null);
   const severance = await loadSeveranceDirectives(companyId, taxYear, rows.map((r) => r.employee_id));

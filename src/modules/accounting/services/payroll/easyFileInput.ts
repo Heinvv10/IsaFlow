@@ -61,7 +61,8 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   const { startMonth, startYear, endMonth, endYear } = period;
   // Monthly-only certificates this wave (#1622 x EFb #1568): a tax year with an approved weekly or fortnightly run is
   // refused by name before anything is read, for the export, the EMP501 figures, finalise and the filing file alike.
-  await assertCertificateYearMonthlyOnly(companyId, taxYear);
+  // The interim judges March to August only (breaker #1622 L-G).
+  await assertCertificateYearMonthlyOnly(companyId, taxYear, kind === 'interim' ? endYear * 100 + endMonth : undefined);
   // Every final run it certifies must be one this release can file (RunKindUnsupportedError otherwise), as the IRP5
   // data service and the EMP201 judge theirs (review #1568 M1): an off-cycle or weekly run is refused, never certified.
   const finalRunIds = (await sql`
