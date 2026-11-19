@@ -57,7 +57,7 @@ export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string
   return (
     <tr>
       <td colSpan={COL_SPAN} className="px-0 py-0 bg-[var(--ff-bg-primary)]">
-        <table className="w-full">
+        <table className="table-cards w-full">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)]">
               <th className={`pl-12 text-left ${PANEL_TH}`}>Invoice #</th>
@@ -72,17 +72,17 @@ export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string
           <tbody className="divide-y divide-[var(--ff-border-light)]">
             {invoices.map(inv => (
               <tr key={inv.id} className="hover:bg-[var(--ff-bg-secondary)]">
-                <td className="pl-12 pr-4 py-2 text-sm font-mono">
-                  <Link href={buildInvoiceHref(inv.id, { from: 'debtors', entityId: clientId })} className={INVOICE_LINK}>
+                <td data-label="Invoice #" className="pl-12 pr-4 py-2 text-sm font-mono">
+                  <Link href={buildInvoiceHref(inv.id, { from: 'debtors', entityId: clientId })} className={`${INVOICE_LINK} max-lg:inline-flex max-lg:min-h-11 max-lg:items-center`}>
                     {inv.invoiceNumber}
                   </Link>
                 </td>
-                <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.invoiceDate)}</td>
-                <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.dueDate)}</td>
-                <td className="px-4 py-2 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
-                <td className="px-4 py-2 text-sm text-right tabular-nums text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
-                <td className={`px-4 py-2 text-sm text-right tabular-nums font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{formatCurrency(inv.outstanding)}</td>
-                <td className={`px-4 py-2 text-sm text-right tabular-nums ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
+                <td data-label="Invoice Date" className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.invoiceDate)}</td>
+                <td data-label="Due Date" className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.dueDate)}</td>
+                <td data-label="Total" className="px-4 py-2 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
+                <td data-label="Paid" className="px-4 py-2 text-sm text-right tabular-nums text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
+                <td data-label="Outstanding" className={`px-4 py-2 text-sm text-right tabular-nums font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{formatCurrency(inv.outstanding)}</td>
+                <td data-label="Days Overdue" className={`px-4 py-2 text-sm text-right tabular-nums ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
                   {inv.daysOverdue > 0 ? `${inv.daysOverdue}d` : 'Current'}
                 </td>
               </tr>
