@@ -16,6 +16,7 @@ export { getTaxPeriods, getComplianceCalendar } from './sarsTaxPeriodsService';
 import type { DbRow } from '@/types/db';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { periodHasReturnVersion } from '@/modules/accounting/services/returns/versionExists';
+import { lockCompanyFilingReferences } from '@/modules/accounting/services/returns/filingReference';
 
 export interface SARSSubmission {
   id: string;
@@ -178,6 +179,9 @@ export async function markSubmitted(companyId: string,
 ): Promise<SARSSubmission> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Marking submission as submitted', { id, reference }, 'sarsComplianceService');
+  // Wave 6 EFa: a reference is written under the company's filing-reference lock, so the lifecycle's one-PRN-one-period
+  // check (filingReference) never races a legacy write of the same reference. Re-entrant for the lifecycle's own call.
+  await lockCompanyFilingReferences(companyId);
 
   const current = (await sql`
     SELECT * FROM sars_submissions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE

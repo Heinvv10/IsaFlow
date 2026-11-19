@@ -24,7 +24,8 @@ export function SupplierInvoiceSummaryCard({
 }: SupplierInvoiceSummaryCardProps) {
   const noteId = useId();
   return (
-    <div className="lg:sticky lg:top-6">
+    // Under the lines (a narrower form) it keeps a card's width at the right edge, not the full row.
+    <div className="lg:sticky lg:top-6 w-full max-w-sm justify-self-end">
       <div className={`${card} p-5`}>
         <div className="flex items-center gap-2 mb-5">
           <Receipt className="w-4 h-4 text-amber-500" />

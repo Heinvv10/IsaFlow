@@ -12,7 +12,7 @@ const NOW = new Date('2026-11-18T10:00:00Z');
 interface Rig { deps: Deps; log: string[]; ids?: Map<string, string>; saved: Map<string, string>; finals: Map<string, Login>; goTrue: Map<string, string> }
 
 /** `existing`: emails already in GoTrue; `file`/`pending`: what the env file holds. */
-function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[]; legacyIds?: Record<string, string>; signOutFailsOnce?: boolean; cannotSignOut?: boolean; approverActual?: string; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
+function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[]; legacyIds?: Record<string, string>; signOutFailsOnce?: boolean; cannotSignOut?: boolean; approverActual?: string; pending?: Record<string, string>; file?: Login[]; busy?: boolean; deployBusy?: boolean; failAt?: string; problems?: string[]; seedProblems?: string[]; suiteProblems?: string[]; companyCreated?: boolean; rollbackFails?: boolean; unlockFails?: boolean; createdForeign?: boolean } = {}): Rig {
   const log: string[] = [];
   const saved = new Map<string, string>(Object.entries(init.pending ?? {}));
   const finals = new Map<string, Login>((init.file ?? []).map((l) => [l.email, l]));
@@ -56,6 +56,7 @@ function rig(init: { existing?: string[]; foreign?: string[]; legacy?: string[];
     plan: async (_d, ctx) => { log.push(`plan:${ctx ? 'company' : 'none'}`); return [{ name: 'b1', state: 'make' }]; },
     seed: async () => { log.push('seed'); fail('seed'); return { ran: ['b1'], problems: init.seedProblems ?? [] }; },
     companyProblems: async () => { log.push('gate'); return init.problems ?? []; },
+    suiteProblems: async (pw) => { log.push(`suite:${pw.verify === saved.get(VERIFY_LOGIN.pendingKey) && pw.approver === saved.get(APPROVER_LOGIN.pendingKey) ? 'the pending passwords' : 'other passwords'}`); return init.suiteProblems ?? []; },
   };
   return { deps, log, saved, finals, goTrue, ids };
 }
@@ -203,7 +204,7 @@ describe('runProvisioning', () => {
       `env:pending:${VERIFY_LOGIN.email}`, `gotrue:create:${VERIFY_LOGIN.email}`, `env:id:${VERIFY_LOGIN.email}`,
       `env:pending:${APPROVER_LOGIN.email}`, `gotrue:create:${APPROVER_LOGIN.email}`, `env:id:${APPROVER_LOGIN.email}`,
       'db:BEGIN', `ensureDb:id-${VERIFY_LOGIN.email}|id-${APPROVER_LOGIN.email}`, 'db:COMMIT',
-      'plan:company', 'seed', 'gate', 'env:final', 'unlock', 'deploy-unlock',
+      'plan:company', 'seed', 'gate', 'suite:the pending passwords', 'env:final', 'unlock', 'deploy-unlock',
     ]);
     expect(r.saved.size).toBe(0); // the pending keys went with the final write
     expect([...r.finals.keys()].sort()).toEqual([APPROVER_LOGIN.email, VERIFY_LOGIN.email].sort());
@@ -218,7 +219,7 @@ describe('runProvisioning', () => {
     expect(r.saved.size + r.finals.size).toBe(0);
     const said = r.log.filter((l) => l.startsWith('say:')).join('\n');
     expect(said).toContain('would be created');
-    expect(said).toContain('would write /x/deploy.env');
+    expect(said).toMatch(/would then log in through http:\/\/app .*warning: .*http:\/\/localhost:<port>[^]*would write \/x\/deploy\.env/); // http, not localhost
     expect(said).not.toContain(' was created');
   });
 
@@ -261,12 +262,12 @@ describe('runProvisioning', () => {
   it('an unusable company (the gate) or a seed shortfall stops before the env keys: a deploy never reads a half-made company', async () => {
     const gate = rig({ problems: ['no bank account'] });
     await expect(runProvisioning(OPTS, gate.deps)).rejects.toThrow(/not usable: no bank account/);
-    expect(effects(gate.log)).not.toContain('env:final');
     expect(gate.finals.size).toBe(0);
-
     const budget = rig({ seedProblems: ['no budget version for FY2027'] });
     await expect(runProvisioning(OPTS, budget.deps)).rejects.toThrow(/no budget version for FY2027/);
-    expect(effects(budget.log)).not.toContain('env:final');
+    const suite = rig({ suiteProblems: ['the golden suite would not start: GET answered 401'] }); // the suite's own checks, through the app
+    await expect(runProvisioning(OPTS, suite.deps)).rejects.toThrow(/not usable: the golden suite would not start: GET answered 401/);
+    expect([...effects(gate.log), ...effects(budget.log), ...effects(suite.log)]).not.toContain('env:final');
   });
 
   it('a failed seed stops before the gate and the env keys; the pending passwords stay', async () => {

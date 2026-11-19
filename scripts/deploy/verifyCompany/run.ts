@@ -7,7 +7,8 @@
  *      (and before any password change of an existing one), so a run that dies later is re-run plainly, never with --reset-password;
  *   2. the database, one transaction (users, company, approver membership, fiscal years), rolled back by --dry-run;
  *   3. the running app seeds the blocks as the verify login;
- *   4. the readiness gate; then, LAST, the logins' keys (and the pending keys' removal), so a deploy never reads a half-made company.
+ *   4. the readiness gate (the database's view, then the golden suite's own checks through the app as both logins); then, LAST, the
+ *      logins' keys (and the pending keys' removal), so a deploy never reads a half-made company or one the suite would not start in.
  * --dry-run writes nothing anywhere: no GoTrue write, no commit, no seed, no env file.
  */
 import type { ClientBase } from 'pg';
@@ -16,6 +17,7 @@ import { APPROVER_LOGIN, LOGIN_PURPOSE, VERIFY_LOGIN, type LoginIdentity } from 
 import { choosePassword, type PasswordChoice } from './password';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import { actorRank } from '../../../src/modules/accounting/services/gl/approvalRank';
+import { sendsSecureCookies } from '../../../tests/e2e/golden-paths/helpers/suitePreconditions';
 import type { DbOutcome, UserIds } from './provisionDb';
 import type { PlanLine } from './seedVerifyCompany';
 
@@ -53,6 +55,8 @@ export interface Deps {
   plan(db: ClientBase, ctx: { companyId: string; verifyUserId: string; now: Date; financialYearStart: number } | null): Promise<PlanLine[]>;
   seed(db: ClientBase, o: { companyId: string; verifyUserId: string; password: string; now: Date; financialYearStart: number }): Promise<{ ran: string[]; problems: string[] }>;
   companyProblems(db: ClientBase, companyId: string, ids: UserIds): Promise<string[]>;
+  /** The golden suite's own start-up checks, logged in through the app as both logins (suiteReadiness.ts): empty when the suite would start. */
+  suiteProblems(passwords: { verify: string; approver: string }): Promise<string[]>;
 }
 
 export interface RunResult { companyId: string; ran: string[]; wroteEnv: boolean }
@@ -170,13 +174,16 @@ async function provision(o: RunOptions, d: Deps): Promise<RunResult> {
   const plan = await d.plan(d.db, o.dryRun && outcome.companyCreated ? null : ctx);
   for (const p of plan) d.say(`seed through ${o.baseUrl}: ${p.name}: ${p.state === 'make' ? (o.dryRun ? 'would make' : 'make') : 'present, skipped'}`);
   if (o.dryRun) {
+    d.say(`would then log in through ${o.baseUrl} as both logins and run the golden suite's start-up checks (session, company, system accounts)`
+      + (sendsSecureCookies(o.baseUrl) ? '' : `; warning: the suite's client sends a production build's Secure cookies over plain http only to localhost, so against a production app at ${o.baseUrl} that check fails: use http://localhost:<port>`));
     d.say(`would write ${o.envFile}: ${[VERIFY_LOGIN, APPROVER_LOGIN].map((w) => `${w.emailKey}, ${w.passwordKey}`).join(', ')} (only those keys, mode kept or 0600)`);
     return { companyId: outcome.companyId, ran: [], wroteEnv: false };
   }
 
   const seeded = await d.seed(d.db, { companyId: outcome.companyId, verifyUserId: ids.verify, password: verify.password, now: d.now(), financialYearStart: outcome.financialYearStart });
   d.say(`seeded: ${seeded.ran.length ? seeded.ran.join(', ') : 'nothing (every block was already there)'}`);
-  const problems = [...(await d.companyProblems(d.db, outcome.companyId, ids)), ...seeded.problems];
+  const problems = [...(await d.companyProblems(d.db, outcome.companyId, ids)), ...seeded.problems,
+    ...(await d.suiteProblems({ verify: verify.password, approver: approver.password }))];
   if (problems.length) throw new Error(`the verify company is not usable: ${problems.join('; ')}`);
 
   const wroteEnv = d.env.writeLogins([

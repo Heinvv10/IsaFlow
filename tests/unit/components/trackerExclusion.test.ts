@@ -21,6 +21,12 @@ describe('isTrackedPath', () => {
     expect(isTrackedPath('/share/[token]')).toBe(false);
   });
 
+  it('excludes the employee self-service portal (review #1576 M1: its title named the employee)', () => {
+    for (const p of ['/employee-portal', '/employee-portal/login', '/employee-portal/accept']) expect(isTrackedPath(p)).toBe(false);
+    expect(isTrackedPath('/employee-portals')).toBe(true);
+    expect(isTrackedPath('/payroll/employees')).toBe(true);
+  });
+
   it('keeps every app page tracked', () => {
     expect(isTrackedPath('/')).toBe(true);
     expect(isTrackedPath('/accounting/reports/report-packs')).toBe(true);
@@ -59,5 +65,9 @@ describe('pages/_app.tsx — the gate, rendered', () => {
 
     pathname = '/share/[token]';
     expect(render()).not.toContain('data-testid="tracker"');
+    for (const portal of ['/employee-portal', '/employee-portal/login', '/employee-portal/accept']) {
+      pathname = portal;
+      expect(render(), portal).not.toContain('data-testid="tracker"');
+    }
   }, LOAD_TIMEOUT);
 });

@@ -1,13 +1,15 @@
 /**
  * True while an element's content is wider than its box, so a "scroll sideways" hint shows exactly when columns are
  * clipped, whatever the viewport. Pass the returned `attach` as the `ref` (a callback ref) on the scrolling element.
+ * `layoutKey` changes when that element's child is swapped for another (the observed table is the first child), so
+ * the measurement and the observed child are taken again.
  */
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 
 // useLayoutEffect warns when these forms render on the server, and there is nothing to measure there.
 const useBeforePaint = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
-export function useOverflowX(): { attach: (el: HTMLElement | null) => void; overflows: boolean } {
+export function useOverflowX(layoutKey?: unknown): { attach: (el: HTMLElement | null) => void; overflows: boolean } {
   const [el, setEl] = useState<HTMLElement | null>(null);
   const [overflows, setOverflows] = useState(false);
   const attach = useCallback((node: HTMLElement | null) => setEl(node), []);
@@ -21,6 +23,6 @@ export function useOverflowX(): { attach: (el: HTMLElement | null) => void; over
     const table = el.firstElementChild;
     if (table) observer.observe(table);
     return () => observer.disconnect();
-  }, [el]);
+  }, [el, layoutKey]);
   return { attach, overflows };
 }
