@@ -15,7 +15,8 @@ import list from '../../pages/api/employee-portal/irp5/index';
 import pdfRoute from '../../pages/api/employee-portal/irp5/[versionId]';
 import { assembleEasyFileInput } from '@/modules/accounting/services/payroll/easyFileInput';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
-import type { Emp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
+import { buildEmp501Figures, type Emp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
+import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { rig } from './brkr.helpers';
 import { approvedRun } from './pe-payslip-email.helpers';
 import { captured, cleanup, doAccept, invite, lastToken, person, portal, putSetting, setPlatform, type R } from './ss-employee-portal.helpers';
@@ -46,17 +47,14 @@ async function onboard(r: R, employeeId: string, ip: string): Promise<Record<str
   expect((await doAccept(jar, { token: lastToken(), password: 'correct horse battery' }, ip)).statusCode).toBe(200);
   return jar;
 }
-/** Tax year 2026's annual file input, stored as EFb's finalise stores it (emp501Figures.buildEmp501Figures). */
+/** Tax year 2026's annual figures, built by EFb's own builder exactly as finalise stores them. */
 async function figures(r: R): Promise<Emp501Figures> {
   await r.pool.query(`UPDATE companies SET paye_reference_number = '7000000000', sars_contact_first_name = 'Payroll',
     sars_contact_last_name = 'Officer', sars_contact_telephone = '0110000000', physical_address_line1 = '1 Test Street',
-    physical_postal_code = '0001' WHERE id = $1`, [r.company]);
-  const input = await assembleEasyFileInput(r.company, 2026, 'annual');
-  return {
-    taxYear: 2026, kind: 'annual', employer: input.employer, employees: input.employees.map((e) => ({ ...e, dateOfBirth: null })),
-    warnings: [], totals: { certificates: input.employees.length, paye: 0, uif: 0, sdl: 0 }, runs: [],
-    certificateEmployees: input.certificateEmployees,
-  };
+    physical_postal_code = '0001', physical_city = 'Pretoria' WHERE id = $1`, [r.company]);
+  // The rig's employees carry a date of birth of 1980-01-01; this ID number is that date's, and valid.
+  await r.pool.query("UPDATE payroll_employees SET id_number = '8001015009087' WHERE company_id = $1 AND id_number IS NULL", [r.company]);
+  return buildEmp501Figures(r.company, emp501Period(2026, 'annual'), false);
 }
 /** A tax_return_versions row as EFb's lifecycle leaves it (fixture: the lifecycle itself is EFb's suite). */
 async function version(r: R, figures: unknown, o: { status?: string; start?: string; end?: string; no?: number } = {}): Promise<string> {
@@ -79,8 +77,6 @@ beforeAll(async () => {
   emp.one = await person(a, 'irp5-one@example.invalid', 'One');
   emp.two = await person(a, 'irp5-two@example.invalid', 'Two');
   emp.bee = await person(b, 'irp5-bee@example.invalid', 'Bee');
-  await a.pool.query("UPDATE payroll_employees SET id_number = '8001015009087' WHERE id = $1", [emp.one]);
-  await a.pool.query("UPDATE payroll_employees SET id_number = '8001015009087' WHERE id = $1", [emp.two]);
   await approvedRun(a, 1);
   await approvedRun(a, 2);
   await approvedRun(b, 1);
@@ -92,6 +88,9 @@ beforeAll(async () => {
   const twice = figuresA.certificateEmployees!.map((m) => ({ ...m, employeeId: emp.two }));
   ver.twice = await version(a, { ...figuresA, taxYear: 2022, certificateEmployees: twice }, { start: '2021-03-01', end: '2022-02-28' });
   ver.bFiled = await version(b, await figures(b));
+  // Company a's version naming b's employee (only a forged row could): b's session must still not see it.
+  const cross = [{ certificateNumber: figuresA.employees[0]!.certificateNumber, employeeId: emp.bee }];
+  ver.cross = await version(a, { ...figuresA, taxYear: 2021, certificateEmployees: cross }, { start: '2020-03-01', end: '2021-02-28' });
   jars.one = await onboard(a, emp.one, '198.18.3.1');
   jars.two = await onboard(a, emp.two, '198.18.3.2');
   jars.bee = await onboard(b, emp.bee, '198.18.3.3');
@@ -138,6 +137,7 @@ describe('employee portal IRP5', () => {
     expect((await getPdf(jars.bee!, ver.filed!)).statusCode).toBe(404);
     expect((await listed(jars.bee!)).certificates.map((c) => c.versionId)).toEqual([ver.bFiled]);
     expect((await getPdf(jars.one!, ver.bFiled!)).statusCode).toBe(404);
+    expect((await getPdf(jars.bee!, ver.cross!)).statusCode).toBe(404);
     expect((await getPdf({}, ver.filed!)).statusCode).toBe(401);
     expect((await portal(list, 'GET', {})).statusCode).toBe(401);
   });
