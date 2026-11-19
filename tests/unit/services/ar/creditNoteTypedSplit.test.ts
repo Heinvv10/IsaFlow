@@ -74,6 +74,12 @@ describe('requiredCreditNoteVat', () => {
     expect(requiredCreditNoteVat({ remainingNet: 18563987.4, remainingVat: 2784598.11, subtotal: 17486147.3 })).toBe(2622922.1);
     expect(requiredCreditNoteVat({ remainingNet: 26189978.4, remainingVat: 3928496.76, subtotal: 3930755.5 })).toBe(589613.33);
   });
+
+  // No S = R special case: the formula itself gives all of V, at any size and whatever V / R is.
+  it.each([
+    [1500, 150], [101, 15.2], [0.01, 0.01], [26189978.4, 3928496.76], [999999999.99, 150000000], [0.03, 0],
+  ])('a note crediting all %s of the net carries all %s of the VAT', (r, v) =>
+    expect(requiredCreditNoteVat({ remainingNet: r, remainingVat: v, subtotal: r })).toBe(v));
 });
 
 describe('the proportional rule, case by case', () => {

@@ -9,12 +9,13 @@
  *        (allocateCreditNote / remainingCarries), each debit carrying its leg's VAT type. When S = R every leg takes
  *        exactly what it has left.
  *   VAT  V = the invoice's remaining VAT (its VAT Output legs less the tax of live earlier customer notes). The note's
- *        tax_amount must be EXACTLY requiredCreditNoteVat(R, V, S): V when S = R, else round-half-away(V x S / R),
- *        in integer cents. No tolerance and no rate: the figure is the invoice's own VAT, in proportion.
+ *        tax_amount must be EXACTLY requiredCreditNoteVat(R, V, S) = round-half-away(V x S / R) in exact integer cents,
+ *        which is V itself when S = R (V x R / R). No tolerance and no rate: the invoice's own VAT, in proportion.
  *
- * STRANDING IS IMPOSSIBLE. (1) While R > 0 and V >= 0, a note with S = R is accepted with VAT V, and every partial
- * note's VAT is at most V (S < R), so V stays >= 0; (2) the note that brings R to 0 is S = R, which takes exactly V,
- * so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT. Negative V (hand-made data) is refused.
+ * STRANDING IS IMPOSSIBLE. (1) While R > 0 and V >= 0, a note with S = R is accepted with VAT exactly V (the formula,
+ * exact in BigInt), and every partial note's VAT is at most V (S < R), so V stays >= 0; (2) the note that brings R to 0
+ * is S = R, which takes exactly V, so R = 0 implies V = 0; (3) a cancelled note restores both its net and its VAT.
+ * Negative V (hand-made data) is refused.
  *
  * Only the standard lines of a mixed invoice cannot be credited alone until credit notes have lines. A note against a
  * legacy invoice (any uncoded leg) is not this file's: allocateCreditNote, exactly as before. Pure.
@@ -54,14 +55,12 @@ const mulDivRound = (a: number, b: number, d: number): number => {
 };
 
 /**
- * The VAT a note crediting `subtotal` of an invoice with `remainingNet` and `remainingVat` left must carry: all of the
- * VAT when it credits all of the net, else its proportional share, rounded half away from zero to the cent.
+ * The VAT a note crediting `subtotal` of an invoice with `remainingNet` (> 0) and `remainingVat` left must carry: its
+ * proportional share, rounded half away from zero to the cent. Exact, so a note crediting all of the net gets all of
+ * the VAT (V x R / R = V; no special case, and the mutation that added one could not be told apart).
  */
 export function requiredCreditNoteVat(input: { remainingNet: number; remainingVat: number; subtotal: number }): number {
-  const r = cents(input.remainingNet);
-  const v = cents(input.remainingVat);
-  const s = cents(input.subtotal);
-  return (s === r ? v : mulDivRound(v, s, r)) / 100;
+  return mulDivRound(cents(input.remainingVat), cents(input.subtotal), cents(input.remainingNet)) / 100;
 }
 
 /**
