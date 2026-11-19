@@ -2,7 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isSdlExempt, SDL_RATE } from './sdlEngine';
-import { NO_EARLIER_SDL, splitCatchUp, type MonthToDateSdl } from './payrollSdlMonthToDate';
+import { NO_EARLIER_SDL, runSdlForMonth, splitByLeviable, type MonthToDateSdl } from './payrollSdlMonthToDate';
 import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
@@ -177,8 +177,9 @@ export async function estimateAnnualRemuneration(
  * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
  * with each line so the year to date knows which months were liable), which is
  * why the caller builds them first.
- * `monthToDate` (wave 6 OC, review #1620 final breaker H): the month's earlier final runs. The month stays liable once
- * one of them was, and a liable run carries what they did not levy (payrollSdlMonthToDate). None: costed as before.
+ * `monthToDate` (wave 6 OC, review #1620 final breaker H, FQd's month-level ruling): the month's earlier final runs.
+ * The month stays liable once one of them was; a liable run charges 1% of the month to date less what they charged,
+ * split by leviable share (payrollSdlMonthToDate). A line whose share differs from 1% of its own pay says so.
  */
 export function applySdlToLines(
   lines: SdlLine[],
@@ -189,19 +190,20 @@ export function applySdlToLines(
   let total = 0;
   const byEstimate = !isSdlExempt(annualRemunerationEstimate, taxYear);
   const liable = byEstimate || monthToDate.earlierLiable;
-  const catchUp = liable ? Math.round((monthToDate.earlierDue - monthToDate.earlierLevied) * 100) / 100 : 0;
-  const shares = splitCatchUp(lines, catchUp);
+  const runSdl = runSdlForMonth(liable, lines.reduce((t, l) => t + Math.max(0, l.sdlLeviable), 0), monthToDate);
+  const shares = splitByLeviable(lines, runSdl);
   lines.forEach((line, i) => {
     const own = liable ? Math.round(line.sdlLeviable * SDL_RATE * 100) / 100 : 0;
-    const carried = shares[i] ?? 0;
+    const share = shares[i] ?? 0;
+    const adjustment = Math.round((share - own) * 100) / 100;
     line.sdlExempt = !liable;
-    line.sdl = Math.round((own + carried) * 100) / 100;
+    line.sdl = share;
     if (line.explanation) {
       line.explanation = {
         ...line.explanation,
         sdl: withSdlCharge(line.explanation.sdl, taxYear, {
           annualRemuneration: annualRemunerationEstimate, exempt: !liable, sdl: line.sdl,
-          ...(liable && !byEstimate ? { liableEarlier: true } : {}), ...(carried !== 0 ? { catchUp: carried } : {}),
+          ...(liable && !byEstimate ? { liableEarlier: true } : {}), ...(adjustment !== 0 ? { catchUp: adjustment } : {}),
         }),
       };
     }

@@ -95,8 +95,8 @@ export function explainSdl(input: {
 
 /**
  * The run's SDL decision on the line (wave 6 OC, payrollSdlMonthToDate): `liableEarlier`, liable because an earlier
- * final run of the month was (the estimate alone would exempt it); `catchUp`, this line's share of what the month's
- * earlier final runs did not levy.
+ * final run of the month was (the estimate alone would exempt it); `catchUp`, the month-to-date adjustment on this line:
+ * its share of the month's SDL (1% of the month to date less what earlier final runs charged) less 1% of its own pay.
  */
 type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; liableEarlier?: boolean; catchUp?: number };
 
@@ -113,7 +113,7 @@ function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): Expl
     ...(charge.catchUp
       ? [
         { key: 'sdl.own', label: 'SDL on this line\'s own pay', amount: own, formula: `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
-        { key: 'sdl.catchUp', label: 'Plus this line\'s share of what the month\'s earlier runs did not levy (the month became liable on this run)', amount: charge.catchUp },
+        { key: 'sdl.catchUp', label: 'Month-to-date adjustment: the month\'s SDL is 1% of its leviable pay to date less what its earlier runs charged, shared by leviable pay', amount: charge.catchUp },
         { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: `${r(own)} + ${r(charge.catchUp)}` },
       ]
       : [{ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` }]),

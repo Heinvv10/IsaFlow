@@ -113,7 +113,7 @@ describe('SDL settled for the month to date', () => {
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const id = String(made.body.data!.id);
     expect((await t.api.calculate(id)).statusCode).toBe(200);
-    expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 203, earlierLevied: 0 });
+    expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierLeviable: 20300, earlierLevied: 0 });
     // A run of the month paid earlier (the 20th) but not final (calculated): nothing of it is caught up.
     const seeded = String((await t.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date,
         run_kind, off_cycle_reason, period_start, period_end, employee_count)
@@ -121,7 +121,7 @@ describe('SDL settled for the month to date', () => {
     try {
       await t.pool.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay, sdl, sdl_leviable, sdl_exempt)
         VALUES ($1, $2, 10000, 10000, 0, 10000, 0, 10000, true)`, [seeded, mid[t.company]]);
-      expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 203, earlierLevied: 0 });
+      expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierLeviable: 20300, earlierLevied: 0 });
     } finally {
       await t.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [seeded]);
       await t.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [seeded]);

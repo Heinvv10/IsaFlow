@@ -4,15 +4,17 @@
  * another, so each run settles the month to date, as UIF does:
  *
  *  1. Judge: liable when the month's estimate (estimateAnnualRemuneration: trailing history plus every run of the month
- *     to date, this one included) is over the threshold, OR an earlier final run of the month was already liable.
- *     The decision is monotonic within the month: once liable, every later run is liable.
- *  2. Charge: a liable run levies 1% of each of its own lines' leviable amount (rounded per line, as before), plus a
- *     catch-up: what the month's earlier FINAL runs would have levied had the month been liable when they ran, less what
- *     they did levy. So a run that tips the month into liability carries the earlier runs' share, split across its own
- *     lines by each line's leviable share (the largest remainder to the largest leviable, ties by employee id).
- *  3. Nothing is ever reopened for SDL: an earlier final run keeps what it levied, and the month's EMP201 SDL is the 1%
- *     of the month's leviable lines (each rounded to the cent).
- * An exempt run levies nothing and carries nothing; with no earlier final run, a run is costed exactly as before.
+ *     to date, this one included) is over the threshold, OR an earlier FINAL run of the month was liable. Monotonic
+ *     over FINAL runs only, so two runs that are not final never keep each other liable.
+ *  2. Charge, at month level (FQd's breaker ruling, shared with FQd #1622): this run's SDL =
+ *       liable ? max(0, 1% x (the FINAL runs' leviable + this run's leviable), rounded to the cent - the SDL the FINAL
+ *       runs charged) : 0,
+ *     split across this run's lines by leviable share (the cents left to the largest leviable, ties by employee id).
+ *     So a run that tips the month carries the earlier runs' share, and a run recalculated after a reopen charges the
+ *     month's remainder once, never twice.
+ *  3. Nothing is ever reopened for SDL: an earlier final run keeps what it levied, and the month's EMP201 SDL is 1% of
+ *     the month's leviable pay when the month is liable (each run settling the month to date).
+ * An exempt run levies nothing.
  * NAMED LIMIT: the catch-up sits on the lines of the run that tipped the month, so an employee's own 4142 (IRP5) can
  * carry another's share; the employer's EMP201 total is right. Scoped by company_id throughout.
  */
@@ -24,15 +26,15 @@ import { SDL_RATE } from './sdlEngine';
 
 /** The month's earlier final runs, as this run sees them. */
 export interface MonthToDateSdl {
-  /** An earlier final run of the month levied SDL (was liable). */
+  /** An earlier final run of the month was liable. */
   earlierLiable: boolean;
-  /** What the earlier final runs' lines would levy at 1% (each line rounded to the cent). */
-  earlierDue: number;
-  /** What they did levy. */
+  /** The earlier final runs' leviable remuneration. */
+  earlierLeviable: number;
+  /** The SDL they charged. */
   earlierLevied: number;
 }
 
-export const NO_EARLIER_SDL: MonthToDateSdl = { earlierLiable: false, earlierDue: 0, earlierLevied: 0 };
+export const NO_EARLIER_SDL: MonthToDateSdl = { earlierLiable: false, earlierLeviable: 0, earlierLevied: 0 };
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -40,7 +42,7 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 export async function loadMonthToDateSdl(companyId: string, runId: string): Promise<MonthToDateSdl> {
   const rows = (await sql`
     SELECT COALESCE(bool_or(l.sdl_exempt = false), false) AS liable,
-           COALESCE(SUM(ROUND(COALESCE(l.sdl_leviable, 0) * ${SDL_RATE}, 2)), 0)::float8 AS due,
+           COALESCE(SUM(COALESCE(l.sdl_leviable, 0)), 0)::float8 AS leviable,
            COALESCE(SUM(l.sdl), 0)::float8 AS levied
       FROM payroll_run_headers me
       JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year
@@ -51,11 +53,17 @@ export async function loadMonthToDateSdl(companyId: string, runId: string): Prom
        AND ${runIsBeforeSql('o', companyId, runId)}
   `) as DbRow[];
   const r = rows[0];
-  return r ? { earlierLiable: r.liable === true, earlierDue: Number(r.due) || 0, earlierLevied: Number(r.levied) || 0 } : NO_EARLIER_SDL;
+  return r ? { earlierLiable: r.liable === true, earlierLeviable: Number(r.leviable) || 0, earlierLevied: Number(r.levied) || 0 } : NO_EARLIER_SDL;
 }
 
-/** Each line's share of `catchUp`, by its leviable amount; the cents left go to the largest leviable (ties: employee id). */
-export function splitCatchUp(lines: Array<{ sdlLeviable: number; employeeId?: string }>, catchUp: number): number[] {
+/** This run's SDL, at month level: liable ? max(0, 1% x (earlier final + this run's leviable) - earlier final SDL) : 0. */
+export function runSdlForMonth(liable: boolean, thisLeviable: number, m: MonthToDateSdl): number {
+  if (!liable) return 0;
+  return Math.max(0, round2(round2((m.earlierLeviable + thisLeviable) * SDL_RATE) - m.earlierLevied));
+}
+
+/** Each line's share of `amount`, by its leviable amount; the cents left go to the largest leviable (ties: employee id). */
+export function splitByLeviable(lines: Array<{ sdlLeviable: number; employeeId?: string }>, catchUp: number): number[] {
   const out = lines.map(() => 0);
   if (lines.length === 0 || round2(catchUp) === 0) return out;
   const order = lines.map((l, i) => i)

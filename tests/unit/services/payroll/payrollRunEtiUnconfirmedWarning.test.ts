@@ -99,7 +99,7 @@ vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
 // Wave 6 OC: the month's earlier final runs for the SDL catch-up (its own suites: w6-oc-sdl, payrollSdlMonthToDate).
 vi.mock('@/modules/accounting/services/payroll/payrollSdlMonthToDate', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollSdlMonthToDate')>(),
-  loadMonthToDateSdl: vi.fn(async () => ({ earlierLiable: false, earlierDue: 0, earlierLevied: 0 })),
+  loadMonthToDateSdl: vi.fn(async () => ({ earlierLiable: false, earlierLeviable: 0, earlierLevied: 0 })),
 }));
 // No leaver awaiting a severance directive (p3-severance-directive-run covers that).
 vi.mock('@/modules/accounting/services/payroll/payrollSeveranceDirective', async (orig) => ({

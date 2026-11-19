@@ -1,8 +1,9 @@
 /**
  * Wave 6 OC, review #1620 final breaker H: SDL as a month-to-date catch-up (applySdlToLines + payrollSdlMonthToDate).
  *  (1) the estimate judges the month; (2) once an earlier final run of the month was liable, this run is liable;
- *  (3) a liable run carries what the month's earlier final runs did not levy, split by its lines' leviable share;
- *  (5) the month then levies 1% of every line's leviable amount (each rounded to the cent).
+ *  (3) a liable run charges max(0, 1% of the month to date - what the earlier final runs charged), split by its lines'
+ *      leviable share (FQd's month-level ruling);
+ *  (5) the month then levies 1% of its leviable pay.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +11,7 @@ vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(async () => []), { unsaf
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { applySdlToLines, type SdlLine } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
-import { NO_EARLIER_SDL, splitCatchUp } from '@/modules/accounting/services/payroll/payrollSdlMonthToDate';
+import { NO_EARLIER_SDL, splitByLeviable } from '@/modules/accounting/services/payroll/payrollSdlMonthToDate';
 
 const TAX_YEAR = 2027;
 const LIABLE = 1_000_000; // an annual estimate over the R500 000 threshold
@@ -29,15 +30,15 @@ describe('SDL as a month-to-date catch-up', () => {
 
   it('(2) once an earlier final run of the month was liable, this run is liable whatever its own estimate says', () => {
     const l = lines(1_000);
-    applySdlToLines(l, EXEMPT, TAX_YEAR, { earlierLiable: true, earlierDue: 150, earlierLevied: 150 });
+    applySdlToLines(l, EXEMPT, TAX_YEAR, { earlierLiable: true, earlierLeviable: 15_000, earlierLevied: 150 });
     expect(l[0]).toMatchObject({ sdl: 10, sdlExempt: false });
     expect(l[0]!.sdl).toBe(10);
   });
 
   it('(3) a run that tips the month carries the earlier runs\' unlevied share, by leviable share, the cents to the largest', () => {
     const l = lines(600_000, 300_000);
-    // The month's earlier final (exempt) runs: R20 300 leviable, R203 due, nil levied.
-    const total = applySdlToLines(l, LIABLE, TAX_YEAR, { earlierLiable: false, earlierDue: 203, earlierLevied: 0 });
+    // The month's earlier final (exempt) runs: R20 300 leviable, nil charged.
+    const total = applySdlToLines(l, LIABLE, TAX_YEAR, { earlierLiable: false, earlierLeviable: 20_300, earlierLevied: 0 });
     expect(l.map((x) => x.sdl)).toEqual([6_000 + 135.33, 3_000 + 67.67]);
     // (5) the month: 1% of everything it paid, once.
     expect(Math.round((total + 0) * 100) / 100).toBe(9_000 + 203);
@@ -45,8 +46,18 @@ describe('SDL as a month-to-date catch-up', () => {
 
   it('an exempt run carries nothing, and the split always adds up to the catch-up', () => {
     const l = lines(1_000);
-    expect(applySdlToLines(l, EXEMPT, TAX_YEAR, { earlierLiable: false, earlierDue: 50, earlierLevied: 0 })).toBe(0);
-    expect(splitCatchUp([{ sdlLeviable: 1 }, { sdlLeviable: 1 }, { sdlLeviable: 1 }], 1).reduce((t, x) => t + x, 0)).toBeCloseTo(1, 10);
-    expect(splitCatchUp([{ sdlLeviable: 0 }, { sdlLeviable: 0 }], 7.5)).toEqual([7.5, 0]);
+    expect(applySdlToLines(l, EXEMPT, TAX_YEAR, { earlierLiable: false, earlierLeviable: 5_000, earlierLevied: 0 })).toBe(0);
+    expect(splitByLeviable([{ sdlLeviable: 1 }, { sdlLeviable: 1 }, { sdlLeviable: 1 }], 1).reduce((t, x) => t + x, 0)).toBeCloseTo(1, 10);
+    expect(splitByLeviable([{ sdlLeviable: 0 }, { sdlLeviable: 0 }], 7.5)).toEqual([7.5, 0]);
+  });
+
+  it('month level, never twice: what the earlier final runs already charged is taken off, and the run never goes below nil', () => {
+    // Earlier final runs: R10 000 leviable, R150 charged (more than 1%); this run R1 000: 1% of R11 000 is R110, so nil.
+    const l = lines(1_000);
+    expect(applySdlToLines(l, LIABLE, TAX_YEAR, { earlierLiable: true, earlierLeviable: 10_000, earlierLevied: 150 })).toBe(0);
+    expect(l[0]).toMatchObject({ sdl: 0, sdlExempt: false });
+    // Earlier final R20 000 charged R200 (1%), this run R1 000.55: 1% of R21 000.55 is R210.01, less R200 = R10.01.
+    const m = lines(1_000.55);
+    expect(applySdlToLines(m, LIABLE, TAX_YEAR, { earlierLiable: true, earlierLeviable: 20_000, earlierLevied: 200 })).toBe(10.01);
   });
 });
