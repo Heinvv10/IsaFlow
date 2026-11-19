@@ -17,6 +17,7 @@ import type { DbRow } from '@/types/db';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { periodHasReturnVersion } from '@/modules/accounting/services/returns/versionExists';
 import { lockCompanyFilingReferences } from '@/modules/accounting/services/returns/filingReference';
+import { emp201NotFinalRefusal } from '@/modules/accounting/services/returns/finaliseEmpReturn';
 
 export interface SARSSubmission {
   id: string;
@@ -198,6 +199,11 @@ export async function markSubmitted(companyId: string,
   if (!opts.lifecycle && await periodHasReturnVersion(companyId, String(row.form_type), fmtDate(row.period_start), fmtDate(row.period_end))) {
     // Any status: between an amend and the next finalise nothing is live, and the period is still the lifecycle's.
     throw new SubmissionNotOpenError('This period has a return version: file through the return lifecycle.');
+  }
+  if (!opts.lifecycle && String(row.form_type) === 'EMP201') {
+    // A month with a pay run not final (a reopened run) is never filed (breaker #1622), as the lifecycle refuses it.
+    const notFinal = await emp201NotFinalRefusal(companyId, fmtDate(row.period_start), fmtDate(row.period_end));
+    if (notFinal) throw new SubmissionNotOpenError(notFinal);
   }
 
   const rows = (await sql`
