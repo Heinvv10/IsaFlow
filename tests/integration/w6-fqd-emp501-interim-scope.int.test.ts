@@ -13,6 +13,8 @@ import { request, response } from './mfa-impersonation-postgres.helpers';
 import runs from '../../pages/api/payroll/runs';
 import emp501Returns from '../../pages/api/payroll/emp501/returns';
 import easyfile from '../../pages/api/payroll/irp5/easyfile-export';
+import emp501Recon from '../../pages/api/payroll/emp501/reconciliation';
+import sarsEmp501 from '../../pages/api/accounting/sars/emp501';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import filingFile from '../../pages/api/accounting/sars/returns/[form]/filing-file';
 import fileRoute from '../../pages/api/accounting/sars/returns/[form]/file';
@@ -85,5 +87,23 @@ describe('L-G: the monthly-only certificate rule judges the return\'s own period
     expect([e instanceof RunKindUnsupportedError, (e as Error).message]).toEqual([true, expect.stringContaining('weekly run for 7–13 Sep 2026')]);
     const res = await route(easyfile, 'GET', '/api/payroll/irp5/easyfile-export', { taxYear: '2027' });
     expect([res.statusCode, res.body.error?.details?.code]).toEqual([409, 'RUN_KIND_UNSUPPORTED']);
+  });
+
+  it('the EMP501 reconciliation: the interim (?period=interim) serves March to August; the annual refuses', async () => {
+    const interim = await route(emp501Recon, 'GET', '/api/payroll/emp501/reconciliation', { taxYear: '2027', period: 'interim' });
+    expect(interim.statusCode).toBe(200);
+    const rows = (interim.body.data as { rows: Array<{ monthLabel: string; irp5Paye: number }> }).rows;
+    expect(rows.map((r) => r.monthLabel)).toEqual(['Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026']);
+    const annual = await route(emp501Recon, 'GET', '/api/payroll/emp501/reconciliation', { taxYear: '2027' });
+    expect([annual.statusCode, annual.body.error?.details?.code]).toEqual([409, 'RUN_KIND_UNSUPPORTED']);
+  });
+
+  // The legacy summary reads payroll_runs/payslips, tables that no longer exist (a 500 on master for any tenant, not
+  // FQd's): judged only on the refusal, which the interim no longer meets and the annual still does.
+  it('the legacy EMP501 summary: the interim is not refused for the September run; the annual is', async () => {
+    const interim = await route(sarsEmp501, 'GET', '/api/accounting/sars/emp501', { taxYear: '2027', period: 'interim' });
+    expect(interim.body.error?.details?.code).not.toBe('RUN_KIND_UNSUPPORTED');
+    const annual = await route(sarsEmp501, 'GET', '/api/accounting/sars/emp501', { taxYear: '2027' });
+    expect([annual.statusCode, annual.body.error?.details?.code]).toEqual([409, 'RUN_KIND_UNSUPPORTED']);
   });
 });

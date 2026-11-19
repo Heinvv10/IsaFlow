@@ -3,6 +3,7 @@
  */
 import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
+import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -17,7 +18,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const parsedTaxYear = Number(req.query.taxYear);
   const taxYear = parsedTaxYear >= 2000 && parsedTaxYear <= 2100 ? parsedTaxYear : new Date().getFullYear();
-  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED)
+  const kind = req.query.period ?? 'annual';
+  if (kind !== 'annual' && kind !== 'interim') return apiResponse.badRequest(res, 'period must be annual or interim');
+  // The interim (?period=interim, March to August) judges and sums its own months only (breaker #1622).
+  const period = emp501Period(taxYear, kind);
+  await assertCertificateYearMonthlyOnly(companyId, taxYear, kind === 'interim' ? period.endYear * 100 + period.endMonth : undefined);
 
   // Get monthly totals from payroll runs
   const rows = await sql`
@@ -31,7 +36,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     JOIN payslips ps ON ps.payroll_run_id = pr.id
     WHERE pr.company_id = ${companyId}
       AND pr.period_end >= ${`${taxYear - 1}-03-01`}
-      AND pr.period_end <= ${`${taxYear}-02-28`}
+      AND pr.period_end <= ${period.end}
     GROUP BY EXTRACT(MONTH FROM pr.period_end)
     ORDER BY month
   ` as Row[];
