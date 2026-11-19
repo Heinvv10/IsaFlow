@@ -58,6 +58,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw new Error('One or both suppliers not found or do not belong to this company');
       }
 
+      // Migration 1006: a purchase order <-> bill link joins one supplier's documents; moving only some of them would leave
+      // a cross-supplier link (the database refuses it). The smaller safe option: refuse while the source has links.
+      const linked = await tx`
+        SELECT 1 FROM purchase_order_bill_links l
+          JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+         WHERE l.company_id = ${companyId} AND po.supplier_id = ${source_id} LIMIT 1
+      `;
+      if ((linked as unknown[]).length > 0) {
+        throw new SupplierMergeRefusal(
+          'This supplier has bills linked to purchase orders. Unlink them (unlink_bill_from_purchase_order) before merging, so no link joins two suppliers.',
+        );
+      }
+
       // 2. Re-parent supplier_payments. supplier_id is approval content too —
       // with it the payee's bank details (R-035 PR5): the merging user becomes
       // an author of every payment it moves, and of each batch they belong to.

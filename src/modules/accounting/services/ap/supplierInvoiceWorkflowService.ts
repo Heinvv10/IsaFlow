@@ -11,7 +11,7 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
-import { judgeMatchLine, overallMatchStatus, readMatchInputs } from './threeWayMatchState';
+import { judgeMatchLine, overallMatchStatus, readBillMatchInputs } from './threeWayMatchState';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -384,14 +384,11 @@ export async function performThreeWayMatch(
   const invoice = await getSupplierInvoiceById(companyId, invoiceId);
   if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
-  if (!invoice.purchaseOrderId) {
+  const inputs = await readBillMatchInputs(companyId, invoice);
+  if (!inputs) {
     log.info('performThreeWayMatch: invoice has no linked PO — returning unmatched', { invoiceId }, 'accounting');
     return { invoiceId, matchStatus: 'unmatched', itemResults: [] };
   }
-
-  const inputs = await readMatchInputs(companyId, {
-    supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId, grnId: invoice.grnId,
-  });
 
   const itemResults: ThreeWayMatchItemResult[] = [];
 
