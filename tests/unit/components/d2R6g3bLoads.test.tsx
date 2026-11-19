@@ -8,6 +8,8 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 configure({ asyncUtilTimeout: 4000 });
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+// The EMP501 page's return lifecycle (wave 6 EFb) has its own tests; here only the reconciliation's load is under test.
+vi.mock('@/components/payroll/emp501/Emp501ReturnSection', () => ({ Emp501ReturnSection: () => null }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));

@@ -16,6 +16,8 @@ export interface WipeStep {
   table: string;
   /** For a table without company_id: [fk column, parent table] pairs; a row goes when any names a Demo parent row. */
   via?: ReadonlyArray<readonly [string, string]>;
+  /** With `via`: the table also has a company_id, and a row goes when it names the company OR a Demo parent (stock rows whose company_id is NULL but whose warehouse is the Demo's would otherwise block the warehouses delete). */
+  orCompany?: boolean;
   /** Rows of this table that must survive (an append-only row names them). */
   preserve?: string;
 }
@@ -129,8 +131,9 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'soft_delete_journal_reversals' },
   { table: 'stock_adjustments' },
   { table: 'stock_items' },
-  { table: 'stock_levels', via: [['product_id', 'products'], ['warehouse_id', 'warehouses']] },
-  { table: 'stock_movements', via: [['product_id', 'products'], ['warehouse_id', 'warehouses']] },
+  // company_id since migration 1005, but a legacy row may have none: it goes by the company OR by its product / warehouse.
+  { table: 'stock_levels', via: [['product_id', 'products'], ['warehouse_id', 'warehouses']], orCompany: true },
+  { table: 'stock_movements', via: [['product_id', 'products'], ['warehouse_id', 'warehouses']], orCompany: true },
   { table: 'supplier_activities' },
   { table: 'supplier_coding_history' },
   { table: 'supplier_coding_rules' },
@@ -161,13 +164,14 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'dimension_tag_batches' },
   { table: 'expense_claims' },
   { table: 'goods_received_notes' },
-  { table: 'items' },
   { table: 'loan_schedule_runs' },
   { table: 'payroll_batches' },
   { table: 'payroll_external_imports' },
   { table: 'payroll_loan_schedule', via: [['loan_id', 'payroll_loans']] },
   { table: 'payroll_run_headers' },
   { table: 'po_items', via: [['product_id', 'products'], ['purchase_order_id', 'purchase_orders']] },
+  // After every table whose lines name an item (po_items, the bill / invoice / quote lines, stock_movements): item_id FKs, migration 1005.
+  { table: 'items' },
   { table: 'portal_contacts' },
   { table: 'project_tasks', via: [['project_id', 'projects']] },
   { table: 'proof_of_payments' },
@@ -281,7 +285,8 @@ export function isKept(table: string): boolean {
 /** The WHERE clause of a step; `$1` is always the company id, never interpolated. */
 export function stepWhere(step: WipeStep): string {
   const scope = step.via
-    ? step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id = $1::uuid)`).join(' OR ')
+    ? [...(step.orCompany ? ['company_id = $1::uuid'] : []),
+        ...step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id = $1::uuid)`)].join(' OR ')
     : 'company_id = $1::uuid';
   return step.preserve ? `(${scope}) AND NOT (${step.preserve})` : scope;
 }

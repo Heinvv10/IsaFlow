@@ -40,6 +40,7 @@ const PINNED: Record<string, string> = {
   'pages/api/accounting/invoice-pdf.ts | `invoice-pdf:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   "pages/api/payroll/runs/[id]/payslips/email.ts | 'payslips'": 'literal send name (send:payslips:…), distinct from the download\'s report:payslips:u:…; count = recipients judged sendable, companyMax 500 / dailyMax 1000 literals so one payroll fits a window, refundUnused',
   'pages/api/payroll/runs/[id]/payslips.ts | `payslips:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
+  'pages/api/employee-portal/payslips/[runId].ts | `employee-portal-payslip:e:${employeeId}`': 'per-employee report name in the employee portal (the session\'s employee id, never a staff user id); options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/payslips.ts | `payslip-history:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/fringe-benefits.ts | `fringe-benefits:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/has-final-run.ts | `has-final-run:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
@@ -50,6 +51,8 @@ const PINNED: Record<string, string> = {
   'pages/api/accounting/sars/returns/[form]/file.ts | `return-file:u:${userId}`': 'per-user filing name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
   'pages/api/accounting/sars/returns/[form]/amend.ts | `return-amend:u:${userId}`': 'per-user amend name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
   'pages/api/accounting/sars/returns/[form]/filing-file.ts | `return-filing-file:u:${userId}`': 'per-user filing-file name (wave 6 EFa); options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
+  'pages/api/payroll/emp501/returns/filing-file.ts | `emp501-filing-file:u:${userId}`': 'per-user EMP501 filing-file name (wave 6 EFb); options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
+  'pages/api/payroll/emp501/returns/index.ts | `emp501-${b.action}:u:${userId}`': 'per-user EMP501 lifecycle name, one per action (finalise | file | amend, wave 6 EFb); options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
   'pages/api/accounting/invoice-pdf-preview.ts | previewRateLimitName(user.id)': 'per-user preview name (`invoice-pdf-preview:u:<userId>`, invoicePreviewBody.ts); options are PREVIEW_RATE_LIMIT, a named constant beside it (300 per 15 min)',
   'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };
