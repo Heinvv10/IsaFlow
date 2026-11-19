@@ -73,14 +73,16 @@ describe('A. weekly -> monthly across the week that straddles 1 March 2026', () 
     march = id(await create(a, { month: 3, year: 2026 }));
     const refused = await a.api.calculate(march);
     expect([refused.statusCode, refused.body.error?.details?.code]).toEqual([409, 'FREQUENCY_CHANGE_STRADDLE']);
-    expect(refused.body.error?.message).toContain('2026-03-01 would be paid twice');
-    expect(refused.body.error?.message).toContain('once-off adjustment');
+    const name = (await a.pool.query("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [employee])).rows[0]!.n;
+    const says = `${name} was last paid weekly up to 1 Mar 2026, and this monthly run starts on 1 Mar 2026: 1 Mar 2026 would be paid `
+      + 'twice. Settle that day with a once-off adjustment, then acknowledge the change on this run (an owner or admin).';
+    expect(refused.body.error?.message).toBe(says);
     expect(await lines(a, march)).toBe(0);
     const dry = await dryRun(a, march);
-    expect([dry.isError, dry.text]).toEqual([true, expect.stringContaining('2026-03-01 would be paid twice')]);
+    expect([dry.isError, dry.text]).toEqual([true, expect.stringContaining('1 Mar 2026 would be paid twice')]);
     const listed = await straddles(a, march);
     expect(listed.body.data).toMatchObject({ straddles: [{ employeeId: employee, oldFrequency: 'weekly', oldEnd: '2026-03-01',
-      start: '2026-03-01', overlap: { from: '2026-03-01', to: '2026-03-01' }, gap: null, acknowledged: false }] });
+      start: '2026-03-01', overlap: { from: '2026-03-01', to: '2026-03-01' }, gap: null, acknowledged: false, message: says }] });
   }, 240_000);
 
   it('only an owner or admin in their own session acknowledges it (audited once); then it calculates and approves', async () => {
@@ -104,7 +106,7 @@ describe('A. weekly -> monthly across the week that straddles 1 March 2026', () 
     await a.pool.query("DELETE FROM audit_log WHERE company_id = $1 AND entity_type = 'payroll_run_frequency_change'", [a.company]);
     const ap = await a.api.approve(march);
     expect(ap.statusCode).not.toBe(200);
-    expect(a.msg(ap)).toContain('2026-03-01 would be paid twice');
+    expect(a.msg(ap)).toContain('1 Mar 2026 would be paid twice');
   }, 240_000);
 });
 
@@ -116,7 +118,7 @@ describe('B. monthly -> weekly: February monthly, the first week starting Monday
     const week = id(await create(b, { frequency: 'weekly', periodStart: '2026-03-02' }));
     const refused = await b.api.calculate(week);
     expect([refused.statusCode, refused.body.error?.details?.code]).toEqual([409, 'FREQUENCY_CHANGE_STRADDLE']);
-    expect(refused.body.error?.message).toContain('2026-03-01 would not be paid');
+    expect(refused.body.error?.message).toContain('and this weekly run starts on 2 Mar 2026: 1 Mar 2026 would not be paid. Settle that day with a once-off adjustment');
     expect(await lines(b, week)).toBe(0);
     expect((await ack(b, week, employee)).statusCode).toBe(200);
     await paid(b, week);

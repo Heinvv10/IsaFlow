@@ -139,6 +139,20 @@ export function formatPeriodRange(start: string, end: string): string {
   return sy === ey ? `${short(start)} - ${short(end)} ${ey}` : `${short(start)} ${sy} - ${short(end)} ${ey}`;
 }
 
+/** '1 Mar 2026'. */
+export const formatDay = (iso: string): string => `${short(iso)} ${iso.slice(0, 4)}`;
+
+/**
+ * A run of days in plain words (review #1622 UI M2): '1 Mar 2026', '21–27 Sep 2026', '28 Sep – 4 Oct 2026',
+ * '28 Dec 2026 – 3 Jan 2027'.
+ */
+export function formatDayRange(from: string, to: string): string {
+  if (from === to) return formatDay(from);
+  if (from.slice(0, 7) === to.slice(0, 7)) return `${Number(from.slice(8, 10))}–${formatDay(to)}`;
+  if (from.slice(0, 4) === to.slice(0, 4)) return `${short(from)} – ${formatDay(to)}`;
+  return `${formatDay(from)} – ${formatDay(to)}`;
+}
+
 /** 'Fri 20 Nov 2026'. */
 export function formatPayDate(iso: string): string {
   const n = dayNumber(iso);

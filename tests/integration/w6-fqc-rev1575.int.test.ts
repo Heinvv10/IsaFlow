@@ -332,7 +332,7 @@ describe('round 4: one employee, two frequencies, overlapping days', () => {
       return { refused, after };
     });
     expect(got.refused).toMatchObject({ code: 'FREQUENCY_CHANGE_STRADDLE', status: 409 });
-    expect(got.refused?.message).toContain('employee FQC-BIG was last paid weekly up to 2026-02-28 and this fortnightly run starts on 2026-02-26: 2026-02-26 to 2026-02-28 would be paid twice');
+    expect(got.refused?.message).toContain('Wanda FQC-BIG was last paid weekly up to 28 Feb 2026, and this fortnightly run starts on 26 Feb 2026: 26–28 Feb 2026 would be paid twice. Settle those days with a once-off adjustment');
     expect(got.after).toBe('ok');
   });
 });

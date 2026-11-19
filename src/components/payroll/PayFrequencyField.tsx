@@ -24,7 +24,8 @@ export function payFrequencyOfResponse(data: unknown): string {
 
 export function PayFrequencyField({ employeeId, canEdit }: { employeeId: string; canEdit: boolean }) {
   const [saved, setSaved] = useState<string | undefined>(undefined);
-  const [draft, setDraft] = useState('monthly');
+  /** null until the frequency loads: the select shows its placeholder, never a value that looks real (review #1622 UI L2). */
+  const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
@@ -55,6 +56,8 @@ export function PayFrequencyField({ employeeId, canEdit }: { employeeId: string;
       setDraft(f);
       setDone(true);
     } catch (err) {
+      // Refused: the select goes back to what is saved, so it never shows an unsaved value as if it held (UI L1).
+      setDraft(saved ?? null);
       setError(apiErrorMessage(err, SAVE_FAILED));
     } finally {
       setSaving(false);
@@ -65,7 +68,8 @@ export function PayFrequencyField({ employeeId, canEdit }: { employeeId: string;
     <div className="mt-4 border-t border-[var(--ff-border-primary)] pt-4" data-testid="pay-frequency-field">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
-          <Select label="Pay frequency" options={OPTIONS} value={draft} disabled={saved === undefined || !canEdit}
+          <Select label="Pay frequency" options={OPTIONS} value={draft} placeholder={error && saved === undefined ? 'Not loaded' : 'Loading…'}
+            disabled={saved === undefined || !canEdit}
             onChange={(v) => { if (v) { setDraft(v); setDone(false); } }} />
           <p className="mt-1 text-sm text-[var(--ff-text-secondary)]">
             {canEdit ? 'A run pays only the employees of its own frequency. It can change only at the start of a tax year once the employee is paid.'

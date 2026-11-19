@@ -72,8 +72,8 @@ export function PayWeekSettingsCard({ state, canEdit, onSaved }: {
       </div>
       <p className="text-sm text-[var(--ff-text-secondary)]">
         {state.locked.week
-          ? 'Fixed for this tax year: a weekly or fortnightly run paid on it is approved. It can change from 1 March.'
-          : canEdit ? 'Fixed for the tax year once a weekly or fortnightly run is approved.'
+          ? 'Locked for this tax year because an approved weekly or fortnightly run uses it. You can change it from 1 March.'
+          : canEdit ? 'This locks for the tax year once a weekly or fortnightly run that uses it is approved.'
             : 'Only an owner or admin can change the pay week.'}
       </p>
       {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}

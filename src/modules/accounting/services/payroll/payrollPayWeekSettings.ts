@@ -30,7 +30,7 @@ export interface PayWeekState extends PayWeekSettings {
 export class PayWeekLockedError extends Error {
   readonly code = 'PAY_WEEK_LOCKED';
   constructor(what: string) {
-    super(`The ${what} cannot change this tax year: a weekly or fortnightly run paid on it is already approved. Change it from 1 March.`);
+    super(`The ${what} is locked for this tax year because an approved weekly or fortnightly run uses it. You can change it from 1 March.`);
     this.name = 'PayWeekLockedError';
   }
 }
@@ -88,7 +88,7 @@ export async function setPayWeekSettings(
     ] as const).filter(([k]) => before[k] !== next[k]);
     if (moved.length === 0) return;
     const locked = await lockedFor(tx, companyId, today);
-    if (locked.week && moved.some(([k]) => k !== 'fortnightAnchor')) throw new PayWeekLockedError('pay week start day and pay day');
+    if (locked.week && moved.some(([k]) => k !== 'fortnightAnchor')) throw new PayWeekLockedError('pay week');
     if (locked.anchor && moved.some(([k]) => k === 'fortnightAnchor')) throw new PayWeekLockedError('fortnight start');
     await tx`
       INSERT INTO payroll_company_settings (company_id, pay_week_start_dow, pay_weekday, fortnight_anchor)

@@ -7,17 +7,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 
-interface Straddle {
-  employeeId: string; employeeNumber: string; oldFrequency: string; oldEnd: string; start: string;
-  overlap: { from: string; to: string } | null; gap: { from: string; to: string } | null; acknowledged: boolean;
-}
-
-const days = (d: { from: string; to: string }) => (d.from === d.to ? d.from : `${d.from} to ${d.to}`);
-
-function sentence(s: Straddle): string {
-  const what = s.overlap ? `${days(s.overlap)} would be paid twice` : `${days(s.gap!)} would not be paid`;
-  return `${s.employeeNumber} was last paid ${s.oldFrequency} up to ${s.oldEnd}, and this run starts on ${s.start}: ${what}.`;
-}
+/** What the card reads of each change; `message` is the server's sentence (payrollFrequencyStraddle.straddleDetail). */
+interface Straddle { employeeId: string; employeeName: string; acknowledged: boolean; message: string }
 
 export function FrequencyChangeCard({ runId, canAcknowledge }: { runId: string; canAcknowledge: boolean }) {
   const [items, setItems] = useState<Straddle[]>([]);
@@ -52,17 +43,15 @@ export function FrequencyChangeCard({ runId, canAcknowledge }: { runId: string; 
   return (
     <section aria-label="Pay-frequency changes" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Pay-frequency changes on this run</h2>
-      <p className="text-sm text-[var(--ff-text-secondary)]">
-        Settle these days with a once-off adjustment on the employee, then acknowledge them. The run calculates once every change is acknowledged.
-      </p>
+      <p className="text-sm text-[var(--ff-text-secondary)]">The run calculates once every change below is acknowledged.</p>
       <ul className="space-y-2">
         {items.map((s) => (
           <li key={s.employeeId} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm text-[var(--ff-text-primary)]">{sentence(s)}</span>
+            <span className="text-sm text-[var(--ff-text-primary)]">{s.message}</span>
             {s.acknowledged
               ? <span className="text-sm text-emerald-700 dark:text-emerald-400">Acknowledged</span>
               : canAcknowledge && (
-                <Button variant="secondary" size="sm" loading={busy === s.employeeId} aria-label={`Acknowledge for ${s.employeeNumber}`}
+                <Button variant="secondary" size="sm" loading={busy === s.employeeId} aria-label={`Acknowledge for ${s.employeeName}`}
                   onClick={() => void acknowledge(s.employeeId)}>Acknowledge</Button>
               )}
           </li>

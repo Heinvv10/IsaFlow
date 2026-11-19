@@ -22,7 +22,7 @@ import { audits, cleanup, type R } from './pe-payslip-email.helpers';
 import payWeek from '../../pages/api/payroll/settings/pay-week';
 import runs from '../../pages/api/payroll/runs';
 import payFrequency from '../../pages/api/payroll/employees/[id]/pay-frequency';
-import { dayNumber, isoDow, isoOfDay, resolveRunPeriod, DEFAULT_PAY_WEEK } from '@/modules/accounting/services/payroll/payrollPayWeek';
+import { dayNumber, formatDayRange, isoDow, isoOfDay, resolveRunPeriod, DEFAULT_PAY_WEEK } from '@/modules/accounting/services/payroll/payrollPayWeek';
 import { taxYearStartOf, todaySast } from '@/modules/accounting/services/payroll/payrollPayWeekSettings';
 
 type Opts = { user?: string; company?: string };
@@ -127,6 +127,7 @@ describe('a weekly run per period', () => {
     const before = await audits(a, 'payroll_company_settings');
     const res = await putWeek(a, { payWeekStartDow: 2, payWeekday: 5, fortnightAnchor: null });
     expect([res.statusCode, res.body.error?.details?.reason]).toEqual([409, 'PAY_WEEK_LOCKED']);
+    expect(res.body.error?.message).toBe('The pay week is locked for this tax year because an approved weekly or fortnightly run uses it. You can change it from 1 March.');
     expect(await settingsRow(a)).toMatchObject({ pay_week_start_dow: 1, pay_weekday: 5, anchor: null });
     expect(await audits(a, 'payroll_company_settings')).toBe(before);
     expect((await getWeek(a)).body.data?.locked).toEqual({ week: true, anchor: false });
@@ -205,6 +206,9 @@ describe('the employee\'s pay frequency', () => {
          method, start_date, first_deduction_period_year, first_deduction_period_month)
        VALUES ($1, $2, 'L-1', 'Loan', 1000, 1000, 10, 'interest_free', '2026-01-01', 2026, 1)`, [a.company, loaned]);
     await refusedTerms(loaned, 'fortnightly', 'an active loan');
+    const loanName = (await a.pool.query("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [loaned])).rows[0]!.n;
+    expect((await putFreq(a, loaned, { payFrequency: 'fortnightly' })).body.error?.message)
+      .toBe(`${loanName} has an active loan, which fortnightly pay can't cover yet. End it first, or keep ${loanName} monthly.`);
     const { employee: directed } = await a.employee(20000);
     await a.pool.query(
       `INSERT INTO tax_directives (company_id, employee_id, employee_name, directive_type, amount, tax_rate, effective_date, status)
@@ -239,7 +243,9 @@ describe('the employee\'s pay frequency', () => {
     await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [run, employee]);
     const fortnightly = await putFreq(a, employee, { payFrequency: 'fortnightly' });
     expect([fortnightly.statusCode, fortnightly.body.error?.details?.code]).toEqual([409, 'PAY_FREQUENCY_REFUSED']);
-    expect(fortnightly.body.error?.message).toContain('change an employee\'s pay frequency at the start of a tax year');
+    const name = (await a.pool.query("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [employee])).rows[0]!.n;
+    expect(fortnightly.body.error?.message).toBe(`${name} was paid at another frequency earlier in this tax year. `
+      + 'A pay frequency can change only at the start of a tax year, on 1 March.');
     expect(await freqOf(a, employee)).toBe('monthly');
     const back = await putFreq(a, employee, { payFrequency: 'weekly' });
     expect([back.statusCode, back.body.data]).toEqual([200, { payFrequency: 'weekly' }]);
@@ -254,6 +260,10 @@ describe('the employee\'s pay frequency', () => {
     await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [run, employee]);
     const res = await putFreq(a, employee, { payFrequency: 'weekly' });
     expect([res.statusCode, res.body.error?.details?.code]).toEqual([409, 'PAY_PERIOD_OVERLAP']);
+    const name = (await a.pool.query("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [employee])).rows[0]!.n;
+    const month = (await a.pool.query('SELECT period_start::text AS s, period_end::text AS e FROM payroll_run_headers WHERE id = $1', [run])).rows[0]!;
+    expect(res.body.error?.message).toBe(`${name} is already paid for ${formatDayRange(month.s, month.e)} on the monthly run, which is not approved yet. `
+      + `Changing ${name} to weekly would pay those days twice: approve or delete that run first.`);
     expect(await freqOf(a, employee)).toBe('monthly');
     await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [run]);
     await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [run]);

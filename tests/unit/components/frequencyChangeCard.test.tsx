@@ -11,7 +11,9 @@ const fetchMock = vi.fn();
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 400 ? { success: true, data } : { success: false, error: data }), { status });
 const straddle = (acknowledged: boolean) => ({
   employeeId: 'e1', employeeNumber: 'E-1', oldFrequency: 'weekly', oldEnd: '2026-03-01', start: '2026-03-01',
-  overlap: { from: '2026-03-01', to: '2026-03-01' }, gap: null, acknowledged,
+  overlap: { from: '2026-03-01', to: '2026-03-01' }, gap: null, acknowledged, employeeName: 'Wendy Weekly',
+  message: 'Wendy Weekly was last paid weekly up to 1 Mar 2026, and this monthly run starts on 1 Mar 2026: 1 Mar 2026 would be paid twice. '
+    + 'Settle that day with a once-off adjustment, then acknowledge the change on this run (an owner or admin).',
 });
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -24,13 +26,12 @@ describe('FrequencyChangeCard', () => {
       return json({ straddles: [straddle(acked)] });
     });
     render(<FrequencyChangeCard runId="r1" canAcknowledge />);
-    expect(await screen.findByText(/2026-03-01 would be paid twice/)).toBeTruthy();
-    expect(screen.getByText(/once-off adjustment/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Acknowledge for E-1' }));
+    expect(await screen.findByText(/^Wendy Weekly was last paid weekly up to 1 Mar 2026, .*1 Mar 2026 would be paid twice\. Settle that day/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Acknowledge for Wendy Weekly' }));
     expect(await screen.findByText('Acknowledged')).toBeTruthy();
     const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!;
     expect([String(post[0]), JSON.parse(String(post[1].body))]).toEqual(['/api/payroll/runs/r1/frequency-change', { employeeId: 'e1' }]);
-    expect(screen.queryByRole('button', { name: 'Acknowledge for E-1' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Acknowledge for Wendy Weekly' })).toBeNull();
   });
 
   it('shows no button to anyone but an owner or admin', async () => {

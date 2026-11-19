@@ -34,6 +34,27 @@ const pick = async (name: string | RegExp, option: string | RegExp) => {
 const calls = (method: string) => fetchMock.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === method);
 
 describe('PayFrequencyField', () => {
+  it('a refused change shows the server\'s sentence and puts the select back to the saved value (UI L1)', async () => {
+    const says = 'Wendy Weekly was paid at another frequency earlier in this tax year. A pay frequency can change only at the start of a tax year, on 1 March.';
+    fetchMock.mockImplementation(async (_u: string, init?: RequestInit) =>
+      (init?.method === 'PUT' ? json({ code: 'CONFLICT', message: says }, 409) : json({ payFrequency: 'monthly' })));
+    render(<PayFrequencyField employeeId="e1" canEdit />);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Pay frequency' }).getAttribute('aria-disabled')).not.toBe('true'));
+    await pick('Pay frequency', 'Weekly');
+    fireEvent.click(screen.getByRole('button', { name: 'Save frequency' }));
+    expect(await screen.findByText(says)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Pay frequency' }).textContent).toContain('Monthly');
+    expect((screen.getByRole('button', { name: 'Save frequency' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a failed load shows no value that looks real (UI L2)', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<PayFrequencyField employeeId="e1" canEdit />);
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    const box = screen.getByRole('combobox', { name: 'Pay frequency' });
+    expect([box.textContent?.includes('Monthly'), box.textContent?.includes('Not loaded')]).toEqual([false, true]);
+  });
+
   it('a failed load offers Retry, which re-runs the GET and loads the field', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(json({ payFrequency: 'weekly' }));
     render(<PayFrequencyField employeeId="e1" canEdit />);
@@ -124,5 +145,13 @@ describe('a weekly run on the new-run page', () => {
     const ro = await screen.findByTestId('pay-week-card');
     expect(within(ro).queryByRole('button', { name: 'Save pay week' })).toBeNull();
     expect(within(ro).getByText('Only an owner or admin can change the pay week.')).toBeTruthy();
+  });
+
+  it('a locked pay week says why in plain words (review #1622 UI M1)', async () => {
+    fetchMock.mockImplementation(async () => json({ ...week, locked: { week: true, anchor: true } }));
+    render(<NewRunPage />);
+    await pick('Pay frequency', 'Weekly');
+    const card = await screen.findByTestId('pay-week-card');
+    expect(within(card).getByText('Locked for this tax year because an approved weekly or fortnightly run uses it. You can change it from 1 March.')).toBeTruthy();
   });
 });

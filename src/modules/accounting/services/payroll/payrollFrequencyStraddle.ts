@@ -21,12 +21,19 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { dateColumnOf } from './payrollFrequency';
 import { dayNumber, isoOfDay } from './payFrequencyPeriods';
 import type { RunKindReason } from './payrollRunKindGuard';
+import { formatDay, formatDayRange } from './payrollPayWeek';
+
+/** An employee's name as the user reads it ("Wendy Weekly"), from a row with first_name and last_name. */
+export function employeeName(r: DbRow): string {
+  return [r.first_name, r.last_name].filter((p) => p != null && String(p).trim() !== '').map(String).join(' ') || 'This employee';
+}
 
 export const STRADDLE_ENTITY = 'payroll_run_frequency_change';
 
 export interface FrequencyStraddle {
   employeeId: string;
   employeeNumber: string;
+  employeeName: string;
   oldFrequency: string;
   /** The last day the old frequency paid. */
   oldEnd: string;
@@ -37,6 +44,8 @@ export interface FrequencyStraddle {
   /** Days paid by nobody, inclusive; null when none. */
   gap: { from: string; to: string } | null;
   acknowledged: boolean;
+  /** What the user reads: the exact days, plain words, the once-off (straddleDetail). */
+  message: string;
 }
 
 /** The run as the straddle reads it: its id (null in a preview with no run), frequency and dates. */
@@ -58,7 +67,7 @@ export async function frequencyStraddles(companyId: string, run: StraddleRun, em
          AND l.employee_id = ANY(${employeeIds}::uuid[])
        ORDER BY l.employee_id, h.period_end DESC
     )
-    SELECT o.employee_id, e.employee_number, o.pay_frequency, to_char(o.period_end, 'YYYY-MM-DD') AS old_end
+    SELECT o.employee_id, e.employee_number, e.first_name, e.last_name, o.pay_frequency, to_char(o.period_end, 'YYYY-MM-DD') AS old_end
       FROM last_old o
       JOIN payroll_employees e ON e.id = o.employee_id AND e.company_id = ${companyId}::uuid
      WHERE NOT EXISTS (
@@ -85,20 +94,23 @@ export async function frequencyStraddles(companyId: string, run: StraddleRun, em
       const c = ((a.changes as { metadata?: Record<string, unknown> } | null)?.metadata ?? {});
       return c.employeeId === employeeId && c.oldEnd === oldEnd && c.start === run.start && c.end === run.end;
     });
-    out.push({ employeeId, employeeNumber: String(r.employee_number), oldFrequency: String(r.pay_frequency), oldEnd, start: run.start, overlap, gap, acknowledged });
+    const found = {
+      employeeId, employeeNumber: String(r.employee_number), employeeName: employeeName(r), oldFrequency: String(r.pay_frequency),
+      oldEnd, start: run.start, overlap, gap, acknowledged,
+    };
+    out.push({ ...found, message: straddleDetail(found, run.frequency) });
   }
   return out;
 }
 
-const days = (d: { from: string; to: string }) => (d.from === d.to ? d.from : `${d.from} to ${d.to}`);
-
-/** The sentence for one straddle: the exact days, and what to do. */
-export function straddleDetail(s: FrequencyStraddle, frequency: string): string {
-  const what = s.overlap
-    ? `${days(s.overlap)} would be paid twice`
-    : `${days(s.gap!)} would not be paid`;
-  return `employee ${s.employeeNumber} was last paid ${s.oldFrequency} up to ${s.oldEnd} and this ${frequency} run starts on ${s.start}: `
-    + `${what}. Settle those days with a once-off adjustment, then acknowledge the change on this run (owner or admin)`;
+/** The sentence for one straddle (review #1622 UI M2): the name, the exact days in plain words, and what to do. */
+export function straddleDetail(s: Omit<FrequencyStraddle, 'message'>, frequency: string): string {
+  const d = s.overlap ?? s.gap!;
+  const one = d.from === d.to;
+  const what = `${formatDayRange(d.from, d.to)} would ${s.overlap ? 'be paid twice' : 'not be paid'}`;
+  return `${s.employeeName} was last paid ${s.oldFrequency} up to ${formatDay(s.oldEnd)}, and this ${frequency} run starts on `
+    + `${formatDay(s.start)}: ${what}. Settle ${one ? 'that day' : 'those days'} with a once-off adjustment, then acknowledge the `
+    + 'change on this run (an owner or admin).';
 }
 
 /** The refusal's reasons for the unacknowledged straddles (none: nothing refused). */
@@ -120,5 +132,5 @@ export async function straddleRefusal(companyId: string, runId: string, employee
   const frequency = String(head.pay_frequency);
   const reasons = straddleReasons(
     await frequencyStraddles(companyId, { id: runId, frequency, start: String(head.start), end: String(head.stop) }, employeeIds), frequency);
-  return reasons.length === 0 ? null : { code: 'frequency_change_straddle', detail: `Refused: ${reasons.map((r) => r.detail).join('; ')}.` };
+  return reasons.length === 0 ? null : { code: 'frequency_change_straddle', detail: reasons.map((r) => r.detail).join(' ') };
 }

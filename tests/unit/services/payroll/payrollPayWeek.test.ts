@@ -102,3 +102,14 @@ describe('labels', () => {
     expect(formatPayDate('2026-11-20')).toBe('Fri 20 Nov 2026');
   });
 });
+
+describe('formatDayRange (review #1622 UI M2)', () => {
+  it('says a run of days in plain words', async () => {
+    const { formatDayRange, formatDay } = await import('@/modules/accounting/services/payroll/payrollPayWeek');
+    expect(formatDay('2026-03-01')).toBe('1 Mar 2026');
+    expect(formatDayRange('2026-03-01', '2026-03-01')).toBe('1 Mar 2026');
+    expect(formatDayRange('2026-09-21', '2026-09-27')).toBe('21–27 Sep 2026');
+    expect(formatDayRange('2026-09-28', '2026-10-04')).toBe('28 Sep – 4 Oct 2026');
+    expect(formatDayRange('2026-12-28', '2027-01-03')).toBe('28 Dec 2026 – 3 Jan 2027');
+  });
+});
