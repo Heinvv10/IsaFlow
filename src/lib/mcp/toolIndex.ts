@@ -30,6 +30,7 @@ import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/re
 import { listUnappliedPaymentsTool } from './tools/supplierPayments';
 import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
 import { listPurchaseOrdersTool } from './tools/listPurchaseOrders';
+import { getPurchaseOrderTool } from './tools/getPurchaseOrder';
 import { findDoubleSettlementsTool } from './tools/findDoubleSettlements';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
@@ -103,6 +104,12 @@ import {
 } from './tools/writeSupplierInvoices';
 import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
 import { bulkCreatePurchaseOrdersTool } from './tools/writeBulkPurchaseOrders';
+import { linkBillsToPurchaseOrderTool } from './tools/writeLinkBillsToPurchaseOrder';
+import { unlinkBillFromPurchaseOrderTool } from './tools/writeUnlinkBillFromPurchaseOrder';
+import { updatePurchaseOrderTool } from './tools/writeUpdatePurchaseOrder';
+import { cancelPurchaseOrderTool } from './tools/writeCancelPurchaseOrder';
+import { closePurchaseOrderTool } from './tools/writeClosePurchaseOrder';
+import { setPurchaseOrderStatusTool } from './tools/writeSetPurchaseOrderStatus';
 import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
 import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
@@ -243,6 +250,7 @@ export const MCP_TOOLS = [
   listUnappliedPaymentsTool,
   listSupplierPaymentsTool,
   listPurchaseOrdersTool,
+  getPurchaseOrderTool,
   findDoubleSettlementsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
@@ -322,6 +330,14 @@ export const MCP_TOOLS = [
   bulkCreateSupplierInvoicesTool,
   // Purchase orders with the caller's own numbers (Sage PO migration). Posts nothing.
   bulkCreatePurchaseOrdersTool,
+  // Which bills were billed against which POs (Sage FromDocument links). Posts nothing.
+  linkBillsToPurchaseOrderTool,
+  unlinkBillFromPurchaseOrderTool,
+  // PO maintenance: edit, cancel, short-close, set an imported PO's status. Posts nothing.
+  updatePurchaseOrderTool,
+  cancelPurchaseOrderTool,
+  closePurchaseOrderTool,
+  setPurchaseOrderStatusTool,
   bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,

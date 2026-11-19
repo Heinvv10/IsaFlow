@@ -5,7 +5,8 @@
  *
  * GET
  *   ?table=lines|accounts|cost_centres|business_units|counterparties
- *         |ap_open_items|ar_open_items|bank_accounts   (default lines)
+ *         |ap_open_items|ar_open_items|bank_accounts
+ *         |budget_versions|budgets                      (default lines)
  *   ?date_from=YYYY-MM-DD  ?date_to=YYYY-MM-DD   (lines only; omitted = full history)
  *   ?status=all|posted                           (lines only; default all, labelled)
  *   — a computed table is as at today and REFUSES all three (400), so a caller
@@ -32,11 +33,13 @@
  * posting during the download can move it.
  *
  * COMPUTED TABLES (reports/glExportComputedTables: ap_open_items,
- * ar_open_items, bank_accounts) are built whole, as at today, before the first
- * byte, so their facts are exact and go out as headers
- * (glExportComputedTables.computedHeaders). Columns, headers and their
- * meaning: docs/api/gl-lines-export.md, reports/openItemsExport and
- * reports/bankAccountsExport.
+ * ar_open_items, bank_accounts, budget_versions, budgets) are built whole, as
+ * at today, before the first byte, so their facts are exact and go out as
+ * headers (glExportComputedTables.computedHeaders). Columns, headers and their
+ * meaning: docs/api/gl-lines-export.md, reports/openItemsExport,
+ * reports/bankAccountsExport and reports/budgetsExport (per-head roll-up, D7).
+ * The budget tables need read:reports only and are REST only (the MCP tool
+ * refuses them).
  *
  * STREAMED page by page (keyset), so full history never sits in memory at
  * once, and each write waits for the socket to drain when its buffer is full.

@@ -22,6 +22,10 @@ vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ ge
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: m.getCompany }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => ({ getVatPeriodLock: m.getVatPeriodLock }));
 vi.mock('@/modules/accounting/services/reports/vatExceptionsService', () => ({ getVatExceptions: m.getVatExceptions }));
+// The filing verdict's nil-rated read (vat201RateCheck); scripted so no query reaches a database.
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({
+  getNilRatedSupplies: vi.fn().mockResolvedValue({ onTaxedJournals: 0, uncodedOnTaxedJournals: 0 }),
+}));
 
 import { exportVat201 } from '@/modules/accounting/services/reports/vat201ExportService';
 import { buildVAT201Payload, Vat201NetMismatchError } from '@/modules/accounting/services/reports/sarsEfilingService';

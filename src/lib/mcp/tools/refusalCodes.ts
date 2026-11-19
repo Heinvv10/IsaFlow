@@ -213,11 +213,14 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // CLOSED, that job's status); raised before any write.
   'PRACTICE_JOB_CLOSED',
   'PRACTICE_JOB_NOT_FOUND',
+  'PURCHASE_ORDER_BILL_LINK_REFUSED', // link_bills_to_purchase_order / unlink_bill_from_purchase_order: every row refusal, decided before any write.
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',
   'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
+  // update / cancel / close / set status of a PO (ap/purchaseOrderErrors): the PO's status, a receipt, linked bills or an owner / admin rule; decided before any write.
+  'PURCHASE_ORDER_MAINTENANCE_REFUSED',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',
   'PURCHASE_ORDER_NOT_FOUND',

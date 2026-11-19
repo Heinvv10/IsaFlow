@@ -128,3 +128,24 @@ describe('export_gl_lines computed tables', () => {
     expect((again.rows as unknown[][]).map((r) => r[0])).toEqual(ROWS.slice(3, 6).map((r) => r.Doc_ID));
   });
 });
+
+describe('export_gl_lines refuses the budget tables (REST only)', () => {
+  it('budget_versions / budgets → a tool error pointing at list_budget_versions and get_budget, nothing built', async () => {
+    for (const table of ['budget_versions', 'budgets']) {
+      const r = await exportGlLinesTool.handler({ table }, ctx(['read:reports', 'read:contacts', 'read:bank-tx']));
+      expect((r as { isError?: boolean }).isError).toBe(true);
+      const text = (r as { content: Array<{ text: string }> }).content[0]!.text;
+      expect(text).toContain(`table "${table}"`);
+      expect(text).toContain('list_budget_versions');
+      expect(text).toContain('get_budget');
+    }
+    expect(build).not.toHaveBeenCalled();
+  });
+
+  it('the enum does not advertise them; the other computed tables stay', () => {
+    const table = (exportGlLinesTool.inputSchema as { properties: { table: { enum: string[] } } }).properties.table;
+    expect(table.enum).not.toContain('budget_versions');
+    expect(table.enum).not.toContain('budgets');
+    expect(table.enum).toEqual(expect.arrayContaining(['lines', 'accounts', 'ap_open_items', 'bank_accounts']));
+  });
+});
