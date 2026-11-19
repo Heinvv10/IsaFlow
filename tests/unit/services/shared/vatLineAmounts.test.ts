@@ -173,5 +173,7 @@ describe('vatTotalLabel', () => {
     expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: Number.NaN })).toBe('VAT');
     expect(vatTotalLabel({ subtotal: Number.NaN, ratePct: 15, vat: 150 })).toBe('VAT');
     expect(vatTotalLabel({ subtotal: 1000, ratePct: Number.POSITIVE_INFINITY, vat: 150 })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 1e13, ratePct: 0, vat: 0 })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 9e12, ratePct: 0, vat: 0 })).toBe('VAT (0%)');
   });
 });

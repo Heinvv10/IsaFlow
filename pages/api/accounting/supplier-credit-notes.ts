@@ -132,6 +132,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         throw err;
       }
       const totals = vatDocumentTotals(lines);
+      // numeric(15,2): many lines each under the line cap can still overflow the note's own columns.
+      if (totals.total >= 1e13) return apiResponse.badRequest(res, 'The credit note total is too large');
       // The header has one rate column: the rate of the note's rated lines, 0 when it has none. On a note mixing
       // rated and unrated lines tax_amount is NOT tax_rate × subtotal, so readers that print the rate beside the
       // VAT label go through vatTotalLabel, and the journal posts tax_amount.
