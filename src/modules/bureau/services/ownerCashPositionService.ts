@@ -113,7 +113,7 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
  * before: nothing marks a run paid (no writer sets 'paid'; a bank-file confirmation exists only where the platform
  * flag is on), so last month's approved run still sits in the window after its salaries left the bank, and adding it
  * would report a false shortfall (review #1549 N-H1). The first run cash cannot cover is reported; when every run is
- * covered, the latest DUE run (its cumulative figure), else the latest run with totals. A run with no totals yet (a draft) needs nothing and never hides a shortfall
+ * covered, the latest run with totals. A run with no totals yet (a draft) needs nothing and never hides a shortfall
  * on another run; with no totals at all, the earliest run. No `asAt`: every run is due.
  */
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
@@ -121,7 +121,6 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   let required = 0;
   let counted = 0;
   let latest: CashPositionPayroll | null = null;
-  let latestDue: CashPositionPayroll | null = null;
   for (const r of runs) {
     const own = shapePayrollAffordability(r, cash)!;
     if (own.totalRequired <= 0) continue;
@@ -132,11 +131,9 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
       judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
     }
     if (!judged.canPay) return judged;
-    // A run whose pay date has passed never replaces a due run already judged: that would report a paid run (a bonus
-    // paid on the 15th) in place of the due runs' cumulative figure (wave 6 OC, review #1549 D1 follow-up).
-    if (due(r)) latestDue = judged; else latest = judged;
+    latest = judged;
   }
-  return latestDue ?? latest ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
+  return latest ?? (runs[0] ? shapePayrollAffordability(runs[0], cash) : null);
 }
 
 // ── Private section helpers ───────────────────────────────────────────────────

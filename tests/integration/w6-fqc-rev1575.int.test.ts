@@ -213,7 +213,7 @@ const monthlyRun = async (t: Tenant, month: number, extra: { offCycle?: string; 
    VALUES ($1, $2, 2026, 'draft', 'monthly', $3, $4, $5::date, make_date(2026, $2, 1), (make_date(2026, $2, 1) + interval '1 month - 1 day')::date) RETURNING id`,
   [t.company, month, extra.offCycle ? 'off_cycle' : 'regular', extra.offCycle ?? null, extra.runDate ?? null])).rows[0].id);
 
-describe('round 2 (G1-G4; G5 moved to w6-oc-gates): the month-order gate', () => {
+describe('round 2 (G1-G5): the month-order gate', () => {
   it('G1 a stray DRAFT run of the month, never calculated, blocks no week', async () => {
     const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
       await seedWeekly(c, A);
@@ -288,6 +288,22 @@ describe('round 2 (G1-G4; G5 moved to w6-oc-gates): the month-order gate', () =>
       return { hist, gate: await gate(ids[1]!) };
     });
     expect(got.gate).toBeNull();
+  });
+
+  it('G5 monthly runs are not judged in-month: regular 25 May and bonus 30 May approved, the regular reopened and recalculated, passes as on master', async () => {
+    const got = await twoRunsInMonth(pool, A, async (cl) => { c = cl; }, async () => {
+      await monthlySalary(A, 20000);
+      const reg = await monthlyRun(A, 5, { runDate: '2026-05-25' }); await calculatePayrollRun(reg, A.company); await approve(c, reg);
+      const bonus = await monthlyRun(A, 5, { offCycle: 'bonus', runDate: '2026-05-30' });
+      const err = await calculatePayrollRun(bonus, A.company).then(() => null, (e: Error) => e.message);
+      await approve(c, bonus);
+      await realReopen(A, reg);
+      await calculatePayrollRun(reg, A.company);
+      return { err, inMonth: (await monthOrderRefusal(A.company, reg))?.code ?? null, whole: await gate(reg) };
+    });
+    expect(got.inMonth).toBeNull();
+    // Master's gate: the bonus is not a later month, and here the warning naming the bonus clears it: null either way.
+    expect(got.whole).toBeNull();
   });
 });
 

@@ -1,44 +1,53 @@
 /**
- * The SDL of a run, re-judged at approval (wave 6 FQb1, review #1507; reshaped by OC, review #1620 final breaker H).
- * SDL is a month-to-date catch-up (payrollSdlMonthToDate): a run's levy depends on its month's estimate and on the
- * month's earlier FINAL runs. A run calculated before another run of its month became final (or was cancelled, or
- * reopened) may have been costed on a month that no longer holds. At approval this run's own lines are re-costed, now,
- * on the stored figures (the same estimate, sdlLeviabilityService.estimateAnnualRemuneration with 'stored'; the same
- * earlier final runs), and if any line's SDL or decision differs, the approval is refused, before any write: recalculate
- * this run. Only THIS run is ever named: an earlier final run keeps what it levied, and nothing is reopened for SDL
- * (a later run carries what it did not levy).
+ * One SDL decision per month (wave 6 FQb1, review #1507). The levy is due, or not, for the employer's month as a whole
+ * (SDLA s4(b): the R500 000 annual estimate, sdlLeviabilityService.estimateAnnualRemuneration, which counts every
+ * calculated, approved or paid run of the month). Each run stores the decision it was costed on (sdl_exempt); a run
+ * costed before another run of its month existed, or before one was cancelled, decided on a different month.
+ *
+ * At approval the month is re-judged ONCE, now, on the stored runs (the same estimate, this run's own stored figure).
+ * Every calculated or approved run of the month whose stored decision differs from that fresh one is stale, and the
+ * approval is refused, before any write, naming each stale run and what clears it: recalculate it (this run, or a
+ * calculated one), or reopen and recalculate it (approved). Recalculating converges: a recalculation costs on the same
+ * month total the gate judged. This release has no run-cancel path; whoever adds one must re-judge the month (a
+ * cancelled run leaves the month's other runs costed on a total that no longer holds; this gate then refuses them).
+ *
+ * A PAID run is final (legacy only: no code writes 'paid'): it is never named as stale and never blocks; if its stored
+ * decision differs, its SDL is corrected outside IsaFlow (an EMP201 correction), as for any paid month.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
-import { applySdlToLines, estimateAnnualRemuneration, type SdlLine } from './sdlLeviabilityService';
-import { loadMonthToDateSdl } from './payrollSdlMonthToDate';
+import { estimateAnnualRemuneration } from './sdlLeviabilityService';
+import { isSdlExempt } from './sdlEngine';
 import { getTaxYear } from './taxTables';
-import { formatMoney } from '@/lib/money/formatMoney';
 
-const cents = (n: number): number => Math.round(n * 100);
+const side = (exempt: boolean) => (exempt ? 'below the R500 000 SDL threshold (exempt)' : 'liable for SDL');
 
-/** This run's SDL no longer matches its month as it stands now; null when it does (or nothing is stored yet). */
+/** The stale runs of this run's month (stored SDL decision differs from the month judged now); null when none. */
 export async function sdlMonthSplitRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
-  const rows = (await sql`
-    SELECT h.period_year, h.period_month, l.employee_id::text AS employee_id, l.sdl_leviable, l.sdl, l.sdl_exempt
-      FROM payroll_run_headers h JOIN payroll_run_lines l ON l.run_id = h.id
-     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+  const runs = (await sql`
+    SELECT o.id, o.status, o.run_kind, o.period_year, o.period_month, (o.id = ${runId}::uuid) AS is_this,
+           (SELECT bool_or(l.sdl_exempt) FROM payroll_run_lines l WHERE l.run_id = o.id) AS stored
+      FROM payroll_run_headers me
+      JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year AND o.period_month = me.period_month
+     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid
+       AND (o.id = me.id OR o.status IN ('calculated', 'approved', 'paid'))
+     ORDER BY o.created_at, o.id
   `) as DbRow[];
-  if (rows.length === 0 || rows.every((r) => r.sdl_exempt == null)) return null;
-  const period = { year: Number(rows[0]!.period_year), month: Number(rows[0]!.period_month) };
-  const lines: SdlLine[] = rows.map((r) => ({ sdl: 0, sdlLeviable: Number(r.sdl_leviable) || 0, employeeId: String(r.employee_id) }));
-  const estimate = await estimateAnnualRemuneration(companyId, period, 'stored', runId);
-  applySdlToLines(lines, estimate, getTaxYear(period.month, period.year), await loadMonthToDateSdl(companyId, runId));
-  const stale = rows.filter((r, i) => r.sdl_exempt !== lines[i]!.sdlExempt || cents(Number(r.sdl)) !== cents(lines[i]!.sdl));
+  const me = runs.find((r) => r.is_this === true);
+  if (!me || !runs.some((r) => r.stored != null)) return null;
+  const period = { year: Number(me.period_year), month: Number(me.period_month) };
+  const fresh = isSdlExempt(await estimateAnnualRemuneration(companyId, period, 'stored', runId), getTaxYear(period.month, period.year));
+  const stale = runs.filter((r) => r.stored != null && r.stored !== fresh && r.status !== 'paid');
   if (stale.length === 0) return null;
-  const stored = rows.reduce((t, r) => t + Number(r.sdl), 0);
-  const now = lines.reduce((t, l) => t + l.sdl, 0);
   const month = `${period.year}-${String(period.month).padStart(2, '0')}`;
-  const side = (exempt: unknown) => (exempt === true ? 'exempt' : 'liable');
+  const steps = stale.map((r) => (r.is_this === true
+    ? 'recalculate this run'
+    : `${r.status === 'approved' ? 'reopen and recalculate' : 'recalculate'} the ${String(r.run_kind)} run ${String(r.id)} `
+      + `(${String(r.status)})`));
   return {
     code: 'sdl_month_split',
-    detail: `SDL is settled for the month to date (SDLA s4(b)): ${month}, judged now on its runs, puts ${formatMoney(now)} of SDL on this run `
-      + `(${side(lines[0]!.sdlExempt)}), but it was costed with ${formatMoney(stored)} (${side(rows[0]!.sdl_exempt)}). To approve: recalculate this run.`,
+    detail: `SDL is decided for the month as a whole (SDLA s4(b)): ${month}, judged now on its runs, is ${side(fresh)}, `
+      + `but ${stale.length === 1 ? 'a run was' : `${stale.length} runs were`} costed the other way. To approve: ${steps.join('; ')}.`,
   };
 }

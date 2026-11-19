@@ -57,12 +57,7 @@ export async function rig(label: string) {
         ...opts,
         body: { action: 'request', documentType: 'pay_run', documentId: id },
       });
-      // A refused submit (4xx: the run cannot be submitted, e.g. an off-cycle refusal, wave 6 OC) is the approval's
-      // answer: approveWith returns it as the response, as the live approval would have refused.
-      if (raised.statusCode !== 200) {
-        throw Object.assign(new Error(`request pay-run approval: ${raised.statusCode} ${JSON.stringify(raised.body)}`),
-          raised.statusCode >= 400 && raised.statusCode < 500 ? { refusal: raised } : {});
-      }
+      if (raised.statusCode !== 200) throw new Error(`request pay-run approval: ${raised.statusCode} ${JSON.stringify(raised.body)}`);
       const request = raised.body.data as { id: string; documentDigest: string };
       const decided = await call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
         ...opts,
@@ -98,13 +93,7 @@ export async function rig(label: string) {
   const api = {
     preview: (id: string, o = {}) => journalPlan ? call(journalPlan, 'GET', url(id, 'journal-plan'), id, o) : Promise.resolve({ statusCode: 0, body: {} } as Res),
     approveWith: async (id: string, expectedPlanHash: unknown, o = {}) => {
-      try {
-        await ensureAuthorised(id, expectedPlanHash, o);
-      } catch (err) {
-        const refusal = (err as { refusal?: Res }).refusal;
-        if (refusal) return refusal;
-        throw err;
-      }
+      await ensureAuthorised(id, expectedPlanHash, o);
       const result = await call(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash } });
       if (result.statusCode === 200) clearedPlans.delete(`${o.company ?? company}:${id}`);
       return result;
