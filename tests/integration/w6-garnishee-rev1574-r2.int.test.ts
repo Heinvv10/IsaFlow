@@ -128,8 +128,15 @@ describe('rev-1574 round 2', () => {
     const run8 = await a.calculatedRun(8);
     const ap = await a.api.approve(run8);
     expect(ap.statusCode, a.msg(ap)).toBe(200);
+    // What run 8 deducted when it was approved, every employee (earlier cases' open orders deduct here too).
+    const runDeductions = async () => (await a.pool.query(
+      'SELECT COALESCE(sum(amount), 0)::float8 AS t FROM payroll_garnishee_deductions WHERE run_id = $1', [run8])).rows[0]!.t as number;
+    const approvedTotal = await runDeductions();
+    expect(approvedTotal).toBeGreaterThanOrEqual(900);
     // Captured after the approval, both in force for (or ended back past) August: a backdated order, and an end.
-    expect((await post(emp, body({ reference: 'NEW-B3', instalment: 400, startDate: '2026-08-01' }))).statusCode).toBe(201);
+    const fresh = await post(emp, body({ reference: 'NEW-B3', instalment: 400, totalDebt: 4000, startDate: '2026-08-01' }));
+    expect(fresh.statusCode).toBe(201);
+    const freshId = String(fresh.body.data!.id);
     expect((await end(emp, String(old.body.data!.id), { endDate: '2026-07-31', reason: 'Court set aside from August' })).statusCode).toBe(200);
     // Stranded: approved with no journal linked (as p4fu-r2-exact-gate strands one), the state approval re-approves to post.
     await a.pool.query('UPDATE payroll_run_headers SET journal_entry_id = NULL WHERE id = $1', [run8]);
@@ -140,6 +147,16 @@ describe('rev-1574 round 2', () => {
     expect(after.journal_entry_id).not.toBeNull();
     // The month already paid keeps exactly what it deducted.
     expect(await mine(run8, emp)).toEqual([{ amount: 900 }]);
+    // The order captured since is untouched by the re-approval: whole balance, still active, nothing taken in August.
+    expect(await order(freshId)).toEqual({ balance: 4000, status: 'active' });
+    // The journal posted by the re-approval credits the garnishee payable with the run's original deductions only
+    // (this employee's 900 among them), never the R400 order captured since.
+    const payable = (await a.pool.query(
+      `SELECT COALESCE(sum(l.credit - l.debit), 0)::float8 AS cr FROM gl_journal_lines l
+         JOIN gl_accounts g ON g.id = l.gl_account_id AND g.company_id = $2
+        WHERE l.journal_entry_id = $1 AND g.account_name = 'Garnishee Orders Payable'`, [after.journal_entry_id, a.company])).rows[0]!.cr;
+    expect(await runDeductions()).toBeCloseTo(approvedTotal, 2);
+    expect(payable).toBeCloseTo(approvedTotal, 2);
   });
 
   it('(c) RACE: an order written while the run is calculated is waited for and taken, never missed', async () => {

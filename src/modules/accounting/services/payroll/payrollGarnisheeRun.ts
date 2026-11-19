@@ -11,7 +11,8 @@
  *    run whose deduction is more than an order still owes (another approval moved the balance since this run was
  *    costed), or whose orders changed since it was costed (an order entered after calculation that is in force for the
  *    period, or one ended after calculation with an end date before the period): recalculate. A run that is already
- *    'approved' (re-approved to post its journal, or a fresh one after a reversal) is not judged on its orders again:
+ *    'approved' (re-approved to post its journal: a legacy row approved with no journal linked; a reversal of an approved
+ *    run's journal is refused, payrollJournalReversalGuard) is not judged on its orders again:
  *    its deductions were paid, and an order captured since belongs to a later run. applyRunGarnishees, after the header is approved, marks the run's deductions applied and
  *    sets each order's balance to its total debt less what is applied (an order reaching nil is 'satisfied').
  *  - reopen (payrollRunReopen): restoreRunGarnishees, after the header leaves 'approved', unmarks them and puts the
