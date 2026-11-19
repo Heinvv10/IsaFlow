@@ -15,7 +15,7 @@
  * return files (R1 000) is exactly 15%.
  *
  * ONE PLACE. The taxed output base and its variance are computed here for the return (`vat201LedgerFields`), the
- * ISV filability decision (`evaluateVat201Filability`) and its audit event, and the three gates that refuse a
+ * ISV filability decision (`evaluateVat201Filability`, through `filedRateVariance`) and its audit event, and the three gates that refuse a
  * failing period unless forced (`finaliseVatReturn`, POST /vat-period-locks, MCP `lock_vat_period`), which also
  * share the refusal wording (`rateCheckFailure`) and the payload (`rateCheckPayload`).
  *
@@ -89,8 +89,8 @@ export interface FilingRateCheck extends RateCheckVerdict {
   uncodedGivenBack: number;
 }
 
-/** The verdict on output tax against a taxed output base already worked out (e.g. a return's field1). Pure. */
-export function judgeRateCheck(
+/** The R1 tie-out on output tax against a taxed output base already worked out. Pure. */
+function judgeRateCheck(
   rateCheck: Pick<Vat201Report['rateCheck'], 'rate' | 'inputVariance' | 'entriesWithoutBaseTotal'>,
   outputTax: number,
   taxedBase: number,
@@ -120,14 +120,64 @@ export function rateCheckForFiling(
 }
 
 /**
+ * Rands of 15% variance tolerated before a return is called unfilable, as a
+ * share of the tax declared in that direction, with an absolute floor.
+ *
+ * NOT `rateCheck.ties`, which is `vatBoxBasis`'s R1 ABSOLUTE tolerance on the
+ * whole return plus a demand that no journal carry tax without a base. Neither
+ * is reachable by a real book — that file's own header records a residual
+ * variance of R4 407 on Velocity Fibre and calls it a genuine finding rather
+ * than an error — so gating filing on it would block that company forever.
+ * `ties` stays the assurance report's stricter signal; this is the filing bar.
+ * (Moved from vat201LedgerFields so the ISV event records this predicate.)
+ */
+const RATE_CHECK_FLOOR = 1;
+const RATE_CHECK_PROPORTION = 0.005;
+
+function varianceIsMaterial(variance: number, taxDeclared: number): boolean {
+  return Math.abs(variance) > Math.max(RATE_CHECK_FLOOR, Math.abs(taxDeclared) * RATE_CHECK_PROPORTION);
+}
+
+/** The filed figures `filedRateVariance` reads (a `LedgerVAT201` satisfies it). */
+export interface FiledRateFigures {
+  field1_standardRatedSupplies: number;
+  field5_outputVAT: number;
+  field10_totalInputVAT: number;
+  rateCheck: Pick<Vat201Report['rateCheck'], 'rate' | 'inputVariance'>;
+}
+
+/**
+ * The 15% part of `evaluateVat201Filability`: output tax against the taxed output base being filed (the report's
+ * input variance as is), and whether either is material. The ISV `blocked` event records exactly this.
+ */
+export function filedRateVariance(f: FiledRateFigures): {
+  rateVarianceMaterial: boolean; outputVariance: number; inputVariance: number; taxedOutputBase: number;
+} {
+  const outputVariance = field1OutputVariance(f.field5_outputVAT, f.field1_standardRatedSupplies, f.rateCheck.rate);
+  const { inputVariance } = f.rateCheck;
+  return {
+    rateVarianceMaterial: varianceIsMaterial(outputVariance, f.field5_outputVAT)
+      || varianceIsMaterial(inputVariance, f.field10_totalInputVAT),
+    outputVariance,
+    inputVariance,
+    taxedOutputBase: f.field1_standardRatedSupplies,
+  };
+}
+
+/**
  * The refusal's statement of what is out, by how much, and what was excluded from the base. Each gate appends
  * what the caller can do about it.
  */
 export function rateCheckFailure(f: FilingRateCheck): string {
-  const uncoded = f.uncodedGivenBack > 0
-    ? `; ${f.uncodedGivenBack.toFixed(2)} of it is revenue with no VAT code on documents that recorded no VAT, assumed zero-rated`
-    : '';
-  const givenBack = f.nilRatedGivenBack !== 0
+  // "Of it" only while the uncoded part IS a part: a coded credit note can net the give-back below it.
+  const coded = r2(f.nilRatedGivenBack - f.uncodedGivenBack);
+  const uncodedRevenue = 'revenue with no VAT code on documents that recorded no VAT';
+  const uncoded = f.uncodedGivenBack === 0 ? ''
+    : f.uncodedGivenBack > 0 && coded >= 0
+      ? `; ${f.uncodedGivenBack.toFixed(2)} of it is ${uncodedRevenue}, assumed zero-rated`
+      : `; that net figure is ${f.uncodedGivenBack.toFixed(2)} of ${uncodedRevenue} (assumed zero-rated) and `
+        + `${coded.toFixed(2)} of coded zero-rated or exempt supplies`;
+  const givenBack = f.nilRatedGivenBack !== 0 || f.uncodedGivenBack !== 0
     ? `, which exclude ${f.nilRatedGivenBack.toFixed(2)} of zero-rated or exempt supplies on journals that also carry `
       + `output VAT (declared in fields 2 and 3${uncoded})`
     : '';

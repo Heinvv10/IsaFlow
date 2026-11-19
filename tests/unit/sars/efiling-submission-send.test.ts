@@ -225,7 +225,7 @@ describe('submitVAT201ToSars', () => {
     expect(m.submitVAT201).not.toHaveBeenCalled();
     expect(m.insertEfilingEvent).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'blocked',
-      detail: { rateCheckTies: false, outputVariance: 8000, inputVariance: 0, taxedOutputBase: 1000000 },
+      detail: { rateVarianceMaterial: true, outputVariance: 8000, inputVariance: 0, taxedOutputBase: 1000000 },
     }));
   });
 

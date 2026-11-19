@@ -15,7 +15,7 @@ import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
 import { evaluateVat201Filability } from './vat201LedgerFields';
-import { judgeRateCheck } from './vat201RateCheck';
+import { filedRateVariance } from './vat201RateCheck';
 import { getVat201Return } from './vat201Return';
 import { draftBlockReason, draftDrift } from './sarsEfilingDraftDrift';
 import { isvPayloadMappedToSarsFields, ISV_PAYLOAD_UNMAPPED_REASON } from './sarsEfilingPayloadGuard';
@@ -147,12 +147,10 @@ export async function submitVAT201ToSars(
   // does not check: SARS's 15% tie-out, and negative supply values.
   const filability = evaluateVat201Filability(vat201);
   if (!filability.filable) {
-    const base = vat201.field1_standardRatedSupplies;
-    const judged = judgeRateCheck(vat201.rateCheck, vat201.field5_outputVAT, base);
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'blocked', message: filability.reason,
-      // The variances filability judged (output tax against the taxed output base it files), not the report's.
-      detail: { rateCheckTies: judged.ties, outputVariance: judged.outputVariance, inputVariance: judged.inputVariance, taxedOutputBase: base },
+      // The 15% figures and materiality verdict filability judged (output tax against the taxed output base it files).
+      detail: filedRateVariance(vat201),
       createdBy: userId,
     });
     throw new EfilingBlockedError(filability.reason!);

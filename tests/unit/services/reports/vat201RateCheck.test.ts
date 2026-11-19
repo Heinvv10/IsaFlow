@@ -10,7 +10,9 @@ const m = vi.hoisted(() => ({ getVatPeriodLines: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/vatBoxBasisQuery', () => ({ getVatPeriodLines: m.getVatPeriodLines }));
 
 import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
-import { rateCheckFailure, rateCheckForFiling } from '@/modules/accounting/services/reports/vat201RateCheck';
+import {
+  filedRateVariance, rateCheckFailure, rateCheckForFiling,
+} from '@/modules/accounting/services/reports/vat201RateCheck';
 import { assembleLedger, evaluateVat201Filability } from '@/modules/accounting/services/reports/vat201LedgerFields';
 import { MIXED_LINES, MIXED_REPORT, NIL_NONE, NIL_ON_TAXED, vatLine } from './helpers/vat201MixedJournal';
 
@@ -175,5 +177,41 @@ describe('a legacy invoice with no stored VAT whose journal carries output VAT o
     expect(rateCheckFailure(filing)).toContain(
       '1000.00 of it is revenue with no VAT code on documents that recorded no VAT, assumed zero-rated',
     );
+  });
+});
+
+describe('rateCheckFailure when credit notes make the uncoded part exceed the give-back', () => {
+  it('states both parts as figures instead of calling the uncoded part a share "of it"', () => {
+    // Given back 300 net: 500 of uncoded revenue and -200 of coded exempt (a credit note on a coded line).
+    const msg = rateCheckFailure({ ...giveBack(300), uncodedGivenBack: 500 });
+    expect(msg).toContain('which exclude 300.00 of zero-rated or exempt supplies');
+    expect(msg).toContain('that net figure is 500.00 of revenue with no VAT code on documents that recorded no VAT '
+      + '(assumed zero-rated) and -200.00 of coded zero-rated or exempt supplies');
+    expect(msg).not.toContain('of it is');
+  });
+
+  it('keeps the "of it" phrasing only when 0 < uncoded <= given back', () => {
+    expect(rateCheckFailure({ ...giveBack(300), uncodedGivenBack: 300 })).toContain('; 300.00 of it is revenue with no VAT code');
+  });
+});
+
+describe('filedRateVariance: the materiality bar evaluateVat201Filability blocks on, and the ISV event records', () => {
+  const filed = (field5: number, field1: number, inputVariance = 0) => filedRateVariance({
+    field1_standardRatedSupplies: field1, field5_outputVAT: field5, field10_totalInputVAT: 0,
+    rateCheck: { rate: 0.15, inputVariance },
+  });
+
+  it('a small tax: the R1 floor decides (0.90 out is not material, 1.01 is)', () => {
+    expect(filed(150.9, 1000)).toEqual({ rateVarianceMaterial: false, outputVariance: 0.9, inputVariance: 0, taxedOutputBase: 1000 });
+    expect(filed(151.01, 1000)).toMatchObject({ rateVarianceMaterial: true, outputVariance: 1.01 });
+  });
+
+  it('a large tax: 0.5% of it decides (200 out on 150 200 is not material, though the R1 tie-out fails)', () => {
+    expect(filed(150200, 1000000)).toMatchObject({ rateVarianceMaterial: false, outputVariance: 200 });
+    expect(filed(158000, 1000000)).toMatchObject({ rateVarianceMaterial: true, outputVariance: 8000 });
+  });
+
+  it('the input side is judged against the input tax declared', () => {
+    expect(filed(150, 1000, 1.5)).toMatchObject({ rateVarianceMaterial: true, inputVariance: 1.5 });
   });
 });

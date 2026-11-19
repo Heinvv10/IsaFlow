@@ -13,6 +13,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { callRoute, dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+import { seedInvoice } from './helpers/l1FifoFixture';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
 import { fileV, fin, genFile, PRN, row, useFixture, versionOf } from './helpers/returnFileCalls';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
 
@@ -42,9 +44,10 @@ const text = (b: unknown) => (b as Buffer).toString('utf8');
 let n = 0;
 /**
  * A posted sale in the period: standard-rated 1000 + 150 VAT, and 500 zero-rated on the same journal. `vat` and
- * `zeroRated` vary it (a zero-rated amount of 0 posts no zero-rated line).
+ * `zeroRated` vary it (a zero-rated amount of 0 posts no zero-rated line); `code` is the 1000's VAT code (null: none).
+ * Returns the journal's id.
  */
-async function sale(date: string, scale = 1, vat = 150, zeroRated = 500): Promise<void> {
+async function sale(date: string, scale = 1, vat = 150, zeroRated = 500, code: string | null = 'standard'): Promise<string> {
   const acct = async (subtype: string) => String(((await sql`SELECT id FROM gl_accounts
     WHERE company_id = ${a.fx.companyId}::UUID AND account_subtype = ${subtype} LIMIT 1`) as Row[])[0]!.id);
   const ar = await acct('receivable');
@@ -55,12 +58,13 @@ async function sale(date: string, scale = 1, vat = 150, zeroRated = 500): Promis
   const je = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, source,
     created_by) VALUES (${a.fx.companyId}::UUID, ${`EFV-${n}`}, ${date}::DATE, 'EFa VAT sale', 'posted', 'manual', ${a.admin.userId})
     RETURNING id`) as Row[])[0]!.id);
-  const legs = [[ar, (1000 + vat + zeroRated) * scale, 0, null], [sales, 0, 1000 * scale, 'standard'],
+  const legs = [[ar, (1000 + vat + zeroRated) * scale, 0, null], [sales, 0, 1000 * scale, code],
     [vatAcct, 0, vat * scale, 'standard'], [sales, 0, zeroRated * scale, 'zero_rated']] as Array<[string, number, number, string | null]>;
   for (const [acc, dr, cr, vt] of legs.filter(([, d, c]) => d !== 0 || c !== 0)) {
     await sql`INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit, vat_type)
       VALUES (${je}::UUID, ${a.fx.companyId}::UUID, ${acc}::UUID, ${dr}, ${cr}, ${vt})`;
   }
+  return je;
 }
 const drawer = async (p: typeof APR, token = a.admin.token, form = 'vat201') =>
   callRoute(versions, a.fx.companyId, token, 'GET', { form, ...p });
@@ -202,6 +206,22 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
       AND period_start = '2025-12-01'`) as Row[])[0]!.n).toBe(0);
     const forced = versionOf(await fin(DEC, { force: true }));
     expect((await row(String(forced.id))).status).toBe('finalised');
+  });
+
+  it('an invoice that recorded no VAT, on a journal carrying output VAT on uncoded revenue: given back, so refused', async () => {
+    // The revenue line has no VAT code and the invoice's tax_amount is unset, so getNilRatedSupplies reads the 1 000
+    // as zero-rated on a taxed journal and gives it all back (the return's field 1 already did): base 0, tax 150.
+    const OCT = { periodStart: '2025-10-01', periodEnd: '2025-11-30' };
+    const je = await sale('2025-10-15', 1, 150, 0, null);
+    const inv = await seedInvoice(a.fx, { number: 'EFV-UNCODED', date: '2025-10-15', total: 1150 });
+    await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je}::UUID WHERE id = ${inv}::UUID AND company_id = ${a.fx.companyId}::UUID`;
+    expect(await getNilRatedSupplies(a.fx.companyId, OCT.periodStart, OCT.periodEnd))
+      .toMatchObject({ zeroRated: 1000, onTaxedJournals: 1000, uncodedAssumedZeroRated: 1000, uncodedOnTaxedJournals: 1000 });
+    const refused = await fin(OCT);
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toContain('output tax is out by 150.00 against 15% of the taxed output supplies of 0.00, '
+      + 'which exclude 1000.00 of zero-rated or exempt supplies');
+    expect(JSON.stringify(refused.body)).toContain('1000.00 of it is revenue with no VAT code on documents that recorded no VAT');
   });
 
   it('EMP201 versions are payroll detail: a viewer gets 403 and no figures; VAT201 versions stay readable', async () => {

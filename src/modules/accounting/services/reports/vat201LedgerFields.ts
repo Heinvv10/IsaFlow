@@ -51,7 +51,7 @@
 import { generateVAT201, type VAT201Data } from './vat201Service';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
 import { getNilRatedSupplies, type NilRatedSupplies } from './vat201NilRatedSupplies';
-import { field1OutputVariance, taxedOutputBase } from './vat201RateCheck';
+import { filedRateVariance, taxedOutputBase } from './vat201RateCheck';
 
 export interface LedgerVAT201 extends VAT201Data {
   /**
@@ -151,24 +151,6 @@ const SUPPLY_VALUE_FIELDS = [
   ['field4_totalImports', 'total imports'],
 ] as const;
 
-/**
- * Rands of 15% variance tolerated before a return is called unfilable, as a
- * share of the tax declared in that direction, with an absolute floor.
- *
- * NOT `rateCheck.ties`, which is `vatBoxBasis`'s R1 ABSOLUTE tolerance on the
- * whole return plus a demand that no journal carry tax without a base. Neither
- * is reachable by a real book — that file's own header records a residual
- * variance of R4 407 on Velocity Fibre and calls it a genuine finding rather
- * than an error — so gating filing on it would block that company forever.
- * `ties` stays the assurance report's stricter signal; this is the filing bar.
- */
-const RATE_CHECK_FLOOR = 1;
-const RATE_CHECK_PROPORTION = 0.005;
-
-function varianceIsMaterial(variance: number, taxDeclared: number): boolean {
-  return Math.abs(variance) > Math.max(RATE_CHECK_FLOOR, Math.abs(taxDeclared) * RATE_CHECK_PROPORTION);
-}
-
 export type Vat201Filability = Pick<
   LedgerVAT201,
   'rateCheck' | 'field5_outputVAT' | 'field7_otherGoods' | 'field8_services'
@@ -229,15 +211,11 @@ export function evaluateVat201Filability(
   // The rate comes off the report rather than being imported, so this file
   // cannot check a return at a rate the boxes were not derived at. It also
   // keeps the file out of the vat-guard gate's rate-constant rule without an
-  // allowlist entry, which is the honest outcome: nothing here posts.
-  const outputVariance = field1OutputVariance(
-    vat201.field5_outputVAT, vat201.field1_standardRatedSupplies, vat201.rateCheck.rate,
-  );
-  const { inputVariance } = vat201.rateCheck;
-  if (
-    varianceIsMaterial(outputVariance, vat201.field5_outputVAT)
-    || varianceIsMaterial(inputVariance, vat201.field10_totalInputVAT)
-  ) {
+  // allowlist entry, which is the honest outcome: nothing here posts. The bar
+  // (0.5% of the tax declared, at least R1) is `filedRateVariance`'s, which the
+  // ISV `blocked` event records.
+  const { rateVarianceMaterial, outputVariance, inputVariance } = filedRateVariance(vat201);
+  if (rateVarianceMaterial) {
     return {
       filable: false,
       reason:
