@@ -5,7 +5,9 @@ without the app: edit an open PO, cancel one, short-close one the supplier will 
 PO the source system has moved on. Stacked on #1627 (`feat/mcp-po-bill-links-20261119`): the lock-order census there is
 the one this note extends.
 
-Status: decisions of Hein's brief and his 19 Nov rulings; built in the same branch. Kept in step with the code.
+Status: decisions of Hein's brief and his 19 Nov rulings; built in the same branch (migration `1007`, tools `update_purchase_order`,
+`cancel_purchase_order`, `close_purchase_order`, `set_purchase_order_status`, the `bulk_create_purchase_orders` changes). Kept in step
+with the code.
 
 ## Tools (all `write:invoices`, free, post NOTHING)
 
@@ -41,7 +43,9 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      (`checkPurchaseOrderBudget`, channel `mcp`, the Approve action's block / warn behaviour) on the NEW lines under the budget
      gate, after the write inside the savepoint: a block refuses and rolls the edit back (its `refused` event is recorded outside
      the savepoint, as the MCP bill approve does), a warn returns `budget_warnings`. A draft / submitted edit commits nothing and
-     is not checked. (An unchanged-lines header edit of an approved PO re-checks too: the order date's month can move.)
+     is not checked. A header-only edit of an approved PO re-checks only when the order date moves to another month (the month is
+     what the lines are judged against); a notes / reference / delivery edit commits nothing new, so an approved PO that has since
+     gone over budget can still be annotated under block.
 2. **`cancel_purchase_order`** - `reason` required (audited). Draft / submitted: cancelled as the PUT does (any writer), now
    audited and row-locked. Approved: `cancelApprovedPurchaseOrder` (**owner / admin only**, `PO_CANCEL_ROLES`; refuses with a
    receipt and, since #1627, with bill links - "unlink first"). partially_received / received / closed / cancelled: refused

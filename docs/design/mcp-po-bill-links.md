@@ -146,9 +146,12 @@ raised before anything is written. Orders, first lock first:
 | PO import (`bulk_create_purchase_orders`) | budget gate (an approved PO) -> number counter row -> external-ref advisory locks |
 | `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row (held by the edit) -> the PO rows it names `FOR KEY SHARE` (id order; ALWAYS taken when the bill names a PO, whether or not a link is then written; also what the link FK takes) -> link inserts / deletes. |
 | supplier merge | batches -> payments -> bills -> supplier_purchase_orders (unchanged); refuses first when linked |
+| `update_purchase_order` (PO maintenance, `mcp-po-maintenance.md`) | account rows `FOR SHARE` (prepare) -> budget gate (an APPROVED PO, block only) -> PO row `FOR UPDATE`; reads links / bill lines, no bill row |
+| `cancel_purchase_order` / `close_purchase_order` | PO row `FOR UPDATE` (no gate: releasing a commitment); reads links, no bill row |
+| `set_purchase_order_status` | budget gate (-> approved, block only) -> PO row `FOR UPDATE`; no bill row |
 
 No cycle: every writer that takes the budget gate takes it FIRST (the link tool takes none: it never raises committed spend,
-closing releases it); the PO is always taken before a bill (link, unlink), and the only writer that holds a bill row and then
+closing releases it; the PO maintenance tools above take the PO row and never a bill row, so they cannot meet the bill-row order); the PO is always taken before a bill (link, unlink), and the only writer that holds a bill row and then
 touches a PO row is the app writer (a draft edit), whose lock is `KEY SHARE`, compatible with link / unlink's `NO KEY UPDATE`
 (it conflicts only with `FOR UPDATE` holders: PO cancel / approve / goods receipt, which take no bill row, so no cycle either);
 bill approve / cancel hold no PO row (their budget check reads POs without row locks); goods receipt's number lock
