@@ -1,13 +1,15 @@
 /**
- * Migration 1008 (per-line VAT on customer invoices), the schema half: the three columns and their CHECKs; the
- * approval digest's customer_invoice arm covering them (zero-rated and exempt both carry rate 0 yet post to different
- * VAT201 fields); and 874's procedure for a digest change, run here as the deploy runs it: with 923's body put back
- * under 951's name (rolled back afterwards), a pending or approved request bound to the invoice as it stood is
- * re-bound, a stale or decided-against one is left alone, and no other document type's digest moves. The function
- * stays a plain STABLE SQL function, not a SECURITY DEFINER one.
+ * Per-line VAT on customer invoices, the schema half: migration 1008's three columns and their CHECKs; and 1009's
+ * approval digest, whose customer_invoice arm covers them (zero-rated and exempt both carry rate 0 yet post to
+ * different VAT201 fields), with 874's procedure for a digest change run here as the deploy runs it: with 923's body put
+ * back under 951's name (rolled back afterwards), a pending or approved request bound to the invoice as it stood is
+ * re-bound, a stale or decided-against one is left alone, no other document type's digest moves, and a second run
+ * changes nothing. 1009 accepts exactly two bodies by md5(prosrc), 923's and its own, recomputed here from the files.
+ * The function stays a plain STABLE SQL function, not a SECURITY DEFINER one.
  *
  * Disposable fixture DB only; one file at a time (it replaces a function database-wide inside its transactions).
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -21,15 +23,22 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 afterAll(() => pool.end());
 
 const MIGRATIONS = path.resolve(__dirname, '../../scripts/migrations/sql');
-const MIGRATION = readFileSync(path.join(MIGRATIONS, '1008_customer_invoice_line_vat.sql'), 'utf8');
-/** approval_document_digest as `file` defines it, renamed to `name`. */
-function digestAsIn(file: string, name: string): string {
-  const text = readFileSync(path.join(MIGRATIONS, file), 'utf8');
-  const start = text.indexOf('CREATE OR REPLACE FUNCTION public.approval_document_digest(');
-  expect(start).toBeGreaterThan(-1);
-  return text.slice(start, text.indexOf('\n$$;', start) + 4).replace('public.approval_document_digest(', `${name}(`);
-}
+const DIGEST_FILE = '1009_customer_invoice_digest_line_vat.sql';
+const MIGRATION = readFileSync(path.join(MIGRATIONS, DIGEST_FILE), 'utf8');
 const PRE_951 = 'public.approval_document_digest_pre_payroll_951';
+/** The CREATE OR REPLACE of `fn` as `file` defines it, renamed to `name`. */
+function functionAsIn(file: string, fn: string, name: string): string {
+  const text = readFileSync(path.join(MIGRATIONS, file), 'utf8');
+  const start = text.indexOf(`CREATE OR REPLACE FUNCTION ${fn}(`);
+  expect(start).toBeGreaterThan(-1);
+  return text.slice(start, text.indexOf('\n$$;', start) + 4).replace(`${fn}(`, `${name}(`);
+}
+const digestAsIn = (file: string, name: string) => functionAsIn(file, 'public.approval_document_digest', name);
+/** pg_proc.prosrc of a CREATE OR REPLACE statement: the text between `AS $$` and `$$;`. */
+const prosrcOf = (statement: string) => statement.slice(statement.indexOf('AS $$') + 5, statement.lastIndexOf('$$;'));
+const md5 = (text: string) => createHash('md5').update(text).digest('hex');
+const BODY_923 = digestAsIn('923_payment_digest_payee_name_originator.sql', PRE_951);
+const BODY_1009 = functionAsIn(DIGEST_FILE, PRE_951, PRE_951);
 
 async function rolledBack<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -73,8 +82,11 @@ async function migrate(client: PoolClient): Promise<string[]> {
   } finally {
     client.off('notice', onNotice);
   }
-  return notices.filter((n) => n.startsWith('migration 1008'));
+  return notices.filter((n) => n.startsWith('migration 1009'));
 }
+
+const liveMd5 = async (client: Pool | PoolClient) => (await client.query(
+  `SELECT md5(prosrc) AS h FROM pg_proc WHERE oid = '${PRE_951}(uuid,text,uuid)'::regprocedure`)).rows[0].h as string;
 
 const sqlState = (fn: () => Promise<unknown>) => fn().then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
 
@@ -165,7 +177,7 @@ describe('migration 1008: the approval digest', () => {
 
   it('re-binds pending and approved invoice requests bound to the content as it stood; stale, rejected and other types stay', async () => {
     await rolledBack(async (client) => {
-      await client.query(digestAsIn('923_payment_digest_payee_name_originator.sql', PRE_951));
+      await client.query(BODY_923);
       const { c, user } = await plantCompany(client);
       const [a, b, s, r] = [await plantInvoice(client, c, user), await plantInvoice(client, c, user),
         await plantInvoice(client, c, user), await plantInvoice(client, c, user)];
@@ -183,10 +195,10 @@ describe('migration 1008: the approval digest', () => {
 
       const notices = await migrate(client);
 
-      expect(notices).toEqual([expect.stringMatching(/^migration 1008: customer_invoice approval_requests re-bound \d+, left stale \d+$/)]);
-      for (const [id, inv] of [[pending, a], [approved, b]] as const) {
+      expect(notices).toEqual([expect.stringMatching(/^migration 1009: customer_invoice approval_requests re-bound \d+, left stale \d+$/)]);
+      for (const [id, inv, was] of [[pending, a, before.pending], [approved, b, before.approved]] as const) {
         const now = await digestOf(client, c, 'customer_invoice', inv.id);
-        expect(now).not.toBe(before.pending);
+        expect(now).not.toBe(was);
         expect(await stored(client, id)).toBe(now);
       }
       expect(await stored(client, stale)).toBe(before.stale);
@@ -194,17 +206,43 @@ describe('migration 1008: the approval digest', () => {
       expect(await digestOf(client, c, 'customer_invoice', r.id)).not.toBe(before.rejected);
       expect(await digestOf(client, c, 'supplier_invoice', bill.id)).toBe(before.billDigest);
       expect(await stored(client, billRequest)).toBe(before.bill);
+
+      // A second run (the body now 1009's own) changes nothing.
+      const ids = [pending, approved, stale, rejected, billRequest];
+      const after = await Promise.all(ids.map((id) => stored(client, id)));
+      await migrate(client);
+      expect(await Promise.all(ids.map((id) => stored(client, id)))).toEqual(after);
+      expect(await liveMd5(client)).toBe(md5(prosrcOf(BODY_1009)));
     });
   });
 
-  it('refuses to run unless 951\'s wrapper delegates to 923\'s body, changing nothing', async () => {
+  it('pins the two bodies it accepts by md5(prosrc): recomputed from the repo\'s SQL and read back from Postgres', async () => {
+    expect(MIGRATION).toContain(`NOT IN ('${md5(prosrcOf(BODY_923))}', '${md5(prosrcOf(BODY_1009))}')`);
+    expect(await liveMd5(pool)).toBe(md5(prosrcOf(BODY_1009))); // the build applied 1009 over 923's body
     await rolledBack(async (client) => {
-      await client.query(digestAsIn('874_customer_invoice_line_revenue_coding.sql', PRE_951));
+      await client.query(BODY_923);
+      expect(await liveMd5(client)).toBe(md5(prosrcOf(BODY_923)));
+    });
+  });
+
+  it.each([
+    ['874\'s body', () => digestAsIn('874_customer_invoice_line_revenue_coding.sql', PRE_951)],
+    ['923\'s body with one character changed', () => BODY_923.replace('SELECT CASE p_document_type', 'SELECT  CASE p_document_type')],
+  ])('refuses to run over %s, changing nothing', async (_label, body) => {
+    await rolledBack(async (client) => {
+      await client.query(body());
+      await expect(migrate(client)).rejects.toThrow(/approval_document_digest_pre_payroll_951 is neither 923's body nor 1009's/);
+    });
+  });
+
+  it('refuses to run without 951\'s wrapper, or without 1008\'s columns', async () => {
+    await rolledBack(async (client) => {
       await client.query('SAVEPOINT m');
-      await expect(migrate(client)).rejects.toThrow(/approval_document_digest_pre_payroll_951 is not 923's body/);
-      await client.query('ROLLBACK TO SAVEPOINT m');
       await client.query(digestAsIn('923_payment_digest_payee_name_originator.sql', 'public.approval_document_digest'));
       await expect(migrate(client)).rejects.toThrow(/apply migration 951 first/);
+      await client.query('ROLLBACK TO SAVEPOINT m');
+      await client.query('ALTER TABLE public.customer_invoices DROP COLUMN amounts_are');
+      await expect(migrate(client)).rejects.toThrow(/apply migration 1008 first/);
     });
   });
 });
