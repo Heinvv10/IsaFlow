@@ -39,6 +39,7 @@ const DEV_ONLY_SPECS = [
   'y6-document-dates-rest',
   'y7-dashboard-aging-tie',
   'y8-purchase-forms-390',
+  'y8b-supplier-invoice-lines-width',
   'z1-invoice-defaults',
   'z10-payslips',
   'z11-kit-select',
