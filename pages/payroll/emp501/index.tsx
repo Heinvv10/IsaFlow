@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { Emp501ReturnSection } from '@/components/payroll/emp501/Emp501ReturnSection';
 
 interface ReconciliationRow {
   month: number;
@@ -127,6 +128,7 @@ export default function Emp501Page() {
         </div>
 
         <div className="p-6 space-y-6">
+          <Emp501ReturnSection taxYear={taxYear} />
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
