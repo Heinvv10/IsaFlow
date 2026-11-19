@@ -1,7 +1,7 @@
 /**
  * Wave 6 OC, review #1620 final breaker H: SDL as a month-to-date catch-up (applySdlToLines + payrollSdlMonthToDate).
  *  (1) the estimate judges the month; (2) once an earlier final run of the month was liable, this run is liable;
- *  (3) a liable run charges max(0, 1% of the month to date - what the earlier final runs charged), split by its lines'
+ *  (3) a liable run charges 1% of the month to date less what the earlier final runs charged (negative: a refund), split by its lines'
  *      leviable share (FQd's month-level ruling);
  *  (5) the month then levies 1% of its leviable pay.
  */
@@ -51,11 +51,13 @@ describe('SDL as a month-to-date catch-up', () => {
     expect(splitByLeviable([{ sdlLeviable: 0 }, { sdlLeviable: 0 }], 7.5)).toEqual([7.5, 0]);
   });
 
-  it('month level, never twice: what the earlier final runs already charged is taken off, and the run never goes below nil', () => {
-    // Earlier final runs: R10 000 leviable, R150 charged (more than 1%); this run R1 000: 1% of R11 000 is R110, so nil.
-    const l = lines(1_000);
-    expect(applySdlToLines(l, LIABLE, TAX_YEAR, { earlierLiable: true, earlierLeviable: 10_000, earlierLevied: 150 })).toBe(0);
-    expect(l[0]).toMatchObject({ sdl: 0, sdlExempt: false });
+  it('month level, never twice: what the earlier final runs already charged is taken off; the floor is the MONTH\'s', () => {
+    // Earlier final runs: R10 000 leviable, R150 charged (a run they caught up was corrected down since); this run
+    // R1 000: 1% of R11 000 is R110, so this run refunds R40 within the month and the month ends at exactly R110.
+    const l = lines(600, 400);
+    expect(applySdlToLines(l, LIABLE, TAX_YEAR, { earlierLiable: true, earlierLeviable: 10_000, earlierLevied: 150 })).toBe(-40);
+    expect(l.map((x) => x.sdl)).toEqual([-24, -16]);
+    expect(l[0]).toMatchObject({ sdlExempt: false });
     // Earlier final R20 000 charged R200 (1%), this run R1 000.55: 1% of R21 000.55 is R210.01, less R200 = R10.01.
     const m = lines(1_000.55);
     expect(applySdlToLines(m, LIABLE, TAX_YEAR, { earlierLiable: true, earlierLeviable: 20_000, earlierLevied: 200 })).toBe(10.01);

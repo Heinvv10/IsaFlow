@@ -6,12 +6,15 @@
  *  - B (rev1620-brk-sdl-deadlock): a bonus paid and approved on the 17th, then a termination run that tips the month:
  *    it carries the earlier runs' 1%, nobody is sent back to reopen a final run, every run ends final;
  *  - C: a month that stays exempt levies nothing on any of its runs.
- *  - D: only the month's FINAL earlier runs are caught up (the loader, read directly).
+ *  - D: only the month's FINAL earlier runs are caught up (the loader, read directly);
+ *  - E (FQd delta 2): a bonus caught up by a later termination run, then corrected down (termination reopened, bonus
+ *    reopened, edited, both approved again): the month ends at exactly 1% of its leviable pay.
  * In every case the month's EMP201 SDL equals 1% of the month's leviable lines (each rounded to the cent).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
+import amounts from '../../pages/api/payroll/runs/[id]/off-cycle-amounts';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { loadMonthToDateSdl } from '@/modules/accounting/services/payroll/payrollSdlMonthToDate';
 
@@ -19,7 +22,7 @@ import { loadMonthToDateSdl } from '@/modules/accounting/services/payroll/payrol
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
 type Rig = Awaited<ReturnType<typeof rig>>;
-const r: Record<'a' | 'b' | 'c' | 'd', Rig> = {} as never;
+const r: Record<'a' | 'b' | 'c' | 'd' | 'e', Rig> = {} as never;
 const bonusOf: Record<string, string> = {};
 const regular: Record<string, string> = {};
 const mid: Record<string, string> = {};
@@ -46,7 +49,7 @@ async function month(t: Rig) {
 const sdlOf = async (t: Rig, id: string) => Number((await t.pool.query('SELECT COALESCE(SUM(sdl), 0)::float8 AS s FROM payroll_run_lines WHERE run_id = $1', [id])).rows[0].s);
 
 beforeAll(async () => {
-  for (const k of ['a', 'b', 'c', 'd'] as const) {
+  for (const k of ['a', 'b', 'c', 'd', 'e'] as const) {
     r[k] = await rig(`w6-oc-sdl-${k}`);
     const t = r[k];
     await t.setup();
@@ -139,5 +142,40 @@ describe('SDL settled for the month to date', () => {
       await t.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [seeded]);
       await t.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [seeded]);
     }
+  });
+
+  it('E: a bonus caught up by a later termination run, corrected down after both were final: the month ends at exactly 1%', async () => {
+    const t = r.e;
+    const exactly1pct = async () => {
+      const m = await month(t);
+      const lev = Number((await t.pool.query(`SELECT COALESCE(SUM(l.sdl_leviable), 0)::float8 AS v FROM payroll_run_lines l
+        JOIN payroll_run_headers h ON h.id = l.run_id WHERE h.company_id = $1 AND h.period_year = 2026 AND h.period_month = 11
+        AND h.status = 'approved'`, [t.company])).rows[0].v);
+      expect(m.levied).toBeCloseTo(Math.round(lev) / 100, 2);
+      expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBeCloseTo(Math.round(lev) / 100, 2);
+      return m.levied;
+    };
+    const b = await final(t, await bonus(t, 5_000, '2026-11-18'));
+    await t.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-25', termination_reason = 'resignation',
+      termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [mid[t.company]]);
+    const term = await final(t, await create(t, { reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: mid[t.company] }] }));
+    const before = await exactly1pct();
+    expect(await sdlOf(t, term)).toBeCloseTo(before, 2); // the termination tipped the month and caught it up
+    // Correct the bonus down: the later termination first (a run with a later final run is not reopened), then the bonus.
+    const journalOf = async (id: string) => String((await t.pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [id])).rows[0].journal_entry_id);
+    for (const id of [term, b]) {
+      const reopened = await t.api.reopen(id);
+      expect(reopened.statusCode, t.msg(reopened)).toBe(200);
+      expect((await t.api.reverse(await journalOf(id))).statusCode).toBe(200);
+    }
+    const edit = await t.call(amounts as Route, 'PATCH', `/api/payroll/runs/${b}/off-cycle-amounts`, b, { body: { employeeId: mid[t.company], amount: 1_000 } });
+    expect(edit.statusCode, t.msg(edit)).toBe(200);
+    for (const id of [b, term]) {
+      expect((await t.api.calculate(id)).statusCode).toBe(200);
+      const ok = await t.api.approve(id);
+      expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    }
+    const after = await exactly1pct();
+    expect(after).toBeLessThan(before);
   });
 });
