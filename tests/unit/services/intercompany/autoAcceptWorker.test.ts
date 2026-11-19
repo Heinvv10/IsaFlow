@@ -65,6 +65,7 @@ describe('runAutoAccept', () => {
     const run = await runAutoAccept();
     expect(run.failed).toBe(1);
     expect(m.failed).toHaveBeenCalledWith('co-b', 'm1', 'Link the supplier for this connection first.');
+    expect(m.log.info).toHaveBeenCalledWith(expect.stringMatching(/refused/), expect.objectContaining({ reason: 'Link the supplier for this connection first.' }), 'intercompany');
   });
 
   it('a refusal that carries a service\'s text, and any other error, is stored as the GENERIC sentence; the detail is logged, never stored', async () => {
@@ -75,7 +76,10 @@ describe('runAutoAccept', () => {
     expect(run.failed).toBe(2);
     expect(m.failed.mock.calls.map((c) => c[2])).toEqual([GENERIC, GENERIC]);
     expect(JSON.stringify(m.failed.mock.calls)).not.toMatch(/Management fees|uq_supplier/);
-    expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/failed/), expect.objectContaining({ detail: expect.stringMatching(/Management fees/) }), 'intercompany');
+    // the log carries the code and the class, never the message (it can hold values from rows)
+    expect(JSON.stringify([m.log.warn.mock.calls, m.log.error.mock.calls, m.log.info.mock.calls])).not.toMatch(/Management fees|uq_supplier|duplicate key/);
+    expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/failed/), expect.objectContaining({ code: '23505', error: 'Error' }), 'intercompany');
+    expect(m.log.warn).toHaveBeenCalledWith(expect.stringMatching(/failed/), expect.not.objectContaining({ detail: expect.anything() }), 'intercompany');
   });
 
   it('one message failing never stops the rest', async () => {

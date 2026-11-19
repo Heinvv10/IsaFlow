@@ -71,9 +71,13 @@ export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
       }
       const sentence = err instanceof ConnectionRefusal && err.safeForSender ? err.message : GENERIC;
       if (sentence === GENERIC) {
+        // The code and the error's class only (as every intercompany log site): a database or service message can carry values from rows.
+        // A refusal of ours with a fixed sentence is logged with that sentence by the branch below, never its text here.
         log.warn('Intercompany auto-accept failed', {
-          companyId: principal.companyId, messageId, code: code ?? null, error: err instanceof Error ? err.name : 'unknown', detail: err instanceof Error ? err.message.slice(0, 300) : '',
+          companyId: principal.companyId, messageId, code: code ?? null, error: err instanceof Error ? err.name : 'unknown',
         }, 'intercompany');
+      } else {
+        log.info('Intercompany auto-accept refused', { companyId: principal.companyId, messageId, reason: sentence }, 'intercompany');
       }
       try {
         const marked = await withReceiverTx(principal, async () => {
