@@ -51,6 +51,8 @@ export default function IntercompanyInboxPage() {
       const result = await apiJson(`/api/accounting/intercompany/inbox?filter=${filter}&limit=${PER_PAGE}&offset=${offset}`, undefined,
         'Could not load the intercompany messages - try again');
       if (mine !== latest.current) return;
+      // A page past the last one (the last row of a page was just handled): start again from the first, never strand on an empty page.
+      if (result.items.length === 0 && offset > 0) { setOffset(0); return; }
       setPage(result);
       setError('');
     } catch (err) {
@@ -105,7 +107,7 @@ export default function IntercompanyInboxPage() {
 
           <div className="flex gap-2" role="group" aria-label="Show">
             {(['open', 'handled'] as const).map((f) => (
-              <button key={f} type="button" aria-pressed={filter === f} onClick={() => { setFilter(f); setOffset(0); }}
+              <button key={f} type="button" aria-pressed={filter === f} onClick={() => { setFilter(f); setOffset(0); setPage(null); setLoading(true); }}
                 className={`px-3 py-1.5 text-sm rounded-lg border ${filter === f ? 'bg-brand-600 text-white border-brand-600' : 'border-line text-ink hover:bg-surface-sunken'}`}>
                 {f === 'open' ? `Needs you${page && page.openCount > 0 ? ` (${page.openCount})` : ''}` : 'Handled'}
               </button>

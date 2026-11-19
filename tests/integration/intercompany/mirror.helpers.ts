@@ -41,7 +41,18 @@ export async function mirrorSetup(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO fiscal_periods(company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
      VALUES ($1, 'IC 2026', 1, 2026, '2026-01-01', '2026-12-31', 'open')`, [co.A]);
+  // B can approve a supplier invoice / credit note too (the receiver's approval is what matches the sender's group row)
+  const tagB0 = co.B.slice(0, 6);
+  await pool.query(
+    `INSERT INTO gl_accounts(company_id, account_code, account_name, account_type, normal_balance, is_active, is_system_account, account_subtype)
+     VALUES ($1, 'AP${tagB0}', 'IC AP', 'liability', 'credit', true, true, 'payable'),
+            ($1, 'VI${tagB0}', 'IC VAT input', 'asset', 'debit', true, true, 'vat_input'),
+            ($1, 'DE${tagB0}', 'IC default expense', 'expense', 'debit', true, true, 'default_expense')`, [co.B]);
+  await pool.query(
+    `INSERT INTO fiscal_periods(company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+     VALUES ($1, 'IC 2026', 1, 2026, '2026-01-01', '2026-12-31', 'open')`, [co.B]);
   clearSystemAccountCache(co.A);
+  clearSystemAccountCache(co.B);
   for (const k of Object.keys(acc) as (keyof typeof acc)[]) acc[k] = crypto.randomUUID();
   const tagB = co.B.slice(0, 5);
   const expense = (id: string, code: string, parent: string | null = null) => pool.query(
@@ -142,6 +153,25 @@ export async function asService<T>(pool: Pool, user: string, company: string, fn
   } finally {
     client.release();
   }
+}
+
+/** An invoice approved in A through the real route: returns it and the message it left for B. */
+export async function sentInvoice(pool: Pool, over: Parameters<typeof plantArInvoice>[1] = {}) {
+  const inv = await plantArInvoice(pool, over);
+  const res = await approveInvoice(inv.id);
+  if (res.state.statusCode !== 200) throw new Error(`approve answered ${res.state.statusCode}: ${JSON.stringify(res.state.body)}`);
+  const message = (await pool.query('SELECT * FROM intercompany_messages WHERE source_doc_id = $1', [inv.id])).rows[0];
+  return { inv, id: message.id as string, message };
+}
+
+/** The pair's bills and messages, cleared (every mirror suite starts from nothing). */
+export async function clearMirrorRows(pool: Pool): Promise<void> {
+  await pool.query('DELETE FROM intercompany_transactions WHERE group_id = $1', [co.G]);
+  await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1)', [[co.A, co.B, co.C]]);
+  await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ANY($1))', [[co.A, co.B, co.C]]);
+  await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1)', [[co.A, co.B, co.C]]);
+  await pool.query("DELETE FROM credit_notes WHERE type = 'supplier' AND company_id = ANY($1)", [[co.A, co.B, co.C]]);
+  await wipeConnections(pool);
 }
 
 const base = '/api/accounting/intercompany/inbox';

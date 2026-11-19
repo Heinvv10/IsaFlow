@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import {
-  asAppUser, asOwner, cleanup, co, outcome, plantConnection, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
+  asAppUser, asOwner, cleanup, co, outcome, plantConnection, payloadFor, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
 } from './intercompany.helpers';
 import { LINK, linkRow, mirrorArgs } from './links.helpers';
 
@@ -26,9 +26,10 @@ beforeEach(async () => {
 });
 
 const SEND = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-              VALUES ($1, $2, $3, $4, $5, $6, '{}')`;
-const send = (user: string, from: string, to: string, kind: string, type: string, doc: string) =>
-  asAppUser(pool, user, from, (q) => outcome(q, SEND, [id, from, to, kind, type, doc]));
+              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`;
+// 1013: a document message carries its source document, so a send of the sender's own document carries the document's payload.
+const send = async (user: string, from: string, to: string, kind: string, type: string, doc: string) =>
+  asAppUser(pool, user, from, async (q) => outcome(q, SEND, [id, from, to, kind, type, doc, await payloadFor(pool, kind, doc, from)]));
 const handle = (user: string, company: string, m: string, set: string) =>
   asAppUser(pool, user, company, (q) => outcome(q, `UPDATE intercompany_messages SET ${set} WHERE id = $1`, [m]), true);
 const accepting = (type: string | null, doc: string | null) =>

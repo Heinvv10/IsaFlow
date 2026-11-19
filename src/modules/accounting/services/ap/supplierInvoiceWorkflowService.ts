@@ -4,6 +4,7 @@
  * Extracted from supplierInvoiceService.ts for file-size compliance.
  */
 
+import { syncGroupRowFor } from '../intercompany/mirrorHooks';
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -160,6 +161,9 @@ async function approveInner(
       RETURNING *
     `) as Row[];
     const settled = await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
+
+    // Intercompany P2: a bill an accepted message created is now APPROVED: the sender's group row matches (never at accept).
+    await syncGroupRowFor(companyId, 'supplier_invoice', id);
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
     return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}), ...(warnings.length > 0 ? { warnings } : {}), ...budgetWarningsOf(budget) };
@@ -355,6 +359,9 @@ async function cancelSupplierInvoiceInner(
     if (cancelledSourceDoc) {
       await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
     }
+
+    // Intercompany P2: a cancelled bill is no longer approved: the sender's group row goes back to unmatched.
+    await syncGroupRowFor(companyId, 'supplier_invoice', id);
 
     return mapInvoiceRow(rows[0]!);
   } catch (err) {

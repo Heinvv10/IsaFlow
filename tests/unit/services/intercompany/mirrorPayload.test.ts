@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  allocateLineVat,
   buildCreditNotePayload,
   buildInvoicePayload,
   parseMirrorPayload,
@@ -41,16 +42,25 @@ describe('buildInvoicePayload', () => {
     expect(p.pdf).toEqual({ path: `${SENDER}/${DOC}.pdf`, sha256: 'a'.repeat(64) });
   });
 
-  it('puts a header VAT that differs from the sum of the line VATs by a rounding cent or two on the largest line', () => {
+  it('allocates the header VAT over the lines like a ledger: sum equals the header, each line within a cent of its own rate', () => {
+    // header VAT = ROUND(subtotal x 15%): 15.0015 -> 15.00, while the lines' own VAT rounds to 4.99 + 10.00
     const p = buildInvoicePayload(invoice({
-      subtotal: 100.01, taxAmount: 15.02, total: 115.03,
+      subtotal: 100.01, taxAmount: 15, total: 115.01,
       lines: [
         { description: 'A', quantity: 1, unitPrice: 33.33, amount: 33.33, taxRate: 15 },
         { description: 'B', quantity: 1, unitPrice: 66.68, amount: 66.68, taxRate: 15 },
       ],
     }));
-    expect(p.lines.reduce((s, l) => s + l.taxAmount, 0)).toBeCloseTo(15.02, 2);
+    expect(Math.round(p.lines.reduce((s, l) => s + l.taxAmount, 0) * 100)).toBe(1500);
     expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: true });
+  });
+
+  it('a header VAT that is not the invoice rate on the subtotal (a forged or legacy header) cannot be carried: the parser refuses the line', () => {
+    const p = buildInvoicePayload(invoice({
+      subtotal: 100, taxAmount: 40, total: 140,
+      lines: [{ description: 'A', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }],
+    }));
+    expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: false, error: expect.stringMatching(/VAT is not its amount at its rate/) });
   });
 
   it('a line whose amount is not quantity x price (rounded) becomes one unit at the line amount', () => {
@@ -63,6 +73,62 @@ describe('buildInvoicePayload', () => {
 
   it('a missing PDF is carried as null', () => {
     expect(buildInvoicePayload(invoice({ pdf: null })).pdf).toBeNull();
+  });
+});
+
+describe('allocateLineVat (the ledger way)', () => {
+  const total = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+  it('every invoice whose header VAT is ROUND(sum x rate) allocates to the header exactly, each line within one cent of its own VAT', () => {
+    let seed = 12345;
+    const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+    for (let t = 0; t < 400; t++) {
+      const n = 1 + rnd(40);
+      const rate = [0, 15, 14, 7.5][rnd(4)]!;
+      const amounts = Array.from({ length: n }, () => 1 + rnd(250000));
+      const header = Math.round(total(amounts) * rate / 100);
+      const vat = allocateLineVat(amounts, amounts.map(() => rate), header);
+      expect(total(vat)).toBe(header);
+      vat.forEach((c, i) => expect(Math.abs(c - amounts[i]! * rate / 100)).toBeLessThan(1));
+    }
+  });
+  it('a header lower than the lines\' own VAT takes cents off, whatever the gap', () => {
+    const low = allocateLineVat([1000, 1000, 1000], [15, 15, 15], 400);
+    expect(total(low)).toBe(400);
+    expect(Math.max(...low) - Math.min(...low)).toBeLessThanOrEqual(1);
+    expect(total(allocateLineVat([1000, 1000, 1000], [15, 15, 15], 100))).toBe(100);
+    expect(allocateLineVat([], [], 5)).toEqual([]);
+  });
+});
+
+describe('what the sender builds is what the receiver can read', () => {
+  it('long text is cut at the parser\'s limits, empty text is made readable, and the result parses', () => {
+    const p = buildInvoicePayload(invoice({
+      notes: 'n'.repeat(5000), sender: { name: 'S'.repeat(500), vatNumber: '   ' },
+      lines: [{ description: '   ', quantity: 1, unitPrice: 1000, amount: 1000, taxRate: 15 }, { description: 'd'.repeat(3000), quantity: 1, unitPrice: 0, amount: 0, taxRate: 15 }],
+    }));
+    expect(p.notes).toHaveLength(2000);
+    expect(p.senderName).toHaveLength(200);
+    expect(p.senderVatNumber).toBeNull();
+    expect(p.lines[0]!.description).toBe('(no description)');
+    expect(p.lines[1]!.description).toHaveLength(1000);
+    expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: true });
+  });
+
+  it('a credit note\'s reason is cut the same way', () => {
+    const p = buildCreditNotePayload({ number: 'CN-1', date: '2026-11-19', currency: 'ZAR', subtotal: 100, taxAmount: 15, total: 115, taxRate: 15,
+      reason: 'r'.repeat(4000), creditsInvoiceNumber: null, sender: { name: 'S', vatNumber: null } });
+    expect(p.notes).toHaveLength(2000);
+    expect(p.lines[0]!.description).toHaveLength(1000);
+    expect(parseMirrorPayload(p, 'credit_note', SENDER)).toMatchObject({ ok: true });
+  });
+
+  it('IsaFlow prices a line as quantity x price less a PERCENT discount and refuses a negative quantity, price or discount (priceDraftLines): a discounted line is sent as one unit and parses', () => {
+    const p = buildInvoicePayload(invoice({
+      subtotal: 90, taxAmount: 13.5, total: 103.5,
+      lines: [{ description: '10% off', quantity: 3, unitPrice: 33.33, amount: 90, taxRate: 15 }],
+    }));
+    expect(p.lines[0]).toMatchObject({ quantity: 1, unitPrice: 90, lineTotal: 90, taxAmount: 13.5 });
+    expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: true });
   });
 });
 

@@ -1,5 +1,5 @@
 /** Reject an intercompany message: a reason is required, and the sender reads it. */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
@@ -16,6 +16,8 @@ export function InboxRejectModal({ item, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const field = useRef<HTMLTextAreaElement>(null);
+  // Another message, another reason: never carry one message's text (or its error) to the next.
+  useEffect(() => { setReason(''); setError(''); }, [item?.id]);
 
   async function submit() {
     if (!item) return;

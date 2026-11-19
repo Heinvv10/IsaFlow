@@ -4,8 +4,8 @@
  * Accepts, as the RECEIVER, the invoice / credit-note messages that a receiving company asked to have accepted automatically
  * on an active group connection: a DRAFT supplier invoice / credit note is created in the receiver's own books (nothing is
  * approved), the message is marked accepted, the documents are linked. Each message runs in its own transaction opened as a
- * write-role user of the receiver (see autoAcceptWorker.ts); a message that cannot be accepted is marked failed with a plain
- * sentence. A failure of one never stops the rest. The answer is 500 when any message failed, so the timer's curl --fail reports it.
+ * write-role user of the receiver (see autoAcceptWorker.ts); a message that cannot be accepted is marked failed with a fixed
+ * sentence. A failure of one never stops the rest. The answer is 500 when any message failed or keeps deferring, so the timer's curl --fail reports it.
  *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var (timing-safe compare).
  * System-level endpoint - no withAuth; runs on the service pool's login (isaflow_service), whose only tenant reach is the
@@ -35,8 +35,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Cron triggered: intercompany auto-accept', {}, 'cron-intercompany-auto-accept');
   const result = await runAutoAccept();
-  if (result.failed > 0) {
-    return apiResponse.error(res, ErrorCode.INTERNAL_ERROR, `Intercompany auto-accept: ${result.failed} of ${result.considered} messages failed`, result);
+  // A message that failed, or that keeps deferring (a persistent fault: the queue gives up on it after 8 attempts), is a 500, so the timer's curl --fail reports it.
+  if (result.failed > 0 || result.stuck > 0) {
+    return apiResponse.error(res, ErrorCode.INTERNAL_ERROR,
+      `Intercompany auto-accept: ${result.failed} of ${result.considered} messages failed, ${result.stuck} keep deferring`, result);
   }
   return apiResponse.success(res, result);
 }

@@ -11,9 +11,10 @@ import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
 import { withReceiverTx } from '../../../src/modules/accounting/services/intercompany/receiverTx';
 import { sql } from '../../../src/lib/neon';
+import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { asAppUser, count, plantDocument, plantExternal, withoutTrigger } from './intercompany.helpers';
 import {
-  acc, approveInvoice, co, connect, inbox, mirrorCleanup, mirrorSetup, party, plantArInvoice, U, wipeConnections,
+  acc, asService, clearMirrorRows, plantArCreditNote, co, connect, inbox, mirrorCleanup, mirrorSetup, party, plantArInvoice, sentInvoice, U,
 } from './mirror.helpers';
 
 assertDisposable();
@@ -21,21 +22,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 
 beforeAll(() => mirrorSetup(pool), 60000);
 afterAll(() => mirrorCleanup(pool), 60000);
-beforeEach(async () => {
-  await pool.query('DELETE FROM intercompany_transactions WHERE group_id = $1', [co.G]);
-  await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ANY($1))', [[co.A, co.B, co.C]]);
-  await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1)', [[co.A, co.B, co.C]]);
-  await wipeConnections(pool);
-});
+beforeEach(() => clearMirrorRows(pool));
 
-async function sent(over: Parameters<typeof plantArInvoice>[1] = {}) {
-  const inv = await plantArInvoice(pool, over);
-  expect((await approveInvoice(inv.id)).state.statusCode).toBe(200);
-  return { inv, id: (await pool.query('SELECT id FROM intercompany_messages WHERE source_doc_id = $1', [inv.id])).rows[0].id as string };
-}
+const sent = (over: Parameters<typeof plantArInvoice>[1] = {}) => sentInvoice(pool, over);
 const row = async (id: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [id])).rows[0];
 const bills = async (company = co.B) => (await pool.query('SELECT * FROM supplier_invoices WHERE company_id = $1', [company])).rows;
-const queue = async () => (await pool.query('SELECT * FROM public.intercompany_auto_accept_queue(50)')).rows;
+/** What the queue would hand out now, WITHOUT claiming (p_claim false), so a test can look without taking an attempt. */
+const queue = async () => (await pool.query('SELECT * FROM public.intercompany_auto_accept_queue(50, false)')).rows;
 /** Run `fn` on a connection in a transaction that is always rolled back (to read the queue under a changed world). */
 async function rolledBack<T>(fn: (q: import('pg').PoolClient) => Promise<T>): Promise<T> {
   const c = await pool.connect();
@@ -53,7 +46,7 @@ describe('what the worker does', () => {
     await connect(pool, { autoAccept: true });
     const { inv, id } = await sent();
     const run = await runAutoAccept();
-    expect(run).toMatchObject({ considered: 1, accepted: 1, failed: 0, deferred: 0 });
+    expect(run).toMatchObject({ considered: 1, accepted: 1, failed: 0, deferred: 0, stuck: 0 });
     const [bill] = await bills();
     expect(bill).toMatchObject({ invoice_number: inv.number, supplier_id: party.bSupplier, status: 'draft', gl_journal_entry_id: null });
     expect([Number(bill.subtotal), Number(bill.tax_amount), Number(bill.total_amount)]).toEqual([1000, 150, 1150]);
@@ -62,7 +55,8 @@ describe('what the worker does', () => {
     expect([U.ab, U.b, U.mab]).toContain(m.handled_by); // a write-role user of B, never a viewer
     expect(bill.created_by).toBe(m.handled_by);
     expect(await count(pool, "SELECT count(*) AS n FROM intercompany_document_links WHERE message_id = $1 AND status = 'active'", [id])).toBe(1);
-    expect((await pool.query('SELECT match_status FROM intercompany_transactions WHERE group_id = $1', [co.G])).rows[0].match_status).toBe('matched');
+    // a draft eliminates nothing: the sender's group row waits for the receiver's APPROVAL
+    expect((await pool.query('SELECT match_status FROM intercompany_transactions WHERE group_id = $1', [co.G])).rows[0].match_status).toBe('unmatched');
     // a draft was made, no journal for it
     expect(await count(pool, 'SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1', [co.B])).toBe(0);
   });
@@ -86,33 +80,29 @@ describe('what the worker does', () => {
     expect(await queue()).toHaveLength(0); // an accepted message is not queued again
   });
 
-  it('accepts a credit note as a draft supplier credit note', async () => {
+  it('accepts a credit note as a draft supplier credit note, saying it was created by auto-accept', async () => {
     await connect(pool, { autoAccept: true });
-    const connId = (await pool.query('SELECT id FROM intercompany_connections WHERE company_low_id = LEAST($1::uuid, $2::uuid) AND company_high_id = GREATEST($1::uuid, $2::uuid)', [co.A, co.B])).rows[0].id;
-    const cn = await plantCreditNote();
-    const payload = {
-      version: 1, kind: 'credit_note', number: 'CN-AUTO-1', date: '2026-09-05', dueDate: null, currency: 'ZAR', subtotal: 200, taxAmount: 30, total: 230,
-      senderName: 'A', senderVatNumber: null, notes: 'Returned router', creditsInvoiceNumber: null, groupTransactionId: null, pdf: null,
-      lines: [{ description: 'Returned router', quantity: 1, unitPrice: 200, taxRate: 15, taxAmount: 30, lineTotal: 200 }],
-    };
-    const m = await asAppUser(pool, U.a, co.A, (q) => q.query(
-      `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-       VALUES ($1, $2, $3, 'credit_note', 'credit_note', $4, $5::jsonb) RETURNING id`, [connId, co.A, co.B, cn, JSON.stringify(payload)]), true);
+    const cn = await plantArCreditNote(pool);
+    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
+    await asService(pool, U.a, co.A, () => mirrorApprovedCreditNote(co.A, cn));
+    const mid = (await pool.query('SELECT id FROM intercompany_messages WHERE source_doc_id = $1', [cn])).rows[0].id as string;
     expect(await runAutoAccept()).toMatchObject({ accepted: 1 });
     const note = (await pool.query("SELECT * FROM credit_notes WHERE company_id = $1 AND type = 'supplier'", [co.B])).rows[0];
     expect(note).toMatchObject({ status: 'draft', supplier_id: party.bSupplier, gl_account_id: acc.bExp1 });
     expect(Number(note.total_amount)).toBe(230);
-    expect((await row(m.rows[0].id)).handled_via).toBe('auto');
+    expect(String(note.reason)).toMatch(/created by intercompany auto-accept/);
+    expect((await row(mid)).handled_via).toBe('auto');
+  });
+
+  it('a bill made by auto-accept says so in its reference and notes (the user it is created under is only the receiver\'s write-role user it acts as)', async () => {
+    await connect(pool, { autoAccept: true });
+    await sent();
+    await runAutoAccept();
+    const [bill] = await bills();
+    expect(String(bill.reference)).toMatch(/^Intercompany auto-accept: /);
+    expect(String(bill.notes)).toMatch(/Created by intercompany auto-accept/);
   });
 });
-
-async function plantCreditNote(): Promise<string> {
-  const id = crypto.randomUUID();
-  await pool.query(
-    `INSERT INTO credit_notes(id, company_id, credit_note_number, type, client_id, credit_date, subtotal, tax_rate, tax_amount, total_amount, status, created_by)
-     VALUES ($1, $2, $3, 'customer', $4, DATE '2026-09-05', 200, 15, 30, 230, 'approved', $5)`, [id, co.A, `ICCN-${id.slice(0, 8)}`, party.aCustomer, U.ab]);
-  return id;
-}
 
 describe('what the worker leaves alone', () => {
   it('a receiver that did not ask for auto-accept: nothing is queued or accepted', async () => {
@@ -172,11 +162,11 @@ describe('what the worker leaves alone', () => {
     await sent();
     expect(await rolledBack(async (q) => {
       await q.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1", [co.B]);
-      return (await q.query('SELECT * FROM public.intercompany_auto_accept_queue(50)')).rows;
+      return (await q.query('SELECT * FROM public.intercompany_auto_accept_queue(50, false)')).rows;
     })).toHaveLength(0);
     const actor = await rolledBack(async (q) => {
       await q.query('UPDATE users SET suspended_at = now() WHERE id = ANY($1::text[])', [[U.ab, U.b]]);
-      return (await q.query('SELECT * FROM public.intercompany_auto_accept_queue(50)')).rows;
+      return (await q.query('SELECT * FROM public.intercompany_auto_accept_queue(50, false)')).rows;
     });
     expect(actor).toHaveLength(1);
     expect(actor[0].actor_user_id).toBe(U.mab);
@@ -232,10 +222,10 @@ describe('who may call the queue', () => {
     await sent();
     for (const [user, company] of [[U.b, co.B], [U.a, co.A], [U.c, co.C]] as const) {
       await asAppUser(pool, user, company, async (q) => {
-        await expect(q.query('SELECT * FROM public.intercompany_auto_accept_queue(50)')).rejects.toMatchObject({ code: '42501' });
+        await expect(q.query('SELECT * FROM public.intercompany_auto_accept_queue(50, false)')).rejects.toMatchObject({ code: '42501' });
       });
     }
-    expect((await pool.query("SELECT has_function_privilege('app_user', 'public.intercompany_auto_accept_queue(integer)', 'EXECUTE') AS a, has_function_privilege('app_service', 'public.intercompany_auto_accept_queue(integer)', 'EXECUTE') AS s, has_function_privilege('public', 'public.intercompany_auto_accept_queue(integer)', 'EXECUTE') AS p")).rows[0])
+    expect((await pool.query("SELECT has_function_privilege('app_user', 'public.intercompany_auto_accept_queue(integer, boolean)', 'EXECUTE') AS a, has_function_privilege('app_service', 'public.intercompany_auto_accept_queue(integer, boolean)', 'EXECUTE') AS s, has_function_privilege('public', 'public.intercompany_auto_accept_queue(integer, boolean)', 'EXECUTE') AS p")).rows[0])
       .toEqual({ a: false, s: true, p: false });
   });
 
@@ -243,7 +233,7 @@ describe('who may call the queue', () => {
     await connect(pool, { autoAccept: true });
     await sent();
     const q = await queue();
-    expect(Object.keys(q[0]).sort()).toEqual(['actor_user_id', 'message_id', 'to_company_id']);
+    expect(Object.keys(q[0]).sort()).toEqual(['actor_user_id', 'attempt', 'message_id', 'to_company_id']);
     expect(q[0].to_company_id).toBe(co.B);
   });
 });

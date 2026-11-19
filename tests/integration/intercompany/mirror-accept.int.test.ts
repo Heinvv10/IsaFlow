@@ -1,8 +1,8 @@
 /**
  * Intercompany P2, the RECEIVER's inbox, through the real routes as app_user across three tenants (A sends, B receives, C is a
- * stranger in another group). Accepting creates a DRAFT supplier invoice / credit note in B with the sender's number, VAT and
- * total, marks the message accepted, links the two documents (mirror link) and, for a group pair, marks the sender's group row
- * matched. A refusal writes nothing at all (no draft, no half-accepted message). A duplicate (same supplier and number) is
+ * stranger in another group). Accepting creates a DRAFT supplier invoice in B with the sender's number, VAT and total, marks the
+ * message accepted and links the two documents (mirror link). It does NOT match the sender's group row: a draft eliminates nothing
+ * (mirror-elimination.int.test.ts). A refusal writes nothing at all (no draft, no half-accepted message). A duplicate (same supplier and number) is
  * refused; a rejection needs a reason and touches only the message; nobody outside the two companies reads or changes anything.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -12,9 +12,8 @@ import { enableFxDocuments } from '../r035-approval.helpers';
 import { asAppUser, count, pairOf, withoutTrigger } from './intercompany.helpers';
 import {
   acct, acc, approveInvoice, co, connect, dataOf, errorOf, inbox, mirrorCleanup, mirrorSetup, party, plantArCreditNote, plantArInvoice,
-  U, wipeConnections, asService,
+  U, asService, clearMirrorRows, sentInvoice as sentInvoiceIn,
 } from './mirror.helpers';
-import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { acceptMessage } from '../../../src/modules/accounting/services/intercompany/acceptService';
 
 assertDisposable();
@@ -24,21 +23,11 @@ let conn = '';
 beforeAll(() => mirrorSetup(pool), 60000);
 afterAll(() => mirrorCleanup(pool), 60000);
 beforeEach(async () => {
-  await pool.query('DELETE FROM intercompany_transactions WHERE group_id = $1', [co.G]);
-  await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = $1)', [co.B]);
-  await pool.query('DELETE FROM supplier_invoices WHERE company_id = $1', [co.B]);
-  await pool.query('DELETE FROM credit_notes WHERE company_id = $1', [co.B]);
-  await wipeConnections(pool);
+  await clearMirrorRows(pool);
   conn = await connect(pool);
 });
 
-/** An invoice approved in A through the real route: returns it and the message it left for B. */
-async function sentInvoice(over: Parameters<typeof plantArInvoice>[1] = {}) {
-  const inv = await plantArInvoice(pool, over);
-  expect((await approveInvoice(inv.id)).state.statusCode).toBe(200);
-  const m = (await pool.query('SELECT * FROM intercompany_messages WHERE source_doc_id = $1', [inv.id])).rows[0];
-  return { inv, id: m.id as string, message: m };
-}
+const sentInvoice = (over: Parameters<typeof plantArInvoice>[1] = {}) => sentInvoiceIn(pool, over);
 const bills = async () => (await pool.query('SELECT * FROM supplier_invoices WHERE company_id = $1 ORDER BY created_at', [co.B])).rows;
 const notes = async () => (await pool.query("SELECT * FROM credit_notes WHERE company_id = $1 AND type = 'supplier'", [co.B])).rows;
 const messageRow = async (id: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [id])).rows[0];
@@ -46,7 +35,7 @@ const links = async () => (await pool.query('SELECT * FROM intercompany_document
 const accept = (id: string, body?: unknown, user = U.b) => inbox.accept(user, co.B, id, body);
 
 describe('accepting an invoice', () => {
-  it('creates a draft bill with the same number, VAT and total, on B\'s supplier and default account; links it; matches the group row', async () => {
+  it('creates a draft bill with the same number, VAT and total, on B\'s supplier and default account; links it; leaves the group row unmatched', async () => {
     const { inv, id } = await sentInvoice();
     const res = await accept(id);
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
@@ -71,8 +60,9 @@ describe('accepting an invoice', () => {
     const aIsLow = low === co.A;
     expect(aIsLow ? [link.doc_a_type, link.doc_a_id, link.doc_b_type, link.doc_b_id] : [link.doc_b_type, link.doc_b_id, link.doc_a_type, link.doc_a_id])
       .toEqual(['customer_invoice', inv.id, 'supplier_invoice', bill.id]);
+    // a draft eliminates nothing: the sender's group row stays unmatched until the receiver approves the bill
     const g = (await pool.query('SELECT * FROM intercompany_transactions WHERE group_id = $1', [co.G])).rows[0];
-    expect(g).toMatchObject({ match_status: 'matched', matched_by: U.b });
+    expect(g).toMatchObject({ match_status: 'unmatched', matched_by: null, target_journal_entry_id: null });
     // A's own books are untouched
     expect(await count(pool, 'SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1', [co.A])).toBe(0);
     expect((await pool.query('SELECT status FROM customer_invoices WHERE id = $1', [inv.id])).rows[0].status).toBe('approved');
@@ -114,7 +104,7 @@ describe('accepting an invoice', () => {
   });
 
   it('with no supplier linked on B\'s side: refused with the reason, nothing written', async () => {
-    await wipeConnections(pool);
+    await clearMirrorRows(pool);
     conn = await connect(pool, { bSupplier: false });
     const { id } = await sentInvoice();
     const res = await accept(id);
@@ -125,7 +115,7 @@ describe('accepting an invoice', () => {
   });
 
   it('with no default account and no earlier account for a line, the person must choose; the choice is used', async () => {
-    await wipeConnections(pool);
+    await clearMirrorRows(pool);
     conn = await connect(pool, { bDefault: false });
     const { id } = await sentInvoice();
     const refused = await accept(id);
@@ -179,6 +169,18 @@ describe('accepting an invoice', () => {
   });
 });
 
+describe('the dialog\'s account list', () => {
+  it('holds every suggested account, even one of a type the list leaves out (a default that is not an expense or asset account)', async () => {
+    // B's loan account is a LIABILITY account: usable for a bill line, but not in the expense / asset pick-list
+    await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET default_expense_account_id = $2 WHERE company_id = $1', [co.B, acct.bLoan]), true);
+    const { id } = await sentInvoice();
+    const preview = dataOf<{ accounts: Array<{ id: string }>; lines: Array<{ accountId: string }> }>(await inbox.get(U.b, co.B, id));
+    expect(preview.lines.map((l) => l.accountId)).toEqual([acct.bLoan, acct.bLoan]);
+    expect(preview.accounts.map((a) => a.id)).toContain(acct.bLoan);
+    expect(new Set(preview.accounts.map((a) => a.id)).size).toBe(preview.accounts.length); // listed once
+  });
+});
+
 describe('atomicity and the group re-check', () => {
   it('a sender document that is already in another link: the accept is refused AFTER the draft was built, and the draft goes with it', async () => {
     const { inv, id } = await sentInvoice();
@@ -229,167 +231,3 @@ describe('atomicity and the group re-check', () => {
   });
 });
 
-describe('accepting a credit note', () => {
-  it('creates a draft supplier credit note with the sender\'s exact VAT, marked with the sender\'s number', async () => {
-    const cn = await plantArCreditNote(pool);
-    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn]);
-    await asService(pool, U.a, co.A, () => mirrorApprovedCreditNote(co.A, cn));
-    const m = (await pool.query('SELECT * FROM intercompany_messages WHERE source_doc_id = $1', [cn])).rows[0];
-    const res = await accept(m.id);
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    const [note] = await notes();
-    expect(note).toMatchObject({ type: 'supplier', supplier_id: party.bSupplier, status: 'draft', gl_account_id: acc.bExp1 });
-    expect([Number(note.subtotal), Number(note.tax_amount), Number(note.total_amount)]).toEqual([200, 30, 230]);
-    expect(String(note.reason)).toContain(`[IC ICCN-${cn.slice(0, 8)}]`);
-    expect((await messageRow(m.id))).toMatchObject({ status: 'accepted', target_doc_type: 'credit_note', target_doc_id: note.id });
-    expect((await links())[0]).toMatchObject({ status: 'active', origin: 'mirror' });
-    // a second note with the same sender number is a duplicate
-    const dup = await pool.query(
-      `UPDATE intercompany_messages SET status = 'pending', target_doc_type = NULL, target_doc_id = NULL WHERE id = $1`, [m.id]).catch(() => null);
-    expect(dup).toBeNull(); // an accepted message is final: the guard refuses to reopen it
-  });
-});
-
-describe('rejecting, dismissing and restoring', () => {
-  it('reject needs a reason; it goes back to the sender\'s outbox; the sender\'s invoice is untouched', async () => {
-    const { inv, id } = await sentInvoice();
-    for (const body of [{}, { reason: '' }, { reason: '   ' }, { reason: 7 }, { reason: 'x'.repeat(2001) }, { reason: 'ok', extra: 1 }]) {
-      expect((await inbox.reject(U.b, co.B, id, body)).state.statusCode).toBe(400);
-    }
-    expect((await messageRow(id)).status).toBe('pending');
-    const res = await inbox.reject(U.b, co.B, id, { reason: '  Wrong entity: bill Velocity  ' });
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    expect(await messageRow(id)).toMatchObject({ status: 'rejected', reason: 'Wrong entity: bill Velocity', handled_by: U.b });
-    const seenBySender = await asAppUser(pool, U.a, co.A, async (q) => (await q.query('SELECT status, reason FROM intercompany_messages WHERE id = $1', [id])).rows[0]);
-    expect(seenBySender).toEqual({ status: 'rejected', reason: 'Wrong entity: bill Velocity' });
-    expect((await pool.query('SELECT status FROM customer_invoices WHERE id = $1', [inv.id])).rows[0].status).toBe('approved');
-    expect(await bills()).toHaveLength(0);
-    // final
-    expect((await accept(id)).state.statusCode).toBe(409);
-    expect((await inbox.reject(U.b, co.B, id, { reason: 'again' })).state.statusCode).toBe(409);
-  });
-
-  it('dismiss sets it aside (not acceptable) and restore brings it back', async () => {
-    const { id } = await sentInvoice();
-    expect((await inbox.dismiss(U.b, co.B, id)).state.statusCode).toBe(200);
-    expect((await messageRow(id)).status).toBe('dismissed');
-    const refused = await accept(id);
-    expect(refused.state.statusCode).toBe(409);
-    expect(errorOf(refused)).toMatch(/Restore it first/);
-    expect((await inbox.dismiss(U.b, co.B, id)).state.statusCode).toBe(409);
-    expect((await inbox.restore(U.b, co.B, id)).state.statusCode).toBe(200);
-    expect((await messageRow(id)).status).toBe('pending');
-    expect((await accept(id)).state.statusCode).toBe(200);
-    expect((await inbox.restore(U.b, co.B, id)).state.statusCode).toBe(409);
-  });
-});
-
-describe('what cannot be accepted', () => {
-  it('a foreign-currency invoice is blocked with a ZAR-only sentence; it can still be rejected', async () => {
-    await enableFxDocuments(pool, co.A);
-    const { id } = await sentInvoice({ currency: 'USD' });
-    const preview = dataOf<{ blockers: string[]; item: { blocker: string } }>(await inbox.get(U.b, co.B, id));
-    expect(preview.blockers.join(' ')).toMatch(/ZAR only/);
-    const res = await accept(id);
-    expect(res.state.statusCode).toBe(409);
-    expect(errorOf(res)).toMatch(/ZAR only/);
-    expect(await bills()).toHaveLength(0);
-    expect((await inbox.reject(U.b, co.B, id, { reason: 'Capture it by hand' })).state.statusCode).toBe(200);
-  });
-
-  it('a payload that does not add up, or names a PDF outside the sender\'s storage, is blocked and writes nothing', async () => {
-    const { id, message } = await sentInvoice();
-    const tamper = async (patch: Record<string, unknown>) => {
-      await pool.query('ALTER TABLE intercompany_messages DISABLE TRIGGER trg_intercompany_messages_guard');
-      try {
-        await pool.query("UPDATE intercompany_messages SET payload = payload || $2::jsonb WHERE id = $1", [id, JSON.stringify(patch)]);
-      } finally {
-        await pool.query('ALTER TABLE intercompany_messages ENABLE ALWAYS TRIGGER trg_intercompany_messages_guard');
-      }
-    };
-    for (const patch of [
-      { total: 9999 },
-      { pdf: { path: `${co.C}/${crypto.randomUUID()}.pdf`, sha256: 'a'.repeat(64) } },
-      { pdf: { path: `${co.A}/../${co.C}/x.pdf`, sha256: 'a'.repeat(64) } },
-    ]) {
-      await tamper(patch);
-      const preview = dataOf<{ blockers: string[] }>(await inbox.get(U.b, co.B, id));
-      expect(preview.blockers.length).toBeGreaterThan(0);
-      const res = await accept(id);
-      expect(res.state.statusCode).toBe(409);
-      expect(await bills()).toHaveLength(0);
-      await tamper({ total: message.payload.total, pdf: null });
-    }
-  });
-
-  it('a revoked connection: accept and reject are refused, dismiss still works', async () => {
-    const { id } = await sentInvoice();
-    await asAppUser(pool, U.a, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [conn]), true);
-    expect((await accept(id)).state.statusCode).toBe(409);
-    expect((await inbox.reject(U.b, co.B, id, { reason: 'x' })).state.statusCode).toBe(409);
-    expect(await bills()).toHaveLength(0);
-    expect((await inbox.dismiss(U.b, co.B, id)).state.statusCode).toBe(200);
-  });
-
-  it('a viewer of the receiving company cannot accept, reject or dismiss', async () => {
-    const { id } = await sentInvoice();
-    expect((await accept(id, undefined, U.avb)).state.statusCode).toBe(403);
-    expect((await inbox.reject(U.avb, co.B, id, { reason: 'no' })).state.statusCode).toBe(403);
-    expect((await inbox.dismiss(U.avb, co.B, id)).state.statusCode).toBe(403);
-    expect((await messageRow(id)).status).toBe('pending');
-    expect(await bills()).toHaveLength(0);
-  });
-});
-
-describe('the inbox list', () => {
-  it('lists what needs a person with the badge count, and the handled ones apart', async () => {
-    const one = await sentInvoice();
-    const two = await sentInvoice();
-    const open = dataOf<{ items: Array<{ id: string; number: string; total: number; status: string }>; total: number; openCount: number }>(await inbox.list(U.b, co.B));
-    expect(open.openCount).toBe(2);
-    expect(open.total).toBe(2);
-    expect(open.items.map((i) => i.id).sort()).toEqual([one.id, two.id].sort());
-    expect(open.items[0]).toMatchObject({ total: 1150, status: 'pending' });
-    expect(dataOf(await inbox.count(U.b, co.B))).toEqual({ openCount: 2, enabled: true });
-    expect(dataOf(await inbox.count(U.c, co.C))).toEqual({ openCount: 0, enabled: false });
-    expect((await accept(one.id)).state.statusCode).toBe(200);
-    expect(dataOf<{ openCount: number }>(await inbox.list(U.b, co.B)).openCount).toBe(1);
-    const handled = dataOf<{ items: Array<{ id: string; status: string; handledVia: string }> }>(await inbox.list(U.b, co.B, { filter: 'handled' }));
-    expect(handled.items).toHaveLength(1);
-    expect(handled.items[0]).toMatchObject({ id: one.id, status: 'accepted', handledVia: 'user' });
-    for (const bad of [{ filter: 'all' }, { limit: 'x' }, { offset: '-1' }]) expect((await inbox.list(U.b, co.B, bad)).state.statusCode).toBe(400);
-  });
-});
-
-describe('tenancy', () => {
-  it('a third company\'s inbox is empty and it can read, accept, reject or dismiss none of B\'s messages', async () => {
-    const { id } = await sentInvoice();
-    expect(dataOf<{ total: number; openCount: number }>(await inbox.list(U.c, co.C))).toMatchObject({ total: 0, openCount: 0 });
-    expect((await inbox.get(U.c, co.C, id)).state.statusCode).toBe(404);
-    expect((await accept(id, undefined, U.c)).state.statusCode).toBe(403); // C is not a member of B: withAuth refuses
-    expect((await inbox.accept(U.c, co.C, id)).state.statusCode).toBe(404);
-    expect((await inbox.reject(U.c, co.C, id, { reason: 'x' })).state.statusCode).toBe(404);
-    expect((await inbox.dismiss(U.c, co.C, id)).state.statusCode).toBe(404);
-    expect((await messageRow(id)).status).toBe('pending');
-    expect(await count(pool, 'SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1', [co.C])).toBe(0);
-  });
-
-  it('the sender cannot accept, reject or read the message as an inbox item, and cannot change its handling', async () => {
-    const { id } = await sentInvoice();
-    expect(dataOf<{ total: number }>(await inbox.list(U.a, co.A)).total).toBe(0);
-    expect((await inbox.get(U.a, co.A, id)).state.statusCode).toBe(404);
-    expect((await inbox.accept(U.a, co.A, id)).state.statusCode).toBe(404);
-    expect((await inbox.reject(U.a, co.A, id, { reason: 'x' })).state.statusCode).toBe(404);
-    const changed = await asAppUser(pool, U.a, co.A, async (q) => (await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [id])).rowCount, true);
-    expect(changed).toBe(0);
-    expect((await messageRow(id)).status).toBe('pending');
-  });
-
-  it('B\'s accept leaves no row in A\'s or C\'s books', async () => {
-    const before = await count(pool, 'SELECT count(*) AS n FROM supplier_invoices WHERE company_id <> $1', [co.B]);
-    const { id } = await sentInvoice();
-    expect((await accept(id)).state.statusCode).toBe(200);
-    expect(await count(pool, 'SELECT count(*) AS n FROM supplier_invoices WHERE company_id <> $1', [co.B])).toBe(before);
-    expect(await count(pool, "SELECT count(*) AS n FROM credit_notes WHERE type = 'supplier' AND company_id = ANY($1)", [[co.A, co.C]])).toBe(0);
-  });
-});

@@ -5,11 +5,11 @@
  * no user-less write path. It is bound to the ALS context like a request (`runOwnedContext`), so the receiver's own services
  * (`createSupplierInvoice`, `createCreditNote`) join this transaction.
  *
- * lock_timeout 5 s and statement_timeout 60 s (never loosened). One message per transaction: one failure never takes the
+ * It opens on the request pool's login, not the service pool's (see below). lock_timeout 5 s and statement_timeout 60 s (never loosened). One message per transaction: one failure never takes the
  * others down, and a committed draft is never rolled back by a later message.
  */
 import type { PoolClient } from 'pg';
-import { getPool } from '@/lib/neon';
+import { getAuthPool } from '@/lib/auth/authPool';
 import { drainAfterCommit, runOwnedContext } from '@/lib/afterCommit';
 import type { RequestContext } from '@/lib/als';
 import { rollbackFailed } from '@/lib/rollbackFailed';
@@ -21,7 +21,10 @@ export interface ReceiverPrincipal {
 }
 
 export async function withReceiverTx<T>(p: ReceiverPrincipal, fn: () => Promise<T>): Promise<T> {
-  const client: PoolClient = await getPool().connect();
+  // The REQUEST login (isaflow_app in production, the pool withAuth and withOwnCompanyTx open their transactions on), never the service
+  // login: that one inherits app_service, whose policies are USING (true), so a RESET ROLE inside this transaction would read every tenant.
+  // isaflow_app holds no table privilege of its own: a RESET ROLE leaves it with nothing. Only the queue below runs on the service login.
+  const client: PoolClient = await getAuthPool().connect();
   let begun = false;
   let unusable = false;
   try {

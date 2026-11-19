@@ -28,6 +28,7 @@
  * original and the contra, netting them to zero — no explicit cache work here.
  */
 
+import { withdrawForCancelledDocument } from '../intercompany/mirrorHooks';
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -166,6 +167,9 @@ async function cancelCustomerInvoiceInner(
       SET status = 'cancelled', gl_journal_entry_id = NULL, updated_at = NOW()
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
     `;
+
+    // Intercompany P2: a message sent for this invoice is withdrawn (or, once accepted, flagged for the receiver).
+    await withdrawForCancelledDocument(companyId, 'customer_invoice', invoiceId);
 
     log.info('Cancelled customer invoice', { invoiceId, reversedJournalEntryId }, 'accounting');
     return { id: invoiceId, reversedJournalEntryId };

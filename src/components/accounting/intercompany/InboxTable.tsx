@@ -25,7 +25,7 @@ const draftHref = (i: InboxItem): string | null => {
 };
 
 const STATUS_LABEL: Record<InboxItem['status'], string> = {
-  pending: 'Waiting', failed: 'Needs attention', accepted: 'Accepted', rejected: 'Rejected', dismissed: 'Dismissed',
+  pending: 'Waiting', failed: 'Needs attention', accepted: 'Accepted', rejected: 'Rejected', dismissed: 'Dismissed', withdrawn: 'Cancelled by sender',
 };
 
 const btn = 'px-2.5 py-1.5 text-xs font-medium rounded-lg border border-line text-ink hover:bg-surface-sunken disabled:opacity-50 inline-flex items-center gap-1.5';
@@ -56,8 +56,11 @@ export function InboxTable({ items, canWrite, busyId, onReview, onReject, onDism
                 {i.total === null ? '—' : formatCurrency(i.kind === 'credit_note' ? -i.total : i.total)}
               </td>
               <td data-label="Status" className="px-5 py-3.5 space-y-1">
-                <StatusPill status={i.status === 'failed' ? 'overdue' : i.status === 'pending' ? 'pending' : i.status}>{STATUS_LABEL[i.status]}</StatusPill>
-                {i.handledVia === 'auto' && <p className="text-xs text-ink-muted">Accepted automatically</p>}
+                <StatusPill status={i.status === 'failed' ? 'overdue' : i.status === 'withdrawn' ? 'cancelled' : i.status === 'pending' ? 'pending' : i.status}>{STATUS_LABEL[i.status]}</StatusPill>
+                {i.status === 'accepted' && i.handledVia === 'auto' && <p className="text-xs text-ink-muted">Accepted automatically</p>}
+                {i.status === 'accepted' && i.sourceCancelled && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 max-w-xs" data-testid="sender-cancelled">Sender cancelled this document. Your draft is untouched; review it.</p>
+                )}
                 {i.status === 'failed' && i.error && <p className="text-xs text-red-600 dark:text-red-400 max-w-xs">{i.error}</p>}
                 {i.status === 'rejected' && i.reason && <p className="text-xs text-ink-muted max-w-xs">Reason: {i.reason}</p>}
                 {open && i.blocker && <p className="text-xs text-amber-700 dark:text-amber-400 max-w-xs">{i.blocker}</p>}

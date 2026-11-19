@@ -133,8 +133,13 @@ export async function resolveCreditNoteAccount(companyId: string, side: AcceptSi
   return { id, label, source: remembered ? 'last_used' : id ? 'default' : null };
 }
 
-/** An existing bill (or supplier credit note) of this supplier with the payload's number: the draft would be a duplicate. */
-export async function findDuplicate(companyId: string, side: AcceptSide, payload: MirrorPayload): Promise<{ id: string; number: string } | null> {
+/**
+ * An existing bill (or supplier credit note) that would make the draft a duplicate. A bill: this supplier's bill with the payload's
+ * number. A credit note: it has no number of the sender's of its own (this company numbers it), so it is the note an earlier ACCEPTED
+ * message from the same sender with the same number created, if that note still exists and is not cancelled. That reads the message
+ * (immutable payload) and the note's existence, never an editable text field.
+ */
+export async function findDuplicate(companyId: string, side: AcceptSide, payload: MirrorPayload, fromCompanyId: string): Promise<{ id: string; number: string } | null> {
   if (!side.supplierId) return null;
   if (payload.kind === 'invoice') {
     const rows = (await sql`
@@ -145,14 +150,14 @@ export async function findDuplicate(companyId: string, side: AcceptSide, payload
     `) as Row[];
     return rows[0] ? { id: String(rows[0].id), number: String(rows[0].invoice_number) } : null;
   }
-  // A supplier credit note is numbered by this company; the sender's number is kept in its reason, so look for it there.
   const rows = (await sql`
-    SELECT id, credit_note_number FROM credit_notes
-     WHERE company_id = ${companyId}::UUID AND type = 'supplier' AND supplier_id = ${side.supplierId}::UUID
-       AND status <> 'cancelled' AND reason LIKE ${`%[IC ${payload.number.replace(/[%_\\]/g, '\\$&')}]%`}
+    SELECT cn.id FROM intercompany_messages m
+      JOIN credit_notes cn ON cn.id = m.target_doc_id AND cn.company_id = ${companyId}::UUID AND cn.type = 'supplier' AND cn.status <> 'cancelled'
+     WHERE m.to_company_id = ${companyId}::UUID AND m.from_company_id = ${fromCompanyId}::UUID AND m.kind = 'credit_note'
+       AND m.status = 'accepted' AND m.target_doc_type = 'credit_note' AND m.payload->>'number' = ${payload.number}
      LIMIT 1
   `) as Row[];
-  return rows[0] ? { id: String(rows[0].id), number: String(rows[0].credit_note_number ?? payload.number) } : null;
+  return rows[0] ? { id: String(rows[0].id), number: payload.number } : null;
 }
 
 /** The accounts the Accept dialog offers: this company's postable accounts, bounded. */

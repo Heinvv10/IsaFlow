@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
-  CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET, downloadCapturedDocument, uploadCapturedDocument,
+  CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET, downloadCapturedDocument, removeCapturedDocument, uploadCapturedDocument,
 } from '@/lib/supabaseStorage';
 import { createSupplierInvoice } from '../ap/supplierInvoiceService';
 import { createCreditNote } from '../ar/creditNoteService';
@@ -25,6 +25,8 @@ import type { MirrorPayload } from './mirrorPayload';
 
 export interface DraftOptions {
   actor?: PostingActorOpts;
+  /** Made by the auto-accept worker: the draft says so (the user it is created under is only the receiver's write-role user it acts as). */
+  auto?: boolean;
 }
 
 /** The draft supplier invoice for an invoice message: one line per sender line, on the chosen accounts. */
@@ -39,8 +41,8 @@ export async function createDraftBill(
     ...(payload.dueDate ? { dueDate: payload.dueDate, dueDateGivenAs: 'document' as const } : {}),
     currencyCode: 'ZAR',
     exchangeRate: 1,
-    reference: `Intercompany: ${payload.senderName}`.slice(0, 255),
-    notes: payload.notes ?? undefined,
+    reference: `${opts.auto ? 'Intercompany auto-accept' : 'Intercompany'}: ${payload.senderName}`.slice(0, 255),
+    notes: [opts.auto ? 'Created by intercompany auto-accept.' : null, payload.notes].filter(Boolean).join(' ') || undefined,
     items: payload.lines.map((l, i) => ({
       description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate, taxAmount: l.taxAmount,
       glAccountId: accountByLine[i]!,
@@ -53,15 +55,12 @@ export async function createDraftBill(
   return bill.id;
 }
 
-/** The marker a draft credit note's reason carries so a second accept of the same sender number is found as a duplicate. */
-export const creditNoteMarker = (number: string): string => `[IC ${number}]`;
-
 /** The draft supplier credit note for a credit-note message, on the chosen account, with the sender's exact VAT. */
 export async function createDraftSupplierCreditNote(
   companyId: string, userId: string, side: AcceptSide, payload: MirrorPayload, accountId: string, opts: DraftOptions,
 ): Promise<string> {
   const detail = [
-    `Intercompany credit note ${creditNoteMarker(payload.number)} from ${payload.senderName}`,
+    `Intercompany credit note ${payload.number} from ${payload.senderName}${opts.auto ? ' (created by intercompany auto-accept)' : ''}`,
     payload.creditsInvoiceNumber ? `crediting invoice ${payload.creditsInvoiceNumber}` : null,
     payload.notes,
   ].filter(Boolean).join('. ');
@@ -82,13 +81,14 @@ export async function createDraftSupplierCreditNote(
  */
 export async function copySenderPdf(
   companyId: string, senderCompanyId: string, userId: string, billId: string, number: string, pdf: NonNullable<MirrorPayload['pdf']>,
-): Promise<boolean> {
+): Promise<{ copied: boolean; storagePath: string | null }> {
+  let storagePath: string | null = null;
   try {
     const bytes = await downloadCapturedDocument(CUSTOMER_INVOICES_BUCKET, pdf.path, senderCompanyId);
     const hash = crypto.createHash('sha256').update(bytes).digest('hex');
     if (hash !== pdf.sha256) {
       log.warn('Intercompany PDF not copied: it does not match its hash', { companyId, billId }, 'intercompany');
-      return false;
+      return { copied: false, storagePath: null };
     }
     const docId = crypto.randomUUID();
     await withSavepoint('intercompany_pdf_copy', async () => {
@@ -102,12 +102,24 @@ export async function copySenderPdf(
         )
       `;
       const { path } = await uploadCapturedDocument(companyId, docId, bytes, 'application/pdf');
+      storagePath = path;
       await sql`UPDATE captured_documents SET storage_bucket = ${CAPTURED_DOCS_BUCKET}, storage_path = ${path} WHERE id = ${docId}::UUID AND company_id = ${companyId}::UUID`;
       await sql`UPDATE supplier_invoices SET source_document_id = ${docId}::UUID WHERE id = ${billId}::UUID AND company_id = ${companyId}::UUID`;
     });
-    return true;
+    return { copied: true, storagePath };
   } catch (err) {
     log.warn('Intercompany PDF not copied', { companyId, billId, error: err instanceof Error ? err.name : 'unknown' }, 'intercompany');
-    return false;
+    // The file may already be stored when a later statement failed: take it back (best effort), so no orphan is left under the receiver's prefix.
+    if (storagePath) await discardUploaded(companyId, storagePath);
+    return { copied: false, storagePath: null };
+  }
+}
+
+/** Best effort: remove a file this company's accept stored but did not keep (the accept failed after the upload). Never throws. */
+export async function discardUploaded(companyId: string, storagePath: string): Promise<void> {
+  try {
+    await removeCapturedDocument(CAPTURED_DOCS_BUCKET, storagePath, companyId);
+  } catch (err) {
+    log.error('Intercompany: an uploaded PDF could not be removed after a failed accept', { companyId, error: err instanceof Error ? err.name : 'unknown' }, 'intercompany');
   }
 }

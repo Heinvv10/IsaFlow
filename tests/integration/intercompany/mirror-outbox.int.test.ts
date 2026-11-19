@@ -10,6 +10,8 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { mirrorApprovedCreditNote, mirrorApprovedInvoice } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { approveCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteApproveService';
+import { vi } from 'vitest';
+import { log } from '@/lib/logger';
 import { enableFxDocuments } from '../r035-approval.helpers';
 import { asAppUser, count } from './intercompany.helpers';
 import {
@@ -68,7 +70,7 @@ describe('approving an invoice for a connected customer', () => {
     await asAppUser(pool, U.a, co.A, async (q) => {
       await expect(q.query(
         `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-         VALUES ($1, $2, $3, 'invoice', 'customer_invoice', $4, '{}')`, [conn, co.A, co.B, inv.id])).rejects.toMatchObject({ code: '23505' });
+         VALUES ($1, $2, $3, 'invoice', 'customer_invoice', $4, $5::jsonb)`, [conn, co.A, co.B, inv.id, JSON.stringify((await messages(inv.id))[0].payload)])).rejects.toMatchObject({ code: '23505' });
     });
   });
 
@@ -116,9 +118,11 @@ describe('approving an invoice for a connected customer', () => {
     expect((await messages(usd.id))[0].payload).toMatchObject({ currency: 'USD' });
   });
 
-  it('a message that cannot be written (a viewer\'s session) is logged and never fails the caller', async () => {
+  it('a message that cannot be written (a viewer\'s session) is logged AT ERROR (it is never re-sent: P5\'s reconciliation lists unsent documents) and never fails the caller', async () => {
     const inv = await plantArInvoice(pool, { status: 'approved' });
-    const out = await asService(pool, U.va, co.A, () => mirrorApprovedInvoice(co.A, inv.id));
+    const spy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const out = await asService(pool, U.va, co.A, () => mirrorApprovedInvoice(co.A, inv.id)); const calls = spy.mock.calls.slice(); spy.mockRestore();
+    expect(calls).toContainEqual([expect.stringMatching(/not sent/), expect.objectContaining({ kind: 'invoice', sourceId: inv.id, code: '42501' }), 'intercompany']);
     expect(out).toEqual({ sent: false, reason: 'failed' });
     expect(await messages(inv.id)).toHaveLength(0);
     expect(await gtx()).toHaveLength(0);
@@ -129,6 +133,25 @@ describe('approving an invoice for a connected customer', () => {
     const out = await asService(pool, U.b, co.B, () => mirrorApprovedInvoice(co.B, inv.id));
     expect(out).toEqual({ sent: false, reason: 'no_connection' });
     expect(await messages(inv.id)).toHaveLength(0);
+  });
+});
+
+describe('a document the receiver could not read is not sent, and says so at error', () => {
+  it('a legacy invoice with a negative line (IsaFlow refuses these today; an import can hold one) is not sent: logged at error with the reason', async () => {
+    const inv = await plantArInvoice(pool, { status: 'approved', lines: [['Credit-like line', 1, -100], ['Normal', 1, 600]] });
+    const spy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const out = await asService(pool, U.a, co.A, () => mirrorApprovedInvoice(co.A, inv.id)); const calls = spy.mock.calls.slice(); spy.mockRestore();
+    expect(out).toEqual({ sent: false, reason: 'unmirrorable' });
+    expect(calls).toContainEqual([expect.stringMatching(/cannot be mirrored/), expect.objectContaining({ sourceId: inv.id }), 'intercompany']);
+    expect(await messages(inv.id)).toHaveLength(0);
+  });
+
+  it('a 12-line invoice whose header VAT is the rate on the subtotal (R10.10 x 12 at 15%) is sent and its message can be read and accepted', async () => {
+    const inv = await plantArInvoice(pool, { lines: Array.from({ length: 12 }, (_, i) => [`Line ${i + 1}`, 1, 10.1] as [string, number, number]) });
+    expect((await approveInvoice(inv.id)).state.statusCode).toBe(200);
+    const [m] = await messages(inv.id);
+    expect(m.payload).toMatchObject({ subtotal: 121.2, taxAmount: 18.18, total: 139.38 });
+    expect(m.payload.lines.reduce((t: number, l: { taxAmount: number }) => t + Math.round(l.taxAmount * 100), 0)).toBe(1818);
   });
 });
 

@@ -11,7 +11,7 @@ import type { InboxFilter, InboxItem, InboxPage, InboxStatus } from './inboxType
 type Row = Record<string, unknown>;
 
 const OPEN: InboxStatus[] = ['pending', 'failed'];
-const HANDLED: InboxStatus[] = ['accepted', 'rejected', 'dismissed'];
+const HANDLED: InboxStatus[] = ['accepted', 'rejected', 'dismissed', 'withdrawn'];
 
 export const INBOX_PAGE_MAX = 100;
 
@@ -34,6 +34,7 @@ export function toInboxItem(r: Row): InboxItem {
     lineCount: p?.lines.length ?? 0, hasPdf: p?.pdf != null,
     blocker: parsed.ok ? payloadBlocker(parsed.payload) : parsed.error,
     reason: asText(r.reason, 2000), error: asText(r.error, 4000),
+    sourceCancelled: r.source_cancelled_at != null,
     handledAt: r.handled_at ? toIsoTimestamp(r.handled_at as Date | string) : null,
     handledVia: r.handled_via === 'auto' ? 'auto' : r.handled_via === 'user' ? 'user' : null,
     targetDocType: asText(r.target_doc_type, 50), targetDocId: r.target_doc_id ? String(r.target_doc_id) : null,
@@ -42,7 +43,7 @@ export function toInboxItem(r: Row): InboxItem {
 }
 
 const COLUMNS = `m.id, m.kind, m.status, m.connection_id, m.from_company_id, m.payload, m.reason, m.error, m.handled_at,
-                 m.handled_via, m.target_doc_type, m.target_doc_id, m.source_doc_type, m.source_doc_id, m.created_at`;
+                 m.handled_via, m.source_cancelled_at, m.target_doc_type, m.target_doc_id, m.source_doc_type, m.source_doc_id, m.created_at`;
 
 /** Messages that need a person: the Bills tab badge. */
 export async function openInboxCount(companyId: string): Promise<number> {

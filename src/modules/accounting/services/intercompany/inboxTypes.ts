@@ -1,8 +1,8 @@
 /** Types of the intercompany inbox (P2): what the Bills "Intercompany" tab lists, and what accepting a message needs. */
 import type { MirrorKind } from './mirrorPayload';
 
-export type InboxStatus = 'pending' | 'accepted' | 'rejected' | 'dismissed' | 'failed';
-/** `open` = messages that need a person (pending, and failed ones to retry); `handled` = accepted, rejected, dismissed. */
+export type InboxStatus = 'pending' | 'accepted' | 'rejected' | 'dismissed' | 'failed' | 'withdrawn';
+/** `open` = messages that need a person (pending, and failed ones to retry); `handled` = accepted, rejected, dismissed, withdrawn (the sender cancelled it). */
 export type InboxFilter = 'open' | 'handled';
 
 export interface InboxItem {
@@ -27,6 +27,8 @@ export interface InboxItem {
   blocker: string | null;
   reason: string | null;
   error: string | null;
+  /** The sender cancelled the document this message carries: a pending message is `withdrawn`, an accepted one only flagged. */
+  sourceCancelled: boolean;
   handledAt: string | null;
   handledVia: 'user' | 'auto' | null;
   targetDocType: string | null;

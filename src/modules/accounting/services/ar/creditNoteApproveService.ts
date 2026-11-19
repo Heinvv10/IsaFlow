@@ -41,6 +41,7 @@ import {
 } from '../ap/supplierCreditNoteExpenseLines';
 import { ackMatchesOf, assertMirroredNoteVatStands, isoOf } from '../ap/supplierCreditNoteMirrorApprove';
 import { mirrorApprovedCreditNote } from '../intercompany/outboxService';
+import { syncGroupRowFor } from '../intercompany/mirrorHooks';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -256,6 +257,7 @@ export async function approveCreditNote(
     // Intercompany P2: a customer note for a connected company's partner leaves a message in this company's own outbox
     // (own savepoint: never fails the approval; no second message on a retry).
     if (String(cn.type) === 'customer') await mirrorApprovedCreditNote(companyId, id);
+    else await syncGroupRowFor(companyId, 'credit_note', id); // a supplier note an accepted message created: now APPROVED, so its group row matches
 
     log.info('Approved credit note', {
       id, journalEntryId: je.id, status: finalStatus,

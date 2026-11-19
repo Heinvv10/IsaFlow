@@ -15,12 +15,12 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { buildCreditNotePayload, buildInvoicePayload, type MirrorKind, type MirrorPayload } from './mirrorPayload';
+import { buildCreditNotePayload, buildInvoicePayload, parseMirrorPayload, type MirrorKind, type MirrorPayload } from './mirrorPayload';
 import { readCreditNoteSource, readInvoiceSource, routeForDocument, type OutboxRoute } from './outboxRead';
 
 export type MirrorOutcome =
   | { sent: true; messageId: string }
-  | { sent: false; reason: 'no_connection' | 'before_cutover' | 'no_cutover' | 'already_sent' | 'not_found' | 'failed' };
+  | { sent: false; reason: 'no_connection' | 'before_cutover' | 'no_cutover' | 'already_sent' | 'not_found' | 'unmirrorable' | 'failed' };
 
 const SOURCE_TYPE: Record<MirrorKind, string> = { invoice: 'customer_invoice', credit_note: 'credit_note' };
 
@@ -79,6 +79,14 @@ async function send(
   const source = await read();
   if (!source) return { sent: false, reason: 'not_found' };
   const payload = { ...source.payload };
+  // Send only what the receiver can read: its own parser's verdict, here, at the source. A document it would refuse (an imported one with a
+  // negative line, a header VAT that is not the rate on its lines) is not sent, and the sender's operator finds it in the log (and, in P5, in
+  // the reconciliation's list of unsent documents) rather than the receiver finding an unacceptable message.
+  const readable = parseMirrorPayload(JSON.parse(JSON.stringify(payload)), kind, companyId);
+  if (!readable.ok) {
+    log.error('Intercompany document cannot be mirrored: the receiver could not read it', { companyId, kind, sourceId, reason: readable.error }, 'intercompany');
+    return { sent: false, reason: 'unmirrorable' };
+  }
   if (route.kind === 'group') {
     // The elimination feed is secondary: if its row cannot be written the message is still sent (and carries no reference).
     payload.groupTransactionId = await withSavepoint('intercompany_group_row',
@@ -104,8 +112,9 @@ async function guarded(companyId: string, kind: MirrorKind, sourceId: string, ru
   try {
     return await withSavepoint('intercompany_outbox', run);
   } catch (err) {
-    // Never the approval's failure; the code, not the message text, goes to the log (a database message names ids).
-    log.warn('Intercompany message not sent', { companyId, kind, sourceId, code: (err as { code?: string })?.code ?? null }, 'intercompany');
+    // Never the approval's failure; the code, not the message text, goes to the log (a database message names ids). AT ERROR: nothing re-sends
+    // a message that failed here (a re-send is P5's reconciliation, which lists the unsent documents), so this line is how it is found.
+    log.error('Intercompany message not sent', { companyId, kind, sourceId, code: (err as { code?: string })?.code ?? null }, 'intercompany');
     return { sent: false, reason: 'failed' };
   }
 }

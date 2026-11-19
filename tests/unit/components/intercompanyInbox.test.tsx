@@ -14,40 +14,10 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import IntercompanyInboxPage from '../../../pages/accounting/supplier-invoices/intercompany';
-import { StatusTabs } from '@/components/accounting/supplier-invoices/StatusTabs';
 import { envelope, failure } from './intercompanyFixtures';
-import type { InboxDetail, InboxItem } from '@/modules/accounting/services/intercompany/inboxTypes';
+import { formatCurrency } from '@/utils/formatters';
+import { detail, item, posts, serve } from './intercompanyInboxFixtures';
 
-const item = (over: Partial<InboxItem> = {}): InboxItem => ({
-  id: 'm-1', kind: 'invoice', status: 'pending', connectionId: 'c-1', senderName: 'Blitz Fibre', number: 'INV-100', date: '2026-11-18', dueDate: '2026-12-18',
-  currency: 'ZAR', subtotal: 1000, taxAmount: 150, total: 1150, notes: null, creditsInvoiceNumber: null, lineCount: 2, hasPdf: true, blocker: null,
-  reason: null, error: null, handledAt: null, handledVia: null, targetDocType: null, targetDocId: null, createdAt: '2026-11-18T10:00:00.000Z', ...over,
-});
-const detail = (over: Partial<InboxDetail> = {}): InboxDetail => ({
-  item: item(),
-  lines: [
-    { index: 0, description: 'Fibre install', quantity: 2, unitPrice: 300, taxRate: 15, taxAmount: 90, lineTotal: 600, accountId: 'acc-1', accountLabel: '5000 Fees', accountSource: 'default' },
-    { index: 1, description: 'Router', quantity: 1, unitPrice: 400, taxRate: 15, taxAmount: 60, lineTotal: 400, accountId: null, accountLabel: null, accountSource: null },
-  ],
-  supplier: { id: 's-1', name: 'Blitz Fibre (supplier)' }, duplicateOf: null, blockers: [],
-  accounts: [{ id: 'acc-1', label: '5000 Fees' }, { id: 'acc-2', label: '5100 Consumables' }], ...over,
-});
-
-interface Serve { items?: InboxItem[]; detail?: InboxDetail; post?: (url: string, body: unknown) => Response }
-function serve(s: Serve = {}) {
-  vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
-    const u = String(url);
-    const i = init as RequestInit | undefined;
-    if (i?.method === 'POST') return s.post?.(u, i.body ? JSON.parse(String(i.body)) : undefined) ?? envelope({});
-    if (u.includes('/inbox?')) {
-      const items = (s.items ?? [item()]).filter((x) => (u.includes('filter=handled') ? !['pending', 'failed'].includes(x.status) : ['pending', 'failed'].includes(x.status)));
-      return envelope({ items, total: items.length, openCount: (s.items ?? [item()]).filter((x) => ['pending', 'failed'].includes(x.status)).length });
-    }
-    if (/\/inbox\/[^/]+$/.test(u)) return envelope(s.detail ?? detail());
-    return envelope({});
-  });
-}
-const posts = () => vi.mocked(apiFetch).mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === 'POST');
 
 beforeEach(() => { h.role = 'owner'; vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -67,7 +37,8 @@ describe('IntercompanyInboxPage', () => {
     serve({ items: [item({ kind: 'credit_note', number: 'CN-7', total: 230 })] });
     render(<IntercompanyInboxPage />);
     const row = await screen.findByTestId('inbox-row');
-    expect(row.textContent).toMatch(/-/);
+    expect(row.textContent).toContain(formatCurrency(-230)); // the exact figure, negative: a credit
+    expect(formatCurrency(-230)).not.toBe(formatCurrency(230));
     expect(within(row).getByText('Credit note')).toBeInTheDocument();
   });
 
@@ -153,6 +124,27 @@ describe('IntercompanyInboxPage', () => {
     expect(screen.getByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/accounting/supplier-invoices/bill-9');
   });
 
+  it('"Accepted automatically" is shown only for an ACCEPTED message, never on a failed one the worker marked', async () => {
+    serve({ items: [item({ id: 'f', number: 'INV-F', status: 'failed', handledVia: 'auto', error: 'Link the supplier first.' })] });
+    render(<IntercompanyInboxPage />);
+    await screen.findByText('Link the supplier first.');
+    expect(screen.queryByText('Accepted automatically')).toBeNull();
+  });
+
+  it('a withdrawn message reads "Cancelled by sender" with no action; an accepted one the sender cancelled says so and keeps the draft link', async () => {
+    serve({ items: [
+      item({ id: 'w', number: 'INV-W', status: 'withdrawn', sourceCancelled: true }),
+      item({ id: 'a', number: 'INV-A', status: 'accepted', sourceCancelled: true, targetDocType: 'supplier_invoice', targetDocId: 'bill-7' }),
+    ] });
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Handled' }));
+    const rows = await screen.findAllByTestId('inbox-row');
+    expect(within(rows[0]!).getByText('Cancelled by sender')).toBeInTheDocument();
+    for (const name of ['Review', 'Reject', 'Dismiss', 'Restore']) expect(within(rows[0]!).queryByRole('button', { name })).toBeNull();
+    expect(within(rows[1]!).getByTestId('sender-cancelled')).toHaveTextContent('Sender cancelled this document');
+    expect(within(rows[1]!).getByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/accounting/supplier-invoices/bill-7');
+  });
+
   it('a failed automatic acceptance shows its sentence and offers to review and retry', async () => {
     serve({ items: [item({ status: 'failed', error: 'Link the supplier for this connection first.' })] });
     render(<IntercompanyInboxPage />);
@@ -173,26 +165,5 @@ describe('IntercompanyInboxPage', () => {
     render(<IntercompanyInboxPage />);
     expect(await screen.findByRole('alert')).toHaveTextContent(/boom|Could not load/);
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
-  });
-});
-
-describe('the Intercompany tab on the Bills strip', () => {
-  it('shows the count of what needs a person, and nothing when there is none', () => {
-    const { rerender } = render(<StatusTabs active="all" counts={{}} onChange={() => undefined} intercompany={{ count: 3, active: false }} />);
-    expect(screen.getByTestId('intercompany-tab')).toHaveAttribute('href', '/accounting/supplier-invoices/intercompany');
-    expect(screen.getByTestId('intercompany-badge')).toHaveTextContent('3');
-    rerender(<StatusTabs active="all" counts={{}} onChange={() => undefined} intercompany={{ count: 0, active: false }} />);
-    expect(screen.queryByTestId('intercompany-badge')).toBeNull();
-    expect(screen.getByTestId('intercompany-tab')).toBeInTheDocument();
-  });
-
-  it('is absent for a company with no intercompany connection', () => {
-    render(<StatusTabs active="all" counts={{}} onChange={() => undefined} intercompany={null} />);
-    expect(screen.queryByTestId('intercompany-tab')).toBeNull();
-  });
-
-  it('marks itself current on the inbox page, where no status tab is selected', () => {
-    render(<StatusTabs active={null} counts={{}} onChange={() => undefined} intercompany={{ count: 0, active: true }} />);
-    expect(screen.getByTestId('intercompany-tab')).toHaveAttribute('aria-current', 'page');
   });
 });

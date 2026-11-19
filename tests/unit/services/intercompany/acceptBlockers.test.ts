@@ -8,8 +8,8 @@ const side = (over: Partial<AcceptSide> = {}): AcceptSide => ({
   connectionId: 'c', kind: 'group', status: 'active', companyLowId: 'l', companyHighId: 'h', supplierId: 's', supplierName: 'Supplier',
   defaultExpenseAccountId: null, defaultCc1Id: null, defaultCc2Id: null, defaultBuId: null, autoAccept: false, ...over,
 });
-const item = (over: Partial<{ status: 'pending' | 'accepted' | 'rejected' | 'dismissed' | 'failed'; blocker: string | null }> = {}) =>
-  ({ status: 'pending' as const, blocker: null, kind: 'invoice' as const, ...over });
+const item = (over: Partial<{ status: 'pending' | 'accepted' | 'rejected' | 'dismissed' | 'failed' | 'withdrawn'; blocker: string | null; sourceCancelled: boolean }> = {}) =>
+  ({ status: 'pending' as const, blocker: null, kind: 'invoice' as const, sourceCancelled: false, ...over });
 const payload = { kind: 'invoice' } as MirrorPayload;
 
 describe('acceptBlockers', () => {
@@ -31,6 +31,15 @@ describe('acceptBlockers', () => {
     expect(acceptBlockers(item(), payload, side({ supplierId: null }), null).join(' ')).toMatch(/Link the supplier/);
     expect(acceptBlockers(item(), payload, side(), { number: 'INV-9' }).join(' ')).toMatch(/A bill numbered INV-9 already exists/);
     expect(acceptBlockers(item(), { kind: 'credit_note' } as MirrorPayload, side(), { number: 'CN-9' }).join(' ')).toMatch(/A credit note numbered CN-9/);
+  });
+  it('a withdrawn message (the sender cancelled the document) is refused, and so is any message flagged as cancelled', () => {
+    expect(acceptBlockers(item({ status: 'withdrawn' }), payload, side(), null).join(' ')).toMatch(/sender cancelled/);
+    expect(acceptBlockers(item({ sourceCancelled: true }), payload, side(), null).join(' ')).toMatch(/sender cancelled/);
+  });
+  it('automatic acceptance is only for a group connection, even if the side says it is on', () => {
+    expect(acceptBlockers(item(), payload, side({ kind: 'external', autoAccept: true }), null, true).join(' ')).toMatch(/only for a group connection/);
+    expect(acceptBlockers(item(), payload, side({ kind: 'external', autoAccept: true }), null, false)).toEqual([]);
+    expect(acceptBlockers(item(), payload, side({ kind: 'group', autoAccept: true }), null, true)).toEqual([]);
   });
   it('automatic acceptance needs the side\'s flag', () => {
     expect(acceptBlockers(item(), payload, side({ autoAccept: false }), null, true).join(' ')).toMatch(/Automatic acceptance is off/);

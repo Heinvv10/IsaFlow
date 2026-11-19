@@ -11,7 +11,7 @@ const isDbError = (err: unknown): err is { code: string; constraint?: string } =
 export function mapDraftError(err: unknown): unknown {
   if (err instanceof ConnectionRefusal) return err;
   if (isDbError(err) && err.code === '23505') {
-    return new ConnectionRefusal(409, 'A bill with this number already exists for this supplier.');
+    return new ConnectionRefusal(409, 'A bill with this number already exists for this supplier.', true);
   }
   if (isDbError(err)) return err;
   // The services' validation errors are plain Errors with a sentence meant for a person (an account that cannot be used, a line

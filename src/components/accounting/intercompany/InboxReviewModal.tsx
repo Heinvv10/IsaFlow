@@ -83,13 +83,13 @@ export function InboxReviewModal({ item, canWrite, onClose, onReject, onAccepted
                 <th className="py-2 pr-3 text-right font-medium">VAT</th><th className="py-2 font-medium">{isNote ? 'Account credited' : 'Expense account'}</th>
               </tr></thead>
               <tbody className="divide-y divide-line">
-                {detail.lines.map((l) => (
+                {(isNote ? detail.lines.slice(0, 1) : detail.lines).map((l) => (
                   <tr key={l.index} className="align-top">
                     <td className="py-2 pr-3">{l.description}<span className="block text-xs text-ink-muted">{l.quantity} x {formatCurrency(l.unitPrice)}</span></td>
                     <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(l.lineTotal)}</td>
                     <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(l.taxAmount)}</td>
                     <td className="py-2">
-                      <select aria-label={`Account for line ${l.index + 1}`} className="ff-input w-full text-sm" disabled={!canWrite}
+                      <select aria-label={isNote ? 'Account credited' : `Account for line ${l.index + 1}`} className="ff-input w-full text-sm" disabled={!canWrite}
                         value={chosen[l.index] ?? ''} onChange={(e) => setChosen((c) => ({ ...c, [l.index]: e.target.value }))}>
                         <option value="">Choose an account</option>
                         {detail.accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}

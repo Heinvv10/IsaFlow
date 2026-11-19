@@ -75,35 +75,55 @@ const money = (c: number): number => c / 100;
 /** The rounding every figure here shares: half up on the absolute value, as the rest of the app's 2 dp rounding. */
 const round2 = (n: number): number => money(cents(n));
 
-/** A line's VAT: the rate on the line total, to the cent. */
-const lineVatCents = (lineCents: number, vatPct: number): number => Math.round(lineCents * vatPct / 100);
+/** A rate as whole hundredths of a percent (15 -> 1500), so VAT is worked in integers: line cents x rate100 is in ten-thousandths of a cent. */
+const rate100 = (rate: number): number => Math.round(rate * 100);
+const UNITS = 10_000;
+
+/**
+ * Split a header VAT over the lines, in cents, the way a ledger does: each line's own VAT is its amount at its rate, and the cents
+ * the header VAT is above or below the sum of those, whatever their number, go to the lines with the largest (or, when the header is
+ * lower, the smallest) fractional cent, one cent each, round and round. A header that is the invoice rate on the subtotal
+ * (ROUND(sum x rate)) is never more than half a cent per line from its lines' own VAT, so each line is within one cent of its rate.
+ */
+export function allocateLineVat(lineCents: readonly number[], rates: readonly number[], headerVatCents: number): number[] {
+  const n = lineCents.length;
+  if (n === 0) return [];
+  const ideal = lineCents.map((c, i) => c * rate100(rates[i]!));
+  const out = ideal.map((u) => Math.floor(u / UNITS));
+  const frac = ideal.map((u, i) => ({ i, f: u - out[i]! * UNITS }));
+  let rest = headerVatCents - out.reduce((s, c) => s + c, 0);
+  const up = [...frac].sort((x, y) => y.f - x.f || x.i - y.i);
+  const down = [...frac].sort((x, y) => x.f - y.f || y.i - x.i);
+  for (let k = 0; rest !== 0; k = (k + 1) % n) {
+    if (rest > 0) { out[up[k]!.i]! += 1; rest -= 1; } else { out[down[k]!.i]! -= 1; rest += 1; }
+  }
+  return out;
+}
+
+const chars = (s: string, max: number): string => [...s].slice(0, max).join('');
+/** Text the receiver's parser accepts: trimmed, cut at its limit; an empty line description becomes a placeholder, empty notes null. */
+const description = (s: string): string => chars(s.trim(), 1000) || '(no description)';
+const optional = (s: string | null, max: number): string | null => (s && s.trim() ? chars(s.trim(), max) : null);
 
 export function buildInvoicePayload(src: InvoiceSource): MirrorPayload {
-  const lines: MirrorLine[] = src.lines.map((l) => {
-    const lineCents = cents(l.amount);
-    // The receiver multiplies quantity by price; a line that does not multiply out (to the cent) is sent as one unit.
-    const multiplies = cents(l.quantity * l.unitPrice) === lineCents;
+  const lineCents = src.lines.map((l) => cents(l.amount));
+  const vat = allocateLineVat(lineCents, src.lines.map((l) => l.taxRate), cents(src.taxAmount));
+  const lines: MirrorLine[] = src.lines.map((l, i) => {
+    // The receiver multiplies quantity by price; a line that does not multiply out (to the cent) - a discounted line - is sent as one unit.
+    const multiplies = cents(l.quantity * l.unitPrice) === lineCents[i];
     return {
-      description: l.description,
+      description: description(l.description),
       quantity: multiplies ? l.quantity : 1,
-      unitPrice: multiplies ? l.unitPrice : money(lineCents),
+      unitPrice: multiplies ? l.unitPrice : money(lineCents[i]!),
       taxRate: l.taxRate,
-      taxAmount: money(lineVatCents(lineCents, l.taxRate)),
-      lineTotal: money(lineCents),
+      taxAmount: money(vat[i]!),
+      lineTotal: money(lineCents[i]!),
     };
   });
-  // The header VAT is authoritative (it is what the sender's journal carries). A rounding difference of a few cents goes on
-  // the largest line, so the receiver's lines sum to the same VAT; a larger gap is sent as it is and the receiver refuses it.
-  const residual = cents(src.taxAmount) - lines.reduce((s, l) => s + cents(l.taxAmount), 0);
-  if (residual !== 0 && Math.abs(residual) <= 5 && lines.length > 0) {
-    let biggest = 0;
-    lines.forEach((l, i) => { if (cents(l.lineTotal) > cents(lines[biggest]!.lineTotal)) biggest = i; });
-    lines[biggest]!.taxAmount = money(cents(lines[biggest]!.taxAmount) + residual);
-  }
   return {
     version: 1, kind: 'invoice', number: src.number, date: src.date, dueDate: src.dueDate, currency: src.currency,
     subtotal: round2(src.subtotal), taxAmount: round2(src.taxAmount), total: round2(src.total),
-    senderName: src.sender.name, senderVatNumber: src.sender.vatNumber, notes: src.notes,
+    senderName: chars(src.sender.name, 200), senderVatNumber: optional(src.sender.vatNumber, 50), notes: optional(src.notes, 2000),
     lines, pdf: src.pdf, creditsInvoiceNumber: null, groupTransactionId: null,
   };
 }
@@ -112,12 +132,12 @@ export function buildCreditNotePayload(src: CreditNoteSource): MirrorPayload {
   return {
     version: 1, kind: 'credit_note', number: src.number, date: src.date, dueDate: null, currency: src.currency,
     subtotal: round2(src.subtotal), taxAmount: round2(src.taxAmount), total: round2(src.total),
-    senderName: src.sender.name, senderVatNumber: src.sender.vatNumber, notes: src.reason,
+    senderName: chars(src.sender.name, 200), senderVatNumber: optional(src.sender.vatNumber, 50), notes: optional(src.reason, 2000),
     lines: [{
-      description: src.reason?.trim() ? src.reason.trim().slice(0, 1000) : `Credit note ${src.number}`,
+      description: src.reason?.trim() ? description(src.reason) : `Credit note ${src.number}`,
       quantity: 1, unitPrice: round2(src.subtotal), taxRate: src.taxRate, taxAmount: round2(src.taxAmount), lineTotal: round2(src.subtotal),
     }],
-    pdf: null, creditsInvoiceNumber: src.creditsInvoiceNumber, groupTransactionId: null,
+    pdf: null, creditsInvoiceNumber: optional(src.creditsInvoiceNumber, 50), groupTransactionId: null,
   };
 }
 
@@ -132,7 +152,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const PDF_NAME = new RegExp(`^${UUID}\\.pdf$`, 'i');
 const bad = (error: string): ParsedPayload => ({ ok: false, error });
 
-function parseLine(raw: unknown, i: number): MirrorLine | string {
+function parseLine(raw: unknown, i: number, checkVat: boolean): MirrorLine | string {
   const at = `Line ${i + 1}`;
   if (!isObject(raw)) return `${at} is not an object`;
   const { description, quantity, unitPrice, taxRate, taxAmount, lineTotal } = raw;
@@ -143,6 +163,9 @@ function parseLine(raw: unknown, i: number): MirrorLine | string {
   if (!isMoney(taxAmount) || taxAmount < 0) return `${at} VAT is not a valid amount`;
   if (!isMoney(lineTotal) || lineTotal < 0) return `${at} total is not a valid amount`;
   if (cents(quantity * unitPrice) !== cents(lineTotal)) return `${at} total is not quantity times price`;
+  // A line's VAT is its amount at its rate, to within the cent a header's rounding can put on it (allocateLineVat).
+  // (A credit note's one line IS its header, whose totals the database ties to the note; its stored VAT may be an exact figure.)
+  if (checkVat && Math.abs(cents(taxAmount) * UNITS - cents(lineTotal) * rate100(taxRate)) > UNITS) return `${at} VAT is not its amount at its rate`;
   return { description, quantity, unitPrice, taxRate, taxAmount, lineTotal };
 }
 
@@ -181,10 +204,11 @@ export function parseMirrorPayload(raw: unknown, kind: MirrorKind, senderCompany
   if (!Array.isArray(raw.lines) || raw.lines.length === 0 || raw.lines.length > 500) return bad('The document needs between 1 and 500 lines');
   const lines: MirrorLine[] = [];
   for (const [i, l] of raw.lines.entries()) {
-    const line = parseLine(l, i);
+    const line = parseLine(l, i, kind === 'invoice');
     if (typeof line === 'string') return bad(line);
     lines.push(line);
   }
+  if (kind === 'credit_note' && lines.length !== 1) return bad('A credit note is one line');
   const sumLines = lines.reduce((s, l) => s + cents(l.lineTotal), 0);
   const sumTax = lines.reduce((s, l) => s + cents(l.taxAmount), 0);
   if (sumLines !== cents(raw.subtotal)) return bad('The line totals do not add up to the subtotal');
