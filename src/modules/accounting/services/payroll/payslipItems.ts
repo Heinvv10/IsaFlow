@@ -94,7 +94,10 @@ const itemOf = (i: ComponentBreakdownItem): PayslipItem => ({
 
 const sum = (items: PayslipItem[]): number => round2(items.reduce((s, i) => s + i.amount, 0));
 
-export function itemisePayslip(line: StoredPayslipLine, componentTypes: ReadonlyMap<string, string>): PayslipLines {
+/** `garnishees` (GA): the line's garnishee deductions, which are deductions from pay but never in its breakdown. */
+export function itemisePayslip(
+  line: StoredPayslipLine, componentTypes: ReadonlyMap<string, string>, garnishees: readonly PayslipItem[] = [],
+): PayslipLines {
   const earnings: PayslipItem[] = [];
   const benefits: PayslipItem[] = [];
   const deductions: PayslipItem[] = [];
@@ -118,6 +121,7 @@ export function itemisePayslip(line: StoredPayslipLine, componentTypes: Readonly
     // Unknown type: not guessed. Its amount stays in the stored totals and shows as "Not itemised".
   }
 
+  deductions.push(...garnishees.map((g) => ({ ...g, amount: round2(g.amount) })));
   const grossPay = round2(line.grossPay);
   const otherDeductions = round2(line.grossPay - line.paye - line.uifEmployee - line.netPay);
   const earningGap = round2(grossPay - sum(earnings));

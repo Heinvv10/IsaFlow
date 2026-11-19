@@ -27,13 +27,17 @@ import type { PrintedCompany } from '../core/pdfPrintedCompany';
 /** The invoice row's own fields (all a draft PUT's lock covers), as printed or shown. */
 const INVOICE_FIELDS = ['invoice_number', 'invoice_date', 'due_date', 'status', 'payment_terms', 'subtotal', 'tax_rate',
   'tax_amount', 'total_amount', 'amount_paid', 'currency_code', 'exchange_rate', 'notes', 'billing_period_start',
-  'billing_period_end'] as const;
+  'billing_period_end', 'amounts_are'] as const;
 /** Joined from other tables (the customer, the job), as printed. */
 const JOINED_FIELDS = ['project_name', 'client_name', 'client_address', 'client_contact', 'client_email', 'client_phone',
   'client_vat', 'client_terms', 'client_terms_immediate'] as const;
 
 export type InvoicePdfHeader = Record<(typeof INVOICE_FIELDS)[number] | (typeof JOINED_FIELDS)[number], unknown>;
-export interface InvoicePdfLine { description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown }
+/** `vat_type` / `tax_amount`: the line's own VAT (migration 1008), NULL on a legacy line; absent from an unsaved preview. */
+export interface InvoicePdfLine {
+  description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown;
+  vat_type?: unknown; tax_amount?: unknown;
+}
 export interface InvoicePdfModel { company: PrintedCompany; invoice: InvoicePdfHeader; items: InvoicePdfLine[] }
 export interface InvoiceDigests { shown: string; draft: string }
 
@@ -50,6 +54,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
            c.payment_terms AS contact_terms_days, c.payment_terms_type AS contact_terms_type,
            ds.value AS company_default_terms,
            ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount, ci.amount_paid, ci.currency_code, ci.exchange_rate,
+           ci.amounts_are, -- how a typed line's unit_price was entered (migration 1008): the PDF's column headings
            ci.notes, to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end, p.name AS project_name,
            c.name AS client_name, c.billing_address AS client_address, c.contact_person AS client_contact,
@@ -70,7 +75,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
   const r = rows[0];
   if (!r) return null;
   const items = (await q`
-    SELECT cii.description, cii.quantity, cii.unit_price, cii.amount, cii.tax_rate
+    SELECT cii.description, cii.quantity, cii.unit_price, cii.amount, cii.tax_rate, cii.vat_type, cii.tax_amount
     FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956); as the detail GET

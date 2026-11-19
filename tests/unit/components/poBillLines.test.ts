@@ -28,7 +28,7 @@ describe('poLinesFromOrder', () => {
     expect(line?.glAccountId).toBe('acc-1');
   });
 
-  it('links on exactly the statuses the server accepts', () => {
+  it('links on exactly the committing statuses (the server also accepts closed, which the picker does not offer)', () => {
     expect([...LINKABLE_PO_STATUSES]).toEqual([...COMMITTING_PO_STATUSES]);
   });
 

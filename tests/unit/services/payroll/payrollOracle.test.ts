@@ -115,8 +115,6 @@ describe('payroll oracle fixtures', () => {
     const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
     expect(closers).toEqual({
     'db-fund-12d-s11f-cap-binds': 'DBF',
-    'ga-emolument-attachment-capped-25pct': 'GA',
-    'ga-maintenance-outside-cap': 'GA',
     'offcycle-bonus-after-regular-g21': 'OC',
     'offcycle-termination-leave-after-regular': 'OC',
     'psp-company-27pct': 'PSP',
@@ -128,7 +126,12 @@ describe('payroll oracle fixtures', () => {
     'sage-2027-03-marco': 'PARITY',
     });
     // FQc: week 53 (UNVERIFIED, x52 over n = 53) equals its hand figure, so it moves to unverified.json.
-    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration', 'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday']);
+    expect(unverified.map(u => u.case).sort()).toEqual([
+      'db-fund-12d-category-factor', 'director-uif-on-remuneration',
+      // GA (wave 6): the s65J(1A)(a) limit and maintenance outside it; statutes read, no SARS guide or vendor figure.
+      'ga-emolument-attachment-capped-25pct', 'ga-maintenance-outside-cap',
+      'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
+    ]);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are not gaps', () => {

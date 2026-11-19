@@ -12,6 +12,7 @@
  * mandatory reason, audited.
  *
  * Refused while any bill is linked to it (migration 1006; brief section 4): the commitment it releases is what those bills billed.
+ * `via` (the MCP tool's name) is recorded as the audit row's `source`.
  * A link on a cancelled bill bills nothing and does not count (a cancel is terminal), so the app's own bill cancel frees
  * the PO; no MCP-only unlink is needed. A soft-deleted bill still counts: it can be restored, live and linked.
  * Locks: the PO row `FOR UPDATE` only (no budget lock: releasing a commitment cannot overspend). The goods receipt
@@ -22,13 +23,14 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { tieRefusalText } from './purchaseOrderTies';
 import {
   lockPurchaseOrder, PurchaseOrderChangedError, PurchaseOrderNotCancellableError, PurchaseOrderNotFoundError,
 } from './purchaseOrderErrors';
 
 export { PurchaseOrderNotCancellableError } from './purchaseOrderErrors';
 
-export async function cancelApprovedPurchaseOrder(companyId: string, poId: string, userId: string, reason: string): Promise<DbRow> {
+export async function cancelApprovedPurchaseOrder(companyId: string, poId: string, userId: string, reason: string, via?: string): Promise<DbRow> {
   const why = reason.trim();
   if (why === '') throw new PurchaseOrderNotCancellableError('Give a reason to cancel an approved purchase order');
   await assertNotImpersonating();
@@ -49,7 +51,7 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
        LIMIT 1
     `) as DbRow[];
     if (linked.length > 0) {
-      throw new PurchaseOrderNotCancellableError('Bills are linked to this purchase order, so it cannot be cancelled; unlink them first (unlink_bill_from_purchase_order)');
+      throw new PurchaseOrderNotCancellableError(await tieRefusalText(companyId, poId, 'it cannot be cancelled', ['link'], { liveBillLinksOnly: true }) ?? 'A bill is linked to this purchase order, so it cannot be cancelled; unlink it first (unlink_bill_from_purchase_order)');
     }
     const receipts = (await sql`
       SELECT 1 FROM goods_received_notes WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1
@@ -67,7 +69,7 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
       companyId, userId, action: 'update', entityType: 'purchase_order', entityId: poId, entityRef: po.poNumber.slice(0, 100),
       changes: {
         fields: [{ field: 'status', old: 'approved', new: 'cancelled', label: 'Status' }],
-        metadata: { cancelled: 'true', reason: why },
+        metadata: { cancelled: 'true', reason: why, ...(via ? { source: via } : {}) },
       },
     });
     return updated[0];
