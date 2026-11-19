@@ -26,6 +26,7 @@ import {
 import { readPoItemsLabelled } from '@/modules/accounting/services/ap/purchaseOrderItemsRead';
 import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
 import { resolveEditedPoLines } from '@/modules/accounting/services/ap/purchaseOrderItemLines';
+import { poSupplierChangeBlocked } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
 
 type Row = Record<string, unknown>;
 
@@ -141,7 +142,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
-
+    const blocked = supplier_id ? await poSupplierChangeBlocked(companyId, id, supplier_id) : null; if (blocked) return apiResponse.badRequest(res, blocked); // migration 1006
     let items = sentItems; // migration 1005: item links (new item checked, default account and rate; none keeps the stored one)
     try { if (sentItems?.length) items = await resolveEditedPoLines(companyId, id, sentItems); } catch (err) {
       if (err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });

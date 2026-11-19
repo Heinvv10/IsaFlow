@@ -251,10 +251,15 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
     `;
     if (!invoice) return;
 
-    const poId = invoice.purchase_order_id as string | null;
     const grnId = invoice.grn_id as string | null;
+    // The header PO and every PO the bill is linked to (migration 1006: a bill may name several).
+    const linkedPos = (await sql`
+      SELECT purchase_order_id::text AS id FROM purchase_order_bill_links
+      WHERE supplier_invoice_id = ${invoiceId}::uuid AND company_id = ${companyId}::uuid
+    `) as Array<{ id: string }>;
+    const poIds = [...new Set([invoice.purchase_order_id as string | null, ...linkedPos.map((l) => l.id)].filter((v): v is string => !!v))];
 
-    if (poId) {
+    for (const poId of poIds) {
       await sql`
         INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
         VALUES (${docId}::uuid, 'purchase_order', ${poId}::uuid, 'po_invoice_link')
@@ -269,7 +274,7 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, 
       `;
     }
 
-    if (poId) {
+    for (const poId of poIds) {
       const poDocs = await sql`
         SELECT id FROM procurement_documents
         WHERE entity_type = 'purchase_order' AND entity_id = ${poId}::uuid AND is_active = true

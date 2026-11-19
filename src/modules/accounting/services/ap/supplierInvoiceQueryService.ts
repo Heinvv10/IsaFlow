@@ -80,7 +80,9 @@ const INVOICE_COLUMNS = `
   s.name AS supplier_name, NULL::text AS po_number,
   -- Accountant signals
   ${hasEntityDocumentSql('supplier_invoice', 'si')} AS has_document,
-  (si.purchase_order_id IS NOT NULL)  AS has_po,
+  -- The header PO, or a link row (migration 1006): a bill linked to several POs has no header PO.
+  (si.purchase_order_id IS NOT NULL
+    OR EXISTS (SELECT 1 FROM purchase_order_bill_links pl WHERE pl.supplier_invoice_id = si.id AND pl.company_id = si.company_id)) AS has_po,
   EXISTS (
     SELECT 1 FROM supplier_invoices dup
     WHERE dup.company_id = si.company_id
