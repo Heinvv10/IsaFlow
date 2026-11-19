@@ -31,7 +31,7 @@ const CSV_HEADERS = [
 
 /**
  * Allowlists, so the audit row only records known values: the users.role values the Users page offers
- * (PLATFORM_USER_ROLES, #1656; migration 1010 mapped the legacy accountant/bookkeeper rows to viewer), and the
+ * (PLATFORM_USER_ROLES, #1656; migration 1010 mapped the legacy accountant/bookkeeper rows to manager), and the
  * page's statuses ('inactive' is offered and, as in listUsers, matches no one).
  */
 const ROLES = new Set<string>(PLATFORM_USER_ROLES);

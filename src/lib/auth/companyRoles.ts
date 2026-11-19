@@ -43,15 +43,16 @@ export type BureauRole = (typeof BUREAU_ROLES)[number];
 
 /**
  * Role values written before #1656 and what each now reads as. The admin portal granted
- * accountant / bookkeeper, the legacy invitation route storeman / technician, and `user` is
- * company_users.role's column default. None of them could write (withWriteAccess admits owner,
- * admin, manager), so each maps to viewer: nobody gains access they did not have.
+ * accountant / bookkeeper to give a person working access, but the app let neither write
+ * (withWriteAccess admits owner, admin, manager): every write was a 403. Both map to manager,
+ * the app role that writes. storeman / technician (the legacy invitation route) and `user`
+ * (company_users.role's column default) were read-only in the app and map to viewer.
  * Migration 1010 rewrites stored rows (backup in role_values_1656_backup); normalizeCompanyRole
  * covers a row that arrives after it.
  */
 export const LEGACY_ROLE_MAP: Readonly<Record<string, CompanyRole>> = Object.freeze({
-  accountant: 'viewer',
-  bookkeeper: 'viewer',
+  accountant: 'manager',
+  bookkeeper: 'manager',
   storeman: 'viewer',
   technician: 'viewer',
   user: 'viewer',
@@ -74,15 +75,24 @@ export function isFullAccessRole(role: string): boolean {
 }
 
 /**
+ * Whether a manager may approve when no company_user_permissions row says otherwise. Hein,
+ * 2026-11-19 (#1656): yes ("B", after the evidence that the budget checks (P5-2) are built on
+ * managers approving bills); an owner or admin takes it away per module by unticking Approve.
+ */
+export const MANAGER_APPROVES_BY_DEFAULT = true;
+
+/**
  * What a role may do on a module when the user has no company_user_permissions row for it:
- * owner/admin everything; manager everything but delete; viewer read, export.
- * Manager keeps approve by default (#1656): managers approve bills today and the budget checks
- * (P5-2) are built on it; an owner or admin takes it away per module by unticking Approve.
+ * owner/admin everything; manager read, write, export, and approve per MANAGER_APPROVES_BY_DEFAULT
+ * (never delete); viewer read, export.
  */
 export function roleDefaultPermission(role: string, action: PermissionAction): boolean {
   const effective = normalizeCompanyRole(role);
   if (isFullAccessRole(effective)) return true;
-  if (effective === 'manager') return action !== 'delete';
+  if (effective === 'manager') {
+    if (action === 'approve') return MANAGER_APPROVES_BY_DEFAULT;
+    return action === 'read' || action === 'write' || action === 'export';
+  }
   if (effective === 'viewer') return action === 'read' || action === 'export';
   return false;
 }

@@ -4,18 +4,18 @@
 -- manager or viewer (src/lib/auth/companyRoles.ts, COMPANY_ROLES), with
 -- per-module permissions in company_user_permissions. Before this the admin
 -- portal granted accountant / bookkeeper, the legacy invitation route
--- storeman / technician, and company_users.role defaults to 'user'. None of
--- those could write (withWriteAccess admits owner, admin, manager), so each
--- maps to viewer: nobody gains or loses write access.
+-- storeman / technician, and company_users.role defaults to 'user'. The app
+-- let none of them write (withWriteAccess admits owner, admin, manager), so a
+-- user the portal linked as a bookkeeper got a 403 on every write.
 --
 --   old value                          new value
---   company_users.role accountant      viewer
---   company_users.role bookkeeper      viewer
---   company_users.role storeman        viewer
+--   company_users.role accountant      manager  (the portal meant working access)
+--   company_users.role bookkeeper      manager  (idem; it was the link form's default)
+--   company_users.role storeman        viewer   (read-only in the app before and after)
 --   company_users.role technician      viewer
 --   company_users.role user            viewer
---   company_invitations.role (pending, same five)   viewer
---   users.role accountant / bookkeeper (platform role, grants nothing)   viewer
+--   company_invitations.role (pending) the same map
+--   users.role accountant / bookkeeper (platform role, grants nothing)   manager
 --
 -- Additive and idempotent:
 --   1. every company_users row's role (changed or not: the issue's "backup of
@@ -48,31 +48,32 @@ ALTER TABLE public.role_values_1656_backup ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_values_1656_backup FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.role_values_1656_backup FROM PUBLIC;
 
+-- The map (the same CASE in every statement below; no helper function, so nothing
+-- needs TEMP or leaves an object behind).
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
-SELECT 'company_users', cu.id::text, cu.role,
-       CASE WHEN cu.role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user') THEN 'viewer' ELSE cu.role END
+SELECT 'company_users', cu.id::text, cu.role, CASE WHEN cu.role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN cu.role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE cu.role END
 FROM public.company_users cu
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
-SELECT 'company_invitations', ci.id::text, ci.role, 'viewer'
+SELECT 'company_invitations', ci.id::text, ci.role, CASE WHEN ci.role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN ci.role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE ci.role END
 FROM public.company_invitations ci
 WHERE ci.accepted_at IS NULL AND ci.role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user')
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
-SELECT 'users', u.id::text, u.role, 'viewer'
+SELECT 'users', u.id::text, u.role, CASE WHEN u.role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN u.role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE u.role END
 FROM public.users u
 WHERE u.role IN ('accountant', 'bookkeeper')
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
-UPDATE public.company_users SET role = 'viewer'
+UPDATE public.company_users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END
 WHERE role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
 
-UPDATE public.company_invitations SET role = 'viewer'
+UPDATE public.company_invitations SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END
 WHERE accepted_at IS NULL AND role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
 
-UPDATE public.users SET role = 'viewer' WHERE role IN ('accountant', 'bookkeeper');
+UPDATE public.users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END WHERE role IN ('accountant', 'bookkeeper');
 
 -- 2 and 3: patch each guard's role list and its message in place.
 DO $$
