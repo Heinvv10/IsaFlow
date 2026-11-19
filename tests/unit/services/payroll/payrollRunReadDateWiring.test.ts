@@ -74,6 +74,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', async (
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),
+  inheritedSdlDecision: vi.fn(async () => null),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollSeveranceDirective', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollSeveranceDirective')>()),

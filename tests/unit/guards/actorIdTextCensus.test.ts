@@ -89,7 +89,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     179: 'INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)',
   },
   [`${S}payroll/payrollRunLock.ts`]: { 229: 'prepared_by     = ${preparedBy},' },
-  [`${S}payroll/payrollRunReopen.ts`]: { 81: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
+  [`${S}payroll/payrollRunReopen.ts`]: { 85: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
     122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',

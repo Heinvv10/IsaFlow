@@ -34,6 +34,9 @@
    "AND ${runOrderKeySql('p')} < ${runOrderKeySql('c')}",
    "ORDER BY ${runOrderKeySql('p')} DESC"
   ],
+  "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
+   "ORDER BY ${runOrderKeySql('o')}"
+  ],
   "src/modules/accounting/services/payroll/payrollYearToDate.ts": [
    "h.period_year, h.period_month, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,"
   ],
@@ -485,7 +488,9 @@
    {"line":74,"text":"SELECT period_month, period_year FROM payroll_run_headers","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"}
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
-   {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
+   {"line":117,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"},
+   {"line":183,"text":"FROM payroll_run_headers me","class":"S","owner":"OC","why":"the off-cycle run being costed or gated, by id"},
+   {"line":184,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year","class":"S","owner":"OC","why":"the month's FIRST final run in pay order (ORDER BY runOrderKeySql LIMIT 1): the decision an off-cycle run inherits (review #1620 delta H), correct with several runs a month"}
   ],
   "src/modules/accounting/services/payroll/taxDirectiveLeaverUndo.ts": [
    {"line":147,"text":"SELECT h.period_year, h.period_month FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"months with a declarable run; labels"}
@@ -557,7 +562,7 @@
    {"line":87,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"OC","why":"EXISTS of a final regular MONTHLY run in the month (run_kind and pay_frequency filtered; the 999a regular-period key allows one), locked FOR UPDATE"},
    {"line":114,"text":"FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id","class":"S","owner":"OC","why":"the employee's open (draft or calculated) off-cycle run of the month, the first by creation, named in the refusal: a lookup by employee, correct with several runs"},
    {"line":141,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"OC","why":"inserts one off-cycle run (FQx dropped the per-month unique); the month's creations are serialised on the regular run's row lock"},
-   {"line":203,"text":"SELECT run_kind, total_gross FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"OC","why":"the run being submitted, by id (UI review #1620 L4)"}
+   {"line":202,"text":"const run = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"OC","why":"the run being submitted, by id (review #1620 L4 and delta L1: the full approval refusal)"}
   ],
   "src/modules/accounting/services/payroll/payrollOffCycleCancel.ts": [
    {"line":34,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses d WHERE d.run_id = h.id AND d.company_id = h.company_id)","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a directive use"},

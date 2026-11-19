@@ -10,6 +10,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
+import { refusedApproval } from './w6-oc.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import { laterOffCycleRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
 import { monthOrderRefusal } from '@/modules/accounting/services/payroll/payrollMonthOrderGate';
@@ -86,17 +87,13 @@ describe('M1: an off-cycle run is approved only on the month\'s runs as they sta
     // The bonus is not final, so the regular run may be reopened (nothing final rests on it).
     const reg = regular[a.company]!;
     expect((await a.api.reopen(reg)).statusCode).toBe(200);
-    const notFinal = await a.api.approve(x);
-    expect(notFinal.statusCode).toBe(400);
-    expect(a.msg(notFinal)).toMatch(/regular run is not approved, and this run is costed on it/);
+    expect(await refusedApproval(a, x)).toMatch(/regular run is not approved, and this run is costed on it/);
     expect((await a.api.calculate(reg)).statusCode).toBe(200);
     // FQc's in-month gate stays silent on a monthly regular run beside its off-cycle run (was w6-fqc-rev1575 G5).
     expect((await monthOrderRefusal(a.company, reg))?.code ?? null).toBeNull();
     expect((await judgeYearToDate(a.company, reg)).blocker?.code ?? null).toBeNull();
     expect((await a.api.approve(reg)).statusCode).toBe(200);
-    const stale = await a.api.approve(x);
-    expect(stale.statusCode).toBe(400);
-    expect(a.msg(stale)).toMatch(/approved again after this run was calculated: recalculate this run/);
+    expect(await refusedApproval(a, x)).toMatch(/approved again after this run was calculated: recalculate this run/);
     expect((await a.header(x)).status).toBe('calculated');
     expect((await a.api.calculate(x)).statusCode).toBe(200);
     expect((await a.api.approve(x)).statusCode).toBe(200);

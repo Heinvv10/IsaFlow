@@ -12,6 +12,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
+import { refusedApproval } from './w6-oc.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
@@ -220,9 +221,7 @@ describe('OC: refusals change no row', () => {
     const id = String(made.body.data!.id);
     expect((await a.api.calculate(id)).statusCode).toBe(200);
     await a.pool.query(`UPDATE payroll_run_headers SET run_date = '2026-11-16' WHERE id = $1`, [id]);
-    const approved = await a.api.approve(id);
-    expect(approved.statusCode).not.toBe(200);
-    expect(a.msg(approved)).toMatch(/before today/);
+    expect(await refusedApproval(a, id)).toMatch(/before today/);
     expect((await a.header(id)).status).toBe('calculated');
     expect(await count('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1 AND description = $2', [a.company, 'Payroll run 2026-11 bonus, paid 2026-11-25'])).toBe(1);
   });

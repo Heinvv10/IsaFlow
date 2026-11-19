@@ -125,6 +125,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       ytd: ytdForTables ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
       taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
       factor: cadence.factor, periodsInYear: cadence.periodsInYear, periodShare: cadence.periodShare,
+      offCycleLine: input.monthEarlier !== undefined, // only an off-cycle run's line carries its month's earlier lines (OC)
     },
     ytd: ytdForTables,
   });

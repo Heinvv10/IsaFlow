@@ -1,7 +1,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateSDL, isSdlExempt } from './sdlEngine';
+import { isSdlExempt, SDL_RATE } from './sdlEngine';
+import { payRunFinalSql } from './payRunFinalSql';
+import { runOrderKeySql } from './payrollRunOrder';
 import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
@@ -169,26 +171,51 @@ export async function estimateAnnualRemuneration(
 }
 
 /**
+ * The employer-month's SDL decision already taken, for an OFF-CYCLE run (wave 6 OC, review #1620 breaker delta H; the
+ * same shape as FQd #1622's for regular runs, which merges first and is then kept as the one implementation): once a
+ * run of the month is final, the month is decided, and an off-cycle run takes that decision (the stored sdl_exempt of
+ * the month's first final run in pay order, its regular run). So a later off-cycle run never moves the month's
+ * decision and never sends payrollSdlMonthGate after a final run. null: not off-cycle, or nothing final yet.
+ */
+export async function inheritedSdlDecision(companyId: string, runId: string): Promise<boolean | null> {
+  const rows = (await sql`
+    SELECT (SELECT bool_or(l.sdl_exempt) FROM payroll_run_lines l WHERE l.run_id = o.id) AS exempt
+      FROM payroll_run_headers me
+      JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year
+       AND o.period_month = me.period_month AND o.id <> me.id AND ${sql.unsafe(payRunFinalSql('o'))}
+     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid AND me.run_kind = 'off_cycle'
+       AND EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = o.id AND l.sdl_exempt IS NOT NULL)
+     ORDER BY ${runOrderKeySql('o')}
+     LIMIT 1
+  `) as DbRow[];
+  return rows.length === 0 || rows[0]!.exempt == null ? null : rows[0]!.exempt === true;
+}
+
+/**
  * Charge the levy on each line's own leviable remuneration, once the employer's
  * annual remuneration has decided whether it is due at all. Returns the run
  * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
  * with each line so the year to date knows which months were liable), which is
- * why the caller builds them first.
+ * why the caller builds them first. `inherited`: the month's decision already taken
+ * (inheritedSdlDecision), which this run takes as it is.
  */
 export function applySdlToLines(
   lines: SdlLine[],
   annualRemunerationEstimate: number,
   taxYear: number,
+  inherited: boolean | null = null,
 ): number {
   let total = 0;
-  const exempt = isSdlExempt(annualRemunerationEstimate, taxYear);
+  const exempt = inherited ?? isSdlExempt(annualRemunerationEstimate, taxYear);
   for (const line of lines) {
     line.sdlExempt = exempt;
-    line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
+    line.sdl = exempt ? 0 : Math.round(line.sdlLeviable * SDL_RATE * 100) / 100;
     if (line.explanation) {
       line.explanation = {
         ...line.explanation,
-        sdl: withSdlCharge(line.explanation.sdl, taxYear, { annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl }),
+        sdl: withSdlCharge(line.explanation.sdl, taxYear, {
+          annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl, inherited: inherited !== null,
+        }),
       };
     }
     total += line.sdl;

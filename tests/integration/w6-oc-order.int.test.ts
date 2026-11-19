@@ -8,6 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
+import { refusedApproval } from './w6-oc.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { approvePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
@@ -76,7 +77,7 @@ describe('the approval preview and the MCP dry run refuse what approval refuses 
     const dry = await approvePayRunTool.handler({ run_id: id, dry_run: true, idempotency_key: crypto.randomUUID() }, ctx);
     expect(dry.isError).toBe(true);
     expect(dry.content[0]!.text).toMatch(/before today/);
-    expect((await a.api.approve(id)).statusCode).toBe(400);
+    expect(await refusedApproval(a, id)).toMatch(/before today/);
   });
 });
 

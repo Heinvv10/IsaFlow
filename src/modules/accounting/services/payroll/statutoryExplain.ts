@@ -93,22 +93,29 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-function chargeSteps(taxYear: number, leviable: number, charge: { annualRemuneration: number; exempt: boolean; sdl: number }): ExplainStep[] {
+/** `inherited`: the month's decision was taken by its first costed regular run, and this run takes it (wave 6 FQd). */
+type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; inherited?: boolean };
+
+function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
+  const threshold = { amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear) };
   return [
-    {
-      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
-      amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear),
-      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
-    },
+    charge.inherited
+      ? {
+        key: 'sdl.threshold', ...threshold,
+        label: `Employer ${charge.exempt ? 'exempt' : 'liable'} this month: decided once for the month, on its first costed run`,
+      }
+      : {
+        key: 'sdl.threshold', ...threshold,
+        label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
+        children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
+      },
     { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
     { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
   ];
 }
 
 /** The SDL explanation of a line costed with the threshold deferred, completed once the run has decided it (applySdlToLines). */
-export function withSdlCharge(
-  sdl: FigureExplanation, taxYear: number, charge: { annualRemuneration: number; exempt: boolean; sdl: number },
-): FigureExplanation {
+export function withSdlCharge(sdl: FigureExplanation, taxYear: number, charge: SdlCharge): FigureExplanation {
   const pending = sdl.steps.findIndex(s => s.key === SDL_PENDING);
   if (pending < 0) return { ...sdl, result: charge.sdl };
   const leviable = sdl.steps.find(s => s.key === 'sdl.leviable')?.amount ?? 0;

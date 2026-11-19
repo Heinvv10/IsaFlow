@@ -21,6 +21,19 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
 
+/**
+ * Why this off-cycle run cannot be reopened today (review #1620 breaker delta H): its pay date has passed, so it was
+ * paid. A paid run is corrected by a later run, never reopened (a reopened run could never be approved again: its pay
+ * date has passed). Null when it can be, or it is not off-cycle.
+ */
+export function offCyclePaidReopenRefusal(run: { run_kind?: unknown; run_date?: unknown }, today: string = todayInSast()): string | null {
+  if (run.run_kind !== 'off_cycle') return null;
+  const payDate = dateColumnOf(run.run_date);
+  return payDate !== null && payDate < today
+    ? `This off-cycle run was paid on ${formatDisplayDate(payDate)}, so it is not reopened: a paid run is corrected by a later run.`
+    : null;
+}
+
 /** Why this off-cycle run cannot be approved today; null when it can (or it is not off-cycle). */
 export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unknown }, today: string = todayInSast()): string | null {
   if (run.run_kind !== 'off_cycle') return null;

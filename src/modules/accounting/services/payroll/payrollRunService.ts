@@ -3,7 +3,7 @@ import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmpl
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
-import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
+import { applySdlToLines, estimateAnnualRemuneration, inheritedSdlDecision } from './sdlLeviabilityService';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
@@ -220,7 +220,8 @@ export async function calculatePayrollRun(
   const annualRemuneration = await estimateAnnualRemuneration(
     companyId, period, r(totalRemuneration), runId,
   );
-  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
+  // An off-cycle run takes the month's decision once a run of it is final (wave 6 OC, review #1620 breaker delta H).
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear, await inheritedSdlDecision(companyId, runId));
 
   await replaceRunLines(runId, companyId, lineInserts);
 

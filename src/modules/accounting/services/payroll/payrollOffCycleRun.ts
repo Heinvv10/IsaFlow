@@ -23,7 +23,7 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import { offCycleAfterCloseRefusal } from './payrollOffCycleGates';
-import { laterMonthFinalRefusal, offCycleOrderRefusal, ZERO_GROSS } from './payrollOffCycleOrder';
+import { laterMonthFinalRefusal, offCycleApprovalRefusal, offCycleOrderRefusal } from './payrollOffCycleOrder';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { dateColumnOf } from './payrollFrequency';
 import type { OffCycleReason, PayrollPeriod } from './payrollTypesRun';
@@ -195,12 +195,11 @@ export async function assertOffCycleBeforeClose(companyId: string, run: DbRow): 
 }
 
 /**
- * The R-035 submit's check (UI review #1620 L4): an off-cycle run that pays nothing is not submitted for approval (409,
- * nothing written). Approval itself also refuses it, with the pay date and the month's basis (offCycleApprovalRefusal).
+ * The R-035 submit's check (UI review #1620 L4, breaker delta L1): nothing approval would refuse is submitted (409,
+ * nothing written): the pay date passed, a run that pays nothing, the month's basis, a later month final.
  */
 export async function assertOffCycleSubmittable(companyId: string, runId: string): Promise<void> {
-  const run = ((await sql`
-    SELECT run_kind, total_gross FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-  `) as DbRow[])[0];
-  if (run?.run_kind === 'off_cycle' && !(Number(run.total_gross) > 0)) throw state(ZERO_GROSS);
+  const run = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];
+  const refusal = run ? await offCycleApprovalRefusal(companyId, run) : null;
+  if (refusal) throw state(refusal);
 }
