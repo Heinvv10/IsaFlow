@@ -17,7 +17,8 @@ import { getVersionForUpdate } from './returnVersionWrites';
 import { ReturnRefusal, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
 export type FilingFileFormat = 'csv' | 'json' | 'pdf';
-export const FILING_FILE_FORMATS: Record<ReturnForm, readonly FilingFileFormat[]> = { VAT201: ['csv', 'json'], EMP201: ['csv', 'pdf'] };
+// EMP501's e@syFile file has its own payroll-detail service and route (emp501FilingFile, wave 6 EFb): none here.
+export const FILING_FILE_FORMATS: Record<ReturnForm, readonly FilingFileFormat[]> = { VAT201: ['csv', 'json'], EMP201: ['csv', 'pdf'], EMP501: [] };
 const TYPES: Record<FilingFileFormat, string> = { csv: 'text/csv; charset=utf-8', json: 'application/json', pdf: 'application/pdf' };
 
 export interface FilingFile {
@@ -61,7 +62,8 @@ export async function stampFilingFile(
 }
 
 /** The stored filing file of a stamped version (999v's CHECK keeps its sha256 equal to the stamp). */
-async function storedContent(companyId: string, versionId: string): Promise<string> {
+/** A stamped version's stored filing file (999v), served as stored; EFb serves the EMP501 file through it. */
+export async function storedContent(companyId: string, versionId: string): Promise<string> {
   const rows = (await sql`SELECT filing_file_content FROM tax_return_versions
     WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   const content = rows[0]?.filing_file_content;

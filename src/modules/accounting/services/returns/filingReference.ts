@@ -22,7 +22,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { ReturnRefusal, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
-const PRN: Record<ReturnForm, { re: RegExp; what: string; number: 'vat_number' | 'paye_reference_number'; name: string }> = {
+const PRN: Record<ReturnForm, { re: RegExp; what: string; number: 'vat_number' | 'paye_reference_number' | null; name: string }> = {
   VAT201: {
     re: /^4\d{9}[A-Z]\d{8}$/, what: 'your 10-digit VAT number (starting with 4), a letter and 8 digits',
     number: 'vat_number', name: 'VAT number',
@@ -31,6 +31,12 @@ const PRN: Record<ReturnForm, { re: RegExp; what: string; number: 'vat_number' |
     re: /^7\d{9}(?:[A-Z]\d{8}|[A-Z]{2}\d{7})$/,
     what: 'your 10-digit PAYE reference (starting with 7), then a letter and 8 digits or two letters and 7 digits',
     number: 'paye_reference_number', name: 'PAYE reference',
+  },
+  // EMP501 (wave 6 EFb): the e@syFile / eFiling submission reference, not a PRN. UNVERIFIED: SARS publishes no shape for
+  // it, so letters and digits only, 6 to 30 of them; it carries no tax number to check against the company's.
+  EMP501: {
+    re: /^[A-Z0-9]{6,30}$/, what: '6 to 30 letters and digits, the submission reference e@syFile or eFiling gave you',
+    number: null, name: 'PAYE reference',
   },
 };
 
@@ -43,7 +49,9 @@ export function parseFilingReference(form: ReturnForm, raw: string): string {
   const shape = PRN[form];
   if (!shape.re.test(value)) {
     throw new ReturnRefusal(400,
-      `The filing reference must be the payment reference number (PRN) eFiling shows on the ${form}: 19 characters, ${shape.what}.`,
+      form === 'EMP501'
+        ? `The EMP501 filing reference must be ${shape.what}.`
+        : `The filing reference must be the payment reference number (PRN) eFiling shows on the ${form}: 19 characters, ${shape.what}.`,
       'FILING_REFERENCE_SHAPE');
   }
   return value;
@@ -68,8 +76,10 @@ export async function assertFilingReferenceIsTheCompanys(
   companyId: string, v: ReturnVersion, prn: string,
 ): Promise<FilingWarning | null> {
   const shape = PRN[v.formType];
-  const rows = (await sql`SELECT vat_number, paye_reference_number FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
-  const recorded = rows[0]?.[shape.number];
+  // EMP501: a submission reference, not a PRN: nothing to cross-check and no warning (shape.number null).
+  const rows = shape.number === null ? []
+    : (await sql`SELECT vat_number, paye_reference_number FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
+  const recorded = shape.number === null ? undefined : rows[0]?.[shape.number];
   const text = typeof recorded === 'string' ? recorded.trim() : '';
   // One optional leading label ("VAT 4123456789", "PAYE: 7…"), then every non-digit ("4123.456.789") goes.
   const digits = text.replace(/^(?:VAT|PAYE)\b/i, '').replace(/\D/g, '');
