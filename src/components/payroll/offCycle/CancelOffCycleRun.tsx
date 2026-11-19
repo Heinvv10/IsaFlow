@@ -4,8 +4,8 @@
  * (payrollOffCycleCancel). Renders nothing for any other run or role.
  */
 import { useState } from 'react';
-import { XCircle } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Loader2, XCircle } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { FocusedAlert } from './FocusedAlert';
 
@@ -40,7 +40,7 @@ export function CancelOffCycleRun({ runId, run, companyRole, onCancelled }: Prop
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="off-cycle-cancel">
       <FocusedAlert message={error} />
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)]">
         <p className="text-sm text-[var(--ff-text-secondary)]">Not needed, or its pay date has passed? Cancel it: nothing is paid and its employees are free for another off-cycle run.</p>
@@ -49,9 +49,22 @@ export function CancelOffCycleRun({ runId, run, companyRole, onCancelled }: Prop
           <XCircle className="h-4 w-4" aria-hidden="true" /> Cancel run
         </button>
       </div>
-      <ConfirmDialog open={open} title="Cancel this off-cycle run?" tone="destructive" loading={busy}
-        message="The run is cancelled and its lines are removed. Nothing is paid, posted or declared, and its employees can be put on another off-cycle run of the month."
-        acceptLabel="Cancel run" cancelLabel="Keep run" onAccept={() => void cancel()} onCancel={() => setOpen(false)} />
+      <Modal open={open} onClose={() => { if (!busy) setOpen(false); }} title="Cancel this off-cycle run?" size="sm">
+        <Modal.Body>
+          <p className="text-sm text-[var(--ff-text-secondary)]">
+            The run is cancelled and its lines are removed. Nothing is paid, posted or declared, and its employees can be put on
+            another off-cycle run of the month.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <button type="button" onClick={() => setOpen(false)} disabled={busy}
+            className="px-4 py-2 min-h-[44px] rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] disabled:opacity-50">Keep run</button>
+          <button type="button" onClick={() => void cancel()} disabled={busy}
+            className="flex items-center gap-2 px-4 py-2 min-h-[44px] rounded-lg bg-red-700 hover:bg-red-800 text-white text-sm font-medium disabled:opacity-50">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <XCircle className="h-4 w-4" aria-hidden="true" />} Cancel run
+          </button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }
