@@ -20,9 +20,9 @@ import {
 /** The typed table's columns: the legacy five with the VAT type before the VAT. */
 const TYPED_COLUMNS = {
   0: { cellWidth: 'auto' },
-  1: { halign: 'right', cellWidth: 14 },
+  1: { halign: 'right', cellWidth: 18 },
   2: { halign: 'right', cellWidth: 26 },
-  3: { cellWidth: 26 },
+  3: { cellWidth: 30 },
   4: { halign: 'right', cellWidth: 24 },
   5: { halign: 'right', cellWidth: 28, fontStyle: 'bold' },
 } as const;

@@ -77,7 +77,10 @@ describe('the digest model', () => {
       'client_address', 'client_contact', 'client_email', 'client_name', 'client_phone', 'client_terms', 'client_terms_immediate', 'client_vat', 'currency_code',
       'due_date', 'exchange_rate', 'invoice_date', 'invoice_number', 'notes', 'payment_terms', 'project_name', 'status',
       'subtotal', 'tax_amount', 'tax_rate', 'total_amount']);
-    for (const line of model.items) expect(Object.keys(line).sort()).toEqual(['amount', 'description', 'quantity', 'tax_rate', 'unit_price']);
+    // tax_amount and vat_type: a typed line's stored VAT and its type label are printed (migration 1008, invoicePdfTypedLines).
+    for (const line of model.items) {
+      expect(Object.keys(line).sort()).toEqual(['amount', 'description', 'quantity', 'tax_amount', 'tax_rate', 'unit_price', 'vat_type']);
+    }
   });
 
   it('an invoice whose client and job ids name ANOTHER company\'s rows prints neither (each join carries company_id)', async () => {
