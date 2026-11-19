@@ -193,7 +193,7 @@ export default function CustomerSalesOrdersPage() {
           title="Customer Sales Orders"
           subtitle={`${total} ${total === 1 ? 'order' : 'orders'}`}
           actions={
-            <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
+            <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-2 px-4 py-2 max-lg:min-h-11 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" /> New Sales Order
             </button>
           }
@@ -204,14 +204,14 @@ export default function CustomerSalesOrdersPage() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 max-lg:min-h-11 max-lg:min-w-11 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   {t === 'all' ? 'All' : STATUS[t]?.label ?? t}
                 </button>
               ))}
             </div>
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sales orders…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sales orders…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm max-lg:min-h-11 max-lg:w-full focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
             </div>
           </div>
 
@@ -223,10 +223,10 @@ export default function CustomerSalesOrdersPage() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><ClipboardList className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No sales orders found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first sales order to get started</p>
-                <button onClick={() => setShowNew(true)} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">New Sales Order</button>
+                <button onClick={() => setShowNew(true)} className="mt-5 px-4 py-2 max-lg:min-h-11 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">New Sales Order</button>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['Order #', 'Customer', 'Date', 'Delivery Date', 'Total', 'Status', ''].map((h, i) => (
@@ -237,17 +237,17 @@ export default function CustomerSalesOrdersPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {orders.map(o => (
                     <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{o.orderNumber}</td>
-                      <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.customerName}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(o.orderDate)}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(o.deliveryDate) || '—'}</td>
-                      <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(o.totalAmount)}</td>
-                      <td className="px-5 py-3.5"><StatusPill status={o.status} /></td>
+                      <td data-label="Order #" className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{o.orderNumber}</td>
+                      <td data-label="Customer" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.customerName}</td>
+                      <td data-label="Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(o.orderDate)}</td>
+                      <td data-label="Delivery Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(o.deliveryDate) || '—'}</td>
+                      <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(o.totalAmount)}</td>
+                      <td data-label="Status" className="px-5 py-3.5"><StatusPill status={o.status} /></td>
                       <td className="px-4 py-3.5">
                         <div className="flex justify-end gap-1.5">
                           {o.status === 'draft' && (<>
-                            <button onClick={() => router.push(`/accounting/customer-sales-orders/${o.id}`)} title="Edit" className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors"><Edit className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => void handleDelete(o.id)} disabled={deleting === o.id} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50">
+                            <button onClick={() => router.push(`/accounting/customer-sales-orders/${o.id}`)} title="Edit" aria-label="Edit sales order" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors"><Edit className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => void handleDelete(o.id)} disabled={deleting === o.id} title="Delete" aria-label="Delete sales order" className="p-1.5 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50">
                               {deleting === o.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                             </button>
                           </>)}
