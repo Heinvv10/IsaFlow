@@ -14,7 +14,7 @@ describe('supplier-returns', () => {
   const open = async () => { const r = render(<SupplierReturns />); fireEvent.click((await screen.findAllByText('New Return'))[0]!); return r; };
   it('does not POST without a supplier', async () => {
     const { container } = await open();
-    fireEvent.change(container.querySelector('input[type="number"]')!, { target: { value: '50' } });
+    fireEvent.change(container.querySelector('input[inputmode="decimal"]')!, { target: { value: '50' } });
     submit(container);
     await settle();
     expect(writesTo('/supplier-returns')).toEqual([]);
@@ -22,7 +22,7 @@ describe('supplier-returns', () => {
   it('POSTs the picked supplier id, labelled by company name', async () => {
     const { container } = await open();
     await pick(container, 'Supplier One Holdings');
-    fireEvent.change(container.querySelector('input[type="number"]')!, { target: { value: '50' } });
+    fireEvent.change(container.querySelector('input[inputmode="decimal"]')!, { target: { value: '50' } });
     submit(container);
     await waitFor(() => expect(writesTo('/supplier-returns')[0]?.body.supplierId).toBe(S26));
   });

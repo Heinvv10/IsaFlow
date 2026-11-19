@@ -9,6 +9,7 @@
 import { Trash2, Search } from 'lucide-react';
 import type { SelectOption, VatCode } from './BankTxTable';
 import { VAT_OPTIONS } from './BankTxTable';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 export type SplitTarget = 'account' | 'supplier' | 'customer';
 
@@ -107,8 +108,8 @@ export function SplitLineRow({
           )}
         </div>
 
-        <input type="number" min="0.01" step="0.01" placeholder="0.00" aria-label={`Line ${index + 1} amount`}
-          value={line.amount} onChange={e => onChange({ amount: e.target.value })}
+        <AmountInput min={0.01} placeholder="0.00" aria-label={`Line ${index + 1} amount`}
+          value={line.amount} onValueChange={(_n, text) => onChange({ amount: text })}
           className={`${FIELD} text-right tabular-nums`} />
 
         {isAccount && (
