@@ -43,6 +43,11 @@ export interface ReturnVersionView extends ReturnVersion {
   lockRemoved: boolean;
   /** Warnings its filing went ahead with, from the filing's audit row (wave 6 EFa: PRN_NOT_CROSS_CHECKED). */
   filingWarnings: string[];
+  /**
+   * Whether this version must have its filing file generated before it is marked filed: finalised at or after 999v's
+   * cut-off, by the same SQL check markReturnFiled and the trigger make. False for a version finalised before it.
+   */
+  filingFileRequired: boolean;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -154,6 +159,17 @@ async function filingWarnings(companyId: string, versions: ReturnVersion[]): Pro
   return out;
 }
 
+/** The versions finalised at or after 999v's cut-off, judged in SQL from the rows (as fileReturn's check is). */
+async function filingFileRequiredIds(companyId: string, versions: ReturnVersion[]): Promise<Set<string>> {
+  if (versions.length === 0) return new Set();
+  const rows = (await sql`
+    SELECT id FROM tax_return_versions
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${versions.map((v) => v.id)}::UUID[])
+      AND finalised_at >= public.tax_return_versions_filing_file_cutoff()
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.id)));
+}
+
 export async function listVersions(
   companyId: string, form: ReturnForm, start: string, end: string,
 ): Promise<{ versions: ReturnVersionView[]; vatReturn: VatReturnRecord | null }> {
@@ -161,6 +177,7 @@ export async function listVersions(
   const live = versions.find((v) => v.status !== 'superseded');
   const removed = await removedLocks(companyId, versions);
   const warned = await filingWarnings(companyId, versions);
+  const fileRequired = await filingFileRequiredIds(companyId, versions);
   const view: ReturnVersionView[] = [];
   for (const v of versions) {
     view.push({
@@ -168,6 +185,7 @@ export async function listVersions(
       drift: v === live ? await driftOf(companyId, v) : null,
       lockRemoved: v.vatPeriodLockId !== null && removed.has(v.vatPeriodLockId),
       filingWarnings: warned.get(v.id) ?? [],
+      filingFileRequired: fileRequired.has(v.id),
     });
   }
   const vatReturn = form === 'VAT201'

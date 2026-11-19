@@ -3,7 +3,9 @@
  *
  * GET  ?bankAccountId=<uuid>[&minConfidence=0.9]
  *      → the lines a bulk accept would post (rows, total in / out, by account) and a `previewToken` pinning them.
- * POST { action: 'confirm', previewToken }
+ * POST { action: 'confirm', previewToken }   (+ optional Idempotency-Key header: a resend after a lost answer replays the first
+ *      answer - same runId - instead of posting twice; withHttpIdempotency. Every refusal of a confirm is decided before its
+ *      first write, which is what that wrapper needs.)
  *      → posts every pinned line that is still the line previewed and still passes the gate, each under its own
  *        savepoint: { runId, posted: [...], refused: [{ txId, reason }], totalPosted }. 200 even when every line was refused.
  * POST { action: 'undo', runId }
@@ -18,6 +20,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withHttpIdempotency } from '@/lib/idempotency/withHttpIdempotency';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
@@ -81,4 +84,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-bulk-accept', handler) as Parameters<typeof withWriteAccess>[0]))));

@@ -4,11 +4,14 @@
  * CI gives every runner a company of its own on isaflow_dev and a golden user for it (scripts/ci/golden/provision-slots.ts),
  * so runs on different runners never write to the same books. The golden-paths job turns the runner into these three
  * variables. With none set (the post-deploy run against production, a local run) there is no slot: the suite logs in as
- * E2E_ADMIN_* and works in that user's default company, exactly as before slots existed (pay-run approval there needs
+ * E2E_ADMIN_* and works in that user's default company, exactly as before slots existed. In the post-deploy run that user
+ * is the dedicated verify login (scripts/verify-deploy.sh points E2E_ADMIN_* at E2E_VERIFY_*), whose only company is the
+ * hidden Deploy Verification company; with no verify login it is the Demo admin (pay-run approval there needs
  * E2E_APPROVER_*, see payRunApproval.ts).
  */
 
-import { assertSlotCompanyId, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
+import { assertSlotCompanyId, loginAliases, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
+import { VERIFY_LOGIN } from '../../../../scripts/deploy/verifyCompany/identity';
 
 export interface GoldenSlot {
   companyId: string;
@@ -33,7 +36,8 @@ export function readGoldenSlot(env: Record<string, string | undefined>): GoldenS
   if (!UUID.test(companyId)) throw new Error(`GOLDEN_COMPANY_ID must be a uuid, got "${companyId}"`);
   const slot = Number(slotText);
   assertSlotCompanyId(slot, companyId);
-  if (email !== slotEmail(slot)) throw new Error(`slot ${slot}: GOLDEN_USER_EMAIL must be ${slotEmail(slot)}, got "${email}"`);
+  // Cutover grace: the legacy @isaflow.dev twin passes until migrate-slot-emails.ts has run (follow-up drop-legacy-email-grace, slotConfig.ts).
+  if (!loginAliases(slotEmail(slot)).includes(email)) throw new Error(`slot ${slot}: GOLDEN_USER_EMAIL must be ${slotEmail(slot)}, got "${email}"`);
   return { companyId, email, password };
 }
 
@@ -43,7 +47,8 @@ export function readGoldenSlot(env: Record<string, string | undefined>): GoldenS
  */
 export function describeGoldenCompany(env: Record<string, string | undefined>): string {
   const companyId = env.GOLDEN_COMPANY_ID;
-  if (!companyId) return 'the Demo company';
+  // No slot: the post-deploy verify login's only company, or else the Demo admin's default company.
+  if (!companyId) return env.E2E_ADMIN_EMAIL === VERIFY_LOGIN.email ? 'the Deploy Verification company' : 'the Demo company';
   const email = env.GOLDEN_USER_EMAIL ?? 'unknown';
   const n = /^golden-slot-(\d)@/.exec(email)?.[1];
   // --reset-slot refuses to run without --seed-url: a rebuilt slot without the GSEED data fails the volume specs.

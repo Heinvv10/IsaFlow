@@ -56,6 +56,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['bank/autoPostHandOffset.ts', 'BANK'],
   ['bank/autoPostUndoProjection.ts', 'BANK'],
   ['bank/bankAutoMatchService.ts', 'BANK'],
+  ['bank/bankReconcilableGlLines.ts', 'BANK'], // the recon screen's manual-match list: the bank account's own lines, auto-match's candidate set
   ['bank/bankCoverageDirections.ts', 'CASH'],
   ['bank/bankMatchDbQueries.ts', 'BANK'],
   ['bank/bankTxStatusMutations.ts', 'BANK', 'je.status AS journal_status'], // audit row 4: the one journal line a match names, its debit/credit compared to that bank line
@@ -132,6 +133,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['reports/vatExceptionsService.ts', 'VAT'],
   ['reports/vatInputSupportQuery.ts', 'VAT'],
   ['reports/vatNonSupplyExceptions.ts', 'VAT'],
+  ['reports/vatMultiYearSummary.ts', 'VAT'], // split from vatReconciliationService (wave 6 VR)
   ['reports/vatReconciliationService.ts', 'VAT'],
   ['reports/vatReturnService.ts', 'VAT'],
   ['reports/vatUnpostedInvoices.ts', 'VAT'],

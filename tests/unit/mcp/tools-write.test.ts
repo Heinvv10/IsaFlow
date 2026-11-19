@@ -725,6 +725,8 @@ describe('write-tool manifest invariants', () => {
       // behaviour in bulkInvoiceTools.test.ts.
       bulk_create_supplier_invoices: { ...KEY },
       bulk_create_customer_invoices: { ...KEY },
+      // Refuses the missing purchase_orders array before any query; behaviour in purchaseOrderImportTool.test.ts.
+      bulk_create_purchase_orders: { ...KEY },
       // Voids refuse the missing document id before any query; behaviour in
       // voidPaymentTools.test.ts.
       // Refuses on the missing subledger before reading anything; behaviour in

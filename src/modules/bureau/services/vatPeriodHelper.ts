@@ -10,7 +10,8 @@
  * Each bi-monthly period spans two calendar months. Monthly (Category C)
  * vendors are driven by `companies.vat_period` instead — alignment is
  * irrelevant for them. Returns are due by the 25th of the month following
- * the period end, moved back to the Friday on a weekend (`backToFriday`).
+ * the period end, moved back to the previous business day when that is a
+ * weekend or public holiday (`previousBusinessDay`).
  *
  * A company that is NOT a VAT vendor is recorded by `vat_system_type = 'none'`
  * (mig 245 — the "No VAT" option in company settings). `vat_period = 'none'`
@@ -23,6 +24,8 @@
  * Legacy rows store cadence with mixed casing ('Bi-Monthly'); always go
  * through the normalizers.
  */
+import { addDaysIso, isSaBusinessDay } from '@/lib/saPublicHolidays';
+
 export type VatAlignment = 'odd' | 'even';
 /** Filing cadence of a registered VAT vendor. */
 export type VatCadence = 'monthly' | 'bi-monthly';
@@ -106,15 +109,14 @@ function isoYmd(y: number, m: number, d: number): string {
 }
 
 /**
- * A statutory due day (y, m 1..12, d) on a Saturday or Sunday moves BACK to the
- * preceding Friday (TAA s244). Public holidays are not shifted (no holiday
- * calendar). The one weekend rule for every SARS deadline in the app.
+ * A statutory due day (y, m 1..12, d) on a Saturday, Sunday or South African public holiday moves BACK to the
+ * last business day before it (TAA s244; calendar: `@/lib/saPublicHolidays`, which cannot know days gazetted ad
+ * hoc such as election days). The one "move back" rule for every SARS due date and the forecast's pay dates.
  */
-export function backToFriday(y: number, m: number, d: number): string {
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  if (dow === 6) return isoYmd(y, m, d - 1); // Saturday → Friday
-  if (dow === 0) return isoYmd(y, m, d - 2); // Sunday → Friday
-  return isoYmd(y, m, d);
+export function previousBusinessDay(y: number, m: number, d: number): string {
+  let date = isoYmd(y, m, d);
+  while (!isSaBusinessDay(date)) date = addDaysIso(date, -1);
+  return date;
 }
 
 /** Last calendar day of month m (1..12) in year y — leap-aware. */
@@ -147,7 +149,7 @@ export function expectedVatPeriodAsOf(
       const periodStart = new Date(Date.UTC(y, m - startMonthsBack, 1));
       const dueMonth = m === 12 ? 1 : m + 1;
       const dueYear = m === 12 ? y + 1 : y;
-      return { periodStart: iso(periodStart), periodEnd: iso(lastDay), dueDate: backToFriday(dueYear, dueMonth, 25) };
+      return { periodStart: iso(periodStart), periodEnd: iso(lastDay), dueDate: previousBusinessDay(dueYear, dueMonth, 25) };
     }
     m -= 1;
     if (m === 0) { m = 12; y -= 1; }

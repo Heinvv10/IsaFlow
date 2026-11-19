@@ -46,6 +46,19 @@ describe('the PRN is the company\'s', () => {
       .toMatchObject({ code: 'PRN_NOT_CROSS_CHECKED', message: expect.stringMatching(/PAYE reference on file/) });
   });
 
+  it('cross-checks a recorded number with one leading VAT/PAYE label and any separators (final delta L2)', async () => {
+    for (const vat of ['VAT 4123456789', 'vat:4123456789', '4123.456.789', 'VAT No. 4123-456-789']) {
+      db({ vat_number: vat, paye_reference_number: null });
+      expect(await assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, PRN), vat).toBeNull(); // matched: no warning
+      db({ vat_number: vat, paye_reference_number: null });
+      expect(await refusal(assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, '4999999999V00000001')), vat)
+        .toMatchObject({ status: 400, refusalCode: 'FILING_REFERENCE_TAX_NUMBER' });
+    }
+    db({ vat_number: null, paye_reference_number: 'PAYE 7123456789' });
+    expect(await refusal(assertFilingReferenceIsTheCompanys('c1', EMP_VERSION, '7000000001L00000001')))
+      .toMatchObject({ status: 400, refusalCode: 'FILING_REFERENCE_TAX_NUMBER' });
+  });
+
   it('refuses a PRN of another VAT number (400) and of another PAYE reference on an EMP201', async () => {
     db({ vat_number: '4999999999', paye_reference_number: null });
     expect(await refusal(assertFilingReferenceIsTheCompanys('c1', VAT_VERSION, PRN)))

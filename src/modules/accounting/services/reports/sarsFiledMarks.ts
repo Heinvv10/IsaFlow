@@ -9,6 +9,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import type { DbRow } from '@/types/db';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { legacyDueDates } from './legacyMarkDueDates';
 import { calendarWindow, companyVatCycle } from './sarsComplianceCalendarDb';
 import type { ComplianceEvent } from './sarsTaxPeriodsService';
 
@@ -87,8 +88,8 @@ export async function markFiled(companyId: string, userId: string, input: FiledM
 }
 
 /**
- * Undo the item's mark: the row keyed on its period, and a pre-999c row (no period) on its due date,
- * which the overlay shows as the same mark. One audit row per row removed.
+ * Undo the item's mark: the row keyed on its period, and a pre-999c row (no period) on its due date (now or
+ * under the old weekend-only rule, `legacyDueDates`), which the overlay shows as the same mark. One audit row per row removed.
  */
 export async function unmarkFiled(companyId: string, userId: string, input: { eventType: MarkableEventType; periodEnd: string }): Promise<void> {
   await assertNotImpersonating();
@@ -97,7 +98,7 @@ export async function unmarkFiled(companyId: string, userId: string, input: { ev
     DELETE FROM sars_compliance_events
     WHERE company_id = ${companyId}::UUID AND event_type = ${item.eventType}
       AND ((period_start = ${item.periodStart}::DATE AND period_end = ${item.periodEnd}::DATE)
-        OR (period_end IS NULL AND due_date = ${item.dueDate}::DATE))
+        OR (period_end IS NULL AND due_date = ANY(${legacyDueDates(item.dueDate)}::DATE[])))
     RETURNING id, description, due_date::TEXT AS due_date, sars_reference
   `) as DbRow[];
   if (rows.length === 0) throw new NotMarkedFiledError(`${item.description} is not marked filed`);

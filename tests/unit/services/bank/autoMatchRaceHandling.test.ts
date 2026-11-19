@@ -16,6 +16,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../../helpers/bankControlGateMocks')).importerGateOpen());
+// The GL candidate read's shared WHERE (bankReconcilableGlLines) builds its fragment through sql``; stubbed so
+// the queued sql results below stay one per query. Its SQL is proven in tests/integration/recon-gl-lines-list.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankReconcilableGlLines', () => ({ reconcilableGlLineWhere: () => '' }));
 
 const { sqlMock, matchMock, sp } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn(() => '') }),
