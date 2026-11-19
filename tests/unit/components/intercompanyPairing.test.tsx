@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
-const h = vi.hoisted(() => ({ role: 'owner' as string, query: {} as Record<string, string> }));
+const h = vi.hoisted(() => ({ role: 'owner' as string, query: {} as Record<string, string>, ready: true }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: h.role }) }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: h.query }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: h.query, isReady: h.ready }) }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 
@@ -27,19 +27,20 @@ const VIEW = (over: Partial<PairingView> = {}): PairingView => ({
 });
 
 let view: (direction: string) => Response;
+let connectionsReply: () => Response = () => envelope({ items: [connection({ settings: { settlementMode: 'cash', cutoverDate: '2026-10-01', interestRatePct: null } })], count: 1 });
 let posts: unknown[];
 function serve() {
   vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
     const u = String(url);
     const i = init as RequestInit | undefined;
-    if (u === '/api/accounting/intercompany/connections') return envelope({ items: [connection({ settings: { settlementMode: 'cash', cutoverDate: '2026-10-01', interestRatePct: null } })], count: 1 });
+    if (u === '/api/accounting/intercompany/connections') return connectionsReply();
     if (u.includes('/pairing/links/')) return envelope({ status: i?.method === 'PUT' ? 'active' : 'unlinked' });
     if (u.includes('/pairing') && i?.method === 'POST') { posts.push(JSON.parse(String(i.body))); return envelope({ created: 2, active: 0 }, 201); }
     if (u.includes('/pairing')) return view(new URL(u, 'http://x').searchParams.get('direction') ?? '');
     return envelope({});
   });
 }
-beforeEach(() => { h.role = 'owner'; h.query = {}; posts = []; vi.mocked(apiFetch).mockReset(); view = () => envelope(VIEW()); serve(); });
+beforeEach(() => { h.role = 'owner'; h.query = {}; h.ready = true; posts = []; vi.mocked(apiFetch).mockReset(); view = () => envelope(VIEW()); connectionsReply = () => envelope({ items: [connection({ settings: { settlementMode: 'cash', cutoverDate: '2026-10-01', interestRatePct: null } })], count: 1 }); serve(); });
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('the page', () => {
@@ -60,11 +61,67 @@ describe('the page', () => {
     expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).endsWith('/pairing?direction=ap'))).toBe(true);
   });
 
-  it('opens on the connection named in the address', async () => {
-    h.query = { connection: 'conn-1' };
+  const TWO = () => envelope({ items: [connection({ id: 'conn-1', partnerName: 'First Co' }), connection({ id: 'conn-2', partnerName: 'Second Co' })], count: 2 });
+  const pairingCalls = () => vi.mocked(apiFetch).mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/pairing?'));
+
+  it('opens on the connection named in the address, and waits for the router: a static page has an empty query on its first render', async () => {
+    connectionsReply = TWO;
+    h.ready = false;
+    h.query = {};
+    const { rerender } = render(<PairingPage />);
+    await act(async () => { await Promise.resolve(); });
+    expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
+    h.ready = true;
+    h.query = { connection: 'conn-2' };
+    rerender(<PairingPage />);
+    expect(await screen.findByTestId('pairing-view')).toBeInTheDocument();
+    expect(pairingCalls().every((u) => u.includes('/connections/conn-2/pairing'))).toBe(true);
+    expect(pairingCalls().length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('Connection')).toHaveValue('conn-2');
+  });
+
+  it('falls back to the first live connection when the address names none that is live', async () => {
+    connectionsReply = TWO;
+    h.query = { connection: 'nope' };
     render(<PairingPage />);
     expect(await screen.findByTestId('pairing-view')).toBeInTheDocument();
-    expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes('/connections/conn-1/pairing'))).toBe(true);
+    expect(screen.getByLabelText('Connection')).toHaveValue('conn-1');
+  });
+
+  it('a failed connections list shows Try again, and it fetches the list again (and keeps the address\'s choice)', async () => {
+    connectionsReply = () => failure('Down', 500);
+    h.query = { connection: 'conn-2' };
+    render(<PairingPage />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Down');
+    connectionsReply = TWO;
+    await act(async () => { fireEvent.click(within(alert).getByRole('button', { name: 'Try again' })); });
+    expect(await screen.findByTestId('pairing-view')).toBeInTheDocument();
+    expect(screen.getByLabelText('Connection')).toHaveValue('conn-2');
+    expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u) === '/api/accounting/intercompany/connections')).toHaveLength(2);
+  });
+
+  it('the tabs follow the tabs pattern: a controlled panel, one tab in the tab order, arrow keys and Home / End move and select', async () => {
+    render(<PairingPage />);
+    await screen.findByTestId('pairing-view');
+    const ar = screen.getByRole('tab', { name: /Owed to you/ });
+    const ap = screen.getByRole('tab', { name: /Owed by you/ });
+    expect([ar.tabIndex, ap.tabIndex]).toEqual([0, -1]);
+    const panel = screen.getByRole('tabpanel');
+    expect(ar).toHaveAttribute('aria-controls', panel.id);
+    expect(panel).toHaveAttribute('aria-labelledby', ar.id);
+    ar.focus();
+    fireEvent.keyDown(ar, { key: 'ArrowRight' });
+    await waitFor(() => expect(ap).toHaveAttribute('aria-selected', 'true'));
+    expect(document.activeElement).toBe(ap);
+    expect([ar.tabIndex, ap.tabIndex]).toEqual([-1, 0]);
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', ap.id);
+    fireEvent.keyDown(ap, { key: 'ArrowRight' });
+    await waitFor(() => expect(ar).toHaveAttribute('aria-selected', 'true'));
+    fireEvent.keyDown(ar, { key: 'End' });
+    await waitFor(() => expect(ap).toHaveAttribute('aria-selected', 'true'));
+    fireEvent.keyDown(ap, { key: 'Home' });
+    await waitFor(() => expect(ar).toHaveAttribute('aria-selected', 'true'));
   });
 
   it.each([
@@ -139,6 +196,42 @@ describe('suggestions: select, review, confirm', () => {
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('direction=')).length).toBeGreaterThan(loads));
   });
 
+  it('after a confirmation, while the reload is in flight, the old rows cannot be ticked or confirmed', async () => {
+    view = () => envelope(VIEW({ matches: { ...EMPTY, suggestions: [pair(1), pair(2)] } }));
+    render(<PairingPage />);
+    await screen.findByTestId('suggestions');
+    fireEvent.click(screen.getByLabelText('Pair INV-1 with INV-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Review 1 selected' }));
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
+      if (String(url).includes('direction=')) await gate;
+      return original(url as never, init as never);
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Confirm pairing' })); });
+    await waitFor(() => expect(screen.getByLabelText('Pair INV-2 with INV-2')).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Select all unflagged' })).toBeDisabled();
+    expect(screen.getByLabelText('Select all pairs that are not flagged')).toBeDisabled();
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByLabelText('Pair INV-2 with INV-2')).toBeEnabled());
+  });
+
+  it('a reload that drops every chosen pair closes the review instead of offering an empty confirmation', async () => {
+    view = () => envelope(VIEW({ matches: { ...EMPTY, suggestions: [pair(1)] } }));
+    render(<PairingPage />);
+    await screen.findByTestId('suggestions');
+    fireEvent.click(screen.getByLabelText('Pair INV-1 with INV-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Review 1 selected' }));
+    expect(screen.getByRole('button', { name: 'Confirm pairing' })).toBeEnabled();
+    view = () => envelope(VIEW({ matches: { ...EMPTY, suggestions: [pair(2)] } }));
+    fireEvent.click(screen.getByRole('tab', { name: /Owed by you/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Owed to you/ }));
+    await screen.findByTestId('suggestions');
+    expect(screen.queryByTestId('review')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Confirm pairing' })).toBeNull();
+  });
+
   it('tells a user who can write in both companies that both sides are confirmed at once', async () => {
     view = () => envelope(VIEW({ confirmsBoth: true, matches: { ...EMPTY, suggestions: [pair(1)] } }));
     render(<PairingPage />);
@@ -207,6 +300,25 @@ describe('exceptions, pairings and loan balances', () => {
     render(<PairingPage />);
     const row = await screen.findByTestId('pairing-row');
     expect(within(row).queryByRole('button')).toBeNull();
+  });
+
+  it.each([
+    ['revoked', /connection is revoked/], ['no_write_access', /owner, admin or manager role/], ['no_cutover', /cut-over date is set/], ['no_party', /customer or supplier is linked/],
+  ] as const)('while blocked (%s) a pairing\'s missing partner document says why, not that it is closed', async (blocked, text) => {
+    view = () => envelope(VIEW({ blocked, links: [{ id: 'l3', status: 'active', awaiting: null, conflict: false, mine: doc('m3', 'INV-3', 10), theirs: null, createdAt: '' }] }));
+    render(<PairingPage />);
+    const row = await screen.findByTestId('pairing-row');
+    expect(row).toHaveTextContent(text);
+    expect(row).not.toHaveTextContent('Not open any more');
+  });
+
+  it('says which side is higher when the loan balances differ', async () => {
+    view = () => envelope(VIEW({ loan: { mine: 5000, theirs: -4800, difference: 200, asAt: '2026-09-30' } }));
+    render(<PairingPage />);
+    expect(await screen.findByTestId('loan-higher')).toHaveTextContent("Your books show R 200.00 more owed to you (or less owed by you) than Velocity Fibre's");
+    view = () => envelope(VIEW({ loan: { mine: 4800, theirs: -5000, difference: -200, asAt: '2026-09-30' } }));
+    fireEvent.click(screen.getByRole('tab', { name: /Owed by you/ }));
+    await waitFor(() => expect(screen.getByTestId('loan-higher')).toHaveTextContent("Velocity Fibre's books show R 200.00 more owed to them"));
   });
 
   it('shows the loan balances as Dr / Cr with the difference, and says when the partner has not set a loan account', async () => {

@@ -10,8 +10,14 @@ const doc = (number: string, total: number, over: Partial<PairingDoc> = {}): Pai
 
 describe('normaliseNumber', () => {
   it.each([
-    ['INV-0042', 'INV42'], ['inv 42', 'INV42'], ['INV/42', 'INV42'], ['00042', '42'], ['A-007-B', 'A7B'], ['INV-100', 'INV100'], ['', ''],
+    ['INV-0042', 'INV42'], ['inv 42', 'INV42'], ['INV/42', 'INV42'], ['00042', '42'], ['A-007-B', 'A7B'], ['INV-100', 'INV100'], ['', ''], ['INV-1-5', 'INV1-5'], ['2026/0042', '2026-42'], ['2026 0042', '2026-42'],
   ])('%s -> %s', (input, expected) => expect(normaliseNumber(input)).toBe(expected));
+
+  it('keeps a separator between digit groups, so INV-1-5 is not INV-15 and 12/34 is not 1234', () => {
+    expect(normaliseNumber('INV-1-5')).not.toBe(normaliseNumber('INV-15'));
+    expect(normaliseNumber('12/34')).not.toBe(normaliseNumber('1234'));
+    expect(normaliseNumber('INV-1-5')).toBe(normaliseNumber('inv 1 5'));
+  });
 
   it('keeps a number that only contains zeros distinct from empty, and does not merge 10 with 1', () => {
     expect(normaliseNumber('0')).toBe('0');
@@ -69,13 +75,25 @@ describe('matchDocuments', () => {
     expect(r.mismatches).toEqual([]);
   });
 
-  it('pairs the leftovers of a repeated number as a mismatch and leaves the odd one out unmatched', () => {
+  it('suggests the equal total of a repeated number and leaves the odd one out unmatched', () => {
     const m1 = doc('7', 100);
     const m2 = doc('7', 300);
     const t1 = doc('7', 100);
     const r = matchDocuments([m1, m2], [t1]);
     expect(r.suggestions.map((s) => s.mine.id)).toEqual([m1.id]);
     expect(r.unmatchedMine).toEqual([m2]);
+  });
+
+  it('pairs the leftovers of a repeated number as an amount mismatch', () => {
+    const m1 = doc('7', 100);
+    const m2 = doc('7', 300);
+    const t1 = doc('7', 100);
+    const t2 = doc('7', 350);
+    const r = matchDocuments([m1, m2], [t1, t2]);
+    expect(r.suggestions.map((s) => [s.mine.id, s.theirs.id])).toEqual([[m1.id, t1.id]]);
+    expect(r.mismatches.map((s) => [s.mine.id, s.theirs.id, s.ambiguous])).toEqual([[m2.id, t2.id, true]]);
+    expect(r.unmatchedMine).toEqual([]);
+    expect(r.unmatchedTheirs).toEqual([]);
   });
 
   it('never suggests a foreign-currency document: it goes to unsupported, on whichever side', () => {

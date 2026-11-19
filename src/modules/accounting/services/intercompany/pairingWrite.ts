@@ -10,7 +10,7 @@ import { userCanWriteCompany } from '@/modules/accounting/services/core/companyA
 import { listConnections } from './connectionRead';
 import { orderedPair } from './connectionValidation';
 import { ConnectionRefusal } from './connectionTypes';
-import { MY_TYPE, THEIR_TYPE, readOwnLinks } from './pairingRead';
+import { MY_TYPE, THEIR_TYPE, isInvoicePairing, readOwnLinks } from './pairingRead';
 import { buildPairingView } from './pairingView';
 import type { PairInput, PairingBlock, PairingDirection, PairingResult } from './pairingTypes';
 
@@ -22,7 +22,7 @@ const BLOCK_REFUSAL: Record<PairingBlock, ConnectionRefusal> = {
   no_cutover: new ConnectionRefusal(409, "Set the connection's cut-over date first: only documents dated before it are paired."),
   no_party: new ConnectionRefusal(409, 'Link the customer (or supplier) for this connection first, in "My settings".'),
 };
-const GONE = new ConnectionRefusal(409, 'One of these documents is no longer available to pair: it may have been paid, paired or changed. Reload and try again.');
+const GONE = new ConnectionRefusal(409, 'One of these pairs is no longer on offer: a document may have been paid, paired or changed. Reload and try again.');
 
 /** The refusal for a database refusal of a link write, or null for anything unexpected (which the caller rethrows). */
 export function refusalFor(err: unknown): ConnectionRefusal | null {
@@ -44,8 +44,8 @@ async function mayWriteOrRefuse(userId: string, companyId: string): Promise<void
 
 /**
  * Record `pairs` as document links, all or none (one transaction: a database refusal aborts it whole, and the request answers 4xx on a
- * transaction that can no longer commit anything). Both documents must be among those the screen offers right now (so a document id
- * from anywhere else is refused, whatever the database would say). A user who can write in BOTH companies of a group confirms both
+ * transaction that can no longer commit anything). Each pair must be one the screen SUGGESTS right now (so a document id from
+ * anywhere else, a mismatch or an unmatched document is refused, whatever the database would say). A user who can write in BOTH companies of a group confirms both
  * sides at once (the links guard allows it); anyone else's pairing waits for the partner to confirm.
  */
 export async function createPairings(userId: string, companyId: string, connectionId: string, direction: PairingDirection, pairs: PairInput[]): Promise<PairingResult> {
@@ -54,10 +54,10 @@ export async function createPairings(userId: string, companyId: string, connecti
   const [conn] = await listConnections(companyId, connectionId);
   if (!conn) throw new ConnectionRefusal(404, 'Connection not found');
 
-  const { matches } = view;
-  const offeredMine = new Set([...matches.suggestions.map((c) => c.mine.id), ...matches.mismatches.map((c) => c.mine.id), ...matches.unmatchedMine.map((d) => d.id)]);
-  const offeredTheirs = new Set([...matches.suggestions.map((c) => c.theirs.id), ...matches.mismatches.map((c) => c.theirs.id), ...matches.unmatchedTheirs.map((d) => d.id)]);
-  if (pairs.some((p) => !offeredMine.has(p.mineId) || !offeredTheirs.has(p.theirsId))) throw GONE;
+  // Only the pairs the screen SUGGESTS (same number and total) are recorded: a mismatch or a document with no counterpart is an
+  // exception to correct, not a pairing to force. Anything else is refused whatever the database would say.
+  const suggested = new Set(view.matches.suggestions.map((c) => `${c.mine.id}|${c.theirs.id}`));
+  if (pairs.some((p) => !suggested.has(`${p.mineId}|${p.theirsId}`))) throw GONE;
 
   const { low, high } = orderedPair(companyId, conn.partnerCompanyId);
   const mineIsA = companyId.toLowerCase() === low;
@@ -89,7 +89,8 @@ export async function createPairings(userId: string, companyId: string, connecti
 }
 
 async function ownLink(companyId: string, connectionId: string, linkId: string) {
-  const link = (await readOwnLinks(companyId)).find((l) => l.id === linkId && l.connectionId === connectionId);
+  // Another origin's link (a mirror made by P2) or a credit-note link is not a pairing of this screen: a 404, never touched.
+  const link = (await readOwnLinks(companyId)).find((l) => l.id === linkId && l.connectionId === connectionId && isInvoicePairing(l));
   if (!link) throw new ConnectionRefusal(404, 'Pairing not found');
   return link;
 }

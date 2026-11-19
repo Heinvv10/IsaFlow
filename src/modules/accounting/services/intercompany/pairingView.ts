@@ -7,7 +7,7 @@ import { userCanWriteCompany } from '@/modules/accounting/services/core/companyA
 import { listConnections } from './connectionRead';
 import { matchDocuments } from './pairingMatch';
 import {
-  DOC_LIMIT, MY_TYPE, myDocId, myDocType, readOwnDocsById, readOwnLinks, readOwnLoanBalance, readOwnOpenDocs, readPartnerDocs,
+  DOC_LIMIT, MY_TYPE, isInvoicePairing, myDocId, myDocType, readOwnDocsById, readOwnLinks, readOwnLoanBalance, readOwnOpenDocs, readPartnerDocs,
   readPartnerLoanBalance, theirDocId, type LinkRow, type PartnerDoc,
 } from './pairingRead';
 import { ConnectionRefusal, type ConnectionView } from './connectionTypes';
@@ -49,12 +49,13 @@ function toLinkView(l: LinkRow, mine: Map<string, PairingDoc>, theirs: Map<strin
   };
 }
 
-async function loanDifference(conn: ConnectionView, companyId: string, canAskPartner: boolean): Promise<LoanDifference | null> {
+async function loanDifference(conn: ConnectionView, companyId: string): Promise<LoanDifference | null> {
   const cutover = conn.settings.cutoverDate;
   const account = conn.side?.loanAccountId;
   if (!cutover || !account) return null;
   const mine = await readOwnLoanBalance(companyId, account, cutover);
-  const theirs = canAskPartner ? await readPartnerLoanBalance(conn.id) : null;
+  // The definer answers NULL to anyone but a writer on an active connection, so there is no second check here.
+  const theirs = await readPartnerLoanBalance(conn.id);
   return { mine, theirs, difference: theirs == null ? null : round2(mine + theirs), asAt: dayBefore(cutover) };
 }
 
@@ -66,7 +67,7 @@ export async function buildPairingView(userId: string, companyId: string, connec
   const confirmsBoth = conn.kind === 'group' && conn.canEditSettings;
 
   const allLinks = await readOwnLinks(companyId);
-  const here = allLinks.filter((l) => l.connectionId === connectionId && myDocType(l) === MY_TYPE[direction]);
+  const here = allLinks.filter((l) => l.connectionId === connectionId && isInvoicePairing(l) && myDocType(l) === MY_TYPE[direction]);
   // A pending pairing holds only the side its proposer verified (migration 1002): the partner's proposal naming one of this
   // company's documents does not hold it, so the document stays on offer here. Only a link this company has confirmed does.
   const heldMine = new Set(allLinks.filter((l) => l.status === 'active' || l.confirmedByMe).map(myDocId));
@@ -80,7 +81,14 @@ export async function buildPairingView(userId: string, companyId: string, connec
 
   const mineOffered = own.slice(0, DOC_LIMIT).filter((d) => !heldMine.has(d.id));
   const theirsOffered = partner.slice(0, DOC_LIMIT).filter((d) => d.linkId === null && !namedHere.has(d.id));
-  const matches = blocked === null ? matchDocuments(mineOffered, theirsOffered) : EMPTY_MATCHES;
+  const found = blocked === null ? matchDocuments(mineOffered, theirsOffered) : EMPTY_MATCHES;
+  // A document the partner has proposed a pairing for is shown under Pairings (to confirm or decline), not as an exception too.
+  const proposedToMe = new Set(here.filter((l) => l.status === 'pending_confirmation' && !l.confirmedByMe).map(myDocId));
+  const matches: PairingMatches = {
+    ...found,
+    mismatches: found.mismatches.filter((m) => !proposedToMe.has(m.mine.id)),
+    unmatchedMine: found.unmatchedMine.filter((d) => !proposedToMe.has(d.id)),
+  };
 
   const mineById = await readOwnDocsById(direction, companyId, here.map(myDocId));
   const theirsById = new Map(partner.map((d) => [d.id, d]));
@@ -89,6 +97,6 @@ export async function buildPairingView(userId: string, companyId: string, connec
 
   return {
     connectionId, partnerName: conn.partnerName, direction, cutoverDate: cutover, blocked, confirmsBoth, matches, truncated, links,
-    loan: await loanDifference(conn, companyId, conn.status === 'active' && mayWrite),
+    loan: await loanDifference(conn, companyId),
   };
 }

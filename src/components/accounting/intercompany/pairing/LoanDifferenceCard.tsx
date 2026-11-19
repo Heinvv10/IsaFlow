@@ -5,6 +5,10 @@ import { formatDrCr } from './pairingFormat';
 
 export function LoanDifferenceCard({ loan, partnerName }: { loan: LoanDifference; partnerName: string }) {
   const agrees = loan.difference !== null && Math.abs(loan.difference) < 0.005;
+  // difference = yours + theirs (net debit): above nil, yours shows more owed to you (or less owed by you) than the partner's mirror.
+  const higher = loan.difference === null || agrees ? null
+    : loan.difference > 0 ? `Your books show ${formatCurrency(loan.difference)} more owed to you (or less owed by you) than ${partnerName}'s`
+      : `${partnerName}'s books show ${formatCurrency(Math.abs(loan.difference))} more owed to them (or less owed by them) than yours`;
   return (
     <section className="bg-[var(--ff-canvas-mid)] border border-[var(--ff-canvas-border)] rounded-xl p-5 space-y-3" data-testid="loan-difference">
       <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Intercompany loan balances</h2>
@@ -28,6 +32,7 @@ export function LoanDifferenceCard({ loan, partnerName }: { loan: LoanDifference
           <dd data-testid="loan-difference-value" data-state={loan.difference === null ? 'unknown' : agrees ? 'agrees' : 'differs'}
             className={`text-sm font-medium tabular-nums ${loan.difference === null ? 'text-ink-muted' : agrees ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
             {loan.difference === null ? 'Not known' : agrees ? 'None: the balances agree' : formatCurrency(Math.abs(loan.difference))}
+            {higher && <span className="block text-xs font-normal" data-testid="loan-higher">{higher}</span>}
           </dd>
         </div>
       </dl>

@@ -14,6 +14,7 @@ import { LoanDifferenceCard } from '@/components/accounting/intercompany/pairing
 import { PairingExceptions } from '@/components/accounting/intercompany/pairing/PairingExceptions';
 import { PairingLinks } from '@/components/accounting/intercompany/pairing/PairingLinks';
 import { PairingSuggestions } from '@/components/accounting/intercompany/pairing/PairingSuggestions';
+import { PairingTabs } from '@/components/accounting/intercompany/pairing/PairingTabs';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -28,7 +29,6 @@ const BLOCK_TEXT: Record<PairingBlock, string> = {
   no_cutover: "Set the connection's cut-over date first: only documents dated before it are paired.",
   no_party: 'Link the customer (for your invoices) or the supplier (for your bills) on this connection first.',
 };
-const TAB = 'px-4 py-2 text-sm font-medium border-b-2 -mb-px';
 
 export default function IntercompanyPairingPage() {
   const router = useRouter();
@@ -46,23 +46,31 @@ export default function IntercompanyPairingPage() {
 
   const say = useCallback((msg: string, ok: boolean) => { setNotice({ msg, ok }); afterDelay(() => setNotice(null), 6000); }, [afterDelay]);
 
-  useEffect(() => {
-    let cancelled = false;
-    apiJson('/api/accounting/intercompany/connections', undefined, 'Could not load your intercompany connections - try again')
-      .then((list) => {
-        if (cancelled) return;
-        if (!('items' in list)) throw new Error('unexpected reply');
-        const live = list.items.filter((c) => c.status === 'active');
-        setConnections(live);
-        const wanted = typeof router.query.connection === 'string' ? router.query.connection : '';
-        setConnectionId(live.find((c) => c.id === wanted)?.id ?? live[0]?.id ?? '');
-        if (live.length === 0) setLoading(false);
-      })
-      .catch((err) => { if (!cancelled) { setLoadError(apiErrorMessage(err, 'Could not load your intercompany connections - try again')); setLoading(false); } });
-    return () => { cancelled = true; };
-  // The query is read once, on arrival; choosing another connection afterwards is the select's job.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // The connection named in the address (?connection=) is read once, when the router is ready: on a statically rendered page the
+  // query is empty on the first render, so reading it earlier would open the first connection instead.
+  const wanted = useRef<string | null>(null);
+  const loadConnections = useCallback(async () => {
+    try {
+      const list = await apiJson('/api/accounting/intercompany/connections', undefined, 'Could not load your intercompany connections - try again');
+      if (!('items' in list)) throw new Error('unexpected reply');
+      const live = list.items.filter((c) => c.status === 'active');
+      setConnections(live);
+      // A retry keeps the connection the person already chose, if it is still live.
+      setConnectionId((cur) => live.find((c) => c.id === cur)?.id ?? live.find((c) => c.id === wanted.current)?.id ?? live[0]?.id ?? '');
+      setLoadError('');
+      if (live.length === 0) setLoading(false);
+    } catch (err) {
+      setLoadError(apiErrorMessage(err, 'Could not load your intercompany connections - try again'));
+      setLoading(false);
+    }
   }, []);
+
+  const queryConnection = router.query.connection;
+  useEffect(() => {
+    if (!router.isReady || wanted.current !== null) return;
+    wanted.current = typeof queryConnection === 'string' ? queryConnection : '';
+    void loadConnections();
+  }, [router.isReady, queryConnection, loadConnections]);
 
   const load = useCallback(async () => {
     if (!connectionId) return;
@@ -112,7 +120,7 @@ export default function IntercompanyPairingPage() {
         {loadError && (
           <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-sm">
             <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden /><span className="flex-1">{loadError}</span>
-            <button type="button" onClick={() => void load()} className="underline">Try again</button>
+            <button type="button" onClick={() => void (connections === null ? loadConnections() : load())} className="underline">Try again</button>
           </div>
         )}
 
@@ -138,15 +146,8 @@ export default function IntercompanyPairingPage() {
               )}
             </div>
 
-            <div role="tablist" aria-label="Which documents to pair" className="flex gap-1 border-b border-[var(--ff-border-light)]">
-              {([['ar', `Owed to you: your invoices to ${partner}`], ['ap', `Owed by you: ${partner}'s invoices to you`]] as const).map(([key, label]) => (
-                <button key={key} type="button" role="tab" aria-selected={direction === key} onClick={() => { setView(null); setDirection(key); }}
-                  className={`${TAB} ${direction === key ? 'border-blue-500 text-[var(--ff-text-primary)]' : 'border-transparent text-ink-muted hover:text-[var(--ff-text-primary)]'}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
+            <PairingTabs direction={direction} onChange={(d) => { setView(null); setDirection(d); }}
+              labels={{ ar: `Owed to you: your invoices to ${partner}`, ap: `Owed by you: ${partner}'s invoices to you` }}>
             {loading && !view && <div className="flex items-center gap-2 text-ink-muted py-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /><span className="text-sm">Loading…</span></div>}
 
             {view && (
@@ -163,12 +164,12 @@ export default function IntercompanyPairingPage() {
                 {view.truncated && (
                   <p className="text-xs text-amber-700 dark:text-amber-400" role="status">Very long lists are cut at 2 000 documents a side; pair these, then reload for the rest.</p>
                 )}
-                <PairingLinks connectionId={view.connectionId} partnerName={view.partnerName} direction={direction} links={view.links}
+                <PairingLinks connectionId={view.connectionId} partnerName={view.partnerName} direction={direction} blocked={view.blocked} links={view.links}
                   canWrite={mayWrite} onChanged={done} onError={(m) => say(m, false)} />
                 {!view.blocked && (
                   <>
                     <PairingSuggestions connectionId={view.connectionId} direction={direction} partnerName={view.partnerName}
-                      suggestions={view.matches.suggestions} confirmsBoth={view.confirmsBoth} onDone={done} onError={(m) => say(m, false)} />
+                      suggestions={view.matches.suggestions} confirmsBoth={view.confirmsBoth} disabled={loading} onDone={done} onError={(m) => say(m, false)} />
                     {nothingLeft ? (
                       <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400" data-testid="all-paired">
                         <CheckCircle2 className="h-4 w-4" aria-hidden />
@@ -184,7 +185,11 @@ export default function IntercompanyPairingPage() {
                 {view.loan && <LoanDifferenceCard loan={view.loan} partnerName={view.partnerName} />}
               </div>
             )}
+            </PairingTabs>
           </>
+        )}
+        {connections === null && !loadError && (
+          <div className="flex items-center gap-2 text-ink-muted py-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /><span className="text-sm">Loading…</span></div>
         )}
       </div>
     </AppLayout>

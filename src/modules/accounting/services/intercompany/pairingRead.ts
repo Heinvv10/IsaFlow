@@ -113,6 +113,8 @@ export interface LinkRow {
   docAId: string;
   docBType: PairingDocType;
   docBId: string;
+  /** 'manual_pairing' (this screen) or 'mirror' (made by an accepted message: not this screen's to confirm or unlink). */
+  origin: 'manual_pairing' | 'mirror';
   confirmedByMe: boolean;
   confirmedByPartner: boolean;
   createdAt: string;
@@ -122,7 +124,7 @@ export interface LinkRow {
 export async function readOwnLinks(companyId: string): Promise<LinkRow[]> {
   const rows = (await sql`
     SELECT l.id, l.connection_id, l.status, (l.company_a_id = ${companyId}::UUID) AS mine_is_a,
-           l.doc_a_type, l.doc_a_id, l.doc_b_type, l.doc_b_id, l.confirmed_by_a, l.confirmed_by_b, l.created_at
+           l.doc_a_type, l.doc_a_id, l.doc_b_type, l.doc_b_id, l.origin, l.confirmed_by_a, l.confirmed_by_b, l.created_at
     FROM intercompany_document_links l
     WHERE l.status <> 'unlinked' AND (l.company_a_id = ${companyId}::UUID OR l.company_b_id = ${companyId}::UUID)
     ORDER BY l.created_at DESC, l.id
@@ -132,7 +134,7 @@ export async function readOwnLinks(companyId: string): Promise<LinkRow[]> {
     return {
       id: String(r.id), connectionId: String(r.connection_id), status: String(r.status) as LinkRow['status'], mineIsA,
       docAType: String(r.doc_a_type) as PairingDocType, docAId: String(r.doc_a_id),
-      docBType: String(r.doc_b_type) as PairingDocType, docBId: String(r.doc_b_id),
+      docBType: String(r.doc_b_type) as PairingDocType, docBId: String(r.doc_b_id), origin: r.origin === 'mirror' ? 'mirror' : 'manual_pairing',
       confirmedByMe: (mineIsA ? r.confirmed_by_a : r.confirmed_by_b) != null,
       confirmedByPartner: (mineIsA ? r.confirmed_by_b : r.confirmed_by_a) != null,
       createdAt: toIsoTimestamp(r.created_at as Date | string) ?? '',
@@ -142,4 +144,8 @@ export async function readOwnLinks(companyId: string): Promise<LinkRow[]> {
 
 export const myDocId = (l: LinkRow): string => (l.mineIsA ? l.docAId : l.docBId);
 export const myDocType = (l: LinkRow): PairingDocType => (l.mineIsA ? l.docAType : l.docBType);
+/** A pairing this screen manages: a manual pairing of an invoice with a bill (not a mirror link, not a credit-note link). */
+export const isInvoicePairing = (l: LinkRow): boolean =>
+  l.origin === 'manual_pairing' && new Set<PairingDocType>([l.docAType, l.docBType]).size === 2
+  && [l.docAType, l.docBType].every((t) => t === 'customer_invoice' || t === 'supplier_invoice');
 export const theirDocId = (l: LinkRow): string => (l.mineIsA ? l.docBId : l.docAId);

@@ -17,13 +17,15 @@ interface Props {
   partnerName: string;
   suggestions: PairingCandidate[];
   confirmsBoth: boolean;
+  /** A reload is in flight: the rows may be stale, so nothing can be ticked or confirmed meanwhile. */
+  disabled: boolean;
   onDone: (message: string) => void;
   onError: (message: string) => void;
 }
 
 const FLAG = 'inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30';
 
-export function PairingSuggestions({ connectionId, direction, partnerName, suggestions, confirmsBoth, onDone, onError }: Props) {
+export function PairingSuggestions({ connectionId, direction, partnerName, suggestions, confirmsBoth, disabled, onDone, onError }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reviewing, setReviewing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,6 +41,8 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
 
   const unflagged = useMemo(() => suggestions.filter((s) => !s.ambiguous && !s.openDiffers), [suggestions]);
   const chosen = suggestions.filter((s) => selected.has(s.mine.id));
+  // Nothing left to confirm (a reload dropped every chosen pair): the review closes instead of offering an empty confirmation.
+  useEffect(() => { if (reviewing && chosen.length === 0) setReviewing(false); }, [reviewing, chosen.length]);
   const allUnflagged = unflagged.length > 0 && unflagged.every((s) => selected.has(s.mine.id));
   const toggle = (id: string) => setSelected((cur) => { const next = new Set(cur); if (!next.delete(id)) next.add(id); return next; });
 
@@ -71,11 +75,11 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
         <span className="text-xs text-ink-muted">Same number and total on both sides.</span>
         {!reviewing && (
           <div className="ml-auto flex gap-2">
-            <button type="button" onClick={() => setSelected(new Set(allUnflagged ? [] : unflagged.map((s) => s.mine.id)))} disabled={unflagged.length === 0}
+            <button type="button" onClick={() => setSelected(new Set(allUnflagged ? [] : unflagged.map((s) => s.mine.id)))} disabled={unflagged.length === 0 || disabled}
               className="px-3 py-1.5 text-sm rounded-lg border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50">
               {allUnflagged ? 'Clear selection' : 'Select all unflagged'}
             </button>
-            <button type="button" onClick={() => setReviewing(true)} disabled={chosen.length === 0}
+            <button type="button" onClick={() => setReviewing(true)} disabled={chosen.length === 0 || disabled}
               className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
               Review {chosen.length} selected
             </button>
@@ -102,7 +106,7 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
             ))}
           </ul>
           <div className="flex gap-2">
-            <button type="button" onClick={() => void confirm()} disabled={saving}
+            <button type="button" onClick={() => void confirm()} disabled={saving || disabled || chosen.length === 0}
               className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
               Confirm pairing
@@ -120,7 +124,7 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
             <thead>
               <tr className="border-b border-[var(--ff-border-light)]">
                 <th scope="col" className={`${TH} w-10`}>
-                  <input type="checkbox" checked={allUnflagged} disabled={unflagged.length === 0} aria-label="Select all pairs that are not flagged"
+                  <input type="checkbox" checked={allUnflagged} disabled={unflagged.length === 0 || disabled} aria-label="Select all pairs that are not flagged"
                     onChange={() => setSelected(new Set(allUnflagged ? [] : unflagged.map((s) => s.mine.id)))} />
                 </th>
                 <DocHeads side={mineLabel} />
@@ -132,7 +136,7 @@ export function PairingSuggestions({ connectionId, direction, partnerName, sugge
               {suggestions.map((s) => (
                 <tr key={s.mine.id} className={selected.has(s.mine.id) ? 'bg-blue-500/5' : undefined}>
                   <td className={TD}>
-                    <input type="checkbox" checked={selected.has(s.mine.id)} onChange={() => toggle(s.mine.id)}
+                    <input type="checkbox" checked={selected.has(s.mine.id)} onChange={() => toggle(s.mine.id)} disabled={disabled}
                       aria-label={`Pair ${s.mine.number} with ${s.theirs.number}`} />
                   </td>
                   <DocCells doc={s.mine} />

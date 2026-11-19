@@ -3,20 +3,29 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
-import type { PairingDirection, PairingLinkView } from '@/modules/accounting/services/intercompany/pairingTypes';
-import { DocCells, DocHeads, TD, TH } from './DocCells';
+import type { PairingBlock, PairingDirection, PairingLinkView } from '@/modules/accounting/services/intercompany/pairingTypes';
+import { DocCells, DocHeads, NOT_OPEN, TD, TH } from './DocCells';
 import { docLabels } from './pairingFormat';
 
 interface Props {
   connectionId: string;
   partnerName: string;
   direction: PairingDirection;
+  /** Why the partner's side is not read, if it is not: a missing partner document is then not "closed". */
+  blocked: PairingBlock | null;
   links: PairingLinkView[];
   /** A pairing can be changed (not read only). */
   canWrite: boolean;
   onChanged: (message: string) => void;
   onError: (message: string) => void;
 }
+
+const PARTNER_HIDDEN: Record<PairingBlock, string> = {
+  revoked: "Not shown: the connection is revoked",
+  no_write_access: "Not shown: seeing the partner's documents needs an owner, admin or manager role",
+  no_cutover: 'Not shown until the cut-over date is set',
+  no_party: 'Not shown until the customer or supplier is linked',
+};
 
 const BADGE = {
   active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
@@ -29,7 +38,7 @@ function statusOf(l: PairingLinkView): { label: string; tone: keyof typeof BADGE
   return { label: 'Waiting for the partner', tone: 'waiting' };
 }
 
-export function PairingLinks({ connectionId, partnerName, direction, links, canWrite, onChanged, onError }: Props) {
+export function PairingLinks({ connectionId, partnerName, direction, blocked, links, canWrite, onChanged, onError }: Props) {
   const label = docLabels(direction, partnerName);
   const [busy, setBusy] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState<PairingLinkView | null>(null);
@@ -74,7 +83,7 @@ export function PairingLinks({ connectionId, partnerName, direction, links, canW
               const st = statusOf(l);
               return (
                 <tr key={l.id} data-testid="pairing-row" data-status={l.status} data-awaiting={l.awaiting ?? ''}>
-                  <DocCells doc={l.mine} /><DocCells doc={l.theirs} />
+                  <DocCells doc={l.mine} /><DocCells doc={l.theirs} missing={blocked ? PARTNER_HIDDEN[blocked] : NOT_OPEN} />
                   <td className={TD}><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${BADGE[st.tone]}`}>{st.label}</span></td>
                   <td className={`${TD} whitespace-nowrap space-x-2`}>
                     {canWrite && l.awaiting === 'me' && !l.conflict && (

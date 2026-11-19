@@ -9,9 +9,12 @@ export const NUM = 'text-right tabular-nums';
 /** Rand through the shared formatter; any other currency as its code and the plain figure (the pairing never converts). */
 const money = (doc: PairingDoc, amount: number): string => (doc.currency === 'ZAR' ? formatCurrency(amount) : `${doc.currency} ${amount.toFixed(2)}`);
 
-export function DocCells({ doc }: { doc: PairingDoc | null }) {
+/** Why a document's figures are missing: the person is told the real reason, not left to guess. */
+export const NOT_OPEN = 'Not open any more';
+
+export function DocCells({ doc, missing = NOT_OPEN }: { doc: PairingDoc | null; missing?: string }) {
   if (!doc) {
-    return <td colSpan={4} className={`${TD} text-ink-muted italic`}>Not open any more, or not offered by the partner</td>;
+    return <td colSpan={4} className={`${TD} text-ink-muted italic`}>{missing}</td>;
   }
   return (
     <>

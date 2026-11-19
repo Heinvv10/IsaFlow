@@ -8,9 +8,18 @@ import type { PairingCandidate, PairingDoc, PairingMatches } from './pairingType
 
 const HOME_CURRENCY = 'ZAR';
 
-/** 'INV-0042', 'inv 42' and 'INV/42' are one number; '10' and '1' are not. A number of nothing but punctuation is ''. */
+const GROUP_BREAK = '\u0001';
+
+/**
+ * 'INV-0042', 'inv 42' and 'INV/42' are one number; '10' and '1' are not. A separator between two digits is kept as a group
+ * break, so 'INV-1-5' is not 'INV-15' (nor '12/34' '1234'). A number of nothing but punctuation is ''.
+ */
 export function normaliseNumber(raw: string): string {
-  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/(^|\D)0+(?=\d)/g, '$1');
+  return raw.toUpperCase()
+    .replace(/(?<=\d)[^A-Z0-9]+(?=\d)/g, GROUP_BREAK)
+    .replace(new RegExp(`[^A-Z0-9${GROUP_BREAK}]`, 'g'), '')
+    .replace(new RegExp(GROUP_BREAK, 'g'), '-')
+    .replace(/(^|\D)0+(?=\d)/g, '$1');
 }
 
 const cents = (amount: number): number => Math.round(amount * 100);

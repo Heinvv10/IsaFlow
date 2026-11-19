@@ -11,6 +11,7 @@ import { acct, asAppUser, cleanup, co, count, party, setup, U } from './intercom
 import {
   dropJournals, pairingApi as api, pairingConnection, plantBalancingAccount, plantCustomerInvoice, plantJournal, plantSupplierInvoice,
 } from './pairing.helpers';
+import { LINK, low, pairing } from './links.helpers';
 import type { PairingResult, PairingView } from '../../../src/modules/accounting/services/intercompany/pairingTypes';
 
 assertDisposable();
@@ -175,9 +176,9 @@ describe('a pending pairing reserves only the side that is verified (no squattin
     const aInvoice = await plantCustomerInvoice(pool, co.A, party.aCustomer, { number: 'INV-1' });
     const bSquat = await plantSupplierInvoice(pool, co.B, party.bSupplier, { number: 'WRONG-1' });
     const bReal = await plantSupplierInvoice(pool, co.B, party.bSupplier, { number: 'INV-1' });
-    // B proposes (its own bill, A's invoice)
-    const proposed = await api.pair(U.b, co.B, id, [{ mineId: bSquat, theirsId: aInvoice }], 'ap');
-    expect(proposed.state.statusCode).toBe(201);
+    // B proposes (its own bill, A's invoice) straight at the database: the screen would refuse a pair that is not a suggestion
+    const args = low() === co.B ? pairing(id, bSquat, aInvoice, 'supplier_invoice', 'customer_invoice') : pairing(id, aInvoice, bSquat);
+    await asAppUser(pool, U.b, co.B, (q) => q.query(LINK, args), true);
     // A's invoice still holds no slot: A sees it, and pairs it with the real bill, confirmed on both sides
     const vA = await view(U.a, co.A);
     expect(vA.matches.suggestions.map((s) => s.mine.id)).toEqual([aInvoice]);
@@ -210,8 +211,6 @@ describe('unlinking', () => {
     const { mine, theirs } = await invoicePair('INV-1');
     await api.pair(U.ab, co.A, id, [{ mineId: mine, theirsId: theirs }]);
     const link = (await links(co.A))[0]!.id;
-    await pool.query("SELECT set_config('request.jwt.claims', $1, false)", [JSON.stringify({ sub: U.ab })]);
-    const { asAppUser } = await import('./intercompany.helpers');
     await asAppUser(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
     const v = await view(U.a, co.A);
     expect(v.blocked).toBe('revoked');
@@ -250,7 +249,7 @@ describe('tenant isolation', () => {
     const aInvoice = await plantCustomerInvoice(pool, co.A, party.aCustomer, { number: 'INV-1' });
     const cBill = await plantSupplierInvoice(pool, co.C, party.bSupplier, { number: 'INV-1' });
     expect((await api.pair(U.a, co.A, id, [{ mineId: aInvoice, theirsId: cBill }])).state.statusCode).toBe(409);
-    expect(messageOf(await api.pair(U.a, co.A, id, [{ mineId: aInvoice, theirsId: cBill }]))).toMatch(/no longer available/);
+    expect(messageOf(await api.pair(U.a, co.A, id, [{ mineId: aInvoice, theirsId: cBill }]))).toMatch(/no longer on offer/);
   });
 });
 
@@ -276,13 +275,15 @@ describe('the loan-balance difference', () => {
 
   it('shows only this company\'s figure while the partner has set no loan account, and nothing while this company has set none', async () => {
     await plantJournal(pool, co.A, '2026-09-10', acct.aLoan, aOther, 300, 0);
-    await pool.query('UPDATE intercompany_connection_sides SET loan_account_id = NULL WHERE connection_id = $1 AND company_id = $2', [id, co.B]);
+    await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET loan_account_id = NULL WHERE connection_id = $1 AND company_id = $2', [id, co.B]), true);
     expect((await view(U.a, co.A)).loan).toEqual({ mine: 300, theirs: null, difference: null, asAt: '2026-09-30' });
     expect((await view(U.b, co.B)).loan).toBeNull();
   });
 
   it('the partner\'s figure is withheld from a viewer', async () => {
     await plantJournal(pool, co.B, '2026-09-10', acct.bLoan, bOther, 0, 5000);
-    expect((await view(U.va, co.A)).loan?.theirs ?? null).toBeNull();
+    const loan = (await view(U.va, co.A)).loan;
+    expect(loan).not.toBeNull();
+    expect(loan).toMatchObject({ mine: 0, theirs: null, difference: null });
   });
 });
