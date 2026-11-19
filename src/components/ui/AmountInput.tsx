@@ -44,7 +44,12 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
   // number last emitted, keeps the draft, so "2325." survives the parent handing back 2325.
   React.useEffect(() => {
     setRefused(false);
-    if (typeof value === 'string') { setDraft(prev => (prev === value ? prev : value)); return; }
+    if (typeof value === 'string') {
+      // A `x || ''` parent hands back '' for 0: remember that, so the same number coming back later is shown again.
+      emitted.current = Number(value) || 0;
+      setDraft(prev => (prev === value ? prev : value));
+      return;
+    }
     if (value === emitted.current) return;
     emitted.current = value;
     setDraft(asText(value));

@@ -215,4 +215,19 @@ describe('AmountInput (#1654): review follow-ups', () => {
     fireEvent.click(screen.getByText('reset'));
     expect(field().value).toBe('');
   });
+
+  it('a number-or-"" parent (value={n || \'\'}) shows the same number again after a 0 cleared it', () => {
+    function PickInvoice() {
+      const [n, setN] = useState(0);
+      return (<><AmountInput aria-label="amt" value={n || ''} onValueChange={v => setN(v)} />
+        <button type="button" onClick={() => setN(100)}>pick</button><button type="button" onClick={() => setN(0)}>none</button></>);
+    }
+    render(<PickInvoice />);
+    fireEvent.click(screen.getByText('pick'));
+    expect(field().value).toBe('100');
+    fireEvent.click(screen.getByText('none'));
+    expect(field().value).toBe('');
+    fireEvent.click(screen.getByText('pick'));
+    expect(field().value).toBe('100');
+  });
 });
