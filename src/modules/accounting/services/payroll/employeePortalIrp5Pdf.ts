@@ -8,16 +8,18 @@
 import { createHash } from 'crypto';
 import { COLORS, type JsPdfDoc } from '@/modules/accounting/services/core/pdfShared';
 import { money, shortDate } from './payslipFacts';
+import { notePlacement } from './payslipPdf';
+import { kindLabel } from './employeePortalIrp5Kind';
 import type { CertificateLine, CertificateView } from './employeePortalIrp5View';
 
 const MARGIN = 14;
+const LABEL_W = 30;
+const LINE = 4.2;
 type AutoTable = (doc: JsPdfDoc, opts: Record<string, unknown>) => void;
 
 export const IRP5_COPY_NOTE = 'A copy of the IRP5/IT3(a) figures your employer filed with SARS in its EMP501 reconciliation. '
   + 'It is not the SARS certificate form; your employer can give you that. SARS pre-populates your tax return from what was filed.';
 
-export const kindLabel = (kind: CertificateView['kind']): string =>
-  (kind === 'annual' ? 'Annual (March to February)' : 'Interim (March to August)');
 
 function table(doc: JsPdfDoc, autoTable: AutoTable, y: number, title: string, lines: CertificateLine[]): number {
   if (lines.length === 0) return y;
@@ -39,6 +41,7 @@ export async function buildIrp5CopyPdf(c: CertificateView): Promise<Buffer> {
   if (c.filedAt) doc.setCreationDate(new Date(c.filedAt));
   doc.setFileId(createHash('sha256').update(`${c.versionId}:${c.certificateNumber}`).digest('hex').slice(0, 32).toUpperCase());
   const width: number = doc.internal.pageSize.getWidth();
+  const height: number = doc.internal.pageSize.getHeight();
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.text(`IRP5 copy: tax year ${c.taxYear}`, MARGIN, 18);
@@ -55,18 +58,24 @@ export async function buildIrp5CopyPdf(c: CertificateView): Promise<Buffer> {
     ['Filed', c.filedAt ? shortDate(c.filedAt) : 'Not recorded'],
   ];
   let y = 26;
+  // Each value wraps to the page width (an employer's trading name can be long; review #1649 L3).
   for (const [k, v] of facts) {
+    const lines: string[] = doc.splitTextToSize(v, width - MARGIN * 2 - LABEL_W);
     doc.text(`${k}:`, MARGIN, y);
-    doc.text(v, MARGIN + 30, y);
-    y += 5;
+    doc.text(lines, MARGIN + LABEL_W, y);
+    y += Math.max(1, lines.length) * LINE + 0.8;
   }
   y += 2;
   const at = autoTable as unknown as AutoTable;
   y = table(doc, at, y, 'Income', c.income);
   y = table(doc, at, y, 'Deductions', c.deductions);
   y = table(doc, at, y, 'Tax, UIF and SDL', c.tax);
+  // The note goes on a new page when it would run off this one (payslipPdf.notePlacement).
   doc.setFontSize(8);
-  doc.text(doc.splitTextToSize(IRP5_COPY_NOTE, width - MARGIN * 2), MARGIN, y + 2);
+  const note: string[] = doc.splitTextToSize(IRP5_COPY_NOTE, width - MARGIN * 2);
+  const placed = notePlacement(y, note.length, height);
+  if (placed.newPage) doc.addPage();
+  doc.text(note, MARGIN, placed.y);
   return Buffer.from(doc.output('arraybuffer'));
 }
 

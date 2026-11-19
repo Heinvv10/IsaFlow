@@ -17,6 +17,7 @@ import { assembleEasyFileInput } from '@/modules/accounting/services/payroll/eas
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { buildEmp501Figures, type Emp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
 import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
+import { clearRateLimitCache } from '@/lib/rateLimit';
 import { rig } from './brkr.helpers';
 import { approvedRun } from './pe-payslip-email.helpers';
 import { captured, cleanup, doAccept, invite, lastToken, person, portal, putSetting, setPlatform, type R } from './ss-employee-portal.helpers';
@@ -140,6 +141,24 @@ describe('employee portal IRP5', () => {
     expect((await getPdf(jars.bee!, ver.cross!)).statusCode).toBe(404);
     expect((await getPdf({}, ver.filed!)).statusCode).toBe(401);
     expect((await portal(list, 'GET', {})).statusCode).toBe(401);
+  });
+
+  it('a version id that is not a UUID is 400; past the per-employee download limit is 429, before any read (review #1649 L2)', async () => {
+    const bad = await getPdf(jars.one!, 'not-a-uuid');
+    expect([bad.statusCode, bad.headers.get('cache-control')]).toEqual([400, 'no-store']);
+    const key = `report:employee-portal-irp5:e:${emp.one}:co:${a.company}`;
+    await a.pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
+    await a.pool.query('INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 120, now())', [key]);
+    try {
+      const limited = await getPdf(jars.one!, ver.filed!);
+      expect([limited.statusCode, limited.body.success]).toEqual([429, false]);
+      // Another employee's bucket is their own.
+      expect((await getPdf(jars.two!, ver.filed!)).statusCode).toBe(200);
+    } finally {
+      await a.pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
+      clearRateLimitCache(); // the limiter remembers a refusal in memory for a while (rateLimitCore)
+    }
+    expect((await getPdf(jars.one!, ver.filed!)).statusCode).toBe(200);
   });
 
   it('only a filed version: a finalised or superseded one, or one without the map, is neither listed nor served', async () => {

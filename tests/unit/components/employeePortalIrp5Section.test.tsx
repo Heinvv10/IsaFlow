@@ -1,13 +1,18 @@
 /** Wave 6 SS-c: the portal's tax certificates section. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+
+const replace = vi.fn(async () => true);
+vi.mock('next/router', () => ({ useRouter: () => ({ replace, push: replace, pathname: '/employee-portal', events: { on: () => {}, off: () => {} } }) }));
+
 import { Irp5Section } from '@/components/employeePortal/Irp5Section';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 let answer: unknown = { payFrequency: 'monthly', certificates: [] };
 const fetchMock = vi.fn();
 beforeEach(() => {
+  replace.mockClear();
   answer = { payFrequency: 'monthly', certificates: [] };
   fetchMock.mockReset();
   fetchMock.mockImplementation(async () => json({ success: true, data: answer }));
@@ -45,6 +50,20 @@ describe('Irp5Section', () => {
     expect(screen.getByRole('table', { name: 'Tax, UIF and SDL' }).textContent).toContain('4102');
     expect(screen.queryByRole('table', { name: 'Deductions' })).toBeNull();
     expect(screen.getAllByRole('columnheader').every((th) => th.getAttribute('scope') === 'col')).toBe(true);
+  });
+
+  it('weekly pay with a filed certificate shows the certificate and no weekly note (review #1649 L1)', async () => {
+    answer = { payFrequency: 'weekly', certificates: [cert] };
+    render(<Irp5Section />);
+    await screen.findByRole('link', { name: /IRP5 copy for tax year 2026/ });
+    expect(screen.queryByText(/not shown here yet/)).toBeNull();
+  });
+
+  it('a 401 goes to sign in, not an alert (review #1649 L4)', async () => {
+    fetchMock.mockImplementation(async () => json({ success: false, error: { message: 'Please sign in again.' } }, 401));
+    render(<Irp5Section />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/employee-portal/login'));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('shows a loading line, then a named failure', async () => {

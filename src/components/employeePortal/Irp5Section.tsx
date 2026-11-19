@@ -1,13 +1,16 @@
 /**
  * The employee portal's tax certificates (wave 6 SS-c): the signed-in employee's own IRP5 figures, one card per FILED
  * EMP501 version (annual or interim), each with a PDF copy. Read-only. Weekly and fortnightly pay has no certificate
- * here yet (the IRP5 run-kind guard refuses those runs), and the section says so. A 401 is the page's to handle.
+ * here yet (the IRP5 run-kind guard refuses those runs), and the section says so when it has none. A 401 (the session
+ * ended) goes to sign in, as the portal home does.
  */
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import { Money } from '@/components/ui/Money';
-import { portalCall } from '@/components/employeePortal/portalFetch';
+import { portalCall, PortalCallError } from '@/components/employeePortal/portalFetch';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { kindLabel } from '@/modules/accounting/services/payroll/employeePortalIrp5Kind';
 
 interface Line { code: string; label: string; amount: number }
 interface Certificate {
@@ -17,7 +20,6 @@ interface Certificate {
 interface Certificates { payFrequency: string; certificates: Certificate[] }
 
 const cell = 'border-b border-gray-200 px-3 py-2 dark:border-gray-800';
-const kindLabel = (k: Certificate['kind']) => (k === 'annual' ? 'Annual (March to February)' : 'Interim (March to August)');
 const muted = 'text-sm text-gray-600 dark:text-gray-300';
 
 function Lines({ caption, lines }: { caption: string; lines: Line[] }) {
@@ -45,19 +47,23 @@ function Lines({ caption, lines }: { caption: string; lines: Line[] }) {
 }
 
 export function Irp5Section() {
+  const router = useRouter();
   const [data, setData] = useState<Certificates | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     const failed = 'Could not load your tax certificates.';
-    portalCall<Certificates>('/api/employee-portal/irp5', failed).then(setData).catch((err: unknown) => setError(apiErrorMessage(err, failed)));
-  }, []);
+    portalCall<Certificates>('/api/employee-portal/irp5', failed).then(setData).catch((err: unknown) => {
+      if (err instanceof PortalCallError && err.status === 401) void router.replace('/employee-portal/login');
+      else setError(apiErrorMessage(err, failed));
+    });
+  }, [router]);
 
   return (
     <section aria-labelledby="irp5" className="mb-8">
       <h2 id="irp5" className="mb-2 text-lg font-semibold">Tax certificates (IRP5)</h2>
       {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
       {!error && !data && <p role="status" className={muted}>Loading your tax certificates…</p>}
-      {data && data.payFrequency !== 'monthly' && (
+      {data && data.certificates.length === 0 && data.payFrequency !== 'monthly' && (
         <p className={`${muted} mb-2`}>
           IRP5 certificates for {data.payFrequency} pay are not shown here yet. Ask your employer for yours.
         </p>
