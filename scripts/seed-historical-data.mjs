@@ -233,7 +233,7 @@ async function seed() {
   for (const prod of products.rows) {
     for (let year = 2024; year <= 2025; year++) {
       for (let month = 1; month <= 12; month++) {
-        await client.query(`INSERT INTO stock_movements (product_id, movement_type, quantity, unit_cost, total_cost, notes, created_by) VALUES ($1, 'purchase', $2, $3, $4, $5, '00000000-0000-0000-0000-000000000000'::UUID)`, [prod.id, 10 + Math.floor(Math.random() * 50), Math.round((50 + Math.random() * 500) * 100) / 100, 0, `Restock ${year}-${String(month).padStart(2, '0')}`]);
+        await client.query(`INSERT INTO stock_movements (company_id, product_id, movement_type, quantity, unit_cost, total_cost, notes, created_by) VALUES ((SELECT company_id FROM products WHERE id = $1), $1, 'purchase', $2, $3, $4, $5, '00000000-0000-0000-0000-000000000000'::UUID)`, [prod.id, 10 + Math.floor(Math.random() * 50), Math.round((50 + Math.random() * 500) * 100) / 100, 0, `Restock ${year}-${String(month).padStart(2, '0')}`]);
         stockCount++;
       }
     }

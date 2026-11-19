@@ -117,6 +117,19 @@ describe('find_by_external_ref', () => {
     expect(out).toMatchObject({ found: true, kind: 'credit_note', record: { id: 'cn-1' }, superseded: [{ id: 'cn-0', status: 'cancelled' }] });
   });
 
+  it('finds a catalogue item by its Sage code `item` (or kind item), and needs read:items', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValue([match({ entityType: 'item', id: 'item-1', number: 'FIB-001', status: 'active', date: null, totalAmount: null })]);
+    const out = parse(await findByExternalRefTool.handler({ source: 'sage', kind: 'item', id: 4821 }, ctx(['read:items'])));
+    expect(findByExternalRef).toHaveBeenCalledWith(COMPANY, 'item', 'sage', '4821', { creditNoteType: undefined });
+    expect(out).toMatchObject({ found: true, kind: 'item', record: { entity_type: 'item', id: 'item-1', number: 'FIB-001', status: 'active' } });
+
+    vi.mocked(findByExternalRef).mockClear();
+    const refused = await findByExternalRefTool.handler({ source: 'sage', kind: 'item', id: '1' }, ctx());
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toContain('read:items');
+    expect(findByExternalRef).not.toHaveBeenCalled();
+  });
+
   it('says found: false with no record', async () => {
     vi.mocked(findByExternalRef).mockResolvedValue([]);
     expect(parse(await findByExternalRefTool.handler({ source: 'sage', kind: 'siv', id: '1' }, ctx())))
