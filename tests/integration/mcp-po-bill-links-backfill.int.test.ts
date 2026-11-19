@@ -156,20 +156,51 @@ describe('the backfill\'s plan does not grow with bills x POs', () => {
     expect(calls, 'one call per candidate bill, not per (bill, PO)').toBeLessThanOrEqual(BILLS);
   }, 120_000);
 
-  it('no node of the backfill\'s query handles more than 4 x (bills + POs) rows: the cand x purchase_orders join (bills x POs) of the old plan is what this catches', async () => {
+  it('no node of the backfill\'s query handles bills x POs rows, under every join method the planner can choose (default, nested loops only, no nested loops)', async () => {
     // The LIVE function's own SELECT (its body from pg_proc, between FOR r IN and LOOP) with the company filled in, EXPLAIN ANALYZEd: a later
-    // migration that replaces the function is tested, not 1006's file text.
+    // migration that replaces the function is tested, not 1006's file text. Which plan the planner picks depends on statistics (other suites'
+    // rows, this company's), so one EXPLAIN proves only the plan of the day: the round-4 query (bill lines joined to purchase_orders on company
+    // and supplier as well as by id) passed most runs and on others joined every bill line to every PO of the supplier (180 008 rows). Forcing nested loops (what a one-row estimate leads to) and forbidding them covers the
+    // plans an estimate can tip the planner into; a query whose every join is on a key has no bills x POs plan under any of them.
     const fn = String((await pool.query(`SELECT prosrc FROM pg_proc WHERE oid = 'public.purchase_order_bill_links_backfill(uuid)'::regprocedure`)).rows[0].prosrc);
     const query = fn.slice(fn.indexOf('FOR r IN') + 'FOR r IN'.length, fn.indexOf('  LOOP')).replace(/p_company/g, `'${s.co}'::UUID`);
-    const text = JSON.stringify((await pool.query(`EXPLAIN (FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN']);
-    expect(text, 'the NOT IN of the header-only branch is hashed').toContain('hashed SubPlan');
-    const plan = (await pool.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN'][0].Plan as Record<string, unknown>;
-    let worst = 0;
-    const walk = (n: Record<string, unknown>) => {
-      worst = Math.max(worst, Number(n['Actual Rows']) * Number(n['Actual Loops']));
-      for (const c of (n.Plans as Array<Record<string, unknown>> | undefined) ?? []) walk(c);
+    const modes: Record<string, string[]> = {
+      default: [],
+      'nested loops only': ['SET LOCAL enable_hashjoin = off', 'SET LOCAL enable_mergejoin = off'],
+      'no nested loops': ['SET LOCAL enable_nestloop = off'],
     };
-    walk(plan);
-    expect(worst, `the widest plan node handled ${worst} rows`).toBeLessThanOrEqual(4 * (BILLS + POS));
+    const worst: Record<string, string> = {};
+    const worstRows: Record<string, number> = {};
+    let tableRows = 0;
+    const c = await pool.connect();
+    try {
+      // One snapshot for every EXPLAIN and for the table counts: the bound below is the size of exactly the tables those plans read.
+      await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+      for (const [mode, sets] of Object.entries(modes)) {
+        await c.query('SAVEPOINT mode');
+        for (const set of sets) await c.query(set);
+        const plan = (await c.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN'][0].Plan as Record<string, unknown>;
+        await c.query('ROLLBACK TO SAVEPOINT mode');
+        worstRows[mode] = 0;
+        const walk = (n: Record<string, unknown>) => {
+          const rows = Number(n['Actual Rows']) * Number(n['Actual Loops']);
+          if (rows > worstRows[mode]!) {
+            worstRows[mode] = rows;
+            worst[mode] = `${String(n['Node Type'])} ${String(n['Relation Name'] ?? n['CTE Name'] ?? '')}: ${String(n['Actual Rows'])} rows x ${String(n['Actual Loops'])} loops`;
+          }
+          for (const child of (n.Plans as Array<Record<string, unknown>> | undefined) ?? []) walk(child);
+        };
+        walk(plan);
+      }
+      tableRows = Number((await c.query(`SELECT (SELECT count(*) FROM supplier_invoices) + (SELECT count(*) FROM supplier_invoice_items)
+                                                + (SELECT count(*) FROM purchase_orders) + (SELECT count(*) FROM po_items) AS n`)).rows[0].n);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+    // A key-driven plan touches each candidate row a few times, and at worst scans a whole table it reads (other suites' rows included); the
+    // bills x POs shape is BILLS x POS = 180 000 rows. The bound must stay far below that or the test proves nothing.
+    const bound = 4 * (BILLS + POS) + tableRows;
+    expect(bound, 'the tables grew so large that the bound no longer separates linear from bills x POs').toBeLessThan((BILLS * POS) / 4);
+    for (const mode of Object.keys(modes)) {
+      expect(worstRows[mode], `${mode}: the widest plan node (${worst[mode]}) is over ${bound} rows`).toBeLessThanOrEqual(bound);
+    }
   }, 120_000);
 });
