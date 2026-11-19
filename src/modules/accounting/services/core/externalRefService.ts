@@ -112,7 +112,7 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         FROM purchase_order_bill_links l
         JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
         JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
-        WHERE l.company_id = ${companyId}::UUID AND lower(l.external_system) = lower(${system}) AND l.external_ref = ${ref}`) as DbRow[];
+        WHERE l.company_id = ${companyId}::UUID AND l.external_system = lower(${system}) AND l.external_ref = ${ref}`) as DbRow[]; // stored lower case (CHECK): the (company, system, ref) index serves it
     case 'supplier':
       return (await sql`
         SELECT id, name AS number, NULL::TEXT AS status, NULL::DATE AS date, NULL::NUMERIC AS total_amount, external_document_number,

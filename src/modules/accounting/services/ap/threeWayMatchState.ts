@@ -53,6 +53,21 @@ export async function readMatchInputs(
   };
 }
 
+/**
+ * The match inputs of a bill, or null when it names no PO at all: neither a header PO nor a line naming a PO line (a bill
+ * linked to several POs has no header PO, migration 1006, but its lines name PO lines).
+ */
+export async function readBillMatchInputs(
+  companyId: string,
+  invoice: { supplierId: string; purchaseOrderId?: string | null; grnId?: string | null; items?: ReadonlyArray<{ poItemId?: string | null }> },
+): Promise<MatchInputs | null> {
+  const poItemIds = (invoice.items ?? []).map((i) => i.poItemId).filter((v): v is string => !!v);
+  if (!invoice.purchaseOrderId && poItemIds.length === 0) return null;
+  return readMatchInputs(companyId, {
+    supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId ?? null, grnId: invoice.grnId, poItemIds,
+  });
+}
+
 /** The bill's status from its lines' (no lines: unmatched). */
 export function overallMatchStatus(lines: ReadonlyArray<{ lineMatchStatus: InvoiceMatchStatus }>): InvoiceMatchStatus {
   if (lines.length === 0) return 'unmatched';

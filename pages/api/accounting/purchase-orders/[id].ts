@@ -139,6 +139,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
+    // Migration 1006: a PO that has bills linked to it keeps its supplier (the link joins one supplier's PO and bill).
+    if (supplier_id) {
+      const linked = (await sql`
+        SELECT 1 FROM purchase_order_bill_links l JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+         WHERE po.id = ${id}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplier_id}::UUID LIMIT 1
+      `) as Row[];
+      if (linked.length > 0) {
+        return apiResponse.badRequest(res, 'Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.');
+      }
+    }
+
     // Before the first write: an inactive or foreign account on a replacement
     // line would otherwise land in po_items with nothing to catch it — the
     // same window a GL account merge opens on every other document-line

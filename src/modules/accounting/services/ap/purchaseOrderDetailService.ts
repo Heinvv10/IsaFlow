@@ -1,27 +1,24 @@
 /**
  * get_purchase_order: one PO with its lines (ordered / received / billed quantity and amount, outstanding), the bills
  * linked to it, its goods received notes and filed documents, the billed total and `fully_billed` (billed >= subtotal -
- * 1 c; design decision 6). Reads only; company-scoped. Each list is capped (`DETAIL_CAPS`) with its total beside it, so
+ * 1 c; design decision 6). Reads only; company-scoped. Each list is capped (`DETAIL_CAPS`; `grnItems` is per goods received note, each reporting `items_total` and `items_truncated`) with its total beside it, so
  * the reply fits a client's result limit.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { toCents } from '../budgets/grid/cents';
 import { BILLED_STATUSES } from '../budgets/remainingCommitted';
 import { billedByPoItem, billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
 
 /** Caps and text limits sized so the widest reply (`poBillLinkTools.test.ts`) stays under MAX_READ_RESULT_BYTES. Lines page by offset. */
-export const DETAIL_CAPS = { lines: 40, bills: 30, grns: 15, grnItems: 45, documents: 15 } as const;
+export const DETAIL_CAPS = { lines: 40, bills: 30, grns: 15, grnItems: 5, documents: 15 } as const;
 const TEXT_CAP = 150;
 
 type Obj = Record<string, unknown>;
 
-const day = (v: unknown): string | null => {
-  if (v == null) return null;
-  if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-  return String(v).slice(0, 10);
-};
+const day = (v: unknown): string | null => (v == null || v === '' ? null : fmtDate(v));
 const text = (v: unknown): string | null => (v == null ? null : String(v));
 const short = (v: unknown): string | null => (v == null ? null : String(v).slice(0, TEXT_CAP));
 const rand = (cents: number) => cents / 100;
@@ -41,6 +38,8 @@ export interface PurchaseOrderDetail {
   billed_total: number;
   outstanding_to_bill: number;
   fully_billed: boolean;
+  /** Closed by a link call (close_when_fully_billed) and billed is now below the subtotal less 1 c (a bill cancelled or unlinked since). */
+  closed_under_billed: boolean;
 }
 
 export async function readPurchaseOrderDetail(
@@ -89,9 +88,13 @@ export async function readPurchaseOrderDetail(
      ORDER BY g.received_date, g.grn_number, g.id LIMIT ${DETAIL_CAPS.grns}
   `) as DbRow[];
   const grnItems = (await sql`
-    SELECT gi.grn_id, gi.po_item_id, gi.quantity_received, gi.quantity_rejected
-      FROM grn_items gi JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}::UUID
-     WHERE gi.grn_id = ANY(${grnRows.map((g) => String(g.id))}::UUID[]) ORDER BY gi.grn_id, gi.po_item_id LIMIT ${DETAIL_CAPS.grnItems}
+    SELECT x.grn_id, x.po_item_id, x.quantity_received, x.quantity_rejected, x.n FROM (
+      SELECT gi.grn_id, gi.po_item_id, gi.quantity_received, gi.quantity_rejected,
+             row_number() OVER (PARTITION BY gi.grn_id ORDER BY gi.po_item_id, gi.id) AS rn,
+             count(*) OVER (PARTITION BY gi.grn_id)::INT AS n
+        FROM grn_items gi JOIN goods_received_notes g ON g.id = gi.grn_id AND g.company_id = ${companyId}::UUID
+       WHERE gi.grn_id = ANY(${grnRows.map((g) => String(g.id))}::UUID[])
+    ) x WHERE x.rn <= ${DETAIL_CAPS.grnItems} ORDER BY x.grn_id, x.po_item_id
   `) as DbRow[];
   const docs = (await sql`
     SELECT d.id, d.document_name, d.document_type, d.mime_type, d.file_size, d.uploaded_at, count(*) OVER ()::INT AS total_rows
@@ -101,6 +104,10 @@ export async function readPurchaseOrderDetail(
 
   const billedCents = (await billedCentsByPo(companyId, [poId])).get(poId.toLowerCase()) ?? 0;
   const subtotalCents = toCents(Number(head.subtotal ?? 0));
+  const closedByLink = head.status === 'closed' && (((await sql`
+    SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID
+       AND closed_po_from_status IS NOT NULL LIMIT 1
+  `) as DbRow[]).length > 0);
   const counted = (s: unknown) => (BILLED_STATUSES as readonly string[]).includes(String(s));
   return {
     purchase_order: {
@@ -123,6 +130,8 @@ export async function readPurchaseOrderDetail(
       items: grnItems.filter((i) => String(i.grn_id) === String(g.id)).map((i) => ({
         po_item_id: String(i.po_item_id), quantity_received: Number(i.quantity_received), quantity_rejected: Number(i.quantity_rejected ?? 0),
       })),
+      items_total: Number(grnItems.find((i) => String(i.grn_id) === String(g.id))?.n ?? 0),
+      items_truncated: Number(grnItems.find((i) => String(i.grn_id) === String(g.id))?.n ?? 0) > DETAIL_CAPS.grnItems,
     })),
     goods_received_notes_total: grnRows[0] ? Number(grnRows[0].total_rows) : 0,
     documents: docs.map((d) => ({
@@ -133,5 +142,6 @@ export async function readPurchaseOrderDetail(
     billed_total: rand(billedCents),
     outstanding_to_bill: rand(Math.max(0, subtotalCents - billedCents)),
     fully_billed: isFullyBilled(billedCents, subtotalCents),
+    closed_under_billed: closedByLink && !isFullyBilled(billedCents, subtotalCents),
   };
 }

@@ -4,20 +4,22 @@
  * row is listed and the call is refused whole (the planner returns the refusals, the writer writes nothing).
  *
  * Rules (design decisions 2, 4, 6, 8, 9):
- *   - PO approved / partially_received / received / closed; bill not cancelled (or deleted); one company, one supplier;
- *   - a pair is linked once: the same (external_system, external_ref) again is `existing` (already_existed, no
- *     write), any other attempt is refused; a reference already on ANOTHER pair is refused;
+ *   - PO approved / partially_received / received / closed; bill approved / paid / partially_paid (R3, Hein 19 Nov:
+ *     a draft or cancelled bill is not billed); one company, one supplier;
+ *   - a pair is linked once: the same (external_system, external_ref) again is `existing` (already_existed, no write)
+ *     when the amount / lines agree, else refused `payload_differs`; a ref-less link (app / backfill) re-sent WITH a
+ *     reference adopts it under the same test; any other attempt is refused; a reference on ANOTHER pair is refused;
  *   - a line link names a line of the row's PO and a line of the row's bill; a bill line already naming ANOTHER PO line
  *     is refused (naming the same one is fine); a bill line is named once in a call;
- *   - amount: explicit; else the posted ex-VAT of the bill's lines linked to this PO (named now, or already); else the
- *     bill's subtotal less its other links. It must be above zero and take the bill's links no further than its subtotal
- *     (+1 c);
+ *   - amount: explicit; else the posted ex-VAT of the bill's lines linked to this PO (named now, or already) when that
+ *     is above zero; else the bill's subtotal less its other links. It must be above zero and take the bill's links no
+ *     further than its subtotal (+1 c);
  *   - close_when_fully_billed: an approved / partially_received / received PO that the call leaves fully billed
  *     (billed = amounts of links on approved / paid / partially_paid bills, >= subtotal - 1 c) becomes closed; the
  *     LAST new link of that PO in the call records the status it came from.
  */
 import {
-  BILLED_BILL_STATUSES, CLOSABLE_PO_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, LINKABLE_PO_STATUSES, isFullyBilled,
+  CLOSABLE_PO_STATUSES, FULLY_BILLED_TOLERANCE_CENTS, LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES, isFullyBilled,
   type BillFacts, type ExistingLink, type LinkPlan, type LinkRequest, type LinkRowRefusal, type PlannedLink, type PoAfter,
   type PoFacts,
 } from './purchaseOrderBillLinkTypes';
@@ -60,7 +62,10 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
       refuse(`purchase order ${po.poNumber} is ${po.status}; only an approved, partially received, received or closed one takes a bill`);
       continue;
     }
-    if (bill.status === 'cancelled') { refuse(`bill ${bill.invoiceNumber} is cancelled`); continue; }
+    if (!LINKABLE_BILL_STATUSES.includes(bill.status)) {
+      refuse(`bill ${bill.invoiceNumber} is ${bill.status}; only an approved, paid or partially paid bill can be linked`);
+      continue;
+    }
     if (bill.supplierId !== po.supplierId) {
       refuse(`bill ${bill.invoiceNumber} and purchase order ${po.poNumber} are of different suppliers`);
       continue;
@@ -71,21 +76,29 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     pairSeen.set(pair, r.index);
 
     const existing = input.existing.find((l) => l.poId === po.id && l.billId === bill.id) ?? null;
-    if (existing) {
-      if (r.ref && existing.refSystem === r.ref.system && existing.refRef === r.ref.ref) {
-        planned.push({
-          index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber,
-          amountCents: existing.amountCents, ref: r.ref, lineWrites: [], linesLinked: 0, closedFrom: null, existing,
-        });
-      } else {
-        refuse(`bill ${bill.invoiceNumber} is already linked to purchase order ${po.poNumber}`
-          + `${existing.refRef ? ` (external_ref ${existing.refRef})` : ''}; unlink it first to change the link`);
-      }
+    const owner = r.ref ? input.refOwners.get(refKey(r.ref)) : undefined;
+    if (owner && owner.id !== existing?.id) {
+      refuse(`external_ref ${r.ref!.ref} (${r.ref!.system}) is already used by another purchase order link`);
       continue;
     }
-    if (r.ref) {
-      const owner = input.refOwners.get(refKey(r.ref));
-      if (owner) { refuse(`external_ref ${r.ref.ref} (${r.ref.system}) is already used by another purchase order link`); continue; }
+    if (existing) {
+      const sameRef = r.ref !== null && existing.refSystem === r.ref.system && existing.refRef === r.ref.ref;
+      const adopt = r.ref !== null && existing.refRef === null;
+      if (!sameRef && !adopt) {
+        refuse(`bill ${bill.invoiceNumber} is already linked to purchase order ${po.poNumber}`
+          + `${existing.refRef ? ` (external_ref ${existing.refRef})` : ''}; unlink it first to change the link`);
+        continue;
+      }
+      const differs = payloadDifference(r, existing, po, bill);
+      if (differs) {
+        refuse(`bill ${bill.invoiceNumber} is already linked to purchase order ${po.poNumber}, but this call differs (payload_differs): ${differs}; unlink it first to change the link`);
+        continue;
+      }
+      planned.push({
+        index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber,
+        amountCents: existing.amountCents, ref: r.ref, lineWrites: [], linesLinked: 0, closedFrom: null, existing, adopt,
+      });
+      continue;
     }
 
     const lineBad = lineRefusal(r, po, bill, lineClaimed, input.poItemOwner);
@@ -99,7 +112,8 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     if (r.amountCents !== null) amount = r.amountCents;
     else {
       const linked = bill.lines.filter((b) => named.has(b.id) || b.poItemPoId === po.id);
-      amount = linked.length > 0 ? linked.reduce((s, b) => s + b.postedCents, 0) : bill.subtotalCents - others;
+      const fromLines = linked.reduce((s, b) => s + b.postedCents, 0);
+      amount = fromLines > 0 ? fromLines : bill.subtotalCents - others;
     }
     if (amount <= 0) {
       refuse(`the amount to link is ${fmt(amount)}; give an amount above zero (bill ${bill.invoiceNumber} has ${fmt(bill.subtotalCents)} ex VAT, ${fmt(others)} already linked)`);
@@ -112,11 +126,24 @@ export function planLinks(input: PlanInput): { plan: LinkPlan | null; refusals: 
     billLinked.set(bill.id, others + amount);
     planned.push({
       index: r.index, poId: po.id, poNumber: po.poNumber, billId: bill.id, invoiceNumber: bill.invoiceNumber, amountCents: amount,
-      ref: r.ref, lineWrites, linesLinked: r.lines.length, closedFrom: null, existing: null,
+      ref: r.ref, lineWrites, linesLinked: r.lines.length, closedFrom: null, existing: null, adopt: false,
     });
   }
   if (refusals.length > 0) return { plan: null, refusals };
   return { plan: { planned, poAfter: afterState(input, planned) }, refusals };
+}
+
+/** What a re-sent call says that the stored link does not (explicit amount, named lines); null when they agree. */
+function payloadDifference(r: LinkRequest, existing: ExistingLink, po: PoFacts, bill: BillFacts): string | null {
+  if (r.amountCents !== null && r.amountCents !== existing.amountCents) {
+    return `amount ${fmt(r.amountCents)} against ${fmt(existing.amountCents)} stored`;
+  }
+  if (r.lines.length > 0) {
+    const stored = bill.lines.filter((l) => l.poItemPoId === po.id && l.poItemId).map((l) => `${l.poItemId}|${l.id}`).sort();
+    const sent = r.lines.map((l) => `${l.poItemId}|${l.billLineId}`).sort();
+    if (stored.length !== sent.length || stored.some((k, i) => k !== sent[i])) return 'the lines named are not the lines linked';
+  }
+  return null;
 }
 
 function lineRefusal(
@@ -142,7 +169,7 @@ function afterState(input: PlanInput, planned: PlannedLink[]): Map<string, PoAft
   const touched = new Set(planned.filter((p) => !p.existing).map((p) => p.poId));
   for (const poId of new Set(planned.map((p) => p.poId))) {
     const po = input.pos.get(poId)!;
-    const counted = (status: string | undefined) => status !== undefined && BILLED_BILL_STATUSES.includes(status);
+    const counted = (status: string | undefined) => status !== undefined && LINKABLE_BILL_STATUSES.includes(status);
     let billed = input.existing.filter((l) => l.poId === poId && counted(l.billStatus)).reduce((s, l) => s + l.amountCents, 0);
     for (const p of planned) {
       if (p.poId === poId && !p.existing && counted(input.bills.get(p.billId)?.status)) billed += p.amountCents;

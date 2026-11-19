@@ -254,3 +254,16 @@ export async function refuseIfRecordsPinBill(
     );
   }
 }
+
+/** A bill linked to a purchase order (migration 1006) keeps its supplier: the link joins one supplier's PO and bill. */
+export async function refuseIfBillHasPoLinks(companyId: string, invoiceId: string, number: string): Promise<void> {
+  const rows = (await sql`
+    SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND supplier_invoice_id = ${invoiceId}::UUID LIMIT 1
+  `) as DbRow[];
+  if (rows[0]) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      `Supplier invoice ${number} is linked to a purchase order, so its supplier cannot change. `
+      + 'Unlink it from the purchase order first (unlink_bill_from_purchase_order), or cancel the bill and re-enter it.',
+    );
+  }
+}

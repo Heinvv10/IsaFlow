@@ -23,12 +23,14 @@ import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import { withContentEditorStamp } from './supplierInvoiceContentEditor';
 import { defaultVatClassification, type SupplierInvoiceTotals } from './supplierInvoiceTotals';
 import { billEditDueDate } from './draftBillDueDate';
+import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
   planLines,
   refuseIfJournalNamesBill,
   refuseIfNumberTaken,
+  refuseIfBillHasPoLinks,
   refuseIfRecordsPinBill,
   refuseIfSettlementPlanned,
   type InheritedDimension,
@@ -149,6 +151,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   if (supplierChanges || invoiceNumber !== number) {
     await refuseIfNumberTaken(companyId, invoiceId, supplierId, invoiceNumber);
   }
+  if (supplierChanges) await refuseIfBillHasPoLinks(companyId, invoiceId, number);
   if (totalChanges || supplierChanges || invoiceNumber !== number) {
     await refuseIfRecordsPinBill(companyId, invoiceId, number, supplierChanges);
   }
@@ -230,7 +233,7 @@ export async function applySupplierInvoiceDraftUpdate(
         duplicate_fingerprint = COALESCE(${fingerprint}, duplicate_fingerprint),
         updated_at = NOW()
       WHERE id = ${plan.invoiceId}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'`;
-    if (!totals) return;
+    if (totals) {
     await tx`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id = ${plan.invoiceId}::UUID`;
     // storedLineOrder assumes these lines are inserted in ONE transaction (they tie on created_at) with the planned ids.
     for (const item of totals.items) {
@@ -245,5 +248,8 @@ export async function applySupplierInvoiceDraftUpdate(
           ${item.cc1Id ?? null}::UUID, ${item.cc2Id ?? null}::UUID, ${item.buId ?? null}::UUID
         )`;
     }
+    }
+    // Migration 1006: the bill's `app` links follow its new subtotal and lines (amounts are recomputed, not edited).
+    await refreshAppBillLinks(companyId, plan.invoiceId, editedBy, tx);
   }));
 }

@@ -9,7 +9,8 @@ import { BILLED_STATUSES } from '../budgets/remainingCommitted';
 export const LINKABLE_PO_STATUSES = ['approved', 'partially_received', 'received', 'closed'] as const;
 /** The statuses a close_when_fully_billed call moves to closed (and an unlink restores). */
 export const CLOSABLE_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
-export const BILLED_BILL_STATUSES: readonly string[] = BILLED_STATUSES;
+/** The bill statuses MCP links accept, and the ones that count as billed (approved / paid / partially_paid). */
+export const LINKABLE_BILL_STATUSES: readonly string[] = BILLED_STATUSES;
 /** A PO is fully billed from this many cents short of its subtotal (Hein, 19 Nov). */
 export const FULLY_BILLED_TOLERANCE_CENTS = 1;
 export const MAX_LINKS_PER_CALL = 200;
@@ -85,8 +86,10 @@ export interface PlannedLink {
   linesLinked: number;
   /** The PO status this link's call moved the PO from to closed. */
   closedFrom: string | null;
-  /** Set when the pair was already linked under the same reference: nothing is written for it. */
+  /** Set when the pair was already linked: under the same reference nothing is written; with `adopt`, the reference is set. */
   existing: ExistingLink | null;
+  /** The pair was linked by a ref-less app / backfill link and this call's external_ref is set on it. */
+  adopt: boolean;
 }
 
 export interface PoAfter {

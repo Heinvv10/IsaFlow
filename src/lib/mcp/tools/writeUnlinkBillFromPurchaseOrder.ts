@@ -10,6 +10,7 @@ import { UUID_RE } from '@/lib/validation';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import { unlinkBillFromPurchaseOrder, type UnlinkResult } from '@/modules/accounting/services/ap/purchaseOrderBillUnlink';
 import { PurchaseOrderBillLinkRefusal } from '@/modules/accounting/services/ap/purchaseOrderBillLinkTypes';
+import { mayReadBudgetFigures } from './budgetFigures';
 import { parsePoSelector } from './poBillLinkArgs';
 import { ok, toolError } from './toolHelpers';
 
@@ -21,7 +22,9 @@ export const unlinkBillFromPurchaseOrderTool: McpTool = {
   description:
     'Remove the link between one bill and one purchase order. Posts nothing. Deletes the link, clears po_item_id on that bill\'s lines that point into this PO '
     + '(so budget committed for those PO lines is no longer netted by the bill), resets the bill\'s purchase_order_id (its PO when exactly one link remains, else none) '
-    + 'and, when this link\'s own link call closed the PO (close_when_fully_billed) and it is still closed, reopens it to the status it came from. '
+    + 'and reopens the PO to the status a link call closed it from (close_when_fully_billed) when it is still closed and no longer fully billed after the unlink '
+    + '(the record of that closing moves to another link of the PO when this link held it and the PO is still fully billed; a PO closed by hand is left). '
+    + 'Un-netting PO lines or reopening makes the PO commit spend again: the budget check runs in warn form and never blocks; an over-budget result comes back as budget_warning. '
     + 'A reason is required and recorded in the audit trail. Refused when the pair is not linked. dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -47,12 +50,13 @@ export const unlinkBillFromPurchaseOrderTool: McpTool = {
     if (args.dry_run !== undefined && typeof args.dry_run !== 'boolean') return toolError('dry_run must be true or false');
     const dryRun = args.dry_run === true;
     if (dryRun && !als.getStore()?.client) return toolError('dry_run needs a request transaction');
+    const opts = { userId: ctx.userId, via: `mcp:${TOOL}`, budgetFigures: mayReadBudgetFigures(ctx) };
     const req = { ...po, billId: args.bill_id.toLowerCase(), reason: args.reason };
 
     let result: UnlinkResult | undefined;
     try {
-      if (dryRun) await inRolledBackSavepoint('po_bill_unlink_dry', async () => { result = await unlinkBillFromPurchaseOrder(ctx.companyId, req, ctx.userId, `mcp:${TOOL}`); });
-      else result = await unlinkBillFromPurchaseOrder(ctx.companyId, req, ctx.userId, `mcp:${TOOL}`);
+      if (dryRun) await inRolledBackSavepoint('po_bill_unlink_dry', async () => { result = await unlinkBillFromPurchaseOrder(ctx.companyId, req, opts); });
+      else result = await unlinkBillFromPurchaseOrder(ctx.companyId, req, opts);
     } catch (err) {
       if (err instanceof PurchaseOrderBillLinkRefusal) return toolError(err.message);
       throw err;
@@ -61,7 +65,8 @@ export const unlinkBillFromPurchaseOrderTool: McpTool = {
     const body = {
       link_id: r.linkId, purchase_order_id: r.poId, po_number: r.poNumber, bill_id: r.billId, invoice_number: r.invoiceNumber,
       amount: r.amountCents / 100, lines_cleared: r.linesCleared, po_status_before: r.poStatusBefore, po_status: r.poStatusAfter,
-      reopened_to: r.reopenedTo,
+      reopened_to: r.reopenedTo, billed: r.billedCents / 100, fully_billed: r.fullyBilled,
+      budget_warning: r.budgetWarnings.length > 0 ? r.budgetWarnings.join(' ') : null, budget_warnings: r.budgetWarnings,
     };
     if (dryRun) {
       const preview = ok({ dry_run: true, would_unlink: true, ...body });

@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { refreshAppBillLinks } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
 import { withContentEditorStamp } from '@/modules/accounting/services/ap/supplierInvoiceContentEditor';
 import { draftBillEditDueDate } from '@/modules/accounting/services/ap/draftBillDueDate';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
@@ -45,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const updatedRows = await withContentEditorStamp(companyId, id, userId, async () => {
         // Part A: a terms-sourced due date follows a moved invoice date (read under the lock withContentEditorStamp took).
         const due = await draftBillEditDueDate(companyId, id, { invoiceDate, dueDate, paymentTerms });
-        return sql`
+        const edited = await sql`
         UPDATE supplier_invoices
         SET invoice_number = COALESCE(${invoiceNumber || null}, invoice_number),
             invoice_date = COALESCE(${invoiceDate || null}, invoice_date),
@@ -59,6 +60,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('draft', 'pending_approval')
         RETURNING id
       `;
+        // Migration 1006: the bill's `app` links are recomputed from what it says now, on every draft edit.
+        if (edited.length > 0) await refreshAppBillLinks(companyId, id, userId);
+        return edited;
       });
       if (updatedRows.length === 0) {
         const existing = await getSupplierInvoiceById(companyId, id);

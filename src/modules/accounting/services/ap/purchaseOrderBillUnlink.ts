@@ -1,19 +1,39 @@
 /**
- * unlink_bill_from_purchase_order (design decision 10). Under the same locks as the link (PO row, then bill row,
- * one 5 s budget): delete the link, clear `po_item_id` on the bill's lines that point into this PO, reset the bill's
- * header column (`purchaseOrderBillLinkHeader`) and, when this link's call closed the PO and it is still closed,
- * reopen it to the status it came from. A reason is required; audited (entity purchase_order). Posts nothing.
- * Every refusal comes before the first write. A cancelled or soft-deleted bill can still be unlinked (clean-up).
+ * unlink_bill_from_purchase_order (design decision 10, Hein's rulings R1 / R2, 19 Nov). Posts nothing.
+ *
+ * Lock order (re-census in the design note): the company budget gate (`openBudgetGate`: the block policy's advisory lock,
+ * the approve paths' FIRST lock; warn / off take none) -> the PO row -> the bill rows (this bill and the bills of the
+ * PO's other links, one sorted list), one 5 s `withRowLockBudget` deadline for the two row sections.
+ *
+ * Then: delete the link, clear `po_item_id` on the bill's lines into this PO, reset the bill's header
+ * (`purchaseOrderBillLinkHeader`), and decide the PO's status:
+ *   - the PO is closed and a link of it records the status a link call closed it from (`closed_po_from_status`, read
+ *     BEFORE the delete: it may be the deleted link's) and the PO is no longer fully billed (links on approved / paid /
+ *     partially_paid bills < subtotal - 1 c) -> it reopens to that status, and the record is cleared;
+ *   - still fully billed, and the deleted link held the record -> the record moves to a remaining link of the PO (so a later
+ *     unlink can still reopen it);
+ *   - a PO closed by hand, or cancelled, is not touched.
+ * R2: when the PO commits spend again (it reopened, or its lines are un-netted) the budget check runs in warn form
+ * (`checkPurchaseOrderBudget`, channel mcp, gate held): it NEVER blocks, an over-budget result comes back as `budgetWarnings`.
+ * A reason is required; audited. A cancelled or soft-deleted bill can still be unlinked (clean-up).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { RowLockTimeoutError, ROW_LOCK_BUDGET_MS, withRowLockBudget } from '../core/rowLockBudget';
+import { openBudgetGate } from '../budgets/budgetCheck';
+import { BudgetExceededError } from '../budgets/budgetCheckTypes';
+import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
+import { toCents } from '../budgets/grid/cents';
+import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
+import { checkPurchaseOrderBudget } from './purchaseOrderBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
-import { PurchaseOrderBillLinkRefusal } from './purchaseOrderBillLinkTypes';
+import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
+
+export interface UnlinkOptions { userId: string; via: string; /** May budget warnings show figures (read:reports). */ budgetFigures: boolean }
 
 export interface UnlinkResult {
   poId: string;
@@ -26,39 +46,53 @@ export interface UnlinkResult {
   poStatusBefore: string;
   poStatusAfter: string;
   reopenedTo: string | null;
+  /** Billed after the unlink, and whether that still covers the PO (cents). */
+  billedCents: number;
+  fullyBilled: boolean;
+  budgetWarnings: string[];
 }
 
 const NOT_FOUND = (what: string) => new PurchaseOrderBillLinkRefusal(`${what} not found`);
 
-export async function unlinkBillFromPurchaseOrder(
-  companyId: string, req: UnlinkRequest, userId: string, via: string,
-): Promise<UnlinkResult> {
+export async function unlinkBillFromPurchaseOrder(companyId: string, req: UnlinkRequest, opts: UnlinkOptions): Promise<UnlinkResult> {
   const reason = req.reason.trim();
   if (reason === '') throw new PurchaseOrderBillLinkRefusal('Give a reason to unlink a bill from a purchase order');
-  const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
   const resolved = (await sql`
     SELECT id::TEXT AS id FROM purchase_orders
      WHERE company_id = ${companyId}::UUID AND (id = ${req.poId}::UUID OR po_number = ${req.poNumber}::TEXT)
   `) as DbRow[];
   if (resolved.length !== 1) throw NOT_FOUND('Purchase order');
   const poId = String(resolved[0]!.id);
+
+  const gate = await openBudgetGate(companyId, 'take'); // FIRST, as every budget-checked writer
+  const deadline = Date.now() + ROW_LOCK_BUDGET_MS;
   const pos = await withRowLockBudget(async () => (await sql`
-    SELECT po_number, status FROM purchase_orders WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE
+    SELECT po_number, status, to_char(order_date, 'YYYY-MM') AS month, subtotal FROM purchase_orders
+     WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline });
-  const bills = await withRowLockBudget(async () => (await sql`
-    SELECT invoice_number FROM supplier_invoices
-     WHERE id = ${req.billId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE
-  `) as DbRow[], () => new RowLockTimeoutError('The bill'), { deadline });
-  if (!pos[0] || !bills[0]) throw NOT_FOUND('Purchase order or bill');
+  if (!pos[0]) throw NOT_FOUND('Purchase order');
+  const held = (await sql`
+    SELECT supplier_invoice_id::TEXT AS bill FROM purchase_order_bill_links
+     WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID
+  `) as DbRow[];
+  const lockIds = [...new Set([req.billId, ...held.map((r) => String(r.bill).toLowerCase())])].sort();
+  const bills = (await withRowLockBudget(async () => (await sql`
+    SELECT id::TEXT AS id, invoice_number FROM supplier_invoices
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${lockIds}::UUID[]) ORDER BY id FOR UPDATE
+  `) as DbRow[], () => new RowLockTimeoutError('The bill'), { deadline })).filter((b) => String(b.id).toLowerCase() === req.billId);
+  if (!bills[0]) throw NOT_FOUND('Purchase order or bill');
   const poNumber = String(pos[0].po_number);
   const status = String(pos[0].status);
   const invoiceNumber = String(bills[0].invoice_number);
 
-  const link = ((await sql`
-    SELECT id::TEXT AS id, amount, closed_po_from_status, external_system, external_ref FROM purchase_order_bill_links
-     WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID AND supplier_invoice_id = ${req.billId}::UUID
-  `) as DbRow[])[0];
+  const all = (await sql`
+    SELECT id::TEXT AS id, supplier_invoice_id::TEXT AS bill, amount, closed_po_from_status FROM purchase_order_bill_links
+     WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID ORDER BY created_at, id
+  `) as DbRow[];
+  const link = all.find((l) => String(l.bill).toLowerCase() === req.billId);
   if (!link) throw new PurchaseOrderBillLinkRefusal(`Bill ${invoiceNumber} is not linked to purchase order ${poNumber}`);
+  const claim = all.find((l) => l.closed_po_from_status != null);
+  const closedFrom = claim ? String(claim.closed_po_from_status) : null;
 
   const cleared = (await sql`
     UPDATE supplier_invoice_items sii SET po_item_id = NULL
@@ -68,30 +102,59 @@ export async function unlinkBillFromPurchaseOrder(
     RETURNING sii.id
   `) as DbRow[];
   await sql`DELETE FROM purchase_order_bill_links WHERE id = ${String(link.id)}::UUID AND company_id = ${companyId}::UUID`;
-  await syncBillHeaderPurchaseOrder(companyId, [req.billId]);
+  await syncBillHeaderPurchaseOrder(companyId, [req.billId], poId);
 
-  const from = link.closed_po_from_status == null ? null : String(link.closed_po_from_status);
+  const billed = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
+  const fully = isFullyBilled(billed, toCents(Number(pos[0].subtotal ?? 0)));
+  let statusAfter = status;
   let reopenedTo: string | null = null;
-  if (from && status === 'closed') {
+  if (status === 'closed' && closedFrom && !fully) {
     const back = (await sql`
-      UPDATE purchase_orders SET status = ${from}, updated_at = NOW(), updated_by = ${userId}
+      UPDATE purchase_orders SET status = ${closedFrom}, updated_at = NOW(), updated_by = ${opts.userId}
        WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status = 'closed' RETURNING id
     `) as DbRow[];
     if (back.length !== 1) throw new Error('The purchase order changed while it was being reopened');
-    reopenedTo = from;
+    reopenedTo = closedFrom;
+    statusAfter = closedFrom;
+    if (claim && String(claim.id) !== String(link.id)) {
+      await sql`UPDATE purchase_order_bill_links SET closed_po_from_status = NULL WHERE id = ${String(claim.id)}::UUID AND company_id = ${companyId}::UUID`;
+    }
+  } else if (status === 'closed' && claim && String(claim.id) === String(link.id)) {
+    // Still fully billed: the closing record outlives the link that held it.
+    const heir = all.find((l) => String(l.id) !== String(link.id));
+    if (heir) {
+      await sql`UPDATE purchase_order_bill_links SET closed_po_from_status = ${closedFrom} WHERE id = ${String(heir.id)}::UUID AND company_id = ${companyId}::UUID`;
+    }
   }
+
+  let budgetWarnings: string[] = [];
+  if ((COMMITTING_PO_STATUSES as readonly string[]).includes(statusAfter) && (reopenedTo !== null || cleared.length > 0)) {
+    try {
+      const check = await checkPurchaseOrderBudget(
+        companyId, { id: poId, poNumber, status: statusAfter, month: String(pos[0].month) }, gate,
+        { channel: 'mcp', lock: 'held', gate, figures: opts.budgetFigures }, opts.userId,
+      );
+      budgetWarnings = check.warnings;
+    } catch (err) {
+      // R2: an unlink never blocks on the budget; the block policy's refusal is reported as the warning it is.
+      if (!(err instanceof BudgetExceededError)) throw err;
+      budgetWarnings = [err.message];
+    }
+  }
+
   await logAuditOrThrow({
-    companyId, userId, action: 'update', entityType: 'purchase_order', entityId: poId, entityRef: poNumber.slice(0, 100),
+    companyId, userId: opts.userId, action: 'update', entityType: 'purchase_order', entityId: poId, entityRef: poNumber.slice(0, 100),
     changes: {
       fields: reopenedTo ? [{ field: 'status', old: 'closed', new: reopenedTo, label: 'Status' }] : [],
       metadata: {
         unlinked_bill: invoiceNumber.slice(0, 100), bill_id: req.billId, link_id: String(link.id), amount: Number(link.amount).toFixed(2),
-        lines_cleared: String(cleared.length), reason: reason.slice(0, 500), source: via,
+        lines_cleared: String(cleared.length), reason: reason.slice(0, 500), source: opts.via, fully_billed: String(fully),
+        ...(budgetWarnings.length > 0 ? { budget_warnings: String(budgetWarnings.length) } : {}),
       },
     },
   });
   return {
     poId, poNumber, billId: req.billId, invoiceNumber, linkId: String(link.id), amountCents: Math.round(Number(link.amount) * 100),
-    linesCleared: cleared.length, poStatusBefore: status, poStatusAfter: reopenedTo ?? status, reopenedTo,
+    linesCleared: cleared.length, poStatusBefore: status, poStatusAfter: statusAfter, reopenedTo, billedCents: billed, fullyBilled: fully, budgetWarnings,
   };
 }

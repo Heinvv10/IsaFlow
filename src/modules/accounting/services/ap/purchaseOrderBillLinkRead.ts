@@ -70,10 +70,16 @@ export async function readLinkFacts(companyId: string, requests: readonly LinkRe
     SELECT id::TEXT AS id, po_number, status, supplier_id::TEXT AS supplier_id, subtotal FROM purchase_orders
      WHERE company_id = ${companyId}::UUID AND id = ANY(${poIds}::UUID[]) ORDER BY id FOR UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError(), { deadline });
-  const billRows = await withRowLockBudget(async () => (await sql`
+  // Links of a locked PO change only under that PO's lock (the link tool), so this read is stable.
+  const held = (await sql`
+    SELECT DISTINCT l.supplier_invoice_id::TEXT AS bill FROM purchase_order_bill_links l
+     WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ANY(${poIds}::UUID[])
+  `) as DbRow[];
+  const lockIds = [...new Set([...billIds, ...held.map((r) => low(r.bill))])].sort();
+  const billRows = (await withRowLockBudget(async () => (await sql`
     SELECT si.* FROM supplier_invoices si
-     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${billIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id FOR UPDATE
-  `) as DbRow[], () => new RowLockTimeoutError('A bill in this call'), { deadline });
+     WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${lockIds}::UUID[]) AND si.deleted_at IS NULL ORDER BY si.id FOR UPDATE
+  `) as DbRow[], () => new RowLockTimeoutError('A bill in this call'), { deadline })).filter((b) => billIds.includes(low(b.id)));
 
   const items = (await sql`
     SELECT sii.*, po.id::TEXT AS item_po_id FROM supplier_invoice_items sii

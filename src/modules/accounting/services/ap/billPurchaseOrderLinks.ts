@@ -1,10 +1,24 @@
 /**
  * The bill side of purchase_order_bill_links (migration 1006): which POs a bill is linked to (the MCP bill reads), and
- * the `app` link the REST / MCP bill create writes when it saves a bill naming a canonical PO (design decision 11), so
- * the table stays the one list of links. Company-scoped; reads and one insert, no ledger effect.
+ * the `app` links the REST / MCP bill create and the draft edit write for a bill that names a PO, so the table stays the
+ * one list of links (design decisions 4, 11).
+ *
+ * `planBillLinks` is the amount rule the migration's backfill (`purchase_order_bill_links_backfill`, SQL) also follows;
+ * `tests/integration/mcp-po-bill-links-amounts.int.test.ts` runs both on the same bills:
+ *   - a PO that the bill's lines name gets the POSTED ex-VAT of those lines (`postedExpenseLines`: what approve posts),
+ *     when that is above zero;
+ *   - a PO named only by the header (or whose lines post nothing) gets the bill's subtotal less what the line-linked POs
+ *     hold; of several such POs only the lowest id is linked; nothing when that is not above zero.
+ * Only a PO of the bill's own company and supplier in a linkable status (`LINKABLE_PO_STATUSES`) is linked.
  */
-import { sql } from '@/lib/neon';
+import { sql, type TxSql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { toCents } from '../budgets/grid/cents';
+import { postedExpenseLines } from '../budgets/remainingCommitted';
+import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
+import { LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
+
+type Db = typeof sql | TxSql;
 
 /** The PO ids each bill is linked to, oldest link first. A bill with none is absent from the map. */
 export async function purchaseOrderIdsByBill(companyId: string, billIds: readonly string[]): Promise<Map<string, string[]>> {
@@ -23,25 +37,76 @@ export async function purchaseOrderIdsByBill(companyId: string, billIds: readonl
   return out;
 }
 
+export interface BillLinkPlanInput {
+  subtotalCents: number;
+  /** The bill's lines: the PO each names (null: none, or a PO that cannot be linked) and what it posts. */
+  lines: ReadonlyArray<{ poId: string | null; postedCents: number }>;
+  /** The header PO when it can be linked. */
+  headerPoId: string | null;
+}
+
+export function planBillLinks(input: BillLinkPlanInput): Array<{ poId: string; amountCents: number }> {
+  const sums = new Map<string, number>();
+  for (const l of input.lines) if (l.poId) sums.set(l.poId, (sums.get(l.poId) ?? 0) + l.postedCents);
+  if (input.headerPoId && !sums.has(input.headerPoId)) sums.set(input.headerPoId, 0);
+  const positive = [...sums].filter(([, c]) => c > 0);
+  const posTotal = positive.reduce((s, [, c]) => s + c, 0);
+  const fallback = [...sums].filter(([, c]) => c <= 0).map(([po]) => po).sort()[0];
+  const out = positive.map(([poId, amountCents]) => ({ poId, amountCents }));
+  if (fallback && input.subtotalCents - posTotal > 0) out.push({ poId: fallback, amountCents: input.subtotalCents - posTotal });
+  return out;
+}
+
 /**
- * An `app` link for a bill just created with `purchase_order_id` = `poId`, when that is a purchase_orders row of the same
- * company and supplier (a legacy supplier_purchase_orders id, another company's or another supplier's PO gets none:
- * the column is as the caller sent it, as before). Amount: the bill's lines that name a line of that PO, else its
- * subtotal; never above the subtotal; nothing when that is not above zero.
+ * Writes the `app` links a bill's header and lines call for (see the file header). Existing links are left (ON CONFLICT
+ * DO NOTHING on the pair). `db`: the transaction of the bill's own create, so the rows it just wrote are seen.
+ * A bill that is cancelled or deleted, or names no linkable PO, gets none.
  */
-export async function recordAppBillLink(companyId: string, billId: string, poId: string, userId: string): Promise<void> {
-  await sql`
-    INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by)
-    SELECT si.company_id, po.id, si.id, x.amount, 'app', ${userId}
-      FROM supplier_invoices si
-      JOIN purchase_orders po ON po.id = ${poId}::UUID AND po.company_id = si.company_id AND po.supplier_id = si.supplier_id
-      CROSS JOIN LATERAL (
-        SELECT LEAST(si.subtotal, COALESCE((
-          SELECT SUM(sii.line_total) FROM supplier_invoice_items sii
-            JOIN po_items pi ON pi.id = sii.po_item_id AND pi.purchase_order_id = po.id
-           WHERE sii.supplier_invoice_id = si.id), si.subtotal)) AS amount
-      ) x
-     WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND x.amount > 0
-    ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING
-  `;
+export async function recordBillLinks(companyId: string, billId: string, userId: string, db: Db = sql): Promise<number> {
+  const bill = ((await db`
+    SELECT si.* FROM supplier_invoices si
+     WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND si.status <> 'cancelled' AND si.deleted_at IS NULL
+  `) as DbRow[])[0];
+  if (!bill) return 0;
+  const items = (await db`
+    SELECT sii.*, pi.purchase_order_id::TEXT AS item_po FROM supplier_invoice_items sii
+      LEFT JOIN po_items pi ON pi.id = sii.po_item_id
+     WHERE sii.supplier_invoice_id = ${billId}::UUID
+    ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
+  `) as DbRow[];
+  const header = bill.purchase_order_id ? String(bill.purchase_order_id).toLowerCase() : null;
+  const named = [...new Set([header, ...items.map((i) => (i.item_po ? String(i.item_po).toLowerCase() : null))].filter((v): v is string => !!v))];
+  if (named.length === 0) return 0;
+  const usable = new Set(((await db`
+    SELECT id::TEXT AS id FROM purchase_orders
+     WHERE id = ANY(${named}::UUID[]) AND company_id = ${companyId}::UUID AND supplier_id = ${String(bill.supplier_id)}::UUID
+       AND status = ANY(${[...LINKABLE_PO_STATUSES]}::TEXT[])
+  `) as DbRow[]).map((r) => String(r.id).toLowerCase()));
+  const posted = new Map<string, number>();
+  for (const l of postedExpenseLines(bill, items)) posted.set(String(l.description), (posted.get(String(l.description)) ?? 0) + toCents(l.debit));
+  const plan = planBillLinks({
+    subtotalCents: toCents(Number(bill.subtotal)),
+    lines: items.map((i) => {
+      const po = i.item_po ? String(i.item_po).toLowerCase() : null;
+      return { poId: po && usable.has(po) ? po : null, postedCents: posted.get(String(i.id)) ?? 0 };
+    }),
+    headerPoId: header && usable.has(header) ? header : null,
+  });
+  for (const p of plan) {
+    await db`
+      INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by)
+      VALUES (${companyId}::UUID, ${p.poId}::UUID, ${billId}::UUID, ${(p.amountCents / 100).toFixed(2)}::NUMERIC, 'app', ${userId})
+      ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING
+    `;
+  }
+  return plan.length;
+}
+
+/**
+ * After a draft edit: the bill's `app` links are made again from what it now says (amounts follow its new lines and
+ * subtotal). Links another writer made (`mcp`, `backfill`) are not touched.
+ */
+export async function refreshAppBillLinks(companyId: string, billId: string, userId: string, db: Db = sql): Promise<void> {
+  await db`DELETE FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND supplier_invoice_id = ${billId}::UUID AND source = 'app'`;
+  await recordBillLinks(companyId, billId, userId, db);
 }

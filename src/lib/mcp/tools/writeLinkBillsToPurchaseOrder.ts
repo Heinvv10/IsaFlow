@@ -14,6 +14,7 @@
 import type { McpTool } from '../types';
 import { als } from '@/lib/als';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
+import { canCancelApprovedPo } from '@/lib/auth/writeRoles';
 import { linkBillsToPurchaseOrders, type LinkResult } from '@/modules/accounting/services/ap/purchaseOrderBillLink';
 import {
   MAX_LINKS_PER_CALL, PurchaseOrderBillLinkRefusal, linkRefusalText,
@@ -39,7 +40,7 @@ function wire(result: LinkResult, dry: boolean) {
   return {
     links: result.links.map((l) => ({
       index: l.index, link_id: dry && !l.alreadyExisted ? null : l.linkId, purchase_order_id: l.poId, po_number: l.poNumber, bill_id: l.billId,
-      invoice_number: l.invoiceNumber, amount: r2(l.amountCents), lines_linked: l.linesLinked, already_existed: l.alreadyExisted,
+      invoice_number: l.invoiceNumber, amount: r2(l.amountCents), lines_linked: l.linesLinked, already_existed: l.alreadyExisted, adopted_reference: l.adopted,
       external_system: l.externalSystem, external_ref: l.externalRef,
     })),
     purchase_orders: result.purchaseOrders.map((p) => ({
@@ -57,8 +58,11 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     + 'optional lines [{po_item_id, bill_line_id}] (whole bill line to whole PO line: this is what reduces budget committed and feeds the three-way match; a link with no lines is header-only and does not), '
     + 'and external_system + external_ref to make the link idempotent (the same pair under the same reference comes back already_existed). '
     + 'A bill may be linked to several purchase orders (split amounts); the amounts of one bill may not pass its subtotal. Same company and same supplier only. '
-    + 'The PO must be approved, partially_received, received or closed; the bill anything but cancelled. A pair already linked is refused (unlink_bill_from_purchase_order first). '
-    + 'close_when_fully_billed: true moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed. '
+    + 'The PO must be approved, partially_received, received or closed; the bill approved, paid or partially_paid (a draft or cancelled bill is not billed). '
+    + 'A pair already linked under the same external_ref is already_existed (refused with payload_differs when the amount or lines you send differ); a pair linked without a reference (made by the app) takes the external_ref you send (adopted_reference); any other repeat is refused (unlink_bill_from_purchase_order first). '
+    + 'close_when_fully_billed: true (owner or admin only) moves an approved / partially_received / received PO to closed when its links on approved / paid / partially_paid bills reach its subtotal (within 1 cent); without it the PO status is left alone. Every PO in the reply reports fully_billed. '
+    + 'Known limits: credit notes do not reduce what is billed; a header-only link (no lines) does not reduce budget committed for a still-open PO; '
+    + 'a bill linked to several POs reads goods received only from its own grn_id, so it cannot be fully_matched across them. '
     + 'ALL OR NOTHING: every refused link is listed as links[i]: reason and nothing is written. dry_run runs every check and reports the outcome, writing nothing.',
   scope: 'write:invoices',
   write: true,
@@ -98,6 +102,10 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     for (const flag of ['close_when_fully_billed', 'dry_run'] as const) {
       if (args[flag] !== undefined && typeof args[flag] !== 'boolean') return toolError(`${flag} must be true or false`);
     }
+    // R1 (Hein, 19 Nov): closing a PO is the owner's / admin's call, as cancelling an approved one. Before any read, dry run too.
+    if (args.close_when_fully_billed === true && !canCancelApprovedPo(ctx.companyRole)) {
+      return toolError('close_when_fully_billed closes purchase orders, which only an owner or admin may do. Link without it, or ask an owner or admin.');
+    }
     const dryRun = args.dry_run === true;
     // Outside a request transaction a savepoint is a plain call and the rollback below would undo nothing.
     if (dryRun && !als.getStore()?.client) return toolError('dry_run needs a request transaction');
@@ -113,15 +121,16 @@ export const linkBillsToPurchaseOrderTool: McpTool = {
     }
     const done = result!;
     const created = done.links.filter((l) => !l.alreadyExisted).length;
+    const adopted = done.links.filter((l) => l.adopted).length;
     if (dryRun) {
-      const preview = ok({ dry_run: true, would_link: created, already_existed: done.links.length - created, ...wire(done, true) });
+      const preview = ok({ dry_run: true, would_link: created, would_adopt_reference: adopted, already_existed: done.links.length - created, ...wire(done, true) });
       preview.wroteNothing = true;
       preview.billable = false;
       return preview;
     }
-    const out = ok({ linked: created, already_existed: done.links.length - created, ...wire(done, false) });
-    // A re-run that found every pair already linked wrote nothing: leave the key free, as a dry run does.
-    if (created === 0) { out.wroteNothing = true; out.billable = false; }
+    const out = ok({ linked: created, adopted_reference: adopted, already_existed: done.links.length - created, ...wire(done, false) });
+    // A re-run that found every pair already linked (and set no reference) wrote nothing: leave the key free, as a dry run does.
+    if (created === 0 && adopted === 0) { out.wroteNothing = true; out.billable = false; }
     return out;
   },
 };

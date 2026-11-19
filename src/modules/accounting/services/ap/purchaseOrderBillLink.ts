@@ -36,6 +36,8 @@ export interface LinkedBill {
   amountCents: number;
   linesLinked: number;
   alreadyExisted: boolean;
+  /** The pair was linked ref-less (app / backfill) and this call set its external_ref. */
+  adopted: boolean;
   externalSystem: string | null;
   externalRef: string | null;
 }
@@ -82,10 +84,22 @@ export async function linkBillsToPurchaseOrders(
   for (const p of plan.planned) {
     const after = plan.poAfter.get(p.poId)!;
     let linkId: string;
-    if (p.existing) linkId = p.existing.id;
-    else {
-      linkId = await writeLink(companyId, p, opts);
-      touchedBills.add(p.billId);
+    if (p.existing) {
+      linkId = p.existing.id;
+      if (p.adopt) {
+        const set = (await sql`
+          UPDATE purchase_order_bill_links SET external_system = ${p.ref!.system}, external_ref = ${p.ref!.ref}
+           WHERE id = ${linkId}::UUID AND company_id = ${companyId}::UUID AND external_ref IS NULL RETURNING id
+        `) as DbRow[];
+        if (set.length !== 1) throw new Error('The link changed while its reference was being set');
+        await logAuditOrThrow({
+          companyId, userId: opts.userId, action: 'update', entityType: 'purchase_order', entityId: p.poId, entityRef: p.poNumber.slice(0, 100),
+          changes: { fields: [], metadata: { adopted_reference: 'true', linked_bill: p.invoiceNumber.slice(0, 100), bill_id: p.billId, link_id: linkId,
+            source: opts.via, externalSystem: p.ref!.system, externalRef: p.ref!.ref } },
+        });
+      }
+    } else {
+      // The PO is closed BEFORE the link naming that closing is written (the table's guard needs the PO closed).
       if (p.closedFrom) {
         const closed = (await sql`
           UPDATE purchase_orders SET status = 'closed', updated_at = NOW(), updated_by = ${opts.userId}
@@ -93,6 +107,8 @@ export async function linkBillsToPurchaseOrders(
         `) as DbRow[];
         if (closed.length !== 1) throw new Error('The purchase order changed while it was being closed');
       }
+      linkId = await writeLink(companyId, p, opts);
+      touchedBills.add(p.billId);
       await logAuditOrThrow({
         companyId, userId: opts.userId, action: 'update', entityType: 'purchase_order', entityId: p.poId, entityRef: p.poNumber.slice(0, 100),
         changes: {
@@ -107,7 +123,7 @@ export async function linkBillsToPurchaseOrders(
     }
     links.push({
       index: p.index, linkId, poId: p.poId, poNumber: p.poNumber, billId: p.billId, invoiceNumber: p.invoiceNumber,
-      amountCents: p.amountCents, linesLinked: p.linesLinked, alreadyExisted: p.existing !== null,
+      amountCents: p.amountCents, linesLinked: p.linesLinked, alreadyExisted: p.existing !== null, adopted: p.adopt,
       externalSystem: p.ref?.system ?? null, externalRef: p.ref?.ref ?? null,
     });
   }
