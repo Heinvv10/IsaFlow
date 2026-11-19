@@ -33,10 +33,10 @@ import type { McpToolContext } from '@/lib/mcp/types';
 
 const PO = '11111111-1111-4111-8111-111111111111';
 const BILL = '22222222-2222-4222-8222-222222222222';
-const ctx = { userId: 'u1', companyId: 'c1', scopes: ['write:invoices'], tokenJti: null, oauthAppId: null } as unknown as McpToolContext;
+const ctx = { userId: 'u1', companyId: 'c1', scopes: ['write:invoices'], tokenJti: null, oauthAppId: null, companyRole: 'owner' } as unknown as McpToolContext;
 const body = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text) as Record<string, unknown>;
 const done = (over: Record<string, unknown> = {}) => ({
-  links: [{ index: 0, linkId: 'l1', poId: PO, poNumber: 'PO1', billId: BILL, invoiceNumber: 'B1', amountCents: 10050, linesLinked: 0, alreadyExisted: false, externalSystem: null, externalRef: null, ...over }],
+  links: [{ index: 0, linkId: 'l1', poId: PO, poNumber: 'PO1', billId: BILL, invoiceNumber: 'B1', amountCents: 10050, linesLinked: 0, alreadyExisted: false, adopted: false, externalSystem: null, externalRef: null, ...over }],
   purchaseOrders: [{ poId: PO, poNumber: 'PO1', statusBefore: 'approved', statusAfter: 'closed', billedCents: 10050, subtotalCents: 10050, fullyBilled: true }],
 });
 
@@ -57,6 +57,31 @@ describe('link_bills_to_purchase_order handler', () => {
     expect(await call({ close_when_fully_billed: 'yes' })).toMatchObject({ isError: true, content: [{ text: 'close_when_fully_billed must be true or false' }] });
     expect(await call({ dry_run: 1 })).toMatchObject({ isError: true, content: [{ text: 'dry_run must be true or false' }] });
     expect(linkMock).not.toHaveBeenCalled();
+  });
+
+  it('R1: close_when_fully_billed is refused for a manager (and a missing role), dry run too, before the service; an owner or admin may', async () => {
+    linkMock.mockResolvedValue(done());
+    for (const companyRole of ['manager', 'viewer', null, undefined]) {
+      for (const dry of [false, true]) {
+        const r = await link.handler({ idempotency_key: 'k', links: [{ po_id: PO, bill_id: BILL }], close_when_fully_billed: true, dry_run: dry }, { ...ctx, companyRole } as McpToolContext);
+        expect(r).toMatchObject({ isError: true });
+        expect(r.content[0]!.text).toContain('only an owner or admin may do');
+      }
+    }
+    expect(linkMock).not.toHaveBeenCalled();
+    const plain = await link.handler({ idempotency_key: 'k', links: [{ po_id: PO, bill_id: BILL }] }, { ...ctx, companyRole: 'manager' } as McpToolContext);
+    expect(plain.isError).toBeUndefined();
+    for (const companyRole of ['owner', 'admin']) {
+      const r = await link.handler({ idempotency_key: 'k', links: [{ po_id: PO, bill_id: BILL }], close_when_fully_billed: true }, { ...ctx, companyRole } as McpToolContext);
+      expect(r.isError).toBeUndefined();
+    }
+  });
+
+  it('a call that only adopted a reference wrote something: the key is occupied and it is billable', async () => {
+    linkMock.mockResolvedValue(done({ alreadyExisted: true, adopted: true }));
+    const r = await call({});
+    expect(body(r)).toMatchObject({ linked: 0, adopted_reference: 1, already_existed: 1 });
+    expect(r.wroteNothing).toBeUndefined();
   });
 
   it('passes the company, the parsed links and the options to the service; the token user is the actor', async () => {
@@ -104,7 +129,7 @@ describe('link_bills_to_purchase_order handler', () => {
 
 describe('unlink_bill_from_purchase_order handler', () => {
   const call = (args: Record<string, unknown>) => unlink.handler({ idempotency_key: 'k', po_id: PO, bill_id: BILL, reason: 'wrong PO', ...args }, ctx);
-  const result = { poId: PO, poNumber: 'PO1', billId: BILL, invoiceNumber: 'B1', linkId: 'l1', amountCents: 5000, linesCleared: 2, poStatusBefore: 'closed', poStatusAfter: 'received', reopenedTo: 'received' };
+  const result = { poId: PO, poNumber: 'PO1', billId: BILL, invoiceNumber: 'B1', linkId: 'l1', amountCents: 5000, linesCleared: 2, poStatusBefore: 'closed', poStatusAfter: 'received', reopenedTo: 'received', billedCents: 0, fullyBilled: false, budgetWarnings: [] as string[] };
 
   it('refuses a bad selector, bill, reason and flag before any service call', async () => {
     for (const args of [{ po_id: undefined }, { po_id: PO, po_number: 'PO1' }, { bill_id: 'x' }, { reason: ' ' }, { reason: 'r'.repeat(501) }, { dry_run: 'y' }]) {
@@ -116,13 +141,21 @@ describe('unlink_bill_from_purchase_order handler', () => {
   it('unlinks as the token user with the reason; dry_run rolls back and leaves the key free', async () => {
     unlinkMock.mockResolvedValue(result);
     const live = await call({});
-    expect(unlinkMock).toHaveBeenCalledWith('c1', { poId: PO, poNumber: null, billId: BILL, reason: 'wrong PO' }, 'u1', 'mcp:unlink_bill_from_purchase_order');
-    expect(body(live)).toMatchObject({ unlinked: true, amount: 50, lines_cleared: 2, reopened_to: 'received' });
+    expect(unlinkMock).toHaveBeenCalledWith('c1', { poId: PO, poNumber: null, billId: BILL, reason: 'wrong PO' },
+      { userId: 'u1', via: 'mcp:unlink_bill_from_purchase_order', budgetFigures: false });
+    expect(body(live)).toMatchObject({ unlinked: true, amount: 50, lines_cleared: 2, reopened_to: 'received', budget_warning: null, budget_warnings: [] });
     expect(live.wroteNothing).toBeUndefined();
     const dry = await call({ dry_run: true });
     expect(rolledBack).toHaveBeenCalledWith('po_bill_unlink_dry');
     expect(body(dry)).toMatchObject({ dry_run: true, would_unlink: true });
     expect(dry).toMatchObject({ wroteNothing: true, billable: false });
+  });
+
+  it('R2: a budget warning comes back as budget_warning (and the figures flag follows read:reports)', async () => {
+    unlinkMock.mockResolvedValue({ ...result, budgetWarnings: ['Over budget: BB-6100 June'] });
+    const r = await unlink.handler({ idempotency_key: 'k', po_id: PO, bill_id: BILL, reason: 'x' }, { ...ctx, scopes: ['write:invoices', 'read:reports'] } as McpToolContext);
+    expect(body(r)).toMatchObject({ unlinked: true, budget_warning: 'Over budget: BB-6100 June', budget_warnings: ['Over budget: BB-6100 June'] });
+    expect(unlinkMock.mock.calls.at(-1)![2]).toMatchObject({ budgetFigures: true });
   });
 
   it('a refusal is a tool error; anything else propagates', async () => {

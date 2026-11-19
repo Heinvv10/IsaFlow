@@ -4,7 +4,8 @@
  * app_user request transaction, committed after the handler returns.
  */
 import type { Pool } from 'pg';
-import { makeBill, type BillFixture } from './budgetBillFixture';
+import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { makeBill, openRequest, type BillFixture } from './budgetBillFixture';
 
 export type { Json } from './poImportHarness';
 
@@ -15,7 +16,7 @@ export interface SeededPo { po: string; number: string; items: string[] }
 /** A PO (default approved) with one line per amount (qty 1, no VAT): subtotal = total = the sum. */
 export async function seedPo(
   pool: Pool, f: BillFixture,
-  opts: { status?: string; lines: number[]; acct?: string | null; supplier?: string; date?: string; number?: string },
+  opts: { status?: string; lines: number[]; acct?: string | null; supplier?: string; date?: string; number?: string; cc1?: string },
 ): Promise<SeededPo> {
   const po = crypto.randomUUID();
   const number = opts.number ?? `PL${String(1000 + seq++)}-${po.slice(0, 4)}`;
@@ -28,9 +29,9 @@ export async function seedPo(
   for (const [i, amount] of opts.lines.entries()) {
     const item = crypto.randomUUID();
     await pool.query(
-      `INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, sort_order)
-       VALUES ($1, $2, $3, 1, $4, 0, $4, 0, $5, $6)`,
-      [item, po, `PO line ${i}`, amount, opts.acct === undefined ? f.acc.opex : opts.acct, i]);
+      `INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, sort_order, cc1_id)
+       VALUES ($1, $2, $3, 1, $4, 0, $4, 0, $5, $6, $7)`,
+      [item, po, `PO line ${i}`, amount, opts.acct === undefined ? f.acc.opex : opts.acct, i, opts.cc1 ?? null]);
     items.push(item);
   }
   return { po, number, items };
@@ -80,4 +81,43 @@ export async function billHeader(pool: Pool, bill: string): Promise<string | nul
 export async function lineLinks(pool: Pool, bill: string): Promise<Array<string | null>> {
   return (await pool.query('SELECT po_item_id FROM supplier_invoice_items WHERE supplier_invoice_id = $1 ORDER BY unit_price, id', [bill]))
     .rows.map((r) => (r.po_item_id == null ? null : String(r.po_item_id)));
+}
+
+/** Approves a draft bill through the real service (its journal is posted); committed. */
+export async function approveBill(pool: Pool, f: BillFixture, bill: string): Promise<void> {
+  const req = await openRequest(pool, f, f.owner);
+  try { await req.run(() => approveSupplierInvoice(f.co, bill, f.owner)); await req.commit(); } catch (e) { await req.rollback(); throw e; }
+}
+
+/** Another supplier of the same company. */
+export async function seedSupplier(pool: Pool, f: BillFixture, name = 'Second supplier'): Promise<string> {
+  const id = crypto.randomUUID();
+  await pool.query('INSERT INTO suppliers (id, company_id, name, is_active) VALUES ($1, $2, $3, true)', [id, f.co, name]);
+  return id;
+}
+
+/**
+ * A bill with exactly the stored figures given (the amount rule's fixtures: a gross-stored bill, a rounding residual, a R0
+ * line): `items[i].total` is the line's stored line_total, `poItem` the PO line it names. Line ids come back in item order.
+ */
+export async function seedRawBill(
+  pool: Pool, f: BillFixture,
+  o: { items: Array<{ total: number; poItem?: string | null }>; subtotal: number; total: number; taxRate?: number; status?: string; header?: string | null; supplier?: string },
+): Promise<SeededBill> {
+  const id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount,
+       created_by, status, purchase_order_id) VALUES ($1, $2, $3, $4, '2026-06-15', $5, $6, $7, $8, $9, $10, $11)`,
+    [id, f.co, `RAW-${id.slice(0, 8)}`, o.supplier ?? f.supplier, o.subtotal, o.taxRate ?? 15, Math.round((o.total - o.subtotal) * 100) / 100, o.total,
+      f.owner, o.status ?? 'approved', o.header ?? null]);
+  const lines: string[] = [];
+  for (const [i, it] of o.items.entries()) {
+    const lid = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO supplier_invoice_items (id, supplier_invoice_id, description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id, cc1_id, po_item_id)
+       VALUES ($1, $2, $3, 1, $4, 15, 0, $4, $5, $6, $7)`,
+      [lid, id, `L${String(i).padStart(2, '0')}`, it.total, f.acc.opex, f.cc.FT, it.poItem ?? null]);
+    lines.push(lid);
+  }
+  return { id, lines, subtotal: o.subtotal };
 }

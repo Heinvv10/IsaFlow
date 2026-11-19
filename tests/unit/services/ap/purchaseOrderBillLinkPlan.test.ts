@@ -40,12 +40,18 @@ describe('status and ownership', () => {
       bills: new Map([['b1', bill('b1', { status: 'cancelled' })], ['b2', bill('b2', { supplierId: 'other' })]]),
     });
     expect(reasons(r)).toEqual([
-      '0:bill B-b1 is cancelled', '1:bill not found', '2:purchase order not found', '3:bill B-b2 and purchase order PO-p2 are of different suppliers',
+      '0:bill B-b1 is cancelled; only an approved, paid or partially paid bill can be linked', '1:bill not found', '2:purchase order not found', '3:bill B-b2 and purchase order PO-p2 are of different suppliers',
     ]);
     expect(r.plan).toBeNull();
   });
-  it('accepts a draft bill', () => {
-    expect(plan([req(0, 'p1', 'b1')], { bills: new Map([['b1', bill('b1', { status: 'draft' })]]) }).plan).not.toBeNull();
+  it('R3: only an approved, paid or partially_paid bill is linked; a draft, pending, disputed or cancelled one is refused with its status', () => {
+    for (const status of ['draft', 'pending_approval', 'disputed', 'cancelled']) {
+      expect(reasons(plan([req(0, 'p1', 'b1')], { bills: new Map([['b1', bill('b1', { status })]]) }))[0])
+        .toBe(`0:bill B-b1 is ${status}; only an approved, paid or partially paid bill can be linked`);
+    }
+    for (const status of ['approved', 'paid', 'partially_paid']) {
+      expect(plan([req(0, 'p1', 'b1')], { bills: new Map([['b1', bill('b1', { status })]]) }).plan).not.toBeNull();
+    }
   });
 });
 
@@ -65,12 +71,21 @@ describe('amount (decision 4)', () => {
     const r = plan([req(0, 'p1', 'b1', { amountCents: 10000 }), req(1, 'p2', 'b1')]);
     expect(amount(r, 1)).toBe(20000);
   });
+  it('lines that post nothing fall back to the subtotal less the other links (decision 4), they do not drop the link', () => {
+    const lines = [{ id: 'b1-l1', poItemId: null, poItemPoId: null, postedCents: 0 }];
+    const r = plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], {
+      bills: new Map([['b1', bill('b1', { lines })]]), existing: [existing({ poId: 'p2', amountCents: 5000 })],
+    });
+    expect(amount(r)).toBe(25000);
+  });
   it('is refused at or below zero, and past the subtotal by more than a cent', () => {
     expect(reasons(plan([req(0, 'p1', 'b1')], { existing: [existing({ poId: 'p2', amountCents: 30000 })] }))[0]).toContain('give an amount above zero');
     expect(reasons(plan([req(0, 'p1', 'b1', { amountCents: 30002 })]))[0]).toContain('would pass it');
     expect(plan([req(0, 'p1', 'b1', { amountCents: 30001 })]).plan).not.toBeNull();
     const lines = [{ id: 'b1-l1', poItemId: null, poItemPoId: null, postedCents: 0 }];
-    expect(reasons(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { bills: new Map([['b1', bill('b1', { lines })]]) }))[0]).toContain('is 0.00');
+    expect(reasons(plan([req(0, 'p1', 'b1', { lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], {
+      bills: new Map([['b1', bill('b1', { lines, subtotalCents: 0 })]]),
+    }))[0]).toContain('is 0.00');
   });
   it('two links of one bill past its subtotal: the second is refused', () => {
     const r = plan([req(0, 'p1', 'b1', { amountCents: 20000 }), req(1, 'p2', 'b1', { amountCents: 10002 })]);
@@ -85,14 +100,34 @@ describe('idempotency (decision 9)', () => {
     const r = plan([req(0, 'p1', 'b1', { ref })], { existing: [e] });
     expect(r.plan!.planned[0]).toMatchObject({ existing: e, lineWrites: [], closedFrom: null, amountCents: 10000 });
   });
-  it('the same pair otherwise is refused (no reference, another reference, none stored)', () => {
-    for (const [stored, sent] of [[{ refSystem: 'sage', refRef: '7' }, null], [{ refSystem: 'sage', refRef: '8' }, ref], [{}, ref]] as const) {
+  it('the same pair otherwise is refused (no reference sent, another reference stored)', () => {
+    for (const [stored, sent] of [[{ refSystem: 'sage', refRef: '7' }, null], [{ refSystem: 'sage', refRef: '8' }, ref], [{ refSystem: 'sage', refRef: '8' }, null]] as const) {
       expect(reasons(plan([req(0, 'p1', 'b1', { ref: sent })], { existing: [existing(stored)] }))[0]).toContain('is already linked to purchase order PO-p1');
     }
+    expect(reasons(plan([req(0, 'p1', 'b1')], { existing: [existing()] }))[0]).toContain('is already linked to purchase order PO-p1');
   });
-  it('a reference already on another pair is refused', () => {
+  it('a ref-less link ADOPTS a reference sent with it (nothing else written)', () => {
+    const e = existing();
+    const r = plan([req(0, 'p1', 'b1', { ref })], { existing: [e] });
+    expect(r.plan!.planned[0]).toMatchObject({ existing: e, adopt: true, lineWrites: [], closedFrom: null, amountCents: 10000 });
+    expect(plan([req(0, 'p1', 'b1', { ref, amountCents: 10000 })], { existing: [e] }).plan!.planned[0]!.adopt).toBe(true);
+  });
+  it('payload_differs: the same reference or an adoption with another explicit amount or other lines is refused, not already_existed', () => {
+    const same = existing({ refSystem: 'sage', refRef: '7' });
+    expect(reasons(plan([req(0, 'p1', 'b1', { ref, amountCents: 9000 })], { existing: [same] }))[0])
+      .toContain('payload_differs): amount 90.00 against 100.00 stored');
+    expect(reasons(plan([req(0, 'p1', 'b1', { ref, amountCents: 9000 })], { existing: [existing()] }))[0]).toContain('payload_differs');
+    const linked = bill('b1', { lines: [{ id: 'b1-l1', poItemId: 'i1', poItemPoId: 'p1', postedCents: 10000 }, { id: 'b1-l2', poItemId: null, poItemPoId: null, postedCents: 20000 }] });
+    const bills = new Map([['b1', linked]]);
+    expect(reasons(plan([req(0, 'p1', 'b1', { ref, lines: [{ poItemId: 'i2', billLineId: 'b1-l2' }] })], { existing: [same], bills }))[0]).toContain('the lines named are not the lines linked');
+    const agree = plan([req(0, 'p1', 'b1', { ref, amountCents: 10000, lines: [{ poItemId: 'i1', billLineId: 'b1-l1' }] })], { existing: [same], bills });
+    expect(agree.plan!.planned[0]).toMatchObject({ existing: same, adopt: false });
+  });
+  it('a reference already on another pair is refused, also for an adoption', () => {
     const r = plan([req(0, 'p1', 'b2', { ref })], { refOwners: new Map([['sage\u00007', existing()]]) });
     expect(reasons(r)[0]).toContain('external_ref 7 (sage) is already used by another purchase order link');
+    const adopt = plan([req(0, 'p1', 'b1', { ref })], { existing: [existing()], refOwners: new Map([['sage\u00007', existing({ id: 'other' })]]) });
+    expect(reasons(adopt)[0]).toContain('is already used by another purchase order link');
   });
   it('the same pair twice in a call is refused on the second', () => {
     expect(reasons(plan([req(0, 'p1', 'b1'), req(1, 'p1', 'b1')]))).toEqual(['1:the same purchase order and bill as links[0]']);
@@ -131,8 +166,8 @@ describe('billed and close_when_fully_billed (decisions 5 and 6)', () => {
       existing({ id: 'c', billId: 'x3', billStatus: 'cancelled', amountCents: 9000 }), existing({ id: 'd', billId: 'x4', billStatus: 'deleted', amountCents: 9000 }),
     ] });
     expect(after(r)).toMatchObject({ billedCents: 15000, fullyBilled: false });
-    const draft = plan([req(0, 'p1', 'b1')], { bills: new Map([['b1', bill('b1', { status: 'draft' })]]) });
-    expect(after(draft)).toMatchObject({ billedCents: 0, fullyBilled: false });
+    const paid = plan([req(0, 'p1', 'b1')], { bills: new Map([['b1', bill('b1', { status: 'paid' })]]) });
+    expect(after(paid)).toMatchObject({ billedCents: 30000, fullyBilled: true });
   });
   it('closes only with the flag, only from approved / partially_received / received, and the LAST new link records the status', () => {
     const two = [req(0, 'p1', 'b1', { amountCents: 10000 }), req(1, 'p1', 'b2', { amountCents: 20000 })];
