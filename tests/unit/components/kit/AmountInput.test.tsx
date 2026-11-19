@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AmountInput, type AmountInputProps } from '@/components/ui/AmountInput';
-import { normaliseAmountText } from '@/components/ui/amountInputText';
+import { normaliseAmountText, blockOnInvalidAmount } from '@/components/ui/amountInputText';
 
 afterEach(cleanup);
 
@@ -254,5 +254,31 @@ describe('AmountInput (#1654 follow-up): a `n || \'\'` parent', () => {
     expect(field().value).toBe('0');
     fireEvent.click(screen.getByText('hundred'));
     expect(field().value).toBe('100');
+  });
+});
+
+describe('AmountInput (#1654 follow-up 2): echo token and submit guard', () => {
+  function Str({ start }: { start: string }) {
+    const [t, setT] = useState(start);
+    return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('')}>save-reset</button></>);
+  }
+  it('typing 0 in a string parent, then the parent resetting to "", clears the box (not an echo)', () => {
+    render(<Str start="100" />);
+    fireEvent.change(field(), { target: { value: '0' } });
+    expect(field().value).toBe('0');
+    fireEvent.click(screen.getByText('save-reset'));
+    expect(field().value).toBe('');
+  });
+  it('typing "0.00" then a reset to "" clears it too', () => {
+    render(<Str start="" />);
+    type(field(), '0.00');
+    fireEvent.click(screen.getByText('save-reset'));
+    expect(field().value).toBe('');
+  });
+  it('blockOnInvalidAmount: false for a clean field, true after a refused paste (and it reports validity)', () => {
+    render(<form><AmountInput aria-label="amt" value="25" onValueChange={() => undefined} /></form>);
+    expect(blockOnInvalidAmount()).toBe(false);
+    fireEvent.change(field(), { target: { value: '25 apples' } });
+    expect(blockOnInvalidAmount()).toBe(true);
   });
 });

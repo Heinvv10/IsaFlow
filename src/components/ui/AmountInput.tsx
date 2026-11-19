@@ -45,15 +45,17 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
     if (typeof ref === 'function') ref(el); else if (ref) ref.current = el;
   };
   const emitted = React.useRef(Number(asText(value)) || 0);
-  // The parent changed the value to something the draft does not already say (a reset, a "fill remaining"): follow it,
-  // and drop a refusal that belonged to the old text. A string parent echoing the draft, or a number parent echoing the
-  // number last emitted, keeps the draft, so "2325." survives the parent handing back 2325.
+  // Set when onChange hands the parent a value; the next value change is then its echo. Only an echo may keep a draft
+  // the parent states differently ("0.75" -> 0.75, a typed 0 -> '' under `n || ''`); any other change (a reset after a
+  // save, "fill remaining") finds no pending echo and is adopted, '' included.
+  const pendingEcho = React.useRef(false);
   React.useEffect(() => {
+    const echo = pendingEcho.current;
+    pendingEcho.current = false;
     setRefused(false);
     if (typeof value === 'string') {
-      // A `n || ''` parent hands back '' for a typed 0 (and "0.75" is 0.75 once typed): an equal number keeps the draft.
       emitted.current = Number(value) || 0; // so the same number coming back from the parent later is shown again
-      setDraft(prev => (prev === value || (Number(prev) || 0) === (Number(value) || 0) ? prev : value));
+      setDraft(prev => (prev === value || (echo && (Number(prev) || 0) === (Number(value) || 0)) ? prev : value));
       return;
     }
     if (value === emitted.current) return;
@@ -70,6 +72,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
       inputMode="decimal"
       autoComplete="off"
       required={required}
+      data-amount-input=""
       aria-invalid={message ? true : undefined}
       value={draft}
       onFocus={e => {
@@ -89,6 +92,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
         setRefused(false);
         setDraft(text);
         emitted.current = Number(text) || 0;
+        pendingEcho.current = true;
         onValueChange(emitted.current, text);
       }}
     />
