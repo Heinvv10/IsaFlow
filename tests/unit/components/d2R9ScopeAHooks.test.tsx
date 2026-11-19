@@ -43,9 +43,11 @@ describe('useBankTxRefData', () => {
     setGlAccounts: vi.fn(), setSuppliers: vi.fn(), setCustomers: vi.fn(), setCc1Options: vi.fn(),
     setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSuppliersStatus: vi.fn(),
   });
+  // The cost-centre and business-unit lists answer { items } under data; a bare array there is a failed load (#1653).
+  const itemLists = [on('GET', 'cost-centres', () => ok({ items: [] })), on('GET', 'business-units', () => ok({ items: [] }))];
   it('every list loads: no error is shown', async () => {
     const s = setters();
-    serve(on('GET', 'chart-of-accounts', () => ok([])));
+    serve(on('GET', 'chart-of-accounts', () => ok([])), ...itemLists);
     renderHook(() => useBankTxRefData(s));
     await waitFor(() => expect(s.setGlAccounts).toHaveBeenCalledWith([]));
     expect(toastError).not.toHaveBeenCalled();
@@ -53,7 +55,7 @@ describe('useBankTxRefData', () => {
   for (const [what, fail] of [['empty 500', empty500], ['400', () => refuse()]] as const) {
     it(`${what} on one list: the person is told, and the other lists still load`, async () => {
       const s = setters();
-      serve(on('GET', 'chart-of-accounts', fail), on('GET', 'customers', () => ok([])));
+      serve(on('GET', 'chart-of-accounts', fail), on('GET', 'customers', () => ok([])), ...itemLists);
       renderHook(() => useBankTxRefData(s));
       await waitFor(() => expect(toastError).toHaveBeenCalledWith(LISTS));
       expect(s.setCustomers).toHaveBeenCalledWith([]);
