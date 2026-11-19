@@ -186,7 +186,7 @@ export default function BankAccountsPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-cyan-500/10">
                   <Landmark className="h-6 w-6 text-cyan-500" />
@@ -200,7 +200,7 @@ export default function BankAccountsPage() {
               </div>
               <button
                 onClick={openAddModal}
-                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-2 text-sm"
+                className="px-4 py-2 max-lg:min-h-11 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-2 text-sm"
               >
                 <Plus className="h-4 w-4" />
                 Add Bank Account

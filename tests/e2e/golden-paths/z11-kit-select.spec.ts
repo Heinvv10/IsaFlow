@@ -50,10 +50,18 @@ test('keyboard only: account and job chosen by keys, saved, and the API holds bo
 
   await page.getByRole('combobox', { name: 'Client' }).focus();
   await page.keyboard.press('Enter');
+  // The client search is remote and debounced (useRemoteOptions, 250 ms): until its answer lands the list still holds the
+  // earlier results, so the option can be on screen before the search has replaced it, and an arrow or Enter then acts on
+  // a list that is about to change (the choice is lost and Create answers "Select a client"). Wait for the answer, then
+  // for the list to stop being busy, and only then key.
+  const searched = page.waitForResponse((r) => r.url().includes('/api/accounting/customers?') && /[?&]q=0GP-Golden(&|$)/.test(r.url()));
   await page.keyboard.type('0GP-Golden');
+  await searched;
+  await expect(page.getByRole('listbox')).toHaveAttribute('aria-busy', 'false');
   await expect(page.getByRole('option', { name: '0GP-Golden-Customer' })).toBeVisible();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
+  await expect(page.getByRole('combobox', { name: 'Client' })).toContainText('0GP-Golden-Customer');
 
   await page.getByPlaceholder('Item description').fill(`Z11 keyboard ${Date.now().toString(36)}`);
   await page.getByLabel('Unit price').fill('100');
@@ -65,12 +73,16 @@ test('keyboard only: account and job chosen by keys, saved, and the API holds bo
   await page.getByRole('combobox', { name: 'Job (Project Profitability)' }).focus();
   await page.keyboard.press('Enter');
   await page.keyboard.type(JOB.slice(0, 12)); // the search box filters to the job
+  await expect(page.getByRole('option', { name: JOB })).toBeVisible();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('combobox', { name: 'Job (Project Profitability)' })).toContainText(JOB);
   expect(await nativeSelects(page), 'invoice new draws no native select').toBe(0);
 
+  // The create answer first (as y1 does): a save that never happens fails here, saying so, not as a 30 s URL timeout.
+  const created = page.waitForResponse((r) => r.url().includes('/api/accounting/customer-invoices-create') && r.request().method() === 'POST');
   await page.getByRole('button', { name: /^create invoice$/i }).click();
+  expect((await created).status(), 'Create must answer 201').toBe(201);
   await page.waitForURL(/\/accounting\/customer-invoices\/(?!new)[0-9a-f-]{36}/, { timeout: 30_000 });
   const id = /customer-invoices\/([0-9a-f-]{36})/.exec(page.url())![1]!;
   try {
