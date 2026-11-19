@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import { cleanup, type R } from './pe-payslip-email.helpers';
+import { dropReturnRows } from './w6-fqd-returns.helpers';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import runs from '../../pages/api/payroll/runs';
 import emp501Returns from '../../pages/api/payroll/emp501/returns';
@@ -67,20 +68,7 @@ beforeAll(async () => {
   expect((await a.api.approve(sep)).statusCode).toBe(200);
 }, 240_000);
 afterAll(async () => {
-  // The return lifecycle's rows, which the shared cleanup does not know (filed EMP201 and the EMP501 versions).
-  // Versions are history (an immutability trigger): lifted for this company's rows only, in one transaction, as
-  // returnVersionsFixture's drop does.
-  const c = await a.pool.connect();
-  try {
-    await c.query('BEGIN');
-    await c.query('ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable');
-    await c.query('DELETE FROM tax_return_versions WHERE company_id = $1', [a.company]);
-    await c.query('ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable');
-    await c.query('COMMIT');
-  } finally {
-    c.release();
-  }
-  await a.pool.query('DELETE FROM sars_submissions WHERE company_id = $1', [a.company]);
+  await dropReturnRows(a.pool, a.company);
   await cleanup(a);
 });
 

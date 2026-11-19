@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import { cleanup, type R } from './pe-payslip-email.helpers';
+import { dropReturnRows } from './w6-fqd-returns.helpers';
 import runs from '../../pages/api/payroll/runs';
 import payFrequency from '../../pages/api/payroll/employees/[id]/pay-frequency';
 import finaliseRoute from '../../pages/api/accounting/sars/returns/[form]/finalise';
@@ -53,7 +54,7 @@ beforeAll(async () => {
   expect((await a.api.calculate(m)).statusCode).toBe(200);
   expect((await a.api.approve(m)).statusCode).toBe(200);
 }, 240_000);
-afterAll(async () => { await cleanup(a); });
+afterAll(async () => { await dropReturnRows(a.pool, a.company); await cleanup(a); });
 
 describe('M-E: a caught-up run corrected down refunds the over-catch-up within the month', () => {
   it('M caught W1 up (1% of R51 000), W1 itself was exempt', async () => {
