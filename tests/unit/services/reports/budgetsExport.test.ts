@@ -113,6 +113,14 @@ describe('budgetRows: per-head roll-up (D7)', () => {
       table: 'budgets', schemaVersion: BUDGETS_SCHEMA_VERSION, asAt: '2026-11-19', rowCount: 2, controlTotal: 0.3,
     });
   });
+
+  it('a float sum drifts (in rand, or ×100 unrounded); the integer-cents sum is exactly 3.67', () => {
+    const amounts = [0.07, 1.1, 2.2, 0.1, 0.2]; // the rows' order: months 2026-03..07
+    const r = budgetRows([{ versionId: V1, cells: amounts.map((a, i) => cell(SALES, `2026-0${i + 3}`, a)), perHeadAccountIds: new Set() }], CODES);
+    expect(amounts.reduce((s, a) => s + a, 0)).not.toBe(3.67);
+    expect(amounts.reduce((s, a) => s + a * 100, 0) / 100).not.toBe(3.67);
+    expect(budgetsSummary(r, '2026-11-19').controlTotal).toBe(3.67);
+  });
 });
 
 describe('budgetVersionRows', () => {
