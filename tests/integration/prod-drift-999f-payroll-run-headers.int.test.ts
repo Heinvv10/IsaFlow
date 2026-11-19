@@ -108,6 +108,7 @@ describe('999f: production payroll_run_headers drift', () => {
     expect(err?.message).toBe(PROD_ERROR);
   });
 
+  // Pinned to 999w as it shipped (and as dev applied it): if 999w ever changes, fix the migration chain, not this test.
   it('reproduces the 01:32 deploy failure: 999w on prod\'s shape stops on cancelled_by', async () => {
     const err = await attempt(M999W);
     expect(err?.code).toBe('42703');
@@ -115,7 +116,10 @@ describe('999f: production payroll_run_headers drift', () => {
   });
 
   it('999f adds both columns, and the same journal link then succeeds', async () => {
+    await client.query(`SET LOCAL lock_timeout = 0`);
     expect(await attempt(M999F)).toBeNull();
+    // 999f bounds its locks: a deploy that queues behind a long reader gives up instead of blocking every pay run.
+    expect((await client.query(`SELECT current_setting('lock_timeout') AS t`)).rows[0].t).toBe('5s');
     expect(await linkJournal()).toBeNull();
     expect(await columnsOf('payroll_run_headers', ['posted_journal_entry_id', 'cancelled_by']))
       .toEqual({ posted_journal_entry_id: 'uuid', cancelled_by: 'text' });
