@@ -15,6 +15,7 @@ import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
+import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
   SupplierInvoiceItem,
@@ -183,6 +184,10 @@ export async function createSupplierInvoice(
           )
         `;
       }
+
+      // Migration 1006: the table is the one list of bill <-> PO links. The header PO and every PO the lines name (of this
+      // supplier, in a linkable status) get an `app` link, in the bill's own transaction.
+      await recordBillLinks(companyId, invoiceId, userId, tx);
 
       return rows[0] as Row;
     });

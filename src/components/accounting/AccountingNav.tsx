@@ -10,8 +10,9 @@ import { stripFlagNav } from './navSections/flagNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { useNavFlags } from '@/hooks/useNavFlags';
 
-export function AccountingNav() {
+/** `navPath`: mark the open menu's items as if the page were at this path (AppLayout's navPath). */
+export function AccountingNav({ navPath }: { navPath?: string } = {}) {
   const { isRegistered } = useVatRegistration();
   const flags = useNavFlags();
-  return <ModuleNav tabs={stripFlagNav(stripVatNav(TABS, isRegistered), flags)} getActiveTabId={getActiveTabId} accentColor="teal" ariaLabel="Main" />;
+  return <ModuleNav tabs={stripFlagNav(stripVatNav(TABS, isRegistered), flags)} getActiveTabId={getActiveTabId} accentColor="teal" navPath={navPath} ariaLabel="Main" />;
 }

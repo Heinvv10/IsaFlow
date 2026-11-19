@@ -28,11 +28,13 @@ import { usePointerAim } from './useFlyoutSection';
 
 interface SidebarNavProps {
   collapsed?: boolean;
+  /** Mark the flyouts' items as if the page were at this path (the router's own when absent): see AppLayout's navPath. */
+  navPath?: string;
 }
 
-export function SidebarNav({ collapsed }: SidebarNavProps) {
+export function SidebarNav({ collapsed, navPath }: SidebarNavProps) {
   const router = useRouter();
-  const asPath = router.asPath;
+  const asPath = navPath ?? router.asPath;
   const activeTabId = getActiveTabId(router.pathname, router.query);
 
   const { isRegistered } = useVatRegistration();

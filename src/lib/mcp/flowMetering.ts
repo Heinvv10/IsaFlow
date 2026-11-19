@@ -36,6 +36,7 @@ import { MAX_INVOICES } from './tools/writeBulkInvoices';
 import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
 import { RECURRING_JOURNAL_FLOW_OPERATIONS } from './tools/recurringJournalToolSet';
 import { BUDGET_FLOW_OPERATIONS } from './tools/budgetToolSet';
+import { PURCHASE_ORDER_FLOW_OPERATIONS } from './tools/purchaseOrderFlow';
 import { ITEM_FLOW_OPERATIONS } from './tools/itemToolSet';
 import {
   getFlowCost,
@@ -91,7 +92,6 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_missing_documents: null,
   list_proofs_of_payment: null,
   list_supplier_invoices: null,
-  list_purchase_orders: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.
   // Pricing it would discourage the check that prevents a stale rule silently
@@ -307,9 +307,6 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Same for the entity store: the app's document upload is unmetered.
   attach_entity_document: null,
   // The two-step upload is the same attachment, so free too.
-  // A purchase order is a commitment: it posts nothing and bills nothing, so loading POs is free (a pricing decision
-  // for the owner; the bulk invoice creates are priced per element because invoices are what the Flows meter counts).
-  bulk_create_purchase_orders: null,
   create_upload_urls: null,
   finalize_uploads: null,
 
@@ -365,6 +362,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   delete_draft_credit_note: null,
   ...RECURRING_JOURNAL_FLOW_OPERATIONS,
   ...BUDGET_FLOW_OPERATIONS,
+  ...PURCHASE_ORDER_FLOW_OPERATIONS,
   // Item master: free, like the other master data (tools/itemToolSet.ts).
   ...ITEM_FLOW_OPERATIONS,
   // Registering an asset: POST /api/accounting/assets carries no meter, so neither does the tool.

@@ -198,7 +198,7 @@ describe('performThreeWayMatch', () => {
 
   it('returns { matchStatus: unmatched, itemResults: [] } when invoice has no purchaseOrderId', async () => {
     vi.mocked(getSupplierInvoiceById).mockResolvedValueOnce(
-      makeInvoice({ purchaseOrderId: undefined }),
+      makeInvoice({ purchaseOrderId: undefined, items: [makeItem({ poItemId: undefined })] }),
     );
 
     const result = await performThreeWayMatch(COMPANY_ID, INVOICE_ID);
@@ -207,6 +207,16 @@ describe('performThreeWayMatch', () => {
     expect(result.itemResults).toEqual([]);
     // Must NOT have called sql at all (no PO → early return)
     expect(vi.mocked(sqlMock)).not.toHaveBeenCalled();
+  });
+
+  it('matches a bill with no header PO whose line names a PO line (a bill linked to several POs, migration 1006)', async () => {
+    vi.mocked(getSupplierInvoiceById).mockResolvedValueOnce(makeInvoice({ purchaseOrderId: undefined }));
+    setupSqlCalls({});
+
+    const result = await performThreeWayMatch(COMPANY_ID, INVOICE_ID);
+
+    expect(result.itemResults).toHaveLength(1);
+    expect(result.itemResults[0]!.lineMatchStatus).toBe('fully_matched');
   });
 
   it('does not throw when purchaseOrderId is null (legacy invoices)', async () => {

@@ -169,6 +169,7 @@ export const approvePayRunTool: McpTool = {
         throw err;
       }
       if (!gate) return toolError(NOT_FOUND);
+      if (gate.blocker?.code === 'off_cycle_not_approvable') return toolError(gate.blocker.detail); // wave 6 OC: as the live call
       if (gate.blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${gate.blocker.detail}`);
       // R-035: the live call refuses a plan no person has cleared, so the
       // dry run does too, against the same plan hash (read-only).

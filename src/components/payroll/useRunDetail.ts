@@ -44,6 +44,13 @@ export interface RunDetail {
   totalNet: number;
   employeeCount: number;
   journalEntryId: string | null;
+  /** Wave 6 OC: 'off_cycle' with its reason and pay date; absent or 'regular' for a regular run. */
+  runKind?: string;
+  offCycleReason?: string | null;
+  runDate?: string | null;
+  /** A cancelled off-cycle run: when and by whom (wave 6 OC). */
+  cancelledAt?: string | null;
+  cancelledByName?: string | null;
   approval: DocumentApprovalState | null;
   /** Who decided the approval and whether it was the requester's own (sole-approver exception); null when not approved or grandfathered. */
   approvalDecision?: PayRunDecisionSummary | null;
@@ -128,6 +135,10 @@ export function useRunDetail(runId: string) {
     const reason = window.prompt(
       'Reopening will move the run back to "calculated" so it can be edited and re-approved.\n\n' +
       'Note: the GL journal posted at approval is NOT automatically reversed — reverse it manually if the period also needs that.\n\n' +
+      // Wave 6 OC (review #1620 final breaker M): a paid off-cycle run is corrected here only in the payroll records.
+      (run?.runKind === 'off_cycle'
+        ? 'This off-cycle run may already have been paid: reopening corrects the payroll records only. Recovering an over-payment from the employee happens outside payroll.\n\n'
+        : '') +
       'Reason (≥ 5 characters):'
     );
     if (!reason || reason.trim().length < 5) {

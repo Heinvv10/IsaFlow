@@ -54,6 +54,16 @@ function itemOf(r: DbRow): SupplierInvoiceItem {
 const NO_ACCOUNT = 'unused';
 
 /**
+ * The expense lines APPROVE posts for one bill (`buildExpenseLines` over its row and its lines in
+ * `SUPPLIER_INVOICE_LINE_ORDER_BY` order): `description` is the stored line's id, `debit` its posted ex-VAT amount.
+ * A line folded away or dropped as R0 does not appear. One definition for committed, the PO approval and the
+ * PO-to-bill links (`ap/purchaseOrderBillLinkPlan`), so a link's amount is the figure the ledger holds.
+ */
+export function postedExpenseLines(bill: DbRow, billItems: DbRow[]) {
+  return buildExpenseLines({ ...mapInvoiceRow(bill), items: billItems.map(itemOf) }, NO_ACCOUNT);
+}
+
+/**
  * The posted ex-VAT lines of the bills that count as billed (`BILLED_STATUSES`, plus `own`), per linked PO line
  * (lower-case ids): account and CC1 / CC2 / BU as `buildExpenseLines` posts them, the bill's month. Committed
  * (`readCommitments`) and the PO approval (`ap/purchaseOrderBudget`) both net a PO line by all of them
@@ -78,9 +88,8 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   for (const b of bills) {
     const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
-    const invoice = mapInvoiceRow(b);
-    const month = fmtDate(invoice.invoiceDate).slice(0, 7);
-    for (const line of buildExpenseLines({ ...invoice, items: billItems.map(itemOf) }, NO_ACCOUNT)) {
+    const month = fmtDate(mapInvoiceRow(b).invoiceDate).slice(0, 7);
+    for (const line of postedExpenseLines(b, billItems)) {
       const po = poOf.get(String(line.description));
       if (!po || !linked.has(po)) continue;
       out.set(po, [...(out.get(po) ?? []), {
