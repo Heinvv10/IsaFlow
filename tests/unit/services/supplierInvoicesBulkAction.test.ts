@@ -100,6 +100,7 @@ function req(method: string, body: unknown): NextApiRequest {
     method,
     body,
     companyId: COMPANY_ID,
+    companyRole: 'owner', // #1656: an owner approves without a permission read
     user: { id: USER_ID },
   } as unknown as NextApiRequest;
 }

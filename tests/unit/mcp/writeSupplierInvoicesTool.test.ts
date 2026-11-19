@@ -83,6 +83,7 @@ function ctx(): McpToolContext {
   return {
     userId: '44444444-4444-4444-8444-444444444444',
     companyId: COMPANY,
+    companyRole: 'owner', // #1656: an owner approves without a permission read
     scopes: ['write:invoices', 'write:post'],
     tokenJti: 'jti',
     oauthAppId: null,

@@ -18,11 +18,13 @@
 --   users.role accountant / bookkeeper (platform role, grants nothing)   viewer
 --
 -- Additive and idempotent:
---   1. every row it changes is copied first into role_values_1656_backup
---      (table, row id, old role, new role); a re-run copies nothing new and
---      changes nothing. Restore a row with
+--   1. every company_users row's role (changed or not: the issue's "backup of
+--      company_users roles before release"), and every invitation and users
+--      row it changes, is copied first into role_values_1656_backup (table,
+--      row id, old role, new role); a re-run copies nothing new and changes
+--      nothing. Restore the memberships with
 --        UPDATE company_users cu SET role = b.old_role FROM role_values_1656_backup b
---        WHERE b.source_table = 'company_users' AND cu.id::text = b.row_id;
+--        WHERE b.source_table = 'company_users' AND cu.id::text = b.row_id AND b.old_role <> b.new_role;
 --   2. company_users_role_guard (883/886/908b/916): the admin portal
 --      (platform_admin) may grant admin, manager or viewer, the app's roles
 --      but owner (it still never grants owner, RC007);
@@ -47,9 +49,9 @@ ALTER TABLE public.role_values_1656_backup FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.role_values_1656_backup FROM PUBLIC;
 
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
-SELECT 'company_users', cu.id::text, cu.role, 'viewer'
+SELECT 'company_users', cu.id::text, cu.role,
+       CASE WHEN cu.role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user') THEN 'viewer' ELSE cu.role END
 FROM public.company_users cu
-WHERE cu.role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user')
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)

@@ -65,7 +65,8 @@ import {
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from '@/lib/mcp/tools/writeBulkFinalizeInvoices';
 
-const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
+// An owner: #1656's approve permission (Suppliers & AP) holds without a permission read.
+const ctx = { companyId: 'company-1', userId: 'user-1', companyRole: 'owner' } as never;
 const ID = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 interface Result { content: { text: string }[]; isError?: boolean;
