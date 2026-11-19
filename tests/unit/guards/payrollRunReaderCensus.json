@@ -561,6 +561,11 @@
    {"line":141,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"OC","why":"inserts one off-cycle run (FQx dropped the per-month unique); the month's creations are serialised on the regular run's row lock"},
    {"line":202,"text":"const run = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"OC","why":"the run being submitted, by id (review #1620 L4 and delta L1: the full approval refusal)"}
   ],
+  "src/modules/accounting/services/payroll/payrollOffCycleAmount.ts": [
+   {"line":33,"text":"JOIN payroll_run_headers h ON h.id = x.run_id AND h.company_id = x.company_id","class":"S","owner":"OC","why":"the inputs' own run, by id (a bonus run's amounts for the run page)"},
+   {"line":53,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the run whose bonus amount changes, by id, FOR UPDATE"},
+   {"line":76,"text":"UPDATE payroll_run_headers","class":"S","owner":"OC","why":"writes the run whose amount changed back to draft, by id"}
+  ],
   "src/modules/accounting/services/payroll/payrollOffCycleCancel.ts": [
    {"line":34,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses d WHERE d.run_id = h.id AND d.company_id = h.company_id)","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a directive use"},
    {"line":36,"text":"OR EXISTS (SELECT 1 FROM payroll_loan_payments p WHERE p.run_id = h.id)) AS ever_approved","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a loan payment"},

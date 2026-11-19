@@ -34,6 +34,7 @@ export function OffCycleBonusAmounts({ runId, run, companyRole, onChanged }: Pro
       const json = (await res.json()) as { data?: Input[] };
       setInputs(json.data ?? []);
     } catch (err) {
+      setInputs([]);
       setError(apiErrorMessage(err, 'Could not load the bonus amounts'));
     }
   }, [bonus, runId]);
