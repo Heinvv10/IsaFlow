@@ -1,5 +1,5 @@
 /**
- * The PSP entity type on an employee's terms (wave 6 PSP, migration 999r): a personal service provider is a company or a
+ * The PSP entity type on an employee's terms (wave 6 PSP, migration 1013): a personal service provider is a company or a
  * trust (SARS PAYE-GEN-01-G01-A06 row 6 taxes them at different rates), and nobody else carries one. Judged before any
  * write, as the database's payroll_employees_psp_entity_pair CHECK would refuse it.
  */

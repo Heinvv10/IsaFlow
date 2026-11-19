@@ -28,7 +28,7 @@ export interface Employee {
   occupationalLevelId?: string | null;
   paymentMethod?: 'eft' | 'cash';
   taxStatus?: 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
-  /** Wave 6 PSP (migration 999r): set exactly for a personal service provider. */
+  /** Wave 6 PSP (migration 1013): set exactly for a personal service provider. */
   pspEntityType?: 'company' | 'trust' | null;
   payBasis?: 'monthly' | 'hourly' | 'daily';
   hoursPerWeek?: number | null;

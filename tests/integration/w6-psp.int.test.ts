@@ -1,5 +1,5 @@
 /**
- * Wave 6 PSP on real Postgres (migration 999r): personal service providers. The CHECKs (the status widened as a superset,
+ * Wave 6 PSP on real Postgres (migration 1013): personal service providers. The CHECKs (the status widened as a superset,
  * the entity pair), the PATCH route through the real chain (withAuth, app_user, RLS) for two tenants, the run's figures
  * at 10x amounts (SARS PAYE-GEN-01-G01-A06 row 6: 27% company, 45% trust; no UIF, UIC Act s1 "remuneration" (b); SDL
  * levied, G21 p. 12; no ETI, ETI Act s6(b)), the stale-run gate on the entity, a later-dated month on the tables with no
@@ -36,7 +36,7 @@ afterAll(async () => {
 const code = async (p: Promise<unknown>) => { try { await p; return null; } catch (e) { return (e as { code?: string }).code ?? String(e); } };
 const row = async (id: string) => (await pool.query('SELECT tax_status, psp_entity_type FROM payroll_employees WHERE id = $1', [id])).rows[0];
 
-describe('999r: the CHECKs', () => {
+describe('1013: the CHECKs', () => {
   it('the old three statuses still hold; a PSP needs an entity, nobody else may have one, and only company or trust', async () => {
     const f = await seedEmployee(pool, fixtures, 'psp checks', 20_000);
     const set = (status: string, entity: string | null) =>

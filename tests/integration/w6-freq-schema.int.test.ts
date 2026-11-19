@@ -221,7 +221,7 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     }
   });
 
-  // Wave 6 PSP made personal_service_provider known (999r): a status no release writes stands in for an unknown one.
+  // Wave 6 PSP made personal_service_provider known (1013): a status no release writes stands in for an unknown one.
   it('an unknown tax status is refused for approve, not for reopen', async () => {
     await inRolledBackTx(async (c) => {
       await c.query('ALTER TABLE payroll_employees DROP CONSTRAINT payroll_employees_tax_status_check');

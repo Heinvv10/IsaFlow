@@ -8,7 +8,7 @@ export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
 export type TaxStatus = 'employee' | 'director' | 'independent_contractor' | 'personal_service_provider';
-/** A personal service provider's entity (migration 999r): it picks the rate (taxTables personalServiceProviderRates). */
+/** A personal service provider's entity (migration 1013): it picks the rate (taxTables personalServiceProviderRates). */
 export type PspEntityType = 'company' | 'trust';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
 /** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
@@ -40,7 +40,7 @@ export interface PayrollEmployee {
   paymentMethod?: 'eft' | 'cash';
   /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
-  /** Set exactly when taxStatus is personal_service_provider (migration 999r). */
+  /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
   pspEntityType?: PspEntityType | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;

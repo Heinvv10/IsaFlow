@@ -24,6 +24,6 @@
  *    date across the month's runs, ETI claimed on the month's last run, the year to date and once-offs keyed by run (FQc).
  * 15: garnishee orders come off net pay after tax: emoluments attachments within 25% of basic salary (Magistrates' Courts Act
  *    s65J(1A)(a)), maintenance outside it and first (Maintenance Act s28, s29(3)); recorded per run (GA).
- * 16: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 999r).
+ * 16: a personal service provider pays PAYE at 27% (company) or 45% (trust) of the payment, no UIF or ETI, SDL levied (PSP, migration 1013).
  */
 export const PAYROLL_CALCULATION_VERSION = 16;

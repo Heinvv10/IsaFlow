@@ -33,7 +33,7 @@ import type { DbRow, TxSql } from '@/lib/neon';
 export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'payslip' | 'emp201' | 'irp5' | 'bank_file';
 
 /**
- * The tax statuses this release costs (migration 967; wave 6 PSP added personal_service_provider, migration 999r). A PSP's
+ * The tax statuses this release costs (migration 967; wave 6 PSP added personal_service_provider, migration 1013). A PSP's
  * months are decided per line on the filings (pspLineFlag, pspFiling), so no action refuses one.
  */
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor', 'personal_service_provider'] as const;

@@ -41,7 +41,7 @@ export function taxStatusTreatment(status: PayrollEmployee['taxStatus'], kind: E
   return { paye: status === 'employee' && kind === 'non_standard_flat' ? 'flat_25' : 'tables', uif: true, sdl: true, eti: true };
 }
 
-/** A PSP's entity and its rate for the tax year; null for anyone else. A PSP with no entity (the 999r CHECK forbids it) throws. */
+/** A PSP's entity and its rate for the tax year; null for anyone else. A PSP with no entity (the 1013 CHECK forbids it) throws. */
 export interface PspFacts { entity: PspEntityType; rate: number }
 export function pspFacts(e: Pick<PayrollEmployee, 'taxStatus' | 'pspEntityType'>, taxYear: number): PspFacts | null {
   if (e.taxStatus !== 'personal_service_provider') return null;
