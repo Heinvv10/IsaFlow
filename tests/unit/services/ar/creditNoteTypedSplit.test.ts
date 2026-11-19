@@ -68,6 +68,12 @@ describe('requiredCreditNoteVat', () => {
     expect(requiredCreditNoteVat({ remainingNet: 1, remainingVat: 0.01, subtotal: 0.5 })).toBe(0.01); // 0.005 -> 0.01
     expect(requiredCreditNoteVat({ remainingNet: 50.5, remainingVat: 7.62, subtotal: 50.5 })).toBe(7.62);
   });
+
+  // V x S in cents passes 2^53 above ~R2.4M; a float product then rounds the cent wrong (here 2 622 922.09).
+  it('exact in integer cents at any size: an R18.5M invoice', () => {
+    expect(requiredCreditNoteVat({ remainingNet: 18563987.4, remainingVat: 2784598.11, subtotal: 17486147.3 })).toBe(2622922.1);
+    expect(requiredCreditNoteVat({ remainingNet: 26189978.4, remainingVat: 3928496.76, subtotal: 3930755.5 })).toBe(589613.33);
+  });
 });
 
 describe('the proportional rule, case by case', () => {
@@ -87,6 +93,12 @@ describe('the proportional rule, case by case', () => {
       + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
     ['ten x 10.03: 50.15 + 7.52', TEN_X_10_03(), 15, 50.15, 7.52,
       'Credit note CN-9 reverses 50.15 of an invoice with 100.30 left, so its VAT must be 7.50, not 7.52. '
+      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+    ['ten x 10.10: 50.50 + 7.59 (one cent under)', TEN_X_10_10(), 15.2, 50.5, 7.59,
+      'Credit note CN-9 reverses 50.50 of an invoice with 101.00 left, so its VAT must be 7.60, not 7.59. '
+      + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
+    ['ten x 10.10: 101.00 + 15.21 (clearing, one cent over)', TEN_X_10_10(), 15.2, 101, 15.21,
+      'Credit note CN-9 reverses 101.00 of an invoice with 101.00 left, so its VAT must be 15.20, not 15.21. '
       + 'An invoice with a VAT type per line is credited in proportion across its lines.'],
     ['mixed: more than is left, 1600 + 160', MIXED(), 150, 1600, 160,
       'Credit note CN-9 credits 1600.00, but the invoice has 1500.00 left to credit. Reduce the note.'],

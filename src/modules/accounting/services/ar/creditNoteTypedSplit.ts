@@ -43,10 +43,14 @@ const money = (c: number): string => (c / 100).toFixed(2);
 /** Every revenue leg of the invoice journal carries a VAT type (and there is one): the invoice is typed. */
 export const legsAreTyped = (legs: readonly RevenueLeg[]): boolean => legs.length > 0 && legs.every((l) => l.vatType != null);
 
-/** n / d rounded to an integer, half away from zero (d > 0). */
-const divRound = (n: number, d: number): number => {
-  const q = Math.floor((Math.abs(n) * 2 + d) / (d * 2));
-  return n < 0 ? -q : q;
+/**
+ * a x b / d in integer cents, rounded half away from zero (d > 0). In BigInt: a x b passes 2^53 above ~R2.4M, where a
+ * float product rounds the cent wrong.
+ */
+const mulDivRound = (a: number, b: number, d: number): number => {
+  const n = BigInt(a) * BigInt(b);
+  const q = ((n < BigInt(0) ? -n : n) * BigInt(2) + BigInt(d)) / (BigInt(2) * BigInt(d));
+  return Number(n < BigInt(0) ? -q : q);
 };
 
 /**
@@ -57,7 +61,7 @@ export function requiredCreditNoteVat(input: { remainingNet: number; remainingVa
   const r = cents(input.remainingNet);
   const v = cents(input.remainingVat);
   const s = cents(input.subtotal);
-  return (s === r ? v : divRound(v * s, r)) / 100;
+  return (s === r ? v : mulDivRound(v, s, r)) / 100;
 }
 
 /**
@@ -69,7 +73,7 @@ export function splitGrossProportionally(gross: number, remainingNet: number, re
   const r = cents(remainingNet);
   const v = cents(remainingVat);
   if (r <= 0 || g <= 0) return null;
-  const guess = divRound(g * r, r + v);
+  const guess = mulDivRound(g, r, r + v);
   for (const s of [guess, guess - 1, guess + 1, guess - 2, guess + 2]) {
     if (s <= 0 || s > r) continue;
     const tax = cents(requiredCreditNoteVat({ remainingNet: remainingNet, remainingVat, subtotal: s / 100 }));
