@@ -89,6 +89,11 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
     expect((await inTx(f.fx, () => getVATReturn(f.fx.companyId, '2026-09-01', '2026-09-30'))).standardRatedSupplies).toBe(0);
   });
 
+  it('getVATReturn over July to September: the typed mixed invoice\'s standard 1000, the legacy 1000, the typed exempt 0', async () => {
+    // Typed lines may be standard, zero_rated or exempt only (L1): no capital_goods case.
+    expect((await inTx(f.fx, () => getVATReturn(f.fx.companyId, '2026-07-01', '2026-09-30'))).standardRatedSupplies).toBe(2000);
+  });
+
   it('an inclusive invoice posts each line\'s stored net and VAT: unit price 115 incl., amount 100, VAT 15', async () => {
     const id = await draft('2026-11-10', [{ description: 'Inclusive', unitPrice: 100 }]);
     await typeLines(id, { Inclusive: ['standard', 15] }, { tax: 15 });
