@@ -118,6 +118,8 @@ export async function readPurchaseOrderDetail(
       reference: short(head.reference), notes: text(head.notes)?.slice(0, 500) ?? null, subtotal: Number(head.subtotal ?? 0), tax_amount: Number(head.tax_amount ?? 0),
       total: Number(head.total ?? 0), external_system: short(head.external_system), external_ref: short(head.external_ref),
       external_document_number: short(head.external_document_number),
+      /** The status a short close / set status closed it from (migration 1007); null when it is not closed that way. */
+      closed_from_status: head.closed_from_status == null ? null : String(head.closed_from_status),
     },
     lines, lines_total: lineRows[0] ? Number(lineRows[0].total_rows) : 0,
     next_offset: lineRows.length > 0 && linesOffset + lineRows.length < Number(lineRows[0]!.total_rows) ? linesOffset + lineRows.length : null,

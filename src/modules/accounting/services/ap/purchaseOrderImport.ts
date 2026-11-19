@@ -18,6 +18,8 @@
  * number already exists is refused, and so is the batch: nothing is written. `approved` POs pass the same budget
  * check the Approve action runs (channel mcp, the gate held) before they count as committed; a block refusal throws
  * BudgetExceededError, discarding the batch. Its refused event is not recorded: the PO it would name never existed.
+ * A dry run reports a block per PO instead, and `skipBudgetCheck` (owner / admin) lets the PO through and records that it would
+ * have failed (`purchaseOrderImportBudget`).
  * After the inserts the counter's next_number is raised to at least (highest imported number + 1) when the numbers
  * are the counter's own form (prefix + digits), so the next PO made in the app does not collide.
  */
@@ -29,23 +31,14 @@ import { findByExternalRef, lockExternalRef } from '../core/externalRefService';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import type { BudgetGate } from '../budgets/budgetCheckTypes';
-import { checkPurchaseOrderBudget } from './purchaseOrderBudget';
+import { insertPoLines, type PoLineRow } from './purchaseOrderLinesWrite';
+import { runImportBudgetCheck, type ImportBudgetCheck } from './purchaseOrderImportBudget';
 import type { PoCents } from './purchaseOrderImportAmounts';
 
 export type ImportPoStatus = 'draft' | 'approved' | 'closed' | 'cancelled';
 
-export interface ImportPoLine {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  taxRate: number;
-  netCents: number;
-  taxCents: number;
-  glAccountId: string | null;
-  cc1Id: string | null;
-  cc2Id: string | null;
-  buId: string | null;
-}
+/** An import line is a priced PO line (`purchaseOrderLinesWrite`); the import never names an item. */
+export type ImportPoLine = PoLineRow;
 
 export interface ImportPo {
   index: number;
@@ -73,6 +66,8 @@ export interface ImportedPo {
   payload_differs?: boolean;
   differences?: { field: string; existing: unknown; requested: unknown }[];
   budget_warnings?: string[];
+  /** An imported APPROVED PO: the check's outcome (live and dry run). */
+  budget_check?: ImportBudgetCheck;
 }
 
 export interface ImportResult {
@@ -96,6 +91,10 @@ export interface ImportOptions {
   source: string;
   /** May refusals and warnings show budget figures (read:reports). */
   budgetFigures: boolean;
+  /** A dry run: a budget block is reported per PO, not raised (the live call raises it). */
+  dryRun?: boolean;
+  /** skip_budget_check_for_import (owner / admin, decided by the tool): a block is reported, not raised. */
+  skipBudgetCheck?: boolean;
 }
 
 const r2 = (c: number) => c / 100;
@@ -155,18 +154,7 @@ async function insertPo(companyId: string, p: ImportPo, userId: string): Promise
     ) RETURNING id
   `) as DbRow[];
   const id = String(rows[0]!.id);
-  const l = p.lines;
-  await sql`
-    INSERT INTO po_items (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount,
-                          gl_account_id, cc1_id, cc2_id, bu_id, sort_order)
-    SELECT ${id}::UUID, NULL::UUID, x.description, x.quantity, x.unit_price, x.tax_rate, x.line_total, x.tax_amount,
-           x.gl_account_id, x.cc1_id, x.cc2_id, x.bu_id, x.sort_order
-      FROM unnest(${l.map((x) => x.description)}::TEXT[], ${l.map((x) => x.quantity)}::NUMERIC[],
-                  ${l.map((x) => x.unitPrice)}::NUMERIC[], ${l.map((x) => x.taxRate)}::NUMERIC[], ${l.map((x) => r2(x.netCents))}::NUMERIC[],
-                  ${l.map((x) => r2(x.taxCents))}::NUMERIC[], ${l.map((x) => x.glAccountId)}::UUID[], ${l.map((x) => x.cc1Id)}::UUID[],
-                  ${l.map((x) => x.cc2Id)}::UUID[], ${l.map((x) => x.buId)}::UUID[], ${l.map((_, i) => i)}::INT[])
-        AS x(description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, cc1_id, cc2_id, bu_id, sort_order)
-  `;
+  await insertPoLines(id, p.lines);
   return id;
 }
 
@@ -205,12 +193,13 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
   for (const p of fresh) {
     const id = await insertPo(companyId, p, opts.userId);
     let budgetWarnings: string[] = [];
+    let budgetCheck: ImportBudgetCheck | undefined;
     if (p.status === 'approved' && gate) {
-      const check = await checkPurchaseOrderBudget(
-        companyId, { id, poNumber: p.poNumber, status: 'approved', month: p.orderDate.slice(0, 7) }, gate,
-        { channel: 'mcp', lock: 'held', gate, figures: opts.budgetFigures }, opts.userId,
+      budgetCheck = await runImportBudgetCheck(
+        companyId, { id, poNumber: p.poNumber, status: 'approved', month: p.orderDate.slice(0, 7) }, gate, opts.budgetFigures, opts.userId,
+        { enforce: opts.dryRun !== true && opts.skipBudgetCheck !== true, skipped: opts.skipBudgetCheck === true },
       );
-      budgetWarnings = check.warnings;
+      budgetWarnings = budgetCheck.outcome === 'warn' ? budgetCheck.reasons : [];
     }
     await logAuditOrThrow({
       companyId, userId: opts.userId, action: 'create', entityType: 'purchase_order', entityId: id, entityRef: p.poNumber.slice(0, 100),
@@ -219,12 +208,17 @@ export async function importPurchaseOrders(companyId: string, items: readonly Im
         metadata: {
           source: opts.source, total: r2(p.totals.total).toFixed(2),
           ...(p.ref ? { externalSystem: p.ref.system, externalRef: p.ref.ref } : {}),
+          ...(budgetCheck?.skipped ? {
+            budgetCheckSkipped: 'true', wouldHaveFailed: String(budgetCheck.would_have_failed),
+            ...(budgetCheck.reasons.length > 0 ? { budgetReasons: budgetCheck.reasons.join(' | ').slice(0, 1000) } : {}),
+          } : {}),
         },
       },
     });
     out.push({
       index: p.index, id, po_number: p.poNumber, status: p.status, subtotal: r2(p.totals.subtotal), tax_amount: r2(p.totals.tax),
       total: r2(p.totals.total), already_existed: false, ...(budgetWarnings.length > 0 ? { budget_warnings: budgetWarnings } : {}),
+      ...(budgetCheck ? { budget_check: budgetCheck } : {}),
     });
   }
 

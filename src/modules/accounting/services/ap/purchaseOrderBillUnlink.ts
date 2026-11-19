@@ -121,7 +121,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   let reopenedTo: string | null = null;
   if (status === 'closed' && closedFrom && !fully) {
     const back = (await sql`
-      UPDATE purchase_orders SET status = ${closedFrom}, updated_at = NOW(), updated_by = ${opts.userId}
+      UPDATE purchase_orders SET status = ${closedFrom}, closed_from_status = NULL, updated_at = NOW(), updated_by = ${opts.userId}
        WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID AND status = 'closed' RETURNING id
     `) as DbRow[];
     if (back.length !== 1) throw new Error('The purchase order changed while it was being reopened');
