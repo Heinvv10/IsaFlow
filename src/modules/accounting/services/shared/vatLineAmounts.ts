@@ -75,7 +75,10 @@ export function vatDocumentTotals(lines: ReadonlyArray<Pick<VatLineAmounts, 'net
  * that rate on the whole subtotal, give or take ten cents of per-line rounding (twenty lines at half a cent
  * each). A document mixing rated and unrated lines is further out than that and reads plain "VAT".
  */
-export function vatTotalLabel(subtotal: number, ratePct: number, vat: number): string {
+export function vatTotalLabel(doc: { subtotal: number; ratePct: number; vat: number }): string {
+  const { subtotal, ratePct, vat } = doc;
+  // A figure that did not arrive (NaN from a missing field) has no rate to quote; a label must not throw in render.
+  if (![subtotal, ratePct, vat].every((n) => Number.isFinite(n) && Math.abs(n) < 1e13)) return 'VAT';
   const implied = divRound(toCents(subtotal) * toCents(ratePct), 10000n);
   const out = implied - toCents(vat);
   return (out < 0n ? -out : out) <= 10n ? `VAT (${ratePct}%)` : 'VAT';

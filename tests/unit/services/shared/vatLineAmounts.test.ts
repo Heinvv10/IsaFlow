@@ -152,14 +152,28 @@ describe('lineAmount', () => {
 
 describe('vatTotalLabel', () => {
   it('quotes the rate when the VAT is that rate on the whole subtotal', () => {
-    expect(vatTotalLabel(1000, 15, 150)).toBe('VAT (15%)');
-    expect(vatTotalLabel(800, 0, 0)).toBe('VAT (0%)');
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: 150 })).toBe('VAT (15%)');
+    expect(vatTotalLabel({ subtotal: 800, ratePct: 0, vat: 0 })).toBe('VAT (0%)');
     // seven lines of 14.29, VAT rounded per line: two cents under 15% of the subtotal
-    expect(vatTotalLabel(100.03, 15, 14.98)).toBe('VAT (15%)');
+    expect(vatTotalLabel({ subtotal: 100.03, ratePct: 15, vat: 14.98 })).toBe('VAT (15%)');
   });
 
   it('drops the rate on a document mixing rated and unrated lines', () => {
-    expect(vatTotalLabel(1750, 15, 150)).toBe('VAT');
-    expect(vatTotalLabel(1000, 15, 149.89)).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 1750, ratePct: 15, vat: 150 })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: 149.89 })).toBe('VAT');
+  });
+
+  it('allows ten cents of per-line rounding either way, and no more', () => {
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: 149.9 })).toBe('VAT (15%)');
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: 150.1 })).toBe('VAT (15%)');
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: 150.11 })).toBe('VAT');
+  });
+
+  it('answers plain VAT, without throwing, for a figure that did not arrive', () => {
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: 15, vat: Number.NaN })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: Number.NaN, ratePct: 15, vat: 150 })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 1000, ratePct: Number.POSITIVE_INFINITY, vat: 150 })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 1e13, ratePct: 0, vat: 0 })).toBe('VAT');
+    expect(vatTotalLabel({ subtotal: 9e12, ratePct: 0, vat: 0 })).toBe('VAT (0%)');
   });
 });

@@ -96,6 +96,8 @@ describe('supplier-credit-notes POST: VAT per line', () => {
     ['a text unit price', { quantity: 1, unitPrice: '100' }],
     ['an infinite quantity', { quantity: Number.POSITIVE_INFINITY, unitPrice: 1 }],
     ['an absurd unit price', { quantity: 1, unitPrice: 1e300 }],
+    ['a line amount past the column', { quantity: 1e11, unitPrice: 1e11 }],
+    ['an absurd quantity at no price', { quantity: 1e12, unitPrice: 0 }],
   ])('answers %s with a 400, not a 500', async (_name, amounts) => {
     const r = await post([{ description: 'a', vatType: 'standard', ...amounts } as unknown as Line]);
     expect(r.kind).toBe('badRequest');
@@ -108,6 +110,19 @@ describe('supplier-credit-notes POST: VAT per line', () => {
       expect(r.kind).toBe('badRequest');
       expect(createMock).not.toHaveBeenCalled();
     });
+
+  it('answers a total past numeric(15,2) with a 400, though each line fits', async () => {
+    const r = await post(Array.from({ length: 11 }, () => ({ description: 'a', quantity: 1, unitPrice: 9.9e11, vatType: 'exempt' })));
+    expect(r.kind).toBe('badRequest');
+    expect(r.error).toMatch(/total is too large/);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('answers a line item that is not an object with a 400', async () => {
+    const r = await post([null as unknown as Line]);
+    expect(r.kind).toBe('badRequest');
+    expect(createMock).not.toHaveBeenCalled();
+  });
 
   it('refuses a credit date that is not a calendar day', async () => {
     const r = await post([{ description: 'a', quantity: 1, unitPrice: 100, vatType: 'standard' }], 'soon');
