@@ -86,3 +86,20 @@ export function rateCheckForFiling(
     inputVariance,
   };
 }
+
+/**
+ * The report's `rateCheck` with the verdict a filing gate judged in place of box 1's: `ties`, `outputVariance` and
+ * `outputImpliedTax` (15% of field 1, so output tax less it is still the variance). Every other key, and the
+ * object's shape, is the report's, so a lock or dry run never answers `ties: false` for a period it locks on.
+ */
+export function rateCheckPayload(
+  report: Pick<Vat201Report, 'totals' | 'rateCheck'>, filing: FilingRateCheck,
+): Vat201Report['rateCheck'] {
+  return {
+    ...report.rateCheck,
+    ties: filing.ties,
+    outputImpliedTax: r2(report.totals.outputTax - filing.outputVariance),
+    outputVariance: filing.outputVariance,
+    inputVariance: filing.inputVariance,
+  };
+}

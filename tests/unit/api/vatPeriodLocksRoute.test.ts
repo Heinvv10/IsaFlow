@@ -165,6 +165,33 @@ describe('lock', () => {
     expect(m.lockVatPeriod).toHaveBeenCalledTimes(1);
   });
 
+  it('returns the verdict the gate judged: rateCheck is field 1\'s, every other key the report\'s', async () => {
+    m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    const out = await call('admin', lockBody) as { data?: { rateCheck?: unknown } };
+    expect(out.data?.rateCheck).toEqual({ ...MIXED_REPORT.rateCheck, ties: true, outputImpliedTax: 150, outputVariance: 0 });
+  });
+
+  it('a forced lock and an existing lock both report the filing verdict too, failing or not', async () => {
+    m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
+    const forced = await call('admin', { ...lockBody, force: true }) as { data?: { rateCheck?: unknown } };
+    expect(forced.data?.rateCheck).toEqual({ ...MIXED_REPORT.rateCheck, outputImpliedTax: 180, outputVariance: -30 });
+    m.getVatPeriodLock.mockResolvedValue({ id: LOCK_ID });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    const again = await call('admin', lockBody) as { data?: { rateCheck?: { ties?: boolean } } };
+    expect(again.data?.rateCheck?.ties).toBe(true);
+  });
+
+  it('a refusal quotes the filing variance, not the report\'s box 1', async () => {
+    m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
+    const refused = await call('admin', lockBody);
+    expect(refused.kind).toBe('badRequest');
+    expect(refused.error).toContain('box 1 is out by -30 ');
+    expect(refused.error).not.toContain('-75');
+  });
+
   it('answers the service bounds refusal (future end, >12 months, overlap) with a 400', async () => {
     m.lockVatPeriod.mockRejectedValue(new VatPeriodLockRefusal('overlaps the locked VAT period 2026-03-01 to 2026-04-30'));
     expect(await call('admin', lockBody)).toEqual({

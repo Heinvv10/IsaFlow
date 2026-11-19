@@ -40,9 +40,6 @@ const JUN = { periodStart: '2026-06-01', periodEnd: '2026-07-31' };
 const sha = (b: unknown) => createHash('sha256').update(b as Buffer).digest('hex');
 const text = (b: unknown) => (b as Buffer).toString('utf8');
 let n = 0;
-/** The mixed journal's zero-rated 500 sits in the box 1 base, so the 15% check fails; finalise records that (force). */
-const MIXED = { force: true };
-
 /** A posted sale in the period: standard-rated 1000 + 150 VAT, and 500 zero-rated on the same journal. */
 async function sale(date: string, scale = 1): Promise<void> {
   const acct = async (subtype: string) => String(((await sql`SELECT id FROM gl_accounts
@@ -81,7 +78,9 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
   }, 120000);
 
   it('finalise records the SARS form; the drawer straight after shows no drift; a later journal is drift', async () => {
-    const v = versionOf(await fin(APR, MIXED));
+    // No force: the mixed journal's zero-rated 500 sits in box 1's base (the report's own check reads 75 out), but
+    // the gate judges field 1, which gives it back (vat201RateCheck): 1 000 x 15% = 150 = the output tax.
+    const v = versionOf(await fin(APR));
     const figures = (await row(String(v.id))).figures as { sarsForm: Array<{ field: string; amount: number | null }>; sarsFields: unknown[] };
     const form = Object.fromEntries(figures.sarsForm.map((f) => [f.field, f.amount]));
     expect(figures.sarsFields.length).toBeGreaterThan(0); // a period with VAT: the false drift needs boxes to reorder
@@ -98,7 +97,7 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
   });
 
   it('the sheet is the recorded form field for field; then it is served as stored, whatever the generator says now', async () => {
-    const id = String(versionOf(await fin(JUN, MIXED)).id);
+    const id = String(versionOf(await fin(JUN)).id);
     const first = await genFile(id, 'vat201', 'csv');
     expect(first.status).toBe(200);
     const csv = text(first.body);
