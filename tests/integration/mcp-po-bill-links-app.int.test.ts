@@ -19,6 +19,8 @@ import { callTool } from './helpers/poImportHarness';
 import { linkRows, seedPo, seedSupplier } from './helpers/poBillLinkHarness';
 import { updateSupplierInvoiceTool as updateBill } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { cancelApprovedPurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderCancel';
+import { PurchaseOrderNotCancellableError } from '@/modules/accounting/services/ap/purchaseOrderErrors';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -107,22 +109,72 @@ describe('line-only bills, linkable statuses, the create transaction and the dra
     expect((await linkRows(pool, f)).length).toBe(before);
   });
 
-  it('a draft edit makes the app links again from the new lines; an mcp link of the same bill is not touched', async () => {
+  it('a draft edit is a DIFF: a changed amount is made again, an unchanged link is not touched (same row, same order), a stale backfill link goes, an mcp link stays and counts against the subtotal', async () => {
     const po = await seedPo(pool, f, { lines: [80, 20] });
-    const other2 = await seedPo(pool, f, { lines: [10] });
+    const kept = await seedPo(pool, f, { lines: [10] });
     const r = await create({ purchaseOrderId: po.po, items: [line(80)] });
     const bill = idOf(r);
-    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill}'`))[0]).toMatchObject({ po: po.po, amount: '80.00', source: 'app' });
-    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 5, 'mcp')`, [f.co, other2.po, bill]);
+    const first = (await linkRows(pool, f, `l.supplier_invoice_id = '${bill}'`))[0]!;
+    expect(first).toMatchObject({ po: po.po, amount: '80.00', source: 'app' });
+    // A link another writer made, and a stale backfill link that older data may carry on an unposted bill.
+    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref)
+                      VALUES ($1, $2, $3, 5, 'mcp', 'sage', 'KEEP-1')`, [f.co, kept.po, bill]);
+    const stalePo = await seedPo(pool, f, { lines: [10] });
+    await pool.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 3, 'backfill')`, [f.co, stalePo.po, bill]);
 
     const edit = await callTool(pool, f, updateBill, { invoice_id: bill, lines: [{ description: 'smaller', quantity: 1, unit_price: 50, tax_rate: 0, gl_account_id: f.acc.opex }] });
     expect(edit.isError, edit.text).toBe(false);
     const after = await linkRows(pool, f, `l.supplier_invoice_id = '${bill}'`);
-    expect(after.map((l) => [l.po, l.amount, l.source]).sort()).toEqual([[po.po, '50.00', 'app'], [other2.po, '5.00', 'mcp']].sort());
+    // 50 subtotal: the mcp link holds 5, the header PO gets the rest (45): the bill's links never pass its subtotal.
+    expect(after.map((l) => [l.po, l.amount, l.source]).sort()).toEqual([[po.po, '45.00', 'app'], [kept.po, '5.00', 'mcp']].sort());
+    expect(after.reduce((s, l) => s + Number(l.amount), 0)).toBeLessThanOrEqual(50);
 
+    // The same edit again changes nothing: the link keeps its id and its created_at (no delete / re-insert).
+    const stable = (await linkRows(pool, f, `l.supplier_invoice_id = '${bill}' AND l.source = 'app'`))[0]!;
+    const stamp = await pool.query('SELECT created_at FROM purchase_order_bill_links WHERE id = $1', [stable.id]);
+    await callTool(pool, f, updateBill, { invoice_id: bill, notes: 'a note' });
+    const again = await linkRows(pool, f, `l.supplier_invoice_id = '${bill}' AND l.source = 'app'`);
+    expect(again[0]!.id).toBe(stable.id);
+    expect((await pool.query('SELECT created_at FROM purchase_order_bill_links WHERE id = $1', [stable.id])).rows[0].created_at).toEqual(stamp.rows[0].created_at);
+  });
+
+  it('the REST PUT draft edit refreshes the links too: a stored subtotal that moved is followed', async () => {
+    const po = await seedPo(pool, f, { lines: [80] });
+    const bill = idOf(await create({ purchaseOrderId: po.po, items: [line(80)] }));
+    await pool.query('UPDATE supplier_invoices SET subtotal = 60 WHERE id = $1', [bill]);
     const put = await callRoute(detailRoute as never, f, f.owner, '/api/accounting/supplier-invoices-detail', { id: bill, notes: 'edited' }, { method: 'PUT' });
     expect(put.statusCode, JSON.stringify(put.body)).toBe(200);
-    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill}' AND l.source = 'app'`))[0]).toMatchObject({ po: po.po, amount: '50.00' });
+    expect((await linkRows(pool, f, `l.supplier_invoice_id = '${bill}' AND l.source = 'app'`))[0]).toMatchObject({ po: po.po, amount: '60.00' });
+  });
+
+  it('a PO cancelled while the create waits for it gets no link (the create re-reads its status under a KEY SHARE), and the bill is still created', async () => {
+    const po = await seedPo(pool, f, { lines: [90] });
+    const cancelling = await openRequest(pool, f, f.owner);
+    await cancelling.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'race'));
+    const creating = await openRequest(pool, f, f.owner);
+    const made = creating.run(() => createSupplierInvoice(f.co, {
+      supplierId: f.supplier, invoiceNumber: `CX-${po.po.slice(0, 6)}`, invoiceDate: '2026-06-15', purchaseOrderId: po.po,
+      items: [{ description: 'x', quantity: 1, unitPrice: 90, taxRate: 0, glAccountId: f.acc.opex }],
+    } as never, f.owner));
+    await new Promise((r) => setTimeout(r, 600));
+    await cancelling.commit();
+    const bill = await made;
+    await creating.commit();
+    expect((await pool.query('SELECT status FROM purchase_orders WHERE id = $1', [po.po])).rows[0].status).toBe('cancelled');
+    expect(await linkRows(pool, f, `l.supplier_invoice_id = '${bill.id}'`)).toEqual([]);
+  });
+
+  it('a PO with a link cannot be cancelled until it is unlinked', async () => {
+    const po = await seedPo(pool, f, { lines: [90] });
+    const bill = idOf(await create({ purchaseOrderId: po.po, items: [line(90)] }));
+    const req = await openRequest(pool, f, f.owner);
+    try { await req.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x')); expect.unreachable(); } catch (e) {
+      expect(e).toBeInstanceOf(PurchaseOrderNotCancellableError);
+      expect((e as Error).message).toContain('Bills are linked to this purchase order');
+    } finally { await req.rollback(); }
+    await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill]);
+    const ok = await openRequest(pool, f, f.owner);
+    try { await ok.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x')); await ok.commit(); } catch (e) { await ok.rollback(); throw e; }
   });
 
   it('a supplier of another company is never linked, whichever way the PO is named', async () => {

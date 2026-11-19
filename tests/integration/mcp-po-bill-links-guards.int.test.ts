@@ -225,3 +225,80 @@ describe('the bill header follows the links only where it is theirs to rewrite',
     expect(await billHeader(pool, two.id)).toBeNull();
   });
 });
+
+describe('the guards hold for every role and every session setting', () => {
+  /** Runs `sqlText` in one transaction on a superuser connection as `role` (null: as is), optionally with triggers disabled for replication; rolls back. */
+  async function as(role: string | null, sqlText: string, params: unknown[] = [], replica = false): Promise<string | null> {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      if (replica) await c.query('SET LOCAL session_replication_role = replica');
+      if (role) await c.query(`SET LOCAL ROLE ${role}`);
+      await c.query(sqlText, params);
+      return null;
+    } catch (e) { return (e as { code?: string }).code ?? 'unknown'; } finally { await c.query('ROLLBACK'); c.release(); }
+  }
+  const row = async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const bill = await seedBill(pool, f, { lines: [100] });
+    await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, created_by) VALUES ($1, $2, $3, 100, 'app', 'u')", [f.co, po.po, bill.id]);
+    return { po, bill };
+  };
+
+  it('the update guard: nothing but the reference and the closing record changes, even for a role with full UPDATE (the superuser)', async () => {
+    const { po } = await row();
+    for (const set of ['amount = 1', "source = 'mcp'", "created_by = 'x'", 'created_at = now()', 'company_id = gen_random_uuid()', 'id = gen_random_uuid()', 'purchase_order_id = gen_random_uuid()']) {
+      expect(await as(null, `UPDATE purchase_order_bill_links SET ${set} WHERE purchase_order_id = $1`, [po.po]), set).toBe('23514');
+    }
+    expect(await as(null, "UPDATE purchase_order_bill_links SET external_system = 'sage', external_ref = 'Z' WHERE purchase_order_id = $1", [po.po])).toBeNull();
+    await pool.query('DELETE FROM purchase_order_bill_links WHERE company_id = $1', [f.co]);
+  });
+
+  it('ENABLE ALWAYS: with triggers off for replication (session_replication_role = replica) a forged link and a supplier change are still refused', async () => {
+    const { po, bill } = await row();
+    const sup = await seedSupplier(pool, f);
+    const mixed = await seedBill(pool, f, { lines: [10], supplier: sup });
+    const ins = "INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 10, 'mcp')";
+    expect(await as(null, ins, [f.co, po.po, mixed.id], true)).toBe('23514');
+    expect(await as(null, 'UPDATE supplier_invoices SET supplier_id = $2 WHERE id = $1', [bill.id, sup], true)).toBe('23514');
+    expect(await as(null, 'UPDATE purchase_orders SET supplier_id = $2 WHERE id = $1', [po.po, sup], true)).toBe('23514');
+    const flags = await pool.query(`SELECT c.relname, t.tgenabled FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE t.tgname IN ('trg_purchase_order_bill_links_guard', 'trg_po_bill_links_supplier_guard')`);
+    expect(flags.rows.map((r) => r.tgenabled)).toEqual(['A', 'A', 'A']);
+    await pool.query('DELETE FROM purchase_order_bill_links WHERE company_id = $1', [f.co]);
+  });
+
+  it('source backfill is written by postgres / migration_admin only: platform_admin, app_user and app_service are refused', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const bill = await seedBill(pool, f, { lines: [100] });
+    const ins = "INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 100, 'backfill')";
+    for (const role of ['platform_admin', 'app_service']) expect(await as(role, ins, [f.co, po.po, bill.id]), role).toBe('42501');
+    expect(await as('migration_admin', ins, [f.co, po.po, bill.id])).toBeNull();
+  });
+
+  it('the deploy role (postgres: not a superuser, bypasses row security) can run the backfill again after the release', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const bill = await seedBill(pool, f, { lines: [100] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [bill.id, po.po]);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER ROLE postgres NOSUPERUSER');
+      const r = await c.query('SELECT purchase_order_bill_links_backfill() AS n');
+      expect(Number(r.rows[0].n)).toBeGreaterThanOrEqual(1);
+      const mine = await c.query('SELECT source FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill.id]);
+      expect(mine.rows).toEqual([{ source: 'backfill' }]);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+    expect(await linkRows(pool, f, `l.supplier_invoice_id = '${bill.id}'`)).toEqual([]);
+  });
+
+  it('the supplier guard is a registered SECURITY DEFINER owned by migration_admin (it sees every link whatever row security shows the caller)', async () => {
+    const fn = await pool.query(`SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner, p.proconfig FROM pg_proc p WHERE p.proname = 'purchase_order_bill_links_supplier_guard'`);
+    expect(fn.rows[0]).toMatchObject({ prosecdef: true, owner: 'migration_admin' });
+    expect(String(fn.rows[0].proconfig)).toContain('pg_temp');
+    const reg = await pool.query(`SELECT r.body_md5 = public.app_definer_hash(p.oid) AS current FROM public.app_definer_reviews r, pg_proc p
+                                   WHERE r.signature = 'purchase_order_bill_links_supplier_guard()' AND p.proname = 'purchase_order_bill_links_supplier_guard'`);
+    expect(reg.rows).toEqual([{ current: true }]);
+    const exec = await pool.query(`SELECT has_function_privilege('app_user', 'public.purchase_order_bill_links_supplier_guard()', 'EXECUTE') AS a`);
+    expect(exec.rows[0].a).toBe(false);
+  });
+});

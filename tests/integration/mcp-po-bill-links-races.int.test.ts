@@ -7,7 +7,9 @@
  *     only because ANOTHER link of the PO names it (the close decision locks those too);
  *   - the write guards that cannot fire under the locks, forced by a trigger that skips the row: a bill line that changes
  *     while it is linked, a PO that changes while it is closed or reopened, each throw and leave nothing behind;
- *   - link x unlink x PO cancel x bill approve / cancel on the same rows under the block policy (the budget gate taken):
+ *   - a draft edit (holding its bill, then taking the PO's KEY SHARE through the link's FK) against a link / unlink call (holding the PO,
+ *     then waiting for that bill): no deadlock, because the PO is taken FOR NO KEY UPDATE (review round 2, M1);
+ *   - link x unlink x PO cancel x bill approve / cancel x draft edit on the same rows under the block policy (the budget gate taken):
  *     no deadlock, no unexpected rejection, and the final state is consistent.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -18,6 +20,8 @@ import { dropBillFixture, makeBill, openRequest, seedBillFixture, setPolicy, typ
 import { callTool } from './helpers/poImportHarness';
 import { approveBill, lineLinks, linkRows, poStatus, seedBill, seedPo } from './helpers/poBillLinkHarness';
 import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
+import { updateSupplierInvoiceTool as updateBill } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
+import { refreshAppBillLinks } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
 import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
 import { approveSupplierInvoice, cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { cancelApprovedPurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderCancel';
@@ -141,6 +145,33 @@ describe('races', () => {
     expect(await poStatus(pool, po.po)).toBe('closed');
   });
 
+  it('M1: a draft edit holding its bill, then taking the PO\'s KEY SHARE through the link FK, never deadlocks with a link or unlink call that holds the PO and waits for that bill', async () => {
+    for (const leg of ['link', 'unlink'] as const) {
+      const po = await seedPo(pool, f, { lines: [100, 100] });
+      const draft = await seedBill(pool, f, { lines: [50], status: 'draft' });
+      const approved = await seedBill(pool, f, { lines: [100] });
+      await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 50, 'app')", [f.co, po.po, draft.id]);
+      await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [draft.id, po.po]);
+      if (leg === 'unlink') await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: approved.id }] });
+      // The draft edit: its bill row is held and its subtotal moved, so the refresh must delete and make the link again.
+      const edit = await openRequest(pool, f, f.owner);
+      await edit.client.query('SELECT 1 FROM supplier_invoices WHERE id = $1 FOR UPDATE', [draft.id]);
+      await edit.client.query('UPDATE supplier_invoices SET subtotal = 40 WHERE id = $1', [draft.id]);
+      // The other call takes the PO, then waits for the draft's row (an existing link of the PO).
+      const other = leg === 'link'
+        ? callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: approved.id }] })
+        : callTool(pool, f, unlink, { po_id: po.po, bill_id: approved.id, reason: 'race' });
+      await new Promise((r) => setTimeout(r, 800));
+      let refreshed: unknown;
+      try { refreshed = await edit.run(() => refreshAppBillLinks(f.co, draft.id, f.owner)); await edit.commit(); } catch (e) { await edit.rollback(); refreshed = e; }
+      const done = await Promise.allSettled([other]);
+      expect(refreshed, `${leg}: the draft edit's refresh`).toBe(1);
+      expect(done[0]!.status, `${leg}: the other call`).toBe('fulfilled');
+      expect((done[0] as PromiseFulfilledResult<{ isError: boolean; text: string }>).value.isError, `${leg}`).toBe(false);
+      expect((await linkRows(pool, f, `l.supplier_invoice_id = '${draft.id}'`))[0]).toMatchObject({ amount: '40.00', source: 'app' });
+    }
+  }, 60_000);
+
   it('lock-order census in motion: link x unlink x PO cancel x bill approve / cancel on the same rows under block (the gate taken) never deadlock; the end state is consistent', async () => {
     try {
       const inRequest = async (fn: () => Promise<unknown>) => {
@@ -157,6 +188,10 @@ describe('races', () => {
         const draft = { id: await makeBill(pool, f, [{ acct: f.acc.nob, amount: 50 }], { status: 'draft' }) };
         await approveBill(pool, f, linkedBill.id);
         await approveBill(pool, f, racing.id);
+        // A draft bill that already carries an app link to the PO: its edit (holds the bill, then the link FK's KEY SHARE on the PO).
+        const editing = await seedBill(pool, f, { lines: [100], status: 'draft' });
+        await pool.query("INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 100, 'app')", [f.co, po.po, editing.id]);
+        await pool.query('UPDATE supplier_invoices SET purchase_order_id = $2 WHERE id = $1', [editing.id, po.po]);
         await setPolicy(pool, f, 'block');
         await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: linkedBill.id }] });
         const ops: Array<[string, Promise<unknown>]> = [
@@ -164,6 +199,7 @@ describe('races', () => {
           ['unlink', callTool(pool, f, unlink, { po_id: po.po, bill_id: linkedBill.id, reason: 'race' })],
           ['cancel PO', inRequest(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'race'))],
           ['approve', inRequest(() => approveSupplierInvoice(f.co, draft.id, f.owner))],
+          ['draft edit', callTool(pool, f, updateBill, { invoice_id: editing.id, lines: [{ description: 'edited', quantity: 1, unit_price: 40 + i, tax_rate: 0, gl_account_id: f.acc.opex }] })],
           [i % 2 === 0 ? 'cancel bill' : 'cancel linked bill', inRequest(() => cancelSupplierInvoice(f.co, i % 2 === 0 ? racing.id : linkedBill.id, f.owner))],
         ];
         const settled = await Promise.allSettled(ops.map(([, p]) => p));
@@ -175,6 +211,8 @@ describe('races', () => {
           if (!(err instanceof PurchaseOrderNotCancellableError)) unexpected.push(`${ops[k]![0]}: ${(err as { code?: string }).code ?? ''} ${err.message}`);
         });
         const links = await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`);
+        const edited = links.find((l) => l.bill === editing.id);
+        if (edited) expect(Number(edited.amount), 'the draft\'s link follows its edit').toBe(40 + i);
         expect(new Set(links.map((l) => l.bill)).size, 'a pair is linked once').toBe(links.length);
         const status = await poStatus(pool, po.po);
         expect(['approved', 'closed', 'cancelled']).toContain(status);

@@ -111,9 +111,18 @@ describe('the backfill and recordBillLinks give the same links', () => {
       strangerPo: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: stranger.po }),
       legacy: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: crypto.randomUUID() }),
       cancelled: await seedRawBill(pool, f, { items: [{ total: 10 }], subtotal: 10, total: 11.5, header: c.po, status: 'cancelled' }),
-      draftBill: await seedRawBill(pool, f, { items: [{ total: 40 }], subtotal: 40, total: 46, header: b.po, status: 'draft' }),
+      overSubtotal: await seedRawBill(pool, f, { items: [{ total: 500, poItem: c.items[0] }, { total: -50 }], subtotal: 450, total: 517.5 }),
     };
-    const ids = Object.values(bills).map((x) => x.id);
+    // R3: a draft or pending bill is never backfilled (its app links come from the create and every edit); recordBillLinks does link it.
+    const unposted = [
+      await seedRawBill(pool, f, { items: [{ total: 40 }], subtotal: 40, total: 46, header: b.po, status: 'draft' }),
+      await seedRawBill(pool, f, { items: [{ total: 41 }], subtotal: 41, total: 47.15, header: b.po, status: 'pending_approval' }),
+    ];
+    const posted = [
+      await seedRawBill(pool, f, { items: [{ total: 42 }], subtotal: 42, total: 48.3, header: b.po, status: 'paid' }),
+      await seedRawBill(pool, f, { items: [{ total: 43 }], subtotal: 43, total: 49.45, header: b.po, status: 'partially_paid' }),
+    ];
+    const ids = [...Object.values(bills), ...posted].map((x) => x.id);
     const snapshot = async () => new Map((await linkRows(pool, f)).map((l) => [`${l.bill}|${l.po}`, l.amount]));
 
     await pool.query('SELECT purchase_order_bill_links_backfill()');
@@ -140,11 +149,23 @@ describe('the backfill and recordBillLinks give the same links', () => {
     for (const none of [bills.draftPoOnly, bills.draftPoByLines, bills.strangerPo, bills.legacy, bills.cancelled]) {
       expect([...fromSql.keys()].filter((k) => k.startsWith(none.id))).toEqual([]);
     }
-    expect(at(bills.draftBill, b)).toBe('40.00');                // a draft bill is linked by the app / backfill (the MCP is what refuses it)
+    expect(at(bills.overSubtotal, c)).toBe('450.00');            // a negative last line: the lines' 500.00 is capped at the subtotal, in SQL and TypeScript alike
+    expect(at(posted[0]!, b)).toBe('42.00');
+    expect(at(posted[1]!, b)).toBe('43.00');
+    expect(unposted.map((u) => [...fromSql.keys()].filter((k) => k.startsWith(u.id)))).toEqual([[], []]);
+    for (const u of unposted) {
+      await inRequest(() => recordBillLinks(f.co, u.id, f.owner));
+      expect((await linkRows(pool, f, `l.supplier_invoice_id = '${u.id}'`)).map((l) => [l.po, l.source])).toEqual([[b.po, 'app']]);
+    }
   });
 });
 
 describe('planBillLinks', () => {
+  it('heldCents (links this writer does not own) come off the fallback, and a line amount is capped at the subtotal', () => {
+    expect(planBillLinks({ subtotalCents: 5000, lines: [], headerPoId: 'h', heldCents: 500 })).toEqual([{ poId: 'h', amountCents: 4500 }]);
+    expect(planBillLinks({ subtotalCents: 5000, lines: [], headerPoId: 'h', heldCents: 5000 })).toEqual([]);
+    expect(planBillLinks({ subtotalCents: 4500, lines: [{ poId: 'a', postedCents: 5000 }], headerPoId: null })).toEqual([{ poId: 'a', amountCents: 4500 }]);
+  });
   const l = (poId: string | null, postedCents: number) => ({ poId, postedCents });
   it('line POs get their lines; header-only and zero-posting POs share the subtotal remainder, lowest id only', () => {
     expect(planBillLinks({ subtotalCents: 10000, lines: [l('b', 3000), l('a', 2000), l(null, 5000)], headerPoId: 'z' }))

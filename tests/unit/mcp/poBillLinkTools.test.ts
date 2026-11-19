@@ -184,17 +184,19 @@ describe('get_purchase_order handler', () => {
       unit_price: 1234567.123456, tax_rate: 15, line_total: 12345678901.23, tax_amount: 1234567.89, amount_billed: 12345678901.23,
       outstanding_quantity_to_receive: 1234567.89, outstanding_quantity_to_bill: 1234567.89, outstanding_amount_to_bill: 12345678901.23, gl_account_id: crypto.randomUUID() });
     const bill = () => ({ link_id: crypto.randomUUID(), bill_id: crypto.randomUUID(), invoice_number: 'INV'.repeat(16), status: 'partially_paid', invoice_date: '2026-06-15',
-      subtotal: 12345678901.23, total_amount: 12345678901.23, linked_amount: 12345678901.23, counts_as_billed: true, source: 'backfill', external_system: 'x'.repeat(32), external_ref: 'y'.repeat(128) });
+      subtotal: 12345678901.23, total_amount: 12345678901.23, linked_amount: 12345678901.23, counts_as_billed: true, source: 'backfill', external_system: 'x'.repeat(150), external_ref: 'y'.repeat(150) });
     const grn = () => ({ id: crypto.randomUUID(), grn_number: 'GRN-00001', received_date: '2026-06-15', status: 'accepted', received_by: 'z'.repeat(100),
-      items: Array.from({ length: Math.floor(DETAIL_CAPS.grnItems / DETAIL_CAPS.grns) }, () => ({ po_item_id: crypto.randomUUID(), quantity_received: 1234567.89, quantity_rejected: 1234567.89 })) });
+      items: Array.from({ length: DETAIL_CAPS.grnItems }, () => ({ po_item_id: crypto.randomUUID(), quantity_received: 1234567.89, quantity_rejected: 1234567.89 })),
+      items_total: 9999, items_truncated: true });
     const doc = () => ({ id: crypto.randomUUID(), name: 'n'.repeat(150), document_type: 'purchase_order', mime_type: 'application/pdf', size: 123456789, uploaded_at: '2026-06-15T10:00:00.000Z' });
     detailMock.mockResolvedValue({
-      purchase_order: { id: PO, po_number: 'P'.repeat(50), notes: 'n'.repeat(500), reference: 'r'.repeat(150), supplier_name: 's'.repeat(255) },
+      purchase_order: { id: PO, po_number: 'P'.repeat(50), notes: 'n'.repeat(500), reference: 'r'.repeat(150), supplier_name: 's'.repeat(150),
+        external_system: 'e'.repeat(150), external_ref: 'f'.repeat(150), external_document_number: 'd'.repeat(150), status: 'partially_received' },
       lines: Array.from({ length: DETAIL_CAPS.lines }, (_, i) => row(i)), lines_total: 9999, next_offset: 9999,
       bills: Array.from({ length: DETAIL_CAPS.bills }, bill), bills_total: 9999,
       goods_received_notes: Array.from({ length: DETAIL_CAPS.grns }, grn), goods_received_notes_total: 9999,
       documents: Array.from({ length: DETAIL_CAPS.documents }, doc), documents_total: 9999,
-      billed_total: 1, outstanding_to_bill: 1, fully_billed: false,
+      billed_total: 1, outstanding_to_bill: 1, fully_billed: false, closed_under_billed: true,
     });
     const r = await getPo.handler({ po_id: PO }, { ...read, companyId: 'c1' } as McpToolContext);
     expect(r.isError).toBeUndefined();

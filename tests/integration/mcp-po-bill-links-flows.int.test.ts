@@ -130,38 +130,84 @@ describe('unlink', () => {
     expect((await callTool(pool, f, getPo, { po_id: byHand.po })).body).toMatchObject({ closed_under_billed: false });
   });
 
-  it('R2: an unlink that makes the PO commit over budget never blocks, under block too; it returns budget_warning (none when the policy is off)', async () => {
-    const mk = async (amount: number) => ({
-      po: await seedPo(pool, f, { lines: [amount], date: '2026-06', cc1: f.cc.FT }),
-      bill: await seedBill(pool, f, { lines: [amount] }),
-    });
-    const { po, bill } = await mk(900);
-    const rival = await seedPo(pool, f, { lines: [900], date: '2026-06', cc1: f.cc.FT });
-    expect(rival.po).toBeTruthy();
+  /** A PO (900 on opex / FT, June) already netted by a bill's line, and a rival PO of 900 on the same slice (FT budget 1 000 a month). */
+  async function netted() {
+    const po = await seedPo(pool, f, { lines: [900], date: '2026-06', cc1: f.cc.FT });
+    const bill = await seedBill(pool, f, { lines: [900] });
+    await seedPo(pool, f, { lines: [900], date: '2026-06', cc1: f.cc.FT });
     const linked = await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }] }] });
     expect(linked.isError, linked.text).toBe(false);
-    await setPolicy(pool, f, 'block');
+    return { po, bill };
+  }
+  const recorded = async (po: string) => ({
+    events: Number((await pool.query('SELECT count(*) AS n FROM budget_check_events WHERE company_id = $1 AND document_id = $2', [f.co, po])).rows[0].n),
+    budgetAudits: Number((await pool.query("SELECT count(*) AS n FROM audit_log WHERE company_id = $1 AND entity_type = 'budget' AND entity_id = $2", [f.co, po])).rows[0].n),
+    approves: Number((await pool.query("SELECT count(*) AS n FROM audit_log WHERE company_id = $1 AND entity_id = $2 AND action = 'approve'", [f.co, po])).rows[0].n),
+  });
+
+  it.each(['block', 'warn'] as const)('R2 (%s policy): an unlink that makes the PO commit over budget never blocks, answers budget_warning in its own words and records nothing', async (policy) => {
+    const { po, bill } = await netted();
+    await setPolicy(pool, f, policy);
     try {
+      const before = await recorded(po.po);
       const dry = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'redo', dry_run: true });
       expect(dry.isError, dry.text).toBe(false);
-      expect(String(dry.body.budget_warning)).toMatch(/over budget/i);
+      expect(String(dry.body.budget_warning)).toMatch(/is now over budget on/);
       expect(await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).toHaveLength(1);
       const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'redo' });
       expect(r.isError, r.text).toBe(false);
       expect(r.body).toMatchObject({ unlinked: true, lines_cleared: 1 });
-      expect(String(r.body.budget_warning)).toMatch(/over budget/i);
+      const warning = String(r.body.budget_warning);
+      expect(warning).toMatch(new RegExp(`^Unlinked\\. Purchase order ${po.number} commits spend again and is now over budget on BB-6100 .*by R`));
+      expect(warning).not.toMatch(/refused|Approve|approval/i);
       expect((r.body.budget_warnings as string[]).length).toBe(1);
       expect(await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).toEqual([]);
       expect(await lineLinks(pool, bill.id)).toEqual([null]);
-      await setPolicy(pool, f, 'off');
-      const again = await seedBill(pool, f, { lines: [900] });
-      await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: again.id, lines: [{ po_item_id: po.items[0], bill_line_id: again.lines[0] }] }] });
-      const off = await callTool(pool, f, unlink, { po_id: po.po, bill_id: again.id, reason: 'policy off' });
-      expect(off.body).toMatchObject({ unlinked: true, budget_warning: null, budget_warnings: [] });
+      // Nothing recorded as a budget decision: no budget_check_events row, no budget audit, no approve audit row.
+      expect(await recorded(po.po)).toEqual(before);
+      // Without read:reports the figures are left out.
+      const quiet = await netted();
+      const noFigures = await callTool(pool, f, unlink, { po_id: quiet.po.po, bill_id: quiet.bill.id, reason: 'redo' }, { scopes: ['write:invoices'] });
+      expect(String(noFigures.body.budget_warning)).toMatch(/is now over budget on BB-6100 [^]*\.$/);
+      expect(String(noFigures.body.budget_warning)).not.toMatch(/ by R/);
     } finally {
       await setPolicy(pool, f, 'warn');
     }
   });
+
+  it('R2: policy off, no warning; a reopen with no line links to un-net also warns (the commitment returns)', async () => {
+    const { po, bill } = await netted();
+    await setPolicy(pool, f, 'off');
+    try {
+      expect((await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'off' })).body).toMatchObject({ unlinked: true, budget_warning: null, budget_warnings: [] });
+    } finally { await setPolicy(pool, f, 'warn'); }
+    // Reopen only: a header-only link that closed the PO; unlinking it reopens the PO (no lines cleared), which commits 900 against a rival's 900.
+    const closed = await seedPo(pool, f, { lines: [900], date: '2026-06', cc1: f.cc.FT });
+    const b2 = await seedBill(pool, f, { lines: [900] });
+    expect((await callTool(pool, f, link, { links: [{ po_id: closed.po, bill_id: b2.id }], close_when_fully_billed: true })).isError).toBe(false);
+    expect(await poStatus(pool, closed.po)).toBe('closed');
+    const r = await callTool(pool, f, unlink, { po_id: closed.po, bill_id: b2.id, reason: 'reopen' });
+    expect(r.body).toMatchObject({ reopened_to: 'approved', lines_cleared: 0 });
+    expect(String(r.body.budget_warning)).toMatch(/is now over budget on/);
+  });
+
+  it('R2: a busy budget gate (block policy) never fails the unlink: it is done, and the reply says the budget was not checked', async () => {
+    const { po, bill } = await netted();
+    await setPolicy(pool, f, 'block');
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 954))', [`budget_check:${f.co.toLowerCase()}`]);
+      const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill.id, reason: 'busy' });
+      expect(r.isError, r.text).toBe(false);
+      expect(r.body).toMatchObject({ unlinked: true });
+      expect(String(r.body.budget_warning)).toContain('could not be checked just now');
+      expect(await linkRows(pool, f, `l.purchase_order_id = '${po.po}'`)).toEqual([]);
+    } finally {
+      await holder.query('ROLLBACK'); holder.release();
+      await setPolicy(pool, f, 'warn');
+    }
+  }, 60_000);
 
   it('unlink across companies (po_id and po_number) and of an unknown PO changes nothing', async () => {
     const po = await seedPo(pool, f, { lines: [100] });
