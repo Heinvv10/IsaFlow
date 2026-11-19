@@ -576,6 +576,9 @@
    {"line":53,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the run whose bonus amount changes, by id, FOR UPDATE"},
    {"line":76,"text":"UPDATE payroll_run_headers","class":"S","owner":"OC","why":"writes the run whose amount changed back to draft, by id"}
   ],
+  "src/modules/accounting/services/payroll/payrollOffCycleCorrection.ts": [
+   {"line":60,"text":"FROM payroll_off_cycle_employees x JOIN payroll_run_headers h ON h.id = x.run_id AND h.company_id = x.company_id","class":"S","owner":"OC","why":"the inputs' own run, by id (its reopened_at, for the amount last approved)"}
+  ],
   "src/modules/accounting/services/payroll/payrollOffCycleCancel.ts": [
    {"line":34,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses d WHERE d.run_id = h.id AND d.company_id = h.company_id)","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a directive use"},
    {"line":36,"text":"OR EXISTS (SELECT 1 FROM payroll_loan_payments p WHERE p.run_id = h.id)) AS ever_approved","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a loan payment"},
