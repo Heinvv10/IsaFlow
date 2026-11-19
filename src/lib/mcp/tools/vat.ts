@@ -15,6 +15,8 @@ import {
   getVat201Report,
   type Vat201Detail,
 } from '@/modules/accounting/services/reports/vat201ReportService';
+import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
+import { rateCheckForFiling } from '@/modules/accounting/services/reports/vat201RateCheck';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 /**
@@ -35,8 +37,10 @@ export const vatStatusTool: McpTool = {
   description:
     'The VAT201 for a period, computed live from posted journals. Give the VAT period start and end dates (YYYY-MM-DD; South African VAT periods are normally two calendar months). '
     + 'Returns the SARS boxes, each with BOTH the value of the supply (base) and the tax posted against it, plus totals: box 4 output tax, box 19 input tax, box 20 net VAT payable (positive) or refundable (negative). '
-    + 'rateCheck runs SARS\'s own 15% test before you file: impliedTax is base x 15% and variance is tax minus that. ties=false means the ledger disagrees with itself and the return will be queried — read the per-box variance to find which box, then detail="full" for the journals behind it. '
-    + 'rateCheck.inputVariance is NOT the box total: it is the input tax OVER-claimed, summed journal by journal (an under-claim on one bill cannot hide an over-claim on another), so it can be non-zero while every input box variance reads 0. '
+    + 'filingRateCheck is SARS\'s own 15% test on the figures the return files, the same verdict lock_vat_period and finalise refuse on: output tax against the taxed output base (taxedOutputBase: every taxed output box, after nilRatedGivenBack of zero-rated or exempt supplies on journals that also carry output VAT is given back to fields 2 and 3; uncodedGivenBack is the revenue with no VAT code on documents that recorded no VAT inside that give-back, which coded credit notes can net below it). Decide whether to lock or file on filingRateCheck.ties; when it is false the return will be queried — read the variances, then the per-box rateCheck and detail="full" for the journals behind them. '
+    + 'rateCheck is the per-box diagnostic: impliedTax is each box\'s base x 15% and variance is tax minus that, measured BEFORE the give-back, so it can read ties=false for a correct period with zero-rated or exempt lines on taxed journals. '
+    + 'inputVariance (in both) is NOT the box total: it is the input tax OVER-claimed, summed journal by journal (an under-claim on one bill cannot hide an over-claim on another), so it can be non-zero while every input box variance reads 0. '
+    + 'The check proves output VAT is 15% of the base CODED taxable; it cannot prove the coding, so a taxable line coded exempt ties: check nilRatedGivenBack. '
     + 'detail: "summary" = boxes and totals only, no transactions; "standard" (the default, also spelled "boxes") = boxes plus the VAT journal lines, paged; "full" = the same lines each with the base legs of their journal, which is what shows you WHAT was supplied or purchased. Page with cursor until next_cursor is null. '
     + 'excludedRows carries VAT the report could not place in any box — most often tax posted to an account with no VAT posting treatment, which is money SARS is owed or owed to you that no box reports. Read it: it is not a footnote. '
     + 'LIMITS: posted journals only, so drafts are invisible; the period is taken literally from entry_date, so a journal dated outside its VAT period lands in the wrong return; and this computes the return, it does not file it.',
@@ -63,11 +67,14 @@ export const vatStatusTool: McpTool = {
     if (start > end) return toolError('period_start must not be after period_end');
 
     const detail = detailArg(args);
-    const report = await getVat201Report(ctx.companyId, start, end, {
-      detail,
-      limit: clampLimit(args, 100, 200),
-      cursor: strArg(args, 'cursor'),
-    });
+    const [report, nilRated] = await Promise.all([
+      getVat201Report(ctx.companyId, start, end, {
+        detail,
+        limit: clampLimit(args, 100, 200),
+        cursor: strArg(args, 'cursor'),
+      }),
+      getNilRatedSupplies(ctx.companyId, start, end),
+    ]);
 
     return ok({
       periodStart: report.periodStart,
@@ -75,6 +82,7 @@ export const vatStatusTool: McpTool = {
       boxes: report.boxes,
       totals: report.totals,
       rateCheck: report.rateCheck,
+      filingRateCheck: rateCheckForFiling(report, nilRated),
       // The excluded block groups by account, so the line count and the rand
       // total behind it are stated here rather than left to be inferred.
       excludedLineCount: report.excludedLineCount,

@@ -18,6 +18,8 @@ import { csvVal } from '@/lib/csv';
 import { getCompany } from '../core/companyService';
 import { buildVAT201Payload, type SARSPayload } from './sarsEfilingService';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
+import { getNilRatedSupplies } from './vat201NilRatedSupplies';
+import { rateCheckForFiling, type FilingRateCheck } from './vat201RateCheck';
 import { getVatPeriodLock, type VatPeriodLock } from './vatPeriodLockService';
 import { getVatExceptions } from './vatExceptionsService';
 import { vatGateExceptionCounts, type VatGateExceptionCounts } from './vatGateOverrideService';
@@ -32,8 +34,13 @@ export interface Vat201Export {
   payload?: SARSPayload & { totalOutputVAT: number; totalInputVAT: number; netVAT: number };
   /** Present when format is `csv`. */
   csv?: string;
-  /** The 15% tie-out, carried through so nobody files a return that fails it unknowingly. */
+  /** The report's per-box 15% tie-out: a diagnostic, measured before the nil-rated give-back. */
   rateCheck: Vat201Report['rateCheck'];
+  /**
+   * The 15% verdict the lock and finalise gates judge (vat201RateCheck.rateCheckForFiling): output tax against the
+   * taxed output base after zero-rated/exempt supplies on taxed journals are given back. Decide on this one.
+   */
+  filingRateCheck: FilingRateCheck;
   /** The lock, when the period has been filed. */
   lock: VatPeriodLock | null;
   /**
@@ -100,11 +107,12 @@ export async function exportVat201(
   periodEnd: string,
   format: Vat201ExportFormat = 'sars_payload',
 ): Promise<Vat201Export> {
-  const [report, company, lock, exceptionsReport] = await Promise.all([
+  const [report, company, lock, exceptionsReport, nilRated] = await Promise.all([
     getVat201Report(companyId, periodStart, periodEnd, { detail: 'summary' }),
     getCompany(companyId),
     getVatPeriodLock(companyId, periodStart, periodEnd),
     getVatExceptions(companyId, periodStart, periodEnd),
+    getNilRatedSupplies(companyId, periodStart, periodEnd),
   ]);
   const blockingExceptions = vatGateExceptionCounts(exceptionsReport);
 
@@ -124,6 +132,7 @@ export async function exportVat201(
     periodEnd,
     format,
     rateCheck: report.rateCheck,
+    filingRateCheck: rateCheckForFiling(report, nilRated),
     lock,
     driftSinceLock,
     postedThrough: report.postedThrough,

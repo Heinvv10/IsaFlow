@@ -11,7 +11,10 @@ const m = vi.hoisted(() => ({
   getCompany: vi.fn(),
   getVatPeriodLock: vi.fn(),
   getVatExceptions: vi.fn(),
+  getNilRatedSupplies: vi.fn(),
 }));
+// The filing verdict's nil-rated read (vat201RateCheck); scripted so no query reaches a database.
+vi.mock('@/modules/accounting/services/reports/vat201NilRatedSupplies', () => ({ getNilRatedSupplies: m.getNilRatedSupplies }));
 vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({
   getVat201Report: m.getVat201Report,
 }));
@@ -26,6 +29,7 @@ vi.mock('@/modules/accounting/services/reports/vatExceptionsService', () => ({
 }));
 
 import { exportVat201 } from '@/modules/accounting/services/reports/vat201ExportService';
+import { MIXED_REPORT, NIL_NONE, NIL_ON_TAXED } from './reports/helpers/vat201MixedJournal';
 
 const REPORT = {
   periodStart: '2026-07-01', periodEnd: '2026-08-31', detail: 'summary',
@@ -51,6 +55,7 @@ beforeEach(() => {
   m.getCompany.mockResolvedValue({ vatNumber: '4123456789', name: 'Acme Ltd' });
   m.getVatPeriodLock.mockResolvedValue(null);
   m.getVatExceptions.mockResolvedValue(EXCEPTIONS);
+  m.getNilRatedSupplies.mockResolvedValue(NIL_NONE);
 });
 
 describe('exportVat201 — bill tax-code warning fields', () => {
@@ -69,5 +74,26 @@ describe('exportVat201 — bill tax-code warning fields', () => {
 
     expect(out.billTaxCodeWarningCount).toBe(3);
     expect(out.billTaxCodeWarningPotentialVat).toBe(45.06);
+  });
+});
+
+describe('exportVat201 — filingRateCheck, the verdict the lock and finalise gates judge', () => {
+  it('a correct mixed-VAT journal: rateCheck (per box) reads 75 out, filingRateCheck ties on the taxed output base', async () => {
+    m.getVat201Report.mockResolvedValue({ ...REPORT, ...MIXED_REPORT });
+    m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
+    for (const format of ['sars_payload', 'csv'] as const) {
+      const out = await exportVat201('company-1', '2026-07-01', '2026-08-31', format);
+      expect(out.rateCheck).toEqual(MIXED_REPORT.rateCheck);
+      expect(out.filingRateCheck).toEqual({
+        ties: true, outputVariance: 0, inputVariance: 0, taxedOutputBase: 1000, nilRatedGivenBack: 500, uncodedGivenBack: 0,
+      });
+    }
+    expect(m.getNilRatedSupplies).toHaveBeenCalledWith('company-1', '2026-07-01', '2026-08-31');
+  });
+
+  it('a variance no nil-rated supply explains fails filingRateCheck too', async () => {
+    m.getVat201Report.mockResolvedValue({ ...REPORT, ...MIXED_REPORT });
+    const out = await exportVat201('company-1', '2026-07-01', '2026-08-31');
+    expect(out.filingRateCheck).toMatchObject({ ties: false, outputVariance: -75, taxedOutputBase: 1500, nilRatedGivenBack: 0 });
   });
 });
