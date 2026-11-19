@@ -3,7 +3,10 @@
  * approval. A manager whose Suppliers & AP "Approve" an owner or admin unticked cannot approve a
  * bill on any person's path (the single route, the bulk route, the MCP approve and bulk-approve
  * tools); nothing of the bill is read or written. A manager with no row keeps the role default
- * (approve), and owner/admin always may.
+ * (approve), and owner/admin always may. The decision is read from the database (the user's stored
+ * role in the request's company, then their row), never from the request's role: a viewer, and a
+ * former bookkeeper (manager without approve, Hein 2026-11-19), are refused; and the read names the
+ * request's company, so a grant in another company does not count.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -37,16 +40,21 @@ import bulkRoute from '../../../pages/api/accounting/supplier-invoices-bulk-acti
 import { approveSupplierInvoiceTool } from '@/lib/mcp/tools/writeSupplierInvoices';
 import { bulkApproveSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { permissionDb, permissionSql } from '../helpers/permissionSqlMock';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
+const OTHER_COMPANY = '22222222-2222-4222-8222-222222222222';
 const USER = '99999999-9999-4999-8999-999999999999';
 const BILL = '66666666-6666-4666-8666-666666666666';
 
-/** The suppliers row company_user_permissions holds for USER (null: none, the role default applies). */
-let suppliersRow: { can_approve: boolean } | null = null;
-const permissionReads: string[] = [];
+let db = permissionDb();
+/** USER's stored role in COMPANY, and optionally their Suppliers & AP row there. */
+function member(role: string, suppliers?: { can_approve: boolean }, company = COMPANY) {
+  db.members.set(`${company}:${USER}`, role);
+  if (suppliers) db.rows.set(`${company}:${USER}:suppliers`, { can_read: true, can_write: true, can_delete: false, can_export: true, ...suppliers });
+}
 
-function call(handler: unknown, body: unknown, companyRole: string) {
+function call(handler: unknown, body: unknown, companyRole = 'manager') {
   const req = { method: 'POST', query: {}, body, companyId: COMPANY, companyRole, user: { id: USER } } as unknown as NextApiRequest;
   const res = {
     statusCode: 0, sent: undefined as unknown, headers: {} as Record<string, string>,
@@ -59,44 +67,36 @@ function call(handler: unknown, body: unknown, companyRole: string) {
     .then(() => res);
 }
 
-const mcpCtx = (companyRole: string): McpToolContext =>
+const mcpCtx = (companyRole = 'manager'): McpToolContext =>
   ({ companyId: COMPANY, userId: USER, companyRole, scopes: ['write:invoices', 'write:post'], tokenJti: 'jti-1656', oauthAppId: null });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  suppliersRow = null;
-  permissionReads.length = 0;
-  vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) => {
-    const text = strings.join('?');
-    if (text.includes('company_user_permissions')) {
-      permissionReads.push(text);
-      return Promise.resolve(suppliersRow ? [{ can_read: true, can_write: true, can_delete: false, can_export: true, ...suppliersRow }] : []);
-    }
-    return Promise.resolve([]);
-  }) as never);
+  db = permissionDb();
+  vi.mocked(sql).mockImplementation(permissionSql(db) as never);
   vi.mocked(approveSupplierInvoice).mockResolvedValue({ id: BILL, status: 'approved' } as never);
   vi.mocked(validateSystemAccounts).mockResolvedValue([] as never);
 });
 
 describe('a manager whose Suppliers & AP approve is unticked cannot approve a bill', () => {
-  beforeEach(() => { suppliersRow = { can_approve: false }; });
+  beforeEach(() => { member('manager', { can_approve: false }); });
 
   it('single route: 403, the bill is never approved', async () => {
-    const res = await call(actionRoute, { action: 'approve', invoiceId: BILL }, 'manager');
+    const res = await call(actionRoute, { action: 'approve', invoiceId: BILL });
     expect(res.statusCode).toBe(403);
     expect(JSON.stringify(res.sent)).toMatch(/permission to approve supplier invoices/);
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
-    expect(permissionReads.join()).toMatch(/module_key/);
+    expect(db.reads).toEqual([{ companyId: COMPANY, userId: USER, moduleKey: 'suppliers' }]);
   });
 
   it('bulk route: 403 for the whole batch, nothing approved', async () => {
-    const res = await call(bulkRoute, { action: 'approve', invoiceIds: [BILL] }, 'manager');
+    const res = await call(bulkRoute, { action: 'approve', invoiceIds: [BILL] });
     expect(res.statusCode).toBe(403);
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
   });
 
   it('MCP approve_supplier_invoice: refused before the bill is read', async () => {
-    const out = await approveSupplierInvoiceTool.handler({ invoice_id: BILL, idempotency_key: 'k1' }, mcpCtx('manager'));
+    const out = await approveSupplierInvoiceTool.handler({ invoice_id: BILL, idempotency_key: 'k1' }, mcpCtx());
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toMatch(/permission to approve supplier invoices/);
     expect(getSupplierInvoiceById).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe('a manager whose Suppliers & AP approve is unticked cannot approve a bi
   });
 
   it('MCP bulk_approve_supplier_invoices: refused before any bill is read', async () => {
-    const out = await bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [BILL], idempotency_key: 'k2' }, mcpCtx('manager'));
+    const out = await bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [BILL], idempotency_key: 'k2' }, mcpCtx());
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toMatch(/permission to approve supplier invoices/);
     expect(validateSystemAccounts).not.toHaveBeenCalled();
@@ -112,28 +112,51 @@ describe('a manager whose Suppliers & AP approve is unticked cannot approve a bi
   });
 
   it('cancel is not an approval: the same manager still cancels', async () => {
-    const res = await call(actionRoute, { action: 'cancel', invoiceId: BILL }, 'manager');
+    const res = await call(actionRoute, { action: 'cancel', invoiceId: BILL });
     expect(res.statusCode).not.toBe(403);
   });
 });
 
-describe('who may approve', () => {
+describe('who may approve, read from the database', () => {
   it('a manager with no permission row keeps the role default and approves', async () => {
-    const res = await call(actionRoute, { action: 'approve', invoiceId: BILL }, 'manager');
+    member('manager');
+    const res = await call(actionRoute, { action: 'approve', invoiceId: BILL });
     expect(res.statusCode).toBe(200);
     expect(approveSupplierInvoice).toHaveBeenCalledTimes(1);
   });
 
   it('a manager granted approve approves', async () => {
-    suppliersRow = { can_approve: true };
-    const res = await call(actionRoute, { action: 'approve', invoiceId: BILL }, 'manager');
-    expect(res.statusCode).toBe(200);
+    member('manager', { can_approve: true });
+    expect((await call(actionRoute, { action: 'approve', invoiceId: BILL })).statusCode).toBe(200);
   });
 
   it.each(['owner', 'admin'])('%s approves even with an unticked row (full access cannot be restricted)', async (role) => {
-    suppliersRow = { can_approve: false };
-    const res = await call(actionRoute, { action: 'approve', invoiceId: BILL }, role);
-    expect(res.statusCode).toBe(200);
-    expect(permissionReads).toEqual([]);
+    member(role, { can_approve: false });
+    expect((await call(actionRoute, { action: 'approve', invoiceId: BILL }, role)).statusCode).toBe(200);
+    expect(approveSupplierInvoice).toHaveBeenCalledTimes(1);
+  });
+
+  it('a viewer is refused (the stored role decides, not the request)', async () => {
+    member('viewer');
+    expect((await call(actionRoute, { action: 'approve', invoiceId: BILL }, 'manager')).statusCode).toBe(403);
+    expect(approveSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it.each(['bookkeeper', 'accountant'])('a stored %s (manager without approve, #1656) is refused even with no row', async (role) => {
+    member(role);
+    expect((await call(actionRoute, { action: 'approve', invoiceId: BILL }, 'manager')).statusCode).toBe(403);
+    expect(approveSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it("a grant in another company does not count: the read names the request's company", async () => {
+    member('manager', { can_approve: false });
+    member('manager', { can_approve: true }, OTHER_COMPANY);
+    expect((await call(actionRoute, { action: 'approve', invoiceId: BILL })).statusCode).toBe(403);
+    expect(db.reads.map((r) => r.companyId)).toEqual([COMPANY]);
+  });
+
+  it('a user who is no member of the company is refused', async () => {
+    member('owner', undefined, OTHER_COMPANY);
+    expect((await call(actionRoute, { action: 'approve', invoiceId: BILL }, 'owner')).statusCode).toBe(403);
   });
 });

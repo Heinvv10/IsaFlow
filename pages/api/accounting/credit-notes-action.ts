@@ -29,6 +29,7 @@ import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplie
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -106,6 +107,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfImpersonationForbidden(res, err)) return;
     // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
     if (respondIfApprovalRequired(res, err)) return;
+    if (respondIfApprovePermissionRefused(res, err)) return; // #1656: no Approve on the note's module, pre-write
     // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
     if (respondIfLockTimeout(res, err)) return;
     // After the journal was written: a 4xx would COMMIT the orphan draft. 5xx rolls it back.

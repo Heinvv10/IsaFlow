@@ -43,6 +43,7 @@ import {
 import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { APPROVE_MODULE_BY_DOCUMENT, approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 // Re-exported so the registry and the tests keep ONE import surface for the
 // three credit-note write tools — see writeCreditNotesCreate.ts.
@@ -106,6 +107,11 @@ export const approveCreditNoteTool: McpTool = {
     // approval it needs.
     const approvalRefusal = await agentApprovalRefusal(ctx.companyId, creditNoteApprovalType(note.type), id);
     if (approvalRefusal) return toolError(approvalRefusal);
+    // #1656: the token owner's Approve on the note's module, answered from a read like the refusals above.
+    const approveModule = APPROVE_MODULE_BY_DOCUMENT[creditNoteApprovalType(note.type)]!;
+    if (!(await mayApprove(ctx.companyId, ctx.userId, approveModule))) {
+      return toolError(approveRefusedMessage(approveModule, `${note.type} credit notes`));
+    }
 
     // A missing system account is the likeliest reason an approve fails, and it
     // is the one an agent can actually do something about (create_gl_account

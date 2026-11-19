@@ -9,13 +9,26 @@
 -- user the portal linked as a bookkeeper got a 403 on every write.
 --
 --   old value                          new value
---   company_users.role accountant      manager  (the portal meant working access)
---   company_users.role bookkeeper      manager  (idem; it was the link form's default)
+--   company_users.role accountant      manager WITHOUT approve (Hein, 2026-11-19)
+--   company_users.role bookkeeper      manager WITHOUT approve (it was the link form's default)
 --   company_users.role storeman        viewer   (read-only in the app before and after)
 --   company_users.role technician      viewer
 --   company_users.role user            viewer
---   company_invitations.role (pending) the same map
+--   company_invitations.role (pending, any of the five)   viewer (nothing is granted on accept)
 --   users.role accountant / bookkeeper (platform role, grants nothing)   manager
+--
+-- "Without approve": for each promoted membership, one company_user_permissions
+-- row per module with the manager defaults (read, write, export) and
+-- can_approve = false; a row it already had keeps its flags but loses approve.
+--
+-- Managers' saved rows (review of #1670, M1): before #1656 the User Access grid
+-- showed a manager every module all-off and approve was enforced nowhere, so a
+-- manager's row with can_approve = false cannot be told from one the grid saved
+-- by accident. Approve is enforced from this release with the manager default
+-- ON (Hein, B), so every manager row existing at the first run gets can_approve =
+-- true once (marker row 'marker' / 'manager_approve_backfill'), each recorded.
+--
+-- company_users.role's column default becomes 'viewer' (it was 'user').
 --
 -- Additive and idempotent:
 --   1. every company_users row's role (changed or not: the issue's "backup of
@@ -25,6 +38,9 @@
 --      nothing. Restore the memberships with
 --        UPDATE company_users cu SET role = b.old_role FROM role_values_1656_backup b
 --        WHERE b.source_table = 'company_users' AND cu.id::text = b.row_id AND b.old_role <> b.new_role;
+--      The permission rows it writes or changes are recorded too
+--      ('company_user_permissions' by row id, 'company_user_permissions_legacy'
+--      by company:user:module with the old can_approve or 'no row').
 --   2. company_users_role_guard (883/886/908b/916): the admin portal
 --      (platform_admin) may grant admin, manager or viewer, the app's roles
 --      but owner (it still never grants owner, RC007);
@@ -56,7 +72,7 @@ FROM public.company_users cu
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
-SELECT 'company_invitations', ci.id::text, ci.role, CASE WHEN ci.role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN ci.role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE ci.role END
+SELECT 'company_invitations', ci.id::text, ci.role, 'viewer'
 FROM public.company_invitations ci
 WHERE ci.accepted_at IS NULL AND ci.role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user')
 ON CONFLICT (source_table, row_id) DO NOTHING;
@@ -67,13 +83,54 @@ FROM public.users u
 WHERE u.role IN ('accountant', 'bookkeeper')
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
+-- M1: managers' existing rows get approve, once (see the header).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.role_values_1656_backup
+                 WHERE source_table = 'marker' AND row_id = 'manager_approve_backfill') THEN
+    INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
+    SELECT 'company_user_permissions', p.id::text, 'can_approve=' || COALESCE(p.can_approve::text, 'null'), 'can_approve=true'
+    FROM public.company_user_permissions p
+    JOIN public.company_users cu ON cu.company_id = p.company_id AND cu.user_id = p.user_id
+    WHERE cu.role = 'manager' AND p.can_approve IS NOT TRUE
+    ON CONFLICT (source_table, row_id) DO NOTHING;
+    UPDATE public.company_user_permissions p SET can_approve = true, updated_at = now()
+    FROM public.company_users cu
+    WHERE cu.company_id = p.company_id AND cu.user_id = p.user_id
+      AND cu.role = 'manager' AND p.can_approve IS NOT TRUE;
+    INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
+    VALUES ('marker', 'manager_approve_backfill', '-', 'done');
+  END IF;
+END $$;
+
+-- Accountant / bookkeeper memberships: manager without approve, written before the role changes.
+INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
+SELECT 'company_user_permissions_legacy', cu.company_id::text || ':' || cu.user_id || ':' || pm.module_key,
+       COALESCE('can_approve=' || p.can_approve::text, 'no row'), 'can_approve=false'
+FROM public.company_users cu
+CROSS JOIN public.permission_modules pm
+LEFT JOIN public.company_user_permissions p
+  ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = pm.module_key
+WHERE cu.role IN ('accountant', 'bookkeeper')
+ON CONFLICT (source_table, row_id) DO NOTHING;
+
+INSERT INTO public.company_user_permissions
+  (company_id, user_id, module_key, can_read, can_write, can_delete, can_export, can_approve)
+SELECT cu.company_id, cu.user_id, pm.module_key, true, true, false, true, false
+FROM public.company_users cu
+CROSS JOIN public.permission_modules pm
+WHERE cu.role IN ('accountant', 'bookkeeper')
+ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET can_approve = false, updated_at = now();
+
 UPDATE public.company_users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END
 WHERE role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
 
-UPDATE public.company_invitations SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END
+UPDATE public.company_invitations SET role = 'viewer'
 WHERE accepted_at IS NULL AND role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
 
 UPDATE public.users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END WHERE role IN ('accountant', 'bookkeeper');
+
+ALTER TABLE public.company_users ALTER COLUMN role SET DEFAULT 'viewer';
 
 -- 2 and 3: patch each guard's role list and its message in place.
 DO $$

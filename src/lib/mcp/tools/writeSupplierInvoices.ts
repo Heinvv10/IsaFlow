@@ -191,7 +191,7 @@ export const approveSupplierInvoiceTool: McpTool = {
     const bad = guardCastableArgs(args, { uuid: ['invoice_id'] });
     if (bad) return bad;
     // #1656: the token owner's Suppliers & AP "Approve", before the bill is read.
-    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId, ctx.companyRole))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED);
+    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED);
 
     // Both refusals are answered from a READ so the service call below needs
     // no catch. approveSupplierInvoice raises the status one itself, but a

@@ -8,6 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mockSql, mockCreateJournalEntry, COMPANY_ID, CN_ID, USER_ID, creditNoteRow } from './creditNoteService.harness';
 
+// #1656: the approver's module Approve is the subject of tests/unit/api/approvePermissionPaths; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true), assertMayApprove: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/ap/supplierCreditNoteExpenseLines', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/ap/supplierCreditNoteExpenseLines')>()),
   creditNoteExpenseJournalLines: vi.fn(),

@@ -71,7 +71,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     switch (action) {
       case 'approve': {
         // #1656: Suppliers & AP "Approve" (User Access), before the bill is read or locked.
-        if (!(await mayApproveSupplierInvoices(companyId, userId, (req as CompanyAuthedRequest).companyRole))) {
+        if (!(await mayApproveSupplierInvoices(companyId, userId))) {
           return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
         }
         // A person approving: a bill dated in a filed VAT period claims its input

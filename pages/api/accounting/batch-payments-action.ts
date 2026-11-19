@@ -27,6 +27,7 @@ import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
 } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -48,6 +49,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const { expectedDigest } = req.body as { expectedDigest?: unknown };
         if (expectedDigest !== undefined && typeof expectedDigest !== 'string') {
           return apiResponse.badRequest(res, 'expectedDigest must be the digest the batch page read');
+        }
+        // #1656: Suppliers & AP Approve, before the batch is read or locked.
+        if (!(await mayApprove(companyId, userId, 'suppliers'))) {
+          return apiResponse.forbidden(res, approveRefusedMessage('suppliers', 'payment batches'));
         }
         return apiResponse.success(res, { status: await approveBatch(companyId, id, userId, expectedDigest) });
       }

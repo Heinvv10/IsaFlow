@@ -22,6 +22,7 @@ import {
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
+import { mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
@@ -182,11 +183,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // nor may figures the regex/OCR fallback recovered (K-072 round 14 policy),
   // and all three override `auto_publish`, whose rules judge the supplier and
   // the duplicate history rather than whether the amount is legible.
-  const unattendedRefused = refusesUnattendedApproval(extracted);
+  // #1656: and a person without Suppliers & AP Approve cannot have the bill stored approved: draft + manual review.
+  const unattendedRefused = refusesUnattendedApproval(extracted) || !(await mayApproveSupplierInvoices(companyId, userId));
   const approvalRoute = unattendedRefused
-    ? 'manual_review'
-    : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
-
+    ? 'manual_review' : determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
   const invoiceStatus = unattendedRefused
     ? 'draft'
     : gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');

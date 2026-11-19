@@ -55,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const [modules, permissions] = await Promise.all([
       getPermissionModules(),
-      getEffectivePermissions(companyId, userId, role),
+      getEffectivePermissions(companyId, userId, storedRole), // the stored role: a former accountant has no approve
     ]);
     return apiResponse.success(res, { role, modules, permissions });
   }

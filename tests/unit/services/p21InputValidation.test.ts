@@ -16,6 +16,8 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+// #1656: the approver's module Approve is the subject of tests/unit/api/approvePermissionPaths; granted here.
+vi.mock('@/modules/accounting/services/core/approvePermission', async (orig) => ({ ...(await orig<object>()), mayApprove: vi.fn(async () => true), assertMayApprove: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 // Brief step 7: the posted-credit cap and the application invariants are proved on a real ledger

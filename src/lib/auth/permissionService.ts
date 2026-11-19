@@ -28,14 +28,12 @@ export interface UserWithPermissions {
 type Action = PermissionAction;
 type Row = DbRow;
 
-const roleDefault = roleDefaultPermission;
-
 function defaultPerm(role: string, moduleKey: string, moduleName: string): ModulePermission {
   return {
     moduleKey, moduleName,
-    canRead: roleDefault(role, 'read'), canWrite: roleDefault(role, 'write'),
-    canDelete: roleDefault(role, 'delete'), canExport: roleDefault(role, 'export'),
-    canApprove: roleDefault(role, 'approve'),
+    canRead: roleDefaultPermission(role, 'read'), canWrite: roleDefaultPermission(role, 'write'),
+    canDelete: roleDefaultPermission(role, 'delete'), canExport: roleDefaultPermission(role, 'export'),
+    canApprove: roleDefaultPermission(role, 'approve'),
     accountRangeFrom: null, accountRangeTo: null, restrictions: {},
   };
 }
@@ -114,11 +112,6 @@ export async function resetUserPermissions(companyId: string, userId: string): P
   log.info('User permissions reset to defaults', { companyId, userId }, 'PermissionService');
 }
 
-/**
- * One user's permission on every module as it is enforced: the user's row where there is one,
- * else the role default (owner/admin: everything). What the User Access grid and the admin
- * portal show, so a toggle saves from the effective state, not from all-off.
- */
 /** The member's stored role in the company, or null when they are not a member. */
 export async function getMemberRole(companyId: string, userId: string): Promise<string | null> {
   const rows = await sql`
@@ -127,34 +120,43 @@ export async function getMemberRole(companyId: string, userId: string): Promise<
   return ((rows[0] as Row | undefined)?.role as string | undefined) ?? null;
 }
 
+/**
+ * One user's permission on every module as it is enforced: the user's row where there is one,
+ * else the role default (owner/admin: everything). What the User Access grid and the admin
+ * portal show, so a toggle saves from the effective state, not from all-off. `storedRole` is
+ * company_users.role as stored (a legacy accountant reads as a manager without approve).
+ */
 export async function getEffectivePermissions(
-  companyId: string, userId: string, companyRole: string,
+  companyId: string, userId: string, storedRole: string,
 ): Promise<ModulePermission[]> {
   const [modules, custom] = await Promise.all([getPermissionModules(), getUserPermissions(companyId, userId)]);
-  const role = normalizeCompanyRole(companyRole);
-  return modules.map((mod) => (isFullAccessRole(role) ? null : custom.get(mod.moduleKey))
-    ?? defaultPerm(role, mod.moduleKey, mod.moduleName));
+  const fullAccess = isFullAccessRole(normalizeCompanyRole(storedRole));
+  return modules.map((mod) => (fullAccess ? null : custom.get(mod.moduleKey))
+    ?? defaultPerm(storedRole, mod.moduleKey, mod.moduleName));
 }
 
+/**
+ * May the user do `action` on `moduleKey` in the company? Read from the database, not from the
+ * request: the user's STORED role there (not a member: no), owner/admin always, else their
+ * company_user_permissions row for the module, else the role default for the stored role.
+ */
 export async function checkPermission(
-  companyId: string, userId: string, companyRole: string, moduleKey: string, action: Action
+  companyId: string, userId: string, moduleKey: string, action: Action,
 ): Promise<boolean> {
-  if (isFullAccessRole(normalizeCompanyRole(companyRole))) return true;
-
   const rows = await sql`
-    SELECT can_read, can_write, can_delete, can_export, can_approve
-    FROM company_user_permissions
-    WHERE company_id = ${companyId}::UUID
-      AND user_id    = ${userId}
-      AND module_key = ${moduleKey}
+    SELECT cu.role, p.can_read, p.can_write, p.can_delete, p.can_export, p.can_approve, (p.module_key IS NOT NULL) AS has_row
+    FROM company_users cu
+    LEFT JOIN company_user_permissions p
+      ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = ${moduleKey}
+    WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${userId}
     LIMIT 1
   `;
-  if (rows.length > 0) {
-    const r = rows[0] as Row;
-    const col = `can_${action}` as keyof typeof r;
-    return Boolean(r[col]);
-  }
-  return roleDefault(companyRole, action);
+  const r = rows[0] as Row | undefined;
+  if (!r) return false;
+  const storedRole = String(r.role);
+  if (isFullAccessRole(normalizeCompanyRole(storedRole))) return true;
+  if (r.has_row) return Boolean(r[`can_${action}`]);
+  return roleDefaultPermission(storedRole, action);
 }
 
 export async function getCompanyUsersWithPermissions(companyId: string): Promise<UserWithPermissions[]> {
@@ -187,7 +189,8 @@ export async function getCompanyUsersWithPermissions(companyId: string): Promise
   }
 
   return (userRows as Row[]).map((u: Row) => {
-    const role = normalizeCompanyRole(u.role as string);
+    const storedRole = u.role as string;
+    const role = normalizeCompanyRole(storedRole);
     const uid = u.user_id as string;
     const custom = customMap.get(uid);
     const isFullAccess = isFullAccessRole(role);
@@ -200,7 +203,7 @@ export async function getCompanyUsersWithPermissions(companyId: string): Promise
           accountRangeFrom: null, accountRangeTo: null, restrictions: {},
         };
       }
-      return custom?.get(mod.moduleKey) ?? defaultPerm(role, mod.moduleKey, mod.moduleName);
+      return custom?.get(mod.moduleKey) ?? defaultPerm(storedRole, mod.moduleKey, mod.moduleName);
     });
 
     return {

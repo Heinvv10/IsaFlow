@@ -39,6 +39,8 @@ import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/cre
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
+import { ApprovePermissionError } from '@/modules/accounting/services/core/approvePermission';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -136,6 +138,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           // the gate refuses before approveCreditNote writes anything — so the
           // answer names it for the client to submit for approval. Left to the
           // catch below it was a 500, which rolled the draft back with it.
+          // #1656: no Suppliers & AP Approve: the draft stays, 403 (refused before approve writes anything).
+          if (err instanceof ApprovePermissionError) return apiResponse.forbidden(res, err.message);
           if (!(err instanceof ApprovalRequiredError)) throw err;
           return apiResponse.conflict(res, err.message, {
             reason: err.reason, requiredRole: err.requiredRole, requestId: err.requestId, creditNoteId: note.id,
@@ -213,6 +217,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfImpersonationForbidden(res, err)) return;
       // R-035: 'post' refused by the approval gate, under the row lock and before any write.
       if (respondIfApprovalRequired(res, err)) return;
+      if (respondIfApprovePermissionRefused(res, err)) return; // #1656: no Suppliers & AP Approve, pre-write
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }

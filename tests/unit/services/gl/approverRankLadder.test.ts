@@ -9,23 +9,54 @@
  * because the ladder has to make room for the extra roles) and against the
  * company_users.role values the ladder must cover.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+// The two routes are probed, not read: a role their allow-list refuses is answered before any SQL;
+// one it accepts reaches the database, which here throws PAST_THE_ALLOW_LIST.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(() => { throw new Error('PAST_THE_ALLOW_LIST'); }) }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/auth/withAuth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
+vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
+
 import { ROLE_HIERARCHY } from '@/lib/auth/types';
-import { ALLOWED_COMPANY_ROLES } from '@/modules/admin/services/adminUserActionsService';
-import { LEGACY_ROLE_MAP, NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
+import { LEGACY_ROLE_MAP } from '@/lib/auth/companyRoles';
+import { addUserToCompany, CompanyMembershipError } from '@/modules/admin/services/companyMembershipService';
+import invitationsRoute from '../../../../pages/api/invitations/index';
 import { VALID_ROLES as ACCESS_SERVICE_ROLES } from '@/modules/accounting/services/core/userAccessService';
 import { VALID_ROLES as INVITATION_SERVICE_ROLES } from '@/modules/accounting/services/core/userInvitationService';
 import { APPROVER_RANK, APPROVER_ROLES, isApproverRole } from '@/modules/accounting/services/gl/approvalAuthority';
 
 const sharedRoles = Object.keys(ROLE_HIERARCHY);
 
-/**
- * #1656: every writer of company_users.role / company_invitations.role reads one list,
- * src/lib/auth/companyRoles.ts (tests/unit/auth/roleListCensus.test.ts fails on any other).
- * The legacy invitation route and the platform-admin route grant NON_OWNER_COMPANY_ROLES.
- */
-function invitableRoles(): readonly string[] {
-  return NON_OWNER_COMPANY_ROLES;
+/** Every value a role column has held or could be sent: the four, the legacy five, the platform two, junk. */
+const CANDIDATES = ['owner', 'admin', 'manager', 'viewer', 'accountant', 'bookkeeper', 'storeman', 'technician', 'user',
+  'super_admin', 'system', 'Owner', 'toString'];
+
+/** The roles POST /api/invitations accepts: those not answered 400 'email and role required'. */
+async function invitableRoles(): Promise<string[]> {
+  const accepted: string[] = [];
+  for (const role of CANDIDATES) {
+    let status = 0;
+    const res = { status(c: number) { status = c; return this; }, json() { return this; }, setHeader() { return this; } };
+    const req = { method: 'POST', body: { email: 'a@b.test', role }, companyId: '11111111-1111-4111-8111-111111111111',
+      companyRole: 'owner', user: { id: 'u' }, headers: {} } as unknown as NextApiRequest;
+    await (invitationsRoute as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(req, res as never).catch(() => undefined);
+    if (status !== 400) accepted.push(role);
+  }
+  return accepted;
+}
+
+/** The roles the admin portal's add-to-company accepts: those not refused INVALID_ROLE. */
+async function portalGrantableRoles(): Promise<string[]> {
+  const accepted: string[] = [];
+  for (const role of CANDIDATES) {
+    const err = await addUserToCompany('u', '11111111-1111-4111-8111-111111111111', role).catch((e: unknown) => e);
+    if (!(err instanceof CompanyMembershipError && err.code === 'INVALID_ROLE')) accepted.push(role);
+  }
+  return accepted;
 }
 
 describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
@@ -43,9 +74,10 @@ describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
   // A role a company can be given but the ladder does not know ranks 0, so that
   // person can never approve anything and is told the rule "requires the admin
   // role". 'bookkeeper' was exactly that until this test enumerated the source.
-  it('covers every role the platform-admin route can assign', () => {
-    for (const role of ALLOWED_COMPANY_ROLES) expect(APPROVER_RANK).toHaveProperty(role);
-    expect(ALLOWED_COMPANY_ROLES).toEqual(['admin', 'manager', 'viewer']);
+  it('covers every role the platform-admin route can assign (probed: admin, manager, viewer)', async () => {
+    const roles = await portalGrantableRoles();
+    expect(roles).toEqual(['admin', 'manager', 'viewer']);
+    for (const role of roles) expect(APPROVER_RANK).toHaveProperty(role);
   });
 
   // Rows written before #1656 may still name a legacy role (an approval rule's approver_role, a
@@ -54,9 +86,9 @@ describe('APPROVER_RANK vs ROLE_HIERARCHY', () => {
     for (const role of Object.keys(LEGACY_ROLE_MAP)) expect(APPROVER_RANK).toHaveProperty(role);
   });
 
-  it('covers every role the invitation route can assign', () => {
-    const roles = invitableRoles();
-    expect(roles.length).toBeGreaterThan(0);
+  it('covers every role the invitation route can assign (probed: admin, manager, viewer)', async () => {
+    const roles = await invitableRoles();
+    expect(roles).toEqual(['admin', 'manager', 'viewer']);
     for (const role of roles) expect(APPROVER_RANK).toHaveProperty(role);
   });
 

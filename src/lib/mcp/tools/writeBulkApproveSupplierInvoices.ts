@@ -180,7 +180,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
   handler: async (args, ctx) => {
     const ids = parseDocumentIds(args.invoice_ids, 'invoice_ids');
     if (typeof ids === 'string') return toolError(ids);
-    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId, ctx.companyRole))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED); // #1656, before any read
+    if (!(await mayApproveSupplierInvoices(ctx.companyId, ctx.userId))) return toolError(SUPPLIER_INVOICE_APPROVE_REFUSED); // #1656, before any read
 
     // A chart missing one of these roles fails EVERY element, so it is a
     // refusal about the request's preconditions rather than 100 identical

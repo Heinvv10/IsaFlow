@@ -22,6 +22,7 @@ import {
   resetUserPermissions,
 } from '@/lib/auth/permissionService';
 import { log } from '@/lib/logger';
+import { isUuidParam } from '@/lib/validation';
 
 const ADMIN_ROLES = ['owner', 'admin'];
 
@@ -43,6 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
+    if (!isUuidParam(userId)) return apiResponse.notFound(res, 'User'); // names no member: no SQL cast to fail
 
     // #1656: a module the user has no row for shows the role default, the permission
     // checkPermission enforces (it showed all-off, so one toggle saved a row that also
@@ -110,6 +112,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) {
       return apiResponse.badRequest(res, 'userId query parameter is required.');
     }
+    if (!isUuidParam(userId)) return apiResponse.notFound(res, 'User');
 
     await resetUserPermissions(companyId, userId);
     return apiResponse.success(res, { ok: true });

@@ -43,6 +43,7 @@ import {
   parseDocumentIds,
 } from './bulkApproveArgs';
 import { ok, toolError } from './toolHelpers';
+import { APPROVE_MODULE_BY_DOCUMENT, approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 /** The system-account roles each note type's journal needs. */
 const ROLES_BY_TYPE: Record<string, readonly string[]> = {
@@ -80,7 +81,7 @@ export function racedReason(err: unknown): string | null {
  * of ITS type holds. A batch may mix both types, so the notes are grouped by
  * the type the partition read from the row, never by what the agent sent.
  */
-async function approvalRefusals(companyId: string, ids: readonly string[],
+async function approvalRefusals(companyId: string, userId: string, ids: readonly string[],
   states: Map<string, DocumentState>): Promise<Map<string, string>> {
   const byType = new Map<string, string[]>();
   for (const id of ids) {
@@ -89,6 +90,12 @@ async function approvalRefusals(companyId: string, ids: readonly string[],
   }
   const refusals = new Map<string, string>();
   for (const [type, typeIds] of byType) {
+    // #1656: the token owner's Approve on the note type's module; without it every note of the type is skipped.
+    const module = APPROVE_MODULE_BY_DOCUMENT[creditNoteApprovalType(type)]!;
+    if (!(await mayApprove(companyId, userId, module))) {
+      for (const id of typeIds) refusals.set(id, `no_approve_permission: ${approveRefusedMessage(module, `${type} credit notes`)}`);
+      continue;
+    }
     for (const [id, why] of await agentApprovalRefusals(companyId, creditNoteApprovalType(type), typeIds)) {
       refusals.set(id, why);
     }
@@ -158,7 +165,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
     const { states } = partitioned;
     // R-035 (Q6): gated by an enforced approval rule — skipped, never submitted.
     // Read, not written, so the dry run and the live call decide it alike.
-    const approvalRefused = await approvalRefusals(ctx.companyId, partitioned.postable.map((p) => p.id), states);
+    const approvalRefused = await approvalRefusals(ctx.companyId, ctx.userId, partitioned.postable.map((p) => p.id), states);
     // 988: a mirror_bill note its bill could not carry when its turn comes, judged in the live posting order.
     const unrefused = partitioned.postable.filter((p) => !approvalRefused.has(p.id));
     const vatRefused = await mirroredVatRefusals(ctx.companyId, liveOrder(unrefused, states).map((p) => p.id));

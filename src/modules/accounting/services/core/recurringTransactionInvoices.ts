@@ -29,6 +29,7 @@ import { BudgetExceededError } from '../budgets/budgetCheckTypes';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { UUID_RE } from '@/lib/validation';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '../ap/billApprovePermission';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -250,6 +251,11 @@ export async function mintRecurringSupplierInvoice(
     if (await evaluateApprovalGate(companyId, 'supplier_invoice', entityId)) {
       await raiseUnattendedApproval(companyId, 'supplier_invoice', entityId, userId);
       return { entityId, posted: false };
+    }
+    // #1656: the person running the template approves the bill, so it takes their Suppliers & AP Approve.
+    // Without it the bill is left a draft (as the approval gate leaves one, above) and the schedule advances.
+    if (!(await mayApproveSupplierInvoices(companyId, userId))) {
+      return { entityId, posted: false, warnings: [`Left as a draft: ${SUPPLIER_INVOICE_APPROVE_REFUSED}`] };
     }
     const { approveSupplierInvoice } = await import('../ap/supplierInvoiceWorkflowService');
     // Budgets P5-2: unattended (channel system). The template row, its accounts and the document number

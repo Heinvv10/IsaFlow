@@ -13,12 +13,38 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
+import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '@/modules/accounting/services/ap/billApprovePermission';
 import {
   getRecurringTemplates,
   createRecurringTemplate,
   updateRecurringTemplate,
   deleteRecurringTemplate,
 } from '@/modules/accounting/services/core/recurringTransactionService';
+
+/**
+ * #1656: an autoPost supplier-invoice template approves a bill on every run, so only a person who
+ * may approve supplier invoices (Suppliers & AP Approve) may create one or turn autoPost on. A run
+ * by someone without it leaves the bill a draft (mintRecurringSupplierInvoice).
+ */
+async function refusesAutoPostBills(
+  companyId: string, userId: string, entityType: unknown, autoPost: unknown, templateId?: string,
+): Promise<boolean> {
+  let type = entityType;
+  let post = autoPost;
+  // A malformed id names no template: left to the update service, which answers it as before.
+  if (templateId && isUuidParam(templateId) && (type === undefined || post === undefined)) {
+    const rows = await sql`
+      SELECT entity_type, auto_post FROM recurring_transaction_templates
+      WHERE id = ${templateId}::UUID AND company_id = ${companyId}::UUID
+    ` as Array<{ entity_type: string; auto_post: boolean }>;
+    type ??= rows[0]?.entity_type;
+    post ??= rows[0]?.auto_post;
+  }
+  if (type !== 'supplier_invoice' || post !== true) return false;
+  return !(await mayApproveSupplierInvoices(companyId, userId));
+}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -42,6 +68,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'name, entityType, templateData, and frequency are required');
     }
     const userId = req.user.id;
+    if (await refusesAutoPostBills(companyId, userId, entityType, autoPost)) {
+      return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
+    }
     try {
       const item = await createRecurringTemplate(companyId, userId, {
         name,
@@ -63,6 +92,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, ...updates } = req.body as { id?: string; [key: string]: unknown };
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    // Only a change that touches either field can newly make the template approve bills.
+    if ((updates.autoPost !== undefined || updates.entityType !== undefined)
+      && await refusesAutoPostBills(companyId, req.user.id, updates.entityType, updates.autoPost, id)) {
+      return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
+    }
     try {
       const item = await updateRecurringTemplate(
         companyId, id,

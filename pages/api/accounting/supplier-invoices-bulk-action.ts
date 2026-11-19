@@ -121,7 +121,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { action, invoiceIds, budgetReason } = parsed.data;
   const userId = req.user.id;
   // #1656: Suppliers & AP "Approve" (User Access), for the whole batch before any bill is read.
-  if (action === 'approve' && !(await mayApproveSupplierInvoices(companyId, userId, (req as CompanyAuthedRequest).companyRole))) {
+  if (action === 'approve' && !(await mayApproveSupplierInvoices(companyId, userId))) {
     return apiResponse.forbidden(res, SUPPLIER_INVOICE_APPROVE_REFUSED);
   }
   const results: ItemResult[] = [];
