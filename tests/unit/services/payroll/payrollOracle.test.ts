@@ -125,9 +125,8 @@ describe('payroll oracle fixtures', () => {
     // PSP closed its two gaps: the engine gives the A06 row 6 hand figure, UNVERIFIED only for the A06 edition (2025).
     // FQc: week 53 (UNVERIFIED, x52 over n = 53) equals its hand figure, so it moves to unverified.json.
     expect(unverified.map(u => u.case).sort()).toEqual([
-      'db-fund-12d-category-factor', 'director-uif-on-remuneration',
       // DBF: the s11F cap case now matches its hand figure; UNVERIFIED for the para 12D(3) formula's form only (adversarial payroll sign-off).
-      'db-fund-12d-s11f-cap-binds',
+      'db-fund-12d-category-factor', 'db-fund-12d-s11f-cap-binds', 'director-uif-on-remuneration',
       // GA (wave 6): the s65J(1A)(a) limit and maintenance outside it; statutes read, no SARS guide or vendor figure.
       'ga-emolument-attachment-capped-25pct', 'ga-maintenance-outside-cap',
       'psp-company-27pct', 'psp-trust-45pct',
