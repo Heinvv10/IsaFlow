@@ -248,8 +248,12 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const due = Math.max(0, round2(liability - ytd.tablePaye));
   const annualDue = Math.max(0, taxAll - atEarlier.annualTax);
   const annualPaymentPaye = round2(Math.min(due, annualDue));
+  // A line that pays no periodic remuneration takes no PAYE on regular pay (wave 6 OC, review #1620 L2): the cumulative
+  // catch-up on regular pay (the to-date liability less the tables' PAYE, beyond the annual payment's tax; under days-
+  // based annualisation a few cents) waits for the next line that pays regular remuneration. Keyed on this line's
+  // periodic remuneration, never on the run's kind.
   return {
-    regular: { ...regularInfo, monthlyPaye: round2(due - annualPaymentPaye) },
+    regular: { ...regularInfo, monthlyPaye: hasPeriodic ? round2(due - annualPaymentPaye) : 0 },
     annualPaymentPaye,
     periods,
     annualEquivalent: round2(annualEquivalent),

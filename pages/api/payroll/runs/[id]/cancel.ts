@@ -5,7 +5,8 @@
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { ApprovalDecisionError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
@@ -29,6 +30,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code });
+    // Withdrawing the run's pending approval request was refused (approval_request_decide): nothing was written.
+    if (err instanceof ApprovalDecisionError) return apiResponse.error(res, ErrorCode.FORBIDDEN, err.message, { reason: err.code });
     throw err;
   }
 }

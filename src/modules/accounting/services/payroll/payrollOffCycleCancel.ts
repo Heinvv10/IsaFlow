@@ -14,6 +14,8 @@
  *    (payrollRunDirectiveClaim). A run that ever carried a journal, a directive use, a claim or a loan payment is
  *    therefore one that was approved before, and it is refused (reopen keeps those records).
  *  - Off-cycle runs never close a month's ETI (payrollRunCadence), so no regular run's ETI depends on it.
+ * A pending R-035 approval request for the run is withdrawn (rejected by the canceller, with a 'declined' audit row on
+ * the pay run) in the same transaction, so it leaves the approvers' list.
  * Owner or admin, never under Login-as (the route); refused with 409 before any write.
  */
 import { withTransaction } from '@/lib/neon';
@@ -22,8 +24,11 @@ import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { decideRequest } from '../gl/approvalService';
+import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 const refused = (m: string) => new OffCycleRunRefusedError(m, 409);
+const WITHDRAWN = 'Withdrawn: the off-cycle run was cancelled.';
 
 export async function cancelOffCycleRun(companyId: string, runId: string, userId: string | null): Promise<PayrollRunSummary | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
@@ -45,6 +50,21 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
     }
     if (run.ever_approved === true) {
       throw refused('This off-cycle run was approved before (it carries a journal, a directive or a loan payment), so it cannot be cancelled.');
+    }
+    // A pending R-035 request leaves the approvers' list (review #1620): withdrawn through the one decide path
+    // (approval_request_decide, a rejection by the canceller), with the pay run's audit row, in this transaction.
+    const pending = ((await tx`
+      SELECT id FROM approval_requests
+       WHERE company_id = ${companyId}::uuid AND document_type = 'pay_run' AND document_id = ${runId}::uuid AND status = 'pending'
+    `) as DbRow[])[0];
+    if (pending) {
+      if (!userId) throw refused('This run has a pending approval request, which only a signed-in user can withdraw.');
+      const withdrawn = await decideRequest(companyId, String(pending.id), 'rejected', userId, WITHDRAWN);
+      await recordPayRunApprovalAudit({
+        companyId, runId, actorId: userId, event: 'declined',
+        planHash: withdrawn.documentDigest ?? String(run.approval_plan_hash ?? GRANDFATHERED_PLAN_HASH),
+        metadata: { requestId: withdrawn.id, reason: 'off-cycle run cancelled' },
+      });
     }
     await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
     const rows = (await tx`

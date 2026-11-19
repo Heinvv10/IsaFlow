@@ -13,6 +13,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
+import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
+import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { laterOffCycleRefusal } from '@/modules/accounting/services/payroll/payrollOffCycleGates';
 import { calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -137,6 +139,22 @@ describe('OC: a termination run after the month\'s regular run', () => {
     expect(codes).toEqual(['synthetic:termination:notice-pay']);
     expect(l.periodic).toBe(0);
     expect(l.gross).toBeGreaterThan(0);
+    expect((await a.api.approve(id)).statusCode).toBe(200);
+  });
+
+  it('IRP5 and EMP201 (EFb cross-check): every final run of the month is certified and declared, the off-cycle ones included', async () => {
+    const sum = async (q: string) => Number((await a.pool.query(q, [a.company])).rows[0].v);
+    const finalLines = `FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
+      WHERE h.company_id = $1 AND h.period_year = 2026 AND h.period_month = 11 AND h.status IN ('approved', 'paid')`;
+    const emp201 = await generateEMP201(a.company, '2026-11-01', '2026-11-30');
+    expect(emp201.totalPAYE).toBeCloseTo(await sum(`SELECT COALESCE(SUM(l.paye), 0)::float8 AS v ${finalLines}`), 2);
+    expect(emp201.totalPAYE).toBeGreaterThan(await sum(`SELECT COALESCE(SUM(l.paye), 0)::float8 AS v ${finalLines} AND h.run_kind = 'regular'`));
+    const irp5 = await getIrp5EmployeeTotals(a.company, 2027);
+    const of = (id: string) => irp5.rows.find((e) => e.employeeId === id)!;
+    const regHigh = await line(regular, people.high);
+    // The bonus run is on the certificate beside the regular run: its gross and PAYE are in the year's totals.
+    expect(of(people.high!)).toMatchObject({ runsIncluded: 2, grossSalary: regHigh.gross + 20_000, paye: regHigh.paye + 6_200 });
+    expect(of(people.leaver!).runsIncluded).toBe(2);
   });
 });
 

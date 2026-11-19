@@ -182,6 +182,10 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   if (t.annualAll > 0) {
     steps.push({ key: 'paye.annualPart', label: 'Of which on the annual payment', amount: input.split.annualPayment, formula: 'the lesser of PAYE this period and the tax the annual payment added' });
     steps.push({ key: 'paye.regularPart', label: 'Of which on regular pay', amount: input.split.regular });
+    if (!t.hasPeriodic) {
+      steps.push({ key: 'paye.noRegularPay', label: 'No regular pay on this line', amount: 0,
+        note: 'This line pays no regular remuneration, so it takes no PAYE on regular pay: any catch-up on regular pay is taken on the next line that pays it.' });
+    }
   }
   return steps;
 }

@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import cancel from '../../pages/api/payroll/runs/[id]/cancel';
+import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 import { readPayroll } from '@/modules/accounting/services/cashForecast13/readPayroll';
@@ -106,6 +107,27 @@ describe('Cancel run', () => {
     expect(refused.statusCode).toBe(409);
     expect(a.msg(refused)).toMatch(/is approved: only a draft or calculated off-cycle run can be cancelled/);
     expect((await a.header(id)).status).toBe('approved');
+  });
+
+  it('withdraws the run\'s pending approval request in the same transaction, with the pay run\'s audit row', async () => {
+    await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-20', termination_reason = 'resignation',
+      termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [p.mid]);
+    const made = await create({ reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: p.mid }] });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await a.api.calculate(id)).statusCode).toBe(200);
+    const raised = await a.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+      body: { action: 'request', documentType: 'pay_run', documentId: id },
+    });
+    expect(raised.statusCode, JSON.stringify(raised.body)).toBe(200);
+    const requestId = String((raised.body.data as { id: string }).id);
+    const done = await cancelRun(a, id);
+    expect(done.statusCode, JSON.stringify(done.body)).toBe(200);
+    const req = (await a.pool.query('SELECT status, decided_by::text AS by, decision_notes FROM approval_requests WHERE id = $1', [requestId])).rows[0];
+    expect(req).toMatchObject({ status: 'rejected', by: a.admin, decision_notes: 'Withdrawn: the off-cycle run was cancelled.' });
+    expect(await n(`SELECT count(*)::int AS n FROM approval_requests WHERE company_id = $1 AND status = 'pending'`, [a.company])).toBe(0);
+    expect(await n(`SELECT count(*)::int AS n FROM audit_log WHERE company_id = $1 AND entity_type = 'payroll_run' AND entity_id = $2
+      AND action = 'reject' AND changes->'metadata'->>'requestId' = $3`, [a.company, id, requestId])).toBe(1);
   });
 
   it('a regular run is never cancelled here: 409, nothing changed', async () => {

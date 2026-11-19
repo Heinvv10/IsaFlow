@@ -25,14 +25,6 @@
     "closedBy": "GA (wave 6): garnishee orders."
   },
   {
-    "case": "offcycle-termination-leave-after-regular",
-    "engineActual": {
-      "paye": 2192.06
-    },
-    "reason": "Re-judged by OC (wave 6): the UIF part closed (the termination run levies UIF only on the room June's regular line left under the month's ceiling: none, UIC Act s6(2)). PAYE stays 6c above the x12 figure: AN's days-based AE (20 000 x 365/30.4166 = 240 000.79) puts 0.79 more of the R10 000 in the 26% band above R245 100 than x12 does (0.79 x 8% = 6c). That is ruling 5 (AN 365/30.4166 over G21 p. 8 x12), over the 5c tolerance cap, so it stays pinned here and never closes.",
-    "closedBy": "AN ruling 5 (wave 6): a ruled departure from G21 p. 8 x12; never closes. Re-judged by OC, not deleted."
-  },
-  {
     "case": "psp-company-27pct",
     "engineActual": {
       "paye": 11075.6,

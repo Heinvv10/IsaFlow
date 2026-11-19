@@ -139,7 +139,8 @@ function recomputePaye(fig: FigureExplanation): number {
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));
     annual = round2(Math.min(due, Math.max(0, taxAll - taxEarlier)));
-    regular = round2(due - annual);
+    // A line with no regular pay takes none of the regular catch-up (payeCumulative, review #1620 L2).
+    regular = r.has('paye.noRegularPay') ? 0 : round2(due - annual);
   }
   return round2(regular + annual + directive);
 }
