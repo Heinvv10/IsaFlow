@@ -6,6 +6,8 @@ import { EmployeeWorkCard } from '@/components/payroll/EmployeeWorkCard';
 import type { Employee } from '@/components/payroll/EmployeeProfileCard';
 
 vi.mock('@/components/payroll/EmployeeEmailField', () => ({ EmployeeEmailField: () => null }));
+// Master's employee portal card (merged after PSP) loads on mount: its GET is not this field's save.
+vi.mock('@/components/payroll/EmployeePortalCard', () => ({ EmployeePortalCard: () => null }));
 
 const base: Employee = {
   id: 'e1', employeeNumber: 'E-1', firstName: 'Thandi', lastName: 'Nkosi', employmentType: 'contract', startDate: '2026-01-01',
