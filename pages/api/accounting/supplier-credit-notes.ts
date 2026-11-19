@@ -43,7 +43,7 @@ import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplie
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
 import { respondIfApprovePermissionRefused } from '@/lib/approvePermissionResponse';
-import { ApprovePermissionError, assertMayApprove } from '@/modules/accounting/services/core/approvePermission';
+import { approveRefusedMessage, assertMayApprove, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -96,6 +96,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // R-032 L5: create-and-post is a posting; refuse it before the draft is written.
       if (submitAction === 'post') await assertNotImpersonating();
+      // #1656 (review of #1670, M1): and so is the Approve it takes: refused before the draft is written, so a refused
+      // create-and-post leaves nothing behind for a retry to duplicate.
+      if (submitAction === 'post' && !(await mayApprove(companyId, userId, 'suppliers'))) {
+        return apiResponse.forbidden(res, approveRefusedMessage('suppliers', 'supplier credit notes'));
+      }
       if (!supplierId) return apiResponse.badRequest(res, 'supplierId is required');
       if (!creditDate) return apiResponse.badRequest(res, 'creditDate is required');
       if (!lineItems || lineItems.length === 0) return apiResponse.badRequest(res, 'At least one line item is required');
@@ -159,15 +164,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         let posted: CreditNote;
         try {
           // Not wrapped: the note was created above, so a window refusal stays the 500 that rolls both back.
-          await assertMayApprove(companyId, userId, 'suppliers', 'supplier credit notes'); // #1656
           posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
         } catch (err) {
           // R-035: the draft above STAYS — a 409 is committed by withAuth, and
           // the gate refuses before approveCreditNote writes anything — so the
           // answer names it for the client to submit for approval. Left to the
           // catch below it was a 500, which rolled the draft back with it.
-          // #1656: no Suppliers & AP Approve: the draft stays, 403 (refused before approve writes anything).
-          if (err instanceof ApprovePermissionError) return apiResponse.forbidden(res, err.message);
           if (!(err instanceof ApprovalRequiredError)) throw err;
           return apiResponse.conflict(res, err.message, {
             reason: err.reason, requiredRole: err.requiredRole, requestId: err.requestId, creditNoteId: note.id,
