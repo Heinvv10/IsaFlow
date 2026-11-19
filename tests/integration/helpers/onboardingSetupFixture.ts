@@ -51,12 +51,12 @@ export async function callSetup(u: SetupUser, body: unknown): Promise<SetupCall>
 }
 
 /** Any withAuth route, as `u` in their home company (CSRF cookie + header set). */
-export async function callRoute(route: unknown, u: SetupUser, body: unknown, url: string, method = 'POST'): Promise<SetupCall> {
+export async function callRoute(route: unknown, u: SetupUser, body: unknown, url: string, method = 'POST', query: Record<string, string> = {}): Promise<SetupCall> {
   const req = request({ 'sb-access-token': u.token, active_company_id: u.homeCompanyId }, method) as unknown as
     { body: unknown; url: string; query: unknown };
   req.body = body;
   req.url = url;
-  req.query = {};
+  req.query = query;
   const out = response();
   await (route as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
   return {

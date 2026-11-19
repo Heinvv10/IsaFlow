@@ -60,6 +60,10 @@ export const CONFIGURATION_REFERENCE_EXCLUSIONS: readonly { table: string; colum
   { table: 'expense_claim_lines', column: 'gl_account_id' },
   { table: 'po_items', column: 'gl_account_id' },
   { table: 'capture_events', column: 'resolved_gl_account_id' },
+  // The item master's default accounts: repointed like the document lines (accountMergeDocumentRows, 'item_sales_accounts' /
+  // 'item_purchases_accounts'), since refusing would block the merge of every account an imported catalogue names.
+  { table: 'items', column: 'sales_account_id' },
+  { table: 'items', column: 'purchases_account_id' },
 ];
 
 /**

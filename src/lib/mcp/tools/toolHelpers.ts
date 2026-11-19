@@ -28,6 +28,11 @@ export function strArg(args: Record<string, unknown>, key: string): string | und
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
+/** A boolean argument, or undefined when absent or not a boolean (a caller that must refuse a non-boolean tests `key in args` too). */
+export function boolArg(args: Record<string, unknown>, key: string): boolean | undefined {
+  return typeof args[key] === 'boolean' ? (args[key] as boolean) : undefined;
+}
+
 export function clampLimit(args: Record<string, unknown>, fallback: number, max: number): number {
   const v = Number(args.limit);
   if (!Number.isFinite(v) || v <= 0) return fallback;

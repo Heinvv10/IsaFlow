@@ -68,3 +68,16 @@ describe('wipe plan', () => {
     for (const t of ['budget_versions', 'approval_requests', 'email_log', 'gl_accounts']) expect(isAppendOnlyKept(t), t).toBe(false);
   });
 });
+
+describe('stock rows with no company (migration 1005)', () => {
+  it('stock_levels and stock_movements go by the company OR by a Demo product / warehouse, so a legacy NULL-company row tied to a Demo warehouse cannot block the warehouses delete', () => {
+    for (const t of ['stock_levels', 'stock_movements']) {
+      const step = WIPE_STEPS.find((s) => s.table === t)!;
+      expect(deleteSql(step)).toBe(`DELETE FROM ${t} WHERE company_id = $1::uuid OR product_id IN (SELECT id FROM products WHERE company_id = $1::uuid) OR warehouse_id IN (SELECT id FROM warehouses WHERE company_id = $1::uuid)`);
+      expect(order(t)).toBeLessThan(order('warehouses'));
+      expect(order(t)).toBeLessThan(order('products'));
+      expect(crossTenantSql(step)).not.toBeNull();
+    }
+    expect(order('po_items')).toBeLessThan(order('items'));
+  });
+});
