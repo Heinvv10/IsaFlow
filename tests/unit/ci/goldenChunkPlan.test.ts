@@ -134,6 +134,11 @@ describe('golden chunk plan mechanics', () => {
     expect(parts.flat().map((i) => i.name)).toEqual(['s0.spec.ts', 's1.spec.ts', 's2.spec.ts', 's3.spec.ts', 's4.spec.ts', 's5.spec.ts', 's6.spec.ts']);
   });
 
+  it('minimises the longest chunk first: [30 20 50 10] in 3 is 50 / 50 / 10, not the more even-squared 30 / 20 / 60', () => {
+    const parts = splitItems([30, 20, 50, 10].map((seconds, i): Item => ({ kind: 'file', name: `s${i}.spec.ts`, seconds })), 3);
+    expect(parts.map(chunkSeconds)).toEqual([50, 50, 10]);
+  });
+
   it('is optimal: on random small inputs the longest chunk equals a brute-force min-max over every contiguous split', () => {
     let seed = 7;
     const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
