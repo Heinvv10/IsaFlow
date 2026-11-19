@@ -9,7 +9,7 @@
  *  - a line's employee must be an employee of its run's company (breaker #1673 L2: the FK ignores RLS);
  *  - a session with no claims sees nothing; the service role (app_service) keeps its mirror and sees both;
  *  - deleting a header as app_user still cascades to its lines;
- *  - a run_id lookup stays an index probe under RLS (not a scan of the table).
+ *  - a year-wide aggregate stays costed like the unprotected query (no JIT-triggering policy shape).
  * Seeding runs as the fixture's superuser.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -197,15 +197,57 @@ describe('RLS-L: tenant A cannot reach tenant B\'s lines', () => {
   });
 });
 
-describe('RLS-L: the policy does not turn a run lookup into a scan', () => {
-  it('a run_id read as app_user is an index scan on the run index', async () => {
-    const plan = await asA(async (c) => {
-      // The fixture's statistics are tiny; make the planner cost the table as a large one would be.
-      await c.query('SET LOCAL enable_seqscan = off');
-      const r = await c.query('EXPLAIN (FORMAT JSON) SELECT net_pay FROM payroll_run_lines WHERE run_id = $1', [HA]);
-      return JSON.stringify(r.rows[0]['QUERY PLAN']);
-    });
-    expect(plan).toMatch(/"Index Name":"(idx_payroll_run_lines_run|payroll_run_lines_run_id_employee_id_key)"/);
-    expect(plan).toMatch(/"Index Cond":"\(run_id = /);
+describe('RLS-L: the read policy keeps a year-wide aggregate costed like the unprotected query (#1673 L3)', () => {
+  // A company of 60 runs x 40 employees (2,400 lines), ANALYZEd so the planner costs it as it is. The round-1 shape (a
+  // correlated EXISTS per line) estimated ~335x the unprotected query on 48k lines, passed jit_above_cost and JIT made
+  // the IRP5/EMP501 aggregate ~20x slower. Here the round-1 shape costs ~620x; the shipped `run_id IN (SELECT ...)`
+  // ~1.5x at this size (its fixed set-building cost) and ~1.05x at 48k lines. The bound is 3x.
+  const P = crypto.randomUUID();
+  const UP = crypto.randomUUID();
+  beforeAll(async () => {
+    await su.query("INSERT INTO companies (id, name) VALUES ($1, 'RLS-L plan')", [P]);
+    await su.query('INSERT INTO users (id, email) VALUES ($1, $2)', [UP, `${UP}@example.invalid`]);
+    await su.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')", [P, UP]);
+    await su.query(`INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
+      SELECT $1, 'PL-' || g, 'P', 'L', '2025-01-01' FROM generate_series(1, 40) g`, [P]);
+    await su.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, run_date)
+      SELECT $1, 1 + (g % 12), $2 + g / 12, 'calculated', make_date($2 + g / 12, 1 + (g % 12), 1) FROM generate_series(0, 59) g`,
+    [P, YEAR]);
+    await su.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, paye, net_pay)
+      SELECT h.id, e.id, 100, 10, 90 FROM payroll_run_headers h JOIN payroll_employees e ON e.company_id = h.company_id
+       WHERE h.company_id = $1`, [P]);
+    await su.query('ANALYZE payroll_run_lines');
+    await su.query('ANALYZE payroll_run_headers');
+  }, 60_000);
+  afterAll(async () => {
+    await su.query('DELETE FROM payroll_run_headers WHERE company_id = $1', [P]);
+    await su.query('DELETE FROM payroll_employees WHERE company_id = $1', [P]);
+    await su.query('DELETE FROM company_users WHERE company_id = $1', [P]);
+    await su.query('DELETE FROM companies WHERE id = $1', [P]);
+    await su.query('DELETE FROM users WHERE id = $1', [UP]);
+  });
+
+  const AGG = `EXPLAIN (FORMAT JSON) SELECT count(*), sum(l.paye) FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id WHERE h.company_id = $1`;
+  const cost = (r: { rows: Array<Record<string, unknown>> }) =>
+    Number((r.rows[0]!['QUERY PLAN'] as Array<{ Plan: { 'Total Cost': number } }>)[0]!.Plan['Total Cost']);
+
+  it('estimated cost as app_user is under 3x the same query without row security on the lines, and under JIT', async () => {
+    const withPolicy = await as({ user: UP, company: P }, async (c) => cost(await c.query(AGG, [P])));
+    const jitAbove = await as({ user: UP, company: P }, async (c) =>
+      Number((await c.query("SELECT current_setting('jit_above_cost') AS v")).rows[0].v));
+    const c = await su.connect();
+    let without = 0;
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE payroll_run_lines DISABLE ROW LEVEL SECURITY');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: UP, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [P]);
+      without = cost(await c.query(AGG, [P]));
+    } finally { await c.query('ROLLBACK'); c.release(); }
+    expect(without).toBeGreaterThan(0);
+    expect(withPolicy / without, `with ${withPolicy} vs without ${without}`).toBeLessThan(3);
+    expect(withPolicy).toBeLessThan(jitAbove);
   });
 });
