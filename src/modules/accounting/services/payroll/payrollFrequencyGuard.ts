@@ -25,7 +25,8 @@ import { getTaxYear } from './taxTables';
 import type { PayFrequency, PayrollPeriod } from './payrollTypes';
 import { dateColumnOf, payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { payrollRunReadDate } from './payrollRunReadDate';
-import { frequencyStraddles, straddleReasons } from './payrollFrequencyStraddle';
+import { employeeName, frequencyStraddles, straddleReasons } from './payrollFrequencyStraddle';
+import { formatDayRange } from './payrollPayWeek';
 
 export class PayFrequencyRefusedError extends Error {
   constructor(
@@ -141,18 +142,19 @@ function runDatesOf(period: PayrollPeriod): { start: string; end: string } {
 async function refuseOtherFrequencyOverlap(companyId: string, run: FrequencyRun, employeeIds: string[]): Promise<void> {
   if (employeeIds.length === 0) return;
   const { start, end } = runDatesOf(run.period);
-  // An employee's acknowledged frequency change (payrollFrequencyStraddle): its last final run at the old frequency
-  // overlaps this run by the days acknowledged; those are not refused again here.
+  // An employee's frequency change (payrollFrequencyStraddle): judged first, on the employee's first run at this frequency.
+  const settled = new Map<string, { from: string; to: string }>();
   if (run.runKind === undefined || run.runKind === 'regular') {
     const straddles = await frequencyStraddles(companyId, { id: run.runId ?? null, frequency: run.frequency, start, end }, employeeIds);
-    const reasons = straddleReasons(straddles, run.frequency);
+    const reasons = straddleReasons(straddles);
     if (reasons.length > 0) throw new PayFrequencyRefusedError(409, reasons, 'FREQUENCY_CHANGE_STRADDLE', true);
-    const settled = new Set(straddles.filter((x) => x.acknowledged).map((x) => x.employeeId));
-    employeeIds = employeeIds.filter((id) => !settled.has(id));
-    if (employeeIds.length === 0) return;
+    // Exactly the days acknowledged (breaker #1622 M-C): an old-frequency run overlapping this one inside them passes.
+    for (const x of straddles) if (x.kind === 'straddle' && x.acknowledged && x.overlap) settled.set(x.employeeId, x.overlap);
   }
-  const rows = (await sql`
-    SELECT e.first_name, e.last_name, h.pay_frequency, to_char(h.period_start, 'YYYY-MM-DD') AS start, to_char(h.period_end, 'YYYY-MM-DD') AS stop
+  const rows = ((await sql`
+    SELECT l.employee_id, e.first_name, e.last_name, h.pay_frequency, to_char(h.period_start, 'YYYY-MM-DD') AS start,
+           to_char(h.period_end, 'YYYY-MM-DD') AS stop, to_char(GREATEST(h.period_start, ${start}::date), 'YYYY-MM-DD') AS o_from,
+           to_char(LEAST(h.period_end, ${end}::date), 'YYYY-MM-DD') AS o_to
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
@@ -161,11 +163,14 @@ async function refuseOtherFrequencyOverlap(companyId: string, run: FrequencyRun,
        AND daterange(h.period_start, h.period_end, '[]') && daterange(${start}::date, ${end}::date, '[]')
        AND l.employee_id = ANY(${employeeIds}::uuid[])
      ORDER BY e.employee_number, h.period_start
-  `) as DbRow[];
+  `) as DbRow[]).filter((r) => {
+    const ok = settled.get(String(r.employee_id));
+    return !(ok && String(r.o_from) >= ok.from && String(r.o_to) <= ok.to);
+  });
   if (rows.length === 0) return;
   throw new PayFrequencyRefusedError(409, rows.map((r) => ({ clause: 'pay_period_overlap' as const,
-    detail: `employee ${String(r.employee_number)} is already paid for ${String(r.start)} to ${String(r.stop)} on a ${String(r.pay_frequency)} `
-      + `run, and this ${run.frequency} run's dates ${start} to ${end} overlap them: those days would be paid twice` })), 'PAY_PERIOD_OVERLAP');
+    detail: `${employeeName(r)} is already paid for ${formatDayRange(String(r.start), String(r.stop))} on a ${String(r.pay_frequency)} run, `
+      + `and this ${run.frequency} run's dates ${formatDayRange(start, end)} overlap them: those days would be paid twice` })), 'PAY_PERIOD_OVERLAP');
 }
 
 /** At calculate, before any write. `employeeIds`: the run's population. */

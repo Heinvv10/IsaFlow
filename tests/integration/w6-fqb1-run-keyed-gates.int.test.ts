@@ -158,7 +158,8 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     let regular = '';
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      const runs = [{ ...REGULAR, gross: 30000, status: 'calculated', approvedAt: null }, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null }];
+      // Approved (FINAL) both: since FQd (review #1622 M-A) the month to date counts the month's final runs only.
+      const runs = [{ ...REGULAR, gross: 30000 }, { ...BONUS, gross: 20000 }];
       const ids = await seedBoth(c, flip ? [...runs].reverse() : runs);
       [regular, bonus] = flip ? [ids[1]!, ids[0]!] : [ids[0]!, ids[1]!];
     }, async () => ({ regular: await estimate(regular, 30000), bonus: await estimate(bonus, 20000) }));
@@ -166,11 +167,21 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     expect(got).toEqual({ regular: 600000, bonus: 600000 });
   });
 
+  it('a run not yet final is not counted in another run\'s month (review #1622 M-A)', async () => {
+    let regular = '';
+    let bonus = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      regular = await seedRun(c, A, { ...REGULAR, gross: 30000, status: 'calculated', approvedAt: null });
+      bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null });
+    }, async () => ({ regular: await estimate(regular, 30000), bonus: await estimate(bonus, 20000) }));
+    expect(got).toEqual({ regular: 360000, bonus: 240000 });
+  });
+
   // Review #1507 B4c: a bonus paid BEFORE the regular run no longer decides the month alone.
   it('a bonus dated before the regular run: the regular run is estimated on the whole month (liable)', async () => {
     let regular = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      await seedRun(c, A, { ...BONUS, runDate: '2026-05-15', gross: 20000, status: 'calculated', approvedAt: null });
+      await seedRun(c, A, { ...BONUS, runDate: '2026-05-15', gross: 20000 }); // approved (final)
       regular = await seedRun(c, A, { ...REGULAR, runDate: '2026-05-25', gross: 50000, status: 'calculated', approvedAt: null });
     }, () => estimate(regular, 50000));
     expect(got).toBe(840000);
@@ -181,7 +192,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
       bonus = await seedRun(c, A, { ...BONUS, runDate: '2026-05-05', gross: 0, paye: 0, status: 'calculated', approvedAt: null });
-      await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null });
+      await seedRun(c, A, { ...REGULAR, gross: 50000 }); // approved (final)
     }, () => estimate(bonus, 0));
     expect(got).toBe(600000);
   });
@@ -189,13 +200,13 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
   // Since wave 6 FQd (review #1622, coordinator ruling: the SDL month-to-date catch-up) the month's decision is no longer
   // one decision every run must share: a run is liable once any run of the month is, it catches up the earlier final
   // runs, and approval re-judges THIS run only (sdl_recalculate), never sending another run back.
-  // Review #1507 B4b: the bonus was costed exempt while the regular run was a draft; the regular run is now costed
+  // Review #1507 B4b: the bonus was costed exempt while the regular run was a draft; the regular run is now approved
   // liable, so the month is liable and the bonus, re-judged, is refused until it is recalculated.
   it('a run costed exempt before its month turned liable is refused at approval until it is recalculated', async () => {
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: true });
-      await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null, sdlExempt: false });
+      await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: false }); // approved (final) liable
     }, async () => ({ refusal: await runLinesRefusal(A.company, bonus), direct: await sdlRecalculateRefusal(A.company, bonus) }));
     expect(got.refusal?.code).toBe('sdl_recalculate');
     expect(got.direct?.detail).toMatch(/Recalculate this run, then approve it\.$/);
@@ -231,7 +242,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
   it('a paid run is final: never named, never blocking', async () => {
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'paid', sdlExempt: true });
+      await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'paid', approvedAt: '2026-05-25', sdlExempt: true });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
     }, () => sdlRecalculateRefusal(A.company, bonus));
     expect(got).toBeNull();

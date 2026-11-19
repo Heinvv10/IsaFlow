@@ -48,7 +48,7 @@ export async function acknowledgeFrequencyStraddle(
     throw new StraddleAckRefused(`This run is ${String(row.status)}: a frequency change is acknowledged before approval.`);
   }
   const run = runOf(row, runId);
-  const found = (await frequencyStraddles(companyId, run, [employeeId])).find((s) => !s.acknowledged);
+  const found = (await frequencyStraddles(companyId, run, [employeeId])).find((s) => s.kind === 'straddle' && !s.acknowledged);
   if (!found) throw new StraddleAckRefused('This employee has no pay-frequency change to acknowledge on this run.');
   const days = found.overlap ? `paid twice ${found.overlap.from} to ${found.overlap.to}` : `unpaid ${found.gap!.from} to ${found.gap!.to}`;
   await logAuditOrThrow({

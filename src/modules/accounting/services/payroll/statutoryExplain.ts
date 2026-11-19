@@ -93,10 +93,10 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-/** `catchUp`: the month's earlier final runs' 1% this run catches up (wave 6 FQd, the month-to-date SDL catch-up). */
+/** `month`: the month's earlier approved runs this run's SDL is judged with (wave 6 FQd, the month-to-date SDL). */
 type SdlCharge = {
   annualRemuneration: number; exempt: boolean; sdl: number;
-  catchUp?: { earlierLeviable: number; earlierSdl: number; catchUp: number };
+  month?: { earlierLeviable: number; earlierSdl: number; runSdl: number; covered: boolean };
 };
 
 function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
@@ -108,14 +108,17 @@ function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): Expl
     },
     { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
   ];
-  if (charge.catchUp) {
-    const c = charge.catchUp;
+  if (charge.month) {
+    const m = charge.month;
     steps.push({
-      key: 'sdl.catchUp', label: 'This run catches up the month: 1% of its earlier approved runs\' leviable pay, less the SDL they carried, shared by leviable pay',
-      amount: c.catchUp, formula: `${pct(SDL_RATE)} × ${r(c.earlierLeviable)} − ${r(c.earlierSdl)}, this line's share included below`,
+      key: 'sdl.month', label: m.covered
+        ? "The month's SDL is already covered by earlier approved runs: nothing more is due on this run"
+        : "This run's SDL is the month's: 1% of the month's approved runs' leviable pay with this run's, less the SDL they carried, shared by leviable pay",
+      amount: m.runSdl, formula: `${pct(SDL_RATE)} × (${r(m.earlierLeviable)} + this run's leviable pay) − ${r(m.earlierSdl)}`,
     });
   }
-  steps.push({ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}${charge.catchUp ? ' plus this line\'s share of the catch-up' : ''}, rounded to the cent` });
+  steps.push({ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt'
+    : charge.month ? "this line's share of the run's SDL, by leviable pay" : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` });
   return steps;
 }
 

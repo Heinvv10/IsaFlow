@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 
 /** What the card reads of each change; `message` is the server's sentence (payrollFrequencyStraddle.straddleDetail). */
-interface Straddle { employeeId: string; employeeName: string; acknowledged: boolean; message: string }
+interface Straddle { employeeId: string; employeeName: string; acknowledged: boolean; message: string; kind?: string }
 
 export function FrequencyChangeCard({ runId, canAcknowledge }: { runId: string; canAcknowledge: boolean }) {
   const [items, setItems] = useState<Straddle[]>([]);
@@ -50,7 +50,7 @@ export function FrequencyChangeCard({ runId, canAcknowledge }: { runId: string; 
             <span className="text-sm text-[var(--ff-text-primary)]">{s.message}</span>
             {s.acknowledged
               ? <span className="text-sm text-emerald-700 dark:text-emerald-400">Acknowledged</span>
-              : canAcknowledge && (
+              : canAcknowledge && (s.kind ?? 'straddle') === 'straddle' && (
                 <Button variant="secondary" size="sm" loading={busy === s.employeeId} aria-label={`Acknowledge for ${s.employeeName}`}
                   onClick={() => void acknowledge(s.employeeId)}>Acknowledge</Button>
               )}

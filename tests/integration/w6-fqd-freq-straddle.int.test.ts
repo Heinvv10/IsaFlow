@@ -96,6 +96,16 @@ describe('A. weekly -> monthly across the week that straddles 1 March 2026', () 
     expect(await audits(a, 'payroll_run_frequency_change')).toBe(before + 1);
     const again = await ack(a, march, employee);
     expect([again.statusCode, again.body.error?.details?.reason]).toEqual([409, 'FREQUENCY_STRADDLE_ACK_REFUSED']);
+    // Exactly the acknowledged day passes (breaker #1622 M-C): a weekly run not yet final paying 9-15 Mar still refuses.
+    const stray = String((await a.pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, pay_frequency, run_kind, period_start, period_end, run_date)
+       VALUES ($1, 3, 2026, 'draft', 'weekly', 'regular', '2026-03-09', '2026-03-15', '2026-03-13') RETURNING id`, [a.company])).rows[0]!.id);
+    await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [stray, employee]);
+    const outside = await a.api.calculate(march);
+    expect([outside.statusCode, outside.body.error?.details?.code]).toEqual([409, 'PAY_PERIOD_OVERLAP']);
+    expect(a.msg(outside)).toContain('is already paid for 9–15 Mar 2026 on a weekly run');
+    await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [stray]);
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [stray]);
     await paid(a, march);
     expect(await lines(a, march)).toBe(1);
   }, 240_000);
