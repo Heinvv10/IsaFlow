@@ -76,6 +76,7 @@ const NOT_EXCHANGE_RATES: Record<string, { sites: number; why: string }> = {
   'src/modules/accounting/services/reports/vat201LedgerFields.ts': { sites: 1, why: 'VAT rate' },
   'src/modules/accounting/services/reports/vatInputOverclaim.ts': { sites: 1, why: 'VAT rate' },
   'src/modules/accounting/services/reports/vatInputSupport.ts': { sites: 2, why: 'VAT fraction of a bank amount' },
+  'src/modules/accounting/services/shared/vatLineAmounts.ts': { sites: 2, why: 'VAT rate of the line (exclusive and inclusive)' },
   'pages/api/accounting/time-entries-invoice.ts': { sites: 3, why: 'hourly billing rate (twice) and the VAT rate percentage' },
   'pages/payroll/batches/[id].tsx': { sites: 1, why: 'mileage rate per km' },
 };
