@@ -14,6 +14,7 @@ import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAuto
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { useDateGate } from '@/hooks/useDateGate';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface LineInput {
   key: string;
@@ -207,11 +208,11 @@ export default function NewJournalEntryPage() {
                           </td>
                           <td className="md:table-cell md:px-3 md:py-2">
                             <span className="md:hidden block text-xs text-ink-muted mb-1">Debit</span>
-                            <input type="number" inputMode="decimal" aria-label={`Debit, line ${idx + 1}`} value={line.debitAmount} onChange={e => updateLine(line.key, 'debitAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
+                            <AmountInput aria-label={`Debit, line ${idx + 1}`} value={line.debitAmount} onValueChange={(_n, text) => updateLine(line.key, 'debitAmount', text)} placeholder="0.00" min={0} className={`${inp} text-right`} />
                           </td>
                           <td className="md:table-cell md:px-3 md:py-2">
                             <span className="md:hidden block text-xs text-ink-muted mb-1">Credit</span>
-                            <input type="number" inputMode="decimal" aria-label={`Credit, line ${idx + 1}`} value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
+                            <AmountInput aria-label={`Credit, line ${idx + 1}`} value={line.creditAmount} onValueChange={(_n, text) => updateLine(line.key, 'creditAmount', text)} placeholder="0.00" min={0} className={`${inp} text-right`} />
                           </td>
                           <td className="col-span-2 flex justify-end md:table-cell md:px-2 md:py-2">
                             <button type="button" aria-label={`Remove line ${idx + 1}`} onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors min-h-[44px] min-w-[44px] inline-flex items-center justify-center md:min-h-0 md:min-w-0 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-20">

@@ -165,7 +165,7 @@ describe('supplier-credit-notes/new', () => {
     const { container } = render(<NewSupplierCreditNote />);
     await pick(container, 'Supplier One Holdings');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Return' } });
-    fireEvent.change(screen.getAllByRole('spinbutton')[1]!, { target: { value: '10' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[1]!, { target: { value: '10' } });
     submit(container);
     await waitFor(() => expect(writesTo('/supplier-credit-notes')[0]?.body.supplierId).toBe(S26));
   });

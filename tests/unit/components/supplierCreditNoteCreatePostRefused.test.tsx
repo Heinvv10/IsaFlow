@@ -35,16 +35,18 @@ const refused = () => new Response(JSON.stringify({ success: false, error: {
   details: { reason: 'APPROVAL_REQUIRED', requiredRole: 'owner', requestId: null, creditNoteId: 'cn-9' },
 } }), { status: 409 });
 
-/** Click Post (it picks the action), then submit the form — jsdom does not submit on a button click. */
+/** Click Post (it picks the action) without jsdom's own submit (the form is valid now and it would run before the action state lands), then submit the form once. */
 function post() {
-  fireEvent.click(screen.getByRole('button', { name: /post credit note/i }));
+  const button = screen.getByRole('button', { name: /post credit note/i });
+  button.addEventListener('click', e => e.preventDefault(), { once: true });
+  fireEvent.click(button);
   fireEvent.submit(document.querySelector('form')!);
 }
 
 function fillAndPost() {
   fireEvent.click(screen.getByText('pick-supplier'));
   fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Returned goods' } });
-  fireEvent.change(screen.getAllByRole('spinbutton')[1]!, { target: { value: '100' } });
+  fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[1]!, { target: { value: '100' } });
   post();
 }
 

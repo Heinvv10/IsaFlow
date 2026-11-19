@@ -51,7 +51,7 @@ export default function SupplierReturnsPage() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.supplierId) { notify.error('Please select a supplier'); return; }
-    if (!form.amount || Number(form.amount) <= 0) { notify.error('Please enter a valid amount'); return; }
+    if (!(Number(form.amount) > 0)) { notify.error('Please enter a valid amount'); return; }
     setSubmitting(true);
     try {
       const res = await apiFetch('/api/accounting/supplier-returns', {

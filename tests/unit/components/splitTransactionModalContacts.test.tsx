@@ -78,7 +78,7 @@ it('an account line still posts its account, VAT and project; a customer line of
   fireEvent.click(screen.getByRole('button', { name: /add line/i }));
   fireEvent.change(screen.getByLabelText('Line 2 type'), { target: { value: 'customer' } });
   expect(screen.queryByRole('button', { name: 'Southern Elements' })).toBeNull();
-  fireEvent.change(screen.getByLabelText('Line 2 amount'), { target: { value: '959.475' } }); // rounds to cents
+  fireEvent.change(screen.getByLabelText('Line 2 amount'), { target: { value: '959.48' } }); // a third decimal is refused at the field now (AmountInput); cents() still rounds
   pick('Select customer', 'Acme');
 
   fireEvent.click(screen.getByRole('button', { name: 'Split & Allocate' }));

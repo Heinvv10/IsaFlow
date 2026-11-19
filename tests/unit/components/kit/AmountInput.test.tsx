@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { AmountInput } from '@/components/ui/AmountInput';
+import { AmountInput, type AmountInputProps } from '@/components/ui/AmountInput';
+import { normaliseAmountText } from '@/components/ui/amountInputText';
 
 afterEach(cleanup);
 
@@ -13,69 +14,146 @@ function type(input: HTMLInputElement, keys: string) {
     input.setSelectionRange(input.value.length, input.value.length);
   }
 }
+const field = () => screen.getByLabelText('amt') as HTMLInputElement;
 
-function TextHarness({ initial }: { initial: string }) {
+function TextHarness({ initial, ...rest }: { initial: string } & Partial<AmountInputProps>) {
   const [text, setText] = useState(initial);
-  return (<><AmountInput aria-label="amt" value={text} onValueChange={(_n, t) => setText(t)} /><output data-testid="stored">{text}</output></>);
+  return (<form><AmountInput aria-label="amt" value={text} onValueChange={(_n, t) => setText(t)} {...rest} /><output data-testid="stored">{text}</output></form>);
 }
 function NumberHarness() {
   const [n, setN] = useState(0);
   return (<><AmountInput aria-label="amt" value={n} onValueChange={v => setN(v)} /><output data-testid="stored">{String(n)}</output></>);
 }
 
-describe('AmountInput (#1654)', () => {
+describe('AmountInput (#1654): typing and focus', () => {
   it('a field that starts at 0 selects it on focus, so typing 2325.32 stores 2325.32', () => {
     render(<TextHarness initial="0" />);
-    const input = screen.getByLabelText('amt') as HTMLInputElement;
-    fireEvent.focus(input);
-    expect(input.selectionStart).toBe(0);
-    expect(input.selectionEnd).toBe(1);
-    type(input, '2325.32');
-    expect(input.value).toBe('2325.32');
+    fireEvent.focus(field());
+    expect([field().selectionStart, field().selectionEnd]).toEqual([0, 1]);
+    type(field(), '2325.32');
+    expect(field().value).toBe('2325.32');
     expect(screen.getByTestId('stored').textContent).toBe('2325.32');
   });
 
-  it('selects 0.00 on focus too', () => {
+  it('selects 0.00 on focus too, and not a non-zero amount', () => {
     render(<TextHarness initial="0.00" />);
-    const input = screen.getByLabelText('amt') as HTMLInputElement;
-    fireEvent.focus(input);
-    expect(input.selectionEnd - input.selectionStart).toBe(4);
-  });
-
-  it('does not select a non-zero amount on focus', () => {
+    fireEvent.focus(field());
+    expect(field().selectionEnd! - field().selectionStart!).toBe(4);
+    cleanup();
     render(<TextHarness initial="150.00" />);
-    const input = screen.getByLabelText('amt') as HTMLInputElement;
-    fireEvent.focus(input);
-    expect(input.selectionStart).toBe(input.selectionEnd);
+    fireEvent.focus(field());
+    expect(field().selectionStart).toBe(field().selectionEnd);
   });
 
-  it('a numeric parent keeps the partial text: "0." and "2325." are not parsed back to 0 / 2325', () => {
+  it('the mouseup of the click that focused a zero is cancelled, so the selection survives a real click', () => {
+    render(<TextHarness initial="0" />);
+    fireEvent.mouseDown(field());
+    fireEvent.focus(field());
+    expect(fireEvent.mouseUp(field())).toBe(false); // preventDefault: the browser keeps the selection
+    expect(fireEvent.mouseUp(field())).toBe(true); // only the first one
+  });
+
+  it('a numeric parent keeps the partial text: "0." and "2325." are not parsed back', () => {
     render(<NumberHarness />);
-    const input = screen.getByLabelText('amt') as HTMLInputElement;
-    type(input, '0.');
-    expect(input.value).toBe('0.');
-    fireEvent.change(input, { target: { value: '' } });
-    type(input, '2325.');
-    expect(input.value).toBe('2325.');
-    type(input, '32');
-    expect(input.value).toBe('2325.32');
+    type(field(), '0.');
+    expect(field().value).toBe('0.');
+    fireEvent.change(field(), { target: { value: '' } });
+    type(field(), '2325.');
+    expect(field().value).toBe('2325.');
+    type(field(), '32');
     expect(screen.getByTestId('stored').textContent).toBe('2325.32');
   });
 
-  it('refuses letters and a second decimal point', () => {
-    render(<TextHarness initial="" />);
-    const input = screen.getByLabelText('amt') as HTMLInputElement;
-    type(input, '1a2.3.4');
-    expect(input.value).toBe('12.34');
-  });
-
-  it('follows the parent when it sets a different value', () => {
+  it('resync keeps "2325." while the parent number equals it, and follows a different parent value', () => {
     function Fill() {
       const [t, setT] = useState('10');
-      return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button onClick={() => setT('99.50')}>fill</button></>);
+      return (<><AmountInput aria-label="amt" value={t} onValueChange={(_n, x) => setT(x)} /><button type="button" onClick={() => setT('99.50')}>fill</button><AmountInput aria-label="num" value={2325} onValueChange={() => undefined} /></>);
     }
     render(<Fill />);
     fireEvent.click(screen.getByText('fill'));
-    expect((screen.getByLabelText('amt') as HTMLInputElement).value).toBe('99.50');
+    expect(field().value).toBe('99.50');
+    type(field(), '0');
+    fireEvent.change(field(), { target: { value: '2325.' } });
+    expect(field().value).toBe('2325.');
+  });
+
+  it('clearing to empty gives text "" and number 0', () => {
+    let seen: [number, string] = [-1, 'x'];
+    render(<AmountInput aria-label="amt" value="5" onValueChange={(n, t) => { seen = [n, t]; }} />);
+    fireEvent.change(field(), { target: { value: '' } });
+    expect(seen).toEqual([0, '']);
+  });
+});
+
+describe('AmountInput (#1654): decimals and refusals', () => {
+  it('rejects a third decimal while typing (default 2) and accepts it with decimals={3}', () => {
+    render(<TextHarness initial="" />);
+    type(field(), '12.345');
+    expect(field().value).toBe('12.34');
+    expect(field().getAttribute('aria-invalid')).toBe('true');
+    cleanup();
+    render(<TextHarness initial="" decimals={3} />);
+    type(field(), '12.345');
+    expect(field().value).toBe('12.345');
+  });
+
+  it('refuses letters and a second decimal point, then recovers on the next good key', () => {
+    render(<TextHarness initial="" />);
+    type(field(), '1a');
+    expect(field().value).toBe('1');
+    expect(field().validationMessage).not.toBe('');
+    type(field(), '2.3.4');
+    expect(field().value).toBe('12.34');
+    expect(field().validationMessage).toBe('');
+  });
+
+  it('a lone "." is invalid (validity + aria-invalid) and the form refuses to submit it', () => {
+    render(<TextHarness initial="" />);
+    type(field(), '.');
+    expect(field().value).toBe('.');
+    expect(field().validity.valid).toBe(false);
+    expect(field().getAttribute('aria-invalid')).toBe('true');
+    expect(field().form!.checkValidity()).toBe(false);
+    type(field(), '5');
+    expect(field().validity.valid).toBe(true);
+    expect(field().getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('required: empty is invalid, filled is valid; optional empty is valid', () => {
+    render(<TextHarness initial="" required />);
+    expect(field().validity.valid).toBe(false);
+    type(field(), '3');
+    expect(field().validity.valid).toBe(true);
+    cleanup();
+    render(<TextHarness initial="" />);
+    expect(field().validity.valid).toBe(true);
+  });
+
+  it('min and max drive the validity message', () => {
+    render(<TextHarness initial="" min={0.01} max={100} />);
+    type(field(), '0');
+    expect(field().validationMessage).toContain('at least 0.01');
+    fireEvent.change(field(), { target: { value: '100.01' } });
+    expect(field().validationMessage).toContain('more than 100');
+    fireEvent.change(field(), { target: { value: '100' } });
+    expect(field().validity.valid).toBe(true);
+  });
+});
+
+describe('AmountInput (#1654): paste', () => {
+  it.each([
+    ['R 1 234,56', '1234.56'], ['R100', '100'], ['1,234.50', '1234.50'], ['1,234', '1234'], ['12,5', '12.5'], ['1.234,56', '1234.56'],
+  ])('normalises a pasted "%s" to %s', (pasted, expected) => {
+    expect(normaliseAmountText(pasted)).toBe(expected);
+    render(<TextHarness initial="" />);
+    fireEvent.change(field(), { target: { value: pasted } });
+    expect(field().value).toBe(expected);
+  });
+
+  it('rejects a pasted non-amount and keeps the old text, flagged invalid', () => {
+    render(<TextHarness initial="5" />);
+    fireEvent.change(field(), { target: { value: '5 apples' } });
+    expect(field().value).toBe('5');
+    expect(field().getAttribute('aria-invalid')).toBe('true');
   });
 });

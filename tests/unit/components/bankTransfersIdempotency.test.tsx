@@ -29,7 +29,7 @@ async function fillForm(amount: string) {
   const [fromSelect, toSelect] = screen.getAllByRole('combobox');
   fireEvent.change(fromSelect!, { target: { value: FROM } });
   fireEvent.change(toSelect!, { target: { value: TO } });
-  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: amount } });
+  fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: amount } });
 }
 
 describe('BankTransfersPage idempotency', () => {
@@ -68,7 +68,7 @@ describe('BankTransfersPage idempotency', () => {
     await screen.findByText(/Transfer completed/);
     expect(keyOf(posts()[1]!)).toBe(keyOf(posts()[0]!));
 
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '100' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     await waitFor(() => expect(posts()).toHaveLength(3));
     expect(keyOf(posts()[2]!)).not.toBe(keyOf(posts()[1]!));
@@ -83,7 +83,7 @@ describe('BankTransfersPage idempotency', () => {
     await fillForm('100');
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     await screen.findByText(/timed out|Could not record/);
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '120' } });
+    fireEvent.change(document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')[0]!, { target: { value: '120' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     await waitFor(() => expect(posts()).toHaveLength(2));
     expect(keyOf(posts()[1]!)).not.toBe(keyOf(posts()[0]!));
