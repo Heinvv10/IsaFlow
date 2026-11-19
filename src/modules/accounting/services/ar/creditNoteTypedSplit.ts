@@ -18,9 +18,9 @@
  *
  * Review rounds 3-4: when the note's VAT is all the VAT the rated legs still carry (within a cent) and its subtotal
  * covers their remaining net, its rated part is that net, so a full credit is not refused by the cent a line its VAT
- * was rounded by (reversesAllRated). Otherwise a note whose VAT is more than a cent above the standard rate on its
- * subtotal is refused (assertVatWithinRate): a 100 + VAT 30 note would debit standard 100 and reverse 30 of VAT. A
- * zero-VAT note reads no rate; a note with VAT dated where none can be read is refused, not a 500.
+ * was rounded by (reversesAllRated). A note whose VAT is more than a cent above its share of the VAT the invoice
+ * charged on the rated net it reverses is refused (assertVatWithinShare): a 100 + VAT 30 note would debit standard 100
+ * and reverse 30 of VAT. A zero-VAT note reads no rate; a note with VAT dated where none can be read is refused.
  *
  * A note against a legacy invoice (any uncoded leg) is not this file's: allocateCreditNote, exactly as before.
  */
@@ -42,11 +42,8 @@ export interface TypedNote {
   taxAmount: number;
   /** credit_date: a pg Date or 'YYYY-MM-DD'. */
   date: string | Date;
-  /**
-   * The VAT the invoice's rated legs still carry: its VAT Output legs less the VAT of its live earlier notes. Absent:
-   * not known, and the rated part is the rate-implied figure alone.
-   */
-  remainingRatedVat?: number;
+  /** The VAT the invoice's rated legs still carry: its VAT Output legs less the VAT of its live earlier notes. */
+  remainingRatedVat: number;
 }
 
 const cents = (n: number): number => Math.round(n * 100);
@@ -77,21 +74,24 @@ export function noteRatedCents(note: TypedNote): number {
  */
 function reversesAllRated(note: TypedNote, ratedLeft: number): number | null {
   const tax = cents(note.taxAmount);
-  if (note.remainingRatedVat === undefined || tax <= 0 || Math.abs(tax - cents(note.remainingRatedVat)) > 1) return null;
+  if (tax <= 0 || Math.abs(tax - cents(note.remainingRatedVat)) > 1) return null;
   return ratedLeft <= cents(note.subtotal) ? ratedLeft : null;
 }
 
 /**
- * A note's VAT may not be more than a cent above the standard rate on its subtotal (typed path only), unless it reverses
- * all that the rated legs still carry (reversesAllRated), whose VAT was the invoice's own.
+ * A note's VAT may not exceed, by more than a cent, the VAT the invoice charged on the rated net it reverses: its
+ * proportional share of the rated legs' REMAINING VAT (round(remaining x ratedPart / ratedLeft); 0 when either is 0).
+ * Not the rate on its subtotal: line by line the invoice's VAT may sit above the rate on its net (ten R10.10 lines carry
+ * 15.20 on 101.00), and that cap refused their exact reversal and stranded the cents (review round 4, item 7).
+ * Residue: each note's VAT is held to its share within a cent and its rated net follows its VAT within a cent, so VAT
+ * and rated net drift apart by at most one cent per note; a single cent of such residue is always reversible.
  */
-function assertVatWithinRate(note: TypedNote, creditNoteNumber: string): void {
-  if (cents(note.taxAmount) <= 0) return; // a zero-VAT note needs no rate (its date may have none)
-  const rate = standardVatRatePctOn(note.date);
-  const atRate = Math.round((cents(note.subtotal) * rate) / 100);
-  if (cents(note.taxAmount) <= atRate + 1) return;
-  throw new CreditNoteVatSplitRefusal(`Credit note ${creditNoteNumber}: its VAT of ${money(cents(note.taxAmount))} is more `
-    + `than ${rate}% of its subtotal of ${money(cents(note.subtotal))} (${money(atRate)}). Correct its VAT, or its subtotal.`);
+function assertVatWithinShare(note: TypedNote, ratedPart: number, ratedLeft: number, creditNoteNumber: string): void {
+  const tax = cents(note.taxAmount);
+  const allowed = ratedPart > 0 && ratedLeft > 0 ? Math.round((cents(note.remainingRatedVat) * ratedPart) / ratedLeft) : 0;
+  if (tax <= allowed + 1) return;
+  throw new CreditNoteVatSplitRefusal(`Credit note ${creditNoteNumber}: its VAT of ${money(tax)} is more than the `
+    + `${money(allowed)} of VAT the invoice charged on the ${money(ratedPart)} of standard-rated supplies it reverses. Correct its VAT.`);
 }
 
 /** The note's revenue debits and allocation rows against a typed invoice's legs. Throws CreditNoteVatSplitRefusal. */
@@ -107,11 +107,10 @@ export function allocateTypedCreditNote(
   const settled = legs.map((l, i) => ({ ...l, taken: (cents(l.net) - carries[i]!) / 100 }));
   const isRated = (l: RevenueLeg) => l.vatType != null && RATED_VAT_TYPES.includes(l.vatType);
   const ratedLegs = settled.filter(isRated);
+  const ratedLeft = legs.reduce((s, l, i) => s + (isRated(l) ? carries[i]! : 0), 0);
   let rated: number;
   try {
-    const all = reversesAllRated(note, legs.reduce((s, l, i) => s + (isRated(l) ? carries[i]! : 0), 0));
-    if (all === null) assertVatWithinRate(note, creditNoteNumber);
-    rated = all ?? noteRatedCents(note);
+    rated = reversesAllRated(note, ratedLeft) ?? noteRatedCents(note);
   } catch (err) {
     // A note WITH VAT dated where no rate can be read: refused before any write, not a 500.
     if (err instanceof VatRateDateError) {
@@ -119,6 +118,8 @@ export function allocateTypedCreditNote(
     }
     throw err;
   }
+  // More rated net than the rated legs have left is the over-allocation refusal below, whatever its VAT.
+  if (rated <= ratedLeft) assertVatWithinShare(note, rated, ratedLeft, creditNoteNumber);
   const parts = [
     { legs: ratedLegs, part: rated, refuse: (carried: number, over: number) => `its VAT of `
       + `${money(cents(note.taxAmount))} is VAT on ${money(rated)} of standard-rated supplies, but the invoice's rated lines `

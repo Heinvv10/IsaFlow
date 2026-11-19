@@ -115,7 +115,8 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
 
   it.each([
     ['more rated net than the rated legs carry (1100 + 165 against 1000 standard)', 1100, 15, /1100\.00 of standard-rated supplies/],
-    ['VAT above the rate on its subtotal (100 + 30)', 100, 30, /its VAT of 30\.00 is more than 15% of its subtotal of 100\.00/],
+    ['VAT above its share of the VAT the invoice charged (100 + 30)', 100, 30,
+      /its VAT of 30\.00 is more than the 15\.00 of VAT the invoice charged on the 100\.00 of standard-rated supplies/],
   ] as const)('refuses, through the real service and a committed 4xx, a note with %s: nothing moves', async (_l, subtotal, rate, message) => {
     const id = await approvedInvoice('2026-11-10', [
       { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
@@ -164,6 +165,18 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
       L('4000', 0.05, 0, { vat: 'standard' }), L('4000', 50, 0, { vat: 'exempt' }),
     ]);
     expect(await fields('2026-05-01', '2026-05-31')).toEqual([0, 0, 0, 0]);
+  });
+
+  // Round 4, item 7: ten R10.10 standard lines each carry 1.52 (1.515 rounded up): 15.20 on 101.00, above 15% of it.
+  // One note reversing all of it is not refused by a cap at the rate on its subtotal (15.15).
+  it('a single full credit of ten R10.10 standard lines (VAT 15.20) posts and returns the VAT201 to zero', async () => {
+    const items = Array.from({ length: 10 }, (_, i) => ({ description: `Line ${i + 1}`, unitPrice: 10.1 }));
+    const id = await approvedInvoice('2026-06-10', items,
+      Object.fromEntries(items.map((it) => [it.description, ['standard', 1.52] as [string, number]])), 15.2);
+    expect(await fields('2026-06-01', '2026-06-30')).toEqual([101, 0, 0, 15.2]);
+    const je = await note(id, '2026-06-20', 101, 15, 15.2);
+    expect(await journalLegs(f, je)).toEqual([L('1100', 0, 116.2), L('2120', 15.2, 0, { vat: 'standard' }), L('4000', 101, 0, { vat: 'standard' })]);
+    expect(await fields('2026-06-01', '2026-06-30')).toEqual([0, 0, 0, 0]);
   });
 
   it('a note against a legacy invoice keeps its uncoded revenue debit, as before', async () => {

@@ -49,6 +49,7 @@ describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => 
 
   it('coded legs (a typed invoice): the note\'s VAT decides the rated part, each debit on its leg\'s type', async () => {
     db.legs = [row('s', '1000.00', 'standard'), row('z', '300.00', 'zero_rated'), row('e', '200.00', 'exempt')];
+    db.vat = [{ invoice_vat: '150.00', reversed_vat: '0.00' }];
     expect(await debits(300, 15)).toEqual([[100, 'standard'], [120, 'zero_rated'], [80, 'exempt']]);
     await expect(read(1100, 165)).rejects.toBeInstanceOf(CreditNoteVatSplitRefusal);
   });

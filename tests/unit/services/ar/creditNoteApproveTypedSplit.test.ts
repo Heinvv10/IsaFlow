@@ -28,6 +28,7 @@ function wire(subtotal: number, taxAmount: number) {
     if (/AS journal_line_id, jl\.gl_account_id/.test(text)) {
       return Promise.resolve([leg('s', '1000.00', 'standard'), leg('z', '300.00', 'zero_rated'), leg('e', '200.00', 'exempt')]);
     }
+    if (/AS invoice_vat/.test(text)) return Promise.resolve([{ invoice_vat: '150.00', reversed_vat: '0.00' }]);
     return Promise.resolve([]);
   }) as never);
 }

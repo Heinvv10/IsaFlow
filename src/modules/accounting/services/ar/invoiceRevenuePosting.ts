@@ -150,7 +150,8 @@ export async function creditNoteRevenueJournalLines(
               WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${note.customerInvoiceId}::UUID
                 AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${note.id}::UUID) AS reversed_vat
     `) as Record<string, unknown>[];
-    const remainingRatedVat = vat[0] ? Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat) : undefined;
+    // One row always (two scalar subqueries); none read as no VAT left, which refuses any VAT on the note.
+    const remainingRatedVat = vat[0] ? Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat) : 0;
     return allocateTypedCreditNote(legs, { subtotal: note.amount, taxAmount: note.taxAmount, date: note.date, remainingRatedVat },
       note.number, defaultRevenueAccountId, replayed);
   }

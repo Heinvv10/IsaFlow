@@ -17,7 +17,8 @@ const DEFAULT = 'acct-default-revenue';
 const leg = (net: number, vatType: RevenueLeg['vatType'], id: string, taken = 0): RevenueLeg =>
   ({ glAccountId: DEFAULT, projectId: null, cc1Id: null, cc2Id: null, buId: null, net, vatType, journalLineId: id, taken });
 const MIXED = [leg(1000, 'standard', 's'), leg(300, 'zero_rated', 'z'), leg(200, 'exempt', 'e')];
-const note = (subtotal: number, taxAmount: number) => ({ subtotal, taxAmount, date: '2026-07-20' });
+/** A note against MIXED (or a 1000-standard invoice), whose rated legs still carry all 150.00 of their VAT. */
+const note = (subtotal: number, taxAmount: number) => ({ subtotal, taxAmount, date: '2026-07-20', remainingRatedVat: 150 });
 const debits = (legs: RevenueLeg[], subtotal: number, taxAmount: number) =>
   allocateTypedCreditNote(legs, note(subtotal, taxAmount), 'CN-9', DEFAULT).lines.map((l) => [l.vatType, l.debit]);
 
@@ -124,17 +125,17 @@ describe('a note reversing all the remaining rated VAT', () => {
 // Item 3: a note's VAT may not exceed the standard rate on its subtotal (a cent over allowed), on the typed path.
 describe('a note whose VAT is more than its subtotal can carry', () => {
   const run = (subtotal: number, taxAmount: number) =>
-    allocateTypedCreditNote(MIXED, { subtotal, taxAmount, date: '2026-07-20' }, 'CN-9', DEFAULT);
+    allocateTypedCreditNote(MIXED, { subtotal, taxAmount, date: '2026-07-20', remainingRatedVat: 150 }, 'CN-9', DEFAULT);
 
   it('refuses 100 + VAT 30, giving both figures', () => {
-    expect(() => run(100, 30)).toThrow(new CreditNoteVatSplitRefusal(
-      'Credit note CN-9: its VAT of 30.00 is more than 15% of its subtotal of 100.00 (15.00). Correct its VAT, or its subtotal.'));
+    expect(() => run(100, 30)).toThrow(new CreditNoteVatSplitRefusal('Credit note CN-9: its VAT of 30.00 is more than the '
+      + '15.00 of VAT the invoice charged on the 100.00 of standard-rated supplies it reverses. Correct its VAT.'));
   });
 
   it('accepts VAT exactly at the rate, and a cent over; refuses two cents over', () => {
     expect(run(100, 15).lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 100]]);
     expect(() => run(100, 15.01)).not.toThrow();
-    expect(() => run(100, 15.02)).toThrow(/its VAT of 15\.02 is more than 15% of its subtotal of 100\.00 \(15\.00\)/);
+    expect(() => run(100, 15.02)).toThrow(/its VAT of 15\.02 is more than the 15\.00 of VAT the invoice charged on the 100\.00/);
   });
 });
 
@@ -155,12 +156,12 @@ describe('the rated legs with no VAT left', () => {
 // Round 4, item 6: a zero-VAT note needs no rate; a note WITH VAT on a date no rate can be read for is a refusal, not a 500.
 describe('a note dated where no VAT rate can be read', () => {
   it('a zero-VAT note posts to the unrated legs without reading a rate', () => {
-    const out = allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 0, date: '1980-01-01' }, 'CN-9', DEFAULT);
+    const out = allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 0, date: '1980-01-01', remainingRatedVat: 150 }, 'CN-9', DEFAULT);
     expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['zero_rated', 120], ['exempt', 80]]);
   });
 
   it('a note with VAT is refused with the refusal class, naming the date', () => {
-    expect(() => allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 30, date: '1980-01-01' }, 'CN-9', DEFAULT))
+    expect(() => allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 30, date: '1980-01-01', remainingRatedVat: 150 }, 'CN-9', DEFAULT))
       .toThrow(new CreditNoteVatSplitRefusal('Credit note CN-9: its date cannot be read for a VAT rate '
         + '(1980-01-01 is before VAT began (1991-09-30)).'));
   });
@@ -177,6 +178,6 @@ describe('the VAT cap and a full reversal of per-line-rounded VAT', () => {
 
   it('a 5.00 + 2.00 note (all the VAT on half the net) is still refused by the cap', () => {
     expect(() => allocateTypedCreditNote(hundredLines, { subtotal: 5, taxAmount: 2, date: '2026-07-20', remainingRatedVat: 2 }, 'CN-9', DEFAULT))
-      .toThrow(/its VAT of 2\.00 is more than 15% of its subtotal of 5\.00 \(0\.75\)/);
+      .toThrow(/its VAT of 2\.00 is more than the 1\.00 of VAT the invoice charged on the 5\.00 of standard-rated supplies/);
   });
 });
