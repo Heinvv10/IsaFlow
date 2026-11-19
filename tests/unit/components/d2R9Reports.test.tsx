@@ -8,6 +8,8 @@ import { empty500, expectNoJargon, ok, on, serve } from '../helpers/d2R3a6';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+// The EMP501 page's return lifecycle (wave 6 EFb) has its own tests; here only the reconciliation's load is under test.
+vi.mock('@/components/payroll/emp501/Emp501ReturnSection', () => ({ Emp501ReturnSection: () => null }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn(), pathname: '/' }) }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
