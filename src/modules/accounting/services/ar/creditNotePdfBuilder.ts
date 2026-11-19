@@ -147,7 +147,7 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
   y = renderTotalsBlock(doc, y, PAGE_W, MARGIN, accent, [
     { label: 'Subtotal', value: fmtZAR(subtotal) },
     // `??`, not `||`: a 0% note (a mirrored zero-rated bill) is 0%, not 15%. NULL (pre-default rows) keeps the 15 the column defaults to.
-    { label: vatTotalLabel(subtotal, Number(cn.tax_rate ?? 15), taxAmount), value: fmtZAR(taxAmount) },
+    { label: vatTotalLabel({ subtotal, ratePct: Number(cn.tax_rate ?? 15), vat: taxAmount }), value: fmtZAR(taxAmount) },
     { label: 'CREDIT TOTAL', value: fmtZAR(totalAmount), isTotal: true },
   ]);
 

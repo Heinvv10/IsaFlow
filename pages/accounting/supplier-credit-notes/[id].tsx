@@ -248,7 +248,7 @@ export default function SupplierCreditNoteDetailPage() {
                 <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(note.subtotal))}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[var(--ff-text-secondary)]">{vatTotalLabel(Number(note.subtotal), Number(note.taxRate), Number(note.taxAmount))}</span>
+                <span className="text-[var(--ff-text-secondary)]">{vatTotalLabel({ subtotal: Number(note.subtotal), ratePct: Number(note.taxRate), vat: Number(note.taxAmount) })}</span>
                 <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(note.taxAmount))}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-[var(--ff-border-light)] text-base font-semibold">

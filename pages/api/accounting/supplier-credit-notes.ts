@@ -100,6 +100,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // W1 family (P2.1): negative/zero lines invert the CN's GL at approve.
       for (const li of lineItems) {
+        if (li === null || typeof li !== 'object') return apiResponse.badRequest(res, 'Each line item must be an object');
         if (!(Number(li.quantity) > 0)) {
           return apiResponse.badRequest(res, 'Line quantities must be positive');
         }
@@ -112,6 +113,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
             || Math.abs(li.quantity) >= 1e12 || Math.abs(li.unitPrice) >= 1e12) {
           return apiResponse.badRequest(res, 'Line quantities and unit prices must be numbers');
         }
+        // credit_notes.subtotal is numeric(15,2): a line that large overflows the INSERT (22003, a 500).
+        if (li.quantity * li.unitPrice >= 1e12) return apiResponse.badRequest(res, 'A line amount is too large');
       }
 
       // VAT per line, by the line's VAT type at the rate of the credit date (shared/vatLineAmounts). A line naming
