@@ -144,6 +144,12 @@ describe('the bill create writes the app link', () => {
     const foreign = await create({ purchaseOrderId: foreignPo.po, items: [line()] });
     expect(foreign.statusCode).toBe(201);
     expect(await linkRows(pool, f, `l.supplier_invoice_id = '${(foreign.body as { data: { id: string } }).data.id}'`)).toEqual([]);
+    const sup = crypto.randomUUID();
+    await pool.query("INSERT INTO suppliers (id, company_id, name, is_active) VALUES ($1, $2, 'Other supplier', true)", [sup, f.co]);
+    const strangers = await seedPo(pool, f, { lines: [10], supplier: sup });
+    const otherSupplier = await create({ purchaseOrderId: strangers.po, items: [line()] });
+    expect(otherSupplier.statusCode, JSON.stringify(otherSupplier.body)).toBe(201);
+    expect(await linkRows(pool, f, `l.supplier_invoice_id = '${(otherSupplier.body as { data: { id: string } }).data.id}'`)).toEqual([]);
     const none = await create({ items: [line()] });
     expect(await linkRows(pool, f, `l.supplier_invoice_id = '${(none.body as { data: { id: string } }).data.id}'`)).toEqual([]);
   });
