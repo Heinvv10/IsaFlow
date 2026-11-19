@@ -18,7 +18,7 @@ export async function callTool(
   const user = over.user ?? f.owner;
   const ctx = {
     userId: user, companyId: f.co, scopes: ['write:invoices', 'read:invoices', 'read:reports', 'write:bank-tx'],
-    tokenJti: 'jti-po', oauthAppId: null, ...over,
+    tokenJti: 'jti-po', oauthAppId: null, companyRole: 'owner', ...over,
   } as McpToolContext;
   const req = await openRequest(pool, f, user);
   try {

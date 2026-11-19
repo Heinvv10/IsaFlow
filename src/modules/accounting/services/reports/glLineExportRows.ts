@@ -220,6 +220,8 @@ const INTEGER_COLUMNS: ReadonlySet<string> = new Set([
   'FY_Period_No', 'Linked_Document_Count',
   // The computed tables (glExportComputedTables): a day count and two line counts.
   'Days_Overdue', 'Unreconciled_Line_Count', 'Unallocated_Line_Count',
+  // budget_versions (reports/budgetsExport): the registry year label.
+  'Fiscal_Year',
 ]);
 
 /**

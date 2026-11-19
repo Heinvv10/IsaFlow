@@ -30,6 +30,76 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-19 — MCP PO-Bill Links & Maintenance, Intercompany P1, Payroll OC, VAT201 Rate-Check
+
+**MCP / AP — PO-Bill Links**
+
+- New MCP tools: `link_bills_to_purchase_order`, `unlink_bill_from_purchase_order`, `get_purchase_order` (with three-way view and `purchase_order_ids`); backfill covers all unposted bills; closing-record heir carried across sync (#1604)
+- Tie semantics: line-only vs header-only, one `unlink` exit for every tie kind, tie check on every cancel, 0.01 way-out; `get_purchase_order` lists every tie kind (migration 1006)
+- Backfill plan made linear: posted cents materialised once per bill, NOT IN anti-join, EXPLAIN ANALYZE guard capped at 4× (bills + POs) rows; bounded KEY SHARE wait in bill create
+
+**MCP / AP — PO Maintenance**
+
+- New MCP tools: `update_purchase_order`, `cancel_purchase_order`, `close_purchase_order`, `set_purchase_order_status`; bulk import budget_check and skip flag (#1665)
+- Approved edit restricted to owner/admin with restamp; `set_status` clears link closing records and closes from approved only; REST draft edit returns 503 on a held PO
+- `purchase_orders.closed_from_status` for short-close and set-status reopen (migration 1007)
+
+**Intercompany — P1 Connections**
+
+- P1 merged: statement-level changers, bounded wait and attempt cap with exponential backoff, narrowed lock set, group-table grants, backfills as `migration_admin`, company-delete test (#1594)
+- Migration 1002 `intercompany_round2`; demo reseed refuses while a connection, message or link names Demo; `intercompany_company_locks` kept table (one row per company)
+
+**Payroll — Off-Cycle (OC) Wave 6**
+
+- OC Cancel run uses the accessible `Modal`; `cancelled_at` column fix for prod drift (migration 999f)
+- SDL floored at month level as catch-up: `max(0, 1% of month-to-date − final runs' SDL)`, split by share; a run may refund within the month (#1620 code merged; migration reverted via #1675 — daytime constraint on prod)
+- Bonus amount edit: audit row + 999x UPDATE guard; correct paid off-cycle bonus keeps month SDL at exactly 1%
+- OC UI delta: cancelled state, focus return, focused submit error, client pay-date floor
+
+**Payroll — SS-c Employee IRP5 Portal**
+
+- Employee's own IRP5 from filed EMP501 versions available in the employee portal (#1596)
+- Portal rate-limit key pinned; a company naming another company's employee stays hidden
+
+**VAT201 / VAT**
+
+- One `rateCheck`/`filingRateCheck` contract on all four surfaces; filability records its own 15% verdict; true wording when credit notes net the give-back (#1596)
+- MCP `vat_status` and `vat201_export` report the 15% verdict the gate judged
+- Supplier credit note line VAT: shared VAT types and per-line calculation (two review rounds)
+
+**Bank — CC Filter**
+
+- CC2 options follow the chosen CC1 on a bank row; BU list reads business units; CC2 files under CC1 by fnoCode or parent chain (#1668)
+- Ref-data hook serves the real `{ items }` shape; fetches abort on unmount
+
+**AmountInput**
+
+- Ambiguous 3-decimal comma refused (not sticky); lone `.` invalid; 2-decimal limit; paste normalisation; aria-invalid; click-safe select; leading-zero fix (#1654)
+- Raw-input allowlist lowered after supplier-returns and sibling money fields moved to `AmountInput`
+
+**MCP**
+
+- `token_info` returns the token holder's own user (id, email, name); non-member backstop (#1596)
+
+**GL Export**
+
+- `budget_versions` and `budgets` tables added to `isaflow-budgets-1.0` export contract; control total (float sum check) added (#1634)
+
+**Nav / Mobile**
+
+- Section bar dropped where the main-row menu already carries it; `navPath` now reaches the main-row menu and the sidebar
+- Debtors manager, quotes and sales orders rendered as cards below `lg`; 44 px touch targets
+
+**Golden Paths / CI**
+
+- z1: Create routes warmed before any page opens; flake eliminated (#1643)
+- s2: waits for the announcement bar before hovering the top nav (#1638)
+- `apt install` proceeds even when `apt-get update` stalls on `security.ubuntu.com`
+
+Migrations: **999f** (`payroll_run_headers` prod-drift fix), **1001** (`purchase_order_import`), **1002** (`intercompany_round2`), **1003** (`vat_returns_app_user_grant`), **1005** (`items_canonical_model`), **1006** (`purchase_order_bill_links`), **1007** (`purchase_order_closed_from_status`)
+
+---
+
 ## 2026-11-18 — Payroll Annualisation (AN), VAT Returns Unify, Slot Email Migration, Bank WP4b
 
 **Payroll — Wave 6 / Annualisation (AN)**

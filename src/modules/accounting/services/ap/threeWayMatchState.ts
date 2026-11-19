@@ -17,8 +17,14 @@ export interface MatchInputs {
   grnItems: DbRow[];
 }
 
+/**
+ * The PO lines come from the bill's header PO (when it names one) AND from the lines' own `po_item_id`s
+ * (`poItemIds`), each through this company's purchase_orders, so a bill linked to several POs (purchase_order_id NULL)
+ * still matches line by line (migration 1006, design decision 3).
+ */
 export async function readMatchInputs(
-  companyId: string, invoice: { supplierId: string; purchaseOrderId: string; grnId?: string | null },
+  companyId: string,
+  invoice: { supplierId: string; purchaseOrderId: string | null; grnId?: string | null; poItemIds?: readonly string[] },
 ): Promise<MatchInputs> {
   // Tolerance from supplier_coding_rules; 2% without one.
   const rules = (await sql`
@@ -30,7 +36,7 @@ export async function readMatchInputs(
   const poItems = (await sql`
     SELECT pi.* FROM po_items pi
     JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
-    WHERE pi.purchase_order_id = ${invoice.purchaseOrderId}::UUID
+    WHERE pi.purchase_order_id = ${invoice.purchaseOrderId}::UUID OR pi.id = ANY(${[...(invoice.poItemIds ?? [])]}::UUID[])
   `) as DbRow[];
   const grnItems = invoice.grnId
     ? ((await sql`
@@ -45,6 +51,21 @@ export async function readMatchInputs(
     poItems,
     grnItems,
   };
+}
+
+/**
+ * The match inputs of a bill, or null when it names no PO at all: neither a header PO nor a line naming a PO line (a bill
+ * linked to several POs has no header PO, migration 1006, but its lines name PO lines).
+ */
+export async function readBillMatchInputs(
+  companyId: string,
+  invoice: { supplierId: string; purchaseOrderId?: string | null; grnId?: string | null; items?: ReadonlyArray<{ poItemId?: string | null }> },
+): Promise<MatchInputs | null> {
+  const poItemIds = (invoice.items ?? []).map((i) => i.poItemId).filter((v): v is string => !!v);
+  if (!invoice.purchaseOrderId && poItemIds.length === 0) return null;
+  return readMatchInputs(companyId, {
+    supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId ?? null, grnId: invoice.grnId, poItemIds,
+  });
 }
 
 /** The bill's status from its lines' (no lines: unmatched). */
@@ -134,7 +155,8 @@ export async function readThreeWayMatchState(companyId: string, invoiceId: strin
     paymentMatchedAt: inv.payment_matched_at ? String(inv.payment_matched_at) : null,
   };
   const poId = inv.purchase_order_id ? String(inv.purchase_order_id) : null;
-  if (poId === null) {
+  const poItemIds = items.map((i) => i.po_item_id).filter((v) => v != null).map(String);
+  if (poId === null && poItemIds.length === 0) {
     return {
       ...base, matchStatus: 'unmatched', hasPurchaseOrder: false, itemResults: [],
       summary: { totalLines: items.length, fullyMatched: 0, priceMismatches: 0, quantityMismatches: 0, grnMismatches: 0 },
@@ -143,7 +165,7 @@ export async function readThreeWayMatchState(companyId: string, invoiceId: strin
   }
 
   const inputs = await readMatchInputs(companyId, {
-    supplierId: String(inv.supplier_id), purchaseOrderId: poId, grnId: inv.grn_id ? String(inv.grn_id) : null,
+    supplierId: String(inv.supplier_id), purchaseOrderId: poId, grnId: inv.grn_id ? String(inv.grn_id) : null, poItemIds,
   });
   const summary = { totalLines: items.length, fullyMatched: 0, priceMismatches: 0, quantityMismatches: 0, grnMismatches: 0 };
   const itemResults = items.map((item): MatchLine => {

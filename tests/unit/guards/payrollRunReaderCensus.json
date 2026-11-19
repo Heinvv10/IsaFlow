@@ -104,6 +104,9 @@
   "src/modules/accounting/services/payroll/easyFileCertificateAggregates.ts": [
    {"line":47,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum"}
   ],
+  "src/modules/accounting/services/payroll/easyFileInput.ts": [
+   {"line":64,"text":"SELECT h.id FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"every final run of the period, each through the run-kind guard (review #1568 M1)"}
+  ],
   "src/modules/accounting/services/payroll/easyFileRegularDirectives.ts": [
    {"line":26,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"MIN month per directive over the year"}
   ],
@@ -519,6 +522,13 @@
    {"line":134,"text":"AND table_name IN ('payroll_run_headers', 'payroll_run_lines')","class":"L","owner":"FQb2/EF","why":"information_schema table check"},
    {"line":175,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"every declarable run in the period, summed by the caller"}
   ],
+  "src/modules/accounting/services/returns/emp501Figures.ts": [
+   {"line":62,"text":"SELECT h.id, h.approved_plan_hash, h.approved_at FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"every final run of the EMP501 period, listed by id and share-locked at finalise"}
+  ],
+  "src/modules/accounting/services/returns/emp501Months.ts": [
+   {"line":41,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"final runs' lines summed per month (GROUP BY month), every run of the month counted"},
+   {"line":61,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"DISTINCT months that have any non-final live run (a warning)"}
+  ],
   "src/modules/accounting/services/returns/empDrift.ts": [
    {"line":38,"text":"SELECT id, approved_plan_hash FROM payroll_run_headers","class":"S","owner":"FQb2/EF","why":"by run ids"}
   ],
@@ -535,6 +545,13 @@
   "src/modules/bureau/services/ownerCashPositionService.ts": [
    {"line":155,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
    {"line":159,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeOrders.ts": [
+   {"line":99,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the approved/paid runs (rev #1574 L3)"},
+   {"line":102,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the runs not yet approved"}
+  ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeRun.ts": [
+   {"line":93,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"GA: by run id; the run's own period_start/period_end and calculated_at (stale-order refusal, rev #1574 M2), right for any frequency"}
   ]
  }
 }

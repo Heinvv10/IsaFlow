@@ -217,13 +217,16 @@ describe('submitVAT201ToSars', () => {
     m.getVat201Return.mockResolvedValue({
       ...FILED_FIELDS,
       field5_outputVAT: 158000,
-      rateCheck: tiedRateCheck({ ties: false, outputVariance: 8000, inputVariance: 0 }),
+      // The report's own check measures box 1 before the nil-rated give-back; the event must record what the
+      // filability decision judged (output tax against field1_standardRatedSupplies), not this.
+      rateCheck: tiedRateCheck({ ties: true, outputVariance: 0.5, inputVariance: 0 }),
     });
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingBlockedError);
     expect(m.submitVAT201).not.toHaveBeenCalled();
-    expect(m.insertEfilingEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'blocked', detail: expect.objectContaining({ rateCheckTies: false }) }),
-    );
+    expect(m.insertEfilingEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'blocked',
+      detail: { rateVarianceMaterial: true, outputVariance: 8000, inputVariance: 0, taxedOutputBase: 1000000 },
+    }));
   });
 
   it('files a variance that is immaterial against the tax declared', async () => {

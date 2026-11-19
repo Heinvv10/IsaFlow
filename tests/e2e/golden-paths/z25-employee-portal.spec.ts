@@ -105,6 +105,8 @@ async function portalPages(page: Page, theme: string): Promise<{ accepted: unkno
     { leaveType: 'Annual', year: 2026, accrued: 15, taken: 3, pending: 0, balance: 12 },
     { leaveType: 'Sick', year: 2026, accrued: 30, taken: 2, pending: 0, balance: 28 },
   ])));
+  // SS-c: the home also reads the employee's IRP5 certificates; none filed yet for this monthly-paid employee.
+  await page.route('**/api/employee-portal/irp5', (route) => route.fulfill(ok({ payFrequency: 'monthly', certificates: [] })));
 
   await page.goto(`/employee-portal/accept#t=${TOKEN}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Choose your password' })).toBeVisible({ timeout: 60_000 });
@@ -117,6 +119,7 @@ async function portalPages(page: Page, theme: string): Promise<{ accepted: unkno
   await expect(page.getByRole('heading', { name: 'Hello, Zola Portal' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('link', { name: 'Download PDF for October 2026' })).toHaveAttribute('href', '/api/employee-portal/payslips/00000000-0000-4000-8000-000000000025');
   await expect(page.getByRole('table').nth(1)).toContainText('Annual');
+  await expect(page.getByText('No tax certificates here yet.', { exact: false })).toBeVisible();
   await shoot(page, 'employee-portal-home', theme);
 
   await page.getByRole('button', { name: 'Sign out' }).click();
