@@ -9,10 +9,17 @@
  *  - PRIMARY 'Original' (approved): Sales 1000.10 a month and Interest
  *    received 40 in May at company level; Rent at CC1 grain (250.05 + 149.95
  *    a month); Cost of sales at CC1 grain (500.01 driver + 300.33 manual a
- *    month) with a per_head driver line on its CC1 row.
- *  - a second, non-primary 'Scenario' (locked): Sales 2000 and Cost of sales
- *    7.77 at CC1 in March, NO per_head line.
- * Company B: a primary version of its own, which must never appear.
+ *    month) with a per_head driver line on its CC1 row; Premises: rates at
+ *    CC1 grain (10.00 a month) with a pct_of_line driver on Cost of sales'
+ *    CC1 row (a salary-derived line).
+ *  - a second, non-primary 'Scenario' (locked), as a copy leaves it: amounts
+ *    and NO driver lines. Sales 2000 and Cost of sales 7.77 + 2.23 at two CC1
+ *    centres in March.
+ * Company B: a primary version of its own, which must never appear; its Cost
+ *   of sales has no per_head line anywhere in B, so it stays at its centre.
+ * Company C: a version labelled 1400, a year the registry cannot place (its
+ *   walk from the nearest stored year gives up), is skipped with a warning;
+ *   the rest of C exports.
  * Figures worked by hand in each test.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,6 +27,8 @@ import { Pool } from 'pg';
 import { als } from '@/lib/als';
 import { buildBudgetVersions, buildBudgets } from '@/modules/accounting/services/reports/budgetsExport';
 import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
+import { loadGridCells } from '@/modules/accounting/services/budgets/gridReadModel';
+import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import handler from '../../pages/api/accounting/gl-lines-export';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, monthsFrom, type Dims, type GridCo } from './helpers/budgetGridFixture';
@@ -34,7 +43,8 @@ const sumCents = (rows: Row[]) => rows.reduce((s, r) => s + cents(r.Amount), 0);
 
 let A: GridCo;
 let B: GridCo;
-const v = { primary: '', scenario: '', other: '' };
+let C: GridCo;
+const v = { primary: '', scenario: '', other: '', stranded: '', cKept: '' };
 
 async function cell(c: GridCo, versionId: string, acct: string, month: string, value: number, dims: Dims = {}, source = 'manual') {
   await pool.query(
@@ -94,28 +104,38 @@ beforeAll(async () => {
     await cell(A, v.primary, a.rent, m, 149.95, { cc1: A.cc1b });
     await cell(A, v.primary, a.cos, m, 500.01, { cc1: A.cc1 }, 'driver');
     await cell(A, v.primary, a.cos, m, 300.33, { cc1: A.cc1b });
+    await cell(A, v.primary, a.childA, m, 10, { cc1: A.cc1 }, 'driver');
   }
   await cell(A, v.primary, a.otherIncome, '2026-05', 40);
   await pool.query(
     `INSERT INTO budget_driver_lines (company_id, version_id, gl_account_id, cc1_id, kind, from_month, to_month, amount, headcount_cost_centre_id, created_by)
      VALUES ($1, $2, $3, $4, 'per_head', '2026-03-01', '2027-02-01', 25000, $4, $5)`, [A.id, v.primary, a.cos, A.cc1, A.user]);
+  await pool.query(
+    `INSERT INTO budget_driver_lines (company_id, version_id, gl_account_id, cc1_id, kind, from_month, to_month, pct, ref_gl_account_id, ref_cc1_id, created_by)
+     VALUES ($1, $2, $3, $4, 'pct_of_line', '2026-03-01', '2027-02-01', 1.25, $5, $4, $6)`, [A.id, v.primary, a.childA, A.cc1, a.cos, A.user]);
   await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [v.primary, A.user]);
 
   v.scenario = await fx.version(A, { fy: 2027, name: 'Scenario', kind: 'scenario' });
   await cell(A, v.scenario, a.sales, '2026-03', 2000);
   await cell(A, v.scenario, a.cos, '2026-03', 7.77, { cc1: A.cc1 });
+  await cell(A, v.scenario, a.cos, '2026-03', 2.23, { cc1: A.cc1b });
   await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [v.scenario, A.user]);
   await pool.query(`UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`, [v.scenario, A.user]);
 
   v.other = await fx.version(B, { fy: 2027, name: 'Original', kind: 'original', primary: true });
   await cell(B, v.other, B.acct.sales, '2026-03', 999);
   await cell(B, v.other, B.acct.cos, '2026-03', 55, { cc1: B.cc1 });
+
+  C = await fx.company();
+  v.stranded = await fx.version(C, { fy: 1400, name: 'Stranded', kind: 'original' });
+  v.cKept = await fx.version(C, { fy: 2027, name: 'Original', kind: 'original', primary: true });
+  await cell(C, v.cKept, C.acct.sales, '2026-03', 123.45);
 }, 120000);
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM budget_driver_lines WHERE company_id = ANY($1)', [[A?.id, B?.id].filter(Boolean)]);
-    await pool.query(`DELETE FROM rate_limit_counters WHERE key = ANY($1)`, [[A, B].filter(Boolean).map((c) => `report:gl-lines-export:co:${c.id}`)]);
+    await pool.query(`DELETE FROM rate_limit_counters WHERE key = ANY($1)`, [[A, B, C].filter(Boolean).map((c) => `report:gl-lines-export:co:${c.id}`)]);
     await fx.cleanup();
   } finally {
     await pool.end();
@@ -125,8 +145,8 @@ afterAll(async () => {
 describe('budget export tables against a real database, as app_user', () => {
   it('(1) the rows sum to the control total, in cents; (4) X-Row-Count = the rows the CSV carries', async () => {
     const out = await asApp(A, () => buildBudgets(A.id));
-    // Primary: 12 × (1000.10 + 400 + 800.34) + 40; scenario: 2000 + 7.77.
-    expect(sumCents(out.rows)).toBe(12 * (100010 + 40000 + 80034) + 4000 + 200000 + 777);
+    // Primary: 12 × (1000.10 + 400 + 800.34 + 10) + 40; scenario: 2000 + 7.77 + 2.23.
+    expect(sumCents(out.rows)).toBe(12 * (100010 + 40000 + 80034 + 1000) + 4000 + 200000 + 1000);
     expect(cents(out.summary.controlTotal)).toBe(sumCents(out.rows));
     expect(out.summary.rowCount).toBe(out.rows.length);
 
@@ -154,19 +174,24 @@ describe('budget export tables against a real database, as app_user', () => {
     expect(sumCents(rev)).toBe(cents(variance.sections.revenue.budget));
     expect(sumCents(exp)).toBe(cents(variance.sections.expense.budget));
     expect(sumCents(rev)).toBe(3 * 100010 + 4000);
-    expect(sumCents(exp)).toBe(3 * (40000 + 80034));
+    expect(sumCents(exp)).toBe(3 * (40000 + 80034 + 1000));
   }, 60000);
 
-  it('(3) the per_head account: company-level per_head_rollup rows only in the version with the line; no dimension row of it', async () => {
+  it('(3) the per_head account and its pct_of_line dependent: company-level per_head_rollup rows only, in EVERY version', async () => {
     const out = await asApp(A, () => buildBudgets(A.id));
     const cos = out.rows.filter((r) => r.Version_ID === v.primary && r.GL_Account_ID === A.acct.cos);
     expect(cos).toHaveLength(12);
     for (const r of cos) {
       expect(r).toMatchObject({ CC1_ID: null, CC2_ID: null, BU_ID: null, Amount: 800.34, Source: 'per_head_rollup', GL_Account_Code: '5000' });
     }
-    // The scenario has no per_head line: its cost-of-sales cell exports as stored.
+    // The scenario (a copy: no driver lines) must not give the salary cells back at their centres.
     expect(out.rows.filter((r) => r.Version_ID === v.scenario && r.GL_Account_ID === A.acct.cos))
-      .toEqual([expect.objectContaining({ CC1_ID: A.cc1, Amount: 7.77, Source: 'manual', Month: '2026-03' })]);
+      .toEqual([expect.objectContaining({ CC1_ID: null, CC2_ID: null, BU_ID: null, Amount: 10, Source: 'per_head_rollup', Month: '2026-03' })]);
+    // The pct_of_line line on Cost of sales would give the salary back by division: rolled up too.
+    const rates = out.rows.filter((r) => r.Version_ID === v.primary && r.GL_Account_ID === A.acct.childA);
+    expect(rates).toHaveLength(12);
+    for (const r of rates) expect(r).toMatchObject({ CC1_ID: null, CC2_ID: null, BU_ID: null, Amount: 10, Source: 'per_head_rollup' });
+    expect(out.rows.some((r) => [A.acct.cos, A.acct.childA].includes(String(r.GL_Account_ID)) && r.CC1_ID !== null)).toBe(false);
     // Rent (no driver) stays at its CC1 grain; every row carries at most one dimension.
     expect(out.rows.filter((r) => r.Version_ID === v.primary && r.GL_Account_ID === A.acct.rent && r.Month === '2026-03').map((r) => r.CC1_ID).sort())
       .toEqual([A.cc1, A.cc1b].sort());
@@ -187,6 +212,20 @@ describe('budget export tables against a real database, as app_user', () => {
     // B sees only its own.
     const theirs = await asApp(B, () => buildBudgets(B.id));
     expect(theirs.rows.map((r) => r.Version_ID)).toEqual([v.other, v.other]);
+    // A's per_head line does not reach B: B's cost of sales stays at its centre.
+    expect(theirs.rows.find((r) => r.GL_Account_ID === B.acct.cos)).toMatchObject({ CC1_ID: B.cc1, Amount: 55, Source: 'manual' });
+  }, 60000);
+
+  it('a version whose financial year label the registry does not carry is skipped; the rest of the company exports (route 200)', async () => {
+    // The premise: the grid read refuses the stranded version.
+    await expect(asApp(C, () => loadGridCells(C.id, { versionId: v.stranded }))).rejects.toBeInstanceOf(FiscalYearLabelUnknownError);
+    const versions = await asApp(C, () => buildBudgetVersions(C.id));
+    expect(versions.rows.map((r) => r.Version_ID).sort()).toEqual([v.stranded, v.cKept].sort());
+    const out = await asApp(C, () => buildBudgets(C.id));
+    expect(out.rows).toEqual([expect.objectContaining({ Version_ID: v.cKept, Month: '2026-03', Amount: 123.45 })]);
+    const res = await route(C, { table: 'budgets' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-control-total')).toBe('123.45');
   }, 60000);
 
   it('budget_versions: the version facts, token text as the services give it, no X-Control-Total', async () => {
