@@ -68,3 +68,18 @@ describe('the EMP501 page', () => {
     expect(urls().at(-1)).toContain('period=interim');
   });
 });
+
+describe('the tax year the page opens on (breaker #1622 delta 5)', () => {
+  it.each([
+    ['15 Jan 2027', '2027-01-15T10:00:00', '2027'],
+    ['28 Feb 2027', '2027-02-28T10:00:00', '2027'],
+    ['29 Feb 2028 (leap)', '2028-02-29T10:00:00', '2028'],
+    ['1 Mar 2027', '2027-03-01T10:00:00', '2028'],
+  ])('%s opens the tax year running then, on its interim', async (_label, now, year) => {
+    vi.setSystemTime(new Date(now));
+    render(<Emp501Page />);
+    await screen.findByText('M3 2026');
+    expect((screen.getByLabelText('Tax year') as HTMLSelectElement).value).toBe(year);
+    expect(urls()[0]).toContain(`reconciliation?taxYear=${year}&period=interim`);
+  });
+});

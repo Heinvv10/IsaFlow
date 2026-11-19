@@ -10,6 +10,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { Emp501ReturnSection } from '@/components/payroll/emp501/Emp501ReturnSection';
 import { defaultEmp501Kind, type Emp501Kind } from '@/components/payroll/emp501/emp501Kind';
+import { payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
 
 interface ReconciliationRow {
   month: number;
@@ -55,9 +56,12 @@ function blockedAnnualMessage(taxYear: number, body: RunKindRefusal | null): str
 }
 
 export default function Emp501Page() {
-  const currentYear = new Date().getFullYear();
-  const [taxYear, setTaxYear] = useState(currentYear + 1);
-  const [kind, setKind] = useState<Emp501Kind>(() => defaultEmp501Kind(currentYear + 1));
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  // The tax year running today (March to February): in January and February that is this calendar year's, not the next.
+  const runningTaxYear = payeTaxYearOf(today.getMonth() + 1, currentYear);
+  const [taxYear, setTaxYear] = useState(runningTaxYear);
+  const [kind, setKind] = useState<Emp501Kind>(() => defaultEmp501Kind(runningTaxYear));
   const [blocked, setBlocked] = useState('');
   const [summary, setSummary] = useState<Emp501Summary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
