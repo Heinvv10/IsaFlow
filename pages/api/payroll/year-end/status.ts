@@ -22,9 +22,7 @@ import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRu
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
-import {
-  listPspMonths, PSP_DETAIL_NOTE, pspAggregateWarning, pspFilingWarning, pspMonthHiddenFromViewer, pspTotalsVisibleToViewer,
-} from '@/modules/accounting/services/payroll/pspFiling';
+import { pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 import { canWrite } from '@/lib/auth/writeRoles';
 import {
   validateCompanyComponents,
@@ -138,14 +136,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return s + (agg ? Number(agg.total_paye) : 0);
   }, 0);
   const pspPaye = Math.round(pspTotals.reduce((s, t) => s + t.paye, 0) * 100) / 100;
-  // A viewer never sees a month's PSP PAYE, nor a total it moves, where the month (or the year) has fewer than 2 PSP payees:
-  // those months are on the old basis, PSP lines in, as on the EMP501 reconciliation (security review of #1566, M: per month).
+  // Roles without payroll-detail access NEVER see a PSP split (security ruling 2026-11-19): their IRP5 PAYE is on the old
+  // basis, PSP lines in, so totalPaye, the variance and balanced carry no PSP figure.
   const detail = canWrite(companyRole);
-  const yearVisible = pspTotalsVisibleToViewer(pspTotals);
-  const hiddenPsp = detail ? 0 : Math.round([...(await listPspMonths(companyId, bounds)).values()]
-    .filter((m) => pspMonthHiddenFromViewer(m, yearVisible)).reduce((t, m) => t + m.paye, 0) * 100) / 100;
-  const visiblePsp = Math.round((pspPaye - hiddenPsp) * 100) / 100;
-  const totalIrp5 = totalIrp5Certificates + hiddenPsp;
+  const totalIrp5 = detail ? totalIrp5Certificates : totalIrp5Certificates + pspPaye;
   const totalVariance = totalEmp201 - totalIrp5;
 
   // ─── 6. Period lock ────────────────────────────────────────────────────────
@@ -173,17 +167,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalEmp201,
       totalIrp5,
       totalVariance,
-      // A viewer sees PSP figures only when they identify nobody (2+ payees, round 3 L2); else the note.
-      ...(detail || (yearVisible && visiblePsp !== 0)
-        ? { pspPaye: visiblePsp, unexplainedVariance: Math.round((totalVariance - visiblePsp) * 100) / 100 }
-        : pspTotals.length > 0 ? { pspNote: PSP_DETAIL_NOTE } : {}),
+      // The PSP split: payroll-detail roles only.
+      ...(detail ? { pspPaye, unexplainedVariance: Math.round((totalVariance - pspPaye) * 100) / 100 } : {}),
     },
     periodLock: { locked: lockedAtYearEnd, lockdownDate: lockDate },
     runWarnings: [
       ...await notFinalRunWarnings(companyId, bounds, 'year-end check'),
-      // PSP PAYE, by name only for payroll-detail roles (this route is aggregate-only for a viewer, d3-employee-personal-data).
-      ...(canWrite(companyRole) ? pspTotals.map((t) => pspFilingWarning(t, 'IRP5 certificates'))
-        : [pspAggregateWarning(pspTotals, 'IRP5 certificates', visiblePsp)].filter((w): w is string => w !== null)),
+      // PSP PAYE, by name, for payroll-detail roles only (this route is aggregate-only for a viewer, d3-employee-personal-data).
+      ...(detail ? pspTotals.map((t) => pspFilingWarning(t, 'IRP5 certificates')) : []),
     ],
   };
 

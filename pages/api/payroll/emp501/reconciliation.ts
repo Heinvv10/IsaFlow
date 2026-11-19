@@ -18,7 +18,7 @@ import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds }
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
 import {
-  listPspFilingTotals, PSP_DETAIL_NOTE, pspAggregateWarning, pspFilingWarning, pspMonthHiddenFromViewer, pspTotalsVisibleToViewer,
+  listPspFilingTotals, pspFilingWarning,
 } from '@/modules/accounting/services/payroll/pspFiling';
 import { canWrite } from '@/lib/auth/writeRoles';
 
@@ -53,8 +53,6 @@ export interface Emp501Summary {
   /** All PSP PAYE in the year, and the variance it does not explain: aggregate figures, for every role (review H). */
   totalPspPaye?: number;
   totalUnexplainedVariance?: number;
-  /** In place of the two above for a reader without payroll-detail access when the year has fewer than 2 PSP payees. */
-  pspNote?: string;
   /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
   runWarnings: string[];
 }
@@ -92,8 +90,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       prh.period_year,
       -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): its PAYE is apart.
       SUM(prl.paye) FILTER (WHERE NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)) AS irp5_paye,
-      COALESCE(SUM(prl.paye) FILTER (WHERE prl.validation_results @> ${pspLineFlag}::jsonb), 0) AS psp_paye,
-      COUNT(DISTINCT prl.employee_id) FILTER (WHERE prl.validation_results @> ${pspLineFlag}::jsonb)::int AS psp_payees
+      COALESCE(SUM(prl.paye) FILTER (WHERE prl.validation_results @> ${pspLineFlag}::jsonb), 0) AS psp_paye
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     WHERE prh.company_id = ${companyId}::uuid
@@ -107,16 +104,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   `) as Row[];
 
 
-  const psp = await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear));
-  // A viewer never sees a month's PSP PAYE, nor a variance it moves, where the month (or the year) has fewer than 2 PSP
-  // payees: that month's IRP5 PAYE is on the old basis, PSP lines in (security review of #1566, M: per month).
-  const yearVisible = pspTotalsVisibleToViewer(psp);
-  const hidden = (r: Row) => !detail && pspMonthHiddenFromViewer({ paye: Number(r.psp_paye), payees: Number(r.psp_payees) }, yearVisible);
+  // Roles without payroll-detail access NEVER see a PSP split, month or year (security ruling 2026-11-19, superseding the
+  // 2+ payee rule): their IRP5 PAYE is on the old basis, PSP lines in, so no figure they get differs from it.
+  const psp = detail ? await listPspFilingTotals(companyId, payeTaxYearBounds(taxYear)) : [];
   const lineMap = new Map<string, number>();
-  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0) + (hidden(r) ? Number(r.psp_paye) : 0)));
+  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0) + (detail ? 0 : Number(r.psp_paye))));
   const pspMap = new Map(lineRows.map(r => [`${r.period_year}-${r.period_month}`, Number(r.psp_paye)]));
-  // The PSP PAYE a viewer may see: the months not hidden (all of it for a detail role).
-  const visiblePsp = Math.round(lineRows.filter((r) => !hidden(r)).reduce((t, r) => t + Number(r.psp_paye), 0) * 100) / 100;
 
   const months = taxYearMonths(taxYear);
   const rows: ReconciliationRow[] = months.map(({ month, year }) => {
@@ -146,17 +139,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalEmp201: rows.reduce((s, r) => s + r.emp201Paye, 0),
     totalIrp5: rows.reduce((s, r) => s + r.irp5Paye, 0),
     totalVariance: rows.reduce((s, r) => s + r.variance, 0),
-    // A viewer sees the PSP totals only when they identify nobody (2+ payees, round 3 L2); else the note.
-    ...(detail || (yearVisible && visiblePsp !== 0) ? {
-      totalPspPaye: visiblePsp,
-      totalUnexplainedVariance: Math.round((rows.reduce((s, r) => s + r.variance, 0) - visiblePsp) * 100) / 100,
-    } : psp.length > 0 ? { pspNote: PSP_DETAIL_NOTE } : {}),
+    // The PSP split: payroll-detail roles only.
+    ...(detail ? (() => {
+      const totalPsp = Math.round([...pspMap.values()].reduce((s, v) => s + v, 0) * 100) / 100;
+      return { totalPspPaye: totalPsp, totalUnexplainedVariance: Math.round((rows.reduce((s, r) => s + r.variance, 0) - totalPsp) * 100) / 100 };
+    })() : {}),
     runWarnings: [
       ...await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
       // The PAYE difference a PSP's months leave, explained by name (pspFiling; UNVERIFIED until the PSP certificate is produced).
-      // Named per person only for payroll-detail roles; a viewer (this route is aggregate-only for them) gets one total line.
-      ...(detail ? psp.map((t) => pspFilingWarning(t, 'IRP5 side of this reconciliation'))
-        : [pspAggregateWarning(psp, 'IRP5 side of this reconciliation', visiblePsp)].filter((w): w is string => w !== null)),
+      // Payroll-detail roles only: a viewer gets no PSP line at all.
+      ...psp.map((t) => pspFilingWarning(t, 'IRP5 side of this reconciliation')),
     ],
   };
 

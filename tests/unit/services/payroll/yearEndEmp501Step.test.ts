@@ -16,9 +16,8 @@ describe('emp501StepDetail', () => {
     expect(t).toContain('of which PSP PAYE');
     expect(t).not.toContain('Explained by');
   });
-  it('no PSP: the figures alone; withheld PSP figures (a viewer, one payee): the note; no data: the prompt', () => {
+  it('no PSP figures (no PSP, or a viewer): the figures alone; no data: the prompt', () => {
     expect(emp501StepDetail({ ...base, totalVariance: 0, balanced: true, totalIrp5: 30_000 }).startsWith('EMP201 ')).toBe(true);
-    expect(emp501StepDetail({ ...base, pspNote: 'PSP detail is available to payroll roles' })).toContain('· PSP detail is available to payroll roles');
     expect(emp501StepDetail({ ...base, totalEmp201: 0 })).toBe('No EMP501 data yet — post runs first');
   });
 });
