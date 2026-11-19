@@ -86,6 +86,8 @@ export async function generateVAT201(companyId: string,
               AND jl.company_id = ${companyId}::UUID
               AND jl.vat_type IS NOT NULL
               AND COALESCE(ga.account_subtype, '') = 'vat_output'
+            -- One VAT Output leg per rated type (ar/invoiceVatLegs); only 'standard' may post today. Whoever widens
+            -- POSTABLE_LINE_VAT_TYPES with a second rated type (capital_goods) makes this first-leg label arbitrary.
             ORDER BY jl.created_at, jl.id
             LIMIT 1
           ),

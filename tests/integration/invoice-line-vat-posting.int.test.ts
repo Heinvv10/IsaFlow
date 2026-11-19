@@ -101,6 +101,16 @@ describeIfDisposable('a customer invoice whose lines carry their VAT type (migra
     expect((await inTx(f.fx, () => getVATReturn(f.fx.companyId, '2026-11-01', '2026-11-30'))).standardRatedSupplies).toBe(100);
   });
 
+  it('a legacy zero-VAT invoice: no VAT leg, so the drill-down label falls back to the header rate (zero_rated)', async () => {
+    const id = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+      clientId: f.fx.customerId, invoiceDate: '2026-12-05', taxRate: 0, items: [{ description: 'Export', unitPrice: 500 }],
+    }))).id;
+    const { glJournalEntryId } = await approve(id);
+    expect(await journalLegs(f, glJournalEntryId!)).toEqual([L('1100', 500, 0), L('4000', 0, 500)]);
+    const vat201 = await inTx(f.fx, () => getVat201Return(f.fx.companyId, '2026-12-01', '2026-12-31'));
+    expect(vat201.outputInvoices.map((i) => [i.vatType, i.totalExclVat, i.vatAmount])).toEqual([['zero_rated', 500, 0]]);
+  });
+
   it('refuses a partly typed invoice at approve, writing nothing', async () => {
     const id = await draft('2026-10-15', [{ description: 'Typed', unitPrice: 100 }, { description: 'Plain', unitPrice: 100 }]);
     await typeLines(id, { Typed: ['standard', 15] });
