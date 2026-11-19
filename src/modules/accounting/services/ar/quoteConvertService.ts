@@ -12,6 +12,7 @@
  * non-request caller (cron/script) must provide its own transaction.
  */
 
+import { applyItemLineDefaults } from '../items/itemLineDefaults';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -161,6 +162,9 @@ export async function convertToInvoice(
   // (migration 874): re-checked against the chart as it is now, before the
   // claim below writes anything. A quote saved before 874 was never checked.
   await assertLineAccountIds(companyId, (quote.lines ?? []).map((l) => l.accountId));
+  // Migration 1005: the invoice's lines are NEW lines, so an item they name must still be this company's and active (an item
+  // deactivated since the quote was written refuses the conversion, as a new invoice line naming it would be refused).
+  await applyItemLineDefaults(companyId, (quote.lines ?? []).map((l) => ({ itemId: l.itemId, glAccountId: l.accountId })), 'sales', (i) => `quote line ${i + 1}`);
 
   // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED — the same guard convertToSalesOrder
   // takes above, for the same reason. `quote.status !== 'accepted'` was a
@@ -232,9 +236,9 @@ export async function convertToInvoice(
   const dims = await revenueLineDefaults(companyId, quote.clientId || null);
   for (const line of quote.lines || []) {
     await sql`
-      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id, cc1_id)
+      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id, cc1_id, item_id)
       VALUES (${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId},
-        ${dims.cc1Id ?? null}::UUID)
+        ${dims.cc1Id ?? null}::UUID, ${line.itemId}::UUID)
     `;
   }
 

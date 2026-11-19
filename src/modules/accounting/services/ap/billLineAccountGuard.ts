@@ -83,6 +83,47 @@ export async function billLineAccountRefusal(
   return rows.length !== unique.length ? FOREIGN_LINE_ACCOUNT : firstRefusal(rows);
 }
 
+/**
+ * The refusal text PER account (an account that would be accepted is absent from the map), in ONE query over the distinct ids
+ * in id order. `lock: false` takes no row lock: a dry run, or a read that only describes (the item master's default-account
+ * check). With the lock (the default) it is the same FOR SHARE in id order as `billLineAccountRefusal`, so a concurrent
+ * merge (which locks in id order) cannot deadlock it; one call, never a loop of calls.
+ */
+export async function billLineAccountRefusalsById(
+  companyId: string,
+  accountIds: readonly (string | null | undefined)[],
+  opts: { lock?: boolean } = {},
+): Promise<Map<string, string>> {
+  const unique = [...new Set(accountIds
+    .filter((id): id is string => typeof id === 'string' && id !== '')
+    .map((id) => id.toLowerCase()))].sort();
+  const out = new Map<string, string>();
+  if (unique.length === 0) return out;
+  const rows = (opts.lock === false ? await sql`
+    SELECT a.id, a.account_code, a.account_name, a.account_subtype, a.is_active,
+           EXISTS (SELECT 1 FROM gl_accounts c
+                   WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
+    FROM gl_accounts a
+    WHERE a.company_id = ${companyId}::UUID AND a.id = ANY(${unique}::UUID[])
+    ORDER BY a.id
+  ` : await sql`
+    SELECT a.id, a.account_code, a.account_name, a.account_subtype, a.is_active,
+           EXISTS (SELECT 1 FROM gl_accounts c
+                   WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
+    FROM gl_accounts a
+    WHERE a.company_id = ${companyId}::UUID AND a.id = ANY(${unique}::UUID[])
+    ORDER BY a.id
+    FOR SHARE OF a
+  `) as Array<BillLineAccountRow & { id: string }>;
+  const found = new Set(rows.map((r) => String(r.id).toLowerCase()));
+  for (const id of unique) if (!found.has(id)) out.set(id, FOREIGN_LINE_ACCOUNT);
+  for (const row of rows) {
+    const text = refusalText(row);
+    if (text) out.set(String(row.id).toLowerCase(), text);
+  }
+  return out;
+}
+
 /** The ONE ordering both entry points report by: first refused account by code. */
 function firstRefusal(rows: readonly BillLineAccountRow[]): string | null {
   for (const row of [...rows].sort((x, y) => x.account_code.localeCompare(y.account_code))) {
