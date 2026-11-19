@@ -36,11 +36,6 @@ export interface CumulativePayeInput {
    * first period counts 3 of 7 days as 0.4285 of a period in n (G20 s7.2 p. 9 / G21 p. 10). Absent = 1 (a whole period).
    */
   periodShare?: number;
-  /**
-   * An off-cycle run's line (wave 6 OC, review #1620 breaker delta L2): it sits after its month's final regular run,
-   * which already took the cumulative catch-up on regular pay, so a line of it with no regular remuneration takes none.
-   */
-  offCycleLine?: boolean;
   /** P, the statutory periods in a year for the frequency (annualisationFactor.periodsInYear: 12, 26, 52), for the period
    *  ratios statute fixes: the s11F cap to date and the medical credits, each × min(n, P) ÷ P (wave-6 AN). */
   periodsInYear: number;
@@ -69,8 +64,6 @@ export interface CumulativePayeResult {
 export interface CumulativePayeTrace {
   /** False: neither periodic pay nor an annual payment this period, so the tables took nothing. */
   paid: boolean;
-  /** An off-cycle line with no regular remuneration: no PAYE on regular pay (wave 6 OC, review #1620 L2). */
-  noRegularPay?: boolean;
   /** F, the annualisation factor (annualisationFactor.ts): AE = periodic to date × F ÷ periods. */
   factor: number;
   /** P, the statutory periods in a year (CumulativePayeInput.periodsInYear). */

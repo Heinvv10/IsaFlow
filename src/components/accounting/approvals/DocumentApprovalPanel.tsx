@@ -14,7 +14,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ShieldAlert, ShieldCheck, Clock, Send, Loader2 } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
-import { FocusedAlert } from '@/components/ui/FocusedAlert';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 export interface DocumentApprovalPanelProps {
@@ -102,8 +101,7 @@ export function DocumentApprovalPanel({ documentType, documentId, noun, approval
           Submit for approval
         </button>
       )}
-      {/* Scrolled into view and focused, so a refusal is never left below the fold (wave 6 OC, UI review #1620 L3). */}
-      {error && <div className="w-full"><FocusedAlert message={error} /></div>}
+      {error && <p className="w-full text-red-400">{error}</p>}
     </div>
   );
 }
