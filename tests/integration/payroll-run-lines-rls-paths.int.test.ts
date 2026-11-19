@@ -1,5 +1,5 @@
 /**
- * Wave 6 RLS-L (migration 1010): the product's payroll paths still work with payroll_run_lines under FORCE row level
+ * Wave 6 RLS-L (migration 1011): the product's payroll paths still work with payroll_run_lines under FORCE row level
  * security, through the real routes (withAuth, app_user, the request's claims) on the disposable fixture, two
  * tenants. Every reader and writer of the table the census found on a request path is reached here at least once:
  *  - calculate writes the lines (replaceRunLines) and reads them back (recalc gate, run lines);

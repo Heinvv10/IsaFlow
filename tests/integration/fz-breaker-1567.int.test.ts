@@ -188,7 +188,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
   });
   it('B8 [app_user, no claims]: the lines of a final run the caller cannot see are still frozen', async () => {
     const { run } = await finalRun();
-    // Since 1010 row security hides the lines from a caller without claims: the UPDATE reaches no row. An INSERT is not
+    // Since 1011 row security hides the lines from a caller without claims: the UPDATE reaches no row. An INSERT is not
     // filtered by USING, so the freeze trigger still judges it first, and its finality lookup fails closed.
     await as('app_user_no_claims', async (c) => {
       expect((await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 99999 WHERE run_id = $1', [run])).rowCount).toBe(0);
@@ -199,7 +199,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
   });
   it('B9 [app_user, tenant B]: tenant B cannot delete tenant A\'s final run lines', async () => {
     const { run } = await finalRun();
-    // Since 1010 row security hides A's lines from B: the DELETE reaches no row.
+    // Since 1011 row security hides A's lines from B: the DELETE reaches no row.
     await as('app_user_tenant_b', async (c) => {
       expect((await c.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [run])).rowCount).toBe(0);
     });
@@ -216,7 +216,7 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
   it('D1: a caller who cannot see a run\'s header gets "final" (fail closed): its line write is refused even on a calculated run', async () => {
     const { run } = await finalRun();
     await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [run]);
-    // Since 1010 the UPDATE reaches no row (row security); the INSERT, which USING does not filter, meets the trigger.
+    // Since 1011 the UPDATE reaches no row (row security); the INSERT, which USING does not filter, meets the trigger.
     await as('app_user_no_claims', async (c) => {
       expect((await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run])).rowCount).toBe(0);
     });

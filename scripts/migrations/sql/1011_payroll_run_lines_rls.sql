@@ -1,4 +1,4 @@
--- 1010: row security on payroll_run_lines (wave 6 RLS-L; found by the FZ #1567 breaker).
+-- 1011: row security on payroll_run_lines (wave 6 RLS-L; found by the FZ #1567 breaker).
 --
 -- payroll_run_lines (382) never had row security: no ENABLE, no FORCE, no policy. Its parent payroll_run_headers
 -- has had tenant_isolation since 348/498, but a request that read or wrote lines WITHOUT joining the header (by
@@ -80,11 +80,11 @@ BEGIN
      AND p.policyname <> 'tenant_isolation_via_parent'
      AND (p.roles && ARRAY['app_user', 'public']::name[]);
   IF v_stray IS NOT NULL THEN
-    RAISE EXCEPTION '1010: payroll_run_lines has app_user/PUBLIC policies besides tenant_isolation_via_parent: %', v_stray;
+    RAISE EXCEPTION '1011: payroll_run_lines has app_user/PUBLIC policies besides tenant_isolation_via_parent: %', v_stray;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid = 'public.payroll_run_lines'::regclass
                   AND c.relrowsecurity AND c.relforcerowsecurity) THEN
-    RAISE EXCEPTION '1010: payroll_run_lines is not under ENABLE + FORCE row level security';
+    RAISE EXCEPTION '1011: payroll_run_lines is not under ENABLE + FORCE row level security';
   END IF;
 END
 $$;

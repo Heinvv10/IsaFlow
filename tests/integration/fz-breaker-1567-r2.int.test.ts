@@ -279,7 +279,7 @@ describe('999n breaker round 2: refused', () => {
         await d.query('UPDATE payroll_run_headers SET updated_at = now() WHERE id = ANY($1)', [[finalA, openA]]);
         await d.query('ROLLBACK');
       } finally { d.release(); }
-      // Since 1010 row security hides A's lines from B, so the UPDATE reaches no row; the INSERT, which USING does not
+      // Since 1011 row security hides A's lines from B, so the UPDATE reaches no row; the INSERT, which USING does not
       // filter, meets the freeze trigger, whose lookup answered "final" above.
       expect((await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [openA])).rowCount).toBe(0);
       await c.query('SAVEPOINT w');

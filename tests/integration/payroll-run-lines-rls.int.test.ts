@@ -1,5 +1,5 @@
 /**
- * Wave 6 RLS-L (migration 1010): payroll_run_lines under ENABLE + FORCE row level security, tenant through the parent
+ * Wave 6 RLS-L (migration 1011): payroll_run_lines under ENABLE + FORCE row level security, tenant through the parent
  * payroll_run_headers row (tenant_isolation_via_parent). Two tenants on the disposable fixture, every statement run
  * as app_user with withAuth's claims (sub + app.current_company_id) inside a transaction that is rolled back:
  *  - tenant A cannot SELECT, UPDATE or DELETE B's lines, by line id or by B's run id;
