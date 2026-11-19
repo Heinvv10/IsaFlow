@@ -40,6 +40,12 @@ export interface Emp501Figures {
   warnings: string[];
   totals: Emp501Totals;
   runs: Emp501Run[];
+  /**
+   * Which payroll employee each certificate is for (wave 6 SS-c): the employee portal shows an employee their own
+   * certificate from a FILED version by this map, never by a name or an ID number. Not part of the file or the drift
+   * check (the certificates are), and never in emp501PublicFigures. Absent on a version finalised before SS-c.
+   */
+  certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }>;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -106,7 +112,7 @@ export async function buildEmp501Figures(companyId: string, p: Emp501Period, loc
   }
   return {
     taxYear: p.taxYear, kind: p.kind, employer: input.employer, employees: input.employees.map(storeEmployee), warnings: input.warnings,
-    totals: emp501Totals(input.employees), runs: await finalRuns(companyId, p, lock),
+    totals: emp501Totals(input.employees), runs: await finalRuns(companyId, p, lock), certificateEmployees: input.certificateEmployees,
   };
 }
 

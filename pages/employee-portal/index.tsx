@@ -1,5 +1,6 @@
 /**
- * /employee-portal (wave 6 SS): the signed-in employee's own final payslips (download as PDF) and leave balances.
+ * /employee-portal (wave 6 SS): the signed-in employee's own final payslips (download as PDF), IRP5 certificates from
+ * filed EMP501 versions (SS-c, Irp5Section) and leave balances.
  * Read-only. A 401 from any read means the session ended: back to sign in.
  */
 import { useEffect, useState } from 'react';
@@ -7,6 +8,7 @@ import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/Button';
 import { Money } from '@/components/ui/Money';
 import { PortalShell } from '@/components/employeePortal/PortalShell';
+import { Irp5Section } from '@/components/employeePortal/Irp5Section';
 import { portalCall, PortalCallError } from '@/components/employeePortal/portalFetch';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -86,6 +88,7 @@ export default function EmployeePortalHome() {
           </table>
         )}
       </section>
+      <Irp5Section />
       <section aria-labelledby="leave">
         <h2 id="leave" className="mb-2 text-lg font-semibold">Leave balances</h2>
         {leave?.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-300">No leave balances recorded for this year.</p>}
