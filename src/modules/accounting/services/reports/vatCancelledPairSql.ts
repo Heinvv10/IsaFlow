@@ -1,6 +1,8 @@
 /**
- * Which journals of a CANCELLED document the VAT201 hides for a period, as an SQL fragment: the box basis
- * (vatBoxBasisQuery) splices it.
+ * Which journals of a CANCELLED document the VAT201 hides for a period, as SQL fragments spliced into every reader of
+ * the return: the box basis (vatBoxBasisQuery, fields 1, 1A, 4, 5 ...) and the nil-rated reader (vat201NilRatedSupplies,
+ * fields 2 and 3 and the share field 1 gives back, and its drill vat201NilRatedDrill). ONE definition, because field 1
+ * is the box basis LESS the nil-rated give-back: two rules for one journal declare the same rand twice, or not at all.
  *
  * THE PAIR RULE (K-032). A cancellation posts a reversing journal that no document row links to. The pair is only ever
  * hidden TOGETHER: when the original and its reversal both fall in the period, neither counts. resolveReversalDate pushes
@@ -9,7 +11,16 @@
  * in the later one. So an original whose posted reversal falls outside this period is not hidden; a cancelled document
  * never reversed still is. Recursive: a hand reversal of the reversal is hidden with them.
  *
- * The box basis reads it today; the nil-rated reader is to share it, so the two cannot drift.
+ * The base list names cancelled customer AND supplier documents. The nil-rated reader reads only revenue lines, which
+ * customer documents post; a bill line may name a revenue account (billLineAccountGuard does not refuse one), and then
+ * the shared list hides it exactly as the box basis already did. A cancelled invoice (either side) nulls its journal
+ * link on cancel, so its journals are in no list and simply count, each in its own period.
+ *
+ * UNCODED revenue (no VAT code) counts in the nil-rated reader only where a zero-tax customer document stands behind it
+ * (`untaxed_documents`: a live document's own journal, unchanged). A CANCELLED zero-tax document keeps its uncoded legs
+ * countable along its whole reversal chain (`untaxed_cancelled_chain`), so the pair rule alone decides them, exactly as
+ * it decides coded legs: same period, the pair contributes nothing; across periods, the original keeps the period it
+ * was filed in and the reversal carries the equal and opposite into the later one.
  */
 import { sql } from '@/lib/neon';
 
@@ -72,4 +83,56 @@ export function cancelledEntriesCteSql(companyId: string, periodStart: string, p
           AND parent.entry_date >= ${periodStart}::DATE
           AND parent.entry_date <= ${periodEnd}::DATE
     )`;
+}
+
+/**
+ * `untaxed_documents AS (...), untaxed_cancelled_chain AS (...)`: the journals whose UNCODED revenue legs the nil-rated
+ * reader counts (as zero-rated), before the pair rule hides any. Spliced after another CTE of a `WITH RECURSIVE`.
+ *   - untaxed_documents: the journal a live (not cancelled) zero-tax customer invoice or customer note links.
+ *   - untaxed_cancelled_chain: the journal a CANCELLED zero-tax one still links, and every posted reversal down its
+ *     chain. Without it the pair rule could not keep such an original in its own, filed period, nor carry its
+ *     reversal into the later one: the original belongs to no live document, the reversal to no document at all.
+ */
+export function untaxedJournalsCteSql(companyId: string) {
+  return sql`untaxed_documents AS (
+      SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
+        WHERE ci.company_id = ${companyId}::UUID
+          AND COALESCE(ci.tax_amount, 0) = 0
+          AND ci.status <> ALL(${CANCELLED_STATUSES as string[]}::TEXT[])
+          AND ci.gl_journal_entry_id IS NOT NULL
+      UNION
+      SELECT cn.gl_journal_entry_id FROM credit_notes cn
+        WHERE cn.company_id = ${companyId}::UUID
+          AND cn.type = 'customer'
+          AND COALESCE(cn.tax_amount, 0) = 0
+          AND cn.status <> ALL(${CANCELLED_STATUSES as string[]}::TEXT[])
+          AND cn.gl_journal_entry_id IS NOT NULL
+    ),
+    untaxed_cancelled_chain AS (
+      SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
+        WHERE ci.company_id = ${companyId}::UUID
+          AND COALESCE(ci.tax_amount, 0) = 0
+          AND ci.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
+          AND ci.gl_journal_entry_id IS NOT NULL
+      UNION
+      SELECT cn.gl_journal_entry_id FROM credit_notes cn
+        WHERE cn.company_id = ${companyId}::UUID
+          AND cn.type = 'customer'
+          AND COALESCE(cn.tax_amount, 0) = 0
+          AND cn.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
+          AND cn.gl_journal_entry_id IS NOT NULL
+      UNION
+      SELECT rev.id FROM gl_journal_entries rev
+        JOIN untaxed_cancelled_chain c ON c.id = rev.reversal_of_id
+        WHERE rev.company_id = ${companyId}::UUID
+          AND rev.status = 'posted'
+    )`;
+}
+
+/** The uncoded-leg arm of the nil-rated predicate, over aliases `jl` (line) and `je` (its journal). */
+export function uncodedLegCountsSql() {
+  return sql`(jl.vat_type IS NULL AND (
+        je.id IN (SELECT id FROM untaxed_documents)
+        OR je.id IN (SELECT id FROM untaxed_cancelled_chain)
+      ))`;
 }
