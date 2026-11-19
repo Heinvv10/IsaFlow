@@ -10,6 +10,8 @@ const TERM_ARGS = [
   'tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'occupation', 'eti_id_document',
   // wave 6 PSP: the entity (company or trust) a personal service provider is taxed as; refused, never silently dropped.
   'psp_entity_type',
+  // wave 6 PSP-H: the entity particulars of its H certificate.
+  'psp_entity_name', 'psp_registration_number', 'psp_tax_reference',
 ] as const;
 /** Either spelling: the REST body's camelCase is refused as well as the tool's snake_case. */
 const camel = (k: string) => k.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());

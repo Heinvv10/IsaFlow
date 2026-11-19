@@ -42,6 +42,10 @@ export interface PayrollEmployee {
   taxStatus: TaxStatus;
   /** Set exactly when taxStatus is personal_service_provider (migration 1013). */
   pspEntityType?: PspEntityType | null;
+  /** A PSP's entity particulars for its H certificate (migration 1014, payrollEmployeePspEntity): trading name, registration number, tax reference. */
+  pspEntityName?: string | null;
+  pspRegistrationNumber?: string | null;
+  pspTaxReference?: string | null;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
   hoursPerDay?: number | null;

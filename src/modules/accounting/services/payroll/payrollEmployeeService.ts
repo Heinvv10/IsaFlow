@@ -1,4 +1,5 @@
 import { pspEntityChangeWarning, pspSwitchWarning } from './pspFiling';
+import { pspParticularsFromRow, pspParticularsOfPatch, type PspParticulars } from './payrollEmployeePspEntity';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -36,6 +37,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
     payFrequency: payFrequencyOf(r.pay_frequency),
     ...termsFromRow(r),
+    ...pspParticularsFromRow(r),
   };
 }
 
@@ -180,7 +182,11 @@ export async function updatePayrollEmployee(
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
     || dobIso !== null || data.idNumber !== undefined
     || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const).some(has);
-  const write = (db: typeof sql, now: Row) => db`
+  // PSP-H (1014): the entity particulars, judged against the row as locked (its status and entity after this patch).
+  const particularsOf = (now: Row) => pspParticularsOfPatch(data as Record<string, unknown>,
+    has('taxStatus') ? data.taxStatus : termsFromRow(now).taxStatus,
+    has('pspEntityType') ? data.pspEntityType : termsFromRow(now).pspEntityType, (m) => new EmployeeTermsRefused(m));
+  const write = (db: typeof sql, now: Row, pp: Partial<PspParticulars> = particularsOf(now)) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
       last_name                    = COALESCE(${data.lastName ?? null}, last_name),
@@ -203,6 +209,9 @@ export async function updatePayrollEmployee(
       occupation                   = CASE WHEN ${has('occupation')} THEN ${data.occupation ?? null} ELSE occupation END,
       eti_id_document              = CASE WHEN ${has('etiIdDocument')} THEN ${data.etiIdDocument ?? null} ELSE eti_id_document END,
       psp_entity_type              = CASE WHEN ${has('pspEntityType')} THEN ${data.pspEntityType ?? null} ELSE psp_entity_type END,
+      psp_entity_name              = CASE WHEN ${pp.pspEntityName !== undefined} THEN ${pp.pspEntityName ?? null} ELSE psp_entity_name END,
+      psp_registration_number      = CASE WHEN ${pp.pspRegistrationNumber !== undefined} THEN ${pp.pspRegistrationNumber ?? null} ELSE psp_registration_number END,
+      psp_tax_reference            = CASE WHEN ${pp.pspTaxReference !== undefined} THEN ${pp.pspTaxReference ?? null} ELSE psp_tax_reference END,
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
