@@ -98,6 +98,8 @@ export interface SelectOption {
   code?: string;
   name: string;
   defaultVatCode?: string;
+  /** A CC2's FNO: the code of the CC1 its parent chain reaches (cost-centres?detail=dimensions); null when none. */
+  fnoCode?: string | null;
   /** VAT Act s17(2)(a): claiming input tax here warrants a warning. */
   vatInputDenied?: boolean;
 }
