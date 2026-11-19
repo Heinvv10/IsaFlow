@@ -77,7 +77,8 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
    cannot reopen a PO someone deliberately reopened and closed again (review M3; the 4-step case is tested). -> approved runs the budget check
    NORMALLY (the import's `skip_budget_check_for_import` does not apply: a status fix is not a load) and stamps
    `approved_by` / `approved_at`; -> closed records `closed_from_status` (always `approved`) as `close_purchase_order` does; leaving
-   closed clears it.
+   closed clears it. The audit row of a set status that leaves closed names the links whose closing record it cleared
+   (`cleared_link_records`, `cleared_links`: link id, bill, what the record said).
    partially_received / received are never targets (they come from receipts) and refused as sources.
 5. **`bulk_create_purchase_orders` changes:**
    - `dry_run` reports per PO `budget_check` (`outcome` ok | warn | block, `policy`, `reasons`; null for a PO that is not
@@ -106,7 +107,7 @@ is `feat/invoice-line-vat-schema-readers-20261119`).
 
 | Writer | Order |
 |---|---|
-| bill create (REST / MCP, `createSupplierInvoice`) | the named POs `FOR KEY SHARE` in id order, re-checking the PO lines under it (review M1: before this, an update could replace the lines between the check and the line insert), BEFORE the bill and its lines are written; the bill row is new, so no other writer can hold it first; then `recordBillLinks`' same KEY SHARE (re-entrant) |
+| bill create (REST / MCP, `createSupplierInvoice`) | the named POs `FOR KEY SHARE` in id order, re-checking the PO lines under it (review M1: before this, an update could replace the lines between the check and the line insert), BEFORE the bill and its lines are written; the bill row is new, so no other writer can hold it first; then `recordBillLinks`' same KEY SHARE (re-entrant). The wait is bounded like every PO lock (5 s, typed `PURCHASE_ORDER_LOCK_TIMEOUT`, 503): the REST route has reserved the bill number by then, but a 503 rolls the request transaction back with the reservation, so no number is burned; the MCP create reserves none |
 | `update_purchase_order` | prepare reads (account rows `FOR SHARE`, items, suppliers) -> budget gate (**approved PO only**, block policy only) -> PO row `FOR UPDATE` -> reads of receipts / links / bill lines (no bill row locks) -> writes -> budget check (reads) |
 | `cancel_purchase_order` | PO row `FOR UPDATE` (draft / submitted / approved: the existing "PO cancel" row) |
 | `close_purchase_order` | PO row `FOR UPDATE`; reads links (no bill locks); takes no budget gate (releasing a commitment cannot overspend) |
@@ -126,5 +127,5 @@ PO row (link and unlink hold it `FOR NO KEY UPDATE`, which still conflicts with 
   (`assertBillPoLinks` takes `LINKABLE_PO_STATUSES`, as the link tool does), but, closed POs committing nothing, they net nothing.
 - An approved PO's update checks the budget after the write (inside the savepoint) where the Approve action checks before it;
   the outcome is the same, a refusal leaves nothing.
-- A bill header naming the PO counts as a link for the update guard even when the bill is a draft that was never linked.
+- A bill line naming a PO line with no link row (a row removed by hand) ties the PO for the guards but unlink answers "not linked" for it; the app's create/edit always writes the app link, so this needs data that bypassed them.
 - Remaining quantity on close is ordered less received; bills are not netted (a bill line links to a PO line, receipts do not).
