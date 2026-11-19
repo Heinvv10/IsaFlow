@@ -35,11 +35,8 @@ function table(doc: JsPdfDoc, autoTable: AutoTable, y: number, title: string, li
   return ((doc as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y) + 4;
 }
 
-export async function buildIrp5CopyPdf(c: CertificateView): Promise<Buffer> {
-  const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-  const doc: JsPdfDoc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  if (c.filedAt) doc.setCreationDate(new Date(c.filedAt));
-  doc.setFileId(createHash('sha256').update(`${c.versionId}:${c.certificateNumber}`).digest('hex').slice(0, 32).toUpperCase());
+/** Draws the copy on `doc` (exported so a test can watch every text it places against the page bounds). */
+export function drawIrp5Copy(doc: JsPdfDoc, autoTable: unknown, c: CertificateView): void {
   const width: number = doc.internal.pageSize.getWidth();
   const height: number = doc.internal.pageSize.getHeight();
   doc.setFontSize(14);
@@ -66,7 +63,7 @@ export async function buildIrp5CopyPdf(c: CertificateView): Promise<Buffer> {
     y += Math.max(1, lines.length) * LINE + 0.8;
   }
   y += 2;
-  const at = autoTable as unknown as AutoTable;
+  const at = autoTable as AutoTable;
   y = table(doc, at, y, 'Income', c.income);
   y = table(doc, at, y, 'Deductions', c.deductions);
   y = table(doc, at, y, 'Tax, UIF and SDL', c.tax);
@@ -76,6 +73,14 @@ export async function buildIrp5CopyPdf(c: CertificateView): Promise<Buffer> {
   const placed = notePlacement(y, note.length, height);
   if (placed.newPage) doc.addPage();
   doc.text(note, MARGIN, placed.y);
+}
+
+export async function buildIrp5CopyPdf(c: CertificateView): Promise<Buffer> {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc: JsPdfDoc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  if (c.filedAt) doc.setCreationDate(new Date(c.filedAt));
+  doc.setFileId(createHash('sha256').update(`${c.versionId}:${c.certificateNumber}`).digest('hex').slice(0, 32).toUpperCase());
+  drawIrp5Copy(doc, autoTable, c);
   return Buffer.from(doc.output('arraybuffer'));
 }
 

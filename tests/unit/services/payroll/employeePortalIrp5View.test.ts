@@ -1,7 +1,7 @@
 /** Wave 6 SS-c: the portal's view of one filed certificate, and its PDF copy. */
 import { describe, expect, it } from 'vitest';
 import { certificateView } from '@/modules/accounting/services/payroll/employeePortalIrp5View';
-import { buildIrp5CopyPdf } from '@/modules/accounting/services/payroll/employeePortalIrp5Pdf';
+import { buildIrp5CopyPdf, drawIrp5Copy, IRP5_COPY_NOTE } from '@/modules/accounting/services/payroll/employeePortalIrp5Pdf';
 import type { StoredEmployee } from '@/modules/accounting/services/returns/emp501Figures';
 
 const cert: StoredEmployee = {
@@ -50,33 +50,31 @@ describe('buildIrp5CopyPdf', () => {
   });
 });
 
-/** Every text item of every page, with the page's size (pdfjs reads the positions jsPDF wrote). */
-async function textItems(pdf: Buffer): Promise<Array<{ str: string; x: number; y: number; w: number; pageW: number; pageH: number }>> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const docu = await pdfjs.getDocument({ data: new Uint8Array(pdf), useSystemFonts: false }).promise;
-  const out: Array<{ str: string; x: number; y: number; w: number; pageW: number; pageH: number }> = [];
-  for (let n = 1; n <= docu.numPages; n += 1) {
-    const page = await docu.getPage(n);
-    const { width, height } = page.getViewport({ scale: 1 });
-    for (const it of (await page.getTextContent()).items as Array<{ str: string; transform: number[]; width: number }>) {
-      if (it.str.trim()) out.push({ str: it.str, x: it.transform[4]!, y: it.transform[5]!, w: it.width, pageW: width, pageH: height });
-    }
-  }
-  return out;
-}
-
 describe('buildIrp5CopyPdf layout (review #1649 L3)', () => {
-  it('keeps every text inside the page with a very long employer name and many code rows', async () => {
-    const many = Array.from({ length: 70 }, (_, i) => ({ sourceCode: String(3801 + i), amount: 1000 + i }));
+  it('keeps every text it places inside the margins, with a very long employer name and many code rows', async () => {
+    // 52 rows end the last table at about 282 mm on page 2 (measured), so the note must start page 3.
+    const many = Array.from({ length: 52 }, (_, i) => ({ sourceCode: String(3801 + i), amount: 1000 + i }));
     const long = 'The Extremely Long Registered Trading Name Of A South African Employer (Proprietary) Limited '.repeat(4).trim();
     const v = certificateView(version, { ...employer, tradingName: long }, { ...cert, fringeBenefits: many });
-    const items = await textItems(await buildIrp5CopyPdf(v));
-    const outside = items.filter((i) => i.x < 0 || i.x + i.w > i.pageW + 0.5 || i.y < 0 || i.y > i.pageH);
-    expect(outside).toEqual([]);
-    const text = items.map((i) => i.str).join(' ');
-    expect(text).toContain('Limited');
-    expect(text).toContain('not the SARS certificate form');
-    expect(text).toContain(String(3801 + 69));
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const placed: Array<{ line: string; x: number; y: number; page: number; right: number }> = [];
+    const text = doc.text.bind(doc);
+    // Watch every text the copy draws itself (autoTable's cells are its own, kept in bounds by its margins).
+    doc.text = ((t: string | string[], x: number, y: number, ...rest: unknown[]) => {
+      [t].flat().forEach((line, k) => placed.push({
+        line, x, y: y + k * doc.getLineHeight() / doc.internal.scaleFactor, page: doc.getCurrentPageInfo().pageNumber,
+        right: x + doc.getTextWidth(line),
+      }));
+      return (text as (...a: unknown[]) => unknown)(t, x, y, ...rest);
+    }) as typeof doc.text;
+    drawIrp5Copy(doc, autoTable, v);
+    const outside = placed.filter((p) => p.x < 14 || p.right > W - 14 + 0.01 || p.y > H - 14 + 0.01);
+    expect(outside.map((p) => `${p.line.slice(0, 30)}… page ${p.page} right=${p.right.toFixed(1)} y=${p.y.toFixed(1)}`)).toEqual([]);
+    expect(placed.some((p) => p.line.endsWith('Limited (PAYE 7000000000)'))).toBe(true);
+    const note = placed.filter((p) => IRP5_COPY_NOTE.startsWith(p.line.slice(0, 20)));
+    expect(note[0]?.page).toBe(doc.getNumberOfPages());
   });
 });
-
