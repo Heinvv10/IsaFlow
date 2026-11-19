@@ -11,7 +11,9 @@ import { BILLED_STATUSES } from '../budgets/remainingCommitted';
 import { billedByPoItem, billedCentsByPo } from './purchaseOrderBilled';
 import { isFullyBilled } from './purchaseOrderBillLinkTypes';
 
-export const DETAIL_CAPS = { lines: 150, bills: 100, grns: 50, grnItems: 150, documents: 50 } as const;
+/** Caps and text limits sized so the widest reply (`poBillLinkTools.test.ts`) stays under MAX_READ_RESULT_BYTES. Lines page by offset. */
+export const DETAIL_CAPS = { lines: 40, bills: 30, grns: 15, grnItems: 45, documents: 15 } as const;
+const TEXT_CAP = 150;
 
 type Obj = Record<string, unknown>;
 
@@ -21,12 +23,15 @@ const day = (v: unknown): string | null => {
   return String(v).slice(0, 10);
 };
 const text = (v: unknown): string | null => (v == null ? null : String(v));
+const short = (v: unknown): string | null => (v == null ? null : String(v).slice(0, TEXT_CAP));
 const rand = (cents: number) => cents / 100;
 
 export interface PurchaseOrderDetail {
   purchase_order: Obj;
   lines: Obj[];
   lines_total: number;
+  /** The offset of the next page of lines, null on the last. */
+  next_offset: number | null;
   bills: Obj[];
   bills_total: number;
   goods_received_notes: Obj[];
@@ -39,7 +44,7 @@ export interface PurchaseOrderDetail {
 }
 
 export async function readPurchaseOrderDetail(
-  companyId: string, key: { poId: string | null; poNumber: string | null },
+  companyId: string, key: { poId: string | null; poNumber: string | null }, linesOffset = 0,
 ): Promise<PurchaseOrderDetail | null> {
   const head = ((await sql`
     SELECT po.*, s.name AS supplier_name FROM purchase_orders po
@@ -52,7 +57,7 @@ export async function readPurchaseOrderDetail(
     SELECT pi.id, pi.description, pi.quantity, pi.unit_price, pi.tax_rate, pi.line_total, pi.tax_amount, pi.quantity_received,
            pi.gl_account_id, pi.sort_order, count(*) OVER ()::INT AS total_rows
       FROM po_items pi WHERE pi.purchase_order_id = ${poId}::UUID
-     ORDER BY pi.sort_order, pi.id LIMIT ${DETAIL_CAPS.lines}
+     ORDER BY pi.sort_order, pi.id LIMIT ${DETAIL_CAPS.lines} OFFSET ${linesOffset}
   `) as DbRow[];
   const billed = await billedByPoItem(companyId, lineRows.map((r) => String(r.id)));
   const lines = lineRows.map((r) => {
@@ -61,7 +66,7 @@ export async function readPurchaseOrderDetail(
     const received = Number(r.quantity_received ?? 0);
     const totalCents = toCents(Number(r.line_total));
     return {
-      id: String(r.id), description: String(r.description), quantity_ordered: qty, quantity_received: received, quantity_billed: b.qty,
+      id: String(r.id), description: short(r.description), quantity_ordered: qty, quantity_received: received, quantity_billed: b.qty,
       unit_price: Number(r.unit_price), tax_rate: text(r.tax_rate) === null ? null : Number(r.tax_rate),
       line_total: rand(totalCents), tax_amount: Number(r.tax_amount ?? 0), amount_billed: rand(b.amountCents),
       outstanding_quantity_to_receive: Math.max(0, qty - received), outstanding_quantity_to_bill: Math.max(0, qty - b.qty),
@@ -101,11 +106,12 @@ export async function readPurchaseOrderDetail(
     purchase_order: {
       id: poId, po_number: String(head.po_number), supplier_id: String(head.supplier_id), supplier_name: text(head.supplier_name),
       status: String(head.status), order_date: day(head.order_date), delivery_date: day(head.expected_delivery_date),
-      reference: text(head.reference), notes: text(head.notes), subtotal: Number(head.subtotal ?? 0), tax_amount: Number(head.tax_amount ?? 0),
+      reference: short(head.reference), notes: text(head.notes)?.slice(0, 500) ?? null, subtotal: Number(head.subtotal ?? 0), tax_amount: Number(head.tax_amount ?? 0),
       total: Number(head.total ?? 0), external_system: text(head.external_system), external_ref: text(head.external_ref),
       external_document_number: text(head.external_document_number),
     },
     lines, lines_total: lineRows[0] ? Number(lineRows[0].total_rows) : 0,
+    next_offset: lineRows.length > 0 && linesOffset + lineRows.length < Number(lineRows[0]!.total_rows) ? linesOffset + lineRows.length : null,
     bills: billRows.map((r) => ({
       link_id: String(r.link_id), bill_id: String(r.bill_id), invoice_number: String(r.invoice_number), status: String(r.status),
       invoice_date: day(r.invoice_date), subtotal: Number(r.subtotal), total_amount: Number(r.total_amount), linked_amount: Number(r.amount),
@@ -113,14 +119,14 @@ export async function readPurchaseOrderDetail(
     })),
     bills_total: billRows[0] ? Number(billRows[0].total_rows) : 0,
     goods_received_notes: grnRows.map((g) => ({
-      id: String(g.id), grn_number: String(g.grn_number), received_date: day(g.received_date), status: String(g.status), received_by: text(g.received_by),
+      id: String(g.id), grn_number: String(g.grn_number), received_date: day(g.received_date), status: String(g.status), received_by: short(g.received_by),
       items: grnItems.filter((i) => String(i.grn_id) === String(g.id)).map((i) => ({
         po_item_id: String(i.po_item_id), quantity_received: Number(i.quantity_received), quantity_rejected: Number(i.quantity_rejected ?? 0),
       })),
     })),
     goods_received_notes_total: grnRows[0] ? Number(grnRows[0].total_rows) : 0,
     documents: docs.map((d) => ({
-      id: String(d.id), name: text(d.document_name), document_type: text(d.document_type), mime_type: text(d.mime_type),
+      id: String(d.id), name: short(d.document_name), document_type: text(d.document_type), mime_type: text(d.mime_type),
       size: d.file_size == null ? null : Number(d.file_size), uploaded_at: d.uploaded_at == null ? null : new Date(d.uploaded_at as string).toISOString(),
     })),
     documents_total: docs[0] ? Number(docs[0].total_rows) : 0,

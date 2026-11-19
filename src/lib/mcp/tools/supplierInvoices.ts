@@ -30,7 +30,7 @@ import {
   toolError,
 } from './toolHelpers';
 
-const THREE_WAY_LINE_CAP = 100;
+const THREE_WAY_LINE_CAP = 30;
 
 const STATUSES = [
   'draft', 'pending_approval', 'approved', 'partially_paid', 'paid',
@@ -176,7 +176,7 @@ export const getSupplierInvoiceTool: McpTool = {
         lines_total: linked.length,
         lines_without_po_line: match.itemResults.length - linked.length,
         lines: linked.slice(0, THREE_WAY_LINE_CAP).map((l) => ({
-          invoice_item_id: l.invoiceItemId, description: l.description, status: l.lineMatchStatus,
+          invoice_item_id: l.invoiceItemId, status: l.lineMatchStatus,
           quantity: { po: l.poQuantity, grn: l.grnQuantityReceived, invoice: l.invoiceQuantity, variance_percent: l.qtyVariancePct },
           unit_price: { po: l.poUnitPrice, invoice: l.invoiceUnitPrice, variance_percent: l.priceVariancePct },
           mismatches: l.mismatches,
