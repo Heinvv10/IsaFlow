@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/Select';
 import { DateField } from '@/components/ui/DateField';
 import { MoneyField } from '@/components/ui/MoneyField';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
+import { FocusedAlert } from '@/components/payroll/offCycle/FocusedAlert';
 import { log } from '@/lib/logger';
 import { todayInSast } from '@/lib/saDateParser';
 import { ArrowLeft, Gift, Loader2 } from 'lucide-react';
@@ -93,7 +95,7 @@ export default function NewOffCycleRunPage() {
         </div>
 
         <form onSubmit={submit} className="p-4 sm:p-6 max-w-2xl space-y-6">
-          {shownError && <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm">{shownError}</div>}
+          <FocusedAlert message={shownError} />
           <div className={card}>
             <Select id="oc-month" label="Month (its approved regular run)" required value={runId} loading={loading}
               options={runs.map((r) => ({ value: r.id, label: monthLabel(r) }))} emptyText="No approved regular run yet"
@@ -103,9 +105,11 @@ export default function NewOffCycleRunPage() {
             <DateField id="oc-date" label="Pay date" required value={runDate} onChange={(iso) => setRunDate(iso)}
               minDate={run && lastDay && today <= lastDay ? (today > `${monthKey(run)}-01` ? today : `${monthKey(run)}-01`) : undefined}
               maxDate={lastDay} disabled={!run || !lastDay || today > lastDay} resetKey={runId ?? ''}
-              helperText={run && lastDay && today > lastDay
-                ? 'Too late for that month: an off-cycle run is paid today or later, before the regular run\'s pay date.'
-                : `Today or later, and before the regular run's pay date (by ${lastDay ?? 'its month end'}).`} />
+              helperText={!run || !lastDay
+                ? 'Choose the month first. The pay date is today or later, before that month\'s regular run is paid.'
+                : today > lastDay
+                  ? 'Too late for that month: an off-cycle run is paid today or later, before the regular run is paid.'
+                  : `Today or later, and no later than ${formatDisplayDate(lastDay)} (the day before the regular run is paid).`} />
             {reason === 'bonus' && (
               <Select id="oc-component" label="Bonus earning (SARS 3605)" required value={componentId}
                 options={components.map((c) => ({ value: c.id, label: c.name }))} emptyText="No annual-payment (3605) earning: add one under Pay components"

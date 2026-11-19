@@ -43,7 +43,7 @@ export default function PayrollRunsListPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-4 sm:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <CalendarDays className="h-6 w-6 text-teal-500" />
@@ -54,9 +54,9 @@ export default function PayrollRunsListPage() {
               </div>
             </div>
             {mayWrite && (
-              <div className="flex items-center gap-2">
-                <Link href="/payroll/runs/off-cycle" className="px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium">Off-cycle run</Link>
-                <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href="/payroll/runs/off-cycle" className="flex items-center justify-center whitespace-nowrap min-h-[44px] px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium">Off-cycle run</Link>
+                <Link href="/payroll/runs/new" className="flex items-center gap-2 whitespace-nowrap min-h-[44px] px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
                   <Plus className="h-4 w-4" /> New Payroll Run
                 </Link>
               </div>

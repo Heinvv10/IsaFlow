@@ -39,7 +39,7 @@ describe('the request shape', () => {
   });
   it('the pay date: a real day, in the run\'s month, not in the past', () => {
     expect(refused(bonus({ runDate: '2026-11-31' }))).toMatch(/date/);
-    expect(refused(bonus({ runDate: '2026-12-01' }))).toMatch(/must be in 2026-11/);
+    expect(refused(bonus({ runDate: '2026-12-01' }))).toMatch(/must be in November 2026/);
     expect(refused(bonus({ runDate: '2026-11-16' }))).toMatch(/has passed/);
   });
   it('an amount in rand and cents passes whatever its float error; a third decimal is refused (review #1620 H1)', () => {
@@ -53,7 +53,7 @@ describe('the request shape', () => {
     expect(refused(bonus({ employees: [] }))).toMatch(/at least one/);
     expect(refused(bonus({ employees: [{ employeeId: E1, componentId: C1, amount: 1 }, { employeeId: E1, componentId: C1, amount: 2 }] }))).toMatch(/twice/);
     expect(refused(bonus({ employees: [{ employeeId: 'x', componentId: C1, amount: 1 }] }))).toMatch(/employeeId/);
-    expect(refused(bonus({ employees: [{ employeeId: E1, amount: 1 }] }))).toMatch(/annual-payment component/);
+    expect(refused(bonus({ employees: [{ employeeId: E1, amount: 1 }] }))).toMatch(/annual-payment earning/);
     for (const amount of [0, -5, 1.005, Number.NaN, 200_000_000]) {
       expect(refused(bonus({ employees: [{ employeeId: E1, componentId: C1, amount }] }))).toMatch(/more than nil, in rand and cents/);
     }

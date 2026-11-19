@@ -26,7 +26,7 @@ const p: Record<string, string> = {};
 const regular: Record<string, string> = {};
 
 const create = (r: Rig, body: Record<string, unknown>) =>
-  r.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, { body: { month: 11, year: 2026, runDate: '2026-11-27', ...body } });
+  r.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, { body: { month: 11, year: 2026, runDate: '2026-11-20', ...body } });
 const bonus = (r: Rig, who: string, runDate: string, amount = 1_000) =>
   create(r, { reason: 'bonus', runDate, employees: [{ employeeId: who, componentId: bonusOf[r.company], amount }] });
 const n = async (r: Rig, q: string, params: unknown[]) => Number((await r.pool.query(q, params)).rows[0].n);
@@ -79,7 +79,7 @@ afterAll(async () => {
 
 describe('M1: an off-cycle run is approved only on the month\'s runs as they stand', () => {
   it('the regular run reopened and approved again after the bonus was calculated: the bonus is refused until recalculated', async () => {
-    const made = await bonus(a, p.x!, '2026-11-27');
+    const made = await bonus(a, p.x!, '2026-11-18');
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const x = String(made.body.data!.id);
     expect((await a.api.calculate(x)).statusCode).toBe(200);
@@ -118,20 +118,20 @@ describe('M1: an off-cycle run is approved only on the month\'s runs as they sta
 
 describe('M2: every create refusal writes nothing', () => {
   it('an employee already on an open off-cycle run of the month: 409', async () => {
-    expect((await bonus(a, p.open!, '2026-11-26')).statusCode).toBe(201);
+    expect((await bonus(a, p.open!, '2026-11-19')).statusCode).toBe(201);
     const before = await runs(a);
-    const again = await bonus(a, p.open!, '2026-11-26');
+    const again = await bonus(a, p.open!, '2026-11-20');
     expect(again.statusCode).toBe(409);
-    expect(a.msg(again)).toMatch(/already on an off-cycle run of 2026-11 that is not approved/);
+    expect(a.msg(again)).toMatch(/^Brk BRK-\d+ \(BRK-\d+\) is already on the bonus run paid 19 Nov 2026, which is not approved\. Approve that run, or cancel it/);
     expect(await runs(a)).toBe(before);
   });
 
   it('a bonus for an employee with no line on the regular run: 409', async () => {
     const newcomer = (await a.employee(9_000)).employee;
     const before = await runs(a);
-    const made = await bonus(a, newcomer, '2026-11-26');
+    const made = await bonus(a, newcomer, '2026-11-20');
     expect(made.statusCode).toBe(409);
-    expect(a.msg(made)).toMatch(/have no line on the 2026-11 regular run/);
+    expect(a.msg(made)).toMatch(/is not on the November 2026 regular run/);
     expect(await runs(a)).toBe(before);
   });
 
@@ -147,7 +147,7 @@ describe('M2: every create refusal writes nothing', () => {
     const before = await runs(a);
     const made = await create(a, { reason: 'termination', employees: [{ employeeId: p.stayer }] });
     expect(made.statusCode).toBe(409);
-    expect(a.msg(made)).toMatch(/have no end date in 2026-11/);
+    expect(a.msg(made)).toMatch(/is not leaving in November 2026/);
     expect(await runs(a)).toBe(before);
   });
 
@@ -155,13 +155,13 @@ describe('M2: every create refusal writes nothing', () => {
     const before = await runs(a);
     const made = await create(a, { reason: 'termination', employees: [{ employeeId: p.paidLeaver }] });
     expect(made.statusCode).toBe(409);
-    expect(a.msg(made)).toMatch(/termination pay-outs were already paid in the 2026-11 run/);
+    expect(a.msg(made)).toMatch(/termination pay-outs were already paid in the November 2026 run/);
     expect(await runs(a)).toBe(before);
   });
 
   it('two creates for one employee at once: one run, one 409 (the regular run\'s row lock serialises them)', async () => {
     const before = await runs(a);
-    const got = await Promise.all([bonus(a, p.race!, '2026-11-26', 10), bonus(a, p.race!, '2026-11-26', 20)]);
+    const got = await Promise.all([bonus(a, p.race!, '2026-11-21', 10), bonus(a, p.race!, '2026-11-21', 20)]);
     expect(got.map((g) => g.statusCode).sort()).toEqual([201, 409]);
     expect(await runs(a)).toBe(before + 1);
     expect(await n(a, 'SELECT count(*) AS n FROM payroll_off_cycle_employees WHERE employee_id = $1', [p.race])).toBe(1);
@@ -173,7 +173,7 @@ describe('M2: every create refusal writes nothing', () => {
       await holder.query('BEGIN');
       await holder.query('SELECT id FROM payroll_run_headers WHERE id = $1 FOR SHARE', [regular[a.company]]);
       let settled = false;
-      const pending = bonus(a, p.race2!, '2026-11-26').then((r) => { settled = true; return r; });
+      const pending = bonus(a, p.race2!, '2026-11-22').then((r) => { settled = true; return r; });
       await new Promise((r) => setTimeout(r, 1_000));
       expect(settled, 'the create must wait on the regular run\'s row lock').toBe(false);
       await holder.query('COMMIT');
@@ -191,7 +191,7 @@ describe('M2: the payroll_off_cycle_employees_guard trigger refuses forged rows'
     // Resigned after the regular run's last calculation: their pay-outs are the termination run's.
     await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-20', termination_reason = 'resignation',
       termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [p.leaver]);
-    const term = await create(a, { reason: 'termination', employees: [{ employeeId: p.leaver }] });
+    const term = await create(a, { reason: 'termination', runDate: '2026-11-23', employees: [{ employeeId: p.leaver }] });
     expect(term.statusCode, JSON.stringify(term.body)).toBe(201);
     const draftTermination = String(term.body.data!.id);
     const approved = String((await a.pool.query(`SELECT id FROM payroll_run_headers WHERE company_id = $1 AND run_kind = 'off_cycle'

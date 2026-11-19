@@ -5,6 +5,8 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { formatDisplayDate } from '@/utils/dateFormat';
+import { CancelOffCycleRun } from '@/components/payroll/offCycle/CancelOffCycleRun';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { PayrollApproveDialog } from '@/components/payroll/PayrollApproveDialog';
@@ -70,7 +72,7 @@ export default function PayrollRunDetailPage() {
 
   const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
-  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}${runKindSuffix(run)}${run.runKind === 'off_cycle' && run.runDate ? `, paid ${run.runDate}` : ''}`;
+  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}${runKindSuffix(run)}${run.runKind === 'off_cycle' && run.runDate ? `, paid ${formatDisplayDate(run.runDate)}` : ''}`;
   const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}`, employeeName: l.employeeName });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
@@ -103,6 +105,7 @@ export default function PayrollRunDetailPage() {
           calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()} />
 
         <div className="p-6 space-y-6">
+          <CancelOffCycleRun runId={runId} run={run} companyRole={companyRole} onCancelled={() => void load()} />
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />
           <SelfApprovedNote decision={run.approvalDecision} />

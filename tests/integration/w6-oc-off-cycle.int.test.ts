@@ -26,7 +26,7 @@ const people: Record<'high' | 'young' | 'leaver' | 'spare1' | 'spare2', string> 
 let regular = '';
 
 const create = (r: typeof a, body: Record<string, unknown>) =>
-  r.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, { body: { month: 11, year: 2026, runDate: '2026-11-27', ...body } });
+  r.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, { body: { month: 11, year: 2026, runDate: '2026-11-29', ...body } });
 const line = async (runId: string, employee: string) => (await a.pool.query(
   `SELECT paye::float8, uif_employee::float8 AS uif, eti::float8, periodic_taxable::float8 AS periodic, annual_taxable::float8 AS annual,
           gross_pay::float8 AS gross, component_breakdown FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [runId, employee])).rows[0];
@@ -67,13 +67,13 @@ afterAll(async () => {
 describe('OC: a bonus run after the month\'s regular run', () => {
   let bonus = '';
   it('is created for employees on the regular run, and costed on the month', async () => {
-    const made = await create(a, { reason: 'bonus', employees: [
+    const made = await create(a, { reason: 'bonus', runDate: '2026-11-25', employees: [
       { employeeId: people.high, componentId: bonusComponent, amount: 20_000 },
       { employeeId: people.young, componentId: bonusComponent, amount: 1_000 },
     ] });
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     bonus = String(made.body.data!.id);
-    expect(made.body.data).toMatchObject({ runKind: 'off_cycle', offCycleReason: 'bonus', runDate: '2026-11-27', periodMonth: 11 });
+    expect(made.body.data).toMatchObject({ runKind: 'off_cycle', offCycleReason: 'bonus', runDate: '2026-11-25', periodMonth: 11 });
     // A once-off dated in November (the regular run is approved; review #1575 carry 2): the bonus run never pays it.
     const onceOff = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
       VALUES ($1, 'Commission', '3606', 'earning') RETURNING id`, [a.company])).rows[0].id;
@@ -111,13 +111,13 @@ describe('OC: a bonus run after the month\'s regular run', () => {
     expect(regular2.rows[0].n).toBe(1);
   });
 
-  it('approves on its own (R-035 per run), posts "Payroll run 2026-11 bonus, paid 2026-11-27", and pins the regular run', async () => {
+  it('approves on its own (R-035 per run), posts "Payroll run 2026-11 bonus, paid 2026-11-25", and pins the regular run', async () => {
     const approved = await a.api.approve(bonus);
     expect(approved.statusCode, JSON.stringify(approved.body)).toBe(200);
     const journals = await a.journals('11');
-    expect(journals.map((j) => j.description)).toEqual(expect.arrayContaining(['Payroll run 2026-11', 'Payroll run 2026-11 bonus, paid 2026-11-27']));
+    expect(journals.map((j) => j.description)).toEqual(expect.arrayContaining(['Payroll run 2026-11', 'Payroll run 2026-11 bonus, paid 2026-11-25']));
     const ref = await a.pool.query(`SELECT document_reference FROM approval_requests WHERE company_id = $1 AND document_id = $2`, [a.company, bonus]);
-    expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run, paid 2026-11-27');
+    expect(ref.rows.map((r) => r.document_reference)).toContain('11/2026 bonus run, paid 2026-11-25');
     const reopened = await a.api.reopen(regular);
     expect(reopened.statusCode).toBe(400); // PayrollRunReopenRefusedError, as every reopen refusal
     // The route answers every reopen refusal "Reopen failed" (pre-existing); the reason is this gate's.
@@ -128,7 +128,7 @@ describe('OC: a bonus run after the month\'s regular run', () => {
 
 describe('OC: a termination run after the month\'s regular run', () => {
   it('pays the leaver\'s notice pay alone', async () => {
-    const made = await create(a, { reason: 'termination', employees: [{ employeeId: people.leaver }] });
+    const made = await create(a, { reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: people.leaver }] });
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const id = String(made.body.data!.id);
     expect((await a.api.calculate(id)).statusCode).toBe(200);
@@ -154,7 +154,7 @@ describe('OC: refusals change no row', () => {
     const before = await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company]);
     const made = await create(a, { runDate: '2026-11-30', reason: 'bonus', employees: [{ employeeId: people.spare1, componentId: bonusComponent, amount: 75 }] });
     expect(made.statusCode).toBe(409);
-    expect(a.msg(made)).toMatch(/on or after the month's regular run \(paid 2026-11-30\)/);
+    expect(a.msg(made)).toMatch(/on or after the month's regular run \(paid 30 Nov 2026\)/);
     expect(await count('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [a.company])).toBe(before);
     // A run that reached the database with that pay date (a direct write) is refused at calculate too, writing no line.
     const late = (await a.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind,
@@ -189,7 +189,7 @@ describe('OC: refusals change no row', () => {
   });
 
   it('company B cannot cost or approve company A\'s off-cycle run', async () => {
-    const made = await create(a, { reason: 'bonus', employees: [{ employeeId: people.spare1, componentId: bonusComponent, amount: 50 }] });
+    const made = await create(a, { reason: 'bonus', runDate: '2026-11-27', employees: [{ employeeId: people.spare1, componentId: bonusComponent, amount: 50 }] });
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const id = String(made.body.data!.id);
     // The calculate route answers another company's run as any unknown run (pre-existing: "Payroll run not found").
@@ -198,7 +198,7 @@ describe('OC: refusals change no row', () => {
   });
 
   it('a pay date passed by approval: refused, the run stays calculated (carried item 2, #1549 D1)', async () => {
-    const made = await create(a, { reason: 'bonus', employees: [{ employeeId: people.spare2, componentId: bonusComponent, amount: 100 }] });
+    const made = await create(a, { reason: 'bonus', runDate: '2026-11-28', employees: [{ employeeId: people.spare2, componentId: bonusComponent, amount: 100 }] });
     const id = String(made.body.data!.id);
     expect((await a.api.calculate(id)).statusCode).toBe(200);
     await a.pool.query(`UPDATE payroll_run_headers SET run_date = '2026-11-16' WHERE id = $1`, [id]);
@@ -206,6 +206,6 @@ describe('OC: refusals change no row', () => {
     expect(approved.statusCode).not.toBe(200);
     expect(a.msg(approved)).toMatch(/before today/);
     expect((await a.header(id)).status).toBe('calculated');
-    expect(await count('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1 AND description = $2', [a.company, 'Payroll run 2026-11 bonus, paid 2026-11-27'])).toBe(1);
+    expect(await count('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1 AND description = $2', [a.company, 'Payroll run 2026-11 bonus, paid 2026-11-25'])).toBe(1);
   });
 });

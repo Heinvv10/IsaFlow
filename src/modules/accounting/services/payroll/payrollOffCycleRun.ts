@@ -23,6 +23,8 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import { offCycleAfterCloseRefusal } from './payrollOffCycleGates';
+import { laterMonthFinalRefusal, offCycleOrderRefusal, ZERO_GROSS } from './payrollOffCycleOrder';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { dateColumnOf } from './payrollFrequency';
 import type { OffCycleReason, PayrollPeriod } from './payrollTypesRun';
 
@@ -54,31 +56,35 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bad = (m: string) => new OffCycleRunRefusedError(m, 400);
 const state = (m: string) => new OffCycleRunRefusedError(m, 409);
 const monthName = (p: PayrollPeriod) => `${p.year}-${String(p.month).padStart(2, '0')}`;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const monthLabel = (p: PayrollPeriod) => `${MONTHS[p.month - 1] ?? monthName(p)} ${p.year}`;
+/** "Ruby Rubric (E1)", "A and B", "A, B and C" (UI review M2). */
+const listOf = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 
 /** The request's shape alone (no reads). Exported for the unit tests. */
 export function judgeOffCycleShape(input: OffCycleRunInput, today: string): void {
   const { period, reason, runDate, employees } = input;
-  if (reason !== 'bonus' && reason !== 'termination') throw bad('reason must be bonus or termination');
+  if (reason !== 'bonus' && reason !== 'termination') throw bad('The reason must be bonus or termination.');
   if (typeof runDate !== 'string' || !ISO_DAY.test(runDate) || Number.isNaN(Date.parse(`${runDate}T00:00:00Z`))
-    || new Date(`${runDate}T00:00:00Z`).toISOString().slice(0, 10) !== runDate) throw bad('runDate must be a date, YYYY-MM-DD');
-  if (runDate.slice(0, 7) !== monthName(period)) throw bad(`the pay date must be in ${monthName(period)}, the run's month`);
-  if (runDate < today) throw bad(`the pay date ${runDate} has passed: an off-cycle run is paid today or later`);
-  if (!Array.isArray(employees) || employees.length === 0) throw bad('choose at least one employee');
-  if (employees.length > MAX_EMPLOYEES) throw bad(`at most ${MAX_EMPLOYEES} employees in one run`);
+    || new Date(`${runDate}T00:00:00Z`).toISOString().slice(0, 10) !== runDate) throw bad('The pay date must be a date (YYYY-MM-DD).');
+  if (runDate.slice(0, 7) !== monthName(period)) throw bad(`The pay date must be in ${monthLabel(period)}, the run's month.`);
+  if (runDate < today) throw bad(`The pay date ${formatDisplayDate(runDate)} has passed: an off-cycle run is paid today or later.`);
+  if (!Array.isArray(employees) || employees.length === 0) throw bad('Choose at least one employee.');
+  if (employees.length > MAX_EMPLOYEES) throw bad(`At most ${MAX_EMPLOYEES} employees fit in one run.`);
   const seen = new Set<string>();
   for (const e of employees) {
-    if (typeof e?.employeeId !== 'string' || !UUID.test(e.employeeId)) throw bad('each employee needs an employeeId');
-    if (seen.has(e.employeeId)) throw bad('an employee is listed twice');
+    if (typeof e?.employeeId !== 'string' || !UUID.test(e.employeeId)) throw bad('Each employee needs an employeeId.');
+    if (seen.has(e.employeeId)) throw bad('An employee is listed twice.');
     seen.add(e.employeeId);
     if (reason === 'termination') {
-      if (e.componentId != null || e.amount != null) throw bad('a termination run takes no amounts: it pays the termination pay-outs');
+      if (e.componentId != null || e.amount != null) throw bad('A termination run takes no amounts: it pays the termination pay-outs.');
       continue;
     }
-    if (typeof e.componentId !== 'string' || !UUID.test(e.componentId)) throw bad('each bonus needs its annual-payment component');
+    if (typeof e.componentId !== 'string' || !UUID.test(e.componentId)) throw bad('Each bonus needs its annual-payment earning.');
     const a = e.amount;
     // Whole cents within float error (1.15 * 100 is 114.99999999999999), as payrollEmployeeTerms judges an amount.
     if (typeof a !== 'number' || !Number.isFinite(a) || a <= 0 || a > MAX_BONUS || Math.abs(a * 100 - Math.round(a * 100)) > 1e-6) {
-      throw bad('each bonus amount must be more than nil, in rand and cents');
+      throw bad('Each bonus amount must be more than nil, in rand and cents.');
     }
   }
 }
@@ -92,48 +98,62 @@ async function judgeOffCycleState(tx: TxSql, companyId: string, input: OffCycleR
        AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly' AND ${sql.unsafe(payRunFinalSql('h'))}
      FOR UPDATE OF h -- serialises the month's off-cycle creations: the open-run check below then sees a peer's run
   `) as DbRow[];
-  if (!regular[0]) throw state(`${monthName(period)} has no approved regular run: approve it before an off-cycle run`);
+  if (!regular[0]) throw state(`${monthLabel(period)} has no approved regular run: approve it before an off-cycle run.`);
   const regularId = String(regular[0].id);
   // Paid on or after the month's closing regular run (review #1575 carry 1): after the month's close.
   const late = await offCycleAfterCloseRefusal(companyId, period, input.runDate, tx);
   if (late) throw state(late);
+  // Pay order is creation order, and no later month is final (review #1620 breaker H2 and its later-month repro).
+  const order = await offCycleOrderRefusal(companyId, period, input.runDate, tx) ?? await laterMonthFinalRefusal(companyId, period, tx);
+  if (order) throw state(order);
   const ids = employees.map((e) => e.employeeId);
   const people = (await tx`
-    SELECT e.id, e.employee_number, e.pay_frequency, e.end_date::text AS end_date,
+    SELECT e.id, e.employee_number, e.first_name, e.last_name, e.pay_frequency, e.end_date::text AS end_date,
            EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = ${regularId}::uuid AND l.employee_id = e.id) AS on_regular,
-           EXISTS (SELECT 1 FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id
-                    WHERE x.employee_id = e.id AND x.company_id = e.company_id AND o.company_id = e.company_id
-                      AND o.period_year = ${period.year} AND o.period_month = ${period.month}
-                      AND o.status IN ('draft', 'calculated')) AS on_open_off_cycle
+           (SELECT o.off_cycle_reason || ' run paid ' || to_char(COALESCE(o.run_date, o.period_end), 'YYYY-MM-DD')
+              FROM payroll_off_cycle_employees x JOIN payroll_run_headers o ON o.id = x.run_id
+             WHERE x.employee_id = e.id AND x.company_id = e.company_id AND o.company_id = e.company_id
+               AND o.period_year = ${period.year} AND o.period_month = ${period.month}
+               AND o.status IN ('draft', 'calculated')
+             ORDER BY o.created_at LIMIT 1) AS open_off_cycle
       FROM payroll_employees e
      WHERE e.company_id = ${companyId}::uuid AND e.id = ANY(${ids}::uuid[])
   `) as DbRow[];
   const byId = new Map(people.map((p) => [String(p.id), p]));
   const missing = ids.filter((id) => !byId.has(id));
-  if (missing.length > 0) throw bad(`${missing.length} of the chosen employees are not this company's`);
-  const named = (pred: (p: DbRow) => boolean) => people.filter(pred).map((p) => String(p.employee_number)).sort().join(', ');
+  if (missing.length > 0) throw bad(`${missing.length} of the chosen employees ${missing.length === 1 ? 'is' : 'are'} not this company's.`);
+  const who = (p: DbRow) => `${`${String(p.first_name ?? '')} ${String(p.last_name ?? '')}`.trim()} (${String(p.employee_number)})`;
+  /** The matching employees by name, and the verb that agrees: "Ruby Rubric (E1) is" / "A and B are". */
+  const named = (pred: (p: DbRow) => boolean) => {
+    const hit = people.filter(pred).sort((x, y) => String(x.employee_number).localeCompare(String(y.employee_number)));
+    return hit.length === 0 ? '' : `${listOf(hit.map(who))} ${hit.length === 1 ? 'is' : 'are'}`;
+  };
   const notMonthly = named((p) => p.pay_frequency !== 'monthly');
-  if (notMonthly) throw state(`employees ${notMonthly} are not paid monthly: off-cycle runs are for monthly employees`);
-  const open = named((p) => p.on_open_off_cycle === true);
-  if (open) throw state(`employees ${open} are already on an off-cycle run of ${monthName(period)} that is not approved`);
+  if (notMonthly) throw state(`${notMonthly} not paid monthly: off-cycle runs are for monthly employees.`);
+  const blocking = people.find((p) => p.open_off_cycle != null);
+  if (blocking) {
+    const [kind, when] = String(blocking.open_off_cycle).split(' run paid ');
+    throw state(`${named((p) => p.open_off_cycle != null)} already on the ${kind} run paid ${formatDisplayDate(String(when))}, `
+      + 'which is not approved. Approve that run, or cancel it (Cancel run on its page), first.');
+  }
   if (reason === 'bonus') {
     const off = named((p) => p.on_regular !== true);
-    if (off) throw state(`employees ${off} have no line on the ${monthName(period)} regular run`);
+    if (off) throw state(`${off} not on the ${monthLabel(period)} regular run, so a bonus cannot be costed on it.`);
     const componentIds = [...new Set(employees.map((e) => String(e.componentId)))];
     const ok = (await tx`
       SELECT id FROM payroll_components
        WHERE company_id = ${companyId}::uuid AND id = ANY(${componentIds}::uuid[])
          AND component_type = 'earning' AND btrim(sars_source_code) = '3605'
     `) as DbRow[];
-    if (ok.length !== componentIds.length) throw bad('a bonus must be paid on one of the company\'s annual-payment earnings (SARS code 3605)');
+    if (ok.length !== componentIds.length) throw bad('A bonus must be paid on one of the company\'s annual-payment earnings (SARS code 3605).');
     return;
   }
   const notLeaving = named((p) => typeof p.end_date !== 'string' || String(p.end_date).slice(0, 7) !== monthName(period));
-  if (notLeaving) throw state(`employees ${notLeaving} have no end date in ${monthName(period)}: record the termination first`);
+  if (notLeaving) throw state(`${notLeaving} not leaving in ${monthLabel(period)} (no end date in the month): record the termination first.`);
   for (const p of people) {
     // Any final run that paid them (the regular run included): none is excluded, the off-cycle run does not exist yet.
     const paid = await findPaidTerminationRun(companyId, String(p.id), NO_RUN);
-    if (paid) throw state(`employee ${String(p.employee_number)}'s termination pay-outs were already paid in the ${paid.year}-${String(paid.month).padStart(2, '0')} run`);
+    if (paid) throw state(`${who(p)}'s termination pay-outs were already paid in the ${monthLabel(paid)} run.`);
   }
 }
 
@@ -170,4 +190,17 @@ export async function assertOffCycleBeforeClose(companyId: string, run: DbRow): 
   if (run.run_kind !== 'off_cycle') return;
   const late = await offCycleAfterCloseRefusal(companyId, { year: Number(run.period_year), month: Number(run.period_month) }, dateColumnOf(run.run_date));
   if (late) throw state(late);
+  const laterMonth = await laterMonthFinalRefusal(companyId, { year: Number(run.period_year), month: Number(run.period_month) });
+  if (laterMonth) throw state(laterMonth);
+}
+
+/**
+ * The R-035 submit's check (UI review #1620 L4): an off-cycle run that pays nothing is not submitted for approval (409,
+ * nothing written). Approval itself also refuses it, with the pay date and the month's basis (offCycleApprovalRefusal).
+ */
+export async function assertOffCycleSubmittable(companyId: string, runId: string): Promise<void> {
+  const run = ((await sql`
+    SELECT run_kind, total_gross FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[])[0];
+  if (run?.run_kind === 'off_cycle' && !(Number(run.total_gross) > 0)) throw state(ZERO_GROSS);
 }

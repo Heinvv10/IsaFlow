@@ -16,6 +16,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
@@ -26,8 +27,8 @@ export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unk
   const payDate = dateColumnOf(run.run_date);
   if (payDate === null) return 'This off-cycle run has no pay date. Create it again with one.';
   return payDate < today
-    ? `This off-cycle run's pay date (${payDate}) is before today (${today}): it cannot be approved after the day it says it was paid. `
-      + 'Create the run again with a pay date of today or later.'
+    ? `This off-cycle run's pay date (${formatDisplayDate(payDate)}) is before today (${formatDisplayDate(today)}): it cannot be `
+      + 'approved after the day it says it was paid. Cancel it, then create the run again with a pay date of today or later.'
     : null;
 }
 
@@ -97,7 +98,7 @@ export async function offCycleAfterCloseRefusal(
      LIMIT 1
   `) as DbRow[];
   if (!rows[0]) return null;
-  const closing = String(rows[0].pay_date);
-  return `This off-cycle run is paid on ${payDate}, on or after the month's regular run (paid ${closing}), which has already `
-    + `closed the month's UIF and ETI. Pay it before ${closing}.`;
+  const closing = formatDisplayDate(String(rows[0].pay_date));
+  return `This off-cycle run is paid on ${formatDisplayDate(payDate)}, on or after the month's regular run (paid ${closing}), `
+    + `which has already closed the month's UIF and ETI. Pay it before ${closing}.`;
 }
