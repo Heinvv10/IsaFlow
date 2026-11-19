@@ -23,7 +23,7 @@ const B = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
 const account = (code: string) => ({ account_code: code, account_name: code, account_type: 'revenue', is_active: true, has_children: false });
 
 const stored = (lines: StoredVatLine[], header: Partial<StoredInvoiceLines> = {}): StoredInvoiceLines =>
-  ({ invoiceNumber: 'INV-3', subtotal: 150, taxAmount: 15, totalAmount: 165, invoiceDate: new Date(2026, 6, 1),
+  ({ invoiceNumber: 'INV-3', subtotal: 150, taxAmount: 15, totalAmount: 165, invoiceDate: new Date(2026, 6, 1), amountsAre: null,
     customerFnoId: null, lines, ...header });
 const approving = (s: StoredInvoiceLines) => storedLinesRefusal('company', s, { approving: true });
 
@@ -89,7 +89,24 @@ describe('storedLinesRefusal (approving) and typed lines', () => {
       invoice_date: date, customer_fno_id: null, line_id: 'l1', amount: '100.00', gl_account_id: null, project_id: null,
       cc1_id: null, cc2_id: null, bu_id: null, line_vat_type: 'standard', line_tax_amount: '15.00' }]);
     const read = (await storedInvoiceLines('company', 'inv'))!;
-    expect([read.subtotal, read.taxAmount, read.totalAmount, read.invoiceDate]).toEqual([100, 15, 115, date]);
+    expect([read.subtotal, read.taxAmount, read.totalAmount, read.invoiceDate, read.amountsAre]).toEqual([100, 15, 115, date, null]);
     expect(String((mockSql.mock.calls[0]![0] as readonly string[]).join('?'))).toMatch(/ci\.total_amount, ci\.invoice_date/);
+  });
+
+  // Round 4, item 2: the inclusive flag through its wiring (the stored read; approve's pre-check).
+  it('the stored read carries amounts_are', async () => {
+    mockSql.mockResolvedValueOnce([{ invoice_number: 'INV-3', subtotal: '100.00', tax_amount: '15.01', total_amount: '115.01',
+      invoice_date: '2026-07-01', amounts_are: 'inclusive', customer_fno_id: null, line_id: 'l1', amount: '100.00',
+      gl_account_id: null, project_id: null, cc1_id: null, cc2_id: null, bu_id: null, line_vat_type: 'standard', line_tax_amount: '15.01' }]);
+    expect((await storedInvoiceLines('company', 'inv'))!.amountsAre).toBe('inclusive');
+    expect(String((mockSql.mock.calls[0]![0] as readonly string[]).join('?'))).toMatch(/ci\.amounts_are/);
+  });
+
+  it('a 100.00 standard line with VAT 15.01: accepted on an inclusive invoice, refused at the line on an exclusive one', async () => {
+    const line = [plain(100, 'standard', 15.01)];
+    const header = { subtotal: 100, taxAmount: 15.01, totalAmount: 115.01 };
+    expect(await approving(stored([...line], { ...header, amountsAre: 'inclusive' }))).toBeNull();
+    expect(await approving(stored([...line], { ...header, amountsAre: null })))
+      .toMatch(/^Invoice INV-3: line 1 is standard: its VAT on 100\.00 at 15% is 15\.00, but it carries 15\.01/);
   });
 });
