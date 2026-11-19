@@ -29,7 +29,13 @@ describe('intercompanyRelationRows errors', () => {
 
   it('counts per table and lists only those with rows', async () => {
     const counts: Record<string, number> = { intercompany_connections: 0, intercompany_messages: 3, intercompany_document_links: 0 };
-    const tx = { query: async (text: string) => [{ n: counts[Object.keys(counts).find((t) => text.includes(t))!] }] } as unknown as Tx;
+    const tx = {
+      query: async (text: string) => {
+        const table = Object.keys(counts).find((t) => text.includes(t));
+        if (!table) throw new Error(`the guard queried a table this test does not know: ${text}`);
+        return [{ n: counts[table] }];
+      },
+    } as unknown as Tx;
     expect(await intercompanyRelationRows(tx, DEMO)).toEqual([{ table: 'intercompany_messages', n: 3 }]);
   });
 });
