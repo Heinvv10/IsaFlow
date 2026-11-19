@@ -49,6 +49,7 @@ const CALLERS = [
   `${P}/payrollRunRowWrite.ts`,
   `${P}/payrollRunService.ts`,
   `${P}/payslipDeliveryService.ts`, // PE: getPayslips, so the guard runs before any send
+  `${P}/employeePortalReads.ts`, // SS: getPayslips; a RunKindUnsupportedError is the same 404 as any other slip it may not show
   `${P}/payslipModel.ts`,
   `${P}/payRunApprovalControl.ts`,
   // Wave 6 EF: the EMP201 (route 409 via respondIfRunKindUnsupported; MCP, Ask, budgets and returns rethrow) and the IRP5.

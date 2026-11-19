@@ -16,8 +16,17 @@
 
   var lastPath = null;
 
+  // Never on the public share page (its path is the credential) or the employee self-service portal (its visitors
+  // are employees, its pages payroll data): the server-side gate (isTrackedPath) keeps this script off them, and this
+  // covers a script already loaded on a staff page before a client-side route there, and Next's 404 under them.
+  function untracked(path) {
+    return path === '/share' || path.indexOf('/share/') === 0
+      || path === '/employee-portal' || path.indexOf('/employee-portal/') === 0;
+  }
+
   function send(eventType, name, data) {
     var path = location.pathname;
+    if (untracked(path)) return;
     if (eventType === 'pageview' && path === lastPath) return;
     if (eventType === 'pageview') lastPath = path;
 
