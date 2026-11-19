@@ -171,7 +171,7 @@ export async function dropBillFixture(pool: Pool, f: BillFixture | undefined): P
     await c.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = $1)', [f.co]);
     await c.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = $1)', [f.co]);
     await c.query('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)', [f.co]);
-    for (const t of ['budget_check_events', 'audit_log', 'mcp_tool_calls', 'supplier_payments', 'bank_transactions', 'purchase_orders', 'vat_period_locks',
+    for (const t of ['purchase_order_bill_links', 'budget_check_events', 'audit_log', 'mcp_tool_calls', 'supplier_payments', 'bank_transactions', 'purchase_orders', 'vat_period_locks',
       'recurring_transaction_templates', 'company_document_numbers', 'capture_events', 'captured_documents',
       'supplier_invoices', 'gl_journal_lines', 'gl_journal_entries',
       'budget_month_amounts', 'budget_versions', 'budget_control_settings', 'fiscal_periods', 'fiscal_years', 'suppliers', 'cost_centres',

@@ -81,7 +81,7 @@ function parseLink(o: unknown, index: number): LinkRequest | string {
   };
 }
 
-/** Every element parsed, or every refusal. Duplicate (PO, bill) pairs and references are refused here; the rest under lock. */
+/** Every element parsed, or every refusal. A reference named twice is refused here; a repeated (PO, bill) pair, which may be named by id once and by number again, under lock. */
 export function parseLinkBatch(raw: unknown): { links: LinkRequest[] } | { refusals: LinkRowRefusal[] } | string {
   if (!Array.isArray(raw) || raw.length === 0) return 'links must be a non-empty array';
   if (raw.length > MAX_LINKS_PER_CALL) {
@@ -89,15 +89,10 @@ export function parseLinkBatch(raw: unknown): { links: LinkRequest[] } | { refus
   }
   const links: LinkRequest[] = [];
   const refusals: LinkRowRefusal[] = [];
-  const pairs = new Map<string, number>();
   const refs = new Map<string, number>();
   for (const [index, o] of raw.entries()) {
     const l = parseLink(o, index);
     if (typeof l === 'string') { refusals.push({ index, reason: l.replace(`links[${index}]`, '').replace(/^[.:]\s*/, '') }); continue; }
-    const pair = `${l.poId ?? l.poNumber}\u0000${l.billId}`;
-    const again = pairs.get(pair);
-    if (again !== undefined) { refusals.push({ index, reason: `the same purchase order and bill as links[${again}]` }); continue; }
-    pairs.set(pair, index);
     if (l.ref) {
       const key = `${l.ref.system}\u0000${l.ref.ref}`;
       const seen = refs.get(key);

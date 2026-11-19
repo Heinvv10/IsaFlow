@@ -24,8 +24,8 @@
 --     bill must both be the row's company's, and of the same supplier. No composite FK exists to say it (the two
 --     tables' ids are not unique with company_id).
 --
--- LOCKS. A new table; the file's only lock on an existing one is a share lock for the backfill's reads. The
--- OLD COLOUR never reads or writes it: the old code keeps working, and the bills it creates between this migration
+-- LOCKS. A new table; the backfill only reads supplier_invoices, supplier_invoice_items, purchase_orders and po_items
+-- (ACCESS SHARE). The OLD COLOUR never reads or writes it: the old code keeps working, and the bills it creates between this migration
 -- and the new colour's first request get no `app` link (a later backfill or a manual link covers them).
 --
 -- Rollback (code first; links are metadata, no ledger row depends on them):
@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS purchase_order_bill_links (
   closed_po_from_status TEXT CHECK (closed_po_from_status IS NULL
     OR closed_po_from_status IN ('approved', 'partially_received', 'received')),
   created_by TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- clock_timestamp(), not now(): the links one call makes keep the order they were made in.
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT purchase_order_bill_links_pair_uq UNIQUE (company_id, purchase_order_id, supplier_invoice_id),
   CONSTRAINT purchase_order_bill_links_ref_pair CHECK ((external_system IS NULL) = (external_ref IS NULL))
 );
