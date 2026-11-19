@@ -22,6 +22,7 @@ import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { offCycleApprovalRefusal } from './payrollOffCycleOrder';
 import { freezePayslipDetails } from './payslipSnapshot';
 
 
@@ -44,7 +45,12 @@ export interface ApprovePayrollRunResult extends PayrollRunSummary {
  */
 export async function previewPayrollApproval(companyId: string, runId: string): Promise<PayrollApprovalGate | null> {
   await assertRunKindSupported(companyId, runId, 'approve'); // wave 6 FQa: the preview refuses what approval refuses
-  return judgePayrollApproval(companyId, runId);
+  const gate = await judgePayrollApproval(companyId, runId);
+  if (!gate) return gate;
+  // Wave 6 OC (review #1620 breaker L1): the off-cycle refusals approval applies first, so the preview and the MCP dry run agree.
+  const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];
+  const offCycle = row ? await offCycleApprovalRefusal(companyId, row) : null;
+  return offCycle ? { ...gate, blocker: { code: 'off_cycle_not_approvable', detail: offCycle } } : gate;
 }
 
 /**
@@ -97,6 +103,9 @@ export async function approvePayrollRun(
   if (!locked) throw new PayrollApprovalRefusedError('Payroll run not found');
   // Wave 6 FQa: a run kind, frequency, employee or assignment this release cannot approve; before any write.
   await assertRunKindSupported(companyId, runId, 'approve');
+  // Wave 6 OC: an off-cycle run's pay date, its gross, the month's runs it was costed on, no later month final.
+  const offCycle = await offCycleApprovalRefusal(companyId, locked);
+  if (offCycle) throw new PayrollApprovalRefusedError(offCycle);
   if (locked.journal_entry_id != null) {
     await lockRunJournalForApproval(runId, companyId, String(locked.journal_entry_id));
   }
