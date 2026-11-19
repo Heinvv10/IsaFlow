@@ -157,5 +157,5 @@ export async function poSupplierChangeBlocked(companyId: string, poId: string, s
     SELECT 1 FROM purchase_order_bill_links l JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
      WHERE po.id = ${poId}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplierId}::UUID LIMIT 1
   `) as DbRow[];
-  return linked.length > 0 ? await tieRefusalText(companyId, poId, 'its supplier cannot change') : null;
+  return linked.length > 0 ? await tieRefusalText(companyId, poId, 'its supplier cannot change', ['link']) : null;
 }

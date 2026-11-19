@@ -55,17 +55,20 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      succeeds when any of the three exists and is refused "not linked" only when none does. Any bill status (draft, cancelled,
      soft-deleted too). Only removing a LINK can reopen a closed PO. The audit row says what was cleared (`link_removed`,
      `lines_cleared`, `header_cleared`, `bill_status`, `match_state`, `raised_committed`), and the BILL gets its own audit row
-     (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing an
-     APPROVED / paid / partially_paid, not-deleted bill's NON-ZERO line reference RAISES committed spend (the PO line is no longer netted
-     by that bill), so unlink is gated and warns like any unlink; clearing a header, or a draft / cancelled / deleted / R0 bill's
-     reference, changes no figure and warns nothing. The bill's stored three-way state (`match_status`, each line's
+     (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing a line reference RAISES committed spend
+     exactly when `budgets/remainingCommitted.billedLinesByPoItem` counted that line today (the bill is approved / paid / partially_paid,
+     the line posts a non-zero ex-VAT amount; NO deleted_at filter there, so a soft-deleted approved bill counts too), so unlink is
+     gated and warns like any unlink then; clearing a header, or a draft / cancelled / R0 bill's reference, changes no figure and warns
+     nothing. The bill's stored three-way state (`match_status`, each line's
      `line_match_status` and variances) is re-judged by the existing recompute (`performThreeWayMatch`, in its own savepoint) when
      the bill still names a PO, and reset to unmatched when it names none (never left stale).
    - **Seeing the ties.** The refusal NAMES the tying bills (number, id, kind link | line | header; ten shown, the rest counted), and
      `get_purchase_order` `bills[]` lists every tying bill with its `tie` kind (a link on a soft-deleted bill is listed, `deleted:
      true`; capped at 30 with `bills_total`). `list_supplier_invoices` / `get_supplier_invoice` expose the header
      `purchase_order_id` beside `purchase_order_ids` (link rows). One module, `ap/purchaseOrderTies`, feeds both. The supplier-change
-     refusal (`poSupplierChangeBlocked`) and the app's approved-PO cancel use the same single wording. The lock order is unchanged (gate -> PO row ->
+     refusal (`poSupplierChangeBlocked`) and the app's approved-PO cancel use the same single wording and name exactly the LINK rows
+     they refuse on (they guard on link rows only). The tie list is driven from the PO (its po_items through `idx_sii_po_item`, its
+     header references through `idx_si_po`, its link rows by key), so its cost follows the PO's own bills, not the company's. The lock order is unchanged (gate -> PO row ->
      bill rows). Because unlink clears them, cancelled and draft bills' lines count as ties again (the PO's lines are not replaced
      under a line that names them).
    - Validation is the PUT's, extracted, not copied: `ap/purchaseOrderEditChecks.validatePoEdit` (supplier in company, supplier
@@ -141,6 +144,11 @@ they cannot meet the link / unlink bill-row order; each serialises with link / u
 PO row (link and unlink hold it `FOR NO KEY UPDATE`, which still conflicts with `FOR UPDATE`).
 
 ## Known limits
+
+- **Deleted approved bills still net committed (pre-existing, flagged to Hein, not changed here).** `billedLinesByPoItem` has no
+  `deleted_at` filter and a soft delete leaves the status approved, so a deleted approved bill's lines still net a PO line's committed
+  spend and per-line `amount_billed`, while `quantity_billed` and `billed_total` exclude it. Unlink therefore warns when it clears such
+  a bill's line, because committed does rise. Fixing the predicate changes production budget figures and is Hein's call.
 
 - Short-closing a partially_received / received PO drops goods received and not yet billed from committed spend (committed counts
   open PO lines only); a bill for them can still be created: bill lines naming a line of a CLOSED PO are accepted

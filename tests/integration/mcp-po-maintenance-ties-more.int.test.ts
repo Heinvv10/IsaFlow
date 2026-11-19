@@ -12,6 +12,10 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { seedBill, seedPo, seedRawBill } from './helpers/poBillLinkHarness';
 import { auditOf, callTool, dropMaintExtras } from './helpers/poMaintHarness';
+import { asOwner } from './helpers/poImportHarness';
+import { billedLinesByPoItem } from '@/modules/accounting/services/budgets/remainingCommitted';
+import { poSupplierChangeBlocked } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
+import { cancelApprovedPurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderCancel';
 import { updatePurchaseOrderTool as update } from '@/lib/mcp/tools/writeUpdatePurchaseOrder';
 import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
 import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
@@ -67,29 +71,32 @@ describe('the budget warning on an unlink', () => {
   // A PO over its monthly budget on opex FT (1 000): any unlink that makes it commit more would warn.
   const overPo = () => seedPo(pool, f, { lines: [1500], acct: f.acc.opex, cc1: f.cc.FT });
 
-  it('an approved bill\'s non-zero line reference raises committed: warned; a header, or a draft / cancelled / deleted / R0 bill\'s cleanup, changes no figure: no warning', async () => {
+  it('warns EXACTLY when clearing changes what billedLinesByPoItem (committed) counted: an approved bill\'s non-zero line, a soft-deleted approved bill\'s too (it still nets today); never a draft / cancelled / R0 bill or a header', async () => {
     const po = await overPo();
-    const approved = await seedBill(pool, f, { lines: [100] });
-    await nameLine(approved, po.items[0]!);
-    const raised = await callTool(pool, f, unlink, { po_id: po.po, bill_id: approved.id, reason: 'x' });
-    expect(raised.isError, raised.text).toBe(false);
-    expect(String(raised.body.budget_warning)).toContain('over budget');
-    expect((await auditOf(pool, f, po.po)).at(-1)!.changes.metadata).toMatchObject({ raised_committed: 'true' });
-
-    const quiet: Array<[string, () => Promise<string>]> = [
-      ['a draft bill', async () => { const b = await seedBill(pool, f, { lines: [100], status: 'draft' }); await nameLine(b, po.items[0]!); return b.id; }],
-      ['a cancelled bill', async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [b.id]); return b.id; }],
-      ['a deleted bill', async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [b.id]); return b.id; }],
-      ['an approved R0 line', async () => { const b = await seedRawBill(pool, f, { items: [{ total: 0, poItem: po.items[0] }], subtotal: 0, total: 0 }); return b.id; }],
-      ['a header only', async () => { const b = await seedBill(pool, f, { lines: [100] }); await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [po.po, b.id]); return b.id; }],
+    const item = po.items[0]!.toLowerCase();
+    const counted = async () => (await asOwner(pool, f, () => billedLinesByPoItem(f.co, [item], []))).get(item)?.length ?? 0;
+    const cases: Array<[string, boolean, () => Promise<string>]> = [
+      ['an approved bill', true, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); return b.id; }],
+      ['a soft-deleted approved bill (still netted by committed today)', true, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [b.id]); return b.id; }],
+      ['a draft bill', false, async () => { const b = await seedBill(pool, f, { lines: [100], status: 'draft' }); await nameLine(b, po.items[0]!); return b.id; }],
+      ['a cancelled bill', false, async () => { const b = await seedBill(pool, f, { lines: [100] }); await nameLine(b, po.items[0]!); await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [b.id]); return b.id; }],
+      ['an approved R0 line', false, async () => { const b = await seedRawBill(pool, f, { items: [{ total: 0, poItem: po.items[0] }], subtotal: 0, total: 0 }); return b.id; }],
+      ['a header only', false, async () => { const b = await seedBill(pool, f, { lines: [100] }); await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [po.po, b.id]); return b.id; }],
     ];
-    for (const [label, make] of quiet) {
+    for (const [label, raises, make] of cases) {
       const bill = await make();
+      const before = await counted();
       const r = await callTool(pool, f, unlink, { po_id: po.po, bill_id: bill, reason: 'cleanup' });
       expect(r.isError, `${label}: ${r.text}`).toBe(false);
-      expect(r.body.budget_warning, label).toBeNull();
-      expect(r.body.budget_warnings, label).toEqual([]);
-      expect((await auditOf(pool, f, po.po)).at(-1)!.changes.metadata, label).toMatchObject({ raised_committed: 'false' });
+      const after = await counted();
+      expect(before > after, `${label}: committed's count of the line fell`).toBe(raises);
+      if (raises) {
+        expect(String(r.body.budget_warning), label).toContain('over budget');
+      } else {
+        expect(r.body.budget_warning, label).toBeNull();
+        expect(r.body.budget_warnings, label).toEqual([]);
+      }
+      expect((await auditOf(pool, f, po.po)).at(-1)!.changes.metadata, label).toMatchObject({ raised_committed: String(raises) });
     }
   });
 });
@@ -120,7 +127,7 @@ describe('the bill\'s stored three-way state after a clear', () => {
 
   it('a bill that still names another PO is re-judged by the three-way recompute: the cleared line unmatched, the match no longer the stale one', async () => {
     const po1 = await seedPo(pool, f, { lines: [100] });
-    const po2 = await seedPo(pool, f, { lines: [100] });
+    const po2 = await seedPo(pool, f, { lines: [200] });
     const bill = await seedBill(pool, f, { lines: [100, 200] });
     await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE id = $2', [po1.items[0], bill.lines[0]]);
     await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE id = $2', [po2.items[0], bill.lines[1]]);
@@ -131,5 +138,39 @@ describe('the bill\'s stored three-way state after a clear', () => {
     expect(s.lines.map((l) => l.line_match_status)).toContain('unmatched');
     expect(s.bill).not.toBe('fully_matched');
     expect((await auditOf(pool, f, po1.po)).at(-1)!.changes.metadata!.match_state).toBe('recomputed');
+    // The REMAINING PO line was re-judged: a fresh timestamp and a computed variance in place of the stale 1 / 1.
+    const kept = (await pool.query('SELECT line_match_status, qty_variance_pct::FLOAT AS q, price_variance_pct::FLOAT AS p, match_computed_at > now() - interval \'1 minute\' AS fresh FROM supplier_invoice_items WHERE id = $1', [bill.lines[1]])).rows[0];
+    expect(kept).toEqual({ line_match_status: 'po_matched', q: 0, p: 0, fresh: true });
+    const clearedLine = (await pool.query('SELECT line_match_status, po_item_id FROM supplier_invoice_items WHERE id = $1', [bill.lines[0]])).rows[0];
+    expect(clearedLine).toEqual({ line_match_status: 'unmatched', po_item_id: null });
+  });
+});
+
+describe('caps and wording of the narrower guards', () => {
+  it('get_purchase_order lists 30 of 32 tying bills and says 32', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    for (let i = 0; i < 32; i++) { const b = await seedBill(pool, f, { lines: [1] }); await nameLine(b, po.items[0]!); }
+    const r = await callTool(pool, f, getPo, { po_id: po.po });
+    expect(r.body.bills_total).toBe(32);
+    expect((r.body.bills as unknown[]).length).toBe(30);
+  }, 60_000);
+
+  it('the supplier-change and the app cancel refuse on LINK rows only and name exactly those, not a line or header tie they do not refuse on', async () => {
+    const po = await seedPo(pool, f, { lines: [100] });
+    const linked = await seedBill(pool, f, { lines: [100] });
+    expect((await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: linked.id }] })).isError).toBe(false);
+    const lineOnly = await seedBill(pool, f, { lines: [100] });
+    await nameLine(lineOnly, po.items[0]!);
+    const headerOnly = await seedBill(pool, f, { lines: [100] });
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [po.po, headerOnly.id]);
+    const names = (text: string) => ({ link: text.includes(`(id ${linked.id}, link)`), line: text.includes(lineOnly.id), header: text.includes(headerOnly.id) });
+    const supplier = await asOwner(pool, f, () => poSupplierChangeBlocked(f.co, po.po, crypto.randomUUID()));
+    expect(supplier, 'refused').not.toBeNull();
+    expect(names(supplier!)).toEqual({ link: true, line: false, header: false });
+    const cancelled = await asOwner(pool, f, () => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x').then(() => 'cancelled', (e: Error) => e.message));
+    expect(names(cancelled)).toEqual({ link: true, line: false, header: false });
+    // The tool's guard is the wide one and names all three.
+    const wide = await callTool(pool, f, update, { po_id: po.po, notes: 'x' });
+    expect(names(wide.text)).toEqual({ link: true, line: true, header: true });
   });
 });

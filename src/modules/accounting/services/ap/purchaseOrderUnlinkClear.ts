@@ -1,10 +1,11 @@
 /**
  * What `unlinkBillFromPurchaseOrder` does around clearing a bill's references to one PO beyond the link row itself (design
  * docs/design/mcp-po-maintenance.md, round 6):
- *   - `clearingRaisesCommitted`: does clearing the bill's line references RAISE committed spend? Only a line of a bill that counts as
- *     billed (approved / paid / partially_paid), not deleted, and posts a non-zero ex-VAT amount nets its PO line (`budgets/remainingCommitted`).
- *     A draft, cancelled, deleted or R0 bill's cleanup changes no figure, and clearing a header changes none either; the unlink's
- *     budget warning is raised only for the first.
+ *   - `clearingRaisesCommitted`: does clearing the bill's line references RAISE committed spend? Exactly when
+ *     `budgets/remainingCommitted.billedLinesByPoItem` counted the line: the bill's status is approved / paid / partially_paid (NO
+ *     deleted_at filter there: a soft-deleted approved bill still nets committed today, a pre-existing behaviour left as it is and
+ *     flagged to Hein) and the line posts a non-zero ex-VAT amount. A draft, cancelled or R0 bill's cleanup changes no figure, and
+ *     clearing a header changes none either; the unlink's budget warning is raised only for the first.
  *   - `resetMatchState`: the bill's stored three-way state (`match_status`, each line's `line_match_status` / variances) would be stale
  *     once a reference is gone. A bill that still names a PO is re-judged by the existing recompute (`performThreeWayMatch`, in its own
  *     savepoint so a failure cannot poison the unlink); one that names none, or is deleted, is reset to 'unmatched'.
@@ -22,7 +23,7 @@ import { performThreeWayMatch } from './supplierInvoiceWorkflowService';
 export async function clearingRaisesCommitted(companyId: string, billId: string, poId: string): Promise<boolean> {
   const bill = ((await sql`
     SELECT si.* FROM supplier_invoices si
-     WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL AND si.status = ANY(${[...BILLED_STATUSES]}::TEXT[])
+     WHERE si.id = ${billId}::UUID AND si.company_id = ${companyId}::UUID AND si.status = ANY(${[...BILLED_STATUSES]}::TEXT[])
   `) as DbRow[])[0];
   if (!bill) return false;
   const items = (await sql`
