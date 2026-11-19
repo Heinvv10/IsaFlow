@@ -217,19 +217,21 @@ describe('suggestions: select, review, confirm', () => {
     await waitFor(() => expect(screen.getByLabelText('Pair INV-2 with INV-2')).toBeEnabled());
   });
 
-  it('a reload that drops every chosen pair closes the review instead of offering an empty confirmation', async () => {
-    view = () => envelope(VIEW({ matches: { ...EMPTY, suggestions: [pair(1)] } }));
+  it('a reload that drops every chosen pair (here: after an unlink, with the review open) closes the review instead of offering an empty confirmation', async () => {
+    const link = { id: 'l9', status: 'active' as const, awaiting: null, conflict: false, mine: doc('m9', 'INV-9', 10), theirs: doc('t9', 'INV-9', 10), createdAt: '' };
+    view = () => envelope(VIEW({ links: [link], matches: { ...EMPTY, suggestions: [pair(1)] } }));
     render(<PairingPage />);
     await screen.findByTestId('suggestions');
     fireEvent.click(screen.getByLabelText('Pair INV-1 with INV-1'));
     fireEvent.click(screen.getByRole('button', { name: 'Review 1 selected' }));
     expect(screen.getByRole('button', { name: 'Confirm pairing' })).toBeEnabled();
-    view = () => envelope(VIEW({ matches: { ...EMPTY, suggestions: [pair(2)] } }));
-    fireEvent.click(screen.getByRole('tab', { name: /Owed by you/ }));
-    fireEvent.click(screen.getByRole('tab', { name: /Owed to you/ }));
-    await screen.findByTestId('suggestions');
+    view = () => envelope(VIEW({ links: [], matches: { ...EMPTY, suggestions: [pair(2)] } }));
+    fireEvent.click(screen.getByRole('button', { name: /Unlink the pairing of INV-9/ }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove pairing' })); });
+    await waitFor(() => expect(screen.getByLabelText('Pair INV-2 with INV-2')).toBeInTheDocument());
     expect(screen.queryByTestId('review')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Confirm pairing' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Review 0 selected' })).toBeDisabled();
   });
 
   it('tells a user who can write in both companies that both sides are confirmed at once', async () => {
