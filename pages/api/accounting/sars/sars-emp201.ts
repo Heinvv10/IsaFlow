@@ -7,7 +7,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { emp201NotFinalRefusal } from '@/modules/accounting/services/returns/finaliseEmpReturn';
 import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
@@ -60,9 +59,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      // A month with a pay run not final (a reopened run) is not saved for filing (breaker #1622; as the lifecycle).
-      const notFinal = await emp201NotFinalRefusal(companyId, periodStart, periodEnd);
-      if (notFinal) return apiResponse.conflict(res, notFinal);
       const emp201 = await generateEMP201(companyId, periodStart, periodEnd);
       // The saved draft keeps the totals (which include them), not the per-payment breakdown:
       // submissions are readable by roles that may not see one person's pay.
@@ -73,7 +69,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         periodStart,
         periodEnd,
         emp201 as unknown as Record<string, unknown>,
-        userId
+        userId,
+        // A month with a pay run not final (a reopened run) is not saved for filing (breaker #1622), as the lifecycle.
+        { refuseNotFinalEmp201: true },
       );
       return apiResponse.created(res, submission, 'EMP201 draft saved');
     } catch (err) {

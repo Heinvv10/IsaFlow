@@ -52,7 +52,6 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingSubmissionService', as
 vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', async (orig) => ({ ...(await orig<object>()), getLedgerVAT201: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/modules/accounting/services/reports/vat201Return', () => ({ getVat201Return: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/modules/accounting/services/reports/sarsService', async (orig) => ({ ...(await orig<object>()), saveDraftSubmission: vi.fn(), generateEMP201: vi.fn().mockResolvedValue({}) }));
-vi.mock('@/modules/accounting/services/returns/finaliseEmpReturn', async (orig) => ({ ...(await orig<object>()), emp201NotFinalRefusal: vi.fn().mockResolvedValue(null) })); // FQd: the month's runs are final here
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', async (orig) => ({ ...(await orig<object>()), smartCategorizeForAccount: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/vatAdjustmentService', async (orig) => ({ ...(await orig<object>()), createVATAdjustment: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/vatSubmissionService', async (orig) => ({ ...(await orig<object>()), submitVATReturn: vi.fn() }));

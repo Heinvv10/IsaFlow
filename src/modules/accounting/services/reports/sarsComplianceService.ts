@@ -97,11 +97,17 @@ export async function saveDraftSubmission(
   periodEnd: string,
   formData: Record<string, unknown>,
   userId: string,
-  opts: { keepExistingAs?: string } = {},
+  opts: { keepExistingAs?: string; refuseNotFinalEmp201?: boolean } = {},
 ): Promise<SARSSubmission> {
   log.info('Saving draft submission', { formType, periodStart, periodEnd }, 'sarsComplianceService');
 
   await takeDraftPeriodLock(companyId, formType, periodStart, periodEnd);
+  if (opts.refuseNotFinalEmp201 && formType === 'EMP201') {
+    // The legacy draft (breaker #1622 L-J): judged under the draft-period key, then FOR SHARE on the month's runs held to
+    // the commit, the lifecycle finalise's lock order; a month with a run not final is not saved for filing.
+    const notFinal = await emp201NotFinalRefusal(companyId, periodStart, periodEnd);
+    if (notFinal) throw new SubmissionNotOpenError(notFinal);
+  }
   const open = (await sql`
     SELECT * FROM sars_submissions
     WHERE company_id = ${companyId}::UUID AND form_type = ${formType}
