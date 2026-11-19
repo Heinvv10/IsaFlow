@@ -6,18 +6,20 @@
  *  - B (rev1620-brk-sdl-deadlock): a bonus paid and approved on the 17th, then a termination run that tips the month:
  *    it carries the earlier runs' 1%, nobody is sent back to reopen a final run, every run ends final;
  *  - C: a month that stays exempt levies nothing on any of its runs.
+ *  - D: only the month's FINAL earlier runs are caught up (the loader, read directly).
  * In every case the month's EMP201 SDL equals 1% of the month's leviable lines (each rounded to the cent).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
+import { loadMonthToDateSdl } from '@/modules/accounting/services/payroll/payrollSdlMonthToDate';
 
 // 23:15 SAST on 17 November: the minted sessions stay valid across the move to the 18th below.
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
 type Rig = Awaited<ReturnType<typeof rig>>;
-const r: Record<'a' | 'b' | 'c', Rig> = {} as never;
+const r: Record<'a' | 'b' | 'c' | 'd', Rig> = {} as never;
 const bonusOf: Record<string, string> = {};
 const regular: Record<string, string> = {};
 const mid: Record<string, string> = {};
@@ -44,7 +46,7 @@ async function month(t: Rig) {
 const sdlOf = async (t: Rig, id: string) => Number((await t.pool.query('SELECT COALESCE(SUM(sdl), 0)::float8 AS s FROM payroll_run_lines WHERE run_id = $1', [id])).rows[0].s);
 
 beforeAll(async () => {
-  for (const k of ['a', 'b', 'c'] as const) {
+  for (const k of ['a', 'b', 'c', 'd'] as const) {
     r[k] = await rig(`w6-oc-sdl-${k}`);
     const t = r[k];
     await t.setup();
@@ -53,7 +55,7 @@ beforeAll(async () => {
     bonusOf[t.company] = (await t.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
       VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [t.company])).rows[0].id;
     regular[t.company] = await t.calculatedRun(11);
-    expect((await t.api.approve(regular[t.company]!)).statusCode).toBe(200);
+    if (k !== 'd') expect((await t.api.approve(regular[t.company]!)).statusCode).toBe(200);
   }
 }, 180_000);
 
@@ -102,5 +104,24 @@ describe('SDL settled for the month to date', () => {
     expect(await sdlOf(t, id)).toBe(0);
     expect((await month(t)).levied).toBe(0);
     expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBe(0);
+  });
+
+  it('D: only FINAL earlier runs count toward the catch-up (a run that is no longer final carries nothing)', async () => {
+    const t = r.d;
+    expect((await t.api.approve(regular[t.company]!)).statusCode).toBe(200);
+    const made = await bonus(t, 600_000, '2026-11-27');
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await t.api.calculate(id)).statusCode).toBe(200);
+    expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 203, earlierLevied: 0 });
+    // The regular run seen as not final (its status alone moved): nothing of it is caught up.
+    await t.pool.query(`ALTER TABLE payroll_run_headers DISABLE TRIGGER USER`);
+    try {
+      await t.pool.query(`UPDATE payroll_run_headers SET status = 'calculated' WHERE id = $1`, [regular[t.company]]);
+      expect(await loadMonthToDateSdl(t.company, id)).toEqual({ earlierLiable: false, earlierDue: 0, earlierLevied: 0 });
+      await t.pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [regular[t.company]]);
+    } finally {
+      await t.pool.query(`ALTER TABLE payroll_run_headers ENABLE TRIGGER USER`);
+    }
   });
 });
