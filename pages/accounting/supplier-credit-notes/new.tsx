@@ -186,7 +186,7 @@ export default function NewSupplierCreditNotePage() {
                         <tr key={idx} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-2 py-2"><input type="text" value={li.description} onChange={e => updateLine(idx, { description: e.target.value })} placeholder="Item description" className={inp} required /></td>
                           <td className="px-2 py-2"><AmountInput aria-label={`Line ${idx + 1} quantity`} min={0.001} decimals={3} value={li.quantity} onValueChange={n => updateLine(idx, { quantity: n })} className={`${inp} text-right`} /></td>
-                          <td className="px-2 py-2"><AmountInput aria-label={`Line ${idx + 1} unit price`} placeholder="0.00" min={0} value={li.unitPrice} onValueChange={n => updateLine(idx, { unitPrice: n })} className={`${inp} text-right`} /></td>
+                          <td className="px-2 py-2"><AmountInput aria-label={`Line ${idx + 1} unit price`} placeholder="0.00" min={0} decimals={6} value={li.unitPrice} onValueChange={n => updateLine(idx, { unitPrice: n })} className={`${inp} text-right`} /></td>
                           <td className="px-2 py-2">
                             <select name="vatType" aria-label={`Line ${idx + 1} VAT type`} value={li.vatType} onChange={e => updateLine(idx, { vatType: e.target.value as LineItem['vatType'] })} className={inp}>
                               {DOCUMENT_LINE_VAT_TYPES.map(v => <option key={v} value={v}>{vatTypeLabel(v, vatDate)}</option>)}
