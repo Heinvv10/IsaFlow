@@ -11,7 +11,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isHeaderSql } from './headerSql';
 import { fromCents } from './grid/cents';
-import { bandOf } from './grid/subtotals';
+import { bandOf, type Band } from './grid/subtotals';
 import type { AccountGrain } from './grid/pivot';
 import type { GridAccount, GridDimensions, GridMember } from './gridReadTypes';
 
@@ -44,6 +44,11 @@ async function readAccountRows(companyId: string): Promise<AccountRow[]> {
     parentId: r.parent_account_id ? String(r.parent_account_id) : null,
     isHeader: Boolean(r.is_header),
   }));
+}
+
+/** Every revenue / expense account's band (the grid's and the driver engine's sections), active or not. */
+export async function loadAccountBands(companyId: string): Promise<Map<string, Band>> {
+  return new Map((await readAccountRows(companyId)).map((r) => [r.id, bandOf(r.type, r.subtype)]));
 }
 
 /** The ids to list: lines that are active or hold amounts, headers that hold amounts or sit above a listed account. */

@@ -44,6 +44,7 @@ async function calcApprove(f: SeveranceFixture, id: string): Promise<number> {
 }
 
 describe('G4: concurrent approvals of January and February', () => {
+  // ~80 calculate+approve calls; ~18-21 s locally (19 Nov 2026), and it timed out at the 30 s default on hosted CI that day.
   it('January and February calculated, approved concurrently: exactly one is refused; recalculating it completes the year', async () => {
     const a = await seedEmployee(pool, fixtures, 'race ideal', 20_000);
     await setSalary(pool, a, 2027, 1, 60_000);
@@ -74,5 +75,5 @@ describe('G4: concurrent approvals of January and February', () => {
         expect(codes, `attempt ${i}`).toContain('PAYE_LATER_PERIODS_APPROVED');
       }
     }
-  });
+  }, 90_000);
 });

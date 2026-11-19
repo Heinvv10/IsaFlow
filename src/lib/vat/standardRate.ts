@@ -5,3 +5,51 @@
  * (scripts/ci/vatGuardAllowlist.ts), not read this directly.
  */
 export const SA_STANDARD_VAT_RATE_PCT = 15;
+
+/**
+ * The standard rate by the day it took effect, oldest first. A document is rated by ITS date, so one
+ * dated before a change keeps the rate that applied then. A new rate is a new row here and the constant
+ * above (vatLineAmounts.test.ts holds the two together).
+ */
+const SA_STANDARD_VAT_RATES: ReadonlyArray<{ from: string; pct: number }> = [
+  { from: '1991-09-30', pct: 10 },
+  { from: '1993-04-07', pct: 14 },
+  { from: '2018-04-01', pct: 15 },
+];
+
+/** A document date no rate can be read for; a route answers it 400. */
+export class VatRateDateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VatRateDateError';
+  }
+}
+
+const pad = (n: number): string => String(n).padStart(2, '0');
+
+/** The standard rate in force on `date`: a 'YYYY-MM-DD…' string, or a Date read by its local calendar day. */
+export function standardVatRatePctOn(date: string | Date): number {
+  if (!(date instanceof Date) && typeof date !== 'string') throw new VatRateDateError('the date is not a string');
+  const day = date instanceof Date
+    ? `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    : date.slice(0, 10);
+  // Round-tripped, because Date.parse rolls 2026-02-31 over to 3 March rather than refusing it.
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(`${day}T00:00:00Z`) : Number.NaN;
+  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== day) {
+    throw new VatRateDateError(`${JSON.stringify(day)} is not a calendar day`);
+  }
+  const row = SA_STANDARD_VAT_RATES.filter((r) => r.from <= day).pop();
+  if (!row) throw new VatRateDateError(`${day} is before VAT began (${SA_STANDARD_VAT_RATES[0]!.from})`);
+  return row.pct;
+}
+
+/** Whether a rate can be read for `date`: for a form, whose date field may be empty or mid-edit. */
+export function isRatedDate(date: unknown): date is string | Date {
+  try {
+    standardVatRatePctOn(date as string | Date);
+    return true;
+  } catch (err) {
+    if (err instanceof VatRateDateError) return false;
+    throw err;
+  }
+}

@@ -11,6 +11,9 @@
  * stand against a cancelled order. Owner/admin only (`@/lib/auth/writeRoles` PO_CANCEL_ROLES, the route), with a
  * mandatory reason, audited.
  *
+ * Refused while any bill is linked to it (migration 1006; brief section 4): the commitment it releases is what those bills billed.
+ * A link on a cancelled bill bills nothing and does not count (a cancel is terminal), so the app's own bill cancel frees
+ * the PO; no MCP-only unlink is needed. A soft-deleted bill still counts: it can be restored, live and linked.
  * Locks: the PO row `FOR UPDATE` only (no budget lock: releasing a commitment cannot overspend). The goods receipt
  * takes its number lock (620) then the same PO row, and re-checks the status under it, so cancel and receipt
  * serialise on the row and exactly one wins. All in one savepoint; every refusal comes before the write.
@@ -37,6 +40,16 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
     }
     if (po.status !== 'approved') {
       throw new PurchaseOrderNotCancellableError(`Only an approved purchase order is cancelled here (this one is ${po.status}); edit a draft or submitted one to cancel it`);
+    }
+    const linked = (await sql`
+      SELECT 1 FROM purchase_order_bill_links l
+        JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
+       WHERE l.purchase_order_id = ${poId}::UUID AND l.company_id = ${companyId}::UUID
+         AND si.status <> 'cancelled'
+       LIMIT 1
+    `) as DbRow[];
+    if (linked.length > 0) {
+      throw new PurchaseOrderNotCancellableError('Bills are linked to this purchase order, so it cannot be cancelled; unlink them first (unlink_bill_from_purchase_order)');
     }
     const receipts = (await sql`
       SELECT 1 FROM goods_received_notes WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1

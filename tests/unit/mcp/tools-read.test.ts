@@ -19,6 +19,8 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlFn,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+    // token_info reads its user in a savepoint; with no request transaction the real one just runs fn.
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
   };
 });
 

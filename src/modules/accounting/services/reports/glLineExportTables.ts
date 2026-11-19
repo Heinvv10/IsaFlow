@@ -24,8 +24,15 @@ import { GL_LINE_EXPORT_SCHEMA_VERSION, str, toNum, type ExportValue } from './g
 export const GL_DIMENSION_TABLES = ['accounts', 'cost_centres', 'business_units', 'counterparties'] as const;
 export type GlDimensionTable = (typeof GL_DIMENSION_TABLES)[number];
 
+/**
+ * The budget tables (reports/budgetsExport, schema isaflow-budgets-1.0): computed like the others, but REST only —
+ * a budget row has no single id to page by, and MCP serves budgets through list_budget_versions / get_budget.
+ */
+export const GL_BUDGET_TABLES = ['budget_versions', 'budgets'] as const;
+export type GlBudgetTable = (typeof GL_BUDGET_TABLES)[number];
+
 /** The computed tables, built by reports/glExportComputedTables; listed here so this registry imports nothing from it. */
-export const GL_COMPUTED_TABLES = ['ap_open_items', 'ar_open_items', 'bank_accounts'] as const;
+export const GL_COMPUTED_TABLES = ['ap_open_items', 'ar_open_items', 'bank_accounts', ...GL_BUDGET_TABLES] as const;
 
 /** Every table the export serves: the lines, the dimension masters, then the computed tables. */
 export const GL_EXPORT_TABLES = ['lines', ...GL_DIMENSION_TABLES, ...GL_COMPUTED_TABLES] as const;
@@ -33,6 +40,29 @@ export type GlExportTable = (typeof GL_EXPORT_TABLES)[number];
 
 export function isGlExportTable(v: unknown): v is GlExportTable {
   return typeof v === 'string' && (GL_EXPORT_TABLES as readonly string[]).includes(v);
+}
+
+export function isGlBudgetTable(v: unknown): v is GlBudgetTable {
+  return typeof v === 'string' && (GL_BUDGET_TABLES as readonly string[]).includes(v);
+}
+
+/** The tables the MCP tool export_gl_lines serves: every one but the budget tables (REST only). */
+export type GlMcpExportTable = Exclude<GlExportTable, GlBudgetTable>;
+export const GL_MCP_EXPORT_TABLES = GL_EXPORT_TABLES.filter((t): t is GlMcpExportTable => !isGlBudgetTable(t));
+
+export function isGlMcpExportTable(v: unknown): v is GlMcpExportTable {
+  return isGlExportTable(v) && !isGlBudgetTable(v);
+}
+
+/**
+ * Why export_gl_lines refuses `table`. A budget table points at the budget tools: its rows have no single UUID to
+ * carry in a cursor, and list_budget_versions / get_budget serve the same facts (the per-head restriction, #979,
+ * included). Anything else lists the tables it does serve.
+ */
+export function mcpExportTableRefusal(table: string): string {
+  return isGlBudgetTable(table)
+    ? `table "${table}" is not served by export_gl_lines: use list_budget_versions for the versions and get_budget for a version's amounts, or download it as CSV from /api/accounting/gl-lines-export?table=${table}`
+    : `table must be one of ${GL_MCP_EXPORT_TABLES.join(', ')}`;
 }
 
 export function isGlDimensionTable(v: unknown): v is GlDimensionTable {

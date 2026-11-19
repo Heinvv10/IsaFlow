@@ -14,6 +14,9 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { VatRateDateError } from '@/lib/vat/standardRate';
+import { DOCUMENT_LINE_VAT_TYPES, normaliseVatType } from '@/modules/accounting/services/shared/vatTypes';
+import { lineAmount, vatDocumentTotals, vatLineAmounts, type VatLineAmounts } from '@/modules/accounting/services/shared/vatLineAmounts';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   getCreditNotes,
@@ -84,7 +87,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         creditDate?: string;
         reference?: string;
         description?: string;
-        lineItems?: Array<{ description: string; quantity: number; unitPrice: number; vatType: string }>;
+        lineItems?: Array<{ description: string; quantity: number; unitPrice: number; vatType?: unknown }>;
         notes?: string;
         submitAction?: 'draft' | 'post';
       };
@@ -97,21 +100,44 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // W1 family (P2.1): negative/zero lines invert the CN's GL at approve.
       for (const li of lineItems) {
+        if (li === null || typeof li !== 'object') return apiResponse.badRequest(res, 'Each line item must be an object');
         if (!(Number(li.quantity) > 0)) {
           return apiResponse.badRequest(res, 'Line quantities must be positive');
         }
         if (Number(li.unitPrice) < 0) {
           return apiResponse.badRequest(res, 'Line unit prices cannot be negative');
         }
+        // NaN passes both tests above, and Infinity the first: either would throw in the pricing below (a 500).
+        if (typeof li.quantity !== 'number' || typeof li.unitPrice !== 'number'
+            || !Number.isFinite(li.quantity) || !Number.isFinite(li.unitPrice)
+            || Math.abs(li.quantity) >= 1e12 || Math.abs(li.unitPrice) >= 1e12) {
+          return apiResponse.badRequest(res, 'Line quantities and unit prices must be numbers');
+        }
+        // credit_notes.subtotal is numeric(15,2): a line that large overflows the INSERT (22003, a 500).
+        if (li.quantity * li.unitPrice >= 1e12) return apiResponse.badRequest(res, 'A line amount is too large');
       }
 
-      // Calculate totals from line items
-      const subtotal = lineItems.reduce((sum, li) => {
-        return sum + li.quantity * li.unitPrice;
-      }, 0);
-
-      // Standard 15% VAT — line items carry vatType for future per-line VAT
-      const taxRate = 15;
+      // VAT per line, by the line's VAT type at the rate of the credit date (shared/vatLineAmounts). A line naming
+      // no type is standard, as every line was before the type was read.
+      const vatTypes = lineItems.map((li) => (li.vatType == null ? 'standard' : normaliseVatType(li.vatType)));
+      const badLine = vatTypes.findIndex((t) => !t || !(DOCUMENT_LINE_VAT_TYPES as readonly string[]).includes(t));
+      if (badLine >= 0) {
+        return apiResponse.badRequest(res, `Line ${badLine + 1}: unknown VAT type. Use one of ${DOCUMENT_LINE_VAT_TYPES.join(', ')}.`);
+      }
+      let lines: VatLineAmounts[];
+      try {
+        lines = lineItems.map((li, i) => vatLineAmounts(lineAmount(li.quantity, li.unitPrice), vatTypes[i]!, creditDate));
+      } catch (err) {
+        if (err instanceof VatRateDateError) return apiResponse.badRequest(res, 'creditDate must be a date (YYYY-MM-DD)');
+        throw err;
+      }
+      const totals = vatDocumentTotals(lines);
+      // numeric(15,2): many lines each under the line cap can still overflow the note's own columns.
+      if (totals.total >= 1e13) return apiResponse.badRequest(res, 'The credit note total is too large');
+      // The header has one rate column: the rate of the note's rated lines, 0 when it has none. On a note mixing
+      // rated and unrated lines tax_amount is NOT tax_rate × subtotal, so readers that print the rate beside the
+      // VAT label go through vatTotalLabel, and the journal posts tax_amount.
+      const taxRate = Math.max(0, ...lines.map((l) => l.ratePct));
 
       const note = await createCreditNote(companyId, {
         type: 'supplier',
@@ -119,8 +145,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         supplierInvoiceId: supplierInvoiceId || undefined,
         creditDate,
         reason: description || reference || undefined,
-        subtotal: Math.round(subtotal * 100) / 100,
+        subtotal: totals.subtotal,
         taxRate,
+        taxAmount: totals.vat,
         projectId: undefined,
         glAccountId: glAccountId || undefined,
       }, userId);
