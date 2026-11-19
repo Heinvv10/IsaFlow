@@ -106,6 +106,10 @@ import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
 import { bulkCreatePurchaseOrdersTool } from './tools/writeBulkPurchaseOrders';
 import { linkBillsToPurchaseOrderTool } from './tools/writeLinkBillsToPurchaseOrder';
 import { unlinkBillFromPurchaseOrderTool } from './tools/writeUnlinkBillFromPurchaseOrder';
+import { updatePurchaseOrderTool } from './tools/writeUpdatePurchaseOrder';
+import { cancelPurchaseOrderTool } from './tools/writeCancelPurchaseOrder';
+import { closePurchaseOrderTool } from './tools/writeClosePurchaseOrder';
+import { setPurchaseOrderStatusTool } from './tools/writeSetPurchaseOrderStatus';
 import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
 import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
 import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
@@ -329,6 +333,11 @@ export const MCP_TOOLS = [
   // Which bills were billed against which POs (Sage FromDocument links). Posts nothing.
   linkBillsToPurchaseOrderTool,
   unlinkBillFromPurchaseOrderTool,
+  // PO maintenance: edit, cancel, short-close, set an imported PO's status. Posts nothing.
+  updatePurchaseOrderTool,
+  cancelPurchaseOrderTool,
+  closePurchaseOrderTool,
+  setPurchaseOrderStatusTool,
   bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,

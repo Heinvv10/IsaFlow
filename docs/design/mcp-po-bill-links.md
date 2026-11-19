@@ -69,7 +69,7 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
    the same test (a Sage load over app-linked bills); the link's amount, source and creator do not change. A pair linked
    otherwise -> refused ("already linked"). An external_ref used on another pair -> refused. A reference, once set, never
    changes (database guard).
-10. **Unlink** (`unlink_bill_from_purchase_order`, one pair, reason required, audited): deletes the link, clears `po_item_id`
+10. **Unlink** (`unlink_bill_from_purchase_order`, one pair, reason required, audited; widened by PO maintenance round 5 to be the ONE exit for every tie, `mcp-po-maintenance.md`: it also succeeds on a line-only or header-only reference with no link row and clears them, and refuses "not linked" only when none exists): deletes the link, clears `po_item_id`
     on that bill's lines that point into this PO, resets the header (decision 3), then decides the PO's status (Hein R1): if
     the PO is closed, a link of it records a closing (`closed_po_from_status`, read BEFORE the delete: it may be the deleted
     link's) and the PO is no longer fully billed after the unlink, it reopens to that status and the record is cleared; if it
@@ -146,9 +146,13 @@ raised before anything is written. Orders, first lock first:
 | PO import (`bulk_create_purchase_orders`) | budget gate (an approved PO) -> number counter row -> external-ref advisory locks |
 | `recordBillLinks` / `refreshAppBillLinks` (bill create, draft edit) | the bill's own row (held by the edit) -> the PO rows it names `FOR KEY SHARE` (id order; ALWAYS taken when the bill names a PO, whether or not a link is then written; also what the link FK takes) -> link inserts / deletes. |
 | supplier merge | batches -> payments -> bills -> supplier_purchase_orders (unchanged); refuses first when linked |
+| bill create (`createSupplierInvoice`) | the named POs `FOR KEY SHARE` (id order) with the PO lines re-checked under it, before the bill or its lines are written (PO maintenance review M1); the bill row is new |
+| `update_purchase_order` (PO maintenance, `mcp-po-maintenance.md`) | account rows `FOR SHARE` (prepare) -> budget gate (an APPROVED PO, block only) -> PO row `FOR UPDATE`; reads links / bill lines, no bill row |
+| `cancel_purchase_order` / `close_purchase_order` | PO row `FOR UPDATE` (no gate: releasing a commitment); reads links, no bill row |
+| `set_purchase_order_status` | budget gate (-> approved, block only) -> PO row `FOR UPDATE`; no bill row |
 
 No cycle: every writer that takes the budget gate takes it FIRST (the link tool takes none: it never raises committed spend,
-closing releases it); the PO is always taken before a bill (link, unlink), and the only writer that holds a bill row and then
+closing releases it; the PO maintenance tools above take the PO row and never a bill row, so they cannot meet the bill-row order); the PO is always taken before a bill (link, unlink), and the only writer that holds a bill row and then
 touches a PO row is the app writer (a draft edit), whose lock is `KEY SHARE`, compatible with link / unlink's `NO KEY UPDATE`
 (it conflicts only with `FOR UPDATE` holders: PO cancel / approve / goods receipt, which take no bill row, so no cycle either);
 bill approve / cancel hold no PO row (their budget check reads POs without row locks); goods receipt's number lock
@@ -169,7 +173,7 @@ the typed timeout with nothing written.
 - `unlink_bill_from_purchase_order` - `{ po_id | po_number, bill_id, reason, dry_run?, idempotency_key }`; replies
   `reopened_to`, `billed`, `fully_billed`, `budget_warning`.
 - `get_purchase_order` (read) - `po_id | po_number`, `offset` (lines): header, lines (ordered / received / billed qty and
-  amount, outstanding; 40 per page), linked bills (30), GRNs (15, 5 items each with `items_total` / `items_truncated`),
+  amount, outstanding; 40 per page), every bill that TIES the PO (30; each with `tie`: link | line | header, `deleted`; PO maintenance round 6), GRNs (15, 5 items each with `items_total` / `items_truncated`),
   documents (15), `billed_total`, `outstanding_to_bill`, `fully_billed`, `closed_under_billed`.
 - `list_supplier_invoices` / `get_supplier_invoice` gain `purchase_order_ids`; `get_supplier_invoice` gains each line's
   `po_item_id` and `three_way` (status fully_matched / po_matched / grn_matched / unmatched, tolerances and per-line
@@ -178,6 +182,7 @@ the typed timeout with nothing written.
 
 ## Known limits
 
+- **A header-only bill on a submitted PO gets no link when the PO is later approved.** The REST bill form lists submitted POs; a bill that names one only in its header gets no link (a submitted PO is not linkable) and approving the PO writes none. The link tool, or the post-release `SELECT purchase_order_bill_links_backfill();` re-run, picks it up. Until then the PO maintenance tools refuse to edit or cancel it ("unlink it first": unlink clears a header reference that has no link row).
 - **Backfill timing:** see decision 11: run the backfill function once after the release.
 - **Credit notes do not reduce billed.** A supplier credit note against a bill leaves its link amount (and so the PO's
   billed total and `fully_billed`) as it was.

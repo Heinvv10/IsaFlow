@@ -99,7 +99,8 @@ describe('get_purchase_order', () => {
     const po = await seedPo(pool, f, { lines: [100, 300], status: 'partially_received' });
     const bill = await seedBill(pool, f, { lines: [100] });
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: bill.id, lines: [{ po_item_id: po.items[0], bill_line_id: bill.lines[0] }] }] });
-    // A link to a bill that was later cancelled is listed but does not count as billed (nor does a deleted bill's).
+    // A link to a bill that was later cancelled is listed but does not count as billed; a deleted bill's link is listed too, flagged deleted
+    // (round 6: every tie is listed, because unlink can clear it and the refusals name it).
     const cancelled = await seedBill(pool, f, { lines: [50] });
     const gone = await seedBill(pool, f, { lines: [40] });
     await callTool(pool, f, link, { links: [{ po_id: po.po, bill_id: cancelled.id }, { po_id: po.po, bill_id: gone.id }] });
@@ -113,7 +114,10 @@ describe('get_purchase_order', () => {
 
     const r = await callTool(pool, f, getPo, { po_number: po.number });
     expect(r.isError, r.text).toBe(false);
-    expect(r.body).toMatchObject({ billed_total: 100, outstanding_to_bill: 300, fully_billed: false, lines_total: 2, bills_total: 2, goods_received_notes_total: 1, documents_total: 1 });
+    expect(r.body).toMatchObject({ billed_total: 100, outstanding_to_bill: 300, fully_billed: false, lines_total: 2, bills_total: 3, goods_received_notes_total: 1, documents_total: 1 });
+    expect((r.body.bills as Json[]).map((x) => [x.bill_id, x.tie, x.deleted, x.counts_as_billed]).sort()).toEqual([
+      [bill.id, 'link', false, true], [cancelled.id, 'link', false, false], [gone.id, 'link', true, false],
+    ].sort());
     const lines = r.body.lines as Json[];
     expect(lines[0]).toMatchObject({ quantity_ordered: 1, quantity_received: 1, quantity_billed: 1, amount_billed: 100, outstanding_quantity_to_bill: 0, outstanding_amount_to_bill: 0, outstanding_quantity_to_receive: 0 });
     expect(lines[1]).toMatchObject({ quantity_billed: 0, outstanding_amount_to_bill: 300, outstanding_quantity_to_receive: 1 });

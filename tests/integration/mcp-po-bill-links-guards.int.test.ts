@@ -180,7 +180,7 @@ describe('what app_user cannot forge, and the supplier guard', () => {
     await pool.query("UPDATE purchase_orders SET status = 'draft' WHERE id = $1", [po.po]);
     const put = await callRoute(poRoute as never, f, f.owner, `/api/accounting/purchase-orders/${po.po}`, { supplier_id: sup }, { method: 'PUT', id: po.po });
     expect(put.statusCode).toBe(400);
-    expect(JSON.stringify(put.body)).toContain('Bills are linked to this purchase order, so its supplier cannot change');
+    expect(JSON.stringify(put.body)).toContain('so its supplier cannot change; unlink it first (unlink_bill_from_purchase_order)');
     // Supplier merge: the source holds linked documents.
     const merge = await callRoute(mergeRoute as never, f, f.owner, '/api/accounting/supplier-merge', { source_id: f.supplier, target_id: sup });
     expect(merge.statusCode).toBe(400);

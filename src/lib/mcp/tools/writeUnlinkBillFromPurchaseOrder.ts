@@ -20,12 +20,14 @@ const REASON_MAX = 500;
 export const unlinkBillFromPurchaseOrderTool: McpTool = {
   name: TOOL,
   description:
-    'Remove the link between one bill and one purchase order. Posts nothing. Deletes the link, clears po_item_id on that bill\'s lines that point into this PO '
-    + '(so budget committed for those PO lines is no longer netted by the bill), resets the bill\'s purchase_order_id (its PO when exactly one link remains, else none; a header that names a PO this bill has no link to, such as an older purchase-order id, stays as it is) '
+    'Remove every tie between one bill and one purchase order: the ONE exit for what update_purchase_order / cancel_purchase_order / set_purchase_order_status tell you to unlink first. Posts nothing; any bill status (draft, cancelled too). '
+    + 'It succeeds when ANY of these exists, and clears all of them in one write: the link, po_item_id on the bill\'s lines that point into this PO\'s lines (a line with no link row counts: a R0 line, a draft or cancelled bill\'s line), and the bill\'s purchase_order_id when it names this PO; it is refused "not linked" only when none does. '
+    + 'Deletes the link, clears po_item_id on that bill\'s lines that point into this PO '
+    + '(so budget committed for those PO lines is no longer netted by the bill), resets the bill\'s purchase_order_id when it named this PO (to its PO when exactly one other link remains, else none; a header that names another PO stays as it is) '
     + 'and reopens the PO to the status a link call closed it from (close_when_fully_billed) when it is still closed and no longer fully billed after the unlink '
     + '(the record of that closing moves to another link of the PO when this link held it and the PO is still fully billed; a PO closed by hand is left). '
     + 'Un-netting PO lines or reopening makes the PO commit spend again: the budget check runs in warn form and never blocks; an over-budget result comes back as budget_warning (nothing is recorded in the budget history). Any write:invoices holder may unlink and so reopen a PO that a link closed: reopening restores a commitment, the conservative direction. '
-    + 'A reason is required and recorded in the audit trail. Refused when the pair is not linked. dry_run runs every check and writes nothing.',
+    + 'A reason is required and recorded in the audit trail. Refused when the bill has no link, no line and no header reference to this PO. dry_run runs every check and writes nothing.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -63,7 +65,7 @@ export const unlinkBillFromPurchaseOrderTool: McpTool = {
     }
     const r = result!;
     const body = {
-      link_id: r.linkId, purchase_order_id: r.poId, po_number: r.poNumber, bill_id: r.billId, invoice_number: r.invoiceNumber,
+      link_id: r.linkId, link_removed: r.linkId !== null, header_cleared: r.headerCleared, purchase_order_id: r.poId, po_number: r.poNumber, bill_id: r.billId, invoice_number: r.invoiceNumber,
       amount: r.amountCents / 100, lines_cleared: r.linesCleared, po_status_before: r.poStatusBefore, po_status: r.poStatusAfter,
       reopened_to: r.reopenedTo, billed: r.billedCents / 100, fully_billed: r.fullyBilled,
       budget_warning: r.budgetWarnings.length > 0 ? r.budgetWarnings.join(' ') : null, budget_warnings: r.budgetWarnings,
