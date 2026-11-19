@@ -4,6 +4,7 @@
  * 1 c; design decision 6). Reads only; company-scoped. Each list is capped (`DETAIL_CAPS`; `grnItems` is per goods received note, each reporting `items_total` and `items_truncated`) with its total beside it, so
  * the reply fits a client's result limit.
  */
+import { readPoTies } from './purchaseOrderTies';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -74,15 +75,9 @@ export async function readPurchaseOrderDetail(
     };
   });
 
-  const billRows = (await sql`
-    SELECT l.id AS link_id, l.amount, l.source, l.external_system, l.external_ref, l.created_at,
-           si.id AS bill_id, si.invoice_number, si.status, si.invoice_date, si.subtotal, si.total_amount,
-           count(*) OVER ()::INT AS total_rows
-      FROM purchase_order_bill_links l
-      JOIN supplier_invoices si ON si.id = l.supplier_invoice_id AND si.company_id = l.company_id
-     WHERE l.company_id = ${companyId}::UUID AND l.purchase_order_id = ${poId}::UUID AND si.deleted_at IS NULL
-     ORDER BY si.invoice_date, si.invoice_number, si.id LIMIT ${DETAIL_CAPS.bills}
-  `) as DbRow[];
+  // Every bill that ties the PO, one row each, with its tie kind (link | line | header): the same list the maintenance tools' refusals name.
+  const ties = await readPoTies(companyId, poId, DETAIL_CAPS.bills);
+  const billRows = ties.rows;
   const grnRows = (await sql`
     SELECT g.id, g.grn_number, g.received_date, g.status, g.received_by, count(*) OVER ()::INT AS total_rows
       FROM goods_received_notes g WHERE g.company_id = ${companyId}::UUID AND g.purchase_order_id = ${poId}::UUID
@@ -124,11 +119,11 @@ export async function readPurchaseOrderDetail(
     lines, lines_total: lineRows[0] ? Number(lineRows[0].total_rows) : 0,
     next_offset: lineRows.length > 0 && linesOffset + lineRows.length < Number(lineRows[0]!.total_rows) ? linesOffset + lineRows.length : null,
     bills: billRows.map((r) => ({
-      link_id: String(r.link_id), bill_id: String(r.bill_id), invoice_number: String(r.invoice_number), status: String(r.status),
-      invoice_date: day(r.invoice_date), subtotal: Number(r.subtotal), total_amount: Number(r.total_amount), linked_amount: Number(r.amount),
-      counts_as_billed: counted(r.status), source: String(r.source), external_system: short(r.external_system), external_ref: short(r.external_ref),
+      tie: String(r.tie), deleted: r.deleted === true, link_id: r.link_id == null ? null : String(r.link_id), bill_id: String(r.bill_id), invoice_number: String(r.invoice_number), status: String(r.status),
+      invoice_date: day(r.invoice_date), subtotal: Number(r.subtotal), total_amount: Number(r.total_amount), linked_amount: r.amount == null ? 0 : Number(r.amount),
+      counts_as_billed: counted(r.status) && r.deleted !== true, source: r.source == null ? null : String(r.source), external_system: short(r.external_system), external_ref: short(r.external_ref),
     })),
-    bills_total: billRows[0] ? Number(billRows[0].total_rows) : 0,
+    bills_total: ties.total,
     goods_received_notes: grnRows.map((g) => ({
       id: String(g.id), grn_number: String(g.grn_number), received_date: day(g.received_date), status: String(g.status), received_by: short(g.received_by),
       items: grnItems.filter((i) => String(i.grn_id) === String(g.id)).map((i) => ({

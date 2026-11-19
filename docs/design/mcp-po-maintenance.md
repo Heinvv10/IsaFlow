@@ -54,9 +54,18 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      behaviour of #1627), `po_item_id` on the bill's lines that point into this PO's lines, and the header if it names this PO. It
      succeeds when any of the three exists and is refused "not linked" only when none does. Any bill status (draft, cancelled,
      soft-deleted too). Only removing a LINK can reopen a closed PO. The audit row says what was cleared (`link_removed`,
-     `lines_cleared`, `header_cleared`, `bill_status`). No ledger effect: these are references only; billed and committed read
-     approved / paid / partially_paid bills' lines, and the three-way match, which reads the bill's own lines, shows a cleared line as
-     unmatched (display only; this is also what a cancelled bill's cleared line does). The lock order is unchanged (gate -> PO row ->
+     `lines_cleared`, `header_cleared`, `bill_status`, `match_state`, `raised_committed`), and the BILL gets its own audit row
+     (entity supplier_invoice) naming what was cleared on it. No ledger effect: these are references only. Budget: clearing an
+     APPROVED / paid / partially_paid, not-deleted bill's NON-ZERO line reference RAISES committed spend (the PO line is no longer netted
+     by that bill), so unlink is gated and warns like any unlink; clearing a header, or a draft / cancelled / deleted / R0 bill's
+     reference, changes no figure and warns nothing. The bill's stored three-way state (`match_status`, each line's
+     `line_match_status` and variances) is re-judged by the existing recompute (`performThreeWayMatch`, in its own savepoint) when
+     the bill still names a PO, and reset to unmatched when it names none (never left stale).
+   - **Seeing the ties.** The refusal NAMES the tying bills (number, id, kind link | line | header; ten shown, the rest counted), and
+     `get_purchase_order` `bills[]` lists every tying bill with its `tie` kind (a link on a soft-deleted bill is listed, `deleted:
+     true`; capped at 30 with `bills_total`). `list_supplier_invoices` / `get_supplier_invoice` expose the header
+     `purchase_order_id` beside `purchase_order_ids` (link rows). One module, `ap/purchaseOrderTies`, feeds both. The supplier-change
+     refusal (`poSupplierChangeBlocked`) and the app's approved-PO cancel use the same single wording. The lock order is unchanged (gate -> PO row ->
      bill rows). Because unlink clears them, cancelled and draft bills' lines count as ties again (the PO's lines are not replaced
      under a line that names them).
    - Validation is the PUT's, extracted, not copied: `ap/purchaseOrderEditChecks.validatePoEdit` (supplier in company, supplier

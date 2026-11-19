@@ -22,9 +22,11 @@ import { setPurchaseOrderStatusTool as setStatus } from '@/lib/mcp/tools/writeSe
 import { updatePurchaseOrderTool as update } from '@/lib/mcp/tools/writeUpdatePurchaseOrder';
 import { cancelPurchaseOrderTool as cancel } from '@/lib/mcp/tools/writeCancelPurchaseOrder';
 import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
+import { getPurchaseOrderTool as getPo } from '@/lib/mcp/tools/getPurchaseOrder';
+import { getSupplierInvoiceTool as getBill } from '@/lib/mcp/tools/supplierInvoices';
 import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
 import { als } from '@/lib/als';
-import { poBillTie } from '@/modules/accounting/services/ap/purchaseOrderMaintenanceGuards';
+import { readPoTies } from '@/modules/accounting/services/ap/purchaseOrderTies';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -86,16 +88,34 @@ const KINDS: Array<[string, (po: { po: string; items: string[] }) => Promise<str
   }],
 ];
 
+/** Per kind: how get_purchase_order lists it, and what unlink reports clearing (link removed, lines cleared, header cleared). */
+const EXPECT: Record<string, { tie: string; linkRemoved: boolean; lines: number; header: boolean }> = {
+  'a link row': { tie: 'link', linkRemoved: true, lines: 0, header: true },
+  'a line-only reference (no link row)': { tie: 'line', linkRemoved: false, lines: 1, header: false },
+  'a R0 line naming a PO line (planBillLinks gives it no link)': { tie: 'line', linkRemoved: false, lines: 1, header: false },
+  'a header-only reference by an approved same-supplier bill': { tie: 'header', linkRemoved: false, lines: 0, header: true },
+  "a draft bill's line": { tie: 'line', linkRemoved: false, lines: 1, header: false },
+  "a cancelled bill's line": { tie: 'line', linkRemoved: false, lines: 1, header: false },
+  "a legacy cross-supplier bill's line": { tie: 'line', linkRemoved: false, lines: 1, header: false },
+};
+
 describe('every tie kind: the refusal names unlink, and unlink frees the PO', () => {
-  it.each(KINDS)('%s', async (_name, make) => {
+  it.each(KINDS)('%s', async (name, make) => {
     const po = await seedPo(pool, f, { lines: [100] });
     const bill = await make(po);
+    const want = EXPECT[name]!;
+    const invoiceNumber = String((await pool.query('SELECT invoice_number FROM supplier_invoices WHERE id = $1', [bill])).rows[0].invoice_number);
+    // The bill is NAMED in the refusal (number, id, kind) and listed by get_purchase_order with its tie kind.
+    const shown = await callTool(pool, f, getPo, { po_id: po.po });
+    expect((shown.body.bills as Array<Record<string, unknown>>).filter((x) => x.bill_id === bill)).toEqual([expect.objectContaining({ tie: want.tie, deleted: false })]);
+    expect(shown.body.bills_total).toBe(1);
     const gl = await glCount(pool, f);
     const status = (await poRow(pool, po.po)).status;
     for (const [label, args] of [['update', { notes: 'x' }], ['update lines', { lines: [{ ...NEW_LINE, gl_account_id: f.acc.opex }] }]] as const) {
       const r = await callTool(pool, f, update, { po_id: po.po, ...args });
       expect(r.isError, label).toBe(true);
       expect(r.text, label).toContain('unlink it first (unlink_bill_from_purchase_order)');
+      expect(r.text, label).toContain(`${invoiceNumber} (id ${bill}, ${want.tie})`);
     }
     expect((await callTool(pool, f, cancel, { po_id: po.po, reason: 'x' })).text).toContain('unlink it first (unlink_bill_from_purchase_order)');
     expect((await poRow(pool, po.po)).status).toBe(status);
@@ -109,10 +129,20 @@ describe('every tie kind: the refusal names unlink, and unlink frees the PO', ()
     expect(await refs(bill, po.po)).toEqual({ links: 0, lines: 0, header: false });
     expect(await glCount(pool, f)).toEqual(gl);
     const meta = (await auditOf(pool, f, po.po)).at(-1)!.changes.metadata!;
-    expect(meta).toMatchObject({ bill_id: bill, reason: 'free it', source: 'mcp:unlink_bill_from_purchase_order' });
-    expect(meta).toHaveProperty('lines_cleared');
-    expect(meta).toHaveProperty('header_cleared');
-    expect(meta).toHaveProperty('link_removed');
+    expect(meta).toMatchObject({
+      bill_id: bill, reason: 'free it', source: 'mcp:unlink_bill_from_purchase_order', link_removed: String(want.linkRemoved),
+      lines_cleared: String(want.lines), header_cleared: String(want.header),
+    });
+    // ...and one audit row on the BILL itself, naming what was cleared on it.
+    const billAudit = (await pool.query(
+      `SELECT user_id, changes FROM audit_log WHERE company_id = $1 AND entity_type = 'supplier_invoice' AND entity_id = $2 AND changes->'metadata' ? 'unlinked_from_po'`,
+      [f.co, bill])).rows;
+    expect(billAudit).toHaveLength(1);
+    expect(billAudit[0].user_id).toBe(f.owner);
+    expect(billAudit[0].changes.metadata).toMatchObject({
+      purchase_order_id: po.po, link_removed: String(want.linkRemoved), lines_cleared: String(want.lines), header_cleared: String(want.header),
+      reason: 'free it', source: 'mcp:unlink_bill_from_purchase_order',
+    });
     expect((await callTool(pool, f, update, { po_id: po.po, lines: [{ ...NEW_LINE, gl_account_id: f.acc.opex }] })).isError).toBe(false);
   });
 
@@ -197,10 +227,10 @@ describe('another company\'s bill is not a tie (checked as the superuser: row se
     // As qualifying as it can be but for the company: approved, our PO's supplier, naming our PO.
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1, supplier_id = $2 WHERE id = $3', [po.po, f.supplier, theirs.id]);
     await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE id = $2', [po.items[0], theirs.lines[0]]);
-    expect(await asSuperuser(() => poBillTie(f.co, po.po))).toBeNull();
+    expect((await asSuperuser(() => readPoTies(f.co, po.po, 10))).rows).toEqual([]);
     const ours = await seedBill(pool, f, { lines: [100] });
     await header(ours.id, po.po);
-    expect(await asSuperuser(() => poBillTie(f.co, po.po))).toBe('header');
+    expect((await asSuperuser(() => readPoTies(f.co, po.po, 10))).rows.map((r) => r.tie)).toEqual(['header']);
   });
 });
 

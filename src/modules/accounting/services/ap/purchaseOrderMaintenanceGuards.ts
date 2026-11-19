@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { withRowLockBudget } from '../core/rowLockBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
-import { LINKABLE_BILL_STATUSES, LINKABLE_PO_STATUSES } from './purchaseOrderBillLinkTypes';
+import { TIE_REFUSAL, tieRefusalText } from './purchaseOrderTies';
 
 export async function poHasReceipts(companyId: string, poId: string): Promise<boolean> {
   const rows = (await sql`
@@ -21,47 +21,20 @@ export async function poHasReceipts(companyId: string, poId: string): Promise<bo
   return rows.length > 0;
 }
 
-/**
- * How a bill is tied to the PO, or null. EVERY kind returned here is cleared by `unlink_bill_from_purchase_order` (the one exit,
- * `purchaseOrderBillUnlink`), which is what the refusal sends the caller to, so no tie can be a dead end:
- *   - `linked`: a link row, or a bill line naming one of the PO's lines (any bill status, cancelled and draft included: unlink clears
- *     them, and replacing the PO's lines would otherwise leave their po_item_id naming a deleted line, which the three-way match shows
- *     as unmatched, display only). A soft-DELETED bill is skipped (nothing reads it);
- *   - `header`: a bill that names the PO ONLY in its header, no link row, and that `link_bills_to_purchase_order` COULD link: PO in a
- *     linkable status, bill approved / paid / partially_paid and not deleted, same supplier. Such a bill is billing the PO (the
- *     three-way match reads the header PO's lines) but has no link row (it was made while the PO was only submitted; approving writes
- *     none). A header reference the link tool could NOT make a link of (a draft / submitted / cancelled PO, a draft or cancelled bill,
- *     another supplier) is not billing the PO and is not a tie.
- */
-export async function poBillTie(companyId: string, poId: string): Promise<'linked' | 'header' | null> {
-  const rows = (await sql`
-    SELECT (
-      EXISTS (SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID)
-      OR EXISTS (SELECT 1 FROM supplier_invoice_items sii
-                   JOIN po_items pi ON pi.id = sii.po_item_id AND pi.purchase_order_id = ${poId}::UUID
-                   JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL)
-    ) AS linked,
-    EXISTS (SELECT 1 FROM supplier_invoices si JOIN purchase_orders po ON po.id = si.purchase_order_id AND po.company_id = si.company_id
-             WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ${poId}::UUID AND si.deleted_at IS NULL
-               AND si.supplier_id = po.supplier_id AND si.status = ANY(${[...LINKABLE_BILL_STATUSES]}::TEXT[])
-               AND po.status = ANY(${[...LINKABLE_PO_STATUSES]}::TEXT[])) AS header
-  `) as DbRow[];
-  return rows[0]?.linked === true ? 'linked' : rows[0]?.header === true ? 'header' : null;
-}
-
 export const RECEIPT_REFUSAL = 'Goods have been received against this purchase order (a receipt is on record)';
-export const LINKS_REFUSAL = 'A bill is linked to or names this purchase order';
+export const LINKS_REFUSAL = TIE_REFUSAL;
 
-/** What a refusal says about a bill tie, or null. ONE wording for every kind: unlink is the one exit. */
-export function billTieText(tie: 'linked' | 'header' | null, what: string): string | null {
-  if (tie === null) return null;
-  return `${LINKS_REFUSAL}, so ${what}; unlink it first (unlink_bill_from_purchase_order)`;
-}
+/**
+ * What a refusal says about the bills that tie the PO, or null when none does: they are NAMED (number, id, kind: link | line |
+ * header; ten shown, the rest counted), because a tie without a link row is invisible otherwise. ONE wording for every kind:
+ * `unlink_bill_from_purchase_order` is the one exit.
+ */
+export const billTieRefusal = tieRefusalText;
 
 /** The refusal text for a PO whose lines / status must not move while a receipt or bill link stands, or null. */
 export async function receiptOrLinkRefusal(companyId: string, poId: string, what: string): Promise<string | null> {
   if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; unlink or cancel the receipt first`;
-  return billTieText(await poBillTie(companyId, poId), what);
+  return billTieRefusal(companyId, poId, what);
 }
 
 export interface LockedPo { poNumber: string; status: string; externalRef: string | null; orderMonth: string }

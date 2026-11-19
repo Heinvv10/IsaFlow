@@ -10,8 +10,9 @@
  * and a bill naming the PO in its header. So the call succeeds when ANY of the three references exists, in one locked write: the
  * link row (if present), `po_item_id` on the bill's lines into this PO, and the header if it names this PO. It refuses "not linked"
  * only when none does. Any bill status (draft, cancelled, soft-deleted too): these are references only, nothing posted reads them
- * (committed / billed read approved / paid / partially_paid bills' lines; the three-way match reads the bill's own lines and shows a
- * cleared line as unmatched, display only). Lock order is unchanged.
+ * (committed / billed read approved / paid / partially_paid bills' lines; clearing such a bill's non-zero line reference RAISES committed
+ * spend, so it is gated and warned like any unlink; clearing a header, or a draft / cancelled / deleted / R0 bill's reference, changes no
+ * figure and warns nothing; the bill's stored three-way state is re-judged or reset, `purchaseOrderUnlinkClear`). Lock order is unchanged.
  *
  * Then: delete the link, clear `po_item_id` on the bill's lines into this PO, reset the bill's header
  * (`purchaseOrderBillLinkHeader`), and decide the PO's status:
@@ -39,6 +40,7 @@ import { billedCentsByPo } from './purchaseOrderBilled';
 import { syncBillHeaderPurchaseOrder } from './purchaseOrderBillLinkHeader';
 import { unlinkBudgetWarnings } from './purchaseOrderUnlinkBudget';
 import { PurchaseOrderLockTimeoutError } from './purchaseOrderErrors';
+import { auditBillCleared, clearingRaisesCommitted, resetMatchState } from './purchaseOrderUnlinkClear';
 import { PurchaseOrderBillLinkRefusal, isFullyBilled } from './purchaseOrderBillLinkTypes';
 
 export interface UnlinkRequest { poId: string | null; poNumber: string | null; billId: string; reason: string }
@@ -123,6 +125,8 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   const claim = all.find((l) => l.closed_po_from_status != null);
   const closedFrom = claim ? String(claim.closed_po_from_status) : null;
 
+  // BEFORE the clear: does removing the line references raise committed spend (an approved / paid bill's non-zero posted line netted it)?
+  const raisesCommitted = lineRefs.length > 0 && await clearingRaisesCommitted(companyId, req.billId, poId);
   const cleared = (await sql`
     UPDATE supplier_invoice_items sii SET po_item_id = NULL
       FROM po_items pi
@@ -134,6 +138,9 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   await syncBillHeaderPurchaseOrder(companyId, [req.billId], poId);
   const headerAfter = (await sql`SELECT purchase_order_id::TEXT AS po FROM supplier_invoices WHERE id = ${req.billId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   const headerCleared = namesInHeader && String(headerAfter[0]?.po ?? '').toLowerCase() !== poId;
+
+  // The bill's stored three-way state no longer matches what it names: re-judged, or reset when it names no PO.
+  const matchState = cleared.length > 0 || headerCleared ? await resetMatchState(companyId, req.billId) : 'unchanged';
 
   const billed = (await billedCentsByPo(companyId, [poId])).get(poId) ?? 0;
   const fully = isFullyBilled(billed, toCents(Number(pos[0].subtotal ?? 0)));
@@ -164,7 +171,7 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
   // R2 (Hein): never blocks, and records nothing (no budget_check_events row, no approve audit row): a READ of what the PO would
   // now commit, worded for an unlink. Not run when the budget gate was busy; the reply says so.
   let budgetWarnings: string[] = [];
-  if ((COMMITTING_PO_STATUSES as readonly string[]).includes(statusAfter) && (reopenedTo !== null || cleared.length > 0)) {
+  if ((COMMITTING_PO_STATUSES as readonly string[]).includes(statusAfter) && (reopenedTo !== null || raisesCommitted)) {
     budgetWarnings = gateBusy
       ? ['The budget could not be checked just now (another approval holds the budget lock); the purchase order commits spend again, check it in the app.']
       : await unlinkBudgetWarnings(companyId, poId, poNumber, opts.budgetFigures);
@@ -176,10 +183,14 @@ export async function unlinkBillFromPurchaseOrder(companyId: string, req: Unlink
       fields: reopenedTo ? [{ field: 'status', old: 'closed', new: reopenedTo, label: 'Status' }] : [],
       metadata: {
         unlinked_bill: invoiceNumber.slice(0, 100), bill_id: req.billId, link_id: link ? String(link.id) : '', link_removed: String(!!link), amount: link ? Number(link.amount).toFixed(2) : '0.00',
-        lines_cleared: String(cleared.length), header_cleared: String(headerCleared), bill_status: String(bills[0].status ?? ''), reason: reason.slice(0, 500), source: opts.via, fully_billed: String(fully),
+        lines_cleared: String(cleared.length), header_cleared: String(headerCleared), bill_status: String(bills[0].status ?? ''), match_state: matchState, raised_committed: String(raisesCommitted), reason: reason.slice(0, 500), source: opts.via, fully_billed: String(fully),
         ...(budgetWarnings.length > 0 ? { budget_warnings: String(budgetWarnings.length) } : {}),
       },
     },
+  });
+  await auditBillCleared(companyId, opts.userId, req.billId, {
+    poNumber, poId, invoiceNumber, linkRemoved: !!link, linesCleared: cleared.length, headerCleared, reason, via: opts.via,
+    billStatus: String(bills[0].status ?? ''), match: matchState,
   });
   return {
     poId, poNumber, billId: req.billId, invoiceNumber, linkId: link ? String(link.id) : null, amountCents: link ? Math.round(Number(link.amount) * 100) : 0, headerCleared,

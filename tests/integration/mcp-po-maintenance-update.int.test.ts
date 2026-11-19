@@ -222,7 +222,7 @@ describe('what refuses an update', () => {
     const second = await seedSupplier(pool, f, 'Another supplier');
     const r = await callTool(pool, f, update, { po_id: po.po, supplier_id: second });
     expect(r.isError).toBe(true);
-    expect(r.text).toBe('Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.');
+    expect(r.text).toMatch(/^A bill is linked to or names this purchase order \[.+\(id [0-9a-f-]{36}, link\)\], so its supplier cannot change; unlink it first \(unlink_bill_from_purchase_order\)$/);
     expect((await poRow(pool, po.po)).supplier_id).toBe(f.supplier);
     expect((await callTool(pool, f, update, { po_id: po.po, supplier_id: other.supplier })).text).toBe('Not found');
   });

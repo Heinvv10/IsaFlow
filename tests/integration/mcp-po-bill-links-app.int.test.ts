@@ -170,7 +170,7 @@ describe('line-only bills, linkable statuses, the create transaction and the dra
     const req = await openRequest(pool, f, f.owner);
     try { await req.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x')); expect.unreachable(); } catch (e) {
       expect(e).toBeInstanceOf(PurchaseOrderNotCancellableError);
-      expect((e as Error).message).toContain('Bills are linked to this purchase order');
+      expect((e as Error).message).toContain('A bill is linked to or names this purchase order');
     } finally { await req.rollback(); }
     await pool.query('DELETE FROM purchase_order_bill_links WHERE supplier_invoice_id = $1', [bill]);
     const ok = await openRequest(pool, f, f.owner);

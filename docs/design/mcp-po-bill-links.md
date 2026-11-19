@@ -173,7 +173,7 @@ the typed timeout with nothing written.
 - `unlink_bill_from_purchase_order` - `{ po_id | po_number, bill_id, reason, dry_run?, idempotency_key }`; replies
   `reopened_to`, `billed`, `fully_billed`, `budget_warning`.
 - `get_purchase_order` (read) - `po_id | po_number`, `offset` (lines): header, lines (ordered / received / billed qty and
-  amount, outstanding; 40 per page), linked bills (30), GRNs (15, 5 items each with `items_total` / `items_truncated`),
+  amount, outstanding; 40 per page), every bill that TIES the PO (30; each with `tie`: link | line | header, `deleted`; PO maintenance round 6), GRNs (15, 5 items each with `items_total` / `items_truncated`),
   documents (15), `billed_total`, `outstanding_to_bill`, `fully_billed`, `closed_under_billed`.
 - `list_supplier_invoices` / `get_supplier_invoice` gain `purchase_order_ids`; `get_supplier_invoice` gains each line's
   `po_item_id` and `three_way` (status fully_matched / po_matched / grn_matched / unmatched, tolerances and per-line

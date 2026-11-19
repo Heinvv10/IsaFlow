@@ -22,7 +22,8 @@ import { resolvePoId } from '@/lib/mcp/tools/purchaseOrderMaintenanceArgs';
 import { updatePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderUpdate';
 import { cancelPurchaseOrder, closePurchaseOrder } from '@/modules/accounting/services/ap/purchaseOrderMaintenance';
 import { setImportedPurchaseOrderStatus } from '@/modules/accounting/services/ap/purchaseOrderSetStatus';
-import { lockPoForMaintenance, poBillTie, poHasReceipts } from '@/modules/accounting/services/ap/purchaseOrderMaintenanceGuards';
+import { lockPoForMaintenance, poHasReceipts } from '@/modules/accounting/services/ap/purchaseOrderMaintenanceGuards';
+import { readPoTies } from '@/modules/accounting/services/ap/purchaseOrderTies';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -94,9 +95,9 @@ describe('the queries are company-scoped on their own (row security bypassed)', 
       expect(await resolvePoId(f.co, { poId: null, poNumber: theirs.number })).toBeNull();
       expect(await lockPoForMaintenance(f.co, theirs.po)).toBeNull();
       expect(await poHasReceipts(f.co, theirs.po)).toBe(false);
-      expect(await poBillTie(f.co, theirs.po)).toBeNull();
+      expect((await readPoTies(f.co, theirs.po, 10)).rows).toEqual([]);
       expect(await poHasReceipts(other.co, theirs.po)).toBe(true);
-      expect(await poBillTie(other.co, theirs.po)).toBe('linked');
+      expect((await readPoTies(other.co, theirs.po, 10)).rows.map((r) => r.tie)).toEqual(['link']);
       const o = { userId: f.owner, via: 'test', budgetFigures: false };
       await expect(updatePurchaseOrder(f.co, { poId: theirs.po, header: { notes: 'x' }, replace: null }, o)).rejects.toMatchObject(miss);
       await expect(cancelPurchaseOrder(f.co, theirs.po, 'x', o)).rejects.toMatchObject(miss);

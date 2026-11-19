@@ -21,6 +21,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { tieRefusalText } from './purchaseOrderTies';
 import {
   lockPurchaseOrder, PurchaseOrderChangedError, PurchaseOrderNotCancellableError, PurchaseOrderNotFoundError,
 } from './purchaseOrderErrors';
@@ -44,7 +45,7 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
       SELECT 1 FROM purchase_order_bill_links WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1
     `) as DbRow[];
     if (linked.length > 0) {
-      throw new PurchaseOrderNotCancellableError('Bills are linked to this purchase order, so it cannot be cancelled; unlink them first (unlink_bill_from_purchase_order)');
+      throw new PurchaseOrderNotCancellableError(await tieRefusalText(companyId, poId, 'it cannot be cancelled') ?? 'A bill is linked to this purchase order, so it cannot be cancelled; unlink it first (unlink_bill_from_purchase_order)');
     }
     const receipts = (await sql`
       SELECT 1 FROM goods_received_notes WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1

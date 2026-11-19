@@ -21,7 +21,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { openBudgetGate } from '../budgets/budgetCheck';
 import { checkPurchaseOrderBudget } from './purchaseOrderBudget';
 import { PurchaseOrderChangedError, PurchaseOrderMaintenanceRefusal, PurchaseOrderNotFoundError } from './purchaseOrderErrors';
-import { ACCOUNTLESS_REFUSAL, lockPoForMaintenance, poBillTie, billTieText, poHasAccountlessLines, poHasReceipts } from './purchaseOrderMaintenanceGuards';
+import { ACCOUNTLESS_REFUSAL, lockPoForMaintenance, billTieRefusal, poHasAccountlessLines, poHasReceipts } from './purchaseOrderMaintenanceGuards';
 
 export const SETTABLE_PO_STATUSES = ['draft', 'approved', 'closed', 'cancelled'] as const;
 export type SettablePoStatus = (typeof SETTABLE_PO_STATUSES)[number];
@@ -63,7 +63,7 @@ export async function setImportedPurchaseOrderStatus(
       throw refuse('Goods have been received against this purchase order (a receipt is on record), so its status cannot be set; unlink or cancel the receipt first');
     }
     if (target === 'draft' || target === 'cancelled') {
-      const tied = billTieText(await poBillTie(companyId, poId), `it cannot go to ${target}`);
+      const tied = await billTieRefusal(companyId, poId, `it cannot go to ${target}`);
       if (tied) throw refuse(tied);
     }
 
