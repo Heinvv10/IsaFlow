@@ -82,7 +82,7 @@
   "pages/accounting/supplier-categories/index.tsx": 2,
   "pages/accounting/supplier-credit-notes/new.tsx": 1,
   "pages/accounting/supplier-purchase-orders/index.tsx": 1,
-  "pages/accounting/supplier-returns/index.tsx": 2,
+  "pages/accounting/supplier-returns/index.tsx": 1,
   "pages/accounting/supplier-statements/[supplierId].tsx": 1,
   "pages/accounting/supplier-statements/index.tsx": 1,
   "pages/accounting/suppliers/[supplierId]/rules.tsx": 5,
