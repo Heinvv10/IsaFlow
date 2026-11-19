@@ -113,7 +113,7 @@ describe('update_purchase_order x bill create', () => {
     expect(waited, 'the update was waiting on the PO row the bill holds').toBe(true);
     const r = await upd!;
     expect(r.isError).toBe(true);
-    expect(r.text).toContain('Bills are linked');
+    expect(r.text).toContain('A bill is linked');
     expect(await orphans()).toBe(0);
     expect((await poLines(pool, po.po)).map((l) => l.description)).toEqual(['PO line 0']);
   }, 30_000);

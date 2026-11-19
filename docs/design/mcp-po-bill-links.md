@@ -69,7 +69,7 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
    the same test (a Sage load over app-linked bills); the link's amount, source and creator do not change. A pair linked
    otherwise -> refused ("already linked"). An external_ref used on another pair -> refused. A reference, once set, never
    changes (database guard).
-10. **Unlink** (`unlink_bill_from_purchase_order`, one pair, reason required, audited): deletes the link, clears `po_item_id`
+10. **Unlink** (`unlink_bill_from_purchase_order`, one pair, reason required, audited; widened by PO maintenance round 5 to be the ONE exit for every tie, `mcp-po-maintenance.md`: it also succeeds on a line-only or header-only reference with no link row and clears them, and refuses "not linked" only when none exists): deletes the link, clears `po_item_id`
     on that bill's lines that point into this PO, resets the header (decision 3), then decides the PO's status (Hein R1): if
     the PO is closed, a link of it records a closing (`closed_po_from_status`, read BEFORE the delete: it may be the deleted
     link's) and the PO is no longer fully billed after the unlink, it reopens to that status and the record is cleared; if it
@@ -182,7 +182,7 @@ the typed timeout with nothing written.
 
 ## Known limits
 
-- **A header-only bill on a submitted PO gets no link when the PO is later approved.** The REST bill form lists submitted POs; a bill that names one only in its header gets no link (a submitted PO is not linkable) and approving the PO writes none. The link tool, or the post-release `SELECT purchase_order_bill_links_backfill();` re-run, picks it up. Until then the PO maintenance tools refuse to edit or cancel it ("link it first").
+- **A header-only bill on a submitted PO gets no link when the PO is later approved.** The REST bill form lists submitted POs; a bill that names one only in its header gets no link (a submitted PO is not linkable) and approving the PO writes none. The link tool, or the post-release `SELECT purchase_order_bill_links_backfill();` re-run, picks it up. Until then the PO maintenance tools refuse to edit or cancel it ("unlink it first": unlink clears a header reference that has no link row).
 - **Backfill timing:** see decision 11: run the backfill function once after the release.
 - **Credit notes do not reduce billed.** A supplier credit note against a bill leaves its link amount (and so the PO's
   billed total and `fully_billed`) as it was.

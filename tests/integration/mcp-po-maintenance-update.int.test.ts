@@ -153,7 +153,7 @@ describe('what refuses an update', () => {
     expect((await poRow(pool, po.po)).notes).toBeNull();
   });
 
-  it('a bill link (made by link_bills_to_purchase_order) and a bill line naming a PO line tie the PO; a bill naming it ONLY in its header ties it when the link tool could link the pair (link it first), and not otherwise (no dead end)', async () => {
+  it('a bill link (made by link_bills_to_purchase_order) and a bill line naming a PO line tie the PO; a bill naming it ONLY in its header ties it when the link tool could link the pair (unlink it first), and not otherwise', async () => {
     const a = await seedPo(pool, f, { lines: [100] });
     const billA = await seedBill(pool, f, { lines: [100] });
     expect((await callTool(pool, f, link, { links: [{ po_id: a.po, bill_id: billA.id }] })).isError).toBe(false);
@@ -161,14 +161,14 @@ describe('what refuses an update', () => {
     // The link made the bill's header name the PO too: clear it, so the link row alone is what refuses.
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = NULL WHERE id = $1', [billA.id]);
     const viaLink = await callTool(pool, f, update, { po_id: a.po, notes: 'x' });
-    expect(viaLink.text).toContain('Bills are linked to this purchase order');
+    expect(viaLink.text).toContain('A bill is linked to or names this purchase order');
     expect(viaLink.text).toContain('unlink_bill_from_purchase_order');
 
     const b = await seedPo(pool, f, { lines: [100] });
     const billB = await seedBill(pool, f, { lines: [100] });
     await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE id = $2', [b.items[0], billB.lines[0]]);
     expect(await linkRows(pool, f, `l.purchase_order_id = '${b.po}'`)).toHaveLength(0);
-    expect((await callTool(pool, f, update, { po_id: b.po, lines: [line()] })).text).toContain('Bills are linked');
+    expect((await callTool(pool, f, update, { po_id: b.po, lines: [line()] })).text).toContain('A bill is linked');
 
     for (const p of [a, b]) expect((await poLines(pool, p.po)).map((l) => l.line_total)).toEqual(['100.00']);
 
@@ -181,14 +181,12 @@ describe('what refuses an update', () => {
     for (const args of [{ notes: 'x' }, { notes: 'x', lines: [line()] }]) {
       const r = await callTool(pool, f, update, { po_id: c.po, ...args });
       expect(r.isError).toBe(true);
-      expect(r.text).toContain('A bill names this purchase order in its header but is not linked to it');
-      expect(r.text).toContain('link it first (link_bills_to_purchase_order');
+      expect(r.text).toContain('A bill is linked to or names this purchase order');
+      expect(r.text).toContain('unlink it first (unlink_bill_from_purchase_order)');
     }
-    expect((await callTool(pool, f, cancel, { po_id: c.po, reason: 'x' })).text).toContain('link it first');
+    expect((await callTool(pool, f, cancel, { po_id: c.po, reason: 'x' })).text).toContain('unlink it first');
     expect((await poLines(pool, c.po)).map((l) => l.line_total)).toEqual(['100.00']);
-    // The way out: link it (now a link row ties it: refused for the link), then unlink (the header is reset) and the PO is free.
-    expect((await callTool(pool, f, link, { links: [{ po_id: c.po, bill_id: billC.id }] })).isError).toBe(false);
-    expect((await callTool(pool, f, update, { po_id: c.po, notes: 'x' })).text).toContain('Bills are linked to this purchase order');
+    // The way out is unlink itself (it clears a header reference with no link row), and the PO is free.
     expect((await callTool(pool, f, unlink, { po_id: c.po, bill_id: billC.id, reason: 'not billing this order' })).isError).toBe(false);
     expect((await callTool(pool, f, update, { po_id: c.po, notes: 'free again', lines: [line()] })).isError).toBe(false);
 

@@ -41,19 +41,24 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      NOTE: in this base `bulk_create_purchase_orders` does not itself accept `item_id` / `item_code` (its line keys refuse them);
      only the update does. Adding them to the import is a small follow-up (one decision: `po_items.item_id` is written by
      `purchaseOrderLinesWrite`, which both writers now share).
-   - **Refused when the PO has any goods receipt, or any bill link** (a `purchase_order_bill_links` row, a bill line naming one of
-     its lines by `po_item_id` - no FK holds that column): replacing lines would orphan them. A bill that names the PO ONLY in its
-     header (no link row, no line) is a tie only when `link_bills_to_purchase_order` COULD link the pair (PO approved /
-     partially_received / received / closed, bill approved / paid / partially_paid and not deleted, same supplier): such a bill is
-     billing the PO (the three-way match reads the header PO's lines) but was made while the PO was only submitted, and approving
-     writes no link. Refusal: "link it first (link_bills_to_purchase_order)" (also in `set_purchase_order_status` -> draft / cancelled); the way out
-     is to link it and, if it was wrong, unlink it (the unlink resets the header). When the default link amount would be 0 (the bill
-     is already fully linked elsewhere, or has no subtotal), link with an explicit `amount: 0.01` (within the +1c the link rule
-     allows), then unlink; the text says so. A CANCELLED bill's line is no tie either (the link tool and the backfill skip cancelled
-     bills, so nothing could clear it; billed / committed read approved / paid / partially_paid bills only). A header reference the link tool could not link (a draft / submitted / cancelled PO, a draft
-     or cancelled bill, another supplier) is no tie: nothing bills the PO and nothing could clear it (round 3, no dead end).
-     "Unlink the bills (`unlink_bill_from_purchase_order`) / cancel the receipt first". A supplier change on a linked PO is
-     refused by the existing database guard and, first, by `poSupplierChangeBlocked`.
+   - **Refused when the PO has any goods receipt, or any bill TIE.** A tie is a `purchase_order_bill_links` row, a bill line naming
+     one of its lines by `po_item_id` (no FK holds that column; any bill status, draft and cancelled included, soft-deleted
+     excluded), or a bill that names the PO ONLY in its header when `link_bills_to_purchase_order` COULD link the pair (PO approved /
+     partially_received / received / closed, bill approved / paid / partially_paid and
+     not deleted, same supplier: such a bill is billing the PO, the three-way match reads the header PO's lines, but it was made
+     while the PO was only submitted and approving writes no link). A header reference the link tool could not link (a draft /
+     submitted / cancelled PO, a draft or cancelled bill, another supplier) is not billing the PO and is no tie.
+   - **ONE exit, ONE wording (round 5, closing the dead-end class).** Every tie refusal (update, cancel, set status -> draft /
+     cancelled) says "unlink it first (unlink_bill_from_purchase_order)", and `unlink_bill_from_purchase_order` clears EVERY kind of
+     tie for the (PO, bill) pair in one locked write: the link row if there is one (with the reopen / closing-record / budget-warning
+     behaviour of #1627), `po_item_id` on the bill's lines that point into this PO's lines, and the header if it names this PO. It
+     succeeds when any of the three exists and is refused "not linked" only when none does. Any bill status (draft, cancelled,
+     soft-deleted too). Only removing a LINK can reopen a closed PO. The audit row says what was cleared (`link_removed`,
+     `lines_cleared`, `header_cleared`, `bill_status`). No ledger effect: these are references only; billed and committed read
+     approved / paid / partially_paid bills' lines, and the three-way match, which reads the bill's own lines, shows a cleared line as
+     unmatched (display only; this is also what a cancelled bill's cleared line does). The lock order is unchanged (gate -> PO row ->
+     bill rows). Because unlink clears them, cancelled and draft bills' lines count as ties again (the PO's lines are not replaced
+     under a line that names them).
    - Validation is the PUT's, extracted, not copied: `ap/purchaseOrderEditChecks.validatePoEdit` (supplier in company, supplier
      change blocked, item resolution, the account guard with its kept-account exemption, line dimensions) is now called by the
      PUT and by this tool, same order, same errors.
@@ -133,5 +138,4 @@ PO row (link and unlink hold it `FOR NO KEY UPDATE`, which still conflicts with 
   (`assertBillPoLinks` takes `LINKABLE_PO_STATUSES`, as the link tool does), but, closed POs committing nothing, they net nothing.
 - An approved PO's update checks the budget after the write (inside the savepoint) where the Approve action checks before it;
   the outcome is the same, a refusal leaves nothing.
-- A not-cancelled bill line naming a PO line with no link row (a row removed by hand) ties the PO for the guards but unlink answers "not linked" for it; the app's create/edit always writes the app link, so this needs data that bypassed them.
 - Remaining quantity on close is ordered less received; bills are not netted (a bill line links to a PO line, receipts do not).
