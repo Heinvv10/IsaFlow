@@ -179,17 +179,16 @@ export async function getVATReturn(companyId: string,
       .map((b) => ({ accountCode: b.box, accountName: b.label, amount: b.amount }));
 
     // Query taxable base from invoices so effective VAT rate can be verified (~15%).
-    // An invoice whose lines carry their VAT type (migration 1008: every line typed) contributes the net of its
-    // RATED lines; its header rate says nothing about a mix of standard, zero-rated and exempt lines. A legacy
-    // invoice contributes its subtotal when its header rate is above zero, as before.
+    // An invoice whose lines carry their VAT type (migration 1008: every line typed) contributes its RATED lines'
+    // amount (a line's amount is its net on every invoice); its header rate says nothing about a mix of standard,
+    // zero-rated and exempt lines. A legacy invoice contributes its subtotal when its header rate is above zero.
     const [salesRows, purchaseRows] = await Promise.all([
       sql`
         SELECT COALESCE(SUM(CASE WHEN t.typed THEN t.rated_net WHEN ci.tax_rate > 0 THEN ci.subtotal ELSE 0 END), 0) AS base
         FROM customer_invoices ci
         CROSS JOIN LATERAL (
           SELECT COUNT(*) > 0 AND COUNT(*) = COUNT(cii.vat_type) AS typed,
-                 COALESCE(SUM(cii.amount - CASE WHEN ci.amounts_are = 'inclusive' THEN cii.tax_amount ELSE 0 END)
-                   FILTER (WHERE cii.vat_type = ANY(${RATED_VAT_TYPES as string[]}::TEXT[])), 0) AS rated_net
+                 COALESCE(SUM(cii.amount) FILTER (WHERE cii.vat_type = ANY(${RATED_VAT_TYPES as string[]}::TEXT[])), 0) AS rated_net
           FROM customer_invoice_items cii
           WHERE cii.invoice_id = ci.id
         ) t

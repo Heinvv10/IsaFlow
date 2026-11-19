@@ -43,8 +43,11 @@ const row = (amount: string, vatType: string | null, taxAmount: string | null, i
   line_vat_type: vatType, line_tax_amount: taxAmount,
 });
 
+/** Header overrides for one test (reset in beforeEach). */
+const INVOICE_OVER: { value: Record<string, unknown> } = { value: {} };
+
 async function post(lines: Record<string, unknown>[]): Promise<JournalLineInput[]> {
-  mockSql.mockResolvedValueOnce([INVOICE]).mockResolvedValueOnce(lines);
+  mockSql.mockResolvedValueOnce([{ ...INVOICE, ...INVOICE_OVER.value }]).mockResolvedValueOnce(lines);
   await postCustomerInvoiceToGL('cccccccc-0000-4000-8000-cccccccccccc', INVOICE.id, 'ffffffff-0000-4000-8000-ffffffffffff');
   return (mockCreate.mock.calls[0]![1] as { lines: JournalLineInput[] }).lines;
 }
@@ -52,6 +55,7 @@ async function post(lines: Record<string, unknown>[]): Promise<JournalLineInput[
 describe('postCustomerInvoiceToGL, lines carrying their VAT type', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    INVOICE_OVER.value = {};
     mockSql.mockReset();
     mockSql.mockResolvedValue([]);
     mockCreate.mockResolvedValue({ id: 'je-1' });
@@ -68,6 +72,24 @@ describe('postCustomerInvoiceToGL, lines carrying their VAT type', () => {
       ['acct-default_revenue', 0, 200, 'exempt'],
       ['acct-vat_output', 0, 150, 'standard'],
     ]);
+  });
+
+  it('an inclusive invoice posts each line\'s stored net and VAT: unit price 115 incl., amount 100, VAT 15', async () => {
+    INVOICE_OVER.value = { subtotal: '100.00', tax_amount: '15.00', total_amount: '115.00', amounts_are: 'inclusive' };
+    const lines = await post([{ ...row('100.00', 'standard', '15.00', 0), unit_price: '115.00', subtotal: '100.00', tax_amount: '15.00' }]);
+    expect(lines.map((l) => [l.glAccountId, l.debit, l.credit, l.vatType])).toEqual([
+      ['acct-receivable', 115, 0, undefined],
+      ['acct-default_revenue', 0, 100, 'standard'],
+      ['acct-vat_output', 0, 15, 'standard'],
+    ]);
+  });
+
+  it('an inclusive invoice whose line stores its gross (115) as the amount is refused as not footing', async () => {
+    INVOICE_OVER.value = { subtotal: '100.00', tax_amount: '15.00', total_amount: '115.00', amounts_are: 'inclusive' };
+    const err = await post([{ ...row('115.00', 'standard', '15.00', 0), unit_price: '115.00', subtotal: '100.00', tax_amount: '15.00' }])
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/its lines' net adds up to 115\.00 but its subtotal is 100\.00/);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('refuses a partly typed invoice before any journal is created', async () => {

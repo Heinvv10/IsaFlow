@@ -8,8 +8,8 @@
 --   customer_invoice_items.vat_type    TEXT NULL: the line's VAT type, in the ledger's spelling (VatType, gl.types).
 --   customer_invoice_items.tax_amount  NUMERIC(15,2) NULL: the VAT the line charges, rounded on the line
 --                                      (shared/vatLineAmounts). Both NULL or both set (CHECK below).
---   customer_invoices.amounts_are      TEXT NULL: 'exclusive' | 'inclusive', how the lines' amounts were entered.
---                                      NULL reads as exclusive.
+--   customer_invoices.amounts_are      TEXT NULL: 'exclusive' | 'inclusive', how the lines' UNIT PRICES were entered.
+--                                      NULL reads as exclusive. A line's amount is its NET on every invoice.
 -- A line is TYPED when vat_type and tax_amount are set; an invoice is typed when every line is. NULL is a legacy
 -- document-rate invoice, which reads, prints and posts exactly as before. Nothing is backfilled.
 -- The vat_type CHECK is the ledger's full list (gl.types VatType; tests/unit/services/ar/customerInvoiceLineVatCheck.test.ts
@@ -95,7 +95,7 @@ COMMENT ON COLUMN public.customer_invoice_items.vat_type IS
 COMMENT ON COLUMN public.customer_invoice_items.tax_amount IS
   'The VAT the line charges, rounded on the line (shared/vatLineAmounts). Set with vat_type or not at all (migration 1008). Approval content.';
 COMMENT ON COLUMN public.customer_invoices.amounts_are IS
-  'exclusive | inclusive: how the lines'' amounts were entered. NULL reads as exclusive (migration 1008). Approval content.';
+  'exclusive | inclusive: how the lines'' unit prices were entered; a line''s amount is its net either way. NULL reads as exclusive (migration 1008). Approval content.';
 
 -- 923's snapshot, every type _pre_payroll_951 digests, so the guard below can prove the other types did not move.
 DROP TABLE IF EXISTS pg_temp.r1008_before;

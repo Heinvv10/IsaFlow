@@ -110,8 +110,7 @@ export async function postCustomerInvoiceToGL(
         })
         : typedInvoiceCreditLegs({
           invoiceNumber: String(inv.invoice_number), lines: stored,
-          header: { subtotal: Number(inv.subtotal), taxAmount: Number(inv.tax_amount ?? 0),
-            amountsAre: inv.amounts_are == null ? null : String(inv.amounts_are) },
+          header: { subtotal: Number(inv.subtotal), taxAmount: Number(inv.tax_amount ?? 0) },
           defaultRevenueAccountId: revenueAccount.id, vatOutputAccountId: vatAccount.id,
         })),
     ];

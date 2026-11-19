@@ -11,8 +11,9 @@
  * leg per type for the sum of its lines' `tax_amount`, coded with that type; a zero leg is dropped. The receivable
  * (the header total) is the caller's. The lines' own net and VAT are what post, never a re-split of the header: the
  * VAT was rounded on the line (shared/vatLineAmounts), so the lines must foot to the header exactly, to the cent, or
- * the invoice is refused before anything is written. A line's net is its amount, less its VAT when the invoice's
- * amounts are VAT-inclusive (`amounts_are`, NULL read as exclusive).
+ * the invoice is refused before anything is written. A line's `amount` is its NET on every invoice, typed or legacy,
+ * VAT-inclusive or not (gross = amount + tax_amount): `amounts_are` says how `unit_price` was entered, never what
+ * `amount` means, so nothing here reads it.
  *
  * The type posted is the stored, approved line's own (the approval digest covers it, migration 1008): nothing here
  * picks one. Account, job and dimension rules are checked on the same stored lines before this runs
@@ -29,11 +30,10 @@ export interface StoredVatLine extends StoredRevenueLine {
   taxAmount?: number | null;
 }
 
-/** The header figures the lines must foot to. `amountsAre` is customer_invoices.amounts_are (NULL: exclusive). */
+/** The header figures the lines must foot to: Σ amount = subtotal, Σ tax_amount = tax_amount, to the cent. */
 export interface TypedInvoiceHeader {
   subtotal: number;
   taxAmount: number;
-  amountsAre: string | null;
 }
 
 export type LineVatShape = 'typed' | 'legacy' | 'partial';
@@ -48,9 +48,6 @@ export function lineVatShape(lines: ReadonlyArray<Pick<StoredVatLine, 'vatType' 
   if (typed === 0) return 'legacy';
   return typed === lines.length ? 'typed' : 'partial';
 }
-
-const netCents = (l: StoredVatLine, inclusive: boolean): number =>
-  cents(l.amount) - (inclusive ? cents(l.taxAmount ?? 0) : 0);
 
 /**
  * Why a typed invoice's lines cannot post behind its header, or null (a legacy invoice: always null). The ONE wording
@@ -70,8 +67,7 @@ export function typedLinesProblem(lines: readonly StoredVatLine[], header: Typed
         + 'Re-save the draft so its VAT is recalculated.';
     }
   }
-  const inclusive = header.amountsAre === 'inclusive';
-  const net = lines.reduce((s, l) => s + netCents(l, inclusive), 0);
+  const net = lines.reduce((s, l) => s + cents(l.amount), 0);
   if (net !== cents(header.subtotal)) {
     return `its lines' net adds up to ${money(net)} but its subtotal is ${money(cents(header.subtotal))}. `
       + 'Re-save the draft so its totals are recalculated.';
@@ -105,7 +101,6 @@ export function typedInvoiceCreditLegs(input: {
   if (lineVatShape(lines) !== 'typed') {
     throw new Error(`Invoice ${invoiceNumber}: its lines are not typed; post them as a legacy invoice`);
   }
-  const inclusive = header.amountsAre === 'inclusive';
   const revenue = new Map<string, { base: Omit<JournalLineInput, 'debit' | 'credit'>; cents: number }>();
   const vat = new Map<VatType, number>();
   for (const l of lines) {
@@ -120,7 +115,7 @@ export function typedInvoiceCreditLegs(input: {
       },
       cents: 0,
     };
-    group.cents += netCents(l, inclusive);
+    group.cents += cents(l.amount);
     revenue.set(key, group);
     vat.set(vatType, (vat.get(vatType) ?? 0) + cents(l.taxAmount!));
   }

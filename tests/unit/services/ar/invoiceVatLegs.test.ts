@@ -19,11 +19,11 @@ const typed = (amount: number, vatType: string, taxAmount: number, extra: Partia
   ({ amount, glAccountId: null, projectId: null, vatType, taxAmount, ...extra });
 const legacy = (amount: number): StoredVatLine => ({ amount, glAccountId: null, projectId: null });
 
-const header = (subtotal: number, taxAmount: number, amountsAre: string | null = null) => ({ subtotal, taxAmount, amountsAre });
+const header = (subtotal: number, taxAmount: number) => ({ subtotal, taxAmount });
 
-const post = (lines: StoredVatLine[], subtotal: number, taxAmount: number, amountsAre: string | null = null) =>
+const post = (lines: StoredVatLine[], subtotal: number, taxAmount: number) =>
   typedInvoiceCreditLegs({
-    invoiceNumber: 'INV-9', header: header(subtotal, taxAmount, amountsAre), lines,
+    invoiceNumber: 'INV-9', header: header(subtotal, taxAmount), lines,
     defaultRevenueAccountId: DEFAULT, vatOutputAccountId: VAT,
   });
 
@@ -90,10 +90,13 @@ describe('typedInvoiceCreditLegs', () => {
     expect(balances(legs, 1050)).toBe(true);
   });
 
-  it('inclusive amounts: a line posts its amount less its VAT', () => {
-    const legs = post([typed(115, 'standard', 15), typed(50, 'exempt', 0)], 150, 15, 'inclusive');
-    expect(shape(legs)).toEqual([[DEFAULT, 0, 100, 'standard'], [DEFAULT, 0, 50, 'exempt'], [VAT, 0, 15, 'standard']]);
-    expect(balances(legs, 165)).toBe(true);
+  it('a line\'s amount is its net whatever the invoice\'s amounts_are: it posts as stored, never less its VAT', () => {
+    // An inclusive invoice's line priced at 115 incl. stores amount 100 (net) and tax_amount 15.
+    const legs = post([typed(100, 'standard', 15)], 100, 15);
+    expect(shape(legs)).toEqual([[DEFAULT, 0, 100, 'standard'], [VAT, 0, 15, 'standard']]);
+    expect(balances(legs, 115)).toBe(true);
+    // The same line storing its gross (115) as the amount does not foot.
+    expect(() => post([typed(115, 'standard', 15)], 100, 15)).toThrow(/its lines' net adds up to 115\.00 but its subtotal is 100\.00/);
   });
 
   it('the line dimensions ride on the revenue leg, never on the VAT leg', () => {

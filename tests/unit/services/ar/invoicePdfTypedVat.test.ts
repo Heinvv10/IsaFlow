@@ -59,7 +59,7 @@ describe('the invoice PDF, lines carrying their VAT type', () => {
       line('1000.00', '15.00', 'standard', '150.00'), line('300.00', '0.00', 'zero_rated', '0.00'),
       line('200.00', '0.00', 'exempt', '0.00'),
     ]));
-    expect(shown.table!.head).toEqual([['Description', 'Qty', 'Unit Price', 'VAT type', 'VAT', 'Amount']]);
+    expect(shown.table!.head).toEqual([['Description', 'Qty', 'Unit Price (excl. VAT)', 'VAT type', 'VAT', 'Amount (excl. VAT)']]);
     expect(shown.table!.body).toEqual([
       ['Line 1000.00', '1.00', R(1000.00), 'Standard (15%)', R(150.00), R(1000.00)],
       ['Line 300.00', '1.00', R(300.00), 'Zero-rated (0%)', R(0.00), R(300.00)],
@@ -73,6 +73,15 @@ describe('the invoice PDF, lines carrying their VAT type', () => {
       Array.from({ length: 7 }, () => line('14.29', '15.00', 'standard', '2.14'))));
     expect((shown.table!.body as string[][]).map((r) => r[4])).toEqual(Array(7).fill(R(2.14)));
     expect(totalsLabels()[1]).toEqual(['VAT (15%)', R(14.98)]);
+  });
+
+  it('an inclusive typed invoice prints the unit price as entered (incl. VAT), the line\'s net amount and its VAT', async () => {
+    await generateInvoicePdf('co', 'inv', model({ subtotal: '100.00', tax_amount: '15.00', total_amount: '115.00', amounts_are: 'inclusive' }, [
+      { ...line('100.00', '15.00', 'standard', '15.00'), unit_price: '115.00' },
+    ]));
+    expect(shown.table!.head).toEqual([['Description', 'Qty', 'Unit Price (incl. VAT)', 'VAT type', 'VAT', 'Amount (excl. VAT)']]);
+    expect(shown.table!.body).toEqual([['Line 100.00', '1.00', R(115.00), 'Standard (15%)', R(15.00), R(100.00)]]);
+    expect(totalsLabels()).toEqual([['Subtotal', R(100.00)], ['VAT (15%)', R(15.00)], ['TOTAL DUE', R(115.00)]]);
   });
 
   it('a legacy invoice prints exactly as before: five columns, the header VAT allocated over the lines', async () => {

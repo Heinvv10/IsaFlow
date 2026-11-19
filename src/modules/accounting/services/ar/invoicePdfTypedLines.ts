@@ -3,6 +3,8 @@
  * VAT STORED on it (rounded on the line when it was priced, shared/vatLineAmounts) and a short label of its type, and
  * the column foots to the header VAT by construction (posting refuses lines that do not: invoiceVatLegs). Nothing is
  * re-allocated: vatLineAllocation exists for the legacy document-rate invoice, whose lines carry no VAT of their own.
+ * A line's amount is its NET on every invoice; `amounts_are` says how its unit price was entered, so the headings say
+ * which column includes VAT: the unit price prints as stored, incl. VAT on an inclusive invoice.
  *
  * Null for any other invoice (a legacy one, a partly typed one, or a date no rate can be read for): the builder then
  * prints the legacy table exactly as before.
@@ -22,14 +24,15 @@ export interface TypedPdfTable {
 
 export function typedInvoicePdfTable(
   items: readonly InvoicePdfLine[],
-  invoice: { invoice_date: unknown; subtotal: unknown; tax_amount: unknown },
+  invoice: { invoice_date: unknown; subtotal: unknown; tax_amount: unknown; amounts_are?: unknown },
 ): TypedPdfTable | null {
   const date = invoice.invoice_date;
   if (items.length === 0 || !isRatedDate(date)) return null;
   const types = items.map((item) => (item.tax_amount == null ? null : normaliseVatType(item.vat_type)));
   if (types.some((t) => t === null)) return null;
   return {
-    head: ['Description', 'Qty', 'Unit Price', 'VAT type', 'VAT', 'Amount'],
+    head: ['Description', 'Qty', invoice.amounts_are === 'inclusive' ? 'Unit Price (incl. VAT)' : 'Unit Price (excl. VAT)',
+      'VAT type', 'VAT', 'Amount (excl. VAT)'],
     body: items.map((item, i) => [
       String(item.description || '—'),
       Number(item.quantity || 0).toFixed(2),
