@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
-import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { cancelCreditNote, createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import { getVat201Return } from '@/modules/accounting/services/reports/vat201Return';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
@@ -66,7 +66,7 @@ const footprint = async (noteId: string, invoiceId: string, noteNumber: string) 
   lines: await sql`SELECT COUNT(*)::INT AS n FROM gl_journal_lines WHERE company_id = ${f.fx.companyId}::UUID
                    AND description LIKE ${`%${noteNumber}%`}`,
   allocations: await sql`SELECT COUNT(*)::INT AS n FROM credit_note_revenue_allocations WHERE credit_note_id = ${noteId}::UUID`,
-  invoice: await sql`SELECT status, amount_paid FROM customer_invoices WHERE id = ${invoiceId}::UUID`,
+  invoice: await sql`SELECT status, amount_paid, subtotal, tax_amount, total_amount FROM customer_invoices WHERE id = ${invoiceId}::UUID`,
 });
 
 const fields = async (from: string, to: string) => {
@@ -142,6 +142,28 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
       L('4000', 66.66, 0, { vat: 'standard' }), L('4000', 100, 0, { vat: 'exempt' }),
     ]);
     expect(await fields('2026-12-01', '2026-12-31')).toEqual([0, 0, 0, 0]);
+  });
+
+  // Round 4, item 1: the remaining rated VAT is the invoice's VAT less what its LIVE earlier notes reversed. 0.10 of
+  // standard (VAT 0.02, rounded up on the line) + 50 exempt: an earlier note took 0.05 with 0.01, so 0.05 and 0.01
+  // remain, and the final 50.05 + 0.01 takes them. A cancelled note and a draft one, each with VAT, must not count:
+  // counted, the 1.50 draft makes the remaining VAT negative, the final note is read at the rate (0.07 rated) and
+  // refused. (The 66.66 / 10.00 invoice cannot show this: 5.00 / 15% is 33.33, exactly what is left, either way.)
+  it('the final note reverses what the live earlier notes left; drafts and cancelled notes do not count', async () => {
+    const id = await approvedInvoice('2026-05-10', [{ description: 'Standard', unitPrice: 0.1 }, { description: 'Exempt', unitPrice: 50 }],
+      { Standard: ['standard', 0.02], Exempt: ['exempt', 0] }, 0.02);
+    const cancelled = await draftNote(id, '2026-05-12', 0.05, 15, 0.01);
+    await inTx(f.fx, () => approveCreditNote(f.fx.companyId, cancelled.id, f.fx.userId));
+    await inTx(f.fx, () => cancelCreditNote(f.fx.companyId, cancelled.id, f.fx.userId));
+    const partial = await note(id, '2026-05-15', 0.05, 15, 0.01);
+    expect((await journalLegs(f, partial)).filter((l) => l.code === '4000')).toEqual([L('4000', 0.05, 0, { vat: 'standard' })]);
+    await draftNote(id, '2026-05-16', 10, 15, 1.5); // left a draft
+    const final = await note(id, '2026-05-20', 50.05, 1, 0.01);
+    expect(await journalLegs(f, final)).toEqual([
+      L('1100', 0, 50.06), L('2120', 0.01, 0, { vat: 'standard' }),
+      L('4000', 0.05, 0, { vat: 'standard' }), L('4000', 50, 0, { vat: 'exempt' }),
+    ]);
+    expect(await fields('2026-05-01', '2026-05-31')).toEqual([0, 0, 0, 0]);
   });
 
   it('a note against a legacy invoice keeps its uncoded revenue debit, as before', async () => {

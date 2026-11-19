@@ -6,13 +6,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const db = vi.hoisted(() => ({ legs: [] as Record<string, unknown>[], vat: [] as Record<string, unknown>[], texts: [] as string[] }));
+const db = vi.hoisted(() => ({ legs: [] as Record<string, unknown>[], vat: [] as Record<string, unknown>[],
+  taken: [] as Record<string, unknown>[], texts: [] as string[] }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: readonly string[]) => {
     const text = strings.join('?');
     db.texts.push(text);
     if (/AS journal_line_id, jl\.gl_account_id/.test(text)) return db.legs;
     if (/AS invoice_vat/.test(text)) return db.vat;
+    if (/SUM\(a\.amount\) AS amount/.test(text)) return db.taken;
     return []; // nothing taken by earlier notes; no pre-874 notes
   }),
 }));
@@ -32,7 +34,7 @@ const read = (amount: number, taxAmount: number) => creditNoteRevenueJournalLine
 const debits = async (amount: number, taxAmount: number) => (await read(amount, taxAmount)).lines.map((l) => [l.debit, l.vatType ?? null]);
 
 describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => {
-  beforeEach(() => { db.legs = []; db.vat = []; db.texts = []; });
+  beforeEach(() => { db.legs = []; db.vat = []; db.taken = []; db.texts = []; });
 
   it('reads jl.vat_type with the legs', async () => {
     db.legs = [row('a', '1000.00', null)];
@@ -67,5 +69,30 @@ describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => 
     db.legs = [row('a', '1000.00', null)];
     await read(100, 15);
     expect(db.texts.some((t) => /AS invoice_vat/.test(t))).toBe(false);
+  });
+
+  // Round 4, item 1: the remaining rated VAT is the invoice's VAT less what its live earlier notes reversed. On the
+  // hundred R0.10-lines invoice (10.00 standard carrying 2.00 of VAT, 50 exempt), an earlier note took 5.00 with 0.75.
+  // (The 66.66 / 10.00 invoice cannot show it: 5.00 / 15% is 33.33, exactly what is left, with or without the subtraction.)
+  it('subtracts the earlier notes\' VAT: the final 55.00 + 1.25 takes standard 5.00 and exempt 50', async () => {
+    db.legs = [row('s', '10.00', 'standard'), row('e', '50.00', 'exempt')];
+    db.taken = [{ journal_line_id: 's', amount: '5.00' }];
+    db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.75' }];
+    expect(await debits(55, 1.25)).toEqual([[5, 'standard'], [50, 'exempt']]);
+  });
+
+  it('without that subtraction the same note reads differently: refused as more rated net than is left', async () => {
+    db.legs = [row('s', '10.00', 'standard'), row('e', '50.00', 'exempt')];
+    db.taken = [{ journal_line_id: 's', amount: '5.00' }];
+    db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.00' }];
+    await expect(read(55, 1.25)).rejects.toThrow(/is VAT on 8\.33 of standard-rated supplies, but the invoice's rated lines have 5\.00 left/);
+  });
+
+  it('counts only live earlier customer notes, never this one', async () => {
+    db.legs = [row('s', '10.00', 'standard')];
+    db.vat = [{ invoice_vat: '2.00', reversed_vat: '0.00' }];
+    await read(10, 2);
+    expect(db.texts.find((t) => /AS invoice_vat/.test(t)))
+      .toMatch(/cn\.type = 'customer' AND cn\.status NOT IN \('draft', 'cancelled'\) AND cn\.id <> \?::UUID/);
   });
 });

@@ -115,7 +115,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
     + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, dated in a CLOSED fiscal period, or one its invoice cannot carry by its VAT — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a note genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated credit_note_id is REFUSED (not skipped) — each note may appear once. '
-    + 'Reverse a posted note with cancel_credit_note. Use dry_run to see what would post and what would be skipped.',
+    + 'Reverse a posted note with cancel_credit_note. Use dry_run to see what would post and what would be skipped: it foresees not found, not a draft, a closed period, an approval rule and a mirror_bill VAT refusal, but NOT a note its invoice cannot carry by its VAT, nor a note another request changes or locks meanwhile; those are only discovered, and skipped, on the live run.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,

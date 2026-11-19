@@ -137,3 +137,46 @@ describe('a note whose VAT is more than its subtotal can carry', () => {
     expect(() => run(100, 15.02)).toThrow(/its VAT of 15\.02 is more than 15% of its subtotal of 100\.00 \(15\.00\)/);
   });
 });
+
+// Round 4, item 5: the "all remaining VAT" branch when the rated legs have (almost) no VAT left. Reachable: a note at
+// the rate whose VAT rounds up (99.99 + VAT 15.00 against 100 standard) takes 99.99 of net and all 15.00 of VAT,
+// leaving 0.01 of rated net with no VAT. A later note carrying a cent of VAT then takes that last cent of net, which
+// is exactly what the rated legs hold: net and VAT both end at zero. A large rated net with no VAT left cannot arise
+// from these rules (each note's rated part follows its VAT, to a cent), and if it ever did, the note would reverse what
+// the legs hold rather than leave it stranded.
+describe('the rated legs with no VAT left', () => {
+  it('a note with a cent of VAT takes the last cent of rated net, the rest from the unrated legs', () => {
+    const legs = [leg(100, 'standard', 's', 99.99), leg(200, 'exempt', 'e')];
+    const out = allocateTypedCreditNote(legs, { subtotal: 50.01, taxAmount: 0.01, date: '2026-07-20', remainingRatedVat: 0 }, 'CN-9', DEFAULT);
+    expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 0.01], ['exempt', 50]]);
+  });
+});
+
+// Round 4, item 6: a zero-VAT note needs no rate; a note WITH VAT on a date no rate can be read for is a refusal, not a 500.
+describe('a note dated where no VAT rate can be read', () => {
+  it('a zero-VAT note posts to the unrated legs without reading a rate', () => {
+    const out = allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 0, date: '1980-01-01' }, 'CN-9', DEFAULT);
+    expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['zero_rated', 120], ['exempt', 80]]);
+  });
+
+  it('a note with VAT is refused with the refusal class, naming the date', () => {
+    expect(() => allocateTypedCreditNote(MIXED, { subtotal: 200, taxAmount: 30, date: '1980-01-01' }, 'CN-9', DEFAULT))
+      .toThrow(new CreditNoteVatSplitRefusal('Credit note CN-9: its date cannot be read for a VAT rate '
+        + '(1980-01-01 is before VAT began (1991-09-30)).'));
+  });
+});
+
+// Round 4 (found by the item 1 tests): the cap on a note's VAT (item 3) must not refuse the exact reversal of a
+// rated group whose VAT was rounded up line by line: a hundred R0.10 standard lines carry 2.00 of VAT on 10.00.
+describe('the VAT cap and a full reversal of per-line-rounded VAT', () => {
+  const hundredLines = [leg(10, 'standard', 's'), leg(50, 'exempt', 'e')];
+  it('a 10.00 + 2.00 note reversing all of the standard lines is not refused', () => {
+    const out = allocateTypedCreditNote(hundredLines, { subtotal: 10, taxAmount: 2, date: '2026-07-20', remainingRatedVat: 2 }, 'CN-9', DEFAULT);
+    expect(out.lines.map((l) => [l.vatType, l.debit])).toEqual([['standard', 10]]);
+  });
+
+  it('a 5.00 + 2.00 note (all the VAT on half the net) is still refused by the cap', () => {
+    expect(() => allocateTypedCreditNote(hundredLines, { subtotal: 5, taxAmount: 2, date: '2026-07-20', remainingRatedVat: 2 }, 'CN-9', DEFAULT))
+      .toThrow(/its VAT of 2\.00 is more than 15% of its subtotal of 5\.00 \(0\.75\)/);
+  });
+});
