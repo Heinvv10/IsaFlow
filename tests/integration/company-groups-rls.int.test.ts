@@ -85,8 +85,9 @@ describe('company_groups writes', () => {
   });
   it('no session hard-deletes a group (it would cascade to members, chart and transactions): soft delete only', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
-      expect((await q.query('DELETE FROM company_groups WHERE id = $1', [g.GA])).rowCount).toBe(0);
-      expect((await q.query('DELETE FROM company_groups')).rowCount).toBe(0);
+      // no DELETE privilege at all since 1002 (it could LOCK TABLE), and never a DELETE policy: refused either way
+      expect(await F.codeOf(q, 'DELETE FROM company_groups WHERE id = $1', [g.GA])).toBe('42501');
+      expect(await F.codeOf(q, 'DELETE FROM company_groups')).toBe('42501');
       expect((await q.query('UPDATE company_groups SET is_active = false WHERE id = $1', [g.GA])).rowCount).toBe(1);
     });
   });
@@ -99,7 +100,7 @@ describe('company_groups writes', () => {
   });
   it('created_by never changes, and a holding company is only ever changed to one of the caller\'s', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
-      expect(await F.codeOf(q, 'UPDATE company_groups SET created_by = $2::UUID WHERE id = $1', [g.GA, u.UB])).toBe(NEVER_MOVES);
+      expect([NEVER_MOVES, '42501']).toContain(await F.codeOf(q, 'UPDATE company_groups SET created_by = $2::UUID WHERE id = $1', [g.GA, u.UB]));   // the trigger, behind 1002's column grants
       expect(await F.codeOf(q, 'UPDATE company_groups SET holding_company_id = $2 WHERE id = $1', [g.GA, co.A2])).toBe('ok');
       expect(await F.codeOf(q, 'UPDATE company_groups SET holding_company_id = $2 WHERE id = $1', [g.GA, co.B1])).toBe(RLS_DENIED);
     });
@@ -126,7 +127,7 @@ describe('company_group_members: nobody joins a group they have no standing in',
   });
   it('a member row cannot be moved into a foreign group (UPDATE group_id)', async () => {
     await F.asAppUser(u.UA, co.A1, async (q) => {
-      expect(await F.codeOf(q, 'UPDATE company_group_members SET group_id = $2 WHERE group_id = $1', [g.GA, g.GB])).toBe(NEVER_MOVES);
+      expect([NEVER_MOVES, '42501']).toContain(await F.codeOf(q, 'UPDATE company_group_members SET group_id = $2 WHERE group_id = $1', [g.GA, g.GB]));
     });
   });
   it('a writer of the group adds another company it writes; the creator bootstraps an empty group', async () => {
@@ -160,7 +161,7 @@ describe('company_group_members: nobody joins a group they have no standing in',
   });
   it('a viewer of a member company changes nothing about its member row', async () => {
     await F.asAppUser(u.UV, co.A1, async (q) => {   // UV: viewer of A1, so a reader of GA
-      for (const set of ['left_date = CURRENT_DATE', 'ownership_pct = 1', "consolidation_method = 'equity'", 'is_holding = false']) {
+      for (const set of ['left_date = CURRENT_DATE', 'ownership_pct = 1', "consolidation_method = 'equity'", 'joined_date = CURRENT_DATE']) {
         expect((await q.query(`UPDATE company_group_members SET ${set} WHERE group_id = $1 AND company_id = $2`, [g.GA, co.A1])).rowCount, set).toBe(0);
       }
       // Unconditionally, with A3 active: only the one row it writes (A3's, in GC), never A1's or A4's in GA.
@@ -172,7 +173,7 @@ describe('company_group_members: nobody joins a group they have no standing in',
     await F.asAppUser(u.UA, co.A4, async (q) => {
       await q.query(...join(g.GE, co.A4));
       await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A1]);
-      expect(await F.codeOf(q, 'UPDATE company_group_members SET company_id = $2 WHERE group_id = $1', [g.GE, co.A1])).toBe(NEVER_MOVES);
+      expect([NEVER_MOVES, '42501']).toContain(await F.codeOf(q, 'UPDATE company_group_members SET company_id = $2 WHERE group_id = $1', [g.GE, co.A1]));
     });
   });
   it('a member is inserted with its own company active, whoever the writer is (T2)', async () => {
@@ -183,8 +184,8 @@ describe('company_group_members: nobody joins a group they have no standing in',
     await F.asAppUser(u.UA, co.A1, async (q) => {
       await q.query(...join(g.GE, co.A1));
       await q.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1', [g.GE]);   // the group has no current member now
-      expect((await q.query('DELETE FROM company_group_members WHERE group_id = $1', [g.GE])).rowCount).toBe(0);
-      expect((await q.query('DELETE FROM company_group_members')).rowCount).toBe(0);
+      expect(await F.codeOf(q, 'DELETE FROM company_group_members WHERE group_id = $1', [g.GE])).toBe('42501');   // no DELETE privilege since 1002
+      expect(await F.codeOf(q, 'DELETE FROM company_group_members')).toBe('42501');
       await q.query("SELECT set_config('app.current_company_id', $1, true)", [co.A4]);
       expect(await F.codeOf(q, ...join(g.GE, co.A4))).toBe(RLS_DENIED);   // the retired row is still there: the group has had a member
     });

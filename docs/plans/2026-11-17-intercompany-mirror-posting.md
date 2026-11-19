@@ -122,29 +122,33 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
 - **Group topology is serialised (closed).** Under READ COMMITTED a check of "do A and B share a group" is stale by the time its writer commits,
   and two memberships changed at the same moment each see the other's change uncommitted (write skew: both leaves pass, no group is left,
   the connection stays active). One lock protocol, documented in 1002's header, on `intercompany_company_locks` (one row per company, closed to
-  every app role, a row for every company from the start: backfilled, and made by a trigger on `companies`, so nobody inserts one while deciding).
-  DECIDERS (`intercompany_in_one_group`: a connection created or re-activated, auto-accept switched on, a message sent) check that the caller is a
-  party (a user of one of the two companies), read whether the pair shares a group WITHOUT a lock, and only a pair that does takes its two
-  companies' rows FOR SHARE (then reads again). JOINERS (a membership inserted or re-joined) take the group's members' rows and their own FOR
-  SHARE, so a join cannot commit while a changer holds the group and a changer that comes after it sees the new member. CHANGERS (the revoking
-  trigger on `company_group_members` / `company_groups`) never return before locking except for a change that cannot end anything (an UPDATE that
-  changes none of left_date, company and group; a re-activation): the seeds are the leaver itself (a group of one company included) or the
-  group's members; the candidates are the live group connections of a seed that would no longer share a group (the ones it can end, no others);
-  the lock set is the seeds, the group's members and the candidates' other parties. A changer takes its WHOLE set or none (rows FOR NO KEY UPDATE
-  NOWAIT inside a sub-transaction, then the company rows FOR UPDATE NOWAIT; a held lock rolls the attempt back and it tries again a moment
-  later), re-reads under the locks, restarts if a member joined or a connection appeared, then revokes the candidates. A waiting changer holds
-  nothing, so it delays no one and cannot deadlock. A creator of (A,B) holds A and B, so a leaver of a group holding both waits for it even
-  though the connection being created is invisible to the leaver's scan; a bulk leave and a group deleted with its members fire the changer per
-  membership row, each with its own company as seed, so none is missed. A session can only delay work that involves a company its user belongs
-  to or a company in a group its own company is a member of (`company-locks-scope`, `group-race-matrix`: every kind of membership change x every
-  kind of writer x both orders, and `group-race-single`: a group of one company, a late joiner, a viewer's hold that does not cascade).
-  `intercompany_in_one_group` answers only for a signed-in user of one of the two companies (`auth.user_companies()`), never on the strength of
-  the session's company GUC, so it is false when `auth.uid()` is NULL: **the P2 auto-accept worker needs its own definer path** (it must not
-  reuse this check on a company GUC). A side's first save, a message send, accepting a message and a link insert or update hold their connection
-  FOR SHARE, so a revoke in flight is waited for and seen. Active links and their slots survive a revoke until a party unlinks. Limits: row share
-  locks do not queue behind a waiting changer, and a changer polls, so continuous overlapping traffic of one company pair can keep that pair's
-  leave from finding a gap; an in-transaction "company share, then a row a changer holds" ends in 40P01 only. A message is still only an inbox
-  item until a person (or, from P2, the receiver's auto-accept worker) acts on it.
+  every app role, a row for every company from the start: backfilled as migration_admin, and made by a trigger on `companies`). DECIDERS
+  (`intercompany_in_one_group`: a connection created or re-activated, auto-accept switched on, a message sent) check that the caller is a party,
+  read whether the pair shares a group WITHOUT a lock, and only a pair that does takes its two companies' rows FOR SHARE (then reads again).
+  JOINERS take ALL the group's members' rows and their own FOR SHARE, so a join cannot commit while a changer holds one of them. CHANGERS are
+  STATEMENT-level triggers with transition tables (members and groups, UPDATE and DELETE): one firing sees every row of the statement, so a bulk
+  leave, a group deleted with its members and a multi-row update lock ONE set in ONE sub-transaction (a row-level trigger kept the first row's
+  locks while a later row waited: a stall of unrelated pairs and a wait cycle no deadlock detector sees). They return early only for a statement
+  that changed nothing that can end a connection, and otherwise take the SEEDS (the leavers, or a deactivated group's members), the other party
+  of every CANDIDATE (a live group connection of a seed that would no longer share a group) and the group's members that hold a live group
+  connection to a seed; a member with no connection to a seed is not locked, so a viewer holding it two hops away cannot veto the change. They
+  take the whole set or none (rows `NOWAIT` in a sub-transaction, retrying), re-read under the locks and restart if the set changed, so a
+  waiting changer holds nothing and cannot deadlock. The wait is bounded (`app.intercompany_changer_budget_ms`, default 10 s, at most 30 s): then
+  the statement fails with SQLSTATE 55P03 ("try again in a moment"), nothing changes, and `withErrorHandler` answers it from any route as a 503
+  with `Retry-After` and a neutral message (`removeMember`, `deleteGroup`, `addMember` need no code of their own; the polling is the retry).
+  A session can only delay work that involves a company its user belongs to, or a connected company in a group of its company: a stranger, an
+  ungrouped pair, a claim-less session and a no-op hold nothing, and since 1002 revokes app_user's table-level UPDATE, DELETE and TRUNCATE on
+  `company_group_members` and `company_groups` (column-level UPDATE stays for what the application writes) it cannot `LOCK TABLE` them
+  either. The companies trigger and the join triggers are origin-only (a restore in replica mode skips them; the lock table restores itself, and a
+  decider recreates a missing row). Tests: `company-locks-scope`, `group-race-matrix` (every kind of membership change x every kind of writer x
+  both orders), `group-race-single`, `group-race-bulk`, `group-tables-grants`, `migration-backfill`. `intercompany_in_one_group` answers only for
+  a signed-in user of one of the two companies (`auth.user_companies()`), never on the strength of the session's company GUC, so it is false when
+  `auth.uid()` is NULL: **the P2 auto-accept worker needs its own definer path** (it must not reuse this check on a company GUC). A side's first
+  save, a message send, accepting a message and a link insert or update hold their connection FOR SHARE, so a revoke in flight is waited for and
+  seen. Active links and their slots survive a revoke until a party unlinks. Limits: row share locks do not queue behind a changer and a changer
+  polls, so continuous overlapping traffic of one company pair can keep that pair's leave from finding a gap (it fails with 55P03 after the
+  budget); an in-transaction "company share, then a row a changer holds" ends in 40P01 only. A message is still only an inbox item until a person
+  (or, from P2, the receiver's auto-accept worker) acts on it.
 - **Links.** A pending pairing holds no unique slot (the unique indexes cover ACTIVE links only; confirming re-checks them), so a partner
   cannot squat a document by proposing it. Confirming needs the connection active (unlinking does not), and the confirmed side's document must
   exist in its company (`intercompany_document_exists_as_writer`, a registered definer that answers only for a company in which the caller

@@ -35,7 +35,7 @@ describe("a side's first save and a revoke at the same moment", () => {
   it.each([[false], [true]])('(auto_accept %s) the save is in flight first: a manual revoke waits, then releases it', async (auto) => {
     const id = await plantConnection(pool, co.A, co.B);
     const r = await serialised(inFlight(U.b, co.B, SIDE, [id, co.B, co.A, party.bSupplier, auto]), revokeByA(id), openSession(U.a, co.A), undefined, true);
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: 'ok' });
     expect(await connection(id)).toMatchObject({ status: 'revoked', revoked_by: U.a });
     expect(await sideOf(id)).toEqual({ supplier_id: null, auto_accept: false });
   }, 30000);
@@ -43,7 +43,7 @@ describe("a side's first save and a revoke at the same moment", () => {
   it.each([[false], [true]])('(auto_accept %s) the save is in flight first: a leave waits, then releases it', async (auto) => {
     const id = await plantConnection(pool, co.A, co.B);
     const r = await serialised(inFlight(U.b, co.B, SIDE, [id, co.B, co.A, party.bSupplier, auto]), leave(co.B, co.G));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     expect(await connection(id)).toEqual(REVOKED);
     expect(await sideOf(id)).toEqual({ supplier_id: null, auto_accept: false });
   }, 30000);
@@ -51,14 +51,14 @@ describe("a side's first save and a revoke at the same moment", () => {
   it('the revoke is in flight first: the first save waits for it, then is refused, and nothing is stored (so the supplier is free)', async () => {
     const id = await plantConnection(pool, co.A, co.B);
     const r = await serialised(inFlight(U.a, co.A, MANUAL_REVOKE, [id]), (c) => c.query(SIDE, [id, co.B, co.A, party.bSupplier, true]), openSession(U.b, co.B));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: R.sideRevoked });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: R.sideRevoked });
     expect(await sideOf(id)).toBeUndefined();
   }, 30000);
 
   it('a leave in flight first: the first save waits, then is refused', async () => {
     const id = await plantConnection(pool, co.A, co.B);
     const r = await serialised(leaving(co.B, co.G), (c) => c.query(SIDE, [id, co.B, co.A, party.bSupplier, false]), openSession(U.b, co.B));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: R.sideRevoked });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: R.sideRevoked });
     expect(await sideOf(id)).toBeUndefined();
   }, 30000);
 
@@ -76,7 +76,7 @@ describe('a message send, a link insert and a revoke at the same moment', () => 
     const id = await plantConnection(pool, co.A, co.B);
     const send = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')";
     const r = await serialised(inFlight(U.ab, co.A, send, [id, co.A, co.B]), revokeByA(id), openSession(U.a, co.A), undefined, true);
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: 'ok' });
     expect((await connection(id)).status).toBe('revoked');
   }, 30000);
 
@@ -84,7 +84,7 @@ describe('a message send, a link insert and a revoke at the same moment', () => 
     const id = await plantConnection(pool, co.A, co.B);
     const { m, src, tgt } = await acceptedMessage(pool, id, co.A, co.B);
     const r = await serialised(inFlight(U.b, co.B, LINK, mirrorArgs(id, co.A, m, src, tgt)), revokeByA(id), openSession(U.a, co.A), undefined, true);
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: 'ok' });
     const link = (await pool.query('SELECT id FROM intercompany_document_links WHERE connection_id = $1', [id])).rows[0].id as string;
     expect((await linkRow(pool, link)).status).toBe('active');
     expect((await connection(id)).status).toBe('revoked');
@@ -94,7 +94,7 @@ describe('a message send, a link insert and a revoke at the same moment', () => 
     const id = await plantConnection(pool, co.A, co.B);
     const { m, src, tgt } = await acceptedMessage(pool, id, co.A, co.B);
     const r = await serialised(inFlight(U.a, co.A, MANUAL_REVOKE, [id]), (c) => c.query(LINK, mirrorArgs(id, co.A, m, src, tgt)), openSession(U.b, co.B));
-    expect(r.waited).toBe(true);
+    expect(r.waited).toBe('lock');
     expect(r.second).toBe('23514: documents are linked only on an active connection');
   }, 30000);
 });
@@ -111,7 +111,7 @@ describe('confirming a pending pairing and a revoke at the same moment', () => {
   it('the confirmation in flight first: a manual revoke waits for it (the link is activated while the connection is active)', async () => {
     const { id, link } = await pending();
     const r = await serialised(inFlight(ownerOf(high()), high(), CONFIRM, [link]), revokeByA(id), openSession(U.a, co.A), undefined, true);
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: 'ok' });
     expect((await linkRow(pool, link)).status).toBe('active');
     expect((await connection(id)).status).toBe('revoked');
   }, 30000);
@@ -119,7 +119,7 @@ describe('confirming a pending pairing and a revoke at the same moment', () => {
   it('the revoke in flight first: the confirmation waits for it, then is refused (no active link on a revoked connection)', async () => {
     const { id, link } = await pending();
     const r = await serialised(inFlight(U.a, co.A, MANUAL_REVOKE, [id]), (c) => c.query(CONFIRM, [link]), openSession(ownerOf(high()), high()));
-    expect(r.waited).toBe(true);
+    expect(r.waited).toBe('lock');
     expect(r.second).toBe('23514: a link is confirmed only on an active connection');
     expect((await linkRow(pool, link)).status).toBe('pending_confirmation');
   }, 30000);
@@ -136,7 +136,7 @@ describe('lock order: a leave that waits on a connection row while a side is swi
       const leaverPid = await pidOf(leaver);
       let leaverDone = false;
       const leaving = settle(leaver.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.B])).then((x) => { leaverDone = true; return x; });
-      expect(await waitsOnLock(leaverPid, () => leaverDone), 'the leave waits on the connection row').toBe(true);
+      expect(await waitsOnLock(leaverPid, () => leaverDone), 'the leave polls while the connection row is held').toBe('poll');
       // the writer switches auto-accept on while the leave waits (it holds its side row; its guard asks the topology)
       const switching = settle(writer.query('UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1 AND company_id = $2', [id, co.B]));
       await sleep(600);

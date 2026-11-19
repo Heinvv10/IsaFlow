@@ -36,38 +36,49 @@
 --         whether the pair shares a group WITHOUT a lock, and only a pair that does takes the rows of its two companies FOR SHARE
 --         (sorted by company id, held to commit) and reads again. An ungrouped pair, a stranger and a claim-less session take nothing.
 --       * JOINERS (a membership inserted, or a left member re-joined: intercompany_group_member_joined, a definer) take FOR SHARE
---         the rows of the group's members and of the joiner. So a join cannot commit while a changer holds the group, and a changer
---         that comes after a join waits for it and sees the new member: a company that joined cannot be seen as a member by a
---         decider while a change that would end its connection is still uncommitted.
---       * CHANGERS (a membership's left_date / company / group changed or deleted, a group's is_active cleared or the group
---         deleted: intercompany_group_membership_changed, a definer) NEVER return before locking, except for a change that cannot
---         end anything (an UPDATE that changes none of left_date, company and group; a (re-)activation). The seeds are the leaver
---         itself (a group of one company included: its own row is always taken, which is what orders it against a concurrent join and
---         the creator that join enables) or, for a group deactivated or deleted, the group's members. The CANDIDATES are the live group
---         connections of a seed that would no longer share a group (the ones the change can end, and no others). The lock set is the
---         seeds, the group's current members and the other party of each candidate. A changer takes its whole set or none of it:
---         candidates' rows FOR NO KEY UPDATE, their sides rows FOR NO KEY UPDATE, then the company rows FOR UPDATE, all NOWAIT inside
---         a sub-transaction; a lock that is held rolls the attempt back (nothing is held while it waits, so it delays no one and
---         cannot deadlock), and it tries again a moment later. Once it holds the set it re-reads (a new snapshot); if a member
---         joined, a connection appeared or a candidate went, it starts again, until the set is stable. It then revokes the candidates
---         and releases their sides. A statement that changes several memberships, and a group deleted with its members, fire this once
---         per membership row: each row's seeds are its own company, so none of them can be missed.
---       * so a creator of (A,B) holds A and B FOR SHARE and a leaver of a group holding both holds A and B FOR UPDATE: they
---         serialise even though the connection being created is invisible to the leaver's scan; two leaves that could each leave the
---         pair ungrouped both hold A and B, so the second waits for the first and sees it.
---       * a session can therefore only delay work that involves a company its user belongs to, or a company in a group that company
---         is a member of: a stranger, an ungrouped pair, a claim-less session and a no-op change hold nothing. There is no
---         platform-wide lock, and a changer that is waiting holds nothing that anyone else waits for.
+--         the rows of ALL the group's members and of the joiner. So a join cannot commit while a changer holds one of them, and a
+--         changer that comes after a join waits for it and sees the new member.
+--       * CHANGERS are STATEMENT-level AFTER triggers with transition tables (intercompany_group_membership_changed on
+--         company_group_members, intercompany_group_deactivated on company_groups, UPDATE and DELETE each): one firing sees every
+--         row the statement changed, so a statement that leaves several memberships, a group deleted with its members and a bulk
+--         update lock ONE set once, in ONE sub-transaction, instead of row by row (a row-level trigger kept the first row's locks
+--         while a later row waited: an undetectable wait cycle and a stall of pairs that share nothing with the waiter). They
+--         return early only for a statement that changed nothing that can end a connection (an UPDATE that sets none of
+--         left_date, company and group on a current member; a (re-)activation; rows already left or inactive). Otherwise:
+--         the SEEDS are the companies that left (or, for a group deactivated or deleted, its members); the CANDIDATES are the live
+--         group connections of a seed that would no longer share a group (the ones the change can end, and no others); the LOCK SET
+--         is the seeds, the other party of each candidate, and the group's members that hold a live group connection to a seed
+--         (a member with no connection to a seed is not locked: a viewer holding it, two hops away, cannot veto the change). That
+--         set is enough: a creator of (X, Y) holds X and Y, so it conflicts on the leaver X whoever Y is; two concurrent leaves that
+--         can each leave a pair ungrouped both lock both companies of every live connection between them; a connection that appears
+--         while a leaver waits is caught by the re-read below, which restarts with the new set; a late joiner holds ALL the group's
+--         members FOR SHARE, which conflicts on the leaver. A changer takes its whole set or none of it: the candidates' rows FOR NO
+--         KEY UPDATE, their sides rows FOR NO KEY UPDATE, then the company rows FOR UPDATE, all NOWAIT inside a sub-transaction;
+--         a lock that is held rolls the attempt back (nothing is held while it waits, so it delays no one and cannot deadlock) and it
+--         tries again a moment later. Once it holds the set it re-reads (a new snapshot); if a member joined, a connection appeared
+--         or a candidate went it starts again, until the set is stable. It then revokes the candidates and releases their sides.
+--       * the wait is BOUNDED: app.intercompany_changer_budget_ms (default 10000, at most 30000). When it elapses the statement fails
+--         with SQLSTATE 55P03 (lock_not_available, "try again in a moment") and rolls back, so the leave did not happen and the
+--         connection stays as it was. withErrorHandler answers 55P03 from any route as 503 with Retry-After and a neutral message
+--         (lockTimeout / apiDocumentLock): removeMember, deleteGroup, addMember and every other membership or group writer need no
+--         code of their own. The polling IS the retry; there is no further server-side retry inside the request transaction.
+--       * a session can therefore only delay work that involves a company its user belongs to, or a company in a group that
+--         company is a member of and that is connected to it: a stranger, an ungrouped pair, a claim-less session and a change
+--         that changes nothing hold nothing. There is no platform-wide lock: app_user has no table-level UPDATE, DELETE or
+--         TRUNCATE on the group tables (section 6c), so it cannot LOCK TABLE them either, and a waiting changer holds nothing.
 --       * ORDER (for the ones that do wait: deciders and joiners, which only ever take company rows, sorted): the connection
 --         guards take their connection row FOR SHARE, then the company rows. A re-activation holds its connection row, then waits
 --         for the company rows; a session switching auto-accept on holds its side row, then waits for the company rows; a side's
 --         first save, a message sent or accepted and a link inserted or updated hold their connection row FOR SHARE. A manual revoke
 --         (a user UPDATE of the status) holds the connection row, then the release trigger takes the sides rows. Changers hold their
 --         whole set at once, so none of these can be waiting on a changer for a row the changer is waiting on.
---       * limits: row share locks do not queue behind a waiting FOR UPDATE and a changer polls, so continuous overlapping traffic
---         of one company pair can keep that pair's leave from finding a gap (each transaction is a few statements); a session
---         that, inside ONE transaction, holds a company share and then updates a side or connection row that a changer holds ends
---         in 40P01 only (accept a message, then send one, in one transaction); a deadlock rolls its whole transaction back.
+--       * limits: row share locks do not queue behind a waiting changer and a changer polls, so continuous overlapping traffic
+--         of one company pair can keep that pair's leave from finding a gap (it then fails with 55P03 after the budget); a
+--         session that, inside ONE transaction, holds a company share and then updates a side or connection row that a changer
+--         holds ends in 40P01 only (accept a message, then send one, in one transaction); a deadlock rolls its whole transaction back.
+--       * the companies trigger and the join triggers are ENABLE (origin), not ALWAYS: a restore in replica mode (pg_restore
+--         --disable-triggers) does not fire them, so the restored lock table cannot collide with rows they would have made. Lock
+--         rows are derivable: re-running this file's backfill recreates any that are missing, and a decider creates a missing row.
 --       * intercompany_in_one_group is false for a session with no signed-in user (auth.uid() NULL): the P2 auto-accept worker needs
 --         its own definer path (it must not reuse this check on a company GUC), see the plan.
 --   - A document is the target of ONE accepted message per RECEIVING COMPANY, whatever the connection (index
@@ -95,7 +106,7 @@
 -- DEFINER FUNCTIONS (registered in app_definer_reviews, 930; owner migration_admin; pinned search_path, pg_temp last; EXECUTE for
 -- app_user and app_service only, none for the trigger functions): intercompany_in_one_group (reads, and takes the pair's company lock rows FOR SHARE),
 -- intercompany_document_exists_as_writer, intercompany_message_documents_ok (reads); intercompany_group_membership_changed,
--- intercompany_release_links, intercompany_link_slots_sync, intercompany_company_lock_row, intercompany_group_member_joined (trigger functions, write / lock). 1000 registered the first and the fourth; their rows are updated here.
+-- intercompany_release_links, intercompany_link_slots_sync, intercompany_company_lock_row, intercompany_group_member_joined, intercompany_group_deactivated (trigger functions, write / lock). 1000 registered the first and the fourth; their rows are updated here.
 --
 -- Rollback (code first; 1000's behaviour returns only by re-applying its function bodies):
 --   DROP INDEX IF EXISTS intercompany_messages_target_uq;
@@ -105,9 +116,14 @@
 --   DROP FUNCTION IF EXISTS public.intercompany_release_links(), public.intercompany_keys_guard(),
 --     public.intercompany_document_exists_as_writer(text, uuid, uuid), public.intercompany_message_documents_ok(uuid),
 --     public.intercompany_message_doc_exists(text, text, text, uuid, uuid), public.intercompany_shared_group(uuid, uuid),
---     public.intercompany_lock_companies(uuid[], boolean), public.intercompany_topology_companies(uuid, uuid[], uuid[]),
---     public.intercompany_topology_candidates(uuid[]), public.intercompany_company_lock_row(), public.intercompany_group_member_joined();
+--     public.intercompany_lock_companies(uuid[], boolean), public.intercompany_topology_companies(uuid[], uuid[], uuid[]),
+--     public.intercompany_topology_candidates(uuid[]), public.intercompany_group_members(uuid, uuid[]),
+--     public.intercompany_revoke_for_change(uuid[], uuid[], boolean), public.intercompany_company_lock_row(),
+--     public.intercompany_group_member_joined(), public.intercompany_group_deactivated();
 --   DROP TRIGGER IF EXISTS trg_intercompany_company_lock_row ON companies;
+--   DROP TRIGGER IF EXISTS trg_intercompany_group_member_deleted ON company_group_members;
+--   DROP TRIGGER IF EXISTS trg_intercompany_group_removed ON company_groups;
+--   (and re-GRANT UPDATE, DELETE on company_group_members and company_groups to app_user if 999r's table-level grants are wanted back)
 --   DROP TRIGGER IF EXISTS trg_intercompany_group_joined ON company_group_members;
 --   DROP TRIGGER IF EXISTS trg_intercompany_group_rejoined ON company_group_members;
 --   DROP TABLE IF EXISTS public.intercompany_company_locks, public.intercompany_document_slots;
@@ -124,7 +140,8 @@ SET LOCAL statement_timeout = '60s';
 CREATE TABLE IF NOT EXISTS public.intercompany_company_locks (
   company_id UUID PRIMARY KEY
 );
-ALTER TABLE public.intercompany_company_locks OWNER TO migration_admin;
+-- Everything that needs the table's owner's rights is done BEFORE the owner changes: the role that applies this file need not
+-- inherit migration_admin's privileges (PG16 membership without INHERIT) to run it.
 ALTER TABLE public.intercompany_company_locks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.intercompany_company_locks FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.intercompany_company_locks FROM PUBLIC, app_user, app_service;
@@ -132,12 +149,11 @@ REVOKE ALL ON public.intercompany_company_locks FROM PUBLIC, app_user, app_servi
 DROP POLICY IF EXISTS no_app_access ON public.intercompany_company_locks;
 CREATE POLICY no_app_access ON public.intercompany_company_locks FOR ALL TO app_user USING (false) WITH CHECK (false);
 COMMENT ON TABLE public.intercompany_company_locks IS
-  'One row per company (backfilled, and made by a trigger on companies), locked FOR SHARE by intercompany_in_one_group for the two companies of a grouped pair and by a joiner for its group, and FOR UPDATE by the group-membership revoking trigger for the companies it could end a connection between (sorted by company id). No app role has any privilege on it. See migration 1002.';
+  'One row per company (backfilled, and made by a trigger on companies), locked FOR SHARE by intercompany_in_one_group for the two companies of a grouped pair and by a joiner for its group, and FOR UPDATE by the group-membership changers for the companies they could end a connection between (sorted by company id). No app role has any privilege on it. See migration 1002.';
+ALTER TABLE public.intercompany_company_locks OWNER TO migration_admin;
 
--- A row for every company that exists, and one for each company created from now on (a definer trigger: the lock rows are never
--- created by a decider, whose first share lock would otherwise wait for another session's uncommitted insert).
-INSERT INTO public.intercompany_company_locks (company_id) SELECT id FROM public.companies ON CONFLICT DO NOTHING;
-
+-- One row for each company created from now on (a definer trigger: the lock rows are never created by a decider, whose first
+-- share lock would otherwise wait for another session's uncommitted insert). ENABLE (origin), not ALWAYS: see the header.
 CREATE OR REPLACE FUNCTION public.intercompany_company_lock_row()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -154,7 +170,12 @@ REVOKE ALL ON FUNCTION public.intercompany_company_lock_row() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_intercompany_company_lock_row ON companies;
 CREATE TRIGGER trg_intercompany_company_lock_row AFTER INSERT ON companies
   FOR EACH ROW EXECUTE FUNCTION public.intercompany_company_lock_row();
-ALTER TABLE companies ENABLE ALWAYS TRIGGER trg_intercompany_company_lock_row;
+
+-- A row for every company that exists (after the trigger, so no company can slip between the two). Run as migration_admin, which
+-- owns the table: the role that applies this file need not be able to write it.
+SET LOCAL ROLE migration_admin;
+INSERT INTO public.intercompany_company_locks (company_id) SELECT id FROM public.companies ON CONFLICT DO NOTHING;
+RESET ROLE;
 
 -- ── 1. Link indexes: unique over ACTIVE links only, one mirror link per message ─────────────
 
@@ -251,8 +272,31 @@ $$;
 REVOKE ALL ON FUNCTION public.intercompany_topology_candidates(uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_topology_candidates(uuid[]) TO migration_admin;
 
--- Internal: the companies to lock: the seeds, the current members of `p_group` and the parties of the candidate connections.
-CREATE OR REPLACE FUNCTION public.intercompany_topology_companies(p_group uuid, p_seeds uuid[], p_candidates uuid[])
+-- Internal: the companies to lock: the seeds, the parties of the candidate connections, and the members of `p_groups` that hold a
+-- live group connection to a seed (a member with no connection to a seed is not locked).
+DROP FUNCTION IF EXISTS public.intercompany_topology_companies(uuid, uuid[], uuid[]);
+CREATE OR REPLACE FUNCTION public.intercompany_topology_companies(p_groups uuid[], p_seeds uuid[], p_candidates uuid[])
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE(array_agg(DISTINCT x), '{}'::uuid[])
+    FROM (SELECT unnest(p_seeds) AS x
+          UNION SELECT unnest(ARRAY[k.company_low_id, k.company_high_id]) FROM public.intercompany_connections k WHERE k.id = ANY (p_candidates)
+          UNION SELECT m.company_id FROM public.company_group_members m
+                 WHERE m.group_id = ANY (p_groups) AND m.left_date IS NULL
+                   AND EXISTS (SELECT 1 FROM public.intercompany_connections k
+                                WHERE k.kind = 'group' AND k.status <> 'revoked'
+                                  AND ((k.company_low_id = m.company_id AND k.company_high_id = ANY (p_seeds))
+                                    OR (k.company_high_id = m.company_id AND k.company_low_id = ANY (p_seeds))))) s
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_topology_companies(uuid[], uuid[], uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_topology_companies(uuid[], uuid[], uuid[]) TO migration_admin;
+
+-- Internal: ALL the current members of `p_group` and `p_extra` (a joiner locks them all).
+CREATE OR REPLACE FUNCTION public.intercompany_group_members(p_group uuid, p_extra uuid[])
 RETURNS uuid[]
 LANGUAGE sql
 STABLE
@@ -261,11 +305,10 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT COALESCE(array_agg(DISTINCT x), '{}'::uuid[])
     FROM (SELECT m.company_id AS x FROM public.company_group_members m WHERE m.group_id = p_group AND m.left_date IS NULL
-          UNION SELECT unnest(p_seeds)
-          UNION SELECT unnest(ARRAY[k.company_low_id, k.company_high_id]) FROM public.intercompany_connections k WHERE k.id = ANY (p_candidates)) s
+          UNION SELECT unnest(p_extra)) s
 $$;
-REVOKE ALL ON FUNCTION public.intercompany_topology_companies(uuid, uuid[], uuid[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_topology_companies(uuid, uuid[], uuid[]) TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_group_members(uuid, uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_group_members(uuid, uuid[]) TO migration_admin;
 
 -- Internal: take the lock rows of `p_companies`, in company id order. Shared: wait for them (deciders, joiners). Exclusive: FOR UPDATE
 -- NOWAIT, which raises lock_not_available at the first row held by anyone, for the caller to roll its attempt back and retry. A row
@@ -295,6 +338,71 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_lock_companies(uuid[], boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_lock_companies(uuid[], boolean) TO migration_admin;
+
+-- Internal: the whole of a changer (header): find the seeds, candidates and lock set, take them all or none inside a sub-transaction
+-- (NOWAIT, retrying), re-read under the locks and start again if the set changed, then revoke the candidates. Called by the two
+-- statement-level trigger functions below, as migration_admin. `p_seed_from_groups`: the seeds are the groups' members (read again on
+-- every attempt, so a member that joined meanwhile is seen).
+CREATE OR REPLACE FUNCTION public.intercompany_revoke_for_change(p_seeds uuid[], p_groups uuid[], p_seed_from_groups boolean)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  budget interval := LEAST(COALESCE(NULLIF(pg_catalog.current_setting('app.intercompany_changer_budget_ms', true), '')::int, 10000), 30000)
+                     * interval '1 millisecond';
+  started timestamptz := pg_catalog.clock_timestamp();
+  attempt int := 0;
+  seeds uuid[];
+  cand uuid[];
+  lockset uuid[];
+  seeds2 uuid[];
+  cand2 uuid[];
+  lockset2 uuid[];
+BEGIN
+  LOOP
+    attempt := attempt + 1;
+    IF pg_catalog.clock_timestamp() - started > budget THEN
+      RAISE EXCEPTION 'a group membership change is waiting on other work in the group; try again in a moment' USING ERRCODE = '55P03';
+    END IF;
+    BEGIN                                           -- a sub-transaction: a lock that is held rolls back everything taken here
+      seeds := (SELECT COALESCE(array_agg(DISTINCT x), '{}'::uuid[])
+                  FROM (SELECT unnest(p_seeds) AS x
+                        UNION SELECT m.company_id FROM public.company_group_members m
+                               WHERE p_seed_from_groups AND m.group_id = ANY (p_groups) AND m.left_date IS NULL) q);
+      cand := public.intercompany_topology_candidates(seeds);
+      lockset := public.intercompany_topology_companies(p_groups, seeds, cand);
+      PERFORM 1 FROM public.intercompany_connections c WHERE c.id = ANY (cand) ORDER BY c.id FOR NO KEY UPDATE OF c NOWAIT;
+      PERFORM 1 FROM public.intercompany_connection_sides s WHERE s.connection_id = ANY (cand)
+       ORDER BY s.connection_id, s.company_id FOR NO KEY UPDATE OF s NOWAIT;
+      IF cardinality(lockset) > 0 THEN
+        PERFORM public.intercompany_lock_companies(lockset, true);
+      END IF;
+      -- A new snapshot from here on: the writers that held these companies have committed, and so have the leaves that came first.
+      -- If a member joined, a connection appeared or a candidate went meanwhile, start again with the set as it now is.
+      seeds2 := (SELECT COALESCE(array_agg(DISTINCT x), '{}'::uuid[])
+                   FROM (SELECT unnest(p_seeds) AS x
+                         UNION SELECT m.company_id FROM public.company_group_members m
+                                WHERE p_seed_from_groups AND m.group_id = ANY (p_groups) AND m.left_date IS NULL) q);
+      cand2 := public.intercompany_topology_candidates(seeds2);
+      lockset2 := public.intercompany_topology_companies(p_groups, seeds2, cand2);
+      IF cand2 <@ cand AND lockset2 <@ lockset AND seeds2 <@ seeds THEN
+        EXIT;
+      END IF;
+      RAISE EXCEPTION 'the group-membership set changed' USING ERRCODE = '55P03';
+    EXCEPTION WHEN lock_not_available THEN
+      PERFORM pg_catalog.pg_sleep(0.005 + random() * 0.02 * LEAST(attempt, 10));
+    END;
+  END LOOP;
+  PERFORM pg_catalog.set_config('app.intercompany_system_revoke', 'on', true);
+  UPDATE public.intercompany_connections c SET status = 'revoked' WHERE c.id = ANY (cand2);
+  PERFORM pg_catalog.set_config('app.intercompany_system_revoke', '', true);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.intercompany_revoke_for_change(uuid[], uuid[], boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_revoke_for_change(uuid[], uuid[], boolean) TO migration_admin;
 
 -- True when both companies are in one current, active group, whatever the caller's RLS shows of company_group_members,
 -- AND the caller is a party: a user of p_a or p_b (auth.user_companies()). For anyone else (including a session that merely
@@ -575,76 +683,37 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
-  grp uuid;
   seeds uuid[];
-  cand uuid[];
-  lockset uuid[];
-  seeds2 uuid[];
-  cand2 uuid[];
-  lockset2 uuid[];
-  attempt int := 0;
+  grps uuid[];
 BEGIN
-  -- The lock protocol (header). The only early returns are for a change that cannot end anything.
-  IF TG_TABLE_NAME = 'company_groups' THEN
-    IF TG_OP = 'UPDATE' AND NEW.is_active IS NOT FALSE THEN
-      RETURN NULL;                                  -- a (re-)activation ends nothing
-    END IF;
-  ELSIF TG_OP = 'UPDATE' AND NEW.left_date IS NULL AND NEW.company_id = OLD.company_id AND NEW.group_id = OLD.group_id THEN
-    RETURN NULL;                                    -- nothing about the membership changed
-  END IF;
-  IF TG_TABLE_NAME = 'company_groups' THEN
-    grp := OLD.id;
+  -- Statement level, with transition tables (old_rows, new_rows): one firing sees every row of the statement (header).
+  IF TG_OP = 'UPDATE' THEN
+    SELECT array_agg(DISTINCT o.company_id), array_agg(DISTINCT o.group_id) INTO seeds, grps
+      FROM old_rows o JOIN new_rows n ON n.id = o.id
+     WHERE o.left_date IS NULL
+       AND (n.left_date IS NOT NULL OR n.company_id <> o.company_id OR n.group_id <> o.group_id);
   ELSE
-    grp := OLD.group_id;
+    SELECT array_agg(DISTINCT o.company_id), array_agg(DISTINCT o.group_id) INTO seeds, grps
+      FROM old_rows o WHERE o.left_date IS NULL;
   END IF;
-  LOOP
-    attempt := attempt + 1;
-    IF attempt > 1000 THEN
-      RAISE EXCEPTION 'the group-membership locks could not be taken, try again' USING ERRCODE = '40001';
-    END IF;
-    BEGIN                                           -- a sub-transaction: a lock that is held rolls back everything taken here
-      IF TG_TABLE_NAME = 'company_groups' THEN
-        seeds := public.intercompany_topology_companies(grp, '{}'::uuid[], '{}'::uuid[]);
-      ELSE
-        seeds := ARRAY[OLD.company_id];
-      END IF;
-      cand := public.intercompany_topology_candidates(seeds);
-      lockset := public.intercompany_topology_companies(grp, seeds, cand);
-      PERFORM 1 FROM public.intercompany_connections c WHERE c.id = ANY (cand) ORDER BY c.id FOR NO KEY UPDATE OF c NOWAIT;
-      PERFORM 1 FROM public.intercompany_connection_sides s WHERE s.connection_id = ANY (cand)
-       ORDER BY s.connection_id, s.company_id FOR NO KEY UPDATE OF s NOWAIT;
-      IF cardinality(lockset) > 0 THEN
-        PERFORM public.intercompany_lock_companies(lockset, true);
-      END IF;
-      -- A new snapshot from here on: the writers that held these companies have committed, and so have the leaves that came first.
-      -- If a member joined, a connection appeared or a candidate went meanwhile, start again with the set as it now is.
-      IF TG_TABLE_NAME = 'company_groups' THEN
-        seeds2 := public.intercompany_topology_companies(grp, '{}'::uuid[], '{}'::uuid[]);
-      ELSE
-        seeds2 := seeds;
-      END IF;
-      cand2 := public.intercompany_topology_candidates(seeds2);
-      lockset2 := public.intercompany_topology_companies(grp, seeds2, cand2);
-      IF cand2 <@ cand AND lockset2 <@ lockset AND seeds2 <@ seeds THEN
-        EXIT;
-      END IF;
-      RAISE EXCEPTION 'the group-membership set changed' USING ERRCODE = '55P03';
-    EXCEPTION WHEN lock_not_available THEN
-      PERFORM pg_catalog.pg_sleep(0.005 + random() * 0.02 * LEAST(attempt, 10));
-    END;
-  END LOOP;
-  PERFORM pg_catalog.set_config('app.intercompany_system_revoke', 'on', true);
-  UPDATE public.intercompany_connections c SET status = 'revoked' WHERE c.id = ANY (cand2);
-  PERFORM pg_catalog.set_config('app.intercompany_system_revoke', '', true);
+  IF seeds IS NOT NULL THEN
+    PERFORM public.intercompany_revoke_for_change(seeds, grps, false);
+  END IF;
   RETURN NULL;
 END;
 $$;
 ALTER FUNCTION public.intercompany_group_membership_changed() OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.intercompany_group_membership_changed() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_intercompany_group_membership ON company_group_members;
-CREATE TRIGGER trg_intercompany_group_membership AFTER UPDATE OF left_date, company_id, group_id OR DELETE ON company_group_members
-  FOR EACH ROW WHEN (OLD.left_date IS NULL) EXECUTE FUNCTION public.intercompany_group_membership_changed();
+CREATE TRIGGER trg_intercompany_group_membership AFTER UPDATE ON company_group_members
+  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.intercompany_group_membership_changed();
 ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_membership;
+DROP TRIGGER IF EXISTS trg_intercompany_group_member_deleted ON company_group_members;
+CREATE TRIGGER trg_intercompany_group_member_deleted AFTER DELETE ON company_group_members
+  REFERENCING OLD TABLE AS old_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.intercompany_group_membership_changed();
+ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_member_deleted;
 
 -- A join (a membership inserted, or a left member re-joined) takes the group's members' lock rows and its own FOR SHARE until it
 -- commits: it cannot commit while a changer holds the group, and a changer that comes after it waits for it and sees the member.
@@ -656,8 +725,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF NEW.left_date IS NULL THEN
-    PERFORM public.intercompany_lock_companies(
-      public.intercompany_topology_companies(NEW.group_id, ARRAY[NEW.company_id], '{}'::uuid[]), false);
+    PERFORM public.intercompany_lock_companies(public.intercompany_group_members(NEW.group_id, ARRAY[NEW.company_id]), false);
   END IF;
   RETURN NULL;
 END;
@@ -667,15 +735,44 @@ REVOKE ALL ON FUNCTION public.intercompany_group_member_joined() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_intercompany_group_joined ON company_group_members;
 CREATE TRIGGER trg_intercompany_group_joined AFTER INSERT ON company_group_members
   FOR EACH ROW EXECUTE FUNCTION public.intercompany_group_member_joined();
-ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_joined;
 DROP TRIGGER IF EXISTS trg_intercompany_group_rejoined ON company_group_members;
 CREATE TRIGGER trg_intercompany_group_rejoined AFTER UPDATE OF left_date ON company_group_members
   FOR EACH ROW WHEN (OLD.left_date IS NOT NULL AND NEW.left_date IS NULL) EXECUTE FUNCTION public.intercompany_group_member_joined();
-ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_rejoined;
+
+CREATE OR REPLACE FUNCTION public.intercompany_group_deactivated()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  grps uuid[];
+BEGIN
+  -- Statement level, with transition tables: every group the statement deactivated or deleted (a re-activation ends nothing).
+  IF TG_OP = 'UPDATE' THEN
+    SELECT array_agg(o.id) INTO grps
+      FROM old_rows o JOIN new_rows n ON n.id = o.id WHERE o.is_active IS NOT FALSE AND n.is_active IS FALSE;
+  ELSE
+    SELECT array_agg(o.id) INTO grps FROM old_rows o WHERE o.is_active IS NOT FALSE;
+  END IF;
+  IF grps IS NOT NULL THEN
+    PERFORM public.intercompany_revoke_for_change('{}'::uuid[], grps, true);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+ALTER FUNCTION public.intercompany_group_deactivated() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_group_deactivated() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_intercompany_group_deactivated ON company_groups;
-CREATE TRIGGER trg_intercompany_group_deactivated AFTER UPDATE OF is_active OR DELETE ON company_groups
-  FOR EACH ROW WHEN (OLD.is_active IS NOT FALSE) EXECUTE FUNCTION public.intercompany_group_membership_changed();
+CREATE TRIGGER trg_intercompany_group_deactivated AFTER UPDATE ON company_groups
+  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.intercompany_group_deactivated();
 ALTER TABLE company_groups ENABLE ALWAYS TRIGGER trg_intercompany_group_deactivated;
+DROP TRIGGER IF EXISTS trg_intercompany_group_removed ON company_groups;
+CREATE TRIGGER trg_intercompany_group_removed AFTER DELETE ON company_groups
+  REFERENCING OLD TABLE AS old_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.intercompany_group_deactivated();
+ALTER TABLE company_groups ENABLE ALWAYS TRIGGER trg_intercompany_group_removed;
 
 -- ── 4. Sides guard ──────────────────────────────────────────────────────────
 
@@ -1080,7 +1177,6 @@ CREATE TABLE IF NOT EXISTS public.intercompany_document_slots (
   PRIMARY KEY (company_id, doc_type, doc_id)
 );
 CREATE INDEX IF NOT EXISTS intercompany_document_slots_link_idx ON public.intercompany_document_slots (link_id);
-ALTER TABLE public.intercompany_document_slots OWNER TO migration_admin;
 ALTER TABLE public.intercompany_document_slots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.intercompany_document_slots FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.intercompany_document_slots FROM PUBLIC, app_user, app_service;
@@ -1089,6 +1185,7 @@ DROP POLICY IF EXISTS no_app_access ON public.intercompany_document_slots;
 CREATE POLICY no_app_access ON public.intercompany_document_slots FOR ALL TO app_user USING (false) WITH CHECK (false);
 COMMENT ON TABLE public.intercompany_document_slots IS
   'The documents held by live links (active: both sides; pending: the side its inserter confirmed), one row per (company, type, id) whatever the connection and the position. Kept by intercompany_link_slots_sync; no app role has any privilege on it. See migration 1002.';
+ALTER TABLE public.intercompany_document_slots OWNER TO migration_admin;
 
 -- Keeps the slots of a link in step with its status and confirmations. SECURITY DEFINER: the table is closed to app roles. A
 -- document that already holds a slot of another link is refused (also when the other pairing is uncommitted: the primary key waits
@@ -1125,7 +1222,9 @@ CREATE TRIGGER trg_intercompany_link_slots AFTER INSERT OR UPDATE OF status, con
   FOR EACH ROW EXECUTE FUNCTION public.intercompany_link_slots_sync();
 ALTER TABLE intercompany_document_links ENABLE ALWAYS TRIGGER trg_intercompany_link_slots;
 
--- Rows 1000 may already hold (the duplicates check at the top of this file has refused any clash).
+-- Rows 1000 may already hold (the duplicates check at the top of this file has refused any clash). Run as migration_admin, which
+-- owns the table: the role that applies this file need not be able to write it.
+SET LOCAL ROLE migration_admin;
 INSERT INTO public.intercompany_document_slots (company_id, doc_type, doc_id, link_id)
 SELECT l.company_a_id, l.doc_a_type, l.doc_a_id, l.id FROM public.intercompany_document_links l
  WHERE l.status = 'active' OR (l.status = 'pending_confirmation' AND l.confirmed_by_a IS NOT NULL)
@@ -1134,6 +1233,19 @@ INSERT INTO public.intercompany_document_slots (company_id, doc_type, doc_id, li
 SELECT l.company_b_id, l.doc_b_type, l.doc_b_id, l.id FROM public.intercompany_document_links l
  WHERE l.status = 'active' OR (l.status = 'pending_confirmation' AND l.confirmed_by_b IS NOT NULL)
 ON CONFLICT DO NOTHING;
+RESET ROLE;
+
+-- ── 6c. No app role may LOCK TABLE the group tables ──────────────────────────────────────────
+-- Every decider reads company_group_members and company_groups; LOCK TABLE ... IN ACCESS EXCLUSIVE (or SHARE) needs a TABLE-level
+-- UPDATE, DELETE or TRUNCATE, and app_user held UPDATE and DELETE on both, so any session could stall every tenant. Table-level
+-- UPDATE, DELETE and TRUNCATE go; UPDATE stays for the columns the application writes (groupCrudService: addMember's re-join,
+-- updateMember, removeMember, updateGroup, deleteGroup). INSERT and SELECT are untouched, and a ROW EXCLUSIVE lock (what INSERT
+-- takes) blocks no reader. No DELETE policy exists (999r), so nothing is lost there.
+REVOKE UPDATE, DELETE, TRUNCATE ON public.company_group_members, public.company_groups FROM PUBLIC, app_user, app_service;
+GRANT UPDATE (ownership_pct, consolidation_method, left_date, joined_date) ON public.company_group_members TO app_user;
+GRANT UPDATE (name, holding_company_id, default_currency, financial_year_start, is_active, updated_at) ON public.company_groups TO app_user;
+
+-- ── 6d. Connection keys ─────────────────────────────────────────────────────────────────────
 
 -- A key is managed by a write role of its own company.
 CREATE OR REPLACE FUNCTION public.intercompany_keys_guard()
@@ -1200,6 +1312,8 @@ SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
      'nothing (read of customer_invoices, supplier_invoices, credit_notes: does a document exist in a company in which the session user holds a write role; false otherwise)'),
     ('intercompany_group_membership_changed()', 'public.intercompany_group_membership_changed()',
      'intercompany_connections.status = ''revoked'' (its revoked_by / revoked_at stamps, through the connections guard system path) for a group connection whose companies no longer share a current active group, after FOR NO KEY UPDATE NOWAIT row locks on the candidate connections (the live group connections that no longer share a group) and their sides and FOR UPDATE NOWAIT on the company lock rows (intercompany_company_locks) of the seeds, the group''s members and the candidates'' parties; trigger function on company_group_members and company_groups, no EXECUTE for app roles'),
+    ('intercompany_group_deactivated()', 'public.intercompany_group_deactivated()',
+     'intercompany_connections.status = ''revoked'' (through the connections guard system path) for the live group connections of a group that was deactivated or deleted and that no longer share a group, after FOR NO KEY UPDATE NOWAIT row locks on those connections and their sides and FOR UPDATE NOWAIT on intercompany_company_locks rows; statement-level trigger function on company_groups (UPDATE and DELETE), no EXECUTE for app roles'),
     ('intercompany_company_lock_row()', 'public.intercompany_company_lock_row()',
      'intercompany_company_locks (one row for a company that has just been inserted); trigger function on companies, no EXECUTE for app roles'),
     ('intercompany_group_member_joined()', 'public.intercompany_group_member_joined()',
@@ -1218,10 +1332,16 @@ BEGIN
                   unnest(ARRAY['public.intercompany_company_locks', 'public.intercompany_document_slots']) t
               WHERE pg_catalog.has_table_privilege(r, t, p))
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_lock_companies(uuid[], boolean)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_topology_companies(uuid, uuid[], uuid[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_topology_companies(uuid[], uuid[], uuid[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_members(uuid, uuid[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_revoke_for_change(uuid[], uuid[], boolean)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_group_members(uuid, uuid[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_revoke_for_change(uuid[], uuid[], boolean)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_group_deactivated()', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_group_deactivated()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_topology_candidates(uuid[])', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_lock_companies(uuid[], boolean)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('public', 'public.intercompany_topology_companies(uuid, uuid[], uuid[])', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', 'public.intercompany_topology_companies(uuid[], uuid[], uuid[])', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_topology_candidates(uuid[])', 'EXECUTE')
      OR pg_catalog.has_function_privilege('public', 'public.intercompany_company_lock_row()', 'EXECUTE')
      OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_company_lock_row()', 'EXECUTE')

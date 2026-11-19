@@ -227,8 +227,10 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
   it('a company in no group and no link changes and deletes nothing, anywhere', async () => {
     await F.asAppUser(u.UC, co.C, async (q) => {
       for (const t of ALL) {
-        expect((await q.query(`UPDATE ${t} SET created_at = NOW()`)).rowCount, `update ${t}`).toBe(0);
-        expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
+        const touch = t === 'company_groups' ? 'updated_at = NOW()' : t === 'company_group_members' ? 'joined_date = joined_date' : 'created_at = NOW()';
+        expect((await q.query(`UPDATE ${t} SET ${touch}`)).rowCount, `update ${t}`).toBe(0);
+        if (t === 'company_groups' || t === 'company_group_members') expect(await F.codeOf(q, `DELETE FROM ${t}`), `delete ${t}`).toBe('42501');   // no DELETE privilege since 1002
+        else expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
       }
     });
   });
@@ -241,10 +243,11 @@ describe('an unconditional UPDATE or DELETE reaches only the rows the command\'s
       }
       expect((await q.query('DELETE FROM group_accounts')).rowCount).toBe(1);   // the chart is edited and pruned by the app
       // Nothing else is ever hard-deleted by the app: adjustments are reversed, transactions kept, groups deactivated.
-      for (const t of ['consolidation_adjustments', 'intercompany_transactions', 'company_groups']) {
+      for (const t of ['consolidation_adjustments', 'intercompany_transactions']) {
         expect((await q.query(`DELETE FROM ${t}`)).rowCount, `delete ${t}`).toBe(0);
       }
-      expect((await q.query('UPDATE company_groups SET created_at = NOW()')).rowCount).toBe(1);
+      expect(await F.codeOf(q, 'DELETE FROM company_groups')).toBe('42501');   // no DELETE privilege since 1002
+      expect((await q.query('UPDATE company_groups SET updated_at = NOW()')).rowCount).toBe(1);
     });
   });
 });

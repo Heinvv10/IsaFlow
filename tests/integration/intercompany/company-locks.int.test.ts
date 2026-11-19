@@ -38,14 +38,15 @@ describe('intercompany_company_locks', () => {
     const slots = (await pool.query("SELECT pg_get_userbyid(relowner) AS owner, relrowsecurity, relforcerowsecurity, (SELECT count(*)::int FROM pg_policies WHERE tablename = 'intercompany_document_slots') AS policies FROM pg_class WHERE relname = 'intercompany_document_slots'")).rows[0];
     expect(slots).toEqual({ owner: 'migration_admin', relrowsecurity: true, relforcerowsecurity: true, policies: 1 });
     // the internal helpers that take the locks are for migration_admin only
-    for (const fn of ['public.intercompany_lock_companies(uuid[], boolean)', 'public.intercompany_topology_companies(uuid, uuid[], uuid[])', 'public.intercompany_topology_candidates(uuid[])']) {
+    for (const fn of ['public.intercompany_lock_companies(uuid[], boolean)', 'public.intercompany_topology_companies(uuid[], uuid[], uuid[])', 'public.intercompany_topology_candidates(uuid[])',
+      'public.intercompany_group_members(uuid, uuid[])', 'public.intercompany_revoke_for_change(uuid[], uuid[], boolean)']) {
       for (const role of ['app_user', 'app_service', 'public']) {
         expect((await pool.query('SELECT has_function_privilege($1, $2, $3) AS ok', [role, fn, 'EXECUTE'])).rows[0].ok, `${role} ${fn}`).toBe(false);
       }
       expect((await pool.query('SELECT has_function_privilege($1, $2, $3) AS ok', ['migration_admin', fn, 'EXECUTE'])).rows[0].ok).toBe(true);
     }
     // the two trigger functions that create / take lock rows are registered definers no app role can execute
-    for (const fn of ['public.intercompany_company_lock_row()', 'public.intercompany_group_member_joined()']) {
+    for (const fn of ['public.intercompany_company_lock_row()', 'public.intercompany_group_member_joined()', 'public.intercompany_group_deactivated()', 'public.intercompany_group_membership_changed()']) {
       for (const role of ['app_user', 'app_service', 'public']) {
         expect((await pool.query('SELECT has_function_privilege($1, $2, $3) AS ok', [role, fn, 'EXECUTE'])).rows[0].ok, `${role} ${fn}`).toBe(false);
       }

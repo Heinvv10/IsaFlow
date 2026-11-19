@@ -105,7 +105,7 @@ describe('concurrent pairings of one document', () => {
     const d = await plantDocument(pool, 'supplier_invoice', mid);
     const [firstArgs, secondArgs] = highFirst ? [asHigh(d), asLow(d)] : [asLow(d), asHigh(d)];
     const r = await serialised(inFlight(U.ab, mid, LINK, firstArgs), (c) => c.query(LINK, secondArgs), openSession(U.ab, mid));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: R.docSlotTaken });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: R.docSlotTaken });
     expect((await slots()).filter((s) => s.doc_id === d)).toHaveLength(1);
   }, 30000);
 

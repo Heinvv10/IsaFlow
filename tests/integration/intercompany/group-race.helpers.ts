@@ -16,11 +16,16 @@ export function makeRace(pool: Pool) {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const pidOf = async (c: PoolClient) => (await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
 
-  /** Wait until the backend is blocked on a lock, or polling for one (a changer sleeps between attempts) (or has already finished: then the poll gives up and the test's assertion fails). */
-  async function waitsOnLock(pid: number, settled: () => boolean): Promise<boolean> {
+  /**
+   * Wait until the backend is held up, and say HOW: 'lock' (blocked in the lock manager: a decider, a joiner, a row update) or
+   * 'poll' (sleeping between attempts: a changer, which takes its whole set or none and retries). false when it finished or
+   * never waited within the time allowed.
+   */
+  async function waitsOnLock(pid: number, settled: () => boolean): Promise<false | 'lock' | 'poll'> {
     for (let i = 0; i < 100 && !settled(); i++) {
-      const r = await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND (wait_event_type = 'Lock' OR wait_event = 'PgSleep')", [pid]);
-      if (r.rowCount) return true;
+      const r = await pool.query('SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = $1', [pid]);
+      if (r.rows[0]?.wait_event_type === 'Lock') return 'lock';
+      if (r.rows[0]?.wait_event === 'PgSleep') return 'poll';
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     return false;

@@ -53,14 +53,14 @@ describe('a group of one company: its change, a join and the creator the join en
   it.each(Object.keys(CHANGES))('the change in flight first (%s): the join waits for it, then the creator is refused', async (name) => {
     const [change, args] = CHANGES[name]();
     const r = await serialised(inFlight(null, co.C, change, args), (c) => c.query(JOIN, [co.H, co.A]));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: 'ok' });
     await creatorIsRefused();
   }, 30000);
 
   it.each(Object.keys(CHANGES))('the join in flight first (%s): the change waits for it, sees the joiner, and the creator is refused', async (name) => {
     const [change, args] = CHANGES[name]();
     const r = await serialised(inFlight(null, co.A, JOIN, [co.H, co.A]), (c) => c.query(change, args));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     await creatorIsRefused();
   }, 30000);
 
@@ -68,7 +68,7 @@ describe('a group of one company: its change, a join and the creator the join en
     await pool.query(JOIN, [co.H, co.A]);
     await pool.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.H, co.A]);
     const r = await serialised(inFlight(null, co.A, 'UPDATE company_group_members SET left_date = NULL WHERE group_id = $1 AND company_id = $2', [co.H, co.A]), (c) => c.query(LEAVE, [co.H, co.C]));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     await creatorIsRefused();
   }, 30000);
 
@@ -136,7 +136,7 @@ describe('a viewer holding its own pair does not stall pairs that share no group
         (c) => c.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [made[1], F]),
         undefined,
         async () => { await send(cd, Cc, D)(); await send(wc, W, Cc)(); await send(fc, F, Cc)(); });
-      expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+      expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
       expect(await connection(fc)).toEqual(REVOKED);
       expect((await connection(cd)).status).toBe('active');
       expect((await connection(wc)).status).toBe('active');

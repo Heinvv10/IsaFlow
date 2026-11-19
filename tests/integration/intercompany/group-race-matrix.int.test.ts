@@ -105,19 +105,18 @@ describe.each(Object.keys(CHANGES) as Array<keyof typeof CHANGES>)('%s', (change
 
     it('the writer first: the change waits for it, then ends the pair and the writer\'s work is released', async () => {
       const id = await w.prepare();
-      const { held, run } = w.start(id);
+      const { held } = w.start(id);
       const holder = held();
       const result = await serialised(holder, (c) => c.query(change, changeArgs(changeName)));
-      expect(result).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+      expect(result).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });                // the changer polls
       await w.released(id);
-      expect(run).toBeTruthy();
     }, 30000);
 
     it('the change first: the writer waits for it, then is refused', async () => {
       const id = await w.prepare();
       const { run, session } = w.start(id);
       const result = await serialised(inFlight(null, co.A, change, changeArgs(changeName)), run, session());
-      expect(result).toEqual({ waited: true, firstEnd: 'ok', second: w.refused });
+      expect(result).toEqual({ waited: 'lock', firstEnd: 'ok', second: w.refused });          // the writer is blocked in the lock manager
       const row = await state();
       if (id) expect(row).toMatchObject({ status: 'revoked' });
       else expect(row).toBeUndefined();

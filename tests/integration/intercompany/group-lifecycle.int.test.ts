@@ -114,13 +114,18 @@ describe('a company leaving a group takes its group connections with it', () => 
     }
   });
 
-  it('the triggers are on left_date and DELETE of the members and on is_active and DELETE of the groups', async () => {
+  it('the changers are statement-level triggers with transition tables, UPDATE and DELETE on the members and on the groups', async () => {
     const defs = (await pool.query(
-      `SELECT t.tgname, pg_get_triggerdef(t.oid) AS def FROM pg_trigger t
-        WHERE NOT t.tgisinternal AND t.tgname IN ('trg_intercompany_group_membership', 'trg_intercompany_group_deactivated') ORDER BY 1`)).rows;
-    const by = Object.fromEntries(defs.map((d) => [d.tgname, d.def as string]));
-    expect(by.trg_intercompany_group_membership).toMatch(/AFTER (DELETE OR UPDATE OF left_date, company_id, group_id|UPDATE OF left_date, company_id, group_id OR DELETE) ON (public\.)?company_group_members/);
-    expect(by.trg_intercompany_group_deactivated).toMatch(/AFTER (DELETE OR UPDATE OF is_active|UPDATE OF is_active OR DELETE) ON (public\.)?company_groups/);
+      `SELECT t.tgname, pg_get_triggerdef(t.oid) AS def, (t.tgtype & 1) = 0 AS statement_level, t.tgenabled FROM pg_trigger t
+        WHERE NOT t.tgisinternal AND t.tgname IN ('trg_intercompany_group_membership', 'trg_intercompany_group_member_deleted',
+          'trg_intercompany_group_deactivated', 'trg_intercompany_group_removed') ORDER BY 1`)).rows;
+    const by = Object.fromEntries(defs.map((d) => [d.tgname, d]));
+    expect(Object.keys(by)).toHaveLength(4);
+    for (const d of defs) expect(d, d.tgname).toMatchObject({ statement_level: true, tgenabled: 'A' });
+    expect(by.trg_intercompany_group_membership.def).toMatch(/AFTER UPDATE ON (public\.)?company_group_members REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT/);
+    expect(by.trg_intercompany_group_member_deleted.def).toMatch(/AFTER DELETE ON (public\.)?company_group_members REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT/);
+    expect(by.trg_intercompany_group_deactivated.def).toMatch(/AFTER UPDATE ON (public\.)?company_groups REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT/);
+    expect(by.trg_intercompany_group_removed.def).toMatch(/AFTER DELETE ON (public\.)?company_groups REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT/);
   });
 });
 

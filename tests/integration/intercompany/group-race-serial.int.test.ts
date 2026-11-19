@@ -34,7 +34,7 @@ describe('two membership changes at the same moment (write skew)', () => {
         const steps: Array<[string, string]> = [[co.A, h], [co.B, co.G]];
         const [x, y] = which === 0 ? steps : [steps[1], steps[0]];
         const r = await serialised(leaving(x[0], x[1]), leave(y[0], y[1]));
-        expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+        expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
         expect(await sharing()).toBe(false);
         expect(await connection(id)).toEqual(REVOKED);
       });
@@ -65,7 +65,7 @@ describe('two membership changes at the same moment (write skew)', () => {
       const id = await plantConnection(pool, co.A, co.B);
       const [x, y] = which === 0 ? [h, co.G] : [co.G, h];
       const r = await serialised(deactivating(x), deactivate(y));
-      expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+      expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
       expect(await sharing()).toBe(false);
       expect(await connection(id)).toEqual(REVOKED);
     });
@@ -75,7 +75,7 @@ describe('two membership changes at the same moment (write skew)', () => {
     await withSecondGroup(async (h) => {
       const id = await plantConnection(pool, co.A, co.B);
       const r = leaveFirst ? await serialised(leaving(co.B, co.G), deactivate(h)) : await serialised(deactivating(h), leave(co.B, co.G));
-      expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+      expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
       expect(await connection(id)).toEqual(REVOKED);
     });
   }, 30000);
@@ -103,7 +103,7 @@ describe('a group deactivation that has to wait', () => {
           await pool.query('INSERT INTO company_group_members(group_id, company_id) VALUES ($1, $2), ($1, $3)', [co.G, extra[0], extra[1]]);
           late = await plantConnection(pool, extra[0], extra[1], U.ac);
         });
-      expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+      expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
       expect(await connection(id)).toEqual(REVOKED);
       expect(await connection(late)).toEqual(REVOKED);
     } finally {
@@ -126,14 +126,14 @@ describe('a re-activation and a leave at the same moment', () => {
   it('the re-activation holds its row and the lock first: the leave waits (no deadlock), then revokes it again', async () => {
     const id = await revoked();
     const r = await serialised(inFlight(U.ab, co.A, REACTIVATE, [id]), leave(co.B, co.G));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     expect(await connection(id)).toEqual(REVOKED);
   }, 30000);
 
   it('the leave comes first: the re-activation waits for it, then is refused (no group left)', async () => {
     const id = await revoked();
     const r = await serialised(leaving(co.B, co.G), (c) => c.query(REACTIVATE, [id]), openSession(U.ab, co.A));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: R.needsOneGroup });
+    expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: R.needsOneGroup });
     expect((await connection(id)).status).toBe('revoked');
   }, 30000);
 });
@@ -146,7 +146,7 @@ describe('switching auto-accept on and a leave at the same moment', () => {
     const id = await plantConnection(pool, co.A, co.B);
     await plantSide(pool, id, co.B, co.A, {}, U.b);
     const r = await serialised(inFlight(U.b, co.B, ON, [id, co.B]), leave(co.B, co.G));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     expect(await connection(id)).toEqual(REVOKED);
     expect((await side(id)).auto_accept).toBe(false);
   }, 30000);
@@ -155,7 +155,7 @@ describe('switching auto-accept on and a leave at the same moment', () => {
     const id = await plantConnection(pool, co.A, co.B);
     await plantSide(pool, id, co.B, co.A, {}, U.b);
     const r = await serialised(leaving(co.B, co.G), (c) => c.query(ON, [id, co.B]), openSession(U.b, co.B));
-    expect(r.waited).toBe(true);
+    expect(r.waited).toBe('lock');
     expect(r.second).toBe(R.sideRevoked);
     expect((await side(id)).auto_accept).toBe(false);
   }, 30000);
@@ -166,7 +166,7 @@ describe('accepting a message and a leave at the same moment', () => {
     const id = await plantConnection(pool, co.A, co.B);
     const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
     const r = await serialised(inFlight(U.b, co.B, "UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]), leave(co.B, co.G));
-    expect(r).toEqual({ waited: true, firstEnd: 'ok', second: 'ok' });
+    expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     expect((await connection(id)).status).toBe('revoked');
     expect((await pool.query('SELECT status FROM intercompany_messages WHERE id = $1', [m])).rows[0].status).toBe('accepted');
   }, 30000);

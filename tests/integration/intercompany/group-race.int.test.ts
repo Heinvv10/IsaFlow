@@ -37,7 +37,7 @@ describe('a connection being created while a company leaves', () => {
       const leaverPid = await pidOf(leaver);
       let done = false;
       const leaving = leaver.query(LEAVE, [co.G, [low, high][index]]).then(() => { done = true; });
-      expect(await waitsOnLock(leaverPid, () => done), 'the leave is blocked by the creator\'s share lock').toBe(true);
+      expect(await waitsOnLock(leaverPid, () => done), 'the leave polls while the creator holds its share').toBe('poll');
       await creator.query('COMMIT');
       await leaving;
       const row = (await pool.query('SELECT status, revoked_by FROM intercompany_connections WHERE id = $1', [id])).rows[0];
@@ -59,7 +59,7 @@ describe('a connection being created while a company leaves', () => {
       const creatorPid = await pidOf(creator);
       let done = false;
       const creating = creator.query(INSERT, [low, high]).then(() => 'created', (e: { message: string; code: string }) => `${e.code}: ${e.message}`).then((r) => { done = true; return r; });
-      expect(await waitsOnLock(creatorPid, () => done), 'the creation is blocked by the leaver\'s row lock').toBe(true);
+      expect(await waitsOnLock(creatorPid, () => done), 'the creation is blocked by the leaver\'s row lock').toBe('lock');
       await leaver.query('COMMIT');
       expect(await creating).toBe(R.needsOneGroup);
     } finally {
@@ -82,7 +82,7 @@ describe('a connection being created while its group is deleted', () => {
       const deleterPid = await pidOf(deleter);
       let done = false;
       const deleting = deleter.query('UPDATE company_groups SET is_active = false WHERE id = $1', [co.G]).then(() => { done = true; });
-      expect(await waitsOnLock(deleterPid, () => done), 'the delete is blocked by the creator\'s share lock').toBe(true);
+      expect(await waitsOnLock(deleterPid, () => done), 'the delete polls while the creator holds its share').toBe('poll');
       await creator.query('COMMIT');
       await deleting;
       expect((await pool.query('SELECT status FROM intercompany_connections WHERE id = $1', [id])).rows[0].status).toBe('revoked');
@@ -107,7 +107,7 @@ describe('a message being sent while a company leaves', () => {
       const leaverPid = await pidOf(leaver);
       let done = false;
       const leaving = leaver.query(LEAVE, [co.G, co.B]).then(() => { done = true; });
-      expect(await waitsOnLock(leaverPid, () => done), 'the leave is blocked by the sender\'s share lock').toBe(true);
+      expect(await waitsOnLock(leaverPid, () => done), 'the leave polls while the sender holds its share').toBe('poll');
       await sender.query('COMMIT');
       await leaving;
       expect((await pool.query('SELECT status FROM intercompany_connections WHERE id = $1', [id])).rows[0].status).toBe('revoked');
