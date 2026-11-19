@@ -114,8 +114,7 @@ const HELPERS: Record<string, HelperPin> = {
   'public.approval_request_bindable_rule(uuid,text,uuid,numeric,uuid)': { md5: 'abddb5e6c6ece5fa11fb10c1f9398af5', result: 'approval_rules', definer: false, volatility: 's' },
   'public.approval_request_caller_bypasses()': { md5: '6cd0733f7baaa32803c10537f2398b4f', result: 'boolean', definer: false, volatility: 's' },
   'public.approval_request_caller_sees(uuid)': { md5: 'beb6f8e6bdd2e48e1ea318e2e438efb0', result: 'boolean', definer: false, volatility: 's' },
-  // Wave 6 OC (999x): an off-cycle run's reference names its kind and pay date; same tables, same company/id scope.
-  'public.approval_request_document_facts(uuid,text,uuid)': { md5: '2a6d0a89fea0c3ba55d909ed44979cac',
+  'public.approval_request_document_facts(uuid,text,uuid)': { md5: '20dc1e56a5ba98af5404efa96abfc837',
     result: 'TABLE(amount numeric, reference text, digest text)', definer: false, volatility: 's' },
   'public.approval_request_document_facts_pre_payroll_951(uuid,text,uuid)': { md5: '61befd6901fc2480193afc20c7ac9826',
     result: 'TABLE(amount numeric, reference text, digest text)', definer: false, volatility: 's' },

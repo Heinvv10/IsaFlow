@@ -117,6 +117,8 @@ describe('payroll oracle fixtures', () => {
     'db-fund-12d-s11f-cap-binds': 'DBF',
     'ga-emolument-attachment-capped-25pct': 'GA',
     'ga-maintenance-outside-cap': 'GA',
+    'offcycle-bonus-after-regular-g21': 'OC',
+    'offcycle-termination-leave-after-regular': 'OC',
     'psp-company-27pct': 'PSP',
     'psp-trust-45pct': 'PSP',
     'ri-overtime-10h-at-1-5x': 'RI',

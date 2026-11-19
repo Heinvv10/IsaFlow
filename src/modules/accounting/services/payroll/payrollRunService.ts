@@ -4,7 +4,6 @@ import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
-import { loadMonthToDateSdl } from './payrollSdlMonthToDate';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
@@ -17,7 +16,7 @@ import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
 import { fringeNotRecordedResults, runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
-import { prepareRunComponents, type PreparedRunEmployee } from './payrollRunComponents';
+import { prepareRunComponents } from './payrollRunComponents';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
@@ -27,11 +26,9 @@ import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { withEtiPriorMonths } from './etiPriorEmployment';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { offCycleReasonOf, payFrequencyOf, runKindOf, runPeriodOf } from './payrollFrequency';
+import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
 import { loadLineCadences } from './payrollRunCadence';
-import { listOffCycleEmployees, prepareOffCycleComponents, type OffCyclePrepared } from './payrollOffCyclePopulation';
-import { assertOffCycleBeforeClose } from './payrollOffCycleRun';
 import { assertPreparerSupported } from './payrollPreparerGuard';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
@@ -72,19 +69,13 @@ export async function calculatePayrollRun(
   const readDate = payrollRunReadDate(period);
 
   const payFrequency = payFrequencyOf(run.pay_frequency);
-  // Wave 6 OC: an off-cycle run pays the employees it was created with, only its bonus or termination pay-outs.
-  const offCycle = runKindOf(run.run_kind) === 'off_cycle' ? offCycleReasonOf(run.off_cycle_reason) : null;
-  if (offCycle === 'unsupported') throw new Error('Off-cycle run with an unknown reason');
-  const employees = await withEtiPriorMonths(companyId, offCycle // ET: a rehire continues its ETI months
-    ? await listOffCycleEmployees(companyId, runId) : await listPayrollRunEmployees(companyId, period, payFrequency));
+  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period, payFrequency)); // ET: a rehire continues its ETI months
   // Wave 6 FQa: a run, employee or assignment this release cannot cost is refused here, before the first write
   // (listSeveranceOnlyRunEmployees below frees reversed payments; applyRunLoans commits loan deductions).
   await assertRunKindSupported(companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
   // Wave 6 FQc: terms a weekly run cannot cost, its EMP201 month, an employee's mid-year frequency change (no write yet).
   const frequencyRun = frequencyRunOf(run);
   if (frequencyRun) await assertFrequencyCostable(companyId, frequencyRun, employees.map((e) => e.id));
-  // Wave 6 OC: an off-cycle run paid on or after its month's closing regular run is refused (409, no write).
-  await assertOffCycleBeforeClose(companyId, run);
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -100,7 +91,7 @@ export async function calculatePayrollRun(
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
   // no UIF or SDL (audit 2026-10-18 P3, payrollSeveranceDirective.ts).
-  const severanceOnly = offCycle ? [] : await listSeveranceOnlyRunEmployees(companyId, runId, period, payFrequency);
+  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period, payFrequency);
   const population: Array<{ employee: PayrollEmployee; severanceOnly: boolean }> = [
     ...employees.map(employee => ({ employee, severanceOnly: false })),
     ...severanceOnly.map(employee => ({ employee, severanceOnly: true })),
@@ -112,19 +103,16 @@ export async function calculatePayrollRun(
   const cadences = !frequencyRun ? new Map<string, LineCadence>()
     : await loadLineCadences(companyId, runId, frequencyRun, population.map(p => p.employee));
   // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
-  const proRata = offCycle ? [] : await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
+  const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
-  const prepared: Array<OffCyclePrepared | (PreparedRunEmployee & { monthEarlier?: undefined })> = offCycle
-    ? await prepareOffCycleComponents({ companyId, runId, period, reason: offCycle, employees })
-    : await prepareRunComponents({ companyId, runId, period, readDate, population });
+  const prepared = await prepareRunComponents({ companyId, runId, period, readDate, population });
 
   // Preview all due loans before any payment write. A blocked employee takes none of them.
   const loanComponents = await loadLoanComponents(companyId);
   const withheld: WithheldLoan[] = [];
   const blockedLoans = new Map<string, { applications: ApplyLoanResult[]; rawNet: number }>();
   const preparedByEmployee = new Map(prepared.map((item) => [item.employee.id, item]));
-  // An off-cycle run pays no loan instalment: its line pays only the bonus or the termination pay-outs.
-  const loansByEmployee = offCycle ? new Map<string, ApplyLoanResult[]>() : await applyRunLoans({
+  const loansByEmployee = await applyRunLoans({
     companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate: runOfficialRate(),
     journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
     employeeIds: new Set(employees.map(e => e.id)),
@@ -139,8 +127,7 @@ export async function calculatePayrollRun(
   const withheldResults = withheldLineResults(withheld);
   const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
 
-  for (const item of prepared) {
-    const { employee, severanceOnly: onlySeverance, components, terminationWarnings, regularPayDirective } = item;
+  for (const { employee, severanceOnly: onlySeverance, components, terminationWarnings, regularPayDirective } of prepared) {
     const loanApplications: ApplyLoanResult[] = onlySeverance ? [] : loansByEmployee.get(employee.id) ?? [];
     const componentsWithLoans = appendLoanComponents(components, loanApplications, loanComponents);
 
@@ -153,7 +140,6 @@ export async function calculatePayrollRun(
       ytd: ytdByEmployee.get(employee.id),
       notEmployedInPeriod: onlySeverance,
       regularPayDirective,
-      ...(item.monthEarlier ? { monthEarlier: item.monthEarlier } : {}),
       cadence: cadences.get(employee.id),
     });
 
@@ -221,9 +207,7 @@ export async function calculatePayrollRun(
   const annualRemuneration = await estimateAnnualRemuneration(
     companyId, period, r(totalRemuneration), runId,
   );
-  // SDL as a month-to-date catch-up (wave 6 OC, review #1620 final breaker H): liable once the month is, and a liable run
-  // carries what the month's earlier final runs did not levy (payrollSdlMonthToDate).
-  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear, await loadMonthToDateSdl(companyId, runId));
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 
   await replaceRunLines(runId, companyId, lineInserts);
 

@@ -93,35 +93,22 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-/**
- * The run's SDL decision on the line (wave 6 OC, payrollSdlMonthToDate): `liableEarlier`, liable because an earlier
- * final run of the month was (the estimate alone would exempt it); `catchUp`, the month-to-date adjustment on this line:
- * its share of the month's SDL (1% of the month to date less what earlier final runs charged) less 1% of its own pay.
- */
-type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; liableEarlier?: boolean; catchUp?: number };
-
-function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
-  const own = charge.exempt ? 0 : Math.round(leviable * SDL_RATE * 100) / 100;
+function chargeSteps(taxYear: number, leviable: number, charge: { annualRemuneration: number; exempt: boolean; sdl: number }): ExplainStep[] {
   return [
     {
       key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
       amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear),
       children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
     },
-    ...(charge.liableEarlier ? [{ key: 'sdl.liableEarlier', label: 'Liable this month: an earlier run of the month was liable, and a month once liable stays liable', amount: null }] : []),
-    { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' as const },
-    ...(charge.catchUp
-      ? [
-        { key: 'sdl.own', label: 'SDL on this line\'s own pay', amount: own, formula: `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
-        { key: 'sdl.catchUp', label: 'Month-to-date adjustment: the month\'s SDL is 1% of its leviable pay to date less what its earlier runs charged, shared by leviable pay', amount: charge.catchUp },
-        { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: `${r(own)} + ${r(charge.catchUp)}` },
-      ]
-      : [{ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` }]),
+    { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
+    { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
   ];
 }
 
 /** The SDL explanation of a line costed with the threshold deferred, completed once the run has decided it (applySdlToLines). */
-export function withSdlCharge(sdl: FigureExplanation, taxYear: number, charge: SdlCharge): FigureExplanation {
+export function withSdlCharge(
+  sdl: FigureExplanation, taxYear: number, charge: { annualRemuneration: number; exempt: boolean; sdl: number },
+): FigureExplanation {
   const pending = sdl.steps.findIndex(s => s.key === SDL_PENDING);
   if (pending < 0) return { ...sdl, result: charge.sdl };
   const leviable = sdl.steps.find(s => s.key === 'sdl.leviable')?.amount ?? 0;
