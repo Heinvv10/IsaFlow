@@ -21,6 +21,22 @@ async function ready(page: Page): Promise<void> {
   await page.locator('header').waitFor();
 }
 
+/**
+ * Opens `url` and waits until the shell stops moving. The announcement bar (AnnouncementBanner) is fetched after the
+ * shell paints and, when the company has one, pushes the whole header down: a menu opened before that lands is
+ * re-placed under a pointer that has not moved, so the pointer is over another row and the open sub-panel is swapped
+ * (the row being hovered is detached). Playwright's "stable" check cannot see this, because the row it hovers is gone
+ * rather than moving. The response is awaited, then two frames let React render its answer.
+ */
+async function gotoShellSettled(page: Page, url: string): Promise<void> {
+  const announcements = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/announcements/active', { timeout: 30_000 });
+  announcements.catch(() => {});
+  await page.goto(url);
+  await ready(page);
+  await announcements;
+  await page.evaluate(() => new Promise<void>((done) => { requestAnimationFrame(() => requestAnimationFrame(() => done())); }));
+}
+
 const sideMode = (page: Page) => page.addInitScript(() => localStorage.setItem('accounting-nav-mode', 'side'));
 
 test.describe('390 x 844', () => {
@@ -196,8 +212,7 @@ const insideViewport = async (page: Page, locator: ReturnType<Page['locator']>) 
 
 test('1024 x 768 top nav: every level of Library opens inside the screen and its third level is clickable', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
-  await page.goto(INVOICES);
-  await ready(page);
+  await gotoShellSettled(page, INVOICES);
   const library = page.locator('nav[aria-label="Main"] [data-tour="nav-library"]');
   await library.hover();
   await library.getByRole('button', { name: 'Accounting', exact: true }).hover();
@@ -211,8 +226,7 @@ test('1024 x 768 top nav: every level of Library opens inside the screen and its
 
 test('1366 x 768 top nav: the keyboard reaches the last entry of Sales > Transactions without scrolling the shell', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
-  await page.goto(INVOICES);
-  await ready(page);
+  await gotoShellSettled(page, INVOICES);
   const before = await shellState(page);
   const sales = page.locator('nav[aria-label="Main"] [data-tour="nav-sales"]');
   await sales.getByRole('button', { name: 'Sales menu' }).focus();
