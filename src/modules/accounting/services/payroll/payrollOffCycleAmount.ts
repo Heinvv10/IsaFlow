@@ -14,7 +14,7 @@ import { withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { isWholeCents, OffCycleRunRefusedError } from './payrollOffCycleRun';
 import { logAuditOrThrow } from '../core/auditTrailService';
 
 const refused = (m: string, status: 400 | 409 = 409) => new OffCycleRunRefusedError(m, status);
@@ -43,12 +43,14 @@ export async function listOffCycleBonusInputs(companyId: string, runId: string):
 
 /** Set one employee's bonus amount on a draft or calculated bonus run; null when the run is not this company's. */
 export async function setOffCycleBonusAmount(
-  companyId: string, runId: string, employeeId: string, amount: number, userId: string,
+  companyId: string, runId: string, employeeId: string, entered: number, userId: string,
 ): Promise<{ runId: string; employeeId: string; amount: number } | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) !== amount * 100) {
+  // The same judgment as the create path (judgeOffCycleShape): exact float equality refused R1.15 and R1 000.10.
+  if (!Number.isFinite(entered) || entered <= 0 || !isWholeCents(entered)) {
     throw refused('The bonus amount must be more than R0, in rand and cents.', 400);
   }
+  const amount = Math.round(entered * 100) / 100;
   return withTransaction(async (tx) => {
     const run = ((await tx`
       SELECT h.run_kind, h.off_cycle_reason, h.status
