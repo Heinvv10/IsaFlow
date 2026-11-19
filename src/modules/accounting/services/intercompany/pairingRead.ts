@@ -6,6 +6,7 @@
  */
 import { sql } from '@/lib/neon';
 import { toIsoTimestamp } from '@/lib/dateUtils';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import type { PairingDirection, PairingDoc, PairingDocType } from './pairingTypes';
 
 type Row = Record<string, unknown>;
@@ -77,14 +78,17 @@ export async function readPartnerDocs(connectionId: string, direction: PairingDi
   return rows.map((r) => ({ ...toDoc(r), linkId: r.link_id == null ? null : String(r.link_id) }));
 }
 
-/** This company's net debit on its loan account (debits less credits of posted journals dated before the cut-over), to the cent. */
+/**
+ * This company's net debit on its loan account (debits less credits of posted journals dated before the cut-over, the year-end
+ * closing journal left out as every figure does: G-01), to the cent.
+ */
 export async function readOwnLoanBalance(companyId: string, accountId: string, cutover: string): Promise<number> {
   const rows = (await sql`
     SELECT ROUND(COALESCE(SUM(jl.debit - jl.credit), 0), 2)::float8 AS balance
     FROM gl_journal_entries je
     JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-    WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date < ${cutover}::DATE
-      AND jl.gl_account_id = ${accountId}::UUID
+    WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+      AND je.entry_date < ${cutover}::DATE AND jl.gl_account_id = ${accountId}::UUID
   `) as Row[];
   return Number(rows[0]?.balance ?? 0);
 }

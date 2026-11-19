@@ -81,11 +81,11 @@ export async function plantSupplierInvoice(pool: Pool, company: string, party: s
 }
 
 /** A posted journal of `company` with one line on `account` (debit or credit) and a balancing line on `other`. */
-export async function plantJournal(pool: Pool, company: string, date: string, account: string, other: string, debit: number, credit: number, status = 'posted'): Promise<void> {
+export async function plantJournal(pool: Pool, company: string, date: string, account: string, other: string, debit: number, credit: number, status = 'posted', source = 'manual'): Promise<void> {
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO gl_journal_entries(id, company_id, entry_date, description, source, status, created_by)
-     VALUES ($1, $2, $3, 'IC pairing test', 'manual', 'draft', $4)`, [id, company, date, U.ab]);
+     VALUES ($1, $2, $3, 'IC pairing test', $5, 'draft', $4)`, [id, company, date, U.ab, source]);
   await pool.query(
     `INSERT INTO gl_journal_lines(journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, $5, $6), ($1, $2, $4, $6, $5)`,
     [id, company, account, other, debit, credit]);

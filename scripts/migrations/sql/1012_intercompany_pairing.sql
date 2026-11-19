@@ -15,7 +15,7 @@
 --       1002), so a document that is paired elsewhere is not offered twice.
 --   intercompany_pairing_partner_loan_balance(p_connection)
 --       The partner's loan account (the one it set on its side) as net debit (debits less credits of POSTED journals dated before
---       the cut-over), one number; NULL when it cannot be given. The page sets it against the caller's own balance.
+--       the cut-over, the year-end closing journal left out as every report does: G-01), one number; NULL when it cannot be given. The page sets it against the caller's own balance.
 --
 -- WHO MAY ASK (both functions; for any other caller the answer is empty / NULL, so neither is a way to probe another company's books):
 --   - a signed-in user (auth.uid()) holding a write role in the session company (intercompany_user_can_write reads company_users by
@@ -103,7 +103,7 @@ AS $$
   SELECT (SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
             FROM public.gl_journal_entries je
             JOIN public.gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = p.partner_id
-           WHERE je.company_id = p.partner_id AND je.status = 'posted' AND je.entry_date < p.cutover_date
+           WHERE je.company_id = p.partner_id AND je.status = 'posted' AND je.source IS DISTINCT FROM 'year_end' AND je.entry_date < p.cutover_date
              AND jl.gl_account_id = p.loan_account_id)
     FROM (
       SELECT c.cutover_date, s.company_id AS partner_id, s.loan_account_id

@@ -267,6 +267,7 @@ describe('the loan-balance difference', () => {
     await plantJournal(pool, co.A, '2026-09-10', acct.aLoan, aOther, 5000, 0);
     await plantJournal(pool, co.B, '2026-09-10', acct.bLoan, bOther, 0, 5000);
     await plantJournal(pool, co.A, '2026-10-01', acct.aLoan, aOther, 777, 0);     // on the cut-over: not counted
+    await plantJournal(pool, co.A, '2026-09-30', acct.aLoan, aOther, 999, 0, 'posted', 'year_end');   // the year-end close: not counted
     expect((await view(U.a, co.A)).loan).toEqual({ mine: 5000, theirs: -5000, difference: 0, asAt: '2026-09-30' });
     expect((await view(U.b, co.B)).loan).toEqual({ mine: -5000, theirs: 5000, difference: 0, asAt: '2026-09-30' });
     await plantJournal(pool, co.A, '2026-09-11', acct.aLoan, aOther, 250, 0);

@@ -152,6 +152,7 @@ describe('intercompany_pairing_partner_loan_balance', () => {
     await plantJournal(pool, co.B, '2026-09-20', acct.bLoan, bOther, 1200, 0);
     await plantJournal(pool, co.B, '2026-10-01', acct.bLoan, bOther, 0, 9999);               // on the cut-over date: not yet
     await plantJournal(pool, co.B, '2026-09-02', acct.bLoan, bOther, 0, 7777, 'draft');       // not posted
+    await plantJournal(pool, co.B, '2026-09-30', acct.bLoan, bOther, 0, 8888, 'posted', 'year_end');   // the year-end close is left out, as in every report
     await plantJournal(pool, co.A, '2026-09-02', acct.aLoan, aOther, 0, 4444);               // A's own books are not B's
     expect(Number(await loan(U.a, co.A))).toBe(-3800);
   });
