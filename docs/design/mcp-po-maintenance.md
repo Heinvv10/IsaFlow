@@ -46,8 +46,11 @@ flow metering free (`purchaseOrderFlow.ts`). No `gl_journal_*` row is written by
      header (no link row, no line) is a tie only when `link_bills_to_purchase_order` COULD link the pair (PO approved /
      partially_received / received / closed, bill approved / paid / partially_paid and not deleted, same supplier): such a bill is
      billing the PO (the three-way match reads the header PO's lines) but was made while the PO was only submitted, and approving
-     writes no link. Refusal: "link it first (link_bills_to_purchase_order)"; the way out is to link it and, if it was wrong, unlink
-     it (the unlink resets the header). A header reference the link tool could not link (a draft / submitted / cancelled PO, a draft
+     writes no link. Refusal: "link it first (link_bills_to_purchase_order)" (also in `set_purchase_order_status` -> draft / cancelled); the way out
+     is to link it and, if it was wrong, unlink it (the unlink resets the header). When the default link amount would be 0 (the bill
+     is already fully linked elsewhere, or has no subtotal), link with an explicit `amount: 0.01` (within the +1c the link rule
+     allows), then unlink; the text says so. A CANCELLED bill's line is no tie either (the link tool and the backfill skip cancelled
+     bills, so nothing could clear it; billed / committed read approved / paid / partially_paid bills only). A header reference the link tool could not link (a draft / submitted / cancelled PO, a draft
      or cancelled bill, another supplier) is no tie: nothing bills the PO and nothing could clear it (round 3, no dead end).
      "Unlink the bills (`unlink_bill_from_purchase_order`) / cancel the receipt first". A supplier change on a linked PO is
      refused by the existing database guard and, first, by `poSupplierChangeBlocked`.
@@ -130,5 +133,5 @@ PO row (link and unlink hold it `FOR NO KEY UPDATE`, which still conflicts with 
   (`assertBillPoLinks` takes `LINKABLE_PO_STATUSES`, as the link tool does), but, closed POs committing nothing, they net nothing.
 - An approved PO's update checks the budget after the write (inside the savepoint) where the Approve action checks before it;
   the outcome is the same, a refusal leaves nothing.
-- A bill line naming a PO line with no link row (a row removed by hand) ties the PO for the guards but unlink answers "not linked" for it; the app's create/edit always writes the app link, so this needs data that bypassed them.
+- A not-cancelled bill line naming a PO line with no link row (a row removed by hand) ties the PO for the guards but unlink answers "not linked" for it; the app's create/edit always writes the app link, so this needs data that bypassed them.
 - Remaining quantity on close is ordered less received; bills are not netted (a bill line links to a PO line, receipts do not).

@@ -23,7 +23,9 @@ export async function poHasReceipts(companyId: string, poId: string): Promise<bo
 
 /**
  * How a bill is tied to the PO, or null:
- *   - `linked`: a link row, or a (not deleted) bill line naming one of the PO's lines;
+ *   - `linked`: a link row, or a (not deleted, not cancelled) bill line naming one of the PO's lines. A CANCELLED bill's line is no tie:
+ *     the backfill and the link tool skip cancelled bills (so nothing could clear it), and nothing reads its `po_item_id` for a figure
+ *     (billed and committed read approved / paid / partially_paid bills only; the three-way match reads the bill's own lines);
  *   - `header`: a bill that names the PO ONLY in its header, no link row, and that `link_bills_to_purchase_order` COULD link: PO in a
  *     linkable status, bill approved / paid / partially_paid and not deleted, same supplier. Such a bill is billing the PO (the
  *     three-way match reads the header PO's lines) but has no link row yet (it was made while the PO was only submitted and the
@@ -37,7 +39,8 @@ export async function poBillTie(companyId: string, poId: string): Promise<'linke
       EXISTS (SELECT 1 FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND purchase_order_id = ${poId}::UUID)
       OR EXISTS (SELECT 1 FROM supplier_invoice_items sii
                    JOIN po_items pi ON pi.id = sii.po_item_id AND pi.purchase_order_id = ${poId}::UUID
-                   JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL)
+                   JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id AND si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
+                          AND si.status <> 'cancelled')
     ) AS linked,
     EXISTS (SELECT 1 FROM supplier_invoices si JOIN purchase_orders po ON po.id = si.purchase_order_id AND po.company_id = si.company_id
              WHERE si.company_id = ${companyId}::UUID AND si.purchase_order_id = ${poId}::UUID AND si.deleted_at IS NULL
@@ -52,13 +55,19 @@ export const poHasBillLinks = async (companyId: string, poId: string): Promise<b
 export const RECEIPT_REFUSAL = 'Goods have been received against this purchase order (a receipt is on record)';
 export const LINKS_REFUSAL = 'Bills are linked to this purchase order';
 
+/** What a refusal says about a bill tie, or null: the real way out for each kind. */
+export function billTieText(tie: 'linked' | 'header' | null, what: string): string | null {
+  if (tie === 'linked') return `${LINKS_REFUSAL}, so ${what}; unlink them first (unlink_bill_from_purchase_order)`;
+  if (tie === 'header') {
+    return `A bill names this purchase order in its header but is not linked to it, so ${what}; link it first (link_bills_to_purchase_order; if the bill is already fully linked elsewhere or has no subtotal, link it with an explicit amount of 0.01), then unlink it (unlink_bill_from_purchase_order) if it is not billing this order`;
+  }
+  return null;
+}
+
 /** The refusal text for a PO whose lines / status must not move while a receipt or bill link stands, or null. */
 export async function receiptOrLinkRefusal(companyId: string, poId: string, what: string): Promise<string | null> {
   if (await poHasReceipts(companyId, poId)) return `${RECEIPT_REFUSAL}, so ${what}; unlink or cancel the receipt first`;
-  const tie = await poBillTie(companyId, poId);
-  if (tie === 'linked') return `${LINKS_REFUSAL}, so ${what}; unlink them first (unlink_bill_from_purchase_order)`;
-  if (tie === 'header') return `A bill names this purchase order in its header but is not linked to it, so ${what}; link it first (link_bills_to_purchase_order), then unlink it if it is not billing this order, or clear the bill's purchase order`;
-  return null;
+  return billTieText(await poBillTie(companyId, poId), what);
 }
 
 export interface LockedPo { poNumber: string; status: string; externalRef: string | null; orderMonth: string }
