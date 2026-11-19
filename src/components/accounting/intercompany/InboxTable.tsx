@@ -36,9 +36,9 @@ export function InboxTable({ items, canWrite, busyId, onReview, onReject, onDism
       <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
         <tr>
           {['From', 'Type', 'Number', 'Date', 'Total', 'Status'].map((h, i) => (
-            <th key={h} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 4 ? 'text-right' : 'text-left'}`}>{h}</th>
+            <th key={h} className={`px-5 py-3 text-xs font-semibold text-ink-muted uppercase tracking-wider ${i === 4 ? 'text-right' : 'text-left'}`}>{h}</th>
           ))}
-          <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Actions</th>
+          <th className="px-5 py-3 text-right text-xs font-semibold text-ink-muted uppercase tracking-wider">Actions</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -51,7 +51,7 @@ export function InboxTable({ items, canWrite, busyId, onReview, onReject, onDism
               <td data-label="From" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{i.senderName}</td>
               <td data-label="Type" className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{KIND[i.kind]}</td>
               <td data-label="Number" className="px-5 py-3.5 tabular-nums text-amber-500 font-semibold">{i.number}</td>
-              <td data-label="Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{formatDate(i.date)}</td>
+              <td data-label="Date" className="px-5 py-3.5 text-ink-muted text-xs whitespace-nowrap">{formatDate(i.date)}</td>
               <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
                 {i.total === null ? '—' : formatCurrency(i.kind === 'credit_note' ? -i.total : i.total)}
               </td>
