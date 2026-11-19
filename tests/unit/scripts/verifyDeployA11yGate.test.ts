@@ -55,6 +55,7 @@ const DEV_ONLY_SPECS = [
   'z20-comments',
   'z21-ask',
   'z24-payslip-email',
+  'z25-employee-portal',
   'z26-salary-bank-file',
   'z27-filing-files',
   'z28-late-claims',
