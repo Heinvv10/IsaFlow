@@ -66,6 +66,8 @@ function compact(inv: SupplierInvoice, purchaseOrderIds: readonly string[] = [])
     has_document: inv.hasDocument === true,
     // The purchase orders the bill is linked to (link_bills_to_purchase_order; the app's bill create), oldest link first.
     purchase_order_ids: [...purchaseOrderIds],
+    // The PO the bill's HEADER names (purchase_order_id), which may have no link row: unlink_bill_from_purchase_order clears it.
+    purchase_order_id: inv.purchaseOrderId ?? null,
   };
 }
 

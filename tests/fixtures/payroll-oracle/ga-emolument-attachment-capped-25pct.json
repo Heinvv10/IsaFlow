@@ -1,8 +1,8 @@
 {
   "id": "ga-emolument-attachment-capped-25pct",
   "source": "UNVERIFIED",
-  "sourceRef": "Magistrates' Courts Act 32 of 1944 s65J(2)(b), as amended by Act 7 of 2017",
-  "notes": "Basic salary R20 000; an emolument attachment order for R6 000 a month. The instalments may not exceed 25% of basic salary = 5 000 (s65J(2)(b)). PAYE unchanged 2 115.00 (a garnishee is not a deduction for tax); net 20 000 - 2 115 - 177.12 - 5 000 = 12 707.88. UNVERIFIED: the Act text was not read.",
+  "sourceRef": "Magistrates' Courts Act 32 of 1944 s65J(1A)(a)-(b), as substituted by s9 of Act 7 of 2017 (wef 1 August 2018); Juta consolidation on justice.gov.za, read 2026-11-17",
+  "notes": "Basic salary R20 000; an emolument attachment order for R6 000 a month. The instalments may not exceed 25% of basic salary = 5 000 (s65J(1A)(a); basic salary = annual gross salary / 12, no overtime or allowances, s65J(1A)(b)). PAYE unchanged 2 115.00 (a garnishee is not a deduction for tax); net 20 000 - 2 115 - 177.12 - 5 000 = 12 707.88. UNVERIFIED as an oracle source (a statute, read by GA 2026-11-17, not a SARS guide or vendor figure).",
   "input": {
     "period": {
       "year": 2026,

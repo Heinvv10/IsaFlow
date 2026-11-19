@@ -13,7 +13,12 @@ import { dimensionWarningsOrRefusal, resolveLineDimensionRefs } from './dimensio
 import type { ParsedPo } from './purchaseOrderImportArgs';
 import { NOT_FOUND } from './toolHelpers';
 
-export interface Prepared { items: ImportPo[]; warnings: string[] }
+export interface Prepared {
+  items: ImportPo[];
+  warnings: string[];
+  /** The same warnings, per batch element (its `index`). */
+  warningsByIndex: Map<number, string[]>;
+}
 
 export async function preparePurchaseOrders(companyId: string, batch: readonly ParsedPo[]): Promise<Prepared | string> {
   for (const supplierId of new Set(batch.map((p) => p.supplierId))) {
@@ -30,6 +35,7 @@ export async function preparePurchaseOrders(companyId: string, batch: readonly P
 
   const items: ImportPo[] = [];
   const warnings: string[] = [];
+  const warningsByIndex = new Map<number, string[]>();
   for (const p of batch) {
     const label = (i: number) => `purchase_orders[${p.index}].lines[${i}]`;
     const dims = await resolveLineDimensionRefs(companyId, p.lines.map((l) => l.dims), label);
@@ -42,10 +48,11 @@ export async function preparePurchaseOrders(companyId: string, batch: readonly P
     const cos = await dimensionWarningsOrRefusal(companyId, lines, label);
     if (typeof cos === 'string') return cos;
     warnings.push(...cos.warnings);
+    if (cos.warnings.length > 0) warningsByIndex.set(p.index, cos.warnings);
     items.push({
       index: p.index, poNumber: p.poNumber, supplierId: p.supplierId, orderDate: p.orderDate, deliveryDate: p.deliveryDate,
       reference: p.reference, notes: p.notes, status: p.status, ref: p.ref, totals: p.totals, lines,
     });
   }
-  return { items, warnings };
+  return { items, warnings, warningsByIndex };
 }

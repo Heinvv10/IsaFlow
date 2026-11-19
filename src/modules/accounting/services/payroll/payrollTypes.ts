@@ -3,6 +3,7 @@ import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
 import type { RegularPayDirectiveType } from './taxDirectiveKinds';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
+import type { GarnisheeDeduction, GarnisheeOrderInput } from './payrollGarnishee';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
@@ -188,6 +189,8 @@ export interface PayrollLineInput {
   regularPayDirective?: RegularPayDirectiveState;
   /** An off-cycle run's line (OC): the month's earlier final lines, for the month's UIF cap and ETI (payrollOffCycleMonth). */
   monthEarlier?: MonthEarlierLines;
+  /** The employee's garnishee orders for the period (payrollGarnisheeRun; GA); absent = none. Taken from net pay last. */
+  garnisheeOrders?: GarnisheeOrderInput[];
   /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
   cadence?: LineCadence;
 }
@@ -282,7 +285,10 @@ export interface PayrollLineResult {
   donationBase: number;
   donationDeduction: number;
   eti: EtiResult;
+  /** After any garnishee deductions (GA), never below nil. */
   netPay: number;
+  /** The garnishee deductions taken from net pay (payrollGarnishee); stored in payroll_garnishee_deductions. */
+  garnishees: GarnisheeDeduction[];
   componentBreakdown: ComponentBreakdownItem[];
   validationResults: ValidationResult[];
   /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */

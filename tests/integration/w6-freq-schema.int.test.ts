@@ -248,19 +248,40 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     }
   });
 
-  it('an active garnishee order is refused for costing; a cancelled one is not; a deduction on the run refuses reopen', async () => {
+  it('GA lifted the garnishee clauses: a run whose employee has an active order, carrying a deduction, is refused nothing', async () => {
+    // 999z's real tables (GA). The order's own guard trigger needs a session user and a payable: seeded as the owner.
     await inRolledBackTx(async (c) => {
-      await c.query('CREATE TABLE payroll_garnishee_orders (id uuid DEFAULT gen_random_uuid(), company_id uuid, employee_id uuid, status text)');
-      await c.query('CREATE TABLE payroll_garnishee_deductions (id uuid DEFAULT gen_random_uuid(), run_id uuid, order_id uuid)');
-      await c.query("INSERT INTO payroll_garnishee_orders (company_id, employee_id, status) VALUES ($1, $2, 'cancelled')", [A, monthlyEmp]);
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2189', 'GA lift', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      const order = (await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC1', 'Cred', 100, '2020-01-01', $3, 'x') RETURNING id`,
+      [A, monthlyEmp, acct])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_deductions (company_id, run_id, order_id, employee_id, requested, amount)
+        VALUES ($1, $2, $3, $4, 100, 100)`, [A, runId, order, monthlyEmp]);
     }, async () => {
-      expect(await refusal('approve')).toBeNull();
-      const client = als.getStore()!.client as PoolClient;
-      await client.query("INSERT INTO payroll_garnishee_orders (company_id, employee_id, status) VALUES ($1, $2, 'active')", [A, monthlyEmp]);
-      expect(clauses(await refusal('approve'))).toEqual(['garnishee_order']);
-      expect(await refusal('reopen')).toBeNull();
-      await client.query('INSERT INTO payroll_garnishee_deductions (run_id) VALUES ($1)', [runId]);
-      expect(clauses(await refusal('reopen'))).toEqual(['garnishee_deduction']);
+      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
     });
+  });
+
+  it('garnishee_frequency (rev #1574): a weekly run with an employee whose order is in force is refused costing, until pro-rating', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2188', 'GA freq', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC2', 'Cred', 100, '2020-01-01', $3, 'x')`,
+      [A, monthlyEmp, acct]);
+      await c.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+    }, async () => {
+      for (const action of ['calculate', 'approve', 'post'] as const) {
+        expect(clauses(await refusal(action)), action).toContain('garnishee_frequency');
+      }
+      for (const action of ['reopen', 'payslip'] as const) {
+        expect(clauses(await refusal(action)), action).not.toContain('garnishee_frequency');
+      }
+    });
+    // The same order on the monthly run: no garnishee clause (the run is the monthly one again outside the rolled-back tx).
+    expect(clauses(await refusal('calculate'))).not.toContain('garnishee_frequency');
   });
 });
