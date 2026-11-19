@@ -22,7 +22,8 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const A = crypto.randomUUID();
 const B = crypto.randomUUID();
-const C = crypto.randomUUID(); // a weekly run (FQa's guard, grill F4)
+const C = crypto.randomUUID(); // an off-cycle run (FQa's guard, grill F4; weekly lifted by FQd)
+const D = crypto.randomUUID(); // a weekly run of a weekly employee (declared since wave 6 FQd)
 const USER = crypto.randomUUID();
 const emp: Record<string, string> = {};
 const run: Record<string, string> = {};
@@ -58,7 +59,7 @@ async function seedRun(company: string, month: number, status: string, stamp: st
 }
 
 beforeAll(async () => {
-  for (const [id, name] of [[A, 'EF company A'], [B, 'EF company B'], [C, 'EF company C']]) {
+  for (const [id, name] of [[A, 'EF company A'], [B, 'EF company B'], [C, 'EF company C'], [D, 'EF company D']]) {
     await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [id, name]);
   }
   emp.a1 = await employee(A, 'EF-A1');
@@ -87,16 +88,23 @@ beforeAll(async () => {
   run.c = await seedRun(C, 9, 'approved', STAMPED, [
     { employee: emp.c1, gross: 50_000, paye: 9_000, uifEmployee: 177.12, uifEmployer: 177.12, sdl: 500 },
   ]);
-  await pool.query(`UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1`, [run.c]);
+  await pool.query(`UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1`, [run.c]);
+  emp.d1 = await employee(D, 'EF-D1');
+  await pool.query(`UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE id = $1`, [emp.d1]);
+  run.d = await seedRun(D, 9, 'approved', STAMPED, [
+    { employee: emp.d1, gross: 5_000, paye: 400, uifEmployee: 50, uifEmployer: 50, sdl: 50 },
+  ]);
+  await pool.query(`UPDATE payroll_run_headers SET pay_frequency = 'weekly', period_start = '2028-09-04', period_end = '2028-09-10',
+    run_date = '2028-09-08' WHERE id = $1`, [run.d]);
 }, 120_000);
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM uif_declarations WHERE company_id = ANY($1::uuid[])', [[A, B, C]]);
+    await pool.query('DELETE FROM uif_declarations WHERE company_id = ANY($1::uuid[])', [[A, B, C, D]]);
     await pool.query('DELETE FROM payroll_run_lines WHERE run_id = ANY($1::uuid[])', [Object.values(run)]);
-    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [[A, B, C]]);
-    await pool.query('DELETE FROM payroll_employees WHERE company_id = ANY($1::uuid[])', [[A, B, C]]);
-    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B, C]]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [[A, B, C, D]]);
+    await pool.query('DELETE FROM payroll_employees WHERE company_id = ANY($1::uuid[])', [[A, B, C, D]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B, C, D]]);
   } finally {
     await pool.end();
   }
@@ -192,13 +200,18 @@ describe('UI-19: runs by finality', () => {
 });
 
 describe('the run-kind guard (wave 6 FQa, called by the EMP201 and the IRP5)', () => {
-  it('a final weekly run is refused by name on both, never summed as a monthly one', async () => {
+  it('a final off-cycle run is refused by name on both, never summed as a regular one', async () => {
     const e = await generateEMP201(C, '2028-09-01', '2028-09-30').catch((x: unknown) => x);
     expect(e).toBeInstanceOf(RunKindUnsupportedError);
     expect((e as RunKindUnsupportedError).action).toBe('emp201');
     const i = await getIrp5EmployeeTotals(C, TAX_YEAR).catch((x: unknown) => x);
     expect(i).toBeInstanceOf(RunKindUnsupportedError);
     expect((i as RunKindUnsupportedError).action).toBe('irp5');
+  });
+  it('a final weekly run of a weekly employee is declared since FQd lifted the frequency clause', async () => {
+    const e = await generateEMP201(D, '2028-09-01', '2028-09-30');
+    expect([e.payrollRuns.map((r) => r.id), e.totalPAYE, e.totalUIF]).toEqual([[run.d], 400, 100]);
+    await expect(getIrp5EmployeeTotals(D, TAX_YEAR)).resolves.toBeTruthy();
   });
   it('company A (monthly runs only) is not refused', async () => {
     await expect(generateEMP201(A, '2028-09-01', '2028-11-30')).resolves.toBeTruthy();

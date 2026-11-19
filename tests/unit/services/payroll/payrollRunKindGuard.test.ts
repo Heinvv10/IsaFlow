@@ -26,9 +26,13 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({})).toEqual([]);
   });
 
-  it('refuses a weekly or fortnightly run, and an off-cycle run, for every action', () => {
-    expect(refusedBy({ pay_frequency: 'weekly' })).toEqual(ALL);
-    expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual(ALL);
+  it('passes a weekly or fortnightly regular run (wave 6 FQd lifts the clause); refuses an unknown frequency and an off-cycle run, for every action', () => {
+    expect(refusedBy({ pay_frequency: 'weekly' })).toEqual([]);
+    expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual([]);
+    expect(refusedBy({ pay_frequency: 'daily' })).toEqual(ALL);
+    expect(refusedBy({ pay_frequency: null })).toEqual(ALL);
+    expect(judgeRunKind({ ...OK, pay_frequency: 'daily' }, 'approve')[0]!.detail).toContain('a daily run');
+    expect(refusedBy({ pay_frequency: 'weekly', run_kind: 'off_cycle' })).toEqual(ALL);
     expect(refusedBy({ run_kind: 'off_cycle' })).toEqual(ALL);
     expect(judgeRunKind({ ...OK, run_kind: 'off_cycle' }, 'reopen')[0]!.detail).toContain('off-cycle run');
   });
@@ -46,13 +50,19 @@ describe('judgeRunKind: the clause matrix', () => {
     expect(refusedBy({ other_frequency: ['E1'] })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
   });
 
+  it('judges the frequency as at a FINAL run: only approve and post meet the current employee (wave 6 FQd)', () => {
+    // An employee moved to weekly at a tax-year start keeps last year's payslips, EMP201 and IRP5.
+    expect(refusedBy({ other_frequency: ['E1'], final: true })).toEqual(['approve', 'post']);
+    expect(refusedBy({ other_frequency: ['E1'], final: false })).toEqual(ALL.filter((a) => a !== 'calculate' && a !== 'reopen'));
+  });
+
   it('refuses odd assignments and active garnishee orders only where the run is costed', () => {
     expect(refusedBy({ odd_assignments: ['E1'] })).toEqual(['calculate', 'approve', 'post']);
     expect(refusedBy({ garnishee_orders: 2 })).toEqual(['calculate', 'approve', 'post']);
   });
 
   it('reports every clause that holds, in order', () => {
-    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly', run_kind: 'off_cycle', odd_assignments: ['E1'] }, 'approve')
+    expect(judgeRunKind({ ...OK, pay_frequency: 'daily', run_kind: 'off_cycle', odd_assignments: ['E1'] }, 'approve')
       .map((r) => r.clause)).toEqual(['frequency', 'run_kind', 'assignment']);
   });
 });

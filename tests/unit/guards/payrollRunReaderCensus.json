@@ -17,6 +17,7 @@
    "SELECT h.*, ${runOrderKeySql('h')} AS run_key, to_char(h.period_start, 'YYYY-MM-DD') AS label,"
   ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
+   "ORDER BY ${runOrderKeySql('h')} DESC",
    "ORDER BY ${runOrderKeySql('h')} DESC"
   ],
   "src/modules/accounting/services/payroll/payrollRunQueryService.ts": [
@@ -346,8 +347,18 @@
    {"line":100,"text":"FROM payroll_run_directive_uses","class":"S","owner":"FQb1","why":"uses after a date; months are labels"},
    {"line":124,"text":"FROM payroll_run_directive_uses u","class":"S","owner":"FQb1","why":"uses of one employee"}
   ],
+  "src/modules/accounting/services/payroll/payrollPayWeekSettings.ts": [
+   {"line":53,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQd: any final weekly/fortnightly regular run paid this tax year: the pay-week lock"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunCreatePeriod.ts": [
+   {"line":33,"text":"SELECT period_start, period_end FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQd: any regular run of the frequency whose dates overlap the new period (duplicate / overlap refusal)"},
+   {"line":68,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQd: a weekly/fortnightly regular run keyed by its period dates"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunDelete.ts": [
+   {"line":41,"text":"DELETE FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'","class":"S","owner":"FQb1","why":"FQd: one draft run by id, never calculated or approved"}
+  ],
   "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
-   {"line":65,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"list of runs"},
+   {"line":65,"text":"SELECT * FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQd: list of runs, in pay order (runOrderKeySql) since FQd: several weekly runs a month"},
    {"line":76,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): latestPayrollRun, the latest in pay order (period context, was ORDER BY month LIMIT 1 in the route)"},
    {"line":119,"text":"INSERT INTO payroll_run_headers (","class":"S","owner":"FQb1","why":"FQb1 converted (R): ON CONFLICT on the 999a regular-period key, not the per-month unique FQx drops"},
    {"line":145,"text":"SELECT * FROM payroll_run_headers","class":"S","owner":"FQb1","why":"by run id"}

@@ -27,7 +27,7 @@ export interface PayrollRunSummary {
   employeeCount: number;
   /** The GL entry posted at approval, still set after reopenPayrollRun. */
   journalEntryId: string | null;
-  /** Migration 999a. This release creates and costs only monthly regular runs (payrollRunKindGuard). */
+  /** Migration 999a. This release creates and costs regular runs: monthly, weekly and fortnightly (payrollRunKindGuard). */
   /** 'unsupported': a value a later release added; the run lists, and the guard refuses to act on it. */
   payFrequency: PayFrequency | UnsupportedValue;
   runKind: RunKind | UnsupportedValue;
@@ -62,9 +62,9 @@ export function mapRunRow(r: Row): PayrollRunSummary {
 
 export async function listPayrollRuns(companyId: string): Promise<PayrollRunSummary[]> {
   const rows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE company_id = ${companyId}::uuid
-    ORDER BY period_year DESC, period_month DESC
+    SELECT * FROM payroll_run_headers h
+    WHERE h.company_id = ${companyId}::uuid
+    ORDER BY ${runOrderKeySql('h')} DESC
   `) as Row[];
   return rows.map(mapRunRow);
 }
@@ -85,8 +85,8 @@ export async function latestPayrollRun(companyId: string): Promise<{ id: string;
 export class PayrollRunDuplicateError extends Error {
   readonly month: number;
   readonly year: number;
-  constructor(month: number, year: number) {
-    super(`A payroll run for ${month}/${year} already exists.`);
+  constructor(month: number, year: number, message = `A payroll run for ${month}/${year} already exists.`) {
+    super(message);
     this.name = 'PayrollRunDuplicateError';
     this.month = month;
     this.year = year;

@@ -1,7 +1,7 @@
 /**
  * The forward-compat guard (wave 6 FQa, grill F3/F4/F8/F28). This release costs, approves, posts, reopens and prints
- * only MONTHLY REGULAR runs of employees whose tax status and assignments it knows. Later wave-6 releases add weekly
- * and fortnightly runs, off-cycle runs, personal service providers, defined-benefit factors, overtime multipliers,
+ * only REGULAR runs (monthly; weekly and fortnightly since FQd) of employees whose tax status and assignments it
+ * knows. Later wave-6 releases add off-cycle runs, personal service providers, defined-benefit factors, overtime multipliers,
  * travel km and garnishee orders. If production is rolled back to this release (code only, never migrations), this
  * guard is what stops it costing those rows as if they were ordinary: it refuses, naming why, before any write.
  *
@@ -18,14 +18,18 @@
  *   counts unless its status is cancelled, completed, satisfied, withdrawn or ended; a missing key counts (fails closed).
  *   A deduction counts for this company's run (or, with no run_id key, any of this company's: fails closed).
  *
- * KNOWN LIMIT (wave 6 EF review): `tax_status` and the employee-frequency clause are judged on the employee's CURRENT
- * row, not as at the run. An employee moved to weekly after a monthly run makes that old run refuse (fails closed), and
- * one moved back passes. The FQb/FQd weekly PR must judge the frequency (and the tax status) as at the run.
+ * KNOWN LIMIT (wave 6 EF review): `tax_status` is judged on the employee's CURRENT row, not as at the run. The
+ * employee-frequency clause is judged as at the run since FQd: on a FINAL run only by approve and post (approval
+ * proved every line's employee was paid at the run's frequency), on any other run against the current row.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
+import { payRunFinalSql } from './payRunFinalSql';
 
 export type RunKindAction = 'calculate' | 'approve' | 'post' | 'reopen' | 'payslip' | 'emp201' | 'irp5' | 'bank_file';
+
+/** The pay frequencies this release costs (wave 6 FQd added weekly and fortnightly). */
+export const SUPPORTED_FREQUENCIES = ['monthly', 'weekly', 'fortnightly'] as const;
 
 /** The tax statuses this release costs (migration 967; PSP adds personal_service_provider). */
 export const KNOWN_TAX_STATUSES = ['employee', 'director', 'independent_contractor'] as const;
@@ -76,7 +80,7 @@ export async function assertRunKindSupported(
   const leavers = action === 'calculate';
   const rows = (await db`
     WITH run AS (
-      SELECT h.id, h.company_id, h.pay_frequency, h.run_kind, h.period_start, h.period_end
+      SELECT h.id, h.company_id, h.pay_frequency, h.run_kind, h.period_start, h.period_end, ${sql.unsafe(payRunFinalSql('h'))} AS final
         FROM payroll_run_headers h
        WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     ), line_people AS (
@@ -91,7 +95,7 @@ export async function assertRunKindSupported(
                  WHERE d.company_id = e.company_id AND d.employee_id = e.id
                    AND d.directive_type = 'severance' AND d.status = 'approved'))
     )
-    SELECT r.pay_frequency, r.run_kind,
+    SELECT r.pay_frequency, r.run_kind, r.final,
       (SELECT array_agg(p.employee_number ORDER BY p.employee_number) FROM people p
         WHERE p.tax_status IS NULL OR p.tax_status <> ALL(${[...KNOWN_TAX_STATUSES]}::text[])) AS unknown_status,
       (SELECT array_agg(p.employee_number ORDER BY p.employee_number) FROM people p
@@ -130,8 +134,9 @@ export async function assertRunKindSupported(
 /** The reasons, from the guard's one row. Exported for the unit tests of each clause's wording and action set. */
 export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[] {
   const reasons: RunKindReason[] = [];
-  if (row.pay_frequency !== 'monthly') {
-    reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly runs are supported` });
+  // Wave 6 FQd lifts the clause for weekly and fortnightly regular runs; any other frequency still fails closed.
+  if (!(SUPPORTED_FREQUENCIES as readonly unknown[]).includes(row.pay_frequency)) {
+    reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly, weekly and fortnightly runs are supported` });
   }
   if (row.run_kind !== 'regular') {
     const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
@@ -143,7 +148,11 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   if (action !== 'reopen' && names(row.unknown_status)) {
     reasons.push({ clause: 'tax_status', detail: `employees ${names(row.unknown_status)} have a tax status this version does not know` });
   }
-  if (action !== 'reopen' && action !== 'calculate' && names(row.other_frequency)) {
+  // As at the run (wave 6 FQd): approving judged each line's employee against the run's frequency, so a FINAL run's
+  // lines were paid at it; a later change of the employee (allowed only at a tax-year start) does not refuse its payslip,
+  // EMP201 or IRP5. Approve and post judge the current employees, as does every action on a run not yet final.
+  const judgesFrequency = action === 'approve' || action === 'post' || row.final !== true;
+  if (action !== 'reopen' && action !== 'calculate' && judgesFrequency && names(row.other_frequency)) {
     reasons.push({ clause: 'employee_frequency', detail: `employees ${names(row.other_frequency)} are not paid at the run's frequency` });
   }
   if (COSTING.has(action) && names(row.odd_assignments)) {
