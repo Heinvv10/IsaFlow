@@ -5,6 +5,7 @@
  * EMP201 PAYE = sum of paye from payroll_run_headers (declared).
  * IRP5 PAYE  = sum of paye from payroll_run_lines (calculated per employee).
  */
+import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -60,6 +61,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED)
   // The same runs as the EMP201 report and the IRP5/EMP501 exports this reconciles: FINAL runs only
   // (payRunFinalSql: approved or paid with an approval time; wave 6 EF). One left out is named in runWarnings.
 

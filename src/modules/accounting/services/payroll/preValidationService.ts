@@ -12,6 +12,7 @@
  * carries the company; another company's employee or run is null (404 at the route). What is judged comes from the
  * final lines themselves (`preValidationReads.ts`): totals, the SARS codes paid, the non-cash fringe benefits.
  */
+import { assertCertificateYearMonthlyOnly } from './payrollCertificateFrequency';
 import { sql } from '@/lib/neon';
 import { currentPayeTaxYear } from '@/modules/accounting/utils/payeTaxYearToday';
 import { payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
@@ -91,6 +92,7 @@ async function resolveTaxYear(companyId: string, scope: PreValidationScope): Pro
 export async function preValidateTaxYear(companyId: string, scope: PreValidationScope): Promise<PreValidationResult | null> {
   const taxYear = await resolveTaxYear(companyId, scope);
   if (taxYear === null) return null;
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // IRP5 pre-validation: monthly-only certificates this wave
   const codeReleaseLoaded = (await listSarsCodes(taxYear)).length > 0;
   const rows = await loadFinalLineTotals(companyId, taxYear, scope.employeeId ?? null, scope.runId ?? null);
   const severance = await loadSeveranceDirectives(companyId, taxYear, rows.map((r) => r.employee_id));

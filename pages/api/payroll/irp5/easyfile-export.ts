@@ -10,6 +10,7 @@
  * Returns 422 with an explanation when the company is missing the
  * payroll-tax registration fields required by SARS.
  */
+import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -59,6 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED)
   const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
   // FINAL runs only (payRunFinalSql, in loadCertificateAggregates and every reader below): a calculated, cancelled or
   // unstamped run declared here would over-state remuneration to SARS (wave 6 EF).

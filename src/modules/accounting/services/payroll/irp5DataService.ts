@@ -24,6 +24,7 @@
  * The SA tax year runs 1 March (taxYear − 1) to 28/29 February (taxYear).
  */
 
+import { assertCertificateYearMonthlyOnly } from './payrollCertificateFrequency';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
@@ -62,6 +63,7 @@ export async function getIrp5EmployeeTotals(
   taxYear: number,
   opts: { revealIdentityNumbers?: boolean; employeeId?: string } = {},
 ): Promise<Irp5Dataset> {
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (#1622 M-D)
   const { start, end } = saTaxYearBounds(taxYear);
   const reveal = opts.revealIdentityNumbers === true;
   const employeeId = opts.employeeId ?? null;

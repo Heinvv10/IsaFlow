@@ -1,6 +1,7 @@
 /**
  * EMP501 Bi-Annual Reconciliation API
  */
+import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -16,6 +17,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const parsedTaxYear = Number(req.query.taxYear);
   const taxYear = parsedTaxYear >= 2000 && parsedTaxYear <= 2100 ? parsedTaxYear : new Date().getFullYear();
+  await assertCertificateYearMonthlyOnly(companyId, taxYear); // monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED)
 
   // Get monthly totals from payroll runs
   const rows = await sql`
