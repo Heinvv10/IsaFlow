@@ -162,13 +162,25 @@ describe('purchase order, payment batch and approval request (Suppliers & AP)', 
       expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(200);
     });
 
-  it('fails closed: an unknown type, or a legacy credit_note whose note this company does not have, is refused', async () => {
+  it('fails closed: an unknown type is refused, and so is a legacy credit_note of an unknown note type', async () => {
     member('owner');
     requestDocType = 'something_new';
     expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
-    requestDocType = 'credit_note'; noteType = 'gone';
+    requestDocType = 'credit_note'; noteType = 'unknown';
     expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
     expect(decideRequest).not.toHaveBeenCalled();
+  });
+
+  it("a legacy credit_note whose note is gone is left to the decide path, which answers 404 (r035-approval-contract L2)", async () => {
+    member('manager', 'customers', false);
+    requestDocType = 'credit_note'; noteType = '';
+    vi.mocked(sql).mockImplementation(permissionSql(db, (text) => {
+      if (text.includes('FROM approval_requests')) return [{ document_type: 'credit_note', document_id: ID }];
+      return []; // no credit_notes row
+    }) as never);
+    await call(approvalRequests, { action: 'approve', requestId: ID });
+    expect(decideRequest).toHaveBeenCalledTimes(1);
+    expect(db.reads).toEqual([]);
   });
 
   it('the listed ungated legacy types (payment, journal_entry) are decided without a module Approve', async () => {

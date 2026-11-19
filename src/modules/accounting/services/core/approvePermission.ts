@@ -80,11 +80,12 @@ export async function assertMayApproveCreditNote(companyId: string, userId: stri
 /**
  * The Approve an approval request's decision takes: the document type's module, a legacy
  * `credit_note` resolved by the note's own type, 'ungated' for UNGATED_APPROVAL_TYPES, and null
- * (refuse) for anything else, including a credit note this company does not have.
+ * (refuse) for any other type. A legacy credit note this company no longer has is 'missing': there
+ * is nothing to approve, and the decide path answers it 404 before any write (R-035 contract L2).
  */
 export async function approveModuleForRequest(
   companyId: string, documentType: string, documentId: string,
-): Promise<ApproveModule | 'ungated' | null> {
+): Promise<ApproveModule | 'ungated' | 'missing' | null> {
   if (Object.hasOwn(APPROVE_MODULE_BY_DOCUMENT, documentType)) return APPROVE_MODULE_BY_DOCUMENT[documentType]!;
   if (Object.hasOwn(UNGATED_APPROVAL_TYPES, documentType)) return 'ungated';
   if (documentType !== 'credit_note') return null;
@@ -92,6 +93,7 @@ export async function approveModuleForRequest(
     SELECT type FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   ` as Array<{ type: string }>;
   const type = rows[0]?.type;
+  if (type === undefined) return 'missing';
   return type === 'customer' ? 'customers' : type === 'supplier' ? 'suppliers' : null;
 }
 
