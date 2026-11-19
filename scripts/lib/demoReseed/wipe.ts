@@ -4,6 +4,7 @@
  * DELETE of a step can never disagree.
  */
 
+import { Refusal } from './cli';
 import type { Tx } from './db';
 import {
   BALANCE_CACHE_STEP, CASCADE_WITH, INVOICE_PAYMENT_REQUEST_TABLES, QA_MAILBOX_NAME, WIPE_STEPS, countSql, crossTenantSql, deleteSql, invoiceRequestWhere, isKept,
@@ -111,16 +112,27 @@ export async function intercompanyCount(tx: Tx, companyId: string): Promise<numb
  * so the census cannot see them; the wipe would leave them dangling or take a partner's side with it. Not handled: the run refuses.
  */
 export async function intercompanyRelationRows(tx: Tx, companyId: string): Promise<TableCount[]> {
-  const [r] = await tx.query<{ connections: number; messages: number; links: number }>(`
-    SELECT (SELECT count(*)::int FROM intercompany_connections
-             WHERE company_low_id = $1::uuid OR company_high_id = $1::uuid OR invited_by_company_id = $1::uuid) AS connections,
-           (SELECT count(*)::int FROM intercompany_messages WHERE from_company_id = $1::uuid OR to_company_id = $1::uuid) AS messages,
-           (SELECT count(*)::int FROM intercompany_document_links WHERE company_a_id = $1::uuid OR company_b_id = $1::uuid) AS links`, [companyId]);
-  return [
-    { table: 'intercompany_connections', n: r?.connections ?? 0 },
-    { table: 'intercompany_messages', n: r?.messages ?? 0 },
-    { table: 'intercompany_document_links', n: r?.links ?? 0 },
-  ].filter((t) => t.n > 0);
+  // (invited_by_company_id is not read: a CHECK makes it one of the pair, so the pair columns already name it.)
+  const reads: Array<[string, string]> = [
+    ['intercompany_connections', 'company_low_id = $1::uuid OR company_high_id = $1::uuid'],
+    ['intercompany_messages', 'from_company_id = $1::uuid OR to_company_id = $1::uuid'],
+    ['intercompany_document_links', 'company_a_id = $1::uuid OR company_b_id = $1::uuid'],
+  ];
+  const out: TableCount[] = [];
+  for (const [table, where] of reads) {
+    try {
+      const [r] = await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`, [companyId]);
+      if ((r?.n ?? 0) > 0) out.push({ table, n: r!.n });
+    } catch (err) {
+      // A role that cannot read the table, or a database from before migration 1000: a clean refusal that names it, not a raw driver error.
+      const code = (err as { code?: string }).code;
+      if (code === '42501' || code === '42P01') {
+        throw new Refusal(`cannot check ${table} for the Demo company (${code === '42501' ? 'this role cannot read it' : 'the table does not exist: migration 1000 is not applied'}); resolve before reseeding`);
+      }
+      throw err;
+    }
+  }
+  return out;
 }
 
 export async function runWipe(tx: Tx, companyId: string): Promise<TableCount[]> {

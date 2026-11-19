@@ -88,6 +88,30 @@ describe('a connection, message or link that names the Demo company refuses the 
     });
   });
 
+  it('a message sent BY Demo (OTHER receives it)', async () => {
+    await inSavepoint(async () => {
+      const id = await connectionAway();
+      await c.query('ALTER TABLE intercompany_messages DISABLE TRIGGER trg_intercompany_messages_guard');
+      await c.query(`INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
+                     VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')`, [id, DEMO, OTHER]);
+      const r = await dryRun();
+      expect(r.exitCode).toBe(2);
+      expect(r.text).toMatch(/intercompany_messages \(1\)/);
+    });
+  });
+
+  it('a link naming Demo as company B (the high side of the link)', async () => {
+    await inSavepoint(async () => {
+      const id = await connectionAway();
+      await c.query('ALTER TABLE intercompany_document_links DISABLE TRIGGER trg_intercompany_links_guard');
+      await c.query(`INSERT INTO intercompany_document_links(connection_id, company_a_id, doc_a_type, doc_a_id, company_b_id, doc_b_type, doc_b_id, origin, status, created_by)
+                     VALUES ($1, $2, 'customer_invoice', gen_random_uuid(), $3, 'supplier_invoice', gen_random_uuid(), 'manual_pairing', 'pending_confirmation', 'reseed-test')`, [id, THIRD, DEMO]);
+      const r = await dryRun();
+      expect(r.exitCode).toBe(2);
+      expect(r.text).toMatch(/intercompany_document_links \(1\)/);
+    });
+  });
+
   it('a link naming Demo (a connection between two other companies)', async () => {
     await inSavepoint(async () => {
       const id = await connectionAway();
@@ -105,6 +129,8 @@ describe('a connection, message or link that names the Demo company refuses the 
       await connectionAway();
       const r = await dryRun();
       expect(r.text).not.toMatch(/intercompany rows name the Demo company/);
+      expect(r.exitCode).toBe(0);                                                // the run proceeds: the guard did not refuse
+      await expect(refuseUnsafe(txOver(c), DEMO, () => undefined)).resolves.toBeUndefined();
     });
   });
 });
@@ -139,5 +165,45 @@ describe('a reseed role that cannot read the closed intercompany tables (it neve
   it('a role that CAN read them (a superuser, or an inheriting runner) still counts them: the kept lock rows are reported', async () => {
     const kept = await keptReport(txOver(c), DEMO);
     expect(kept.map((k) => k.table)).toContain('intercompany_company_locks');
+  });
+});
+
+describe('a clean refusal when the guard cannot read the intercompany tables', () => {
+  it.each(['intercompany_connections', 'intercompany_messages', 'intercompany_document_links'])('a role with no SELECT on %s: Refusal naming it (exit 2), not a raw 42501', async (table) => {
+    await inSavepoint(async () => {
+      await c.query('CREATE ROLE ic_reseed_nogrant NOLOGIN NOSUPERUSER BYPASSRLS');
+      await c.query('GRANT USAGE ON SCHEMA public TO ic_reseed_nogrant');
+      const tables = (await c.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> $1`, [table])).rows.map((r) => r.tablename as string);
+      for (const t of tables) await c.query(`GRANT SELECT ON public.${t} TO ic_reseed_nogrant`);
+      await c.query('GRANT ic_reseed_nogrant TO CURRENT_USER');
+      await c.query('SET LOCAL ROLE ic_reseed_nogrant');
+      try {
+        await expect(refuseUnsafe(txOver(c), DEMO, () => undefined)).rejects.toMatchObject({
+          name: 'Refusal', message: expect.stringContaining(`cannot check ${table} for the Demo company (this role cannot read it)`),
+        });
+      } finally {
+        await c.query('ROLLBACK TO SAVEPOINT probe');      // the refused read aborted the transaction (as a real run's rollback does)
+        await c.query('SAVEPOINT probe');
+        await c.query('RESET ROLE');
+      }
+    });
+  });
+
+  it('a database from before migration 1000 (the table is missing): Refusal naming it', async () => {
+    await inSavepoint(async () => {
+      await c.query('ALTER TABLE intercompany_messages RENAME TO intercompany_messages_gone');
+      await expect(refuseUnsafe(txOver(c), DEMO, () => undefined)).rejects.toMatchObject({
+        name: 'Refusal', message: expect.stringMatching(/cannot check intercompany_messages for the Demo company \(the table does not exist: migration 1000 is not applied\)/),
+      });
+    });
+  });
+
+  it('through the whole run: exit code 2, the message on the output, nothing written', async () => {
+    await inSavepoint(async () => {
+      await c.query('ALTER TABLE intercompany_messages RENAME TO intercompany_messages_gone');
+      const r = await dryRun();
+      expect(r.exitCode).toBe(2);
+      expect(r.text).toMatch(/cannot check intercompany_messages for the Demo company/);
+    });
   });
 });
