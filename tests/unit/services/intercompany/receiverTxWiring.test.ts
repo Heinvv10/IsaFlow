@@ -10,7 +10,7 @@ const m = vi.hoisted(() => {
   const client = { query: vi.fn(async (..._a: unknown[]) => ({ rows: [] })), release: vi.fn() };
   return { client, auth: vi.fn(async () => client), service: vi.fn(async () => client) };
 });
-vi.mock('@/lib/auth/authPool', () => ({ getAuthPool: () => ({ connect: m.auth }) }));
+vi.mock('@/lib/auth/authPool', () => ({ getAuthPool: () => ({ connect: m.auth, totalCount: 1, idleCount: 1, waitingCount: 0, options: { max: 10 } }) }));
 vi.mock('@/lib/neon', () => ({ getPool: () => ({ connect: m.service }) }));
 
 import { withReceiverTx } from '@/modules/accounting/services/intercompany/receiverTx';

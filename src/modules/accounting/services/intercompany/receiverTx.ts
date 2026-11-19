@@ -10,6 +10,7 @@
  */
 import type { PoolClient } from 'pg';
 import { getAuthPool } from '@/lib/auth/authPool';
+import { connectObserved } from '@/lib/auth/poolTelemetry';
 import { drainAfterCommit, runOwnedContext } from '@/lib/afterCommit';
 import type { RequestContext } from '@/lib/als';
 import { rollbackFailed } from '@/lib/rollbackFailed';
@@ -24,7 +25,7 @@ export async function withReceiverTx<T>(p: ReceiverPrincipal, fn: () => Promise<
   // The REQUEST login (isaflow_app in production, the pool withAuth and withOwnCompanyTx open their transactions on), never the service
   // login: that one inherits app_service, whose policies are USING (true), so a RESET ROLE inside this transaction would read every tenant.
   // isaflow_app holds no table privilege of its own: a RESET ROLE leaves it with nothing. Only the queue below runs on the service login.
-  const client: PoolClient = await getAuthPool().connect();
+  const client: PoolClient = await connectObserved(getAuthPool(), 'authPool');
   let begun = false;
   let unusable = false;
   try {

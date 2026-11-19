@@ -76,7 +76,7 @@ const money = (c: number): number => c / 100;
 const round2 = (n: number): number => money(cents(n));
 
 /** A rate as whole hundredths of a percent (15 -> 1500), so VAT is worked in integers: line cents x rate100 is in ten-thousandths of a cent. */
-const rate100 = (rate: number): number => Math.round(rate * 100);
+const rate100 = (pct: number): number => Math.round(pct * 100);
 const UNITS = 10_000;
 
 /**
