@@ -18,8 +18,8 @@
  * WHAT MAY POST (PR #1648 review). Only the types a document line is offered (DOCUMENT_LINE_VAT_TYPES: standard,
  * zero_rated, exempt): a sales line typed reverse_charge, bad_debt or imported would post a coded leg the VAT201 puts in
  * field 1 at full base or in no field at all. The writer PR widens POSTABLE_LINE_VAT_TYPES type by type, each with a
- * proof of how the readers place it. A rated line's VAT is its own: within one cent of its net at its type's rate on
- * the invoice date (one cent: a VAT-inclusive price backs the VAT out of the gross). A rated type whose lines carry net
+ * proof of how the readers place it. A rated line's VAT is its own: exactly its net at its type's rate on the invoice
+ * date (vatLineAmounts), or within one cent of it on a VAT-inclusive invoice, whose VAT was backed out of a gross. A rated type whose lines carry net
  * but whose VAT rounds to nothing, or VAT on no net, is refused: a coded base with no VAT leg reaches no field. The
  * header total must be subtotal + VAT: the receivable is debited for it.
  *
@@ -47,6 +47,11 @@ export interface TypedInvoiceHeader {
   totalAmount: number;
   /** The invoice date (a pg Date or 'YYYY-MM-DD'): the rate a rated line's VAT is checked at. */
   invoiceDate: string | Date;
+  /**
+   * customer_invoices.amounts_are, read for ONE purpose: on an 'inclusive' invoice a rated line's VAT was backed out of
+   * a gross and may differ by a cent from its net at the rate; otherwise it must be exact. `amount` is net either way.
+   */
+  amountsAre: string | null;
 }
 
 /** The types a customer invoice line may POST with in this PR (see the header). */
@@ -75,7 +80,7 @@ export function lineVatShape(lines: ReadonlyArray<Pick<StoredVatLine, 'vatType' 
 }
 
 /** Why line i's type or VAT cannot post, or null. */
-function lineProblem(l: StoredVatLine, i: number, invoiceDate: string | Date): string | null {
+function lineProblem(l: StoredVatLine, i: number, invoiceDate: string | Date, inclusive: boolean): string | null {
   const type = storedVatType(l.vatType);
   if (type === null) return `line ${i + 1} has the unknown VAT type "${String(l.vatType)}".`;
   if (!POSTABLE_LINE_VAT_TYPES.includes(type)) {
@@ -87,7 +92,7 @@ function lineProblem(l: StoredVatLine, i: number, invoiceDate: string | Date): s
     return carries === 0 ? null : `line ${i + 1} is ${type}, which charges no VAT, but carries ${money(carries)} of VAT. ${RESAVE}`;
   }
   const own = cents(vatLineAmounts(l.amount, type, invoiceDate).vat);
-  if (Math.abs(carries - own) <= 1) return null;
+  if (Math.abs(carries - own) <= (inclusive ? 1 : 0)) return null;
   return `line ${i + 1} is ${type}: its VAT on ${money(cents(l.amount))} at ${vatRatePctOn(type, invoiceDate)}% is `
     + `${money(own)}, but it carries ${money(carries)}. ${RESAVE}`;
 }
@@ -119,7 +124,7 @@ export function typedLinesProblem(lines: readonly StoredVatLine[], header: Typed
   }
   try {
     for (const [i, l] of lines.entries()) {
-      const problem = lineProblem(l, i, header.invoiceDate);
+      const problem = lineProblem(l, i, header.invoiceDate, header.amountsAre === 'inclusive');
       if (problem) return problem;
     }
   } catch (err) {

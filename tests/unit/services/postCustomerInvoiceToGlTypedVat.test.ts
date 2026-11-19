@@ -113,6 +113,17 @@ describe('postCustomerInvoiceToGL, lines carrying their VAT type', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('the invoice row\'s amounts_are reaches the cent tolerance: VAT 15.01 on 100.00 posts if inclusive, is refused if not', async () => {
+    INVOICE_OVER.value = { subtotal: '100.00', tax_amount: '15.01', total_amount: '115.01', amounts_are: 'inclusive' };
+    const lines = await post([{ ...row('100.00', 'standard', '15.01', 0), subtotal: '100.00', tax_amount: '15.01' }]);
+    expect(lines.filter((l) => l.glAccountId === 'acct-vat_output').map((l) => [l.credit, l.vatType])).toEqual([[15.01, 'standard']]);
+    mockCreate.mockClear();
+    INVOICE_OVER.value = { subtotal: '100.00', tax_amount: '15.01', total_amount: '115.01', amounts_are: null };
+    const err = await post([{ ...row('100.00', 'standard', '15.01', 0), subtotal: '100.00', tax_amount: '15.01' }]).catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/line 1 is standard: its VAT on 100\.00 at 15% is 15\.00, but it carries 15\.01/);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it('refuses a partly typed invoice before any journal is created', async () => {
     const err = await post([row('1000.00', 'standard', '150.00', 0), row('500.00', null, null, 1)]).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);

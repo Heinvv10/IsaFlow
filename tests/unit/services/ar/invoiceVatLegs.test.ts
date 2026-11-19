@@ -20,7 +20,7 @@ const typed = (amount: number, vatType: string, taxAmount: number, extra: Partia
 const legacy = (amount: number): StoredVatLine => ({ amount, glAccountId: null, projectId: null });
 
 const header = (subtotal: number, taxAmount: number) =>
-  ({ subtotal, taxAmount, totalAmount: Math.round((subtotal + taxAmount) * 100) / 100, invoiceDate: '2026-07-01' });
+  ({ subtotal, taxAmount, totalAmount: Math.round((subtotal + taxAmount) * 100) / 100, invoiceDate: '2026-07-01', amountsAre: null });
 
 const post = (lines: StoredVatLine[], subtotal: number, taxAmount: number) =>
   typedInvoiceCreditLegs({

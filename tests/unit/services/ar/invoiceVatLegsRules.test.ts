@@ -19,11 +19,13 @@ const VAT = 'acct-vat-output';
 const typed = (amount: number, vatType: string, taxAmount: number): StoredVatLine =>
   ({ amount, glAccountId: null, projectId: null, vatType, taxAmount });
 const header = (subtotal: number, taxAmount: number, totalAmount = Math.round((subtotal + taxAmount) * 100) / 100,
-  invoiceDate: string | Date = '2026-07-01') => ({ subtotal, taxAmount, totalAmount, invoiceDate });
+  invoiceDate: string | Date = '2026-07-01', amountsAre: string | null = null) =>
+  ({ subtotal, taxAmount, totalAmount, invoiceDate, amountsAre });
 const sum = (lines: StoredVatLine[], k: 'amount' | 'taxAmount') =>
   Math.round(lines.reduce((s, l) => s + Number(l[k]), 0) * 100) / 100;
 /** The problem with lines footing to their own header (so only the rule under test can fire). */
-const problem = (lines: StoredVatLine[]) => typedLinesProblem(lines, header(sum(lines, 'amount'), sum(lines, 'taxAmount')));
+const problem = (lines: StoredVatLine[], amountsAre: string | null = null) => typedLinesProblem(lines,
+  header(sum(lines, 'amount'), sum(lines, 'taxAmount'), undefined, undefined, amountsAre));
 const post = (lines: StoredVatLine[]) => typedInvoiceCreditLegs({
   invoiceNumber: 'INV-5', header: header(sum(lines, 'amount'), sum(lines, 'taxAmount')), lines,
   defaultRevenueAccountId: DEFAULT, vatOutputAccountId: VAT,
@@ -49,10 +51,16 @@ describe('a rated line\'s VAT is its own', () => {
     expect(problem([typed(100, 'standard', 50)])).toMatch(/^line 1 is standard: its VAT on 100\.00 at 15% is 15\.00, but it carries 50\.00\./);
   });
 
-  it('allows one cent either way (a VAT-inclusive price backs the VAT out of the gross), not two', () => {
-    expect(problem([typed(100, 'standard', 15.01)])).toBeNull();
-    expect(problem([typed(100, 'standard', 14.99)])).toBeNull();
-    expect(problem([typed(100, 'standard', 15.02)])).toMatch(/carries 15\.02/);
+  it('exclusive (or unset): the VAT is exactly vatLineAmounts\', not a cent off', () => {
+    expect(problem([typed(100, 'standard', 15)])).toBeNull();
+    expect(problem([typed(100, 'standard', 15.01)])).toMatch(/carries 15\.01/);
+    expect(problem([typed(100, 'standard', 14.99)], 'exclusive')).toMatch(/carries 14\.99/);
+  });
+
+  it('inclusive: one cent either way (the VAT was backed out of a gross), not two', () => {
+    expect(problem([typed(100, 'standard', 15.01)], 'inclusive')).toBeNull();
+    expect(problem([typed(100, 'standard', 14.99)], 'inclusive')).toBeNull();
+    expect(problem([typed(100, 'standard', 15.02)], 'inclusive')).toMatch(/carries 15\.02/);
   });
 
   it('reads the rate on the invoice date, a Date or a string', () => {
@@ -70,8 +78,8 @@ describe('a rated line\'s VAT is its own', () => {
       .toMatch(/^line 2 is standard: its VAT on -100\.00 at 15% is -15\.00, but it carries 0\.00\./);
   });
 
-  it('refuses VAT on no net, though every line is within its cent', () => {
-    expect(problem([typed(100, 'standard', 15), typed(-100, 'standard', -14.99)]))
+  it('refuses VAT on no net, though every line is within its cent (inclusive)', () => {
+    expect(problem([typed(100, 'standard', 15), typed(-100, 'standard', -14.99)], 'inclusive'))
       .toMatch(/^its standard lines carry 0\.01 of VAT on no net/);
   });
 

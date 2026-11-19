@@ -124,7 +124,7 @@ export async function approveCreditNote(
       ({ lines, allocations } = await creditNoteRevenueJournalLines(companyId, {
         id, number: String(cn.credit_note_number), amount: Number(cn.subtotal),
         customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null, tags: headerTags!,
-        taxAmount: Number(cn.tax_amount ?? 0), date: cn.credit_date instanceof Date ? cn.credit_date : String(cn.credit_date),
+        taxAmount: Number(cn.tax_amount ?? 0),
       }, revenueAccount.id));
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
