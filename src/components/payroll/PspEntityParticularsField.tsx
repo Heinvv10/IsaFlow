@@ -54,8 +54,8 @@ export function PspEntityParticularsField({ employeeId, entity, stored, canEdit,
     <div className="mt-4 border-t border-[var(--ff-border-primary)] pt-4" data-testid="psp-particulars-field">
       <h4 className="text-sm font-semibold text-[var(--ff-text-primary)]">Personal service provider certificate (IRP5, nature of person H)</h4>
       <p className="mt-1 text-xs text-[var(--ff-text-secondary)]">
-        The {entity === 'trust' ? 'trust' : 'company'}&apos;s particulars. Without the trading name (and the tax reference where PAYE was
-        deducted) its months are left off the e@syFile file.
+        The {entity === 'trust' ? 'trust' : 'company'}&apos;s particulars. Without both the trading name and the tax reference its months
+        are on no certificate in the e@syFile file.
       </p>
       <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="Trading name" maxLength={120} value={draft.name} disabled={!canEdit} onChange={set('name')} />
