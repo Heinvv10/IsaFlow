@@ -52,6 +52,8 @@ export interface EasyFileInput {
   warnings: string[];
   warningsTotal: number;
   unlinkedPaymentIds: string[];
+  /** The payroll employee each certificate is for, by certificate number (wave 6 SS-c: the employee portal's IRP5). */
+  certificateEmployees: Array<{ certificateNumber: string; employeeId: string }>;
 }
 
 /** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
@@ -140,6 +142,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   const yoaEndInclusive = bounds.end.replaceAll('-', '');
 
   const employees: EmployeeInput[] = [];
+  const certificateEmployees: EasyFileInput['certificateEmployees'] = [];
   const warnings: string[] = [];
   const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
@@ -199,8 +202,10 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     const periodStart = certStartDate > yoaStart ? certStartDate : yoaStart;
     const periodEnd = certEndDate && certEndDate < yoaEndInclusive ? certEndDate : yoaEndInclusive;
 
+    const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
+    certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });
     employees.push({
-      certificateNumber: buildCertificateNumber(payeRef, taxYear, period.mm, seq),
+      certificateNumber,
       yearOfAssessment: taxYear,
       surname: String(row.last_name ?? ''),
       firstNames: firstTwoNames(String(row.first_name ?? '')),
@@ -272,5 +277,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   const warningsTotal = warnings.length;
   warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
 
-  return { employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId) };
+  return {
+    employer, employees, payeRef, warnings, warningsTotal, unlinkedPaymentIds: lumpSums.unlinked.map(p => p.paymentId), certificateEmployees,
+  };
 }
