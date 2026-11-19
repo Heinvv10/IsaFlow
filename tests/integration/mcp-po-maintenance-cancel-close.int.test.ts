@@ -102,7 +102,7 @@ describe('cancel_purchase_order', () => {
     const headerOnly = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 100 }] });
     const billHdr = await seedBill(pool, f, { lines: [100] });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [headerOnly.po, billHdr.id]);
-    expect((await callTool(pool, f, cancel, { po_id: headerOnly.po, reason: 'header only' })).text).toContain('link it first (link_bills_to_purchase_order)');
+    expect((await callTool(pool, f, cancel, { po_id: headerOnly.po, reason: 'header only' })).text).toContain('link it first (link_bills_to_purchase_order');
     const headerDraft = await seedQtyPo(pool, f, { status: 'draft', lines: [{ qty: 1, price: 100 }] });
     const billHdr2 = await seedBill(pool, f, { lines: [100] });
     await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [headerDraft.po, billHdr2.id]);

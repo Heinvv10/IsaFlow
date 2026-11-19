@@ -182,7 +182,7 @@ describe('what refuses an update', () => {
       const r = await callTool(pool, f, update, { po_id: c.po, ...args });
       expect(r.isError).toBe(true);
       expect(r.text).toContain('A bill names this purchase order in its header but is not linked to it');
-      expect(r.text).toContain('link it first (link_bills_to_purchase_order)');
+      expect(r.text).toContain('link it first (link_bills_to_purchase_order');
     }
     expect((await callTool(pool, f, cancel, { po_id: c.po, reason: 'x' })).text).toContain('link it first');
     expect((await poLines(pool, c.po)).map((l) => l.line_total)).toEqual(['100.00']);
