@@ -6,12 +6,13 @@ import { Client } from '../../ci/golden-hosted/seed-demo-app';
 import { budgetProblems } from './budgetReadiness';
 import { acquireDeployLocks } from './deployLock';
 import { readId, readLogin, readPending, recordId, writeLogins, writePending } from './envFile';
-import { LOGIN_PURPOSE, VERIFY_LOGIN, DEPLOY_LOCK_FILES, REQUEST_TIMEOUT_MS } from './identity';
+import { APPROVER_LOGIN, LOGIN_PURPOSE, VERIFY_LOGIN, DEPLOY_LOCK_FILES, REQUEST_TIMEOUT_MS } from './identity';
 import { releaseRunLock, tryRunLock } from './lock';
 import { ensureUserAndCompany } from './provisionDb';
 import { companyProblems } from './readiness';
 import type { Deps } from './run';
 import { planBlocks, seedVerifyCompany } from './seedVerifyCompany';
+import { suiteProblems } from './suiteReadiness';
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 /** The admin-only marker: what a login this provisioner created carries. */
@@ -60,5 +61,8 @@ export function realDeps(db: pg.Client, envFile: string, baseUrl: string, say: (
       return { ran, problems: api ? await budgetProblems(api, o.now, o.financialYearStart) : ['the seed never logged in'] };
     },
     companyProblems,
+    suiteProblems: (pw) => suiteProblems(baseUrl, {
+      verify: { email: VERIFY_LOGIN.email, password: pw.verify }, approver: { email: APPROVER_LOGIN.email, password: pw.approver },
+    }, REQUEST_TIMEOUT_MS),
   };
 }

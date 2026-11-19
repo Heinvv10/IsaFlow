@@ -22,7 +22,7 @@ export default function BankStatementImportPage() {
         <div>
           <Link
             href="/accounting/bank-reconciliation"
-            className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+            className="inline-flex items-center gap-1.5 max-lg:min-h-11 text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
           >
             <ArrowLeft className="h-3 w-3" />
             Back to bank reconciliation

@@ -126,4 +126,18 @@ describe('realDeps: env file, locks, database', () => {
     expect(d.companyProblems).toBe(companyProblems);
     expect(d.db).toBe(fakeDb);
   });
+
+  it('the suite gate logs in through the run\'s app as the verify login, then the approver, with the passwords it is handed', async () => {
+    const posted: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: URL | string, init: RequestInit = {}) => {
+      if (init.method === 'POST') posted.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return new Response(init.method === 'POST' ? '{}' : '{"success":false}', { status: init.method === 'POST' ? 200 : 401 });
+    }));
+    const problems = await deps().suiteProblems({ verify: 'pw-v', approver: 'pw-a' });
+    expect(posted).toEqual([
+      { url: 'http://app.test/api/auth/login', body: { email: VERIFY_LOGIN.email, password: 'pw-v' } },
+      { url: 'http://app.test/api/auth/login', body: { email: APPROVER_LOGIN.email, password: 'pw-a' } },
+    ]);
+    expect(problems.join()).toMatch(/would not start: .*answered 401/);
+  });
 });
