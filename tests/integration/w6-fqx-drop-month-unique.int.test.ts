@@ -6,7 +6,7 @@
  * Old colour: the code on this branch outside the migration is the FQb release's createPayrollRun and
  * payrollRunKindGuard, unchanged in behaviour (the removed catch only handled this constraint's 23505). It runs
  * against the new schema here: create still names a second regular run of the month as the duplicate, and the guard
- * still refuses to calculate the weekly and off-cycle runs this schema now admits.
+ * still refuses to calculate the weekly runs this schema now admits (wave 6 OC lifted its off-cycle clause).
  * Every case runs in its own rolled-back transaction. Disposable fixture DB only.
  */
 import { readFileSync } from 'node:fs';
@@ -143,7 +143,8 @@ describe('old colour (the FQb release) against the 999y schema', () => {
     expect(got.again).toBeInstanceOf(PayrollRunDuplicateError);
   });
 
-  it('calculate: the guard refuses the weekly and the off-cycle run the schema now admits, and passes the monthly one', async () => {
+  // Wave 6 OC lifted the guard's off-cycle clause: a monthly off-cycle run is costed (its own refusals are OC's).
+  it('calculate: the guard refuses the weekly run the schema now admits, and passes the monthly and the off-cycle one', async () => {
     const ids: Record<string, string> = {};
     const got = await twoRunsInMonth(pool, A, async (c) => {
       ids.monthly = await seedRun(c, A, REGULAR);
@@ -154,6 +155,6 @@ describe('old colour (the FQb release) against the 999y schema', () => {
       bonus: await refusedToCalculate(A.company, ids.bonus!),
       weekly: await refusedToCalculate(A.company, ids.weekly!),
     }));
-    expect(got).toEqual({ monthly: false, bonus: true, weekly: true });
+    expect(got).toEqual({ monthly: false, bonus: false, weekly: true });
   });
 });

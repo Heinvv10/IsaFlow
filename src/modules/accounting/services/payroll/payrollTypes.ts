@@ -102,6 +102,7 @@ export interface EmployeeComponent {
   employerFundAsCash?: boolean;
 }
 
+import type { MonthEarlierLines } from './payrollOffCycleMonth';
 export type { EtiMonthParts, LineCadence, OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
 import type { EtiMonthParts, LineCadence, PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
 
@@ -185,6 +186,8 @@ export interface PayrollLineInput {
   notEmployedInPeriod?: boolean;
   /** The employee's IRP3(b)/(c) directive on regular pay for the period (payrollRunRegularDirective); absent = none. */
   regularPayDirective?: RegularPayDirectiveState;
+  /** An off-cycle run's line (OC): the month's earlier final lines, for the month's UIF cap and ETI (payrollOffCycleMonth). */
+  monthEarlier?: MonthEarlierLines;
   /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
   cadence?: LineCadence;
 }
