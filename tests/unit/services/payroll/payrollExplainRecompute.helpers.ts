@@ -139,7 +139,8 @@ function recomputePaye(fig: FigureExplanation): number {
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
     expect(cents(r.amt('paye.due'))).toBe(cents(due));
     annual = round2(Math.min(due, Math.max(0, taxAll - taxEarlier)));
-    regular = round2(due - annual);
+    // A line with no regular pay takes none of the regular catch-up (payeCumulative, review #1620 L2).
+    regular = r.has('paye.noRegularPay') ? 0 : round2(due - annual);
   }
   return round2(regular + annual + directive);
 }
@@ -165,11 +166,24 @@ export function recomputeSdl(fig: FigureExplanation): number {
   const leviable = Math.max(0, round2(toDate - r.amt('sdl.carried')));
   expect([r.amt('sdl.payToDate'), r.amt('sdl.deductionToDate'), r.amt('sdl.leviableToDate'), r.amt('sdl.leviable')].map(cents))
     .toEqual([pay, deduction, toDate, leviable].map(cents));
-  const exempt = r.amt('sdl.annualRemuneration') <= r.amt('sdl.threshold');
-  return exempt ? 0 : round2(leviable * r.amt('sdl.rate'));
+  // Liable once an earlier run of the month was (OC, payrollSdlMonthToDate), whatever this run's estimate says.
+  const exempt = !r.has('sdl.liableEarlier') && r.amt('sdl.annualRemuneration') <= r.amt('sdl.threshold');
+  const own = exempt ? 0 : round2(leviable * r.amt('sdl.rate'));
+  if (!r.has('sdl.catchUp')) return own;
+  expect(cents(r.amt('sdl.own'))).toBe(cents(own));
+  return round2(own + r.amt('sdl.catchUp'));
 }
 
 function recomputeEti(fig: FigureExplanation): number {
+  const r = reader(fig);
+  const month = recomputeMonthEti(fig);
+  if (!r.has('eti.month.total')) return month;
+  // An off-cycle line (OC; ETI Act s7): the month's ETI on everything it paid, less the earlier runs' claim.
+  expect(cents(r.amt('eti.month.total'))).toBe(cents(month));
+  return round2(month - r.amt('eti.month.earlier'));
+}
+
+function recomputeMonthEti(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('eti.ineligible')) return 0;
   // With the hours known, the table reads the remuneration grossed up to 160 hours, and the result is grossed down by

@@ -24,6 +24,8 @@ interface AppSidebarProps {
   menuButtonRef: RefObject<HTMLButtonElement>;
   /** The admin subdomain: the drawer carries the admin console's menu, not the accounting tabs. */
   isAdminHost?: boolean;
+  /** The sidebar flyouts mark the current page from this path when given (AppLayout's navPath). */
+  navPath?: string;
 }
 
 /** `onClose`: the drawer's visible close button (the desktop sidebar has none). */
@@ -89,7 +91,7 @@ function SidebarContent({ collapsed, nav, onClose }: { collapsed: boolean; nav: 
 
 const ASIDE_STYLE = { background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' };
 
-export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, menuButtonRef, isAdminHost = false }: AppSidebarProps) {
+export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, menuButtonRef, isAdminHost = false, navPath }: AppSidebarProps) {
   const drawer = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -124,7 +126,7 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
           className={`hidden lg:flex flex-col transition-all duration-300 flex-shrink-0 ${collapsed ? 'w-16' : 'w-64'}`}
           style={ASIDE_STYLE}
         >
-          <SidebarContent collapsed={collapsed} nav={<SidebarNav collapsed={collapsed} />} />
+          <SidebarContent collapsed={collapsed} nav={<SidebarNav collapsed={collapsed} navPath={navPath} />} />
 
           {/* Collapse toggle */}
           <button

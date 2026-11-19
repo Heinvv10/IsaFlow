@@ -10,6 +10,12 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
   assertRunKindSupported: vi.fn(async () => undefined),
 }));
+// Wave 6 OC: reopen also asks whether a final off-cycle run of the month rests on this run (its own suites:
+// offCycleRunRules, w6-oc-off-cycle); none here, so the queued sql rows reach the ETI checks under test.
+vi.mock('@/modules/accounting/services/payroll/payrollOffCycleGates', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollOffCycleGates')>(),
+  laterOffCycleRefusal: vi.fn(async () => null),
+}));
 
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
   appendLoanComponents: (components: unknown[]) => components,

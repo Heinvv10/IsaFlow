@@ -177,6 +177,25 @@ describe('line-only bills, linkable statuses, the create transaction and the dra
     try { await ok.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x')); await ok.commit(); } catch (e) { await ok.rollback(); throw e; }
   });
 
+  it('a link on a cancelled bill does not block the PO cancel (the app has no unlink); one on a deleted bill does (it can be restored)', async () => {
+    const deletedPo = await seedPo(pool, f, { lines: [90] });
+    const deleted = idOf(await create({ purchaseOrderId: deletedPo.po, items: [line(90)] }));
+    await pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [deleted]);
+    const req = await openRequest(pool, f, f.owner);
+    try { await req.run(() => cancelApprovedPurchaseOrder(f.co, deletedPo.po, f.owner, 'x')); expect.unreachable(); } catch (e) {
+      expect(e).toBeInstanceOf(PurchaseOrderNotCancellableError);
+      expect((e as Error).message).toContain('Bills are linked to this purchase order');
+    } finally { await req.rollback(); }
+
+    const po = await seedPo(pool, f, { lines: [90] });
+    const bill = idOf(await create({ purchaseOrderId: po.po, items: [line(90)] }));
+    expect(await linkRows(pool, f, `l.supplier_invoice_id = '${bill}'`)).toHaveLength(1);
+    await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [bill]);
+    const ok = await openRequest(pool, f, f.owner);
+    try { await ok.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x')); await ok.commit(); } catch (e) { await ok.rollback(); throw e; }
+    expect((await pool.query('SELECT status FROM purchase_orders WHERE id = $1', [po.po])).rows[0].status).toBe('cancelled');
+  });
+
   it('a supplier of another company is never linked, whichever way the PO is named', async () => {
     const theirs = await seedPo(pool, other, { lines: [10] });
     const supplier2 = await seedSupplier(pool, f);
