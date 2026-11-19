@@ -12,8 +12,7 @@
  *   L  a label only.
  *
  * Owners: FQb1 (payroll services, pages/api/payroll, MCP payroll tools), FQb2 (the rest), FQb2/EF (files EF owns
- * until #1490 merges), FQc (the year-to-date bound, the run inputs and the period dates, spec §3a/F2), OC (the off-cycle
- * run's own readers and the 13-week forecast's off-cycle gap FQb2 assigned it).
+ * until #1490 merges), FQc (the year-to-date bound, the run inputs and the period dates, spec §3a/F2).
  * The behavioural proof of each converted R row is its two-runs-in-one-month integration case.
  *
  * How it matches: every line of a tracked, non-test .ts/.tsx file under src/ or pages/ that names one of the
@@ -46,7 +45,7 @@ interface Census { tables: string[]; orderKeys: Record<string, string[]>; consum
 const census = JSON.parse(readFileSync(resolve(__dirname, 'payrollRunReaderCensus.json'), 'utf8')) as Census;
 
 const CLASSES = new Set(['S', 'R', 'L']);
-const OWNERS = new Set(['FQb1', 'FQb2', 'FQb2/EF', 'FQc', 'OC']);
+const OWNERS = new Set(['FQb1', 'FQb2', 'FQb2/EF', 'FQc']);
 const FQB1_PATH = /^(src\/modules\/accounting\/services\/payroll\/|pages\/api\/payroll\/|src\/lib\/mcp\/tools\/(payroll|writePayroll))/;
 
 function sourceFiles(): string[] {
