@@ -184,7 +184,8 @@ describe('line-only bills, linkable statuses, the create transaction and the dra
     const req = await openRequest(pool, f, f.owner);
     try { await req.run(() => cancelApprovedPurchaseOrder(f.co, deletedPo.po, f.owner, 'x')); expect.unreachable(); } catch (e) {
       expect(e).toBeInstanceOf(PurchaseOrderNotCancellableError);
-      expect((e as Error).message).toContain('Bills are linked to this purchase order');
+      expect((e as Error).message).toContain(`A bill is linked to or names this purchase order [`);
+      expect((e as Error).message).toContain(`(id ${deleted}, link, deleted)], so it cannot be cancelled`);
     } finally { await req.rollback(); }
 
     const po = await seedPo(pool, f, { lines: [90] });
@@ -194,6 +195,19 @@ describe('line-only bills, linkable statuses, the create transaction and the dra
     const ok = await openRequest(pool, f, f.owner);
     try { await ok.run(() => cancelApprovedPurchaseOrder(f.co, po.po, f.owner, 'x')); await ok.commit(); } catch (e) { await ok.rollback(); throw e; }
     expect((await pool.query('SELECT status FROM purchase_orders WHERE id = $1', [po.po])).rows[0].status).toBe('cancelled');
+
+    // A live linked bill still blocks, and the refusal names only it: the cancelled bill's link is not what blocks the cancel.
+    const mixedPo = await seedPo(pool, f, { lines: [90] });
+    const dead = idOf(await create({ purchaseOrderId: mixedPo.po, items: [line(40)] }));
+    const live = idOf(await create({ purchaseOrderId: mixedPo.po, items: [line(50)] }));
+    expect(await linkRows(pool, f, `l.purchase_order_id = '${mixedPo.po}'`)).toHaveLength(2);
+    await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [dead]);
+    const mixed = await openRequest(pool, f, f.owner);
+    try { await mixed.run(() => cancelApprovedPurchaseOrder(f.co, mixedPo.po, f.owner, 'x')); expect.unreachable(); } catch (e) {
+      expect(e).toBeInstanceOf(PurchaseOrderNotCancellableError);
+      expect((e as Error).message).toContain(`(id ${live}, link)`);
+      expect((e as Error).message).not.toContain(dead);
+    } finally { await mixed.rollback(); }
   });
 
   it('a supplier of another company is never linked, whichever way the PO is named', async () => {

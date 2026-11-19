@@ -51,7 +51,7 @@ export async function cancelApprovedPurchaseOrder(companyId: string, poId: strin
        LIMIT 1
     `) as DbRow[];
     if (linked.length > 0) {
-      throw new PurchaseOrderNotCancellableError(await tieRefusalText(companyId, poId, 'it cannot be cancelled', ['link']) ?? 'A bill is linked to this purchase order, so it cannot be cancelled; unlink it first (unlink_bill_from_purchase_order)');
+      throw new PurchaseOrderNotCancellableError(await tieRefusalText(companyId, poId, 'it cannot be cancelled', ['link'], { liveBillLinksOnly: true }) ?? 'A bill is linked to this purchase order, so it cannot be cancelled; unlink it first (unlink_bill_from_purchase_order)');
     }
     const receipts = (await sql`
       SELECT 1 FROM goods_received_notes WHERE purchase_order_id = ${poId}::UUID AND company_id = ${companyId}::UUID LIMIT 1
