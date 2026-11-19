@@ -17,6 +17,7 @@ import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { bankFileReopenWarnings } from './payrollBankFileStatus';
 import { clearPayslipDetails } from './payslipSnapshot';
+import { restoreRunGarnishees } from './payrollGarnisheeRun';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -46,7 +47,7 @@ export async function reopenPayrollRun(opts: {
   await lockCompanyPayrollApprovals(opts.runId, opts.companyId);
   const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
-  // Wave 6 FQa: an off-cycle or non-monthly run, or one carrying garnishee deductions, is not reopened by this release.
+  // Wave 6 FQa: an off-cycle or non-monthly run is not reopened by this release (GA lifted the garnishee clause).
   await assertRunKindSupported(opts.companyId, opts.runId, 'reopen');
 
   const previousStatus = String(run.status);
@@ -103,6 +104,7 @@ export async function reopenPayrollRun(opts: {
   `) as DbRow[];
   if (!reopened[0]) throw new PayrollRunReopenRefusedError('Payroll run changed while it was being reopened — it is no longer approved.');
   await clearPayslipDetails(opts.companyId, opts.runId); // wave 6 PS3
+  await restoreRunGarnishees(opts.companyId, opts.runId); // wave 6 GA: the approval's garnishee balance moves are undone
 
   const reviewedHash = run.approved_plan_hash == null ? GRANDFATHERED_PLAN_HASH : String(run.approved_plan_hash);
   await recordPayRunApprovalAudit({

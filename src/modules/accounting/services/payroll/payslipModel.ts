@@ -22,6 +22,7 @@ import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 import { assertRunKindSupported } from './payrollRunKindGuard';
 import { detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
+import { runGarnisheePayslipItems } from './payrollGarnisheeRun';
 
 export class PayslipNotFound extends Error {
   constructor(what: 'run' | 'employee') {
@@ -149,6 +150,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   // One after another: they share the request's transaction connection.
   const final = lines[0]!.run_final === true; // read in the lines' own statement: the figures and their final state cannot tear
   const types = await componentTypes(companyId, lines);
+  const garnishees = await runGarnisheePayslipItems(companyId, runId); // GA: itemised, not "Not itemised"
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const company = await getCompanyDetailsFromCompany(companyId);
   // PS3: all of the run's slips print one approval's details, or all print live ones.
@@ -164,7 +166,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       ...itemisePayslip({
         grossPay: Number(l.gross_pay), paye: Number(l.paye), uifEmployee: Number(l.uif_employee),
         uifEmployer: Number(l.uif_employer), sdl: Number(l.sdl), netPay: Number(l.net_pay), breakdown: l.component_breakdown,
-      }, types),
+      }, types, garnishees.get(l.employee_id)),
       employeeId: l.employee_id,
       employeeNumber: String(d.employee_number),
       employeeName: `${d.first_name} ${d.last_name}`.trim(),
