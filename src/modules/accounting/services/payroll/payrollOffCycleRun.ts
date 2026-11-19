@@ -24,6 +24,7 @@ import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import { offCycleAfterCloseRefusal } from './payrollOffCycleGates';
 import { laterMonthFinalRefusal, offCycleApprovalRefusal, offCycleOrderRefusal } from './payrollOffCycleOrder';
+import { offCycleFiledMonthRefusal } from './payrollOffCycleCorrection';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { dateColumnOf } from './payrollFrequency';
 import type { OffCycleReason, PayrollPeriod } from './payrollTypesRun';
@@ -49,7 +50,8 @@ export class OffCycleRunRefusedError extends Error {
 
 const NO_RUN = '00000000-0000-0000-0000-000000000000';
 const MAX_EMPLOYEES = 1000;
-const MAX_BONUS = 100_000_000;
+/** The largest bonus amount, at create and at a correction (payrollOffCycleAmount). */
+export const MAX_BONUS = 100_000_000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -192,6 +194,9 @@ export async function assertOffCycleBeforeClose(companyId: string, run: DbRow): 
   if (late) throw state(late);
   const laterMonth = await laterMonthFinalRefusal(companyId, { year: Number(run.period_year), month: Number(run.period_month) });
   if (laterMonth) throw state(laterMonth);
+  // Review #1620 final delta M2: no off-cycle run of a month whose EMP201 is filed is calculated again.
+  const filed = await offCycleFiledMonthRefusal(companyId, run);
+  if (filed) throw state(filed);
 }
 
 /**

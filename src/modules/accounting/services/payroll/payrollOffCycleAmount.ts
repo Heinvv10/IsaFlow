@@ -14,7 +14,9 @@ import { withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { isWholeCents, OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { isWholeCents, MAX_BONUS, OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { offCycleRaiseRefusal } from './payrollOffCycleCorrection';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { logAuditOrThrow } from '../core/auditTrailService';
 
 const refused = (m: string, status: 400 | 409 = 409) => new OffCycleRunRefusedError(m, status);
@@ -47,13 +49,14 @@ export async function setOffCycleBonusAmount(
 ): Promise<{ runId: string; employeeId: string; amount: number } | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // The same judgment as the create path (judgeOffCycleShape): exact float equality refused R1.15 and R1 000.10.
-  if (!Number.isFinite(entered) || entered <= 0 || !isWholeCents(entered)) {
-    throw refused('The bonus amount must be more than R0, in rand and cents.', 400);
+  // The same ceiling as create (MAX_BONUS, review #1620 final delta L2).
+  if (!Number.isFinite(entered) || entered <= 0 || entered > MAX_BONUS || !isWholeCents(entered)) {
+    throw refused(`The bonus amount must be more than R0 and at most ${formatMoney(MAX_BONUS)}, in rand and cents.`, 400);
   }
   const amount = Math.round(entered * 100) / 100;
   return withTransaction(async (tx) => {
     const run = ((await tx`
-      SELECT h.run_kind, h.off_cycle_reason, h.status
+      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.reopened_at
         FROM payroll_run_headers h
        WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
        FOR UPDATE OF h
@@ -74,6 +77,18 @@ export async function setOffCycleBonusAmount(
        FOR UPDATE
     `) as DbRow[])[0];
     if (!before) throw refused('That employee is not on this bonus run.', 400);
+    // After its pay date a run's amounts were paid: a correction only lowers them (delta M1).
+    const raised = await offCycleRaiseRefusal(companyId, run, employeeId, amount, tx);
+    if (raised) throw refused(raised);
+    // Nothing costed on the old amount can be approved: back to draft and no lines FIRST (the 999x guard changes an
+    // amount on a draft run only, delta L1), until it is recalculated.
+    await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
+    await tx`
+      UPDATE payroll_run_headers
+         SET status = 'draft', total_gross = 0, total_taxable = 0, total_paye = 0, total_uif = 0, total_sdl = 0,
+             total_eti = 0, total_net = 0, employee_count = 0, approval_plan_hash = NULL
+       WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    `;
     await tx`
       UPDATE payroll_off_cycle_employees SET amount = ${amount}
        WHERE company_id = ${companyId}::uuid AND run_id = ${runId}::uuid AND employee_id = ${employeeId}::uuid
@@ -86,14 +101,6 @@ export async function setOffCycleBonusAmount(
         metadata: { employeeId, previousStatus: String(run.status) },
       },
     }, tx);
-    // Nothing costed on the old amount can be approved: back to draft, no lines, until it is recalculated.
-    await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
-    await tx`
-      UPDATE payroll_run_headers
-         SET status = 'draft', total_gross = 0, total_taxable = 0, total_paye = 0, total_uif = 0, total_sdl = 0,
-             total_eti = 0, total_net = 0, employee_count = 0, approval_plan_hash = NULL
-       WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-    `;
     log.info('Off-cycle bonus amount changed', { companyId, runId, employeeId, amount, previousStatus: String(run.status), userId }, 'payrollOffCycleAmount');
     return { runId, employeeId, amount };
   });

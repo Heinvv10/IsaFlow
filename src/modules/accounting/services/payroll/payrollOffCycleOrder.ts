@@ -17,6 +17,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runPayDateSql } from './payrollRunOrder';
 import { offCycleBasisRefusal, offCyclePayDateRefusal } from './payrollOffCycleGates';
+import { offCycleFiledMonthRefusal, offCycleRaisedAfterPayRefusal } from './payrollOffCycleCorrection';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const monthLabel = (year: number, month: number) => `${MONTHS[month - 1]} ${year}`;
@@ -67,7 +68,13 @@ export async function offCycleApprovalRefusal(companyId: string, run: DbRow, db:
   if (run.run_kind !== 'off_cycle') return null;
   const payDate = offCyclePayDateRefusal(run);
   if (payDate) return payDate;
+  // Review #1620 final delta: the month's EMP201 is filed (M2, named before anything a recalculation would fix); a paid
+  // amount was raised (M1, defence in depth).
+  const filed = await offCycleFiledMonthRefusal(companyId, run, db);
+  if (filed) return filed;
   if (!(Number(run.total_gross) > 0)) return ZERO_GROSS;
+  const raised = await offCycleRaisedAfterPayRefusal(companyId, run, db);
+  if (raised) return raised;
   return (await offCycleBasisRefusal(companyId, run, db))
     ?? laterMonthFinalRefusal(companyId, { year: Number(run.period_year), month: Number(run.period_month) }, db);
 }

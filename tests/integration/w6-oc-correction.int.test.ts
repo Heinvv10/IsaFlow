@@ -73,6 +73,10 @@ describe('correcting a paid, over-paid bonus run', () => {
   it('before filing: reopen, R50 000 -> R5 000, recalculate and approve again after the pay date; PAYE drops', async () => {
     const before = await paye(run);
     expect((await patch(run, { employeeId: mid, amount: 5_000 })).statusCode).toBe(409); // approved: reopen first
+    // Delta L2: the same ceiling as create (R100 000 000), refused before anything is read.
+    const tooBig = await patch(run, { employeeId: mid, amount: 900_000_000 });
+    expect(tooBig.statusCode).toBe(400);
+    expect(a.msg(tooBig)).toMatch(/at most R\s100\s000\s000\.00/);
     const reopened = await a.api.reopen(run);
     expect(reopened.statusCode, a.msg(reopened)).toBe(200);
     const changed = await patch(run, { employeeId: mid, amount: 5_000 });
@@ -94,6 +98,11 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect((await a.header(run)).status).toBe('draft');
     expect((await a.pool.query(`SELECT 1 FROM approval_requests WHERE company_id = $1 AND document_id = $2 AND status = 'pending'`, [a.company, run])).rows).toHaveLength(0);
     expect((await a.api.calculate(run)).statusCode).toBe(200);
+    // Delta L1: the 999x guard changes an amount on a DRAFT run only; a calculated run's lines were costed on it.
+    await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 4999 WHERE run_id = $1', [run]))
+      .rejects.toThrow(/only a draft bonus run's amount changes/);
+    // The first change after the reopen kept the amount last approved.
+    expect((await a.pool.query('SELECT approved_amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [run])).rows[0].x).toBe(50_000);
     const ok = await a.api.approve(run);
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     const after = await paye(run);
@@ -119,6 +128,36 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect(cost).toBeLessThan(5_200);
     expect(await debits(journal)).toEqual([50_677.12]);
     expect(await debits(reposted)).toEqual([cost]);
+  });
+
+  it('delta M1: after its pay date a correction only lowers the amount: refused at the edit and at approval', async () => {
+    const reopened = await a.api.reopen(run);
+    expect(reopened.statusCode, a.msg(reopened)).toBe(200);
+    const journal = String((await a.pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [run])).rows[0].journal_entry_id);
+    expect((await a.api.reverse(journal)).statusCode).toBe(200);
+    // Above the last approved amount (R5 000, approved and paid): refused, nothing written.
+    for (const amount of [80_000, 5_000.01]) {
+      const up = await patch(run, { employeeId: mid, amount });
+      expect(up.statusCode).toBe(409);
+      expect(a.msg(up)).toMatch(/can't be raised after the pay date \(last approved R\s5\s000\.00\)\. Pay the difference in a new off-cycle run\./);
+    }
+    expect((await a.header(run)).status).toBe('calculated');
+    // Lower is allowed.
+    expect((await patch(run, { employeeId: mid, amount: 4_000 })).statusCode).toBe(200);
+    expect((await a.pool.query('SELECT approved_amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [run])).rows[0].x).toBe(5_000);
+    // An amount raised another way (below the service, on the draft run) is refused at approval.
+    await a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 80000 WHERE run_id = $1', [run]);
+    expect((await a.api.calculate(run)).statusCode).toBe(200);
+    const refused = await a.api.approve(run);
+    expect(refused.statusCode).not.toBe(200);
+    expect(JSON.stringify(refused.body)).toMatch(/can't be raised after the pay date/);
+    expect((await a.header(run)).status).toBe('calculated');
+    // Back to R4 000 through the service: approved.
+    expect((await patch(run, { employeeId: mid, amount: 4_000 })).statusCode).toBe(200);
+    expect((await a.api.calculate(run)).statusCode).toBe(200);
+    const ok = await a.api.approve(run);
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    expect(Number((await a.pool.query('SELECT gross_pay::float8 AS g FROM payroll_run_lines WHERE run_id = $1', [run])).rows[0].g)).toBe(4_000);
   });
 
   it('the route: a viewer gets 403 on GET and PATCH, a manager 403 on PATCH, an agent bearer 401; nothing read or written', async () => {
@@ -154,7 +193,7 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect((await a.header(run)).status).toBe('approved');
     // The 999x guard holds the same rule below the service: an approved run's amount does not change.
     await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 1 WHERE run_id = $1', [run]))
-      .rejects.toThrow(/only a draft or calculated bonus run's amount changes/);
+      .rejects.toThrow(/only a draft bonus run's amount changes/);
     await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET company_id = gen_random_uuid() WHERE run_id = $1', [run]))
       .rejects.toThrow(/only the amount changes/);
     await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 0 WHERE run_id = $1', [run]))

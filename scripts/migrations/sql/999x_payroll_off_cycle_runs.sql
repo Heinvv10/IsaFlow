@@ -13,8 +13,10 @@
 --     payroll_off_cycle_employees_guard  a BEFORE INSERT trigger (INVOKER, under the caller's RLS): the run is this
 --     company's, an off-cycle run, still a draft; the employee is this company's; a bonus row names one of this
 --     company's 3605 earnings and a termination row names none. On UPDATE (app_user may update the amount column
---     only): the run is this company's draft or calculated BONUS run; company, run, employee and earning stay as they
---     were; the amount is more than R0 in whole cents. app_user may INSERT, SELECT and UPDATE (amount).
+--     only): the run is this company's DRAFT bonus run (the service sends a calculated run back to draft and clears its
+--     lines first); company, run, employee and earning stay as they were; the amount is more than R0 in whole cents;
+--     the first change after a reopen stamps approved_amount / approved_as_of (the amount last approved, which a paid
+--     run's correction may not exceed: payrollOffCycleCorrection). Neither column is app_user's to write. app_user may INSERT, SELECT and UPDATE (amount).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
 --     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
 --     run's reference is unchanged
@@ -62,8 +64,14 @@ CREATE TABLE IF NOT EXISTS public.payroll_off_cycle_employees (
   CONSTRAINT payroll_off_cycle_employees_one_per_run UNIQUE (run_id, employee_id)
 );
 
+-- The last approved amount of a run approved before and reopened (review #1620 final breaker delta M1): stamped by the
+-- guard below at the first amount change after a reopen; app_user writes neither column.
+ALTER TABLE public.payroll_off_cycle_employees
+  ADD COLUMN IF NOT EXISTS approved_amount NUMERIC(14, 2) NULL,
+  ADD COLUMN IF NOT EXISTS approved_as_of TIMESTAMPTZ NULL;
+
 COMMENT ON TABLE public.payroll_off_cycle_employees IS
-  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation; a bonus amount may be corrected while the run is draft or calculated.';
+  'Who an off-cycle pay run pays (999x, wave 6 OC): a bonus row carries its 3605 earning and amount; a termination row neither. Written at run creation; a bonus amount may be corrected while the run is a draft (approved_amount keeps the amount last approved, for a reopened run).';
 
 CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.payroll_off_cycle_employees (company_id, run_id);
 
@@ -72,7 +80,7 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp 
 DECLARE
   h record;
 BEGIN
-  SELECT run_kind, off_cycle_reason, status INTO h
+  SELECT run_kind, off_cycle_reason, status, reopened_at INTO h
     FROM public.payroll_run_headers WHERE id = NEW.run_id AND company_id = NEW.company_id;
   IF TG_OP = 'UPDATE' THEN
     IF NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.run_id IS DISTINCT FROM OLD.run_id
@@ -84,9 +92,19 @@ BEGIN
     IF NEW.amount IS NULL OR NEW.amount <= 0 OR NEW.amount <> pg_catalog.round(NEW.amount, 2) THEN
       RAISE EXCEPTION 'payroll_off_cycle_employees: a bonus amount is more than R0, in whole cents' USING ERRCODE = 'check_violation';
     END IF;
-    IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.off_cycle_reason IS DISTINCT FROM 'bonus' OR h.status NOT IN ('draft', 'calculated') THEN
-      RAISE EXCEPTION 'payroll_off_cycle_employees: only a draft or calculated bonus run''s amount changes'
+    -- A draft only (delta L1): a calculated run's lines were costed on the old amount; the service sends the run back
+    -- to draft and clears its lines before it changes an amount.
+    IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.off_cycle_reason IS DISTINCT FROM 'bonus' OR h.status <> 'draft' THEN
+      RAISE EXCEPTION 'payroll_off_cycle_employees: only a draft bonus run''s amount changes'
         USING ERRCODE = 'check_violation';
+    END IF;
+    -- The amount last approved (delta M1): the first change after a reopen keeps the amount it replaces.
+    IF h.reopened_at IS NOT NULL AND OLD.approved_as_of IS DISTINCT FROM h.reopened_at THEN
+      NEW.approved_amount := OLD.amount;
+      NEW.approved_as_of := h.reopened_at;
+    ELSE
+      NEW.approved_amount := OLD.approved_amount;
+      NEW.approved_as_of := OLD.approved_as_of;
     END IF;
     RETURN NEW;
   END IF;
@@ -110,6 +128,8 @@ BEGIN
     RAISE EXCEPTION 'payroll_off_cycle_employees: a termination row names no component' USING ERRCODE = 'check_violation';
   END IF;
   NEW.created_at := pg_catalog.clock_timestamp();
+  NEW.approved_amount := NULL;
+  NEW.approved_as_of := NULL;
   RETURN NEW;
 END
 $$;
