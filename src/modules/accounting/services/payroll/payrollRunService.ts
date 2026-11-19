@@ -3,7 +3,8 @@ import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmpl
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
-import { applySdlToLines, estimateAnnualRemuneration, inheritedSdlDecision } from './sdlLeviabilityService';
+import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
+import { loadMonthToDateSdl } from './payrollSdlMonthToDate';
 import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
@@ -220,8 +221,9 @@ export async function calculatePayrollRun(
   const annualRemuneration = await estimateAnnualRemuneration(
     companyId, period, r(totalRemuneration), runId,
   );
-  // An off-cycle run takes the month's decision once a run of it is final (wave 6 OC, review #1620 breaker delta H).
-  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear, await inheritedSdlDecision(companyId, runId));
+  // SDL as a month-to-date catch-up (wave 6 OC, review #1620 final breaker H): liable once the month is, and a liable run
+  // carries what the month's earlier final runs did not levy (payrollSdlMonthToDate).
+  const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear, await loadMonthToDateSdl(companyId, runId));
 
   await replaceRunLines(runId, companyId, lineInserts);
 

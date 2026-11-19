@@ -93,24 +93,30 @@ export function explainSdl(input: {
   return { ...base, result: input.charge.sdl, steps: [...steps, ...chargeSteps(taxYear, trace.leviable, input.charge)] };
 }
 
-/** `inherited`: the month's decision was taken by its first costed regular run, and this run takes it (wave 6 FQd). */
-type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; inherited?: boolean };
+/**
+ * The run's SDL decision on the line (wave 6 OC, payrollSdlMonthToDate): `liableEarlier`, liable because an earlier
+ * final run of the month was (the estimate alone would exempt it); `catchUp`, this line's share of what the month's
+ * earlier final runs did not levy.
+ */
+type SdlCharge = { annualRemuneration: number; exempt: boolean; sdl: number; liableEarlier?: boolean; catchUp?: number };
 
 function chargeSteps(taxYear: number, leviable: number, charge: SdlCharge): ExplainStep[] {
-  const threshold = { amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear) };
+  const own = charge.exempt ? 0 : Math.round(leviable * SDL_RATE * 100) / 100;
   return [
-    charge.inherited
-      ? {
-        key: 'sdl.threshold', ...threshold,
-        label: `Employer ${charge.exempt ? 'exempt' : 'liable'} this month: decided once for the month, on its first costed run`,
-      }
-      : {
-        key: 'sdl.threshold', ...threshold,
-        label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
-        children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
-      },
-    { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' },
-    { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
+    {
+      key: 'sdl.threshold', label: charge.exempt ? 'Employer exempt: remuneration at or under the threshold' : 'Employer liable: remuneration over the threshold',
+      amount: getTaxYearConfig(taxYear).sdlThresholdAnnual, source: sourceFor(SOURCES.sdlThreshold, taxYear),
+      children: [{ key: 'sdl.annualRemuneration', label: 'The employer\'s remuneration over twelve months (estimated)', amount: charge.annualRemuneration }],
+    },
+    ...(charge.liableEarlier ? [{ key: 'sdl.liableEarlier', label: 'Liable this month: an earlier run of the month was liable, and a month once liable stays liable', amount: null }] : []),
+    { key: 'sdl.rate', label: 'Rate', amount: SDL_RATE, unit: 'percent' as const },
+    ...(charge.catchUp
+      ? [
+        { key: 'sdl.own', label: 'SDL on this line\'s own pay', amount: own, formula: `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` },
+        { key: 'sdl.catchUp', label: 'Plus this line\'s share of what the month\'s earlier runs did not levy (the month became liable on this run)', amount: charge.catchUp },
+        { key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: `${r(own)} + ${r(charge.catchUp)}` },
+      ]
+      : [{ key: 'sdl.charge', label: 'SDL', amount: charge.sdl, formula: charge.exempt ? 'nil: exempt' : `${pct(SDL_RATE)} × ${r(leviable)}, rounded to the cent` }]),
   ];
 }
 

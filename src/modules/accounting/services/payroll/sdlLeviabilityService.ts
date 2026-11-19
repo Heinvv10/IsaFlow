@@ -2,8 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isSdlExempt, SDL_RATE } from './sdlEngine';
-import { payRunFinalSql } from './payRunFinalSql';
-import { runOrderKeySql } from './payrollRunOrder';
+import { NO_EARLIER_SDL, splitCatchUp, type MonthToDateSdl } from './payrollSdlMonthToDate';
 import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
@@ -71,6 +70,8 @@ const TRAILING_PERIODS = 12;
 export interface SdlLine {
   sdl: number;
   sdlLeviable: number;
+  /** For a deterministic split of an SDL catch-up (payrollSdlMonthToDate.splitCatchUp). */
+  employeeId?: string;
   /** Set by applySdlToLines: the run was SDL-exempt (s4(b)), stored as sdl_exempt (migration 957). */
   sdlExempt?: boolean;
   /** The line's explanation (EX-core): applySdlToLines completes its SDL charge with the run's threshold decision. */
@@ -171,54 +172,40 @@ export async function estimateAnnualRemuneration(
 }
 
 /**
- * The employer-month's SDL decision already taken, for an OFF-CYCLE run (wave 6 OC, review #1620 breaker delta H; the
- * same shape as FQd #1622's for regular runs, which merges first and is then kept as the one implementation): once a
- * run of the month is final, the month is decided, and an off-cycle run takes that decision (the stored sdl_exempt of
- * the month's first final run in pay order, its regular run). So a later off-cycle run never moves the month's
- * decision and never sends payrollSdlMonthGate after a final run. null: not off-cycle, or nothing final yet.
- */
-export async function inheritedSdlDecision(companyId: string, runId: string): Promise<boolean | null> {
-  const rows = (await sql`
-    SELECT (SELECT bool_or(l.sdl_exempt) FROM payroll_run_lines l WHERE l.run_id = o.id) AS exempt
-      FROM payroll_run_headers me
-      JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year
-       AND o.period_month = me.period_month AND o.id <> me.id AND ${sql.unsafe(payRunFinalSql('o'))}
-     WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid AND me.run_kind = 'off_cycle'
-       AND EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = o.id AND l.sdl_exempt IS NOT NULL)
-     ORDER BY ${runOrderKeySql('o')}
-     LIMIT 1
-  `) as DbRow[];
-  return rows.length === 0 || rows[0]!.exempt == null ? null : rows[0]!.exempt === true;
-}
-
-/**
  * Charge the levy on each line's own leviable remuneration, once the employer's
  * annual remuneration has decided whether it is due at all. Returns the run
  * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
  * with each line so the year to date knows which months were liable), which is
- * why the caller builds them first. `inherited`: the month's decision already taken
- * (inheritedSdlDecision), which this run takes as it is.
+ * why the caller builds them first.
+ * `monthToDate` (wave 6 OC, review #1620 final breaker H): the month's earlier final runs. The month stays liable once
+ * one of them was, and a liable run carries what they did not levy (payrollSdlMonthToDate). None: costed as before.
  */
 export function applySdlToLines(
   lines: SdlLine[],
   annualRemunerationEstimate: number,
   taxYear: number,
-  inherited: boolean | null = null,
+  monthToDate: MonthToDateSdl = NO_EARLIER_SDL,
 ): number {
   let total = 0;
-  const exempt = inherited ?? isSdlExempt(annualRemunerationEstimate, taxYear);
-  for (const line of lines) {
-    line.sdlExempt = exempt;
-    line.sdl = exempt ? 0 : Math.round(line.sdlLeviable * SDL_RATE * 100) / 100;
+  const byEstimate = !isSdlExempt(annualRemunerationEstimate, taxYear);
+  const liable = byEstimate || monthToDate.earlierLiable;
+  const catchUp = liable ? Math.round((monthToDate.earlierDue - monthToDate.earlierLevied) * 100) / 100 : 0;
+  const shares = splitCatchUp(lines, catchUp);
+  lines.forEach((line, i) => {
+    const own = liable ? Math.round(line.sdlLeviable * SDL_RATE * 100) / 100 : 0;
+    const carried = shares[i] ?? 0;
+    line.sdlExempt = !liable;
+    line.sdl = Math.round((own + carried) * 100) / 100;
     if (line.explanation) {
       line.explanation = {
         ...line.explanation,
         sdl: withSdlCharge(line.explanation.sdl, taxYear, {
-          annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl, inherited: inherited !== null,
+          annualRemuneration: annualRemunerationEstimate, exempt: !liable, sdl: line.sdl,
+          ...(liable && !byEstimate ? { liableEarlier: true } : {}), ...(carried !== 0 ? { catchUp: carried } : {}),
         }),
       };
     }
     total += line.sdl;
-  }
+  });
   return total;
 }

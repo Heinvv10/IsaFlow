@@ -201,19 +201,23 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
       regular: await estimate(regular, 50000),
     }));
     expect(got.refusal?.code).toBe('sdl_month_split');
-    expect(got.direct?.detail).toMatch(/is liable for SDL, but a run was costed the other way\. To approve: recalculate this run\.$/);
+    // Wave 6 OC (review #1620 final breaker H): the gate re-judges this run alone, on the month to date.
+    expect(got.direct?.detail).toMatch(/on this run \(liable\), but it was costed with R0\.00 \(exempt\)\. To approve: recalculate this run\.$/);
     expect(got.recalculated).toBe(840000);
     expect(got.regular).toBe(840000);
   });
 
-  it('when the stale run is the approved other one, the refusal names it: reopen and recalculate; runs that agree pass', async () => {
+  // Wave 6 OC (review #1620 final breaker H, SDL as a month-to-date catch-up): an approved run is never named or reopened
+  // for SDL. The later run is judged on the month to date and carries what the earlier final runs did not levy.
+  it('an approved other run that was exempt is never named: the later run is judged on the month to date; runs that agree pass', async () => {
     let bonus = '';
     let regular = '';
     const split = await twoRunsInMonth(pool, A, async (c) => {
       regular = await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: true });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
     }, () => sdlMonthSplitRefusal(A.company, bonus));
-    expect(split?.detail).toContain(`To approve: reopen and recalculate the regular run ${regular} (approved).`);
+    expect(split).toBeNull();
+    expect(regular).not.toBe('');
     const agree = await twoRunsInMonth(pool, A, async (c) => {
       await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: false });
       bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
@@ -224,7 +228,9 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
   // Review #1507 arch M (the mirror of B4b): the bonus was costed alone (exempt), then the regular run with it (liable).
   // Approving the REGULAR run is refused naming the BONUS (recalculating the regular run would change nothing); once
   // the bonus is recalculated (liable), the regular run's approval passes.
-  it('approving the later-costed run names the other, stale run; once that is recalculated the gate passes', async () => {
+  // Wave 6 OC: only the run being approved is re-judged; the other run (not final) is never named, and its own approval
+  // re-judges it in turn.
+  it('approving the later-costed run never names the other run: it is judged on the month to date', async () => {
     let regular = '';
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
@@ -235,8 +241,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
       await sql`UPDATE payroll_run_lines SET sdl_exempt = false WHERE run_id = ${bonus}::uuid`; // the bonus, recalculated
       return { before, after: await sdlMonthSplitRefusal(A.company, regular) };
     });
-    expect(got.before?.detail).toContain(`To approve: recalculate the off_cycle run ${bonus} (calculated).`);
-    expect(got.before?.detail).not.toContain('this run');
+    expect(got.before).toBeNull();
     expect(got.after).toBeNull();
   });
 
@@ -249,7 +254,7 @@ describe('the SDL threshold: one decision per month, whatever the calculation or
       await seedRun(c, A, { ...BONUS, gross: 20000, status: 'cancelled', approvedAt: null, sdlExempt: false });
     }, () => sdlMonthSplitRefusal(A.company, regular));
     // 30 000 x 12 = 360 000 now: exempt, but the run was costed liable on 50 000.
-    expect(got?.detail).toMatch(/is below the R500 000 SDL threshold \(exempt\), but a run was costed the other way\. To approve: recalculate this run\.$/);
+    expect(got?.detail).toMatch(/on this run \(exempt\), but it was costed with R0\.00 \(liable\)\. To approve: recalculate this run\.$/);
   });
 
   it('a paid run is final: never named, never blocking', async () => {

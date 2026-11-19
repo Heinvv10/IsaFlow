@@ -1,10 +1,12 @@
 /**
- * Wave 6 OC, review #1620 breaker delta H (rev1620-brk-sdl-deadlock), through the real routes:
- *  - the month's SDL decision is binding once a run of it is final: a later off-cycle run (here a termination run whose
- *    pay-outs would push the month's estimate over the threshold) takes that decision, so the SDL month gate never sends
- *    anyone back to a final run, and every November run ends final with the EMP201 declaring them all;
- *  - an off-cycle run whose pay date has passed is not reopened (409): a paid run is corrected by a later run.
- * The clock is SAST (Date only, advancing): the bonus is paid on 17 November, the termination run made on the 18th.
+ * Wave 6 OC, review #1620 final breaker H: SDL as a month-to-date catch-up (payrollSdlMonthToDate), through the real
+ * routes, three tenants:
+ *  - A (rev1620-brk-sdl-lock): an exempt regular month, then a R600 000 bonus: the bonus run is liable and carries the
+ *    regular run's 1%, so the month's EMP201 SDL is 1% of all it paid (R6 203);
+ *  - B (rev1620-brk-sdl-deadlock): a bonus paid and approved on the 17th, then a termination run that tips the month:
+ *    it carries the earlier runs' 1%, nobody is sent back to reopen a final run, every run ends final;
+ *  - C: a month that stays exempt levies nothing on any of its runs.
+ * In every case the month's EMP201 SDL equals 1% of the month's leviable lines (each rounded to the cent).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
@@ -14,64 +16,91 @@ import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Serv
 // 23:15 SAST on 17 November: the minted sessions stay valid across the move to the 18th below.
 vi.useFakeTimers({ now: new Date('2026-11-17T21:15:00Z'), shouldAdvanceTime: true, toFake: ['Date'] });
 
-let a: Awaited<ReturnType<typeof rig>>;
-let bonusComponent = '';
-const p: Record<string, string> = {};
-let regular = '';
+type Rig = Awaited<ReturnType<typeof rig>>;
+const r: Record<'a' | 'b' | 'c', Rig> = {} as never;
+const bonusOf: Record<string, string> = {};
+const regular: Record<string, string> = {};
+const mid: Record<string, string> = {};
 
-const create = (body: Record<string, unknown>) =>
-  a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, { body: { month: 11, year: 2026, ...body } });
-const exemptOf = async (runId: string) => (await a.pool.query('SELECT bool_or(sdl_exempt) AS e FROM payroll_run_lines WHERE run_id = $1', [runId])).rows[0].e;
+const create = (t: Rig, body: Record<string, unknown>) =>
+  t.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, { body: { month: 11, year: 2026, ...body } });
+const bonus = (t: Rig, amount: number, runDate: string) =>
+  create(t, { reason: 'bonus', runDate, employees: [{ employeeId: mid[t.company], componentId: bonusOf[t.company], amount }] });
+/** Calculated and approved; returns the run id. */
+async function final(t: Rig, made: { statusCode: number; body: { data?: { id?: unknown } } }): Promise<string> {
+  expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+  const id = String(made.body.data!.id);
+  expect((await t.api.calculate(id)).statusCode).toBe(200);
+  const ok = await t.api.approve(id);
+  expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+  return id;
+}
+/** The month's lines: SDL levied, and 1% of each line's leviable amount rounded to the cent. */
+async function month(t: Rig) {
+  return (await t.pool.query(`SELECT COALESCE(SUM(l.sdl), 0)::float8 AS levied, COALESCE(SUM(ROUND(l.sdl_leviable * 0.01, 2)), 0)::float8 AS due
+    FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
+    WHERE h.company_id = $1 AND h.period_year = 2026 AND h.period_month = 11 AND h.status = 'approved'`, [t.company])).rows[0];
+}
+const sdlOf = async (t: Rig, id: string) => Number((await t.pool.query('SELECT COALESCE(SUM(sdl), 0)::float8 AS s FROM payroll_run_lines WHERE run_id = $1', [id])).rows[0].s);
 
 beforeAll(async () => {
-  a = await rig('w6-oc-sdl');
-  await a.setup();
-  // Under the R500 000 threshold on the regular run alone; a large termination pay-out would carry the month over.
-  p.mid = (await a.employee(15_000)).employee;
-  p.young = (await a.employee(5_300)).employee;
-  bonusComponent = (await a.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
-    VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [a.company])).rows[0].id;
-  regular = await a.calculatedRun(11);
-  expect((await a.api.approve(regular)).statusCode).toBe(200);
-}, 120_000);
+  for (const k of ['a', 'b', 'c'] as const) {
+    r[k] = await rig(`w6-oc-sdl-${k}`);
+    const t = r[k];
+    await t.setup();
+    mid[t.company] = (await t.employee(15_000)).employee;
+    await t.employee(5_300);
+    bonusOf[t.company] = (await t.pool.query(`INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
+      VALUES ($1, 'Annual bonus', '3605', 'earning') RETURNING id`, [t.company])).rows[0].id;
+    regular[t.company] = await t.calculatedRun(11);
+    expect((await t.api.approve(regular[t.company]!)).statusCode).toBe(200);
+  }
+}, 180_000);
 
 afterAll(async () => {
-  await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]).catch(() => undefined);
-  await a.pool.query('DELETE FROM audit_log WHERE company_id = $1', [a.company]).catch(() => undefined);
-  await a.teardown();
+  for (const t of Object.values(r)) {
+    await t.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [t.company]).catch(() => undefined);
+    await t.pool.query('DELETE FROM audit_log WHERE company_id = $1', [t.company]).catch(() => undefined);
+    await t.teardown();
+  }
   vi.useRealTimers();
 }, 120_000);
 
-describe('one SDL decision per month, binding once a run of it is final', () => {
-  let bonus = '';
-  it('a termination run that would move the month\'s estimate takes the final runs\' decision; every run ends final', async () => {
-    const b = await create({ reason: 'bonus', runDate: '2026-11-17', employees: [{ employeeId: p.mid, componentId: bonusComponent, amount: 5_000 }] });
-    expect(b.statusCode, JSON.stringify(b.body)).toBe(201);
-    bonus = String(b.body.data!.id);
-    expect((await a.api.calculate(bonus)).statusCode).toBe(200);
-    expect((await a.api.approve(bonus)).statusCode).toBe(200);
-    vi.setSystemTime(new Date('2026-11-17T22:05:00Z')); // 00:05 SAST on the 18th: the bonus's pay date has passed
-    await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-25', termination_reason = 'resignation',
-      termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [p.mid]);
-    const t = await create({ reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: p.mid }] });
-    expect(t.statusCode, JSON.stringify(t.body)).toBe(201);
-    const term = String(t.body.data!.id);
-    expect((await a.api.calculate(term)).statusCode).toBe(200);
-    expect(await exemptOf(term)).toBe(await exemptOf(regular));
-    expect(await exemptOf(bonus)).toBe(await exemptOf(regular));
-    expect((await a.api.approve(term)).statusCode).toBe(200);
-    for (const id of [regular, bonus, term]) expect((await a.header(id)).status).toBe('approved');
-    const lines = (await a.pool.query(`SELECT COALESCE(SUM(l.paye), 0)::float8 AS paye, COALESCE(SUM(l.sdl), 0)::float8 AS sdl
-      FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id WHERE h.company_id = $1 AND h.period_month = 11`, [a.company])).rows[0];
-    const emp201 = await generateEMP201(a.company, '2026-11-01', '2026-11-30');
-    expect(emp201.totalPAYE).toBeCloseTo(lines.paye, 2);
-    expect(emp201.totalSDL).toBeCloseTo(lines.sdl, 2);
+describe('SDL settled for the month to date', () => {
+  it('A: an exempt regular month, then a R600 000 bonus: the bonus carries 1% of the whole month (R6 203)', async () => {
+    const t = r.a;
+    expect(await sdlOf(t, regular[t.company]!)).toBe(0);
+    const id = await final(t, await bonus(t, 600_000, '2026-11-27'));
+    expect(await sdlOf(t, id)).toBe(6_203);
+    expect((await t.pool.query('SELECT bool_or(sdl_exempt) AS e FROM payroll_run_lines WHERE run_id = $1', [regular[t.company]])).rows[0].e).toBe(true);
+    const m = await month(t);
+    expect(m.levied).toBeCloseTo(m.due, 2);
+    expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBeCloseTo(6_203, 2);
+    // The line says why: liable on this run, carrying the month's earlier runs.
+    const steps = (await t.pool.query(`SELECT explanation->'sdl'->'steps' AS s FROM payroll_run_lines WHERE run_id = $1`, [id])).rows[0].s as Array<{ key: string; amount: number }>;
+    expect(steps.find((s) => s.key === 'sdl.catchUp')?.amount).toBe(203);
   });
 
-  it('the bonus, its pay date passed, is not reopened: 409, it stays approved', async () => {
-    const refused = await a.api.reopen(bonus);
-    expect(refused.statusCode).toBe(409);
-    expect(a.msg(refused)).toMatch(/^This off-cycle run was paid on 17 Nov 2026, so it is not reopened: a paid run is corrected by a later run\./);
-    expect((await a.header(bonus)).status).toBe('approved');
+  it('B: a termination run that tips the month carries the earlier runs\' 1%; every run ends final without a reopen', async () => {
+    const t = r.b;
+    const b = await final(t, await bonus(t, 5_000, '2026-11-17'));
+    vi.setSystemTime(new Date('2026-11-17T22:05:00Z')); // 00:05 SAST on the 18th
+    await t.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-25', termination_reason = 'resignation',
+      termination_notice_period_days = 30, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [mid[t.company]]);
+    const term = await final(t, await create(t, { reason: 'termination', runDate: '2026-11-26', employees: [{ employeeId: mid[t.company] }] }));
+    for (const id of [regular[t.company]!, b, term]) expect((await t.header(id)).status).toBe('approved');
+    expect(await sdlOf(t, regular[t.company]!)).toBe(0);
+    expect(await sdlOf(t, b)).toBe(0);
+    const m = await month(t);
+    expect(await sdlOf(t, term)).toBeCloseTo(m.due, 2);
+    expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBeCloseTo(m.due, 2);
+  });
+
+  it('C: a month that stays exempt levies nothing on any run', async () => {
+    const t = r.c;
+    const id = await final(t, await bonus(t, 1_000, '2026-11-27'));
+    expect(await sdlOf(t, id)).toBe(0);
+    expect((await month(t)).levied).toBe(0);
+    expect((await generateEMP201(t.company, '2026-11-01', '2026-11-30')).totalSDL).toBe(0);
   });
 });
