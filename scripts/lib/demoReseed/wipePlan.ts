@@ -244,6 +244,10 @@ export const KEEP_TABLES: readonly string[] = [
   'subscriptions', 'subscription_charges', 'subscription_mandates', 'admin_invoices', 'flow_wallet', 'flow_purchases',
   'paystack_payment_requests', 'stitch_payment_requests', 'payment_transactions', 'analytics_websites', 'page_visits',
   'mcp_tool_calls', 'http_idempotency_keys', 'background_jobs', 'email_log',
+  // Migration 1002: one lock row per company (backfilled, and made by a trigger on companies). Infrastructure of the intercompany
+  // group protocol, never data the reseed writes or wipes: a company always has its row (the Demo company too). The other
+  // intercompany tables hold nothing for a Demo company; if one ever does, the census refuses rather than guessing.
+  'intercompany_company_locks',
 ];
 
 /**
