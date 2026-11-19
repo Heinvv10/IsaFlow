@@ -17,7 +17,6 @@ import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './t
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
-import { offCycleEti } from './payrollOffCycleMonth';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
 import type {
@@ -125,7 +124,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       ytd: ytdForTables ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
       taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
       factor: cadence.factor, periodsInYear: cadence.periodsInYear, periodShare: cadence.periodShare,
-      offCycleLine: input.monthEarlier !== undefined, // only an off-cycle run's line carries its month's earlier lines (OC)
     },
     ytd: ytdForTables,
   });
@@ -135,10 +133,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const taxableIncome = regularTaxable + annualTaxable;
   const balanceOfRemuneration = taxableIncome - retirementDeduction;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  // UIF on the room left under the month's ceiling after the month's earlier runs (UIC Act s6(1)(a), s6(2)): a weekly or
-  // fortnightly line's earlier runs of its frequency (FQc), or an off-cycle line's earlier final runs (OC, payrollOffCycleMonth).
-  const uifMonthToDate = round2(cadence.uifMonthToDate + (input.monthEarlier?.uifRemuneration ?? 0));
-  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear, uifMonthToDate);
+  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear, cadence.uifMonthToDate);
   const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
   if (uifCosted) warnings.push(...uifClawbackWarnings(earningParts, uifLeviable));
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
@@ -172,21 +167,15 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // ETI (wave 5 ET): hours, the minimum wage and the remuneration base are in payrollLineEti / etiHours.
   const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
-  // An off-cycle line (OC): the month's ETI on everything the month paid, less what its earlier lines claimed (ETI Act s7).
-  const etiComponents = input.monthEarlier ? [...input.monthEarlier.etiComponents, ...components] : components;
   const lineEti = costLineEti({
-    employee, components: etiComponents, period, periodDate,
-    runHours: input.notEmployedInPeriod ? null : input.monthEarlier ? runHoursOf(employee, etiComponents) : hours,
+    employee, components, period, periodDate, runHours: hours,
     notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
     ...(input.cadence?.etiMonthToDate ? { monthToDate: input.cadence.etiMonthToDate } : {}),
   });
   // A weekly or fortnightly line before its month's last run claims none and records its parts (payrollLineEtiMonth).
   const etiPending = input.cadence && cadence.frequency !== 'monthly' && !input.cadence.etiMonthToDate && !input.notEmployedInPeriod
     ? pendingEti(lineEti.eti, etiMonthPartsOf(employee, input.cadence, hours, components)) : null;
-  // An off-cycle line (OC; monthly only): the month's ETI on everything the month paid, less the earlier lines' claim.
-  const eti: EtiResult = input.monthEarlier
-    ? { ...lineEti.eti, monthlyEti: offCycleEti(lineEti.eti.monthlyEti, input.monthEarlier) }
-    : etiPending?.eti ?? lineEti.eti;
+  const eti: EtiResult = etiPending?.eti ?? lineEti.eti;
   warnings.push(...(etiPending?.warnings ?? lineEti.warnings));
 
   const netPay = Math.round(
@@ -227,7 +216,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         regular: directed.regular, annual: directed.annualPayment, capRoom: capped.capRoom }, taxYear) } : {}),
     },
     uif: {
-      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts, monthToDate: uifMonthToDate,
+      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts, monthToDate: cadence.uifMonthToDate,
       outsideReason: !treatment.uif ? 'Independent contractor: no UIF' : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {
@@ -237,8 +226,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
     },
     // The ETI base takes a taxable cash 3701 at its PAYE share and no 38xx or non-cash item (etiHours.etiRemunerationOf).
-    ...(input.monthEarlier ? { offCycle: { earlier: input.monthEarlier, monthEti: lineEti.eti.monthlyEti, eti: eti.monthlyEti } } : {}),
-    eti: { eti: input.monthEarlier ? lineEti.eti : eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
+    eti: { eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
   });
 
   return {

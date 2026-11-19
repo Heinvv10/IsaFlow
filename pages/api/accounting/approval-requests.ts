@@ -28,7 +28,6 @@ import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/appr
 import { isSoleApproverApproval, soleApproverAuditMetadata } from '@/modules/accounting/services/gl/approvalSelfApproval';
 import { isUuidParam } from '@/lib/validation';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
-import { assertOffCycleSubmittable, OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 import { sql } from '@/lib/neon';
 import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
 
@@ -104,10 +103,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
       try {
         let payRunPlanHash: string | null = null;
-        if (documentType === 'pay_run') {
-          await assertOffCycleSubmittable(companyId, documentId); // wave 6 OC: nothing is submitted that approval refuses
-          payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
-        }
+        if (documentType === 'pay_run') payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
         const request = await requestApproval(companyId, {
           documentType, documentId, requestedBy: userId,
         });
@@ -131,7 +127,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
         // The note's row was held past the 5s budget (a cancel or approve in flight): retry, 503 rolls back.
         if (respondIfLockTimeout(res, error)) return;
-        if (error instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, error.message, { reason: error.code });
         // The rules or the document moved under the raise twice running
         // (R-035 N1): nothing was written; submitting again is the answer.
         if (error instanceof ApprovalRequestStaleError) {

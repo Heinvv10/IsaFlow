@@ -8,7 +8,6 @@
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { explainPaye, type PayeExplainInput } from './payeExplain';
 import { explainEti, explainSdl, explainUif } from './statutoryExplain';
-import { explainOffCycleEti, type OffCycleExplainInput } from './offCycleExplain';
 import type { SdlLeviableTrace } from './sdlLeviableCumulative';
 import type { EtiResult, UifResult } from './payrollTypes';
 import type { LineExplanations } from './payrollExplainTypes';
@@ -24,8 +23,6 @@ export interface LineExplainParts {
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';
   };
   eti: { eti: EtiResult; hasPayeShare: boolean; hoursAssumed: boolean };
-  /** An off-cycle line (OC): the month's earlier lines; the line's own ETI after them. */
-  offCycle?: OffCycleExplainInput & { eti: number };
   /** A weekly or fortnightly line's period share (FQc); absent on a monthly line. */
   periodShare?: number;
 }
@@ -39,7 +36,7 @@ export function explainPayrollLine(parts: LineExplainParts): LineExplanations {
     paye: explainPaye({ taxYear, ...parts.paye }),
     uif: explainUif({ taxYear, ...parts.uif }),
     sdl: explainSdl({ taxYear, ...parts.sdl }),
-    eti: ((e) => (parts.offCycle ? explainOffCycleEti(e, parts.offCycle, parts.offCycle.eti) : e))(explainEti({ taxYear, periodDate: parts.periodDate, ...parts.eti })),
+    eti: explainEti({ taxYear, periodDate: parts.periodDate, ...parts.eti }),
     ...(parts.periodShare === undefined ? {} : { periodShare: parts.periodShare }),
   };
 }

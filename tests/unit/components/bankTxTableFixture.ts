@@ -30,7 +30,7 @@ export function tableProps(over: Partial<BankTxTableProps> = {}): BankTxTablePro
   return {
     transactions: TXS, glAccounts: GL,
     suppliers: [{ id: 's1', name: 'Sup' }], customers: [{ id: 'c1', name: 'Acme' }], transferTargets: [{ id: 't1', code: '8400', name: 'FNB' }],
-    cc1Options: [{ id: 'x', code: 'X', name: 'Xn' }], cc2Options: [{ id: 'y', name: 'Y' }], buOptions: [{ id: 'z', name: 'Z' }],
+    cc1Options: [{ id: 'x', code: 'X', name: 'Xn' }], cc2Options: [{ id: 'y', name: 'Y', fnoCode: 'X' }], buOptions: [{ id: 'z', name: 'Z' }],
     showCC: true, showBU: true,
     selectedIds: new Set<string>(), rowSelections: SELECTIONS, allSelected: false, tab: 'new',
     onToggleSelect: vi.fn(), onSelectAll: vi.fn(), onRowTypeChange: vi.fn(), onRowEntityChange: vi.fn(),

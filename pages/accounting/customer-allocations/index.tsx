@@ -10,6 +10,7 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -175,8 +176,8 @@ export default function CustomerAllocationsPage() {
                           <p className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(inv.date)} &middot; Total: {fmt(inv.total)}</p>
                         </div>
                         {allocs[inv.id] !== undefined && (
-                          <input type="number" value={allocs[inv.id]} step="0.01" min="0" max={inv.outstanding}
-                            onChange={e => setAllocs(prev => ({ ...prev, [inv.id]: Number(e.target.value) }))}
+                          <AmountInput value={allocs[inv.id] ?? 0} min={0} max={inv.outstanding} aria-label={`Allocate to ${inv.invoiceNumber}`}
+                            onValueChange={n => setAllocs(prev => ({ ...prev, [inv.id]: n }))}
                             onClick={e => e.stopPropagation()}
                             className="w-28 px-2 py-1 text-right bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-sm tabular-nums text-[var(--ff-text-primary)]" />
                         )}

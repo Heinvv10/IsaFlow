@@ -28,7 +28,6 @@ import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounti
 import { assertFrequencyCostable, frequencyRunOf, isPayFrequencyRefused } from '@/modules/accounting/services/payroll/payrollFrequencyGuard';
 import { runPeriodOf } from '@/modules/accounting/services/payroll/payrollFrequency';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
-import { assertOffCycleBeforeClose, OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 
 /** The run, as every tool here reports it. */
 export function runPayload(run: PayrollRunSummary): Record<string, unknown> {
@@ -103,10 +102,8 @@ export const calculatePayRunTool: McpTool = {
           // Wave 6 FQc: then the frequency guard, as the live call runs it (a mid-year frequency change refuses a monthly run too).
           const frequencyRun = frequencyRunOf(row);
           if (frequencyRun) await assertFrequencyCostable(ctx.companyId, frequencyRun, employees.map((e) => e.id));
-          // Wave 6 OC: then the month's close, as the live call checks it (an off-cycle run paid after its regular run).
-          await assertOffCycleBeforeClose(ctx.companyId, row);
         } catch (err) {
-          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof OffCycleRunRefusedError) return toolError(err.message);
+          if (isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
           throw err;
         }
       }
@@ -144,7 +141,7 @@ export const calculatePayRunTool: McpTool = {
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
       if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || err instanceof PreparerIdNotSupportedError
-        || isRunKindUnsupported(err) || isPayFrequencyRefused(err) || err instanceof OffCycleRunRefusedError) return toolError(err.message);
+        || isRunKindUnsupported(err) || isPayFrequencyRefused(err)) return toolError(err.message);
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError

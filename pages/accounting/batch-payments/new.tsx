@@ -13,6 +13,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 // supplier-invoices answers camelCase rows. Reading snake_case left the invoice
 // list empty.
@@ -178,9 +179,9 @@ export default function NewBatchPaymentPage() {
                             </select>
                           </td>
                           <td className="px-3 py-2">
-                            <input type="number" step="0.01" min="0" max={balance || undefined} name="amount"
+                            <AmountInput min={0} max={balance || undefined} name="amount" aria-label="Amount"
                               value={line.amount || ''}
-                              onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, amount: Number(e.target.value) } : l))}
+                              onValueChange={n => setLines(p => p.map(l => l.key === line.key ? { ...l, amount: n } : l))}
                               className={`${inp} text-right`} placeholder="0.00" />
                           </td>
                           <td className="px-2 py-2">
