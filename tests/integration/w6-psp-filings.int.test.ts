@@ -346,3 +346,38 @@ describe('round 3: a PSP entity change, and a viewer with two PSP payees', () =>
     expect(JSON.stringify(ye.body)).not.toMatch(/TSB-psp-two|Extra|payee/);
   });
 });
+
+describe('security review M (per month): two PSP payees in the year, one alone in April', () => {
+  it('a viewer reads neither April\'s PSP PAYE nor a variance or total that moves with it; a detail role sees the split', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psp per-month viewer', 30_000);
+    const a = await addEmployee(pool, f, 'psp-pm-a', PAY);
+    const b = await addEmployee(pool, f, 'psp-pm-b', PAY);
+    await toPsp(f, a, 'company');
+    await toPsp(f, b, 'company');
+    const march = await newRun(pool, f, 3);
+    await calculatePayrollRun(march, f.company);
+    await approve(march);
+    await pool.query("UPDATE payroll_employees SET end_date = '2026-03-31' WHERE id = $1", [b]); // B leaves: April has A alone
+    const april = await newRun(pool, f, 4);
+    await calculatePayrollRun(april, f.company);
+    await approve(april);
+    const url = '/api/payroll/emp501/reconciliation?taxYear=2027';
+    type Recon = { data: { rows: Array<{ month: number; variance: number }>; totalVariance: number; totalPspPaye?: number; runWarnings: string[] } };
+    const v = ((await (await viewerOf(f))(reconciliationRoute as Route, 'GET', url, undefined, { query: { taxYear: '2027' } })).body as unknown as Recon).data;
+    const d = ((await f.call(reconciliationRoute as Route, 'GET', url, undefined, { query: { taxYear: '2027' } })).body as unknown as Recon).data;
+    const row = (x: Recon['data'], m: number) => x.rows.find((r) => r.month === m)!.variance;
+    // Detail: March 21 600 (two PSPs at 27% of 40 000), April 10 800 (A alone).
+    expect([row(d, 3), row(d, 4)].map((n) => Math.round(n * 100) / 100)).toEqual([21_600, 10_800]);
+    // Viewer: March (2 payees) visible, April (1 payee) on the old basis; totals and the PSP line carry March only.
+    expect(row(v, 3)).toBeCloseTo(21_600, 2);
+    expect(row(v, 4)).toBeCloseTo(0, 2);
+    expect(v.totalVariance).toBeCloseTo(21_600, 2);
+    expect(v.totalPspPaye).toBe(21_600);
+    expect(JSON.stringify(v.runWarnings)).not.toMatch(/32[ ,]?400|10[ ,]?800/);
+    const ye = ((await (await viewerOf(f))(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } }))
+      .body as unknown as { data: { emp501: { pspPaye?: number; totalVariance: number }; runWarnings: string[] } }).data;
+    expect(ye.emp501.pspPaye).toBe(21_600);
+    expect(ye.emp501.totalVariance).toBeCloseTo(21_600, 2);
+    expect(JSON.stringify(ye.runWarnings)).not.toMatch(/32[ ,]?400|10[ ,]?800/);
+  });
+});

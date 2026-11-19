@@ -139,18 +139,45 @@ export function pspTotalsVisibleToViewer(totals: readonly PspFilingTotal[]): boo
   return totals.length >= 2;
 }
 
+/** A month's PSP lines on the final runs: their PAYE and how many PSPs they are. */
+export interface PspMonth { paye: number; payees: number }
+
 /**
- * The same for a reader without payroll-detail access (a viewer of an aggregate-only route): one line, the PSP lines'
- * total PAYE only (no count, name, employee number or per-person amount), and with fewer than 2 payees not even that.
- * Null when there is none.
+ * Per month (security review of #1566, M): a reader without payroll-detail access never sees a month's PSP PAYE, nor any
+ * figure it moves, when that month has fewer than 2 PSP payees or the year has fewer than 2 (pspTotalsVisibleToViewer).
+ * Such a month is reported on the old basis (IRP5 PAYE with its PSP lines in).
  */
-export function pspAggregateWarning(totals: readonly PspFilingTotal[], filing: string): string | null {
+export function pspMonthHiddenFromViewer(m: PspMonth | undefined, yearVisible: boolean): boolean {
+  return !!m && m.paye !== 0 && (!yearVisible || m.payees < 2);
+}
+
+/** `${year}-${month}` -> the month's PSP lines on the final runs whose period is within [start, end] (this company only). */
+export async function listPspMonths(companyId: string, bounds: { start: string; end: string }): Promise<Map<string, PspMonth>> {
+  const rows = (await sql`
+    SELECT h.period_year, h.period_month, SUM(l.paye)::numeric AS paye, COUNT(DISTINCT l.employee_id)::int AS payees
+      FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
+     WHERE h.company_id = ${companyId}::uuid
+       AND ${sql.unsafe(payRunFinalSql('h'))}
+       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
+       AND l.validation_results @> ${pspLineFlag}::jsonb
+     GROUP BY h.period_year, h.period_month
+  `) as DbRow[];
+  return new Map(rows.map((r) => [`${Number(r.period_year)}-${Number(r.period_month)}`,
+    { paye: Math.round(Number(r.paye) * 100) / 100, payees: Number(r.payees) }]));
+}
+
+/**
+ * The same for a reader without payroll-detail access (a viewer of an aggregate-only route): one line with the PSP PAYE
+ * a viewer may see (`visiblePaye`: the months not hidden, pspMonthHiddenFromViewer) and nothing else (no count, name,
+ * employee number or per-person amount); with none visible, the note. Null when there is no PSP.
+ */
+export function pspAggregateWarning(totals: readonly PspFilingTotal[], filing: string, visiblePaye: number): string | null {
   if (totals.length === 0) return null;
-  if (!pspTotalsVisibleToViewer(totals)) {
+  if (!pspTotalsVisibleToViewer(totals) || visiblePaye === 0) {
     return `Personal service provider pay is not on the ${filing} (a PSP's certificate is not produced here). ${PSP_DETAIL_NOTE}.`;
   }
-  const paye = Math.round(totals.reduce((t, x) => t + x.paye, 0) * 100) / 100;
   // No payee count: with one PSP it would let a viewer read that person's PAYE (review Low). The detail lines name each one.
-  return `${formatMoney(paye)} of PAYE on personal service provider pay is not on the `
+  return `${formatMoney(Math.round(visiblePaye * 100) / 100)} of PAYE on personal service provider pay is not on the `
     + `${filing}: a PSP's certificate is the company's or trust's (nature of person H), which IsaFlow does not produce. UNVERIFIED.`;
 }
