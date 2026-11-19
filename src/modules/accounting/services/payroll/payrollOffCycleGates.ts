@@ -20,7 +20,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
-import { emp201FiledForMonth } from './payrollOffCycleCorrection';
+import { emp201FiledForMonth, wasApprovedBefore } from './payrollOffCycleCorrection';
 
 /**
  * Why this off-cycle run cannot be reopened today (review #1620 final breaker M, coordinator ruling): once its pay date
@@ -44,12 +44,6 @@ export async function offCyclePaidReopenRefusal(
     : null;
 }
 
-/** A run's approval_history (migration 925, a tstzmultirange): non-empty once it was approved and reopened. */
-function wasApprovedBefore(history: unknown): boolean {
-  if (history == null) return false;
-  const text = String(history).trim();
-  return text !== '' && text !== '{}';
-}
 
 /** Why this off-cycle run cannot be approved today; null when it can (or it is not off-cycle). */
 export function offCyclePayDateRefusal(run: { run_kind?: unknown; run_date?: unknown; approval_history?: unknown }, today: string = todayInSast()): string | null {

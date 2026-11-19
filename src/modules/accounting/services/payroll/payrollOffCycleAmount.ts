@@ -56,7 +56,7 @@ export async function setOffCycleBonusAmount(
   const amount = Math.round(entered * 100) / 100;
   return withTransaction(async (tx) => {
     const run = ((await tx`
-      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.off_cycle_paid_gross
+      SELECT h.id, h.run_kind, h.off_cycle_reason, h.status, h.run_date, h.period_year, h.period_month, h.off_cycle_paid_gross, h.approval_history
         FROM payroll_run_headers h
        WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
        FOR UPDATE OF h

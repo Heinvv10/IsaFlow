@@ -19,7 +19,17 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { dateColumnOf } from './payrollFrequency';
 
-type RunFacts = { id?: unknown; run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown; off_cycle_paid_gross?: unknown };
+type RunFacts = {
+  id?: unknown; run_kind?: unknown; run_date?: unknown; period_year?: unknown; period_month?: unknown; off_cycle_paid_gross?: unknown;
+  approval_history?: unknown;
+};
+
+/** A run's approval_history (migration 925, a tstzmultirange): non-empty once it was approved and reopened. */
+export function wasApprovedBefore(history: unknown): boolean {
+  if (history == null) return false;
+  const text = String(history).trim();
+  return text !== '' && text !== '{}';
+}
 
 /** A finalised or filed EMP201 (or a legacy submitted or accepted one) covers the month. */
 export async function emp201FiledForMonth(companyId: string, year: number, month: number, db: TxSql = sql): Promise<boolean> {
@@ -54,9 +64,12 @@ export async function offCycleFiledMonthRefusal(companyId: string, run: RunFacts
  * snapshot trigger when the run left 'approved'), when its pay date has passed; null otherwise.
  */
 function paidCaps(run: RunFacts, today: string): Map<string, number> | null {
-  if (run.run_kind !== 'off_cycle' || run.off_cycle_paid_gross == null) return null;
+  if (run.run_kind !== 'off_cycle') return null;
   const payDate = dateColumnOf(run.run_date);
   if (payDate === null || payDate >= today) return null;
+  // Fail closed (review #1679c): a run approved before has a snapshot (the reopen takes one from its lines); none means
+  // it was lost below the service (a header deleted and inserted again), so every employee is capped at nil.
+  if (run.off_cycle_paid_gross == null) return wasApprovedBefore(run.approval_history) ? new Map() : null;
   const snap = (typeof run.off_cycle_paid_gross === 'string' ? JSON.parse(run.off_cycle_paid_gross) : run.off_cycle_paid_gross) as Record<string, unknown>;
   return new Map(Object.entries(snap).map(([k, v]) => [k, Number(v)]));
 }
