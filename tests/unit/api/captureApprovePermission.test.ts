@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { permissionDb, permissionSql } from '../helpers/permissionSqlMock';
 const S = '22222222-2222-4222-8222-222222222222';
 const inserted: unknown[][] = [];
+const audits: unknown[][] = [];
 const C = '11111111-1111-4111-8111-111111111111', U = '99999999-9999-4999-8999-999999999999';
 const db = permissionDb();
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -18,6 +19,7 @@ vi.mock('@/lib/apiDocumentLock', () => ({ respondIfLockTimeout: () => false }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn((s: TemplateStringsArray, ...v: unknown[]) => permissionSql(db, (t, values) => {
   if (t.includes('FROM suppliers')) return [{ id: S, name: 'Acme', vat_number: null }];
   if (t.includes('INSERT INTO supplier_invoices')) { inserted.push(values); return [{ id: 'bill-1', invoice_number: 'INV1', status: values[12] }]; }
+  if (t.includes('INSERT INTO audit_log')) { audits.push(values); return []; }
   return [];
 })(s, ...v)) }));
 vi.mock('@/modules/accounting/services/core/aiInvoicePipelineService', async (orig) => ({
@@ -46,6 +48,7 @@ import handler from '../../../pages/api/accounting/capture/[id]/post';
 
 async function post() {
   inserted.length = 0;
+  audits.length = 0;
   const req = { method: 'POST', query: { id: 'ev1' }, body: {}, companyId: C, companyRole: 'manager', user: { id: U } } as unknown as NextApiRequest;
   const res = { statusCode: 200, sent: undefined as unknown, setHeader() { return this; }, status(c: number) { this.statusCode = c; return this; }, json(p: unknown) { this.sent = p; return this; }, end() { return this; } };
   await (handler as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(req, res as unknown as NextApiResponse);
@@ -59,6 +62,14 @@ describe('capture post (R2)', () => {
     const res = await post();
     expect(inserted, JSON.stringify(res.sent)).toHaveLength(1);
     expect(inserted[0]![12]).toBe('draft');
+    // L3 (review of #1670): it says why, is not reported as auto-published, and is audited.
+    const body = (res.sent as { data: Record<string, unknown> }).data;
+    expect(body.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/Left as a draft for review: You do not have permission to approve supplier invoices/)]));
+    expect(body.gateOutcome).toBeUndefined();
+    expect(body).toMatchObject({ approvalRoute: 'manual_review', reasons: ['no_approve_permission'] });
+    expect(audits).toHaveLength(1);
+    expect(JSON.stringify(audits[0])).toContain('withheld');
+    expect(JSON.stringify(audits[0])).toContain('capture_post');
   });
 
   it('a manager with the default keeps the auto-approval the gate gave', async () => {
@@ -67,5 +78,7 @@ describe('capture post (R2)', () => {
     const res = await post();
     expect(inserted, JSON.stringify(res.sent)).toHaveLength(1);
     expect(inserted[0]![12]).toBe('approved');
+    expect((res.sent as { data: Record<string, unknown> }).data.gateOutcome).toBe('auto_publish');
+    expect(audits).toHaveLength(0);
   });
 });

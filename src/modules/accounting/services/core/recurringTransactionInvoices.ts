@@ -30,6 +30,7 @@ import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDef
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { UUID_RE } from '@/lib/validation';
 import { SUPPLIER_INVOICE_APPROVE_REFUSED, mayApproveSupplierInvoices } from '../ap/billApprovePermission';
+import { recordApproveWithheld } from './approvePermission';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -255,6 +256,8 @@ export async function mintRecurringSupplierInvoice(
     // #1656: the person running the template approves the bill, so it takes their Suppliers & AP Approve.
     // Without it the bill is left a draft (as the approval gate leaves one, above) and the schedule advances.
     if (!(await mayApproveSupplierInvoices(companyId, userId))) {
+      await recordApproveWithheld({ companyId, userId, module: 'suppliers', entityType: 'supplier_invoice', entityId,
+        entityRef: template.name ?? null, path: 'recurring_run' });
       return { entityId, posted: false, warnings: [`Left as a draft: ${SUPPLIER_INVOICE_APPROVE_REFUSED}`] };
     }
     const { approveSupplierInvoice } = await import('../ap/supplierInvoiceWorkflowService');

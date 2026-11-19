@@ -13,6 +13,7 @@ const U = '99999999-9999-4999-8999-999999999999';
 const T = '33333333-3333-4333-8333-333333333333';
 let db = permissionDb();
 let storedTemplate: { entity_type: string; auto_post: boolean } | null = null;
+const audits: string[] = [];
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
@@ -55,8 +56,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   db = permissionDb();
   storedTemplate = null;
-  vi.mocked(sql).mockImplementation(permissionSql(db, (text) =>
-    (text.includes('FROM recurring_transaction_templates') && storedTemplate ? [storedTemplate] : [])) as never);
+  audits.length = 0;
+  vi.mocked(sql).mockImplementation(permissionSql(db, (text, values) => {
+    if (text.includes('INSERT INTO audit_log')) audits.push(JSON.stringify(values));
+    return text.includes('FROM recurring_transaction_templates') && storedTemplate ? [storedTemplate] : [];
+  }) as never);
 });
 
 const manager = (canApprove?: boolean) => {
@@ -71,6 +75,10 @@ describe('Run now on an autoPost AP template (R1)', () => {
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
     expect(r.posted).toBe(false);
     expect(r.warnings?.[0]).toMatch(/Left as a draft: You do not have permission to approve supplier invoices/);
+    // L4 (review of #1670): and audited.
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toContain('withheld');
+    expect(audits[0]).toContain('recurring_run');
   });
 
   it('a manager with the default (approve) still gets it posted', async () => {
