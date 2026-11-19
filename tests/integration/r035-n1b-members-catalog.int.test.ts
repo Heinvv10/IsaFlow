@@ -31,9 +31,10 @@ const TABLES = ['company_users', 'company_invitations'];
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
   'company_member_role_is_owner(text)': '78a4144a1b43a1698868ca0dc16e76e0',
-  // 908b (S-04/S-08 follow-ups A, B), then 916 (S-07b): the exemption line patched to bind app_service.
-  'company_users_role_guard()': '57b4a251179b9f8794d553f0183e7593',
-  'company_invitations_role_guard()': 'fc3401d65bef8c2c375cf4ce16022161',
+  // 908b (S-04/S-08 follow-ups A, B), then 916 (S-07b): the exemption line patched to bind app_service; then 1010
+  // (#1656): the portal's role list (admin, manager, viewer) and the invitation list (owner, admin, manager, viewer).
+  'company_users_role_guard()': 'b603608e54ae167a50e774c749903571',
+  'company_invitations_role_guard()': '5c22c584347b5c91f87a9dae053dfa8c',
 };
 
 const OTHERS = `

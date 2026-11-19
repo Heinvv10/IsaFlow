@@ -103,6 +103,24 @@ describe('creating or switching on an autoPost supplier-invoice template', () =>
     expect((await call('POST', { name: 'J', entityType: 'journal_entry', templateData: {}, frequency: 'monthly', autoPost: true })).statusCode).toBe(200);
   });
 
+  // Security review of #1670: auto_post is a boolean column and Postgres casts 'true' / '1' to true, so a value that is
+  // not a boolean must not slip past the approve check: it is refused (400) before anything is read or written.
+  it.each([['"true"', 'true'], ['1', 1], ['"yes"', 'yes']])('autoPost %s is refused (400) on create and update, nothing written', async (_l, value) => {
+    manager(false);
+    const created = await call('POST', { name: 'Rent', entityType: 'supplier_invoice', templateData: {}, frequency: 'monthly', autoPost: value });
+    expect(created.statusCode).toBe(400);
+    storedTemplate = { entity_type: 'supplier_invoice', auto_post: false };
+    expect((await call('PUT', { id: T, autoPost: value })).statusCode).toBe(400);
+    expect(createRecurringTemplate).not.toHaveBeenCalled();
+    expect(updateRecurringTemplate).not.toHaveBeenCalled();
+  });
+
+  it('an entity type outside the three is refused (400)', async () => {
+    manager(false);
+    expect((await call('POST', { name: 'X', entityType: 'Supplier_Invoice', templateData: {}, frequency: 'monthly', autoPost: true })).statusCode).toBe(400);
+    expect(createRecurringTemplate).not.toHaveBeenCalled();
+  });
+
   it('a manager with Approve may create one', async () => {
     manager(true);
     expect((await call('POST', { name: 'Rent', entityType: 'supplier_invoice', templateData: {}, frequency: 'monthly', autoPost: true })).statusCode).toBe(200);

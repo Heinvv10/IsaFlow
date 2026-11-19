@@ -7,6 +7,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
@@ -28,6 +29,16 @@ import {
  * may approve supplier invoices (Suppliers & AP Approve) may create one or turn autoPost on. A run
  * by someone without it leaves the bill a draft (mintRecurringSupplierInvoice).
  */
+/**
+ * The two fields the approve rule reads, typed before anything else (security review of #1670):
+ * auto_post is a boolean column, and Postgres casts 'true' / '1' / 'yes' to true, so a string or a
+ * number that slipped past a `=== true` test would be stored ON. Anything but a boolean is a 400.
+ */
+const FlagFields = z.object({
+  entityType: z.enum(['journal_entry', 'customer_invoice', 'supplier_invoice']).optional(),
+  autoPost: z.boolean().nullable().optional(),
+}).passthrough();
+
 async function refusesAutoPostBills(
   companyId: string, userId: string, entityType: unknown, autoPost: unknown, templateId?: string,
 ): Promise<boolean> {
@@ -42,7 +53,8 @@ async function refusesAutoPostBills(
     type ??= rows[0]?.entity_type;
     post ??= rows[0]?.auto_post;
   }
-  if (type !== 'supplier_invoice' || post !== true) return false;
+  // Belt and braces: anything but an explicit false / absent counts as on, as the column would store it.
+  if (type !== 'supplier_invoice' || post === undefined || post === null || post === false) return false;
   return !(await mayApproveSupplierInvoices(companyId, userId));
 }
 
@@ -52,6 +64,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const items = await getRecurringTemplates(companyId);
     return apiResponse.success(res, items);
+  }
+
+  if (req.method === 'POST' || req.method === 'PUT') {
+    const flags = FlagFields.safeParse(req.body ?? {});
+    if (!flags.success) {
+      return apiResponse.badRequest(res, 'entityType must be journal_entry, customer_invoice or supplier_invoice, and autoPost true or false');
+    }
   }
 
   if (req.method === 'POST') {
