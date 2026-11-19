@@ -81,7 +81,7 @@ describe('a session that clears its claims mid-statement is refused (7, 8)', () 
       expect(await messageOf(q, `UPDATE company_groups SET holding_company_id = $2, name = ${clear} WHERE id = $1`, [g.GA, co.B1])).toMatch(/no claims on this statement/);
     });
     await F.asAppUser(u.UA, co.A1, async (q) => {
-      expect(await messageOf(q, `UPDATE company_groups SET created_by = $2::UUID, name = ${clear} WHERE id = $1`, [g.GA, u.UB])).toMatch(/no claims on this statement/);
+      expect(await messageOf(q, `UPDATE company_groups SET created_by = $2::UUID, name = ${clear} WHERE id = $1`, [g.GA, u.UB])).toMatch(/no claims on this statement|permission denied/);   // created_by is no longer a column app_user may update (1002)
     });
   });
   it('a claim-less path in no app role (a migration, the service pool) is still answered', async () => {

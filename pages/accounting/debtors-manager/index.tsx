@@ -121,16 +121,16 @@ export default function DebtorsManagerPage() {
 
           {/* Aging Summary Table */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--ff-border-light)]">
+            <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3 px-4 py-3 border-b border-[var(--ff-border-light)]">
               <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Aging by Customer</h2>
-              <div className="flex items-center gap-2">
-                <Search className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
+              <div className="flex items-center gap-2 max-lg:w-full">
+                <Search className="h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)]" />
                 <input
                   type="text"
                   placeholder="Search customer..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  className="ff-input text-sm w-48"
+                  aria-label="Search customer" className="ff-input text-sm w-48 max-lg:min-h-11 max-lg:w-full"
                 />
               </div>
             </div>
@@ -140,7 +140,7 @@ export default function DebtorsManagerPage() {
             ) : filtered.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-secondary)] text-sm">No outstanding debtor balances</div>
             ) : (
-              <table className="w-full">
+              <table className="table-cards w-full">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-6"></th>
@@ -158,25 +158,25 @@ export default function DebtorsManagerPage() {
                     <Fragment key={d.clientId}>
                       <tr
                         {...rowProps(d.clientId)}
-                        className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer"
+                        className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer max-lg:relative"
                       >
-                        <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
+                        <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-lg:!absolute max-lg:right-1 max-lg:top-2 max-lg:!w-auto">
                           {expandedId === d.clientId
                             ? <ChevronDown className="h-4 w-4" />
                             : <ChevronRight className="h-4 w-4" />}
                         </td>
                         <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-                          <Link href={`/accounting/customers/${d.clientId}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 hover:underline">
+                          <Link href={`/accounting/customers/${d.clientId}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 hover:underline max-lg:inline-flex max-lg:min-h-11 max-lg:items-center">
                             {d.clientName}
                           </Link>
                           <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">({d.invoiceCount} inv.)</span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-right tabular-nums text-teal-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right tabular-nums text-amber-500">{d.days30 > 0 ? fmt(d.days30) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right tabular-nums text-orange-500">{d.days60 > 0 ? fmt(d.days60) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right tabular-nums text-red-400">{d.days90 > 0 ? fmt(d.days90) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right tabular-nums text-red-600">{d.days90Plus > 0 ? fmt(d.days90Plus) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(d.totalOutstanding)}</td>
+                        <td data-label="Current" className="px-4 py-3 text-sm text-right tabular-nums text-teal-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
+                        <td data-label="1–30 Days" className="px-4 py-3 text-sm text-right tabular-nums text-amber-500">{d.days30 > 0 ? fmt(d.days30) : '—'}</td>
+                        <td data-label="31–60 Days" className="px-4 py-3 text-sm text-right tabular-nums text-orange-500">{d.days60 > 0 ? fmt(d.days60) : '—'}</td>
+                        <td data-label="61–90 Days" className="px-4 py-3 text-sm text-right tabular-nums text-red-400">{d.days90 > 0 ? fmt(d.days90) : '—'}</td>
+                        <td data-label="90+ Days" className="px-4 py-3 text-sm text-right tabular-nums text-red-600">{d.days90Plus > 0 ? fmt(d.days90Plus) : '—'}</td>
+                        <td data-label="Total" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(d.totalOutstanding)}</td>
                       </tr>
                       {expandedId === d.clientId && (
                         <DebtorInvoicesPanel clientId={d.clientId} clientName={d.clientName} />
@@ -186,14 +186,14 @@ export default function DebtorsManagerPage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
-                    <td className="px-4 py-3"></td>
+                    <td className="px-4 py-3 max-lg:!hidden"></td>
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-teal-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-amber-500">{fmt(filtered.reduce((s, d) => s + d.days30, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-orange-500">{fmt(filtered.reduce((s, d) => s + d.days60, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-red-400">{fmt(filtered.reduce((s, d) => s + d.days90, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-red-600">{fmt(filtered.reduce((s, d) => s + d.days90Plus, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(filtered.reduce((s, d) => s + d.totalOutstanding, 0))}</td>
+                    <td data-label="Current" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-teal-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
+                    <td data-label="1–30 Days" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-amber-500">{fmt(filtered.reduce((s, d) => s + d.days30, 0))}</td>
+                    <td data-label="31–60 Days" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-orange-500">{fmt(filtered.reduce((s, d) => s + d.days60, 0))}</td>
+                    <td data-label="61–90 Days" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-red-400">{fmt(filtered.reduce((s, d) => s + d.days90, 0))}</td>
+                    <td data-label="90+ Days" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-red-600">{fmt(filtered.reduce((s, d) => s + d.days90Plus, 0))}</td>
+                    <td data-label="Total" className="px-4 py-3 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(filtered.reduce((s, d) => s + d.totalOutstanding, 0))}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -208,7 +208,7 @@ export default function DebtorsManagerPage() {
                   Most Overdue Invoices <span className="text-[var(--ff-text-tertiary)] font-normal">({overdueInvoices.length} total)</span>
                 </h2>
               </div>
-              <table className="w-full">
+              <table className="table-cards w-full">
                 <thead>
                   <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
                     <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
@@ -222,14 +222,14 @@ export default function DebtorsManagerPage() {
                   {overdueInvoices.slice(0, 10).map(inv => (
                     <tr key={inv.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-2 text-sm font-mono">
-                        <Link href={buildInvoiceHref(inv.id, { from: 'debtors', entityId: inv.clientId })} className={INVOICE_LINK}>
+                        <Link href={buildInvoiceHref(inv.id, { from: 'debtors', entityId: inv.clientId })} className={`${INVOICE_LINK} max-lg:inline-flex max-lg:min-h-11 max-lg:items-center`}>
                           {inv.invoiceNumber}
                         </Link>
                       </td>
-                      <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{inv.clientName}</td>
-                      <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
-                      <td className="px-4 py-2 text-sm text-right tabular-nums text-red-400">{inv.daysOverdue}d</td>
-                      <td className="px-4 py-2 text-sm text-right tabular-nums font-bold text-red-500">{fmt(inv.outstanding)}</td>
+                      <td data-label="Customer" className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{inv.clientName}</td>
+                      <td data-label="Due Date" className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
+                      <td data-label="Days Overdue" className="px-4 py-2 text-sm text-right tabular-nums text-red-400">{inv.daysOverdue}d</td>
+                      <td data-label="Outstanding" className="px-4 py-2 text-sm text-right tabular-nums font-bold text-red-500">{fmt(inv.outstanding)}</td>
                     </tr>
                   ))}
                 </tbody>

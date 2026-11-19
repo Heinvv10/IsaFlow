@@ -30,7 +30,7 @@ export function ViewAllInvoicesFooter({ ledger, entityId, entityName, colSpan }:
     <tfoot>
       <tr>
         <td colSpan={colSpan} className="pl-12 pr-4 py-2 text-sm border-t border-[var(--ff-border-light)]">
-          <Link href={allInvoicesHref(ledger, entityId)} className={`inline-flex items-center gap-1 ${INVOICE_LINK}`}>
+          <Link href={allInvoicesHref(ledger, entityId)} className={`inline-flex items-center gap-1 max-lg:min-h-11 ${INVOICE_LINK}`}>
             View all invoices for {entityName} <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </td>

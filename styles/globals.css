@@ -610,6 +610,7 @@ html[data-density='compact'] table:not([data-density-exempt], [role='grid']) > t
 @media (max-width: 1023px) {
   table.table-cards,
   table.table-cards tbody,
+  table.table-cards tfoot,
   table.table-cards tr,
   table.table-cards td {
     display: block;

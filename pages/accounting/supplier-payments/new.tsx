@@ -16,6 +16,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP, PHONE_TAP_ICON } from '@/components/accounting/formActionBar';
+import { AmountInput } from '@/components/ui/AmountInput';
 
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }
@@ -187,7 +188,7 @@ export default function NewSupplierPaymentPage() {
                         </div>
                         <div className="col-span-6 sm:col-span-3">
                           <label htmlFor={`supplier-payments-new-amount-${alloc.key}`} className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Pay amount</label>
-                          <input id={`supplier-payments-new-amount-${alloc.key}`} type="number" aria-label="Pay Amount" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
+                          <AmountInput id={`supplier-payments-new-amount-${alloc.key}`} aria-label="Pay Amount" min={0} max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onValueChange={n => updateAllocation(alloc.key, 'amount', n)} className={`${inp} text-right`} />
                         </div>
                         {allocations.length > 1 && (
                           <div className="col-span-12 sm:col-span-1 flex justify-end sm:justify-center">
