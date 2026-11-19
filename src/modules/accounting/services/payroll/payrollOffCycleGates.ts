@@ -20,6 +20,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
+import { emp201FiledForMonth } from './payrollOffCycleCorrection';
 
 /**
  * Why this off-cycle run cannot be reopened today (review #1620 final breaker M, coordinator ruling): once its pay date
@@ -36,19 +37,8 @@ export async function offCyclePaidReopenRefusal(
   if (payDate === null || payDate >= today) return null;
   const year = Number(run.period_year);
   const month = Number(run.period_month);
-  const filed = (await sql`
-    SELECT 1 FROM tax_return_versions v
-     WHERE v.company_id = ${companyId}::uuid AND v.form_type = 'EMP201' AND v.status IN ('finalised', 'filed')
-       AND v.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
-       AND v.period_end >= make_date(${year}::int, ${month}::int, 1)
-    UNION ALL
-    SELECT 1 FROM sars_submissions s
-     WHERE s.company_id = ${companyId}::uuid AND s.form_type = 'EMP201' AND s.status IN ('submitted', 'accepted')
-       AND s.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
-       AND s.period_end >= make_date(${year}::int, ${month}::int, 1)
-    LIMIT 1
-  `) as DbRow[];
-  return filed.length > 0
+  const filed = await emp201FiledForMonth(companyId, year, month);
+  return filed
     ? `This off-cycle run was paid on ${formatDisplayDate(payDate)} and its month's EMP201 is filed, so it is not reopened: `
       + 'the filed declaration stands. A correction after filing is made outside payroll for now.'
     : null;
