@@ -41,7 +41,7 @@ const INDIRECT: Record<string, [number, string]> = {
   // Wave 6 EF: read-only routes that read the table and splice the final-run fragment (sql.unsafe(payRunFinalSql(...))).
   'pages/api/payroll/irp5/summary.ts': [1, 'read-only: the one sql.unsafe is payRunFinalSql (final runs), no write'],
   // Wave 6 FQc: the weekly/fortnightly refusal reads which employees hold a 3810/3801/percent-of-RFI row.
-  'src/modules/accounting/services/payroll/payrollFrequencyGuard.ts': [3, 'read-only (wave 6 FQc frequency refusals; FQd frequency-change writer): the three sql.unsafe are payRunFinalSql (final runs), no write'],
+  'src/modules/accounting/services/payroll/payrollFrequencyGuard.ts': [1, 'read-only (wave 6 FQc frequency refusals): the one sql.unsafe is payRunFinalSql (final runs), no write'],
   // Wave 6 FQd: the run-kind guard judges the employee frequency as at a FINAL run (payRunFinalSql); it only reads the table.
   'src/modules/accounting/services/payroll/payrollRunKindGuard.ts': [1, 'read-only (wave 6 FQd as-at-final frequency): the one sql.unsafe is payRunFinalSql (final runs), no write'],
   'src/modules/accounting/services/payroll/yearEndStatusReads.ts': [2, 'read-only (the year-end status route reads, wave 6 FQb1): the two sql.unsafe are payRunFinalSql (final runs), no write'],
