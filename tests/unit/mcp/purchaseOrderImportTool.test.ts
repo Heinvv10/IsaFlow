@@ -33,7 +33,7 @@ const body = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.te
 
 beforeEach(() => {
   importMock.mockReset();
-  prepareMock.mockReset().mockResolvedValue({ items: [{ index: 0 }], warnings: [] });
+  prepareMock.mockReset().mockResolvedValue({ items: [{ index: 0 }], warnings: [], warningsByIndex: new Map() });
   store.client = {};
 });
 

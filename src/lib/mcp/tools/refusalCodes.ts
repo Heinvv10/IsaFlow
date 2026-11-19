@@ -219,6 +219,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PURCHASE_ORDER_CHANGED',
   'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
+  // update / cancel / close / set status of a PO (ap/purchaseOrderErrors): the PO's status, a receipt, linked bills or an owner / admin rule; decided before any write.
+  'PURCHASE_ORDER_MAINTENANCE_REFUSED',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',
   'PURCHASE_ORDER_NOT_FOUND',
