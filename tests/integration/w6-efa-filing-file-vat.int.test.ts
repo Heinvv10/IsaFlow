@@ -40,20 +40,24 @@ const JUN = { periodStart: '2026-06-01', periodEnd: '2026-07-31' };
 const sha = (b: unknown) => createHash('sha256').update(b as Buffer).digest('hex');
 const text = (b: unknown) => (b as Buffer).toString('utf8');
 let n = 0;
-/** A posted sale in the period: standard-rated 1000 + 150 VAT, and 500 zero-rated on the same journal. */
-async function sale(date: string, scale = 1): Promise<void> {
+/**
+ * A posted sale in the period: standard-rated 1000 + 150 VAT, and 500 zero-rated on the same journal. `vat` and
+ * `zeroRated` vary it (a zero-rated amount of 0 posts no zero-rated line).
+ */
+async function sale(date: string, scale = 1, vat = 150, zeroRated = 500): Promise<void> {
   const acct = async (subtype: string) => String(((await sql`SELECT id FROM gl_accounts
     WHERE company_id = ${a.fx.companyId}::UUID AND account_subtype = ${subtype} LIMIT 1`) as Row[])[0]!.id);
   const ar = await acct('receivable');
-  const vat = await acct('vat_output');
+  const vatAcct = await acct('vat_output');
   const sales = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
     normal_balance, is_active) VALUES (${a.fx.companyId}::UUID, ${`40${n += 1}0`}, ${`Sales ${n}`}, 'revenue', 'sales', 'credit', true)
     RETURNING id`) as Row[])[0]!.id);
   const je = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, source,
     created_by) VALUES (${a.fx.companyId}::UUID, ${`EFV-${n}`}, ${date}::DATE, 'EFa VAT sale', 'posted', 'manual', ${a.admin.userId})
     RETURNING id`) as Row[])[0]!.id);
-  for (const [acc, dr, cr, vt] of [[ar, 1650 * scale, 0, null], [sales, 0, 1000 * scale, 'standard'], [vat, 0, 150 * scale, 'standard'],
-    [sales, 0, 500 * scale, 'zero_rated']] as Array<[string, number, number, string | null]>) {
+  const legs = [[ar, (1000 + vat + zeroRated) * scale, 0, null], [sales, 0, 1000 * scale, 'standard'],
+    [vatAcct, 0, vat * scale, 'standard'], [sales, 0, zeroRated * scale, 'zero_rated']] as Array<[string, number, number, string | null]>;
+  for (const [acc, dr, cr, vt] of legs.filter(([, d, c]) => d !== 0 || c !== 0)) {
     await sql`INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit, vat_type)
       VALUES (${je}::UUID, ${a.fx.companyId}::UUID, ${acc}::UUID, ${dr}, ${cr}, ${vt})`;
   }
@@ -183,6 +187,21 @@ describeIfDb('EFa round 1: the VAT201 form, stored files, PRN facts, EMP201 vers
     } finally {
       await sql`UPDATE companies SET vat_number = '4123456789' WHERE id = ${a.fx.companyId}::UUID`;
     }
+  });
+
+  it('a period genuinely out at 15% is refused without force and finalised with it', async () => {
+    // One sale of 1 000 standard-rated with 100 of VAT, nothing nil-rated: the taxed output base is 1 000, 15% is
+    // 150, output tax 100, so the check is 50 out, past the R1 tolerance.
+    const DEC = { periodStart: '2025-12-01', periodEnd: '2026-01-31' };
+    await sale('2025-12-15', 1, 100, 0);
+    const refused = await fin(DEC);
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/RATE_CHECK_FAILED/);
+    expect(JSON.stringify(refused.body)).toContain('output tax is out by -50.00 against 15% of the taxed output supplies of 1000.00,');
+    expect(((await sql`SELECT COUNT(*)::INT AS n FROM tax_return_versions WHERE company_id = ${a.fx.companyId}::UUID
+      AND period_start = '2025-12-01'`) as Row[])[0]!.n).toBe(0);
+    const forced = versionOf(await fin(DEC, { force: true }));
+    expect((await row(String(forced.id))).status).toBe('finalised');
   });
 
   it('EMP201 versions are payroll detail: a viewer gets 403 and no figures; VAT201 versions stay readable', async () => {

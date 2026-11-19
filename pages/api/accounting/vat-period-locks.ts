@@ -8,9 +8,11 @@
  *        { action: 'lock', periodStart, periodEnd, notes?, force?, overrideReason? }
  *          Records the filed return (the same figures lock_vat_period records,
  *          from computeVatLockFigures). Refuses a period failing SARS's 15%
- *          check on field 1 (rateCheckForFiling, after the nil-rated
- *          give-back) unless force:true (unrelated to overrideReason — see below).
- *          The response's `rateCheck` is that verdict (rateCheckPayload).
+ *          check on the taxed output base (rateCheckForFiling, after the
+ *          nil-rated give-back) unless force:true (unrelated to overrideReason
+ *          — see below). The response's `rateCheck` is that verdict
+ *          (rateCheckPayload); for a period already locked nothing is judged
+ *          and it is the report's, as before.
  *          Idempotent on the period.
  *          Separately, refuses when getVatExceptions reports blocking
  *          exceptions, UNLESS the caller is owner/admin and supplies a
@@ -39,7 +41,9 @@ import {
 import { VatPeriodAmendRequired } from '@/modules/accounting/services/returns/liveVersionGuard';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import { getNilRatedSupplies } from '@/modules/accounting/services/reports/vat201NilRatedSupplies';
-import { rateCheckForFiling, rateCheckPayload } from '@/modules/accounting/services/reports/vat201RateCheck';
+import {
+  rateCheckFailure, rateCheckForFiling, rateCheckPayload,
+} from '@/modules/accounting/services/reports/vat201RateCheck';
 import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
@@ -89,11 +93,12 @@ async function lockChecked(
 ) {
   const { figures, report } = await computeVatLockFigures(companyId, body.periodStart, body.periodEnd);
   const existing = await getVatPeriodLock(companyId, body.periodStart, body.periodEnd);
-  const rateCheck = rateCheckForFiling(report, await getNilRatedSupplies(companyId, body.periodStart, body.periodEnd));
-  if (!existing && !rateCheck.ties && body.force !== true) {
-    return apiResponse.badRequest(res,
-      `This period fails SARS's 15% check: box 1 is out by ${rateCheck.outputVariance} and input tax is `
-      + `over-claimed by ${rateCheck.inputVariance} (summed per journal). Correct it, or lock with force to record it as filed.`);
+  // An existing lock is returned as it stands and judges nothing, so the nil-rated read is skipped there. Otherwise
+  // it runs before the first write (the override row, the lock); if it throws, nothing has been written.
+  const filing = existing
+    ? null : rateCheckForFiling(report, await getNilRatedSupplies(companyId, body.periodStart, body.periodEnd));
+  if (filing && !filing.ties && body.force !== true) {
+    return apiResponse.badRequest(res, `${rateCheckFailure(filing)} Correct it, or lock with force to record it as filed.`);
   }
   // Blocking VAT exceptions — separate from the rateCheck/force refusal above.
   // Runs before lockVatPeriod's write; only an owner/admin with a reason may
@@ -114,7 +119,7 @@ async function lockChecked(
   });
   log.info('VAT period lock via API', { companyId, lockId: result.lock.id, created: result.created }, 'accounting-api');
   return apiResponse.success(res, {
-    lock: result.lock, created: result.created, rateCheck: rateCheckPayload(report, rateCheck),
+    lock: result.lock, created: result.created, rateCheck: filing ? rateCheckPayload(report, filing) : report.rateCheck,
     exceptionsOverridden: gate.overridden,
   });
 }

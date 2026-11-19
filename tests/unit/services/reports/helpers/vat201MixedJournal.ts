@@ -1,7 +1,7 @@
 /**
  * One posted sale that mixes VAT types on ONE journal: R1 000 standard-rated, R300 zero-rated and R200 exempt
  * revenue, R150 output VAT, R1 650 to the debtor. `deriveVatBoxes` apportions the journal's whole R1 500 base to
- * box 1 (the nil-rated types take a nil share of the tax), so the report's 15% check reads R75 out; field 1 gives
+ * box 1 (the nil-rated types take a nil share of the tax), so the report's 15% check reads R75 out; the taxed output base (`field1_standardRatedSupplies`) gives
  * the R500 back (`getNilRatedSupplies().onTaxedJournals`) and is R1 000, exactly 15% of the tax.
  *
  * `MIXED_REPORT` is what `getVat201Report` builds from `MIXED_LINES` (vat201RateCheck.test.ts holds it to that),
@@ -40,13 +40,13 @@ export const MIXED_REPORT = {
 /** The period's nil-rated supplies when the R500 sits on the taxed journal above. */
 export const NIL_ON_TAXED = {
   zeroRated: 300, exported: 0, exempt: 200, onTaxedJournals: 500, onTaxedCapital: 0, onTaxedAmbiguous: 0,
-  uncodedAssumedZeroRated: 0,
+  uncodedAssumedZeroRated: 0, uncodedOnTaxedJournals: 0,
 };
 
 /** The same report with NO nil-rated supply behind the variance: a genuine R75 under-declaration of tax. */
 export const NIL_NONE = { ...NIL_ON_TAXED, zeroRated: 0, exempt: 0, onTaxedJournals: 0 };
 
-/** A period of one plain R1 000 standard-rated sale: the report's check and field 1 both tie. */
+/** A period of one plain R1 000 standard-rated sale: the report's check and the taxed output base both tie. */
 export const TYING_REPORT = {
   ...MIXED_REPORT,
   boxes: [{ ...MIXED_REPORT.boxes[0]!, base: 1000, impliedTax: 150, variance: 0 }],

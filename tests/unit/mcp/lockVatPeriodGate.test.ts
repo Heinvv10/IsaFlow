@@ -120,7 +120,7 @@ describe('live call', () => {
   });
 });
 
-describe('the 15% check is judged on field 1, after the nil-rated give-back', () => {
+describe('the 15% check is judged on the taxed output base, after the nil-rated give-back', () => {
   const mixed = () => m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { ...MIXED_REPORT, excludedRows: [] } });
 
   it('locks a mixed-journal period without force when the nil-rated share explains box 1', async () => {
@@ -137,7 +137,7 @@ describe('the 15% check is judged on field 1, after the nil-rated give-back', ()
     for (const call of [args, { ...args, dry_run: true }]) {
       const refused = await lockVatPeriodTool.handler(call, ctx);
       expect(refused.isError).toBe(true);
-      expect(refused.content[0]!.text).toContain('box 1 is out by -75');
+      expect(refused.content[0]!.text).toContain('output tax is out by -75.00');
     }
     expect(m.lockVatPeriod).not.toHaveBeenCalled();
     expect((await lockVatPeriodTool.handler({ ...args, force: true }, ctx)).isError).toBeUndefined();
@@ -146,13 +146,16 @@ describe('the 15% check is judged on field 1, after the nil-rated give-back', ()
 });
 
 describe('the output carries the verdict the gate judged', () => {
-  const FILING = { ...MIXED_REPORT.rateCheck, ties: true, outputImpliedTax: 150, outputVariance: 0 };
+  const FILING = {
+    ...MIXED_REPORT.rateCheck, ties: true, outputImpliedTax: 150, outputVariance: 0,
+    taxedOutputBase: 1000, nilRatedGivenBack: 500, uncodedGivenBack: 0,
+  };
   beforeEach(() => {
     m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { ...MIXED_REPORT, excludedRows: [] } });
     m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
   });
 
-  it('live: rateCheck is field 1\'s (ties), every other key the report\'s', async () => {
+  it('live: rateCheck is the taxed output base\'s (ties), every other key the report\'s', async () => {
     expect(text(await lockVatPeriodTool.handler(args, ctx)).rateCheck).toEqual(FILING);
   });
 
@@ -163,8 +166,26 @@ describe('the output carries the verdict the gate judged', () => {
   it('forced: the failing filing verdict, by the unexplained part; a refusal quotes that part too', async () => {
     m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
     const refused = await lockVatPeriodTool.handler(args, ctx);
-    expect(refused.content[0]!.text).toContain('box 1 is out by -30 ');
+    expect(refused.content[0]!.text).toContain('output tax is out by -30.00 against 15% of the taxed output supplies of 1200.00');
     expect(text(await lockVatPeriodTool.handler({ ...args, force: true }, ctx)).rateCheck)
-      .toEqual({ ...MIXED_REPORT.rateCheck, outputImpliedTax: 180, outputVariance: -30 });
+      .toEqual({
+        ...MIXED_REPORT.rateCheck, outputImpliedTax: 180, outputVariance: -30,
+        taxedOutputBase: 1200, nilRatedGivenBack: 300, uncodedGivenBack: 0,
+      });
+  });
+
+  it('an existing lock judges nothing: no nil-rated read, the report\'s rateCheck as before (live and dry run)', async () => {
+    m.getVatPeriodLock.mockResolvedValue({ id: 'lock-0' });
+    m.lockVatPeriod.mockResolvedValue({ lock: { id: 'lock-0' }, created: false });
+    expect(text(await lockVatPeriodTool.handler(args, ctx)).rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(text(await lockVatPeriodTool.handler({ ...args, dry_run: true }, ctx)).rateCheck).toEqual(MIXED_REPORT.rateCheck);
+    expect(m.getNilRatedSupplies).not.toHaveBeenCalled();
+  });
+
+  it('a failed nil-rated read on a forced lock throws before the gate or the lock writes', async () => {
+    m.getNilRatedSupplies.mockRejectedValue(new Error('read failed'));
+    await expect(lockVatPeriodTool.handler({ ...args, force: true }, ctx)).rejects.toThrow('read failed');
+    expect(m.assertVatGateClear).not.toHaveBeenCalled();
+    expect(m.lockVatPeriod).not.toHaveBeenCalled();
   });
 });

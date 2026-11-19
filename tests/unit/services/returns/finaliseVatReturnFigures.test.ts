@@ -87,7 +87,7 @@ describe('finaliseVatReturn', () => {
     expect(m.insertVersion).toHaveBeenCalledTimes(1);
   });
 
-  it('passes the 15% check on field 1: a mixed journal\'s nil-rated share given back is not a variance (no force)', async () => {
+  it('passes the 15% check on the taxed output base: a mixed journal\'s nil-rated share given back is not a variance (no force)', async () => {
     m.computeVatLockFigures.mockResolvedValue({ figures: {}, report: MIXED_REPORT });
     m.getNilRatedSupplies.mockResolvedValue(NIL_ON_TAXED);
     await run();
@@ -100,7 +100,7 @@ describe('finaliseVatReturn', () => {
     m.computeVatLockFigures.mockResolvedValue({ figures: {}, report: MIXED_REPORT });
     m.getNilRatedSupplies.mockResolvedValue({ ...NIL_ON_TAXED, onTaxedJournals: 300 });
     await expect(run()).rejects.toMatchObject({
-      status: 400, refusalCode: 'RATE_CHECK_FAILED', message: expect.stringContaining('box 1 is out by -30'),
+      status: 400, refusalCode: 'RATE_CHECK_FAILED', message: expect.stringContaining('output tax is out by -30.00 against 15% of the taxed output supplies of 1200.00'),
     });
     expect(m.lockVatPeriod).not.toHaveBeenCalled();
   });
