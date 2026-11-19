@@ -30,6 +30,13 @@ describe('certificateView', () => {
     expect([v.idNumberLast4, v.taxNumberLast4, v.employee, v.periodFrom, v.periodTo]).toEqual(['9087', '6789', 'Thandi Grace Dlamini', '2025-03-01', '2026-02-28']);
   });
 
+  it('a certificate filed before the BRS code fix shows its tax period, from the stored employment dates (wave 6 EZF)', () => {
+    const { taxPeriodStart: _s, taxPeriodEnd: _e, payPeriodsInYear: _y, payPeriodsWorked: _w, ...rest } = cert;
+    const legacy = { ...rest, employmentStartDate: '20200101', employmentEndDate: '20251015', periodsInYoA: 8 } as unknown as StoredEmployee;
+    const v = certificateView(version, employer, legacy);
+    expect([v.periodFrom, v.periodTo]).toEqual(['2025-03-01', '2025-10-15']);
+  });
+
   it('has no ID line when the certificate carries none', () => {
     expect(certificateView(version, employer, { ...cert, idNumber: '', taxNumber: null }).idNumberLast4).toBeNull();
   });
