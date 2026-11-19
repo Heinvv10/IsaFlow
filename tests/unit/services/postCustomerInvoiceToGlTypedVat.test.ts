@@ -46,8 +46,18 @@ const row = (amount: string, vatType: string | null, taxAmount: string | null, i
 /** Header overrides for one test (reset in beforeEach). */
 const INVOICE_OVER: { value: Record<string, unknown> } = { value: {} };
 
+/** sql answered by statement, not by call order: the invoice read, the stored-lines read, anything else empty. */
+function answer(lines: Record<string, unknown>[]) {
+  mockSql.mockImplementation(async (strings: unknown) => {
+    const text = (strings as readonly string[]).join('?');
+    if (/SELECT ci\.\*, c\.name AS client_name/.test(text)) return [{ ...INVOICE, ...INVOICE_OVER.value }];
+    if (/LEFT JOIN customer_invoice_items cii ON cii\.invoice_id = ci\.id/.test(text)) return lines;
+    return [];
+  });
+}
+
 async function post(lines: Record<string, unknown>[]): Promise<JournalLineInput[]> {
-  mockSql.mockResolvedValueOnce([{ ...INVOICE, ...INVOICE_OVER.value }]).mockResolvedValueOnce(lines);
+  answer(lines);
   await postCustomerInvoiceToGL('cccccccc-0000-4000-8000-cccccccccccc', INVOICE.id, 'ffffffff-0000-4000-8000-ffffffffffff');
   return (mockCreate.mock.calls[0]![1] as { lines: JournalLineInput[] }).lines;
 }
@@ -88,7 +98,18 @@ describe('postCustomerInvoiceToGL, lines carrying their VAT type', () => {
     INVOICE_OVER.value = { subtotal: '100.00', tax_amount: '15.00', total_amount: '115.00', amounts_are: 'inclusive' };
     const err = await post([{ ...row('115.00', 'standard', '15.00', 0), unit_price: '115.00', subtotal: '100.00', tax_amount: '15.00' }])
       .catch((e: unknown) => e);
-    expect((err as Error).message).toMatch(/its lines' net adds up to 115\.00 but its subtotal is 100\.00/);
+    expect((err as Error).message).toMatch(/line 1 is standard: its VAT on 115\.00 at 15% is 17\.25, but it carries 15\.00/);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('a header tax_amount of NULL reads as 0: an exempt invoice posts; a standard one is refused as not footing', async () => {
+    INVOICE_OVER.value = { subtotal: '200.00', tax_amount: null, total_amount: '200.00' };
+    const lines = await post([row('200.00', 'exempt', '0.00', 0)]);
+    expect(lines.map((l) => [l.debit, l.credit, l.vatType])).toEqual([[200, 0, undefined], [0, 200, 'exempt']]);
+    mockCreate.mockClear();
+    INVOICE_OVER.value = { subtotal: '100.00', tax_amount: null, total_amount: '115.00' };
+    const err = await post([row('100.00', 'standard', '15.00', 0)]).catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/its lines' VAT adds up to 15\.00 but its VAT total is 0\.00/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 

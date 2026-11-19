@@ -6,12 +6,14 @@
  * A line's amount is its NET on every invoice; `amounts_are` says how its unit price was entered, so the headings say
  * which column includes VAT: the unit price prints as stored, incl. VAT on an inclusive invoice.
  *
- * Null for any other invoice (a legacy one, a partly typed one, or a date no rate can be read for): the builder then
- * prints the legacy table exactly as before.
+ * Null for any other invoice (a legacy one, a partly typed one, a type not in the ledger's canonical spelling
+ * (invoiceVatLegs.storedVatType, the poster's reader too), or a date no rate can be read for): the builder then prints
+ * the legacy table exactly as before.
  */
 import { isRatedDate, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { fmtZAR } from '../core/pdfShared';
-import { normaliseVatType, vatTypeLabel } from '../shared/vatTypes';
+import { vatTypeLabel } from '../shared/vatTypes';
+import { storedVatType } from './invoiceVatLegs';
 import { vatTotalLabel } from '../shared/vatLineAmounts';
 import type { InvoicePdfLine } from './invoicePdfModel';
 
@@ -28,7 +30,7 @@ export function typedInvoicePdfTable(
 ): TypedPdfTable | null {
   const date = invoice.invoice_date;
   if (items.length === 0 || !isRatedDate(date)) return null;
-  const types = items.map((item) => (item.tax_amount == null ? null : normaliseVatType(item.vat_type)));
+  const types = items.map((item) => (item.tax_amount == null ? null : storedVatType(item.vat_type)));
   if (types.some((t) => t === null)) return null;
   return {
     head: ['Description', 'Qty', invoice.amounts_are === 'inclusive' ? 'Unit Price (incl. VAT)' : 'Unit Price (excl. VAT)',

@@ -98,4 +98,18 @@ describe('the invoice PDF, lines carrying their VAT type', () => {
       [{ description: 'Line', quantity: '1.00', unit_price: '100.00', amount: '100.00', tax_rate: '15.00' }]));
     expect(shown.table!.body).toEqual([['Line', '1.00', R(100.00), R(15.00), R(100.00)]]);
   });
+
+  // T2: every way the typed table falls back to the legacy one (a mutation returning the typed table always goes red).
+  const LEGACY_HEAD = [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']];
+  const HEADER = { subtotal: '100.00', tax_amount: '15.00', total_amount: '115.00' };
+  it.each([
+    ['no lines', HEADER, []],
+    ['a date no rate can be read for', { ...HEADER, invoice_date: '1990-01-01' }, [line('100.00', '15.00', 'standard', '15.00')]],
+    ['a typed line beside one with no tax_amount', HEADER, [line('50.00', '15.00', 'standard', '7.50'), line('50.00', '15.00', 'standard', null)]],
+    ['a legacy spelling no writer stores ("zero")', { ...HEADER, tax_amount: '0.00', total_amount: '100.00' }, [line('100.00', '0.00', 'zero', '0.00')]],
+    ['a type the ledger does not know', HEADER, [line('100.00', '15.00', 'luxury', '15.00')]],
+  ] as const)('falls back to the legacy table for %s', async (_label, invoice, items) => {
+    await generateInvoicePdf('co', 'inv', model({ ...invoice }, [...items]));
+    expect(shown.table!.head).toEqual(LEGACY_HEAD);
+  });
 });

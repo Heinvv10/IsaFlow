@@ -19,7 +19,8 @@ const typed = (amount: number, vatType: string, taxAmount: number, extra: Partia
   ({ amount, glAccountId: null, projectId: null, vatType, taxAmount, ...extra });
 const legacy = (amount: number): StoredVatLine => ({ amount, glAccountId: null, projectId: null });
 
-const header = (subtotal: number, taxAmount: number) => ({ subtotal, taxAmount });
+const header = (subtotal: number, taxAmount: number) =>
+  ({ subtotal, taxAmount, totalAmount: Math.round((subtotal + taxAmount) * 100) / 100, invoiceDate: '2026-07-01' });
 
 const post = (lines: StoredVatLine[], subtotal: number, taxAmount: number) =>
   typedInvoiceCreditLegs({
@@ -96,7 +97,7 @@ describe('typedInvoiceCreditLegs', () => {
     expect(shape(legs)).toEqual([[DEFAULT, 0, 100, 'standard'], [VAT, 0, 15, 'standard']]);
     expect(balances(legs, 115)).toBe(true);
     // The same line storing its gross (115) as the amount does not foot.
-    expect(() => post([typed(115, 'standard', 15)], 100, 15)).toThrow(/its lines' net adds up to 115\.00 but its subtotal is 100\.00/);
+    expect(() => post([typed(115, 'standard', 15)], 100, 15)).toThrow(/line 1 is standard: its VAT on 115\.00 at 15% is 17\.25, but it carries 15\.00/);
   });
 
   it('the line dimensions ride on the revenue leg, never on the VAT leg', () => {

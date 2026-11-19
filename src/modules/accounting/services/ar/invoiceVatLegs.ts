@@ -15,12 +15,22 @@
  * VAT-inclusive or not (gross = amount + tax_amount): `amounts_are` says how `unit_price` was entered, never what
  * `amount` means, so nothing here reads it.
  *
+ * WHAT MAY POST (PR #1648 review). Only the types a document line is offered (DOCUMENT_LINE_VAT_TYPES: standard,
+ * zero_rated, exempt): a sales line typed reverse_charge, bad_debt or imported would post a coded leg the VAT201 puts in
+ * field 1 at full base or in no field at all. The writer PR widens POSTABLE_LINE_VAT_TYPES type by type, each with a
+ * proof of how the readers place it. A rated line's VAT is its own: within one cent of its net at its type's rate on
+ * the invoice date (one cent: a VAT-inclusive price backs the VAT out of the gross). A rated type whose lines carry net
+ * but whose VAT rounds to nothing, or VAT on no net, is refused: a coded base with no VAT leg reaches no field. The
+ * header total must be subtotal + VAT: the receivable is debited for it.
+ *
  * The type posted is the stored, approved line's own (the approval digest covers it, migration 1008): nothing here
  * picks one. Account, job and dimension rules are checked on the same stored lines before this runs
  * (invoiceRevenuePosting.postableInvoiceLines).
  */
 import type { JournalLineInput, VatType } from '../../types/gl.types';
-import { RATED_VAT_TYPES, normaliseVatType } from '../shared/vatTypes';
+import { VatRateDateError } from '@/lib/vat/standardRate';
+import { DOCUMENT_LINE_VAT_TYPES, RATED_VAT_TYPES, VAT_TYPES, vatRatePctOn } from '../shared/vatTypes';
+import { vatLineAmounts } from '../shared/vatLineAmounts';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
 import type { StoredRevenueLine } from './invoiceRevenueLines';
 
@@ -30,10 +40,24 @@ export interface StoredVatLine extends StoredRevenueLine {
   taxAmount?: number | null;
 }
 
-/** The header figures the lines must foot to: Σ amount = subtotal, Σ tax_amount = tax_amount, to the cent. */
+/** The header the lines must foot to: Σ amount = subtotal, Σ tax_amount = tax_amount, total = both, to the cent. */
 export interface TypedInvoiceHeader {
   subtotal: number;
   taxAmount: number;
+  totalAmount: number;
+  /** The invoice date (a pg Date or 'YYYY-MM-DD'): the rate a rated line's VAT is checked at. */
+  invoiceDate: string | Date;
+}
+
+/** The types a customer invoice line may POST with in this PR (see the header). */
+export const POSTABLE_LINE_VAT_TYPES: readonly VatType[] = DOCUMENT_LINE_VAT_TYPES;
+
+/**
+ * A stored line's (or journal leg's) VAT type: the ledger's canonical spelling only, never a legacy one ('zero',
+ * 'none'), which no writer of these columns stores. The ONE reader the poster, the PDF and the credit-note legs use.
+ */
+export function storedVatType(value: unknown): VatType | null {
+  return typeof value === 'string' && (VAT_TYPES as readonly string[]).includes(value) ? value as VatType : null;
 }
 
 export type LineVatShape = 'typed' | 'legacy' | 'partial';
@@ -41,12 +65,46 @@ export type LineVatShape = 'typed' | 'legacy' | 'partial';
 const isTyped = (l: Pick<StoredVatLine, 'vatType' | 'taxAmount'>): boolean => l.vatType != null && l.taxAmount != null;
 const cents = (n: number): number => Math.round(n * 100);
 const money = (c: number): string => (c / 100).toFixed(2);
+const RESAVE = 'Re-save the draft so its VAT is recalculated.';
 
 /** typed: every line carries its VAT; legacy: none does (or there are no lines); partial: some do. */
 export function lineVatShape(lines: ReadonlyArray<Pick<StoredVatLine, 'vatType' | 'taxAmount'>>): LineVatShape {
   const typed = lines.filter(isTyped).length;
   if (typed === 0) return 'legacy';
   return typed === lines.length ? 'typed' : 'partial';
+}
+
+/** Why line i's type or VAT cannot post, or null. */
+function lineProblem(l: StoredVatLine, i: number, invoiceDate: string | Date): string | null {
+  const type = storedVatType(l.vatType);
+  if (type === null) return `line ${i + 1} has the unknown VAT type "${String(l.vatType)}".`;
+  if (!POSTABLE_LINE_VAT_TYPES.includes(type)) {
+    return `line ${i + 1} is typed ${type}, which a customer invoice line cannot post yet `
+      + '(standard, zero_rated or exempt). Re-save the draft with one of those.';
+  }
+  const carries = cents(l.taxAmount!);
+  if (!RATED_VAT_TYPES.includes(type)) {
+    return carries === 0 ? null : `line ${i + 1} is ${type}, which charges no VAT, but carries ${money(carries)} of VAT. ${RESAVE}`;
+  }
+  const own = cents(vatLineAmounts(l.amount, type, invoiceDate).vat);
+  if (Math.abs(carries - own) <= 1) return null;
+  return `line ${i + 1} is ${type}: its VAT on ${money(cents(l.amount))} at ${vatRatePctOn(type, invoiceDate)}% is `
+    + `${money(own)}, but it carries ${money(carries)}. ${RESAVE}`;
+}
+
+/** Per rated type: net with VAT rounding to nothing, or VAT on no net. Either reaches no VAT201 field. */
+function ratedTypeProblem(lines: readonly StoredVatLine[]): string | null {
+  for (const type of RATED_VAT_TYPES) {
+    const of = lines.filter((l) => l.vatType === type);
+    const net = of.reduce((s, l) => s + cents(l.amount), 0);
+    const vat = of.reduce((s, l) => s + cents(l.taxAmount!), 0);
+    if (net !== 0 && vat === 0) {
+      return `its ${type} lines come to ${money(net)} but the VAT on them rounds to nothing, so they would reach no `
+        + 'VAT201 field. Raise them as one line large enough to carry VAT, or remove them.';
+    }
+    if (net === 0 && vat !== 0) return `its ${type} lines carry ${money(vat)} of VAT on no net. ${RESAVE}`;
+  }
+  return null;
 }
 
 /**
@@ -59,14 +117,17 @@ export function typedLinesProblem(lines: readonly StoredVatLine[], header: Typed
   if (shape === 'partial') {
     return 'some of its lines carry a VAT type and some do not. Re-save the draft so every line is priced by its VAT type.';
   }
-  for (const [i, l] of lines.entries()) {
-    const type = normaliseVatType(l.vatType);
-    if (type === null || type !== l.vatType) return `line ${i + 1} has the unknown VAT type "${String(l.vatType)}".`;
-    if (!RATED_VAT_TYPES.includes(type) && cents(l.taxAmount!) !== 0) {
-      return `line ${i + 1} is ${type}, which charges no VAT, but carries ${money(cents(l.taxAmount!))} of VAT. `
-        + 'Re-save the draft so its VAT is recalculated.';
+  try {
+    for (const [i, l] of lines.entries()) {
+      const problem = lineProblem(l, i, header.invoiceDate);
+      if (problem) return problem;
     }
+  } catch (err) {
+    if (err instanceof VatRateDateError) return `its date cannot be read for a VAT rate (${err.message}).`;
+    throw err;
   }
+  const rated = ratedTypeProblem(lines);
+  if (rated) return rated;
   const net = lines.reduce((s, l) => s + cents(l.amount), 0);
   if (net !== cents(header.subtotal)) {
     return `its lines' net adds up to ${money(net)} but its subtotal is ${money(cents(header.subtotal))}. `
@@ -75,6 +136,10 @@ export function typedLinesProblem(lines: readonly StoredVatLine[], header: Typed
   const vat = lines.reduce((s, l) => s + cents(l.taxAmount!), 0);
   if (vat !== cents(header.taxAmount)) {
     return `its lines' VAT adds up to ${money(vat)} but its VAT total is ${money(cents(header.taxAmount))}. `
+      + 'Re-save the draft so its totals are recalculated.';
+  }
+  if (cents(header.totalAmount) !== net + vat) {
+    return `its total is ${money(cents(header.totalAmount))} but its subtotal plus VAT is ${money(net + vat)}. `
       + 'Re-save the draft so its totals are recalculated.';
   }
   return null;
@@ -96,17 +161,28 @@ export function typedInvoiceCreditLegs(input: {
   vatOutputAccountId: string;
 }): JournalLineInput[] {
   const { invoiceNumber, header, lines } = input;
-  const problem = typedLinesProblem(lines, header);
-  if (problem) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);
-  if (lineVatShape(lines) !== 'typed') {
+  // A legacy invoice passes typedLinesProblem (null) but is not this builder's: the caller posts it the legacy way.
+  if (lineVatShape(lines) === 'legacy') {
     throw new Error(`Invoice ${invoiceNumber}: its lines are not typed; post them as a legacy invoice`);
   }
+  const problem = typedLinesProblem(lines, header);
+  if (problem) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);
+  return typedLegs(lines, invoiceNumber, input.defaultRevenueAccountId, input.vatOutputAccountId);
+}
+
+/**
+ * The leg-building step alone, below the refusal: lines already held to typedLinesProblem. Each revenue group and each
+ * VAT leg carries the type of the lines that produced it.
+ */
+export function typedLegs(
+  lines: readonly StoredVatLine[], invoiceNumber: string, defaultRevenueAccountId: string, vatOutputAccountId: string,
+): JournalLineInput[] {
   const revenue = new Map<string, { base: Omit<JournalLineInput, 'debit' | 'credit'>; cents: number }>();
   const vat = new Map<VatType, number>();
   for (const l of lines) {
-    // typedLinesProblem has read every type as a known one.
-    const vatType = l.vatType as VatType;
-    const glAccountId = l.glAccountId ?? input.defaultRevenueAccountId;
+    const vatType = storedVatType(l.vatType);
+    if (vatType === null) throw new Error(`Invoice ${invoiceNumber}: a line's VAT type is not one the ledger knows`);
+    const glAccountId = l.glAccountId ?? defaultRevenueAccountId;
     const key = [glAccountId, l.projectId, l.cc1Id, l.cc2Id, l.buId, vatType].map((v) => v ?? '').join('|');
     const group = revenue.get(key) ?? {
       base: {
@@ -117,10 +193,10 @@ export function typedInvoiceCreditLegs(input: {
     };
     group.cents += cents(l.amount);
     revenue.set(key, group);
-    vat.set(vatType, (vat.get(vatType) ?? 0) + cents(l.taxAmount!));
+    vat.set(vatType, (vat.get(vatType) ?? 0) + cents(l.taxAmount ?? 0));
   }
   const vatLegs = [...vat].map(([vatType, c]) => creditLeg({
-    glAccountId: input.vatOutputAccountId, description: `VAT Output: ${invoiceNumber}`, vatType,
+    glAccountId: vatOutputAccountId, description: `VAT Output: ${invoiceNumber}`, vatType,
   }, c));
   return [...[...revenue.values()].map((g) => creditLeg(g.base, g.cents)), ...vatLegs]
     .filter((l): l is JournalLineInput => l !== null);

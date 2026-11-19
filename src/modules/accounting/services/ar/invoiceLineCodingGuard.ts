@@ -148,8 +148,10 @@ export async function assertLineAccountIds(companyId: string, ids: readonly unkn
 export interface StoredInvoiceLines {
   invoiceNumber: string;
   subtotal: number;
-  /** The header VAT (migration 1008): what typed lines' tax_amount must foot to. */
+  /** The header VAT and total, and the invoice date (migration 1008): what typed lines are held to (invoiceVatLegs). */
   taxAmount: number;
+  totalAmount: number;
+  invoiceDate: string | Date;
   /** customers.default_cc1_id of the invoice's customer. */
   customerFnoId: string | null;
   lines: StoredVatLine[];
@@ -164,7 +166,7 @@ export async function storedInvoiceLines(
   invoiceId: string,
 ): Promise<StoredInvoiceLines | null> {
   const rows = (await sql`
-    SELECT ci.invoice_number, ci.subtotal, ci.tax_amount, c.default_cc1_id AS customer_fno_id,
+    SELECT ci.invoice_number, ci.subtotal, ci.tax_amount, ci.total_amount, ci.invoice_date, c.default_cc1_id AS customer_fno_id,
            cii.id AS line_id, cii.amount, cii.gl_account_id, cii.project_id, cii.cc1_id, cii.cc2_id, cii.bu_id,
            cii.vat_type AS line_vat_type, cii.tax_amount AS line_tax_amount
     FROM customer_invoices ci
@@ -180,6 +182,8 @@ export async function storedInvoiceLines(
     invoiceNumber: String(rows[0]!.invoice_number),
     subtotal: Number(rows[0]!.subtotal),
     taxAmount: Number(rows[0]!.tax_amount ?? 0),
+    totalAmount: Number(rows[0]!.total_amount ?? 0),
+    invoiceDate: rows[0]!.invoice_date instanceof Date ? rows[0]!.invoice_date : String(rows[0]!.invoice_date),
     customerFnoId: id(rows[0]!.customer_fno_id),
     lines: rows.filter((r) => r.line_id != null).map((r) => ({
       amount: Number(r.amount),
