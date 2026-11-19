@@ -10,7 +10,8 @@ import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preVal
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import {
-  cents, emp201Mismatches as mismatchesOf, emp501Filings, filedPeriodTotals, legacyWarnings, monthName, notFinalRunMonths, type MonthTotals,
+  cents, emp201Mismatches as mismatchesOf, emp501Filings, filedPeriodTotals, legacyWarnings, monthName, notFinalRunMonths, pspExplainedMonths,
+  pspPeriodTotals, type MonthTotals,
 } from './emp501Months';
 import { driftOf } from './returnDrift';
 import { ReturnRefusal } from './returnVersionTypes';
@@ -31,6 +32,11 @@ export interface Emp501Readiness {
   emp201Conflicts: string[];
   /** YYYY-MM of every month whose filed EMP201 has drifted from the payroll. */
   driftedEmp201Months: string[];
+  /**
+   * explained_psp (wave 6 PSP; coordinator ruling 2026-11-19): months whose filed EMP201 equals the certificates plus the
+   * month's PSP lines, which are on no certificate until PSP-H. Never blocks; also in `warnings`.
+   */
+  emp201ExplainedByPsp: string[];
   /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501); an EMP201 filed without figures. */
   warnings: string[];
   ready: boolean;
@@ -63,9 +69,11 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     }
     if (drifted) driftedEmp201Months.push(m.month);
   }
+  const emp201ExplainedByPsp = pspExplainedMonths(filings);
   const warnings = [
     ...(await notFinalRunMonths(companyId, p)).map((m) => `${monthName(m)} has a run that is not final`),
     ...legacyWarnings(filings),
+    ...emp201ExplainedByPsp,
   ];
   const validationErrors = pv?.errors ?? 0;
   return {
@@ -76,6 +84,7 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     emp201Mismatches,
     emp201Conflicts: filings.conflicts,
     driftedEmp201Months,
+    emp201ExplainedByPsp,
     warnings,
     ready: validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && filings.conflicts.length === 0
       && driftedEmp201Months.length === 0,
@@ -108,14 +117,18 @@ export async function assertEmp501Ready(companyId: string, p: Emp501Period): Pro
 /**
  * The EMP501's totals (its certificates) must equal the sum of the period's filed EMP201s, in cents (review #1568 rounds
  * 2-3), always: PAYE on an EMP201 no certificate carries (a directive naming no employee, an employee with no
- * certificate) refuses. A legacy row without usable totals counts as its months' certificates (filedPeriodTotals).
+ * certificate) refuses. The one exception is a PSP's lines (wave 6 PSP; coordinator ruling 2026-11-19): declared on the
+ * EMP201, on no certificate until PSP-H, so the certificates plus them must equal the EMP201s (explained_psp, a warning). A legacy row without usable totals counts as its months' certificates (filedPeriodTotals).
  */
 export async function assertEmp501MatchesFiledEmp201s(companyId: string, p: Emp501Period, totals: MonthTotals): Promise<void> {
-  const filed = filedPeriodTotals(await emp501Filings(companyId, p));
+  const filings = await emp501Filings(companyId, p);
+  const filed = filedPeriodTotals(filings);
+  // The EMP201s declare the PSP lines the certificates leave out (wave 6 PSP): a gap of exactly those is explained_psp.
+  const psp = pspPeriodTotals(filings);
   const diffs = (['paye', 'uif', 'sdl'] as const)
-    .filter((k) => cents(filed[k]) !== cents(totals[k]))
-    .map((k) => `${k.toUpperCase()} ${filed[k].toFixed(2)} on the filed EMP201s, ${cents(totals[k]).toFixed(2)} on the certificates `
-      + `(difference ${cents(totals[k] - filed[k]).toFixed(2)})`);
+    .filter((k) => cents(filed[k]) !== cents(totals[k] + psp[k]))
+    .map((k) => `${k.toUpperCase()} ${filed[k].toFixed(2)} on the filed EMP201s, ${cents(totals[k]).toFixed(2)} on the certificates`
+      + `${psp[k] !== 0 ? ` plus ${cents(psp[k]).toFixed(2)} on PSP lines` : ''} (difference ${cents(totals[k] + psp[k] - filed[k]).toFixed(2)})`);
   if (diffs.length === 0) return;
   throw new ReturnRefusal(409, `This EMP501 cannot be finalised: its totals do not equal the EMP201s filed for the period: ${diffs.join('; ')}. `
     + 'Correct the payroll or the EMP201s first.', EMP501_NOT_READY, { periodTotals: { filed, certificates: { paye: totals.paye, uif: totals.uif, sdl: totals.sdl } } });
