@@ -18,6 +18,7 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { driftOf, UNCODED_REVENUE_NOTE } from './returnDrift';
+import { emp501PublicFigures } from './emp501Figures';
 import { assertFilingReferenceIsTheCompanys, parseFilingReference, type FilingWarning } from './filingReference';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
@@ -92,7 +93,7 @@ export async function markReturnFiled(
   }
   // EMP201: the drift check and the commit must see ONE payroll state, so take the approval lock first (as an approval
   // and a reopen do): an approval or reopen in flight finishes before the drift is read, a later one waits for this commit.
-  if (v.formType === 'EMP201') await lockCompanyPayrollApprovals(null, companyId);
+  if (v.formType === 'EMP201' || v.formType === 'EMP501') await lockCompanyPayrollApprovals(null, companyId);
   // A send to SARS that may have reached it (a correlation id on the draft, or an intent with no result): never filed over.
   const doubt = await periodSendUncertain(companyId, v.formType, v.periodStart, v.periodEnd);
   if (doubt) {
@@ -126,7 +127,10 @@ export async function markReturnFiled(
   return withSavepoint('file_return', async () => {
     const draft = await saveDraftSubmission(
       companyId, v.formType, v.periodStart, v.periodEnd,
-      { ...submitted, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
+      // EMP501: totals only. form_data is read by roles without payroll-detail access (listSubmissions); the
+      // certificates stay on the version, behind the payroll-detail EMP501 routes (wave 6 EFb).
+      { ...(v.formType === 'EMP501' ? emp501PublicFigures(v.figures) : submitted), returnVersionId: v.id, versionNo: v.versionNo },
+      actor.userId, { keepExistingAs: 'pageDraft' },
     );
     if (v.formType === 'VAT201') {
       await assertVatGateClear(
