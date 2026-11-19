@@ -35,6 +35,7 @@ import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approval
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { MirroredNoteVatRefusal, mirroredVatRefusals } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
+import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 import { type DocumentState, partitionDocuments, postPartitionedDocuments } from './bulkApproveRunner';
 import { TOOL, buildAdapter } from './bulkApproveCreditNotesAdapter';
 import {
@@ -69,6 +70,8 @@ export function racedReason(err: unknown): string | null {
   if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
   // 988: a mirror_bill note its bill can no longer carry, refused before any write — a skip.
   if (err instanceof MirroredNoteVatRefusal) return `vat_already_reversed: ${err.message}`;
+  // A note its typed invoice cannot carry by its VAT (ar/creditNoteTypedSplit), refused before any write — a skip.
+  if (err instanceof CreditNoteVatSplitRefusal) return `vat_split_refused: ${err.message}`;
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -109,7 +112,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
     + 'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. Both types may be mixed in one call. '
     + 'Approving also APPLIES each note: its linked document first, capped at that document\'s outstanding balance, then the REMAINDER FIFO across the same entity\'s other open documents, oldest first. auto_apply "linked" applies only to the linked document; "none" applies nothing, not even to the linked document. '
     + 'The status is DERIVED — "approved", "partially_applied" or "applied" — and each row reports applied_amount and applied_to_invoice_ids; do NOT apply those documents again. '
-    + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
+    + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, dated in a CLOSED fiscal period, or one its invoice cannot carry by its VAT — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a note genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated credit_note_id is REFUSED (not skipped) — each note may appear once. '
     + 'Reverse a posted note with cancel_credit_note. Use dry_run to see what would post and what would be skipped.',

@@ -6,12 +6,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const db = vi.hoisted(() => ({ legs: [] as Record<string, unknown>[], texts: [] as string[] }));
+const db = vi.hoisted(() => ({ legs: [] as Record<string, unknown>[], vat: [] as Record<string, unknown>[], texts: [] as string[] }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: readonly string[]) => {
     const text = strings.join('?');
     db.texts.push(text);
     if (/AS journal_line_id, jl\.gl_account_id/.test(text)) return db.legs;
+    if (/AS invoice_vat/.test(text)) return db.vat;
     return []; // nothing taken by earlier notes; no pre-874 notes
   }),
 }));
@@ -31,7 +32,7 @@ const read = (amount: number, taxAmount: number) => creditNoteRevenueJournalLine
 const debits = async (amount: number, taxAmount: number) => (await read(amount, taxAmount)).lines.map((l) => [l.debit, l.vatType ?? null]);
 
 describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => {
-  beforeEach(() => { db.legs = []; db.texts = []; });
+  beforeEach(() => { db.legs = []; db.vat = []; db.texts = []; });
 
   it('reads jl.vat_type with the legs', async () => {
     db.legs = [row('a', '1000.00', null)];
@@ -53,5 +54,18 @@ describe('creditNoteRevenueJournalLines and the invoice legs\' vat_type', () => 
   it('a legacy spelling in jl.vat_type is not a stored type: the leg reads uncoded and the note splits as before', async () => {
     db.legs = [row('s', '1000.00', 'standard'), row('z', '1000.00', 'zero')];
     expect(await debits(200, 30)).toEqual([[100, 'standard'], [100, null]]);
+  });
+
+  it('a typed invoice: reads the VAT its rated legs still carry, so a full credit is not refused by a rounding cent', async () => {
+    db.legs = [row('s', '66.66', 'standard'), row('e', '100.00', 'exempt')];
+    db.vat = [{ invoice_vat: '10.00', reversed_vat: '0.00' }];
+    expect(await debits(166.66, 10)).toEqual([[66.66, 'standard'], [100, 'exempt']]);
+    expect(db.texts.find((t) => /AS invoice_vat/.test(t))).toMatch(/vat_output[\s\S]*SUM\(cn\.tax_amount\)/);
+  });
+
+  it('a legacy invoice does not read it', async () => {
+    db.legs = [row('a', '1000.00', null)];
+    await read(100, 15);
+    expect(db.texts.some((t) => /AS invoice_vat/.test(t))).toBe(false);
   });
 });

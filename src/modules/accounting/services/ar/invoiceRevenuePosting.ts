@@ -138,7 +138,20 @@ export async function creditNoteRevenueJournalLines(
   const replayed = legacy.map((e) => Number(e.subtotal));
   // Every leg coded (a typed invoice): the note's VAT decides its rated part. Otherwise pro rata over every leg, as before.
   if (legsAreTyped(legs)) {
-    return allocateTypedCreditNote(legs, { subtotal: note.amount, taxAmount: note.taxAmount, date: note.date },
+    // The VAT the invoice's rated legs still carry: its VAT Output legs less its live earlier notes' VAT (review round 3).
+    const vat = (await sql`
+      SELECT (SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+              FROM customer_invoices ci
+              JOIN gl_journal_lines jl ON jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
+              JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
+              WHERE ci.id = ${note.customerInvoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+                AND COALESCE(a.account_subtype, '') = 'vat_output') AS invoice_vat,
+             (SELECT COALESCE(SUM(cn.tax_amount), 0) FROM credit_notes cn
+              WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${note.customerInvoiceId}::UUID
+                AND cn.type = 'customer' AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${note.id}::UUID) AS reversed_vat
+    `) as Record<string, unknown>[];
+    const remainingRatedVat = vat[0] ? Number(vat[0].invoice_vat) - Number(vat[0].reversed_vat) : undefined;
+    return allocateTypedCreditNote(legs, { subtotal: note.amount, taxAmount: note.taxAmount, date: note.date, remainingRatedVat },
       note.number, defaultRevenueAccountId, replayed);
   }
   return allocateCreditNote(legs, note.amount, note.number, defaultRevenueAccountId, replayed);

@@ -23,7 +23,7 @@ const B = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
 const account = (code: string) => ({ account_code: code, account_name: code, account_type: 'revenue', is_active: true, has_children: false });
 
 const stored = (lines: StoredVatLine[], header: Partial<StoredInvoiceLines> = {}): StoredInvoiceLines =>
-  ({ invoiceNumber: 'INV-3', subtotal: 150, taxAmount: 15, totalAmount: 165, invoiceDate: new Date(2026, 6, 1),
+  ({ invoiceNumber: 'INV-3', subtotal: 150, taxAmount: 15, totalAmount: 165, invoiceDate: new Date(2026, 6, 1), amountsAre: null,
     customerFnoId: null, lines, ...header });
 const approving = (s: StoredInvoiceLines) => storedLinesRefusal('company', s, { approving: true });
 
@@ -89,7 +89,7 @@ describe('storedLinesRefusal (approving) and typed lines', () => {
       invoice_date: date, customer_fno_id: null, line_id: 'l1', amount: '100.00', gl_account_id: null, project_id: null,
       cc1_id: null, cc2_id: null, bu_id: null, line_vat_type: 'standard', line_tax_amount: '15.00' }]);
     const read = (await storedInvoiceLines('company', 'inv'))!;
-    expect([read.subtotal, read.taxAmount, read.totalAmount, read.invoiceDate]).toEqual([100, 15, 115, date]);
+    expect([read.subtotal, read.taxAmount, read.totalAmount, read.invoiceDate, read.amountsAre]).toEqual([100, 15, 115, date, null]);
     expect(String((mockSql.mock.calls[0]![0] as readonly string[]).join('?'))).toMatch(/ci\.total_amount, ci\.invoice_date/);
   });
 });
