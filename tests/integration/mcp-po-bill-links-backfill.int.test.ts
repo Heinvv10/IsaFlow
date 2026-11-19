@@ -11,7 +11,6 @@
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
@@ -157,11 +156,13 @@ describe('the backfill\'s plan does not grow with bills x POs', () => {
     expect(calls, 'one call per candidate bill, not per (bill, PO)').toBeLessThanOrEqual(BILLS);
   }, 120_000);
 
-  it('no node of the backfill\'s query handles more than 4 x (bills + POs) rows: the cand x purchase_orders join of 40 000 bills (40 s) is bills x POs', async () => {
-    // The function's own SELECT (between FOR r IN and LOOP) with the company filled in, EXPLAIN ANALYZEd.
-    const file = readFileSync('scripts/migrations/sql/1006_purchase_order_bill_links.sql', 'utf8');
-    const fn = file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill'));
+  it('no node of the backfill\'s query handles more than 4 x (bills + POs) rows: the cand x purchase_orders join (bills x POs) of the old plan is what this catches', async () => {
+    // The LIVE function's own SELECT (its body from pg_proc, between FOR r IN and LOOP) with the company filled in, EXPLAIN ANALYZEd: a later
+    // migration that replaces the function is tested, not 1006's file text.
+    const fn = String((await pool.query(`SELECT prosrc FROM pg_proc WHERE oid = 'public.purchase_order_bill_links_backfill(uuid)'::regprocedure`)).rows[0].prosrc);
     const query = fn.slice(fn.indexOf('FOR r IN') + 'FOR r IN'.length, fn.indexOf('  LOOP')).replace(/p_company/g, `'${s.co}'::UUID`);
+    const text = JSON.stringify((await pool.query(`EXPLAIN (FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN']);
+    expect(text, 'the NOT IN of the header-only branch is hashed').toContain('hashed SubPlan');
     const plan = (await pool.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`)).rows[0]['QUERY PLAN'][0].Plan as Record<string, unknown>;
     let worst = 0;
     const walk = (n: Record<string, unknown>) => {
