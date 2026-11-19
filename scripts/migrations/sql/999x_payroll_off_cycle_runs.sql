@@ -180,8 +180,9 @@ CREATE TRIGGER payroll_off_cycle_paid_snapshot BEFORE INSERT OR UPDATE ON public
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_paid_snapshot;
 
 -- A run's approval history is never removed or invented (review #1679d, the delete/re-insert class): a header approved
--- once (non-empty approval_history) is not deleted (cancel or reverse it instead), and no header is inserted carrying
--- an approval history or a final status (new runs start without history). The app never deletes a header and inserts
+-- once (non-empty approval_history) is not deleted (cancel or reverse it instead), no header is inserted carrying
+-- an approval history or a final status (new runs start without history), and the history is append-only (review
+-- #1679e: an UPDATE's new history contains all of the old; reopenPayrollRun, its only writer, only adds a range). The app never deletes a header and inserts
 -- them as draft. Exempt, as 999n: a SUPERUSER session (fixtures, the integration rig) and the Demo company (wiped
 -- and reseeded by scripts/lib/demoReseed).
 CREATE OR REPLACE FUNCTION public.payroll_run_headers_history_guard() RETURNS trigger
@@ -189,6 +190,15 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp 
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+  -- Append-only (review #1679e): a NEW history holds every approval OLD held (reopenPayrollRun only adds a range).
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.company_id <> '00000000-0000-0000-0000-000000000001'::uuid AND OLD.approval_history IS NOT NULL
+       AND NOT COALESCE(NEW.approval_history @> OLD.approval_history, false) THEN
+      RAISE EXCEPTION 'payroll_run_headers: a pay run''s approval history is only added to, never rewritten or cleared'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
   END IF;
   IF TG_OP = 'DELETE' THEN
     IF OLD.company_id <> '00000000-0000-0000-0000-000000000001'::uuid
@@ -208,7 +218,7 @@ END
 $$;
 
 DROP TRIGGER IF EXISTS payroll_run_headers_history_guard ON public.payroll_run_headers;
-CREATE TRIGGER payroll_run_headers_history_guard BEFORE INSERT OR DELETE ON public.payroll_run_headers
+CREATE TRIGGER payroll_run_headers_history_guard BEFORE INSERT OR DELETE OR UPDATE OF approval_history ON public.payroll_run_headers
   FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_history_guard();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_history_guard;
 

@@ -1,8 +1,8 @@
 /**
  * Reviews #1679c and #1679d, the delete/re-insert class: a header's approval history is never removed or invented
  * below the service.
- *  - As app_user, a header approved before is not deleted, and no header is inserted with an approval history or a
- *    final status (999x payroll_run_headers_history_guard).
+ *  - As app_user, a header approved before is not deleted, no header is inserted with an approval history or a final
+ *    status, and the history is append-only (999x payroll_run_headers_history_guard; #1679e).
  *  - The state that class aimed at (approval history, no snapshot), made here as an exempt superuser, still fails
  *    closed: the cap is nil for every employee in TS (paidCaps), and the snapshot trigger takes nil for every employee
  *    when app_user flips the run through 'approved' over raised lines. R80 000 is refused at approval after the pay date.
@@ -78,6 +78,15 @@ describe('the approval history is never removed or invented below the service', 
       VALUES ($1, 12, 2026, 'monthly', 'off_cycle', 'bonus', '2026-12-01', '2026-12-31', '2026-12-29', $2, $3::tstzmultirange)`, [a.company, status, hist]);
     await expect(reinsert('draft', h.hist)).rejects.toThrow(/a new pay run starts without an approval history and is not final/);
     await expect(reinsert('approved', null)).rejects.toThrow(/a new pay run starts without an approval history and is not final/);
+
+    // Append-only (review #1679e): the history is never cleared or rewritten as app_user (the first step of the
+    // clear-then-delete bypass); adding a range to it, as a reopen does, is allowed.
+    await expect(asApp(`UPDATE payroll_run_headers SET approval_history = '{}'::tstzmultirange WHERE id = $1`, [id]))
+      .rejects.toThrow(/approval history is only added to, never rewritten or cleared/);
+    await expect(asApp(`UPDATE payroll_run_headers SET approval_history = tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]))
+      .rejects.toThrow(/approval history is only added to, never rewritten or cleared/);
+    await asApp(`UPDATE payroll_run_headers SET approval_history = approval_history + tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]);
+    await expect(asApp('DELETE FROM payroll_run_headers WHERE id = $1', [id])).rejects.toThrow(/cancel it instead/);
 
     // (ii) The state the class aimed at, made by an exempt superuser: history, no snapshot, R80 000 of lines.
     await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]);

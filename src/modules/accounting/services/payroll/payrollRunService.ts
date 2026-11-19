@@ -33,7 +33,7 @@ import { loadLineCadences } from './payrollRunCadence';
 import { listOffCycleEmployees, prepareOffCycleComponents, type OffCyclePrepared } from './payrollOffCyclePopulation';
 import { assertOffCycleBeforeClose } from './payrollOffCycleRun';
 import { assertPreparerSupported } from './payrollPreparerGuard';
-import { loadRunGarnisheeOrders, replaceRunGarnisheeDeductions } from './payrollGarnisheeRun';
+import { loadRunGarnisheeOrders, offCycleGarnisheeNotice, replaceRunGarnisheeDeductions } from './payrollGarnisheeRun';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -160,7 +160,8 @@ export async function calculatePayrollRun(
       regularPayDirective,
       ...(item.monthEarlier ? { monthEarlier: item.monthEarlier } : {}),
       cadence: cadences.get(employee.id),
-      garnisheeOrders: onlySeverance ? undefined : garnishees.get(employee.id),
+      // An off-cycle run takes no instalment (review #1679e): the month's is the regular run's; the line says so.
+      garnisheeOrders: onlySeverance || offCycle ? undefined : garnishees.get(employee.id),
     });
     garnisheeLines.push({ employeeId: employee.id, garnishees: line.garnishees });
 
@@ -195,7 +196,7 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown), explanation: line.explanations,
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti),
-        ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
+        ...line.validationResults, ...terminationWarnings, ...(offCycle ? offCycleGarnisheeNotice(garnishees.get(employee.id)) : []), ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
         ...(blockedLoans.has(employee.id) ? [blockedLoanValidation(
           blockedLoans.get(employee.id)!.applications, blockedLoans.get(employee.id)!.rawNet,
           `${employee.firstName} ${employee.lastName}`.trim(),
