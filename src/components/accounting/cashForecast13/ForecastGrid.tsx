@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react';
 import { formatStatementFigure } from '@/lib/format/money';
 import type { ArBasis, CashForecast13, ForecastLine } from '@/modules/accounting/services/cashForecast13/types';
-import { groupLines, weekLabel } from './forecastRows';
+import { groupLines, totalRowLabel, weekLabel } from './forecastRows';
 import type { StoredOverride } from './cash13Client';
 
 export const BASIS_WORDS: Record<ArBasis, { label: string; tip: string }> = {
@@ -122,7 +122,7 @@ export function ForecastGrid({ forecast, overrides, onEdit }: ForecastGridProps)
                 </tr>
               ))}
               <tr className="font-medium bg-[var(--ff-bg-secondary)]/50">
-                <th scope="row" className={`${STICKY} px-3 py-2 text-left`}>Total {g.title.toLowerCase()}</th>
+                <th scope="row" className={`${STICKY} px-3 py-2 text-left`}>{totalRowLabel(g.title)}</th>
                 {g.subtotal.map((v, i) => <td key={i} className={`${CELL} ${neg(v)}`}>{fig(v)}</td>)}
                 <td className={`${CELL} ${neg(g.total)}`}>{fig(g.total)}</td>
               </tr>

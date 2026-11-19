@@ -18,6 +18,9 @@ vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: {
 import { apiFetch } from '@/lib/apiFetch';
 import CompanyDetailPage from '../../../pages/admin/companies/[id]';
 import CompaniesPage from '../../../pages/admin/companies/index';
+import { useCpuBoundTimeout } from '../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 useApiJsonOverMock();
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });

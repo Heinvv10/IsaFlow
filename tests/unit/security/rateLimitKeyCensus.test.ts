@@ -29,6 +29,7 @@ const ROOT = path.resolve(__dirname, '../../..');
 /** Calls whose key or options are not literals at the call site: `file | key text` -> why it is safe. */
 const PINNED: Record<string, string> = {
   'src/modules/accounting/services/share/shareResolver.ts | ipKey': 'share:ip: key built just above; options are file constants used nowhere else',
+  'pages/api/mcp/uploads/[token].ts | key': 'the `limit(key, max)` helper: every key is a fixed mcp-upload prefix (literal `mcp-upload:all` / `mcp-upload:miss`, or `mcp-upload-token:` / `mcp-upload-company:` plus a server-derived token hash or company id) and every max a file constant',
   "pages/api/accounting/reports-budget-comparator.ts | 'reports-budget-comparator'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'src/modules/accounting/services/share/shareResolver.ts | tokenKey': 'share:token: key built just above; options are file constants used nowhere else',
   "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('list', user.id)": 'per-action, per-user name; default options',
@@ -48,6 +49,7 @@ const PINNED: Record<string, string> = {
   'pages/api/accounting/sars/vat201-late-claims.ts | `vat201-late-claims:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/accounting/sars/returns/[form]/file.ts | `return-file:u:${userId}`': 'per-user filing name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
   'pages/api/accounting/sars/returns/[form]/amend.ts | `return-amend:u:${userId}`': 'per-user amend name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
+  'pages/api/accounting/sars/returns/[form]/filing-file.ts | `return-filing-file:u:${userId}`': 'per-user filing-file name (wave 6 EFa); options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',
   'pages/api/accounting/invoice-pdf-preview.ts | previewRateLimitName(user.id)': 'per-user preview name (`invoice-pdf-preview:u:<userId>`, invoicePreviewBody.ts); options are PREVIEW_RATE_LIMIT, a named constant beside it (300 per 15 min)',
   'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };

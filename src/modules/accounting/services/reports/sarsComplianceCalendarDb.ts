@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { getComplianceCalendar, type ComplianceEvent } from './sarsTaxPeriodsService';
 import { readCompanyVatRow, vatCycleOfRow, type VatCycle } from './companyVatCycle';
+import { legacyDueDates } from './legacyMarkDueDates';
 import { coveringSubmissions, filingLines, readFiledSubmissions, weakestKind } from './sarsSubmissionCoverage';
 
 /**
@@ -64,6 +65,15 @@ async function guardedRead<T>(savepoint: string, what: string, read: () => Promi
 }
 
 /**
+ * A pre-999c mark (no period) of the item: same type and a due date the item has now or had under the old
+ * weekend-only rule (legacyMarkDueDates), so moving due dates off public holidays does not unmark it.
+ */
+function legacyMarkOf(legacy: readonly DbRow[], item: ComplianceEvent): DbRow | undefined {
+  const dates = legacyDueDates(item.dueDate);
+  return legacy.find((r) => r.event_type === item.eventType && dates.includes(fmtDate(r.due_date)));
+}
+
+/**
  * The company's calendar with what was filed laid over it.
  *   - The company's filings (sars_submissions, submitted or accepted): an item they fully cover
  *     (sarsSubmissionCoverage) is completed with `efiling` (how it was filed, and every covering
@@ -92,14 +102,14 @@ export async function getComplianceCalendarWithMarks(companyId: string, year?: n
   const filed = await guardedRead('sars_calendar_submissions', 'filed submissions', () => readFiledSubmissions(companyId, from, to));
 
   const byPeriod = new Map<string, DbRow>();
-  const byDue = new Map<string, DbRow>();
+  const legacy: DbRow[] = [];
   for (const dbe of dbEvents ?? []) {
     if (dbe.period_end) byPeriod.set(`${dbe.event_type}_${fmtDate(dbe.period_start)}_${fmtDate(dbe.period_end)}`, dbe);
-    else byDue.set(`${dbe.event_type}_${fmtDate(dbe.due_date)}`, dbe);
+    else legacy.push(dbe);
   }
 
   const events = staticEvents.map((se): ComplianceEvent => {
-    const m = byPeriod.get(`${se.eventType}_${se.periodStart}_${se.periodEnd}`) ?? byDue.get(`${se.eventType}_${se.dueDate}`);
+    const m = byPeriod.get(`${se.eventType}_${se.periodStart}_${se.periodEnd}`) ?? legacyMarkOf(legacy, se);
     const filedAt = m ? (m.filed_at instanceof Date ? m.filed_at.toISOString() : m.filed_at ? String(m.filed_at) : undefined) : undefined;
     const marked: ComplianceEvent = !m ? se : {
       ...se,

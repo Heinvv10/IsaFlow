@@ -24,6 +24,15 @@ ls scripts/migrations/sql/ | LC_ALL=C sort -t_ -k1,1n | tail -5
 
 Never reuse an existing prefix.
 
+Parallel PRs often pick the same "next" prefix. Don't coordinate by hand: the
+merge queue checks every queued PR's new migrations against `master` and the
+other PRs in its batch. On a clash it ejects the PR with the exact rename to make
+(`git mv` to the next free integer prefix, `1000_`, `1001_` …, SQL unchanged,
+references updated), and the PR goes back in the queue after the rename. Write
+every migration idempotent (`IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP … IF
+EXISTS` before `CREATE POLICY`/`TRIGGER`) so a rename never matters. The gate's
+fixer never edits migrations; the queue lead or the PR's owner does the rename.
+
 ## Historical Duplicate Prefixes
 
 Seven prefix pairs exist from parallel feature development. They are tracked correctly by filename and must not be renamed. No new duplicates should be added.

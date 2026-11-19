@@ -213,6 +213,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Budgets P5-3 PO approve / cancel (ap/purchaseOrderErrors): fixed wording, at most the PO's own status; raised before any
   // write. No MCP tool approves a PO today; listed so a future one surfaces them.
   'PURCHASE_ORDER_CHANGED',
+  'PURCHASE_ORDER_IMPORT_REFUSED', // bulk_create_purchase_orders: a number already taken; decided before any write.
   'PURCHASE_ORDER_LOCK_TIMEOUT',
   'PURCHASE_ORDER_NOT_APPROVABLE',
   'PURCHASE_ORDER_NOT_CANCELLABLE',
@@ -285,6 +286,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
   'PAYROLL_RUN_DIRECTIVE_USE',
   'EMPLOYEE_END_DATE_DIRECTIVE',
+  'PREPARER_ID_NOT_SUPPORTED', // wave 6 HYb: a non-UUID preparer of a pay run R-035 governs (payrollPreparerGuard)
   'LEAVER_EXIT_AMBIGUOUS', // two live leaver-exit audit rows for a directive's current expiry: nothing restored
   'LEAVER_EXIT_WINDOW_TAKEN', // undoing a leaver exit when another run taxed the employee inside the restored window
   'LEAVER_EXIT_RUN_NOT_REOPENED', // undoing a leaver exit while a run it changed is approved or paid: refused before the write // an end date that would un-explain a directive ended at the leave date: refused before the write // an ever-approved run would lose a directive it was approved with: refused before any write
@@ -294,6 +296,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_PAID',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
+  'UPLOAD_STAGE_LOCK_TIMEOUT', // mcpUploadIntentStore.stageUploadBytes: a held row / busy upload pool; nothing staged, PUT again
   'UIF_DECLARATION_NOT_SUBMITTED', // uifPaymentService: names only the declaration's status; raised before any write (route answers 409)
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // latter: outside 1900..2199; the registry savepoint rolls back

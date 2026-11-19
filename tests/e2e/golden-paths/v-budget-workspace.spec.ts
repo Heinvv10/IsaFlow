@@ -5,7 +5,7 @@
  * roundToUnit(PY × 1.1) → a one-row, 12-month TSV pasted on that account's first month → 12 dirty cells, GP and NP
  * move by exactly the pasted change → Ctrl+S → Approve → reload → Approved and the pasted months persisted.
  *
- * It runs in prod post-deploy verify against Demo (scripts/verify-deploy.sh), so it obeys the budgets contract's
+ * It runs in prod post-deploy verify in the Deploy Verification company (scripts/verify-deploy.sh), so it obeys the budgets contract's
  * golden-spec write rule (docs/plans/budgets/00-shared-contract.md):
  *   - prechecks through the API BEFORE any write (owner/admin role; a year that already has a version, so the new one
  *     can be a non-primary scenario; a turnover / cost-of-sales line with prior-year actuals) and skips with a reason;

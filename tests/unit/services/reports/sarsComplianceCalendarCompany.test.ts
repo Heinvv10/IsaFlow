@@ -41,7 +41,7 @@ describe('getComplianceCalendarWithDB reads the company VAT cycle', () => {
 
   it('a Category A company row yields Category A due dates', async () => {
     serveCompany(CAT_A);
-    expect(await vat201Dues()).toEqual(['2026-02-25', '2026-04-24', '2026-06-25', '2026-08-25', '2026-10-23', '2026-12-25', '2027-02-25']);
+    expect(await vat201Dues()).toEqual(['2026-02-25', '2026-04-24', '2026-06-25', '2026-08-25', '2026-10-23', '2026-12-24', '2027-02-25']);
   });
 
   it('a Category B company row yields Category B due dates', async () => {

@@ -73,6 +73,12 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
     expect(e).toMatchObject({ id: 'm1', status: 'completed', sarsReference: 'REF-9', filedBy: 'Willie', filedAt: '2026-03-05T08:00:00.000Z' });
   });
 
+  it('a mark made before a holiday shift still matches: EMP201 Mar 2023 now due Thu 6 Apr, stored due date Fri 7 Apr (Good Friday)', async () => {
+    serve([{ id: 'm3', event_type: 'EMP201_DUE', due_date: '2023-04-07', period_start: '2023-03-01', period_end: '2023-03-31', status: 'completed' }]);
+    const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2023), 'EMP201_DUE', '2023-03-31');
+    expect(e).toMatchObject({ id: 'm3', status: 'completed', dueDate: '2023-04-06' });
+  });
+
   it('a mark does not match another period of the same type that shares its stored due date', async () => {
     // Stored due date is January's (6 Feb), but the mark is February's period.
     serve([{ id: 'm2', event_type: 'EMP201_DUE', due_date: '2026-02-06', period_start: '2026-02-01', period_end: '2026-02-28', status: 'completed' }]);
@@ -128,5 +134,27 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
     const events = await getComplianceCalendarWithDB(COMPANY_ID, 2026);
     expect(events.length).toBeGreaterThan(10);
     expect(events.every((e) => e.id === undefined)).toBe(true);
+  });
+});
+
+describe('a pre-999c mark made under the old weekend-only due date', () => {
+  beforeEach(() => { vi.mocked(sql).mockReset(); });
+
+  it('Cat A Oct–Nov 2026 VAT201: a legacy row dated Fri 25 Dec (old) matches the item now due Thu 24 Dec', async () => {
+    serve([{ id: 'old-xmas', event_type: 'VAT201_DUE', due_date: '2026-12-25', period_end: null, status: 'completed' }]);
+    const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2026), 'VAT201_DUE', '2026-11-30');
+    expect(e).toMatchObject({ id: 'old-xmas', status: 'completed', dueDate: '2026-12-24' });
+  });
+
+  it('a legacy row on an unrelated date does not match', async () => {
+    serve([{ id: 'stray', event_type: 'VAT201_DUE', due_date: '2026-12-18', period_end: null, status: 'completed' }]);
+    const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2026), 'VAT201_DUE', '2026-11-30');
+    expect(e?.id).toBeUndefined();
+  });
+
+  it('a legacy row of another type on 25 Dec does not match the VAT item', async () => {
+    serve([{ id: 'other', event_type: 'EMP201_DUE', due_date: '2026-12-25', period_end: null, status: 'completed' }]);
+    const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2026), 'VAT201_DUE', '2026-11-30');
+    expect(e?.id).toBeUndefined();
   });
 });

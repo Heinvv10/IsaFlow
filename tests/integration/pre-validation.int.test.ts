@@ -103,11 +103,12 @@ afterAll(async () => {
   await r.teardown([otherCompany]);
 });
 
-// First: the empty-catalogue case needs the fixture's SARS code table as loaded (empty); later blocks seed it.
+// First: the no-release case needs the fixture's SARS code table as loaded (migration 999m's 2024 and 2025 sets, nothing
+// for TAX_YEAR); later blocks seed it.
 describe('the SARS code-release flag (the notice)', () => {
-  it('no release at all (an empty catalogue, as production had): false', async () => {
-    const rows = (await r.pool.query('SELECT count(*)::int AS n FROM sars_source_codes')).rows[0]!.n;
-    expect(rows, 'premise: the schema-only fixture loads no SARS codes').toBe(0);
+  it('no release for the tax year (other years loaded, none for this one): false', async () => {
+    const rows = (await r.pool.query('SELECT count(*)::int AS n FROM sars_source_codes WHERE effective_year = $1', [TAX_YEAR])).rows[0]!.n;
+    expect(rows, 'premise: the fixture loads no SARS codes for the tax year').toBe(0);
     refreshCache();
     expect((await answer({ taxYear: String(TAX_YEAR) })).codeReleaseLoaded).toBe(false);
   });

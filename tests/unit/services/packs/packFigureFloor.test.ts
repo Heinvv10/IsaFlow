@@ -18,6 +18,9 @@ import { assertFiguresReadable, unreadableBlock } from '@/modules/accounting/ser
 import { demoInput } from './fixtures/boardPackInputs';
 import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from './fixtures/widenedFigures';
 import { relabelledStatement } from '../../print/fixtures/markedTables';
+import { useCpuBoundTimeout } from '../../../helpers/loadAwareTiming';
+
+useCpuBoundTimeout();
 
 const refusalOf = (fn: () => void): PackRefusal => {
   try { fn(); } catch (err) { if (err instanceof PackRefusal) return err; throw err; }

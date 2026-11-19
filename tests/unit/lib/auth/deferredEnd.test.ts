@@ -177,7 +177,7 @@ describe('reportFinalizeFailure (R-176)', () => {
     reportFinalizeFailure(req, r as never, new Error('ROLLBACK did not answer'), { ...ctx, extra: { connectionId: 'c-1' } });
     expect(vi.mocked(log.error).mock.calls).toEqual([['withAuth: transaction finalize failed after handler responded', {
       url: '/api/invitations/revoke/abc', status: 503, handlerFailed: true, connectionDestroyed: true,
-      companyId: 'co-1', userId: 'u-1', connectionId: 'c-1', message: 'ROLLBACK did not answer',
+      companyId: 'co-1', userId: 'u-1', connectionId: 'c-1', message: 'ROLLBACK did not answer', sentryCaptured: true,
     }, 'Auth']]);
   });
 

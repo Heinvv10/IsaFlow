@@ -12,8 +12,8 @@
  * p. 10-11 "Retirement fund contributions", and p. 5). The cap is also limited
  * "at any time during the year" to the same fraction of itself as the period
  * remuneration was paid for bears to the year (p. 10): payeCumulative takes
- * the allowed deduction on annualised figures and weights it n ÷ 12, which is
- * that proviso.
+ * the allowed deduction on annualised figures and weights it n ÷ F (F = 365 ÷
+ * 30.4166 a month, wave-6 AN; the statute's ratio is n ÷ 12), which is that proviso.
  *
  * "The higher of remuneration or taxable income": an employer knows only the
  * remuneration it pays, so taxable income before the deduction is that same
@@ -70,10 +70,12 @@ export function allowedRetirementDeduction(annualContributions: number, annualRe
 }
 
 /** allowedRetirementDeduction with its three limits, for the explanation (payrollExplain), which never recomputes them. */
-export function retirementDeductionLimits(annualContributions: number, annualRemuneration: number, taxYear: number): {
+export function retirementDeductionLimits(annualContributions: number, annualRemuneration: number, taxYear: number, capScale = 1): {
   contributions: number; shareOfRemuneration: number; cap: number; allowed: number;
 } {
-  const cap = getTaxYearConfig(taxYear).retirementDeductionCap;
+  // capScale puts the statutory cap on the scale of the figures compared with it: F ÷ 12 for payeCumulative's annual
+  // equivalents (wave-6 AN), so that weighted n ÷ F it is the cap × n ÷ 12 the statute allows.
+  const cap = getTaxYearConfig(taxYear).retirementDeductionCap * capScale;
   const shareOfRemuneration = RETIREMENT_DEDUCTION_RATE * Math.max(0, annualRemuneration);
   return { contributions: annualContributions, shareOfRemuneration, cap, allowed: Math.max(0, Math.min(annualContributions, shareOfRemuneration, cap)) };
 }
