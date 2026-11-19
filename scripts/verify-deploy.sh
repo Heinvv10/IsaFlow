@@ -13,6 +13,11 @@
 # Usage:
 #   scripts/verify-deploy.sh <BASE_URL>
 #
+#   BASE_URL is http://localhost:<port> (as deploy.sh, restart-colours.sh and cutover.sh pass it), never
+#   http://127.0.0.1:<port>: a production build sets its cookies Secure and Playwright sends those over plain
+#   http only to localhost, so against an IP every request after the login is 401 (incident 2026-11-18; the
+#   suite's global setup now says so).
+#
 # Env:
 #   DATABASE_URL           DB for the integrity check (required unless
 #                          VERIFY_SKIP_INTEGRITY=1)

@@ -15,8 +15,9 @@
 #
 # Overrides (all optional; PROVISION_ prefixed because BASE_URL and friends are set by other tools): PROVISION_PROD_ENV,
 #   PROVISION_ENV_FILE (default /home/hein/isaflow-deploy.env, the file verify-deploy.sh reads), PROVISION_BASE_URL (default the
-#   live colour behind nginx, http://127.0.0.1:3101: the seed goes through the running app, which must be backed by the same
-#   database), PROVISION_EXPECT_DB (default isaflow, production's database name), SUDO, BUN.
+#   live colour behind nginx, http://localhost:3101: the seed goes through the running app, which must be backed by the same
+#   database; localhost, never 127.0.0.1: the readiness gate logs in as the golden suite will, and the suite's client sends the
+#   production app's Secure cookies over plain http only to localhost, incident 2026-11-18), PROVISION_EXPECT_DB (default isaflow, production's database name), SUDO, BUN.
 # The secrets sit in the child process's environment for the run (readable by the same user, as the deploy's are): accepted.
 # Never pass --reset-password to a GoTrue that is also dev's (it is one instance): it resets production's login.
 # A real run holds /tmp/isaflow-deploy.lock and /tmp/isaflow-colours.lock (the deploy's own locks) for its whole duration and is
@@ -69,5 +70,5 @@ done
 VERIFY_COMPANY_DATABASE_URL="$DB_URL" GOTRUE_URL="$GOTRUE" SUPABASE_SERVICE_ROLE_KEY="$KEY" JWT_SECRET="$JWT" SUPABASE_ANON_KEY="$ANON" \
   exec "$BUN" "$REPO_DIR/scripts/deploy/provision-verify-company.ts" \
     --expect-database "${PROVISION_EXPECT_DB:-isaflow}" \
-    --base-url "${PROVISION_BASE_URL:-http://127.0.0.1:3101}" \
+    --base-url "${PROVISION_BASE_URL:-http://localhost:3101}" \
     --env-file "$ENVF" "$@"
