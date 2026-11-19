@@ -21,7 +21,8 @@
 --     from the run's lines at the status transition out of 'approved' (a reopen), on the row that transition writes.
 --     Every other INSERT or UPDATE keeps it as it was (NULL on insert), whatever the statement says, so no app_user
 --     write can set or move it (review #1679 L1: approved_amount, stamped from a reopened_at app_user may UPDATE, could
---     be forged). After a run's pay date its gross may not rise above it (payrollOffCycleCorrection: bonus and
+--     be forged). A re-snapshot never rises (review #1679b: a status flip by app_user over raised lines): each
+--     employee keeps the LEAST of the old snapshot and the lines, nil when absent from it. After a run's pay date its gross may not rise above it (payrollOffCycleCorrection: bonus and
 --     termination runs alike, review #1679 M).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
 --     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
@@ -148,9 +149,16 @@ BEGIN
     RETURN NEW;
   END IF;
   IF OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved' THEN
-    SELECT pg_catalog.jsonb_object_agg(s.employee_id::text, s.gross) INTO NEW.off_cycle_paid_gross
+    -- Never rises (review #1679b): a re-snapshot keeps, per employee, the LEAST of what was last snapshotted and the
+    -- lines now; an employee absent from an existing snapshot stays nil. The first snapshot takes the lines as they are.
+    SELECT pg_catalog.jsonb_object_agg(s.employee_id::text,
+             CASE WHEN OLD.off_cycle_paid_gross IS NULL THEN s.gross
+                  ELSE LEAST(s.gross, COALESCE((OLD.off_cycle_paid_gross ->> s.employee_id::text)::numeric, 0)) END)
+      INTO NEW.off_cycle_paid_gross
       FROM (SELECT l.employee_id, pg_catalog.sum(l.gross_pay) AS gross
               FROM public.payroll_run_lines l WHERE l.run_id = OLD.id GROUP BY l.employee_id) s;
+    -- No lines (a run reopened with none): the existing snapshot stands.
+    NEW.off_cycle_paid_gross := COALESCE(NEW.off_cycle_paid_gross, OLD.off_cycle_paid_gross);
   ELSE
     NEW.off_cycle_paid_gross := OLD.off_cycle_paid_gross;
   END IF;

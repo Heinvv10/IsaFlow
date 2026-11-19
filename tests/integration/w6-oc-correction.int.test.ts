@@ -27,6 +27,23 @@ let run = '';
 
 const patch = (id: string, body: Record<string, unknown>) =>
   a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${id}/off-cycle-amounts`, id, { body });
+/** A statement as app_user in this company (a write below the service, as the breaker's repro makes it). */
+async function asApp(text: string, params: unknown[] = []): Promise<void> {
+  const c = await a.pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL ROLE app_user');
+    await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.admin, role: 'authenticated', aal: 'aal2' })]);
+    await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
+    await c.query(text, params);
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK');
+    throw err;
+  } finally {
+    c.release();
+  }
+}
 const paye = async (id: string) => Number((await a.pool.query('SELECT COALESCE(SUM(paye), 0)::float8 AS p FROM payroll_run_lines WHERE run_id = $1', [id])).rows[0].p);
 
 beforeAll(async () => {
@@ -156,12 +173,26 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect(refused.statusCode).not.toBe(200);
     expect(JSON.stringify(refused.body)).toMatch(/can't be raised after the pay date/);
     expect((await a.header(run)).status).toBe('calculated');
+    // Review #1679b: app_user flips the status approved -> calculated over the raised lines to refresh the snapshot.
+    // The snapshot never rises (LEAST of old and new), so it stays at R5 000 and approval still refuses R80 000.
+    for (const status of ['approved', 'calculated']) await asApp(`UPDATE payroll_run_headers SET status = $2 WHERE id = $1`, [run, status]);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 5_000 });
+    const flipped = await a.api.approve(run);
+    expect(flipped.statusCode).not.toBe(200);
+    expect(JSON.stringify(flipped.body)).toMatch(/can't be raised after the pay date/);
     // Back to R4 000 through the service: approved.
     expect((await patch(run, { employeeId: mid, amount: 4_000 })).statusCode).toBe(200);
     expect((await a.api.calculate(run)).statusCode).toBe(200);
     const ok = await a.api.approve(run);
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     expect(Number((await a.pool.query('SELECT gross_pay::float8 AS g FROM payroll_run_lines WHERE run_id = $1', [run])).rows[0].g)).toBe(4_000);
+    // A second cycle lowers the snapshot (R5 000 then R4 000 gives R4 000), and leaves the run approved again.
+    expect((await a.api.reopen(run)).statusCode).toBe(200);
+    expect((await a.pool.query('SELECT off_cycle_paid_gross AS s FROM payroll_run_headers WHERE id = $1', [run])).rows[0].s).toEqual({ [mid]: 4_000 });
+    const j2 = String((await a.pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [run])).rows[0].journal_entry_id);
+    expect((await a.api.reverse(j2)).statusCode).toBe(200);
+    expect((await a.api.calculate(run)).statusCode).toBe(200);
+    expect((await a.api.approve(run)).statusCode).toBe(200);
   });
 
   it('the route: a viewer gets 403 on GET and PATCH, a manager 403 on PATCH, an agent bearer 401; nothing read or written', async () => {
