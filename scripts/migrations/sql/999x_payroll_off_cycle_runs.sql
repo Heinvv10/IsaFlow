@@ -13,7 +13,8 @@
 --     payroll_off_cycle_employees_guard  a BEFORE INSERT trigger (INVOKER, under the caller's RLS): the run is this
 --     company's, an off-cycle run, still a draft; the employee is this company's; a bonus row names one of this
 --     company's 3605 earnings and a termination row names none. On UPDATE (app_user may update the amount column
---     only): the run is this company's draft or calculated BONUS run. app_user may INSERT, SELECT and UPDATE (amount).
+--     only): the run is this company's draft or calculated BONUS run; company, run, employee and earning stay as they
+--     were; the amount is more than R0 in whole cents. app_user may INSERT, SELECT and UPDATE (amount).
 --   approval_request_document_facts  (951:183, called by the 872 SECURITY DEFINER writers) names an off-cycle run in
 --     its reference: '11/2026 bonus run, paid 2026-11-28' (its kind and pay date: a month may hold several); a regular
 --     run's reference is unchanged
@@ -64,6 +65,15 @@ BEGIN
   SELECT run_kind, off_cycle_reason, status INTO h
     FROM public.payroll_run_headers WHERE id = NEW.run_id AND company_id = NEW.company_id;
   IF TG_OP = 'UPDATE' THEN
+    IF NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.run_id IS DISTINCT FROM OLD.run_id
+       OR NEW.employee_id IS DISTINCT FROM OLD.employee_id OR NEW.component_id IS DISTINCT FROM OLD.component_id THEN
+      RAISE EXCEPTION 'payroll_off_cycle_employees: only the amount changes (same company, run, employee and earning)'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    -- Also held by the CHECK (amount > 0) and the NUMERIC(14, 2) column; stated here so the rule reads in one place.
+    IF NEW.amount IS NULL OR NEW.amount <= 0 OR NEW.amount <> pg_catalog.round(NEW.amount, 2) THEN
+      RAISE EXCEPTION 'payroll_off_cycle_employees: a bonus amount is more than R0, in whole cents' USING ERRCODE = 'check_violation';
+    END IF;
     IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.off_cycle_reason IS DISTINCT FROM 'bonus' OR h.status NOT IN ('draft', 'calculated') THEN
       RAISE EXCEPTION 'payroll_off_cycle_employees: only a draft or calculated bonus run''s amount changes'
         USING ERRCODE = 'check_violation';

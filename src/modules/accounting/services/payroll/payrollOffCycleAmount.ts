@@ -7,13 +7,15 @@
  * lines are removed and it goes back to draft, so nothing costed on the old amount can be approved: the zero-gross
  * refusal holds the approval until it is recalculated. A pending R-035 request is refused here (withdraw it first):
  * its digest was taken on the old figures. Recovering cash already paid is outside payroll.
- * Owner or admin, never under Login-as (the route); refused with 409 before any write.
+ * Every edit writes an audit row (old and new amount). Owner or admin on a cookie session only, never under Login-as
+ * and never for an agent (the route takes no bearer token); refused with 409 before any write.
  */
 import { withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { OffCycleRunRefusedError } from './payrollOffCycleRun';
+import { logAuditOrThrow } from '../core/auditTrailService';
 
 const refused = (m: string, status: 400 | 409 = 409) => new OffCycleRunRefusedError(m, status);
 
@@ -41,7 +43,7 @@ export async function listOffCycleBonusInputs(companyId: string, runId: string):
 
 /** Set one employee's bonus amount on a draft or calculated bonus run; null when the run is not this company's. */
 export async function setOffCycleBonusAmount(
-  companyId: string, runId: string, employeeId: string, amount: number, userId: string | null,
+  companyId: string, runId: string, employeeId: string, amount: number, userId: string,
 ): Promise<{ runId: string; employeeId: string; amount: number } | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) !== amount * 100) {
@@ -64,12 +66,24 @@ export async function setOffCycleBonusAmount(
        WHERE company_id = ${companyId}::uuid AND document_type = 'pay_run' AND document_id = ${runId}::uuid AND status = 'pending'
     `) as DbRow[];
     if (pending.length > 0) throw refused('This run has a pending approval request: withdraw it before changing an amount.');
-    const updated = (await tx`
+    const before = ((await tx`
+      SELECT amount::text AS amount FROM payroll_off_cycle_employees
+       WHERE company_id = ${companyId}::uuid AND run_id = ${runId}::uuid AND employee_id = ${employeeId}::uuid
+       FOR UPDATE
+    `) as DbRow[])[0];
+    if (!before) throw refused('That employee is not on this bonus run.', 400);
+    await tx`
       UPDATE payroll_off_cycle_employees SET amount = ${amount}
        WHERE company_id = ${companyId}::uuid AND run_id = ${runId}::uuid AND employee_id = ${employeeId}::uuid
-       RETURNING employee_id
-    `) as DbRow[];
-    if (updated.length === 0) throw refused('That employee is not on this bonus run.', 400);
+    `;
+    // Every edit leaves an audit row with the old and new amount, in this transaction (it commits with the change).
+    await logAuditOrThrow({
+      companyId, userId, action: 'update', entityType: 'payroll_run', entityId: runId,
+      changes: {
+        fields: [{ field: 'off_cycle_bonus_amount', old: String(before.amount), new: amount.toFixed(2), label: 'Bonus amount' }],
+        metadata: { employeeId, previousStatus: String(run.status) },
+      },
+    }, tx);
     // Nothing costed on the old amount can be approved: back to draft, no lines, until it is recalculated.
     await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
     await tx`

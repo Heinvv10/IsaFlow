@@ -4,12 +4,14 @@
  *  PATCH  { employeeId, amount }: correct one amount on a draft or calculated bonus run (payrollOffCycleAmount). The
  *         run goes back to draft until it is recalculated. Owner or admin only; refused under Login-as (403
  *         IMPERSONATION_FORBIDDEN); a run in any other state is a 409, judged before any write.
+ *  Both: payroll-detail roles only (withPayrollDetailAccess); a cookie session only (no agent bearer).
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { listOffCycleBonusInputs, setOffCycleBonusAmount } from '@/modules/accounting/services/payroll/payrollOffCycleAmount';
 import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
@@ -29,7 +31,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (typeof body.employeeId !== 'string' || !UUID_RE.test(body.employeeId)) return apiResponse.badRequest(res, 'employeeId is required');
   if (typeof body.amount !== 'number') return apiResponse.badRequest(res, 'amount must be a number');
   try {
-    const done = await setOffCycleBonusAmount(companyId, id, body.employeeId, body.amount, req.user?.id ?? null);
+    const userId = req.user?.id;
+    if (!userId) return apiResponse.forbidden(res, 'Only a signed-in user can change a bonus amount.');
+    const done = await setOffCycleBonusAmount(companyId, id, body.employeeId, body.amount, userId);
     if (!done) return apiResponse.notFound(res, 'PayrollRun', id);
     return apiResponse.success(res, done);
   } catch (err) {
@@ -41,4 +45,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Per-employee pay: payroll-detail roles only, for GET too (review #1620 security). withAuth is a cookie session only,
+// so an agent's bearer token (PAT or OAuth) never reaches this route.
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))));

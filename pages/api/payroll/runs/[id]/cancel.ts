@@ -9,6 +9,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { ApprovalDecisionError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollOffCycleCancel';
 import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
@@ -36,4 +37,5 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Payroll-detail roles, like the run detail routes (review #1620 security).
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(withWriteAccess(handler)))));

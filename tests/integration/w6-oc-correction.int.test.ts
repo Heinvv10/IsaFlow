@@ -3,11 +3,17 @@
  *  - before the month's EMP201 is filed: the paid run is reopened, its amount corrected (R50 000 -> R5 000), it is
  *    recalculated (its journal reversed, as for any reopened run) and approved again after its pay date (a run approved before is exempt from the pay-date refusal),
  *    and its PAYE drops;
- *  - an amount changes on a draft or calculated bonus run only, and sends it back to draft;
+ *  - an amount changes on a draft or calculated bonus run only, with an audit row (old and new), and sends it back to
+ *    draft: the stale costing cannot be submitted or approved until it is recalculated; the journal is reversed and a new
+ *    one posted for the corrected amount;
+ *  - the route: payroll-detail roles only (a viewer: 403 on GET and PATCH, nothing returned or written), owner or admin
+ *    for PATCH (a manager: 403), a cookie session only (an agent's bearer token: 401);
+ *  - the 999x guard: only the amount changes, and only on a draft or calculated bonus run;
  *  - once the month's EMP201 is filed, the reopen is refused (409) saying so.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
+import { request, response } from './mfa-impersonation-postgres.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
 import amounts from '../../pages/api/payroll/runs/[id]/off-cycle-amounts';
 
@@ -73,16 +79,69 @@ describe('correcting a paid, over-paid bonus run', () => {
     expect(changed.statusCode, a.msg(changed)).toBe(200);
     expect((await a.header(run)).status).toBe('draft');
     expect(await paye(run)).toBe(0); // no lines on the old amount survive
-    expect((await a.api.calculate(run)).statusCode).toBe(200);
+    const audit = (await a.pool.query(`SELECT action, user_id::text AS user_id, changes FROM audit_log
+      WHERE company_id = $1 AND entity_type = 'payroll_run' AND entity_id = $2 AND action = 'update'
+        AND changes->'fields' @> '[{"field": "off_cycle_bonus_amount"}]'::jsonb`, [a.company, run])).rows;
+    expect(audit).toHaveLength(1);
+    expect(audit[0].user_id).toBe(a.admin);
+    expect(audit[0].changes.fields).toEqual([{ field: 'off_cycle_bonus_amount', old: '50000.00', new: '5000.00', label: 'Bonus amount' }]);
     // As for any reopened run, the journal posted at approval is reversed by hand before it is approved again.
     const journal = String((await a.pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [run])).rows[0].journal_entry_id);
     expect((await a.api.reverse(journal)).statusCode).toBe(200);
+    // The stale costing (nothing calculated since the edit) is neither submitted nor approved.
+    const stale = await a.api.approve(run);
+    expect(stale.statusCode).not.toBe(200);
+    expect((await a.header(run)).status).toBe('draft');
+    expect((await a.pool.query(`SELECT 1 FROM approval_requests WHERE company_id = $1 AND document_id = $2 AND status = 'pending'`, [a.company, run])).rows).toHaveLength(0);
+    expect((await a.api.calculate(run)).statusCode).toBe(200);
     const ok = await a.api.approve(run);
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     const after = await paye(run);
     expect(after).toBeGreaterThan(0);
     expect(after).toBeLessThan(before);
     expect(Number((await a.pool.query('SELECT gross_pay::float8 AS g FROM payroll_run_lines WHERE run_id = $1', [run])).rows[0].g)).toBe(5_000);
+    // The journal: the original (R50 000) reversed, its reversal posted, and a new one posted for R5 000.
+    const bonusJournals = (await a.journals('*')).filter((j) => String(j.description).includes('bonus') || j.reversal_of_id === journal);
+    const original = bonusJournals.find((j) => j.id === journal)!;
+    const reversal = bonusJournals.find((j) => j.reversal_of_id === journal)!;
+    const reposted = String((await a.pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [run])).rows[0].journal_entry_id);
+    expect(original.reversed).toBe(true);
+    expect(reversal.total_debit).toBeCloseTo(original.total_debit, 2);
+    expect(reposted).not.toBe(journal);
+    const fresh = bonusJournals.find((j) => j.id === reposted)!;
+    expect(fresh.status).toBe('posted');
+    expect(fresh.total_debit).toBeLessThan(original.total_debit);
+    // The employment cost debit (gross + the employer's UIF and SDL, one line): R50 677.12 on the original, and on the
+    // new journal exactly the corrected run's own cost.
+    const debits = async (je: string) => (await a.pool.query('SELECT debit::float8 AS d FROM gl_journal_lines WHERE journal_entry_id = $1 AND debit > 0', [je])).rows.map((r) => r.d);
+    const cost = Number((await a.pool.query(`SELECT SUM(gross_pay + uif_employer + sdl)::float8 AS c FROM payroll_run_lines WHERE run_id = $1`, [run])).rows[0].c);
+    expect(cost).toBeGreaterThan(5_000);
+    expect(cost).toBeLessThan(5_200);
+    expect(await debits(journal)).toEqual([50_677.12]);
+    expect(await debits(reposted)).toEqual([cost]);
+  });
+
+  it('the route: a viewer gets 403 on GET and PATCH, a manager 403 on PATCH, an agent bearer 401; nothing read or written', async () => {
+    const viewer = await a.addUser('viewer');
+    const manager = await a.addUser('manager');
+    const amountNow = async () => Number((await a.pool.query('SELECT amount::float8 AS x FROM payroll_off_cycle_employees WHERE run_id = $1', [run])).rows[0].x);
+    const before = await amountNow();
+    const read = await a.call(amounts as Route, 'GET', `/api/payroll/runs/${run}/off-cycle-amounts`, run, { user: viewer });
+    expect(read.statusCode).toBe(403);
+    expect(JSON.stringify(read.body)).not.toContain(String(before));
+    for (const user of [viewer, manager]) {
+      const w = await a.call(amounts as Route, 'PATCH', `/api/payroll/runs/${run}/off-cycle-amounts`, run, { user, body: { employeeId: mid, amount: 1 } });
+      expect(w.statusCode).toBe(403);
+    }
+    // An agent (PAT or OAuth bearer, no session cookie) never reaches it: withAuth reads the cookie session only.
+    const req = request({}, 'PATCH', run) as unknown as { headers: Record<string, string>; body: unknown; url: string };
+    req.headers.authorization = 'Bearer isf_pat_agent_token';
+    req.body = { employeeId: mid, amount: 1 };
+    req.url = `/api/payroll/runs/${run}/off-cycle-amounts`;
+    const agent = response();
+    await (amounts as Route)(req as never, agent.res as never);
+    expect(agent.state.statusCode).toBe(401);
+    expect(await amountNow()).toBe(before);
   });
 
   it('after the month\'s EMP201 is filed, the paid run is not reopened (409, saying so)', async () => {
@@ -96,5 +155,9 @@ describe('correcting a paid, over-paid bonus run', () => {
     // The 999x guard holds the same rule below the service: an approved run's amount does not change.
     await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 1 WHERE run_id = $1', [run]))
       .rejects.toThrow(/only a draft or calculated bonus run's amount changes/);
+    await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET company_id = gen_random_uuid() WHERE run_id = $1', [run]))
+      .rejects.toThrow(/only the amount changes/);
+    await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 0 WHERE run_id = $1', [run]))
+      .rejects.toThrow(/a bonus amount is more than R0, in whole cents/);
   });
 });
