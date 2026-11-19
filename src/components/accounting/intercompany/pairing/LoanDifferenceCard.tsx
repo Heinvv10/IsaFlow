@@ -5,7 +5,7 @@ import { formatDrCr } from './pairingFormat';
 
 export function LoanDifferenceCard({ loan, partnerName }: { loan: LoanDifference; partnerName: string }) {
   const agrees = loan.difference !== null && Math.abs(loan.difference) < 0.005;
-  // difference = yours + theirs (net debit): above nil, yours shows more owed to you (or less owed by you) than the partner's mirror; below nil, the partner's shows more owed by them (or less owed to them).
+  // difference = yours + theirs (net debit): above nil your books show more owed to you, below nil the partner's show more owed by them.
   const higher = loan.difference === null || agrees ? null
     : loan.difference > 0 ? `Your books show ${formatCurrency(loan.difference)} more owed to you (or less owed by you) than ${partnerName}'s`
       : `${partnerName}'s books show ${formatCurrency(Math.abs(loan.difference))} more owed by them (or less owed to them) than yours`;

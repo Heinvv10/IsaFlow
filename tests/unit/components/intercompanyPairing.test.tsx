@@ -91,7 +91,6 @@ describe('the page', () => {
     expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u) === '/api/accounting/intercompany/connections')).toHaveLength(2);
   });
 
-
   it.each([
     ['no_cutover', /cut-over date first/], ['no_party', /Link the customer/], ['revoked', /is revoked/], ['no_write_access', /owner, admin or manager/],
   ] as const)('a blocked screen (%s) tells the person what to do and offers no suggestions', async (blocked, text) => {
@@ -286,5 +285,15 @@ describe('exceptions, pairings and loan balances', () => {
     view = () => envelope(VIEW({ loan: { mine: 5000, theirs: -4800, difference: 200, asAt: '2026-09-30' } }));
     render(<PairingPage />);
     expect(await screen.findByTestId('loan-difference')).toHaveTextContent('30 Sep 2026');
+  });
+
+  it('switching the direction tab refreshes the loan card from the new view', async () => {
+    view = (direction) => envelope(VIEW({ direction: direction as 'ar' | 'ap', loan: direction === 'ar'
+      ? { mine: 5000, theirs: -4800, difference: 200, asAt: '2026-09-30' } : { mine: 5000, theirs: -5000, difference: 0, asAt: '2026-09-30' } }));
+    render(<PairingPage />);
+    await screen.findByTestId('loan-difference');
+    expect(screen.getByTestId('loan-difference-value')).toHaveAttribute('data-state', 'differs');
+    fireEvent.click(screen.getByRole('tab', { name: /Owed by you/ }));
+    await waitFor(() => expect(screen.getByTestId('loan-difference-value')).toHaveAttribute('data-state', 'agrees'));
   });
 });
