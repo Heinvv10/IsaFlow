@@ -14,6 +14,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
 import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
@@ -46,7 +47,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
     // Raised before the first write: the 400 commits nothing.
-    if (err instanceof InvoiceLineCodingRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+    if (err instanceof InvoiceLineCodingRefusal || err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
     if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
     if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
     const msg = err instanceof Error ? err.message : String(err);

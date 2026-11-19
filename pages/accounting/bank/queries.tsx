@@ -147,7 +147,7 @@ export default function ClientQueriesPage() {
         <div className="px-6 pt-4 pb-0 flex items-center gap-2 border-b border-[var(--ff-border-light)]">
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              className={`px-4 py-2 max-lg:min-h-11 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 tab === t.id
                   ? 'border-teal-400 text-teal-300'
                   : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
@@ -242,7 +242,7 @@ export default function ClientQueriesPage() {
         <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg border text-sm shadow-xl ${toastCls}`}>
           {toast.kind === 'ok' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
           <span>{toast.msg}</span>
-          <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
+          <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100 max-lg:inline-flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
     </AppLayout>

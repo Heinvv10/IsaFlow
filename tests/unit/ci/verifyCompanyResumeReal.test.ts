@@ -41,6 +41,7 @@ function deps(): Deps {
     plan: async () => [],
     seed: async () => ({ ran: [], problems: [] }),
     companyProblems: async (_d: ClientBase) => [],
+    suiteProblems: async () => [],
   };
 }
 const OPTS = { dryRun: false, resetPassword: false, baseUrl: 'http://app.test', envFile: '' };

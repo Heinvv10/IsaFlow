@@ -76,7 +76,7 @@ export default function NewReconciliationPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
-            <Link href="/accounting/bank-reconciliation" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
+            <Link href="/accounting/bank-reconciliation" className="inline-flex items-center gap-1 max-lg:min-h-11 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
               <ArrowLeft className="h-4 w-4" /> Back to Reconciliations
             </Link>
             <div className="flex items-center gap-3">
@@ -104,7 +104,7 @@ export default function NewReconciliationPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <DateField label="Statement Date" required name="statementDate" value={form.statementDate || null} resetKey={dates.resetKey('statementDate')}
+                <DateField label="Statement Date" required name="statementDate" className="max-lg:min-h-11" value={form.statementDate || null} resetKey={dates.resetKey('statementDate')}
                   onChange={dates.bind('statementDate', iso => setForm(f => ({ ...f, statementDate: iso })), form.statementDate)} />
               </div>
 
@@ -116,7 +116,7 @@ export default function NewReconciliationPage() {
                   step="0.01"
                   value={balanceText}
                   onChange={e => { setBalanceText(e.target.value); setForm(f => ({ ...f, statementBalance: Number(e.target.value) })); }}
-                  className="ff-input w-full"
+                  className="ff-input w-full max-lg:min-h-11"
                   placeholder="e.g. 125000.00"
                   required
                 />
@@ -130,13 +130,13 @@ export default function NewReconciliationPage() {
           </div>
 
           <div className="flex justify-end gap-3">
-            <Link href="/accounting/bank-reconciliation" className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+            <Link href="/accounting/bank-reconciliation" className="px-4 py-2 max-lg:inline-flex max-lg:min-h-11 max-lg:items-center text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
               Cancel
             </Link>
             <button
               type="submit"
               disabled={isSubmitting || !form.bankAccountId}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-6 py-2 max-lg:min-h-11 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors text-sm font-medium"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Start Reconciliation

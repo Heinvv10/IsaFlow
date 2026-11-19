@@ -246,6 +246,8 @@ export async function updateItem(companyId: string, input: UpdateItemInput): Pro
       code               = COALESCE(${input.code !== undefined ? String(input.code) : null}, code),
       description        = COALESCE(${input.description !== undefined ? String(input.description) : null}, description),
       item_type          = COALESCE(${input.item_type !== undefined ? String(input.item_type) : null}, item_type),
+      -- items_tracked_needs_physical (migration 1005): a service is never tracked, so turning an item into one untracks it.
+      inventory_tracked  = CASE WHEN COALESCE(${input.item_type !== undefined ? String(input.item_type) : null}, item_type) = 'service' THEN false ELSE inventory_tracked END,
       category_id        = COALESCE(${input.category_id !== undefined ? String(input.category_id) : null}::UUID, category_id),
       is_active          = COALESCE(${input.is_active !== undefined ? Boolean(input.is_active) : null}, is_active),
       unit               = COALESCE(${input.unit !== undefined ? String(input.unit) : null}, unit),

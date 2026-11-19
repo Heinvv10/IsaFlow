@@ -14,9 +14,11 @@ import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const FORMS = [
   { path: '/accounting/purchase-orders/new', title: 'Purchase Order', summary: 'Order Summary', notes: 'Add any notes or delivery instructions…', lines: 'Purchase order lines' },
-  { path: '/accounting/supplier-invoices/new', title: 'Supplier Invoice', summary: 'Summary', notes: 'Optional notes…', lines: 'Invoice lines' },
+  // `stacks`: the bill lines become one card per line when their box is under 820px (1060px with Dimensions), so they never clip or scroll;
+  // their summary goes under them when beside it they would be cards.
+  { path: '/accounting/supplier-invoices/new', title: 'Supplier Invoice', summary: 'Summary', notes: 'Optional notes…', lines: 'Invoice lines', stacks: true },
 ];
-type Form = (typeof FORMS)[number];
+type Form = (typeof FORMS)[number] & { stacks?: boolean };
 
 async function open(page: Page, form: Pick<Form, 'path' | 'title'>): Promise<void> {
   await page.goto(form.path, { waitUntil: 'domcontentloaded' });
@@ -75,10 +77,26 @@ for (const form of FORMS) {
     });
   }
 
-  test(`${form.title} 390 px: the line table scrolls in its own region, down to Remove line`, async ({ page }) => {
+  test(`${form.title} 390 px: the lines ${form.stacks ? 'stack as cards, every control in view' : 'scroll in their own region, down to Remove line'}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await open(page, form);
     const region = page.getByRole('region', { name: form.lines });
+    if (form.stacks) {
+      expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1), 'no sideways scroll in the region').toBe(false);
+      await expect(region.getByRole('table'), 'stacked cards, not a table').toHaveCount(0);
+      await expect(page.getByText('Scroll sideways to see every column.'), 'nothing is clipped, so no hint').toHaveCount(0);
+      for (const control of [
+        region.getByRole('textbox', { name: 'Line 1 description' }), region.getByRole('combobox', { name: 'Line 1 account' }),
+        region.getByRole('spinbutton', { name: 'Line 1 quantity' }), region.getByRole('spinbutton', { name: 'Line 1 unit price' }),
+        region.getByRole('button', { name: 'Remove line 1' }),
+      ]) {
+        await control.scrollIntoViewIfNeeded();
+        const c = await box(control);
+        expect(c.x, 'control starts on screen').toBeGreaterThanOrEqual(0);
+        expect(c.x + c.width, 'control ends on screen').toBeLessThanOrEqual(390);
+      }
+      return;
+    }
     const remove = region.getByRole('button', { name: 'Remove line 1' });
     await remove.scrollIntoViewIfNeeded();
     const b = await box(remove);
@@ -96,13 +114,23 @@ for (const form of FORMS) {
     await expect(page.getByText('Scroll sideways to see every column.')).toHaveCount(0);
   });
 
-  test(`${form.title} 1100 px: the table scrolls under the summary and says so`, async ({ page }) => {
+  test(`${form.title} 1100 px: the lines ${form.stacks ? 'are a table over the full width, the summary under them' : 'scroll under the summary and say so'}`, async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 900 });
     await open(page, form);
     const region = page.getByRole('region', { name: form.lines });
+    const remove = region.getByRole('button', { name: 'Remove line 1' });
+    if (form.stacks) {
+      // Beside the summary the box would be 618px (cards); under it the lines take the full 948px (y8b has the rest).
+      await expect(region.getByRole('table'), 'a table, not stacked cards').toHaveCount(1);
+      expect((await box(summaryCard(page, form))).y, 'summary under the lines').toBeGreaterThanOrEqual((await box(region)).y + (await box(region)).height);
+      expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1), 'nothing is clipped').toBe(false);
+      await expect(page.getByText('Scroll sideways to see every column.'), 'no hint: there is nothing to scroll').toHaveCount(0);
+      const [r, g] = [await box(region), await box(remove)];
+      expect(g.x + g.width, 'Remove line sits inside its region').toBeLessThanOrEqual(r.x + r.width + 1);
+      return;
+    }
     expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1), 'columns are clipped at 1100').toBe(true);
     await expect(page.getByText('Scroll sideways to see every column.'), 'the hint shows exactly when columns are clipped').toHaveCount(1);
-    const remove = region.getByRole('button', { name: 'Remove line 1' });
     await remove.scrollIntoViewIfNeeded();
     const [r, g] = [await box(region), await box(remove)];
     expect(g.x + g.width, 'Remove line can be scrolled into its region').toBeLessThanOrEqual(r.x + r.width + 1);

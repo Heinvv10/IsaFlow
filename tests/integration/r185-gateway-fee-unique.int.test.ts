@@ -246,6 +246,12 @@ describe('R-185: the index targets fee journals only', () => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      if ('status' in first && first.status === null) {
+        // Migration 999n refuses a NULL status on new rows (trigger + CHECK NOT VALID), so a NULL row can only be a
+        // legacy one. Re-create that state inside this rolled-back transaction to prove the index still counts it.
+        await client.query('ALTER TABLE gl_journal_entries DROP CONSTRAINT IF EXISTS gl_journal_entries_status_not_null');
+        await client.query('ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_status_not_null');
+      }
       for (const row of [first, second]) {
         await client.query(
           `INSERT INTO gl_journal_entries (id, company_id, entry_date, description, source, status, reference, posting_agent, created_by)
@@ -267,6 +273,21 @@ describe('R-185: the index targets fee journals only', () => {
     expect(await insertPair({ reference: r }, { reference: r })).toBe('23505');
     expect(await insertPair({ reference: r, status: 'draft' }, { reference: r })).toBe('23505');
     expect(await insertPair({ reference: r, status: null }, { reference: r })).toBe('23505');
+  });
+
+  it('a new NULL-status fee journal is refused outright by 999n (so only a legacy NULL row can collide)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const err = await client.query(
+        `INSERT INTO gl_journal_entries (id, company_id, entry_date, description, source, status, reference, posting_agent, created_by)
+         VALUES ($1, $2, CURRENT_DATE, 'r185 probe', 'auto_payment', NULL, $3, $4, $5)`,
+        [randomUUID(), A.id, ref(), AGENT, A.user]).then(() => null, (e: { code?: string; message: string }) => e);
+      expect(err?.code).toBe('23514');
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 
   it('admits the receipt journals (same agent, NULL reference), another agent, a reversed row', async () => {

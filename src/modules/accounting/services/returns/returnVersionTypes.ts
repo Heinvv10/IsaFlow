@@ -24,6 +24,11 @@ export interface ReturnVersion {
   amendedBy: string | null;
   amendReason: string | null;
   amendedAt: string | null;
+  /** The filing file IsaFlow generated for this version (migration 999v): sha256 of its capture CSV, kind, when, who. */
+  filingFileSha256: string | null;
+  filingFileKind: string | null;
+  filingFileAt: string | null;
+  filingFileBy: string | null;
 }
 
 /**

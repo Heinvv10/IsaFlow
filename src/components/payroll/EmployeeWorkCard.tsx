@@ -14,6 +14,7 @@ import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payr
 import type { Employee } from './EmployeeProfileCard';
 import { EmployeeEmailField } from './EmployeeEmailField';
 import { PayFrequencyField } from './PayFrequencyField';
+import { EmployeePortalCard } from './EmployeePortalCard';
 
 const TAX_STATUS = [
   { value: 'employee', label: 'Employee' },
@@ -124,6 +125,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
       </div>
       <PayFrequencyField employeeId={employee.id} canEdit={canEditPriced} />
       <EmployeeEmailField employeeId={employee.id} canEdit={canEditPriced} />
+      <EmployeePortalCard employeeId={employee.id} canEdit={canEditPriced} />
     </div>
   );
 }
