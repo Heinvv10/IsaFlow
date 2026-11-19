@@ -208,10 +208,13 @@ describe('the run-kind guard (wave 6 FQa, called by the EMP201 and the IRP5)', (
     expect(i).toBeInstanceOf(RunKindUnsupportedError);
     expect((i as RunKindUnsupportedError).action).toBe('irp5');
   });
-  it('a final weekly run of a weekly employee is declared since FQd lifted the frequency clause', async () => {
+  it('a final weekly run of a weekly employee is declared on the EMP201 since FQd; its IRP5 is refused by name', async () => {
     const e = await generateEMP201(D, '2028-09-01', '2028-09-30');
     expect([e.payrollRuns.map((r) => r.id), e.totalPAYE, e.totalUIF]).toEqual([[run.d], 400, 100]);
-    await expect(getIrp5EmployeeTotals(D, TAX_YEAR)).resolves.toBeTruthy();
+    // IRP5 certificates stay monthly-only this wave (coordinator, #1622 x EFb #1568): refused by name, never summed.
+    const i = await getIrp5EmployeeTotals(D, TAX_YEAR).catch((x: unknown) => x);
+    expect([i instanceof RunKindUnsupportedError, (i as RunKindUnsupportedError).action]).toEqual([true, 'irp5']);
+    expect((i as Error).message).toContain('IRP5 certificates cover monthly runs only');
   });
   it('company A (monthly runs only) is not refused', async () => {
     await expect(generateEMP201(A, '2028-09-01', '2028-11-30')).resolves.toBeTruthy();

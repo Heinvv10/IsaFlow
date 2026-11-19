@@ -27,8 +27,10 @@ describe('judgeRunKind: the clause matrix', () => {
   });
 
   it('passes a weekly or fortnightly regular run (wave 6 FQd lifts the clause); refuses an unknown frequency and an off-cycle run, for every action', () => {
-    expect(refusedBy({ pay_frequency: 'weekly' })).toEqual([]);
-    expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual([]);
+    // IRP5/EMP501 certificates stay monthly-only this wave (coordinator, #1622 x EFb #1568): weekly payrolls in wave 7.
+    expect(refusedBy({ pay_frequency: 'weekly' })).toEqual(['irp5']);
+    expect(refusedBy({ pay_frequency: 'fortnightly' })).toEqual(['irp5']);
+    expect(judgeRunKind({ ...OK, pay_frequency: 'weekly' }, 'irp5')[0]!.detail).toContain('IRP5');
     expect(refusedBy({ pay_frequency: 'daily' })).toEqual(ALL);
     expect(refusedBy({ pay_frequency: null })).toEqual(ALL);
     expect(judgeRunKind({ ...OK, pay_frequency: 'daily' }, 'approve')[0]!.detail).toContain('a daily run');

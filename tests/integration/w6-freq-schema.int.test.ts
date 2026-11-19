@@ -155,12 +155,13 @@ describe('run population and the guard (grill F3)', () => {
     expect(await snapshot(runId)).toBe(before);
   });
 
-  it('a weekly run meets no frequency clause since FQd: its monthly line employee is what approve refuses', async () => {
+  it('a weekly run meets no frequency clause since FQd but IRP5 (monthly-only this wave): its monthly line employee is what approve refuses', async () => {
     await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
     try {
-      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'irp5', 'bank_file'] as const) {
+      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'bank_file'] as const) {
         expect(clauses(await refusal(action)), action).not.toContain('frequency');
       }
+      expect(clauses(await refusal('irp5'))).toContain('frequency');
       expect(clauses(await refusal('approve'))).toEqual(['employee_frequency']);
     } finally {
       await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'monthly' WHERE id = $1", [runId]);

@@ -140,6 +140,11 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
   if (!(SUPPORTED_FREQUENCIES as readonly unknown[]).includes(row.pay_frequency)) {
     reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly, weekly and fortnightly runs are supported` });
   }
+  // IRP5 and EMP501 certificates stay monthly-only this wave (coordinator, #1622 x EFb #1568): a weekly or fortnightly
+  // run's figures are not certified until wave 7 proves them on the certificate.
+  else if (action === 'irp5' && row.pay_frequency !== 'monthly') {
+    reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and IRP5 certificates cover monthly runs only in this release` });
+  }
   if (row.run_kind !== 'regular') {
     const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
     reasons.push({ clause: 'run_kind', detail: `it is ${kind} run, and only regular runs are supported` });
