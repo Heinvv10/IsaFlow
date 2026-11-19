@@ -11,7 +11,7 @@ import {
   isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
-import type { LineCadence, PayrollEmployee, PayrollPeriod } from './payrollTypes';
+import type { LineCadence, PayrollEmployee, PayrollLineResult, PayrollPeriod } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
@@ -30,6 +30,7 @@ import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import { assertFrequencyCostable, frequencyRunOf } from './payrollFrequencyGuard';
 import { loadLineCadences } from './payrollRunCadence';
 import { assertPreparerSupported } from './payrollPreparerGuard';
+import { loadRunGarnisheeOrders, replaceRunGarnisheeDeductions } from './payrollGarnisheeRun';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -87,6 +88,7 @@ export async function calculatePayrollRun(
   let totalNet = 0;
 
   const lineInserts: LineInsert[] = [];
+  const garnisheeLines: Array<{ employeeId: string; garnishees: PayrollLineResult['garnishees'] }> = [];
 
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
@@ -107,6 +109,9 @@ export async function calculatePayrollRun(
 
   const prepared = await prepareRunComponents({ companyId, runId, period, readDate, population });
 
+  // GA: each employee's garnishee orders in force for the period (a severance-only leaver's line takes none).
+  const garnishees = await loadRunGarnisheeOrders(companyId, employees.map(e => e.id), run.period_start, run.period_end);
+
   // Preview all due loans before any payment write. A blocked employee takes none of them.
   const loanComponents = await loadLoanComponents(companyId);
   const withheld: WithheldLoan[] = [];
@@ -120,7 +125,7 @@ export async function calculatePayrollRun(
     onWithheld: (w) => withheld.push(w),
     judgePay: (employeeId, applications) => judgeLoanApplications({
       basis: preparedByEmployee.get(employeeId), applications, loanComponents, period, taxYear,
-      ytd: ytdByEmployee.get(employeeId), cadence: cadences.get(employeeId),
+      ytd: ytdByEmployee.get(employeeId), cadence: cadences.get(employeeId), garnisheeOrders: garnishees.get(employeeId),
     }),
     onPayBlocked: (employeeId, applications, rawNet) => blockedLoans.set(employeeId, { applications, rawNet }),
   });
@@ -141,7 +146,9 @@ export async function calculatePayrollRun(
       notEmployedInPeriod: onlySeverance,
       regularPayDirective,
       cadence: cadences.get(employee.id),
+      garnisheeOrders: onlySeverance ? undefined : garnishees.get(employee.id),
     });
+    garnisheeLines.push({ employeeId: employee.id, garnishees: line.garnishees });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
     const empValidation = validateEmployee(employee, otherTaxNumbers);
@@ -210,6 +217,7 @@ export async function calculatePayrollRun(
   const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 
   await replaceRunLines(runId, companyId, lineInserts);
+  await replaceRunGarnisheeDeductions(companyId, runId, garnisheeLines); // GA: recorded here; balances move only at approval
 
   const updated = await saveCalculatedRunTotals(runId, companyId, {
     gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
