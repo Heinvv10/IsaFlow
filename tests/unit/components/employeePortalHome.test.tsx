@@ -22,6 +22,7 @@ beforeEach(() => {
     if (url.endsWith('/me')) return json({ success: true, data: { employeeName: 'Zola Portal', employeeNumber: 'Z1', employer: 'Acme' } });
     if (url.endsWith('/payslips')) return json({ success: true, data: slips });
     if (url.endsWith('/leave')) return json({ success: true, data: [] });
+    if (url.endsWith('/irp5')) return json({ success: true, data: { payFrequency: 'monthly', certificates: [] } });
     if (url.endsWith('/logout')) return logoutFails ? json({ success: false, error: { message: 'down' } }, 503) : json({ success: true, data: { signedIn: false } });
     throw new Error(`unexpected ${url}`);
   });
@@ -38,9 +39,13 @@ describe('employee portal home', () => {
 
   it('shows a loading line until the reads answer', async () => {
     render(<EmployeePortalHome />);
-    expect(screen.getByRole('status').textContent).toMatch(/Loading/);
+    // The page's own line and the IRP5 section's (SS-c), each gone once its read answers.
+    expect(screen.getAllByRole('status').map((s) => s.textContent)).toEqual([
+      expect.stringMatching(/Loading your payslips/), expect.stringMatching(/Loading your tax certificates/),
+    ]);
     await screen.findByText(/earlier payslips/);
-    expect(screen.queryByRole('status')).toBeNull();
+    await screen.findByText(/once your employer has filed/);
+    expect(screen.queryAllByRole('status')).toEqual([]);
   });
 
   it('names each download by its visible text plus the month (WCAG 2.5.3), in a captioned table', async () => {
