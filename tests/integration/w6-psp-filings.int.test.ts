@@ -202,7 +202,7 @@ describe('a PSP trust in March, an employee from April', () => {
     const data = body.data as unknown as Record<string, unknown>;
     expect(['totalPspPaye' in data, 'totalUnexplainedVariance' in data, data.pspNote]).toEqual([false, false, 'PSP detail is available to payroll roles']);
     const text = JSON.stringify(body.data.runWarnings);
-    expect(text).not.toMatch(/TSB-psp-switch|Extra|22[ ,]?500|payee/);
+    expect(text).not.toMatch(/TSB-psp-switch|Extra|22\D?500|payee/);
     // Security review M: with one PSP payee the viewer's IRP5 PAYE is on the old basis (PSP lines in), so no variance it
     // reads is the PSP's PAYE; the detail role above still sees the split (variance 22 500 = pspPaye).
     const vmar = body.data.rows.find((r) => r.month === 3)! as { variance: number; emp201Paye: number; irp5Paye: number };
@@ -295,7 +295,7 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
     expect(Number(vEmp.totalIrp5)).toBeCloseTo(Number(vEmp.totalEmp201), 2);
     expect(['pspPaye' in vEmp, 'unexplainedVariance' in vEmp, vEmp.pspNote]).toEqual([false, false, 'PSP detail is available to payroll roles']);
     // The PSP fields and lines carry no figure. KNOWN LIMIT (reported): emp501.totalVariance (EMP201 - IRP5) still equals it here.
-    expect(JSON.stringify((viewer.body as unknown as { data: { runWarnings: string[] } }).data.runWarnings)).not.toMatch(/10[ ,]?800|payee/);
+    expect(JSON.stringify((viewer.body as unknown as { data: { runWarnings: string[] } }).data.runWarnings)).not.toMatch(/10\D?800|payee/);
     expect(JSON.stringify(viewer.body)).not.toMatch(/payee/);
   });
 });
@@ -373,11 +373,11 @@ describe('security review M (per month): two PSP payees in the year, one alone i
     expect(row(v, 4)).toBeCloseTo(0, 2);
     expect(v.totalVariance).toBeCloseTo(21_600, 2);
     expect(v.totalPspPaye).toBe(21_600);
-    expect(JSON.stringify(v.runWarnings)).not.toMatch(/32[ ,]?400|10[ ,]?800/);
+    expect(JSON.stringify(v.runWarnings)).not.toMatch(/32\D?400|10\D?800/);
     const ye = ((await (await viewerOf(f))(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } }))
       .body as unknown as { data: { emp501: { pspPaye?: number; totalVariance: number }; runWarnings: string[] } }).data;
     expect(ye.emp501.pspPaye).toBe(21_600);
     expect(ye.emp501.totalVariance).toBeCloseTo(21_600, 2);
-    expect(JSON.stringify(ye.runWarnings)).not.toMatch(/32[ ,]?400|10[ ,]?800/);
+    expect(JSON.stringify(ye.runWarnings)).not.toMatch(/32\D?400|10\D?800/);
   });
 });
