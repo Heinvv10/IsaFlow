@@ -245,8 +245,11 @@ export const KEEP_TABLES: readonly string[] = [
   'paystack_payment_requests', 'stitch_payment_requests', 'payment_transactions', 'analytics_websites', 'page_visits',
   'mcp_tool_calls', 'http_idempotency_keys', 'background_jobs', 'email_log',
   // Migration 1002: one lock row per company (backfilled, and made by a trigger on companies). Infrastructure of the intercompany
-  // group protocol, never data the reseed writes or wipes: a company always has its row (the Demo company too). The other
-  // intercompany tables hold nothing for a Demo company; if one ever does, the census refuses rather than guessing.
+  // group protocol, never data the reseed writes or wipes: a company always keeps its row (the Demo company too). The lock rows
+  // and the document slots have a company_id but no app role can read them; the census lists tables through
+  // information_schema.columns, which shows a role only the columns it may access, so a reseed role without a grant never reads
+  // them (and cannot fail on them). A slot exists only for a live intercompany link, and the guard that refuses while a
+  // connection, message or link names the Demo company (intercompanyRelationRows) refuses those first.
   'intercompany_company_locks',
 ];
 
