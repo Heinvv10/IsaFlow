@@ -17,7 +17,7 @@
 -- both on the same bills). A PO the bill names only by its header (or whose lines post nothing) gets the bill's subtotal
 -- less what the line-linked POs hold; of several such POs only the lowest id (byte order of its text) is linked. Never above zero or below.
 --
--- BACKFILL. purchase_order_bill_links_backfill(): one `backfill` link per non-cancelled, non-deleted bill of ANY other status (a
+-- BACKFILL. purchase_order_bill_links_backfill([company]): one `backfill` link per non-cancelled, non-deleted bill of ANY other status (a
 -- draft or pending bill too: approving a bill writes no link, so a bill that was a draft at the release, or that the OLD colour
 -- created, would otherwise never get one; the app sync owns ref-less `app` / `backfill` links of an unposted bill and remakes them
 -- on its next edit, so a draft's link cannot go stale for good), for each
@@ -27,7 +27,7 @@
 -- on the pair; a header-only / zero-posting PO gets the subtotal less the bill's other links that this writer does not own, as
 -- the app sync does, so a re-run never pushes a bill's links past its subtotal). RE-RUN IT ONCE AFTER THE RELEASE goes live
 -- (`SELECT purchase_order_bill_links_backfill();` as the deploy role, `postgres`, which bypasses row security): a bill the OLD
--- colour created or approved between this migration and the switch has no link until then. Executable by the migration / deploy role only; the guard lets `postgres` and `migration_admin` write source
+-- colour created or approved between this migration and the switch has no link until then. A row that changes while it runs (a concurrent delete) is skipped with a WARNING, never aborts it (the post-release re-run is live). Executable by the migration / deploy role only; the guard lets `postgres` and `migration_admin` write source
 -- `backfill` and no other role.
 --
 -- RULES IN THE DATABASE.
@@ -61,7 +61,7 @@
 --   DELETE FROM public.app_definer_reviews WHERE signature = 'purchase_order_bill_links_supplier_guard()';
 --   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_supplier_guard();
 --   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_guard();
---   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_backfill();
+--   DROP FUNCTION IF EXISTS public.purchase_order_bill_links_backfill(UUID);
 --   DROP FUNCTION IF EXISTS public.po_bill_posted_cents(uuid);
 --   DROP TABLE IF EXISTS public.purchase_order_bill_links;
 --   SELECT public.app_service_sync_policies();
@@ -164,15 +164,23 @@ $$;
 
 -- ── The backfill ────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill()
+-- p_company NULL: every company (the migration, the post-release re-run); a company id: that company's bills only (a tenant-sized re-run, and
+-- what tests use so they never touch another suite's or tenant's rows). Returns the links written.
+-- It never aborts on a row that changed under it: the table's guard (and the FK) read with a fresh statement snapshot, so a PO or bill that is
+-- deleted, or moved to another supplier, after this call chose its row would raise inside the INSERT. Each row is inserted in its own
+-- sub-transaction; a refusal of the guard (check_violation) or an FK (foreign_key_violation) skips that row with a WARNING and the rest go on.
+CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill(p_company UUID DEFAULT NULL)
 RETURNS BIGINT
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
-  inserted BIGINT;
+  inserted BIGINT := 0;
+  n BIGINT;
+  r RECORD;
 BEGIN
+  FOR r IN
   WITH cand AS (
     SELECT si.id, si.company_id, si.supplier_id, si.purchase_order_id AS header_po, round(si.subtotal * 100)::BIGINT AS sub_c,
            -- What the bill's links this writer does not own (mcp, or with an external reference) already hold.
@@ -180,7 +188,7 @@ BEGIN
                       WHERE l.company_id = si.company_id AND l.supplier_invoice_id = si.id
                         AND NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL)), 0)::BIGINT AS held_c
       FROM supplier_invoices si
-     WHERE si.status <> 'cancelled' AND si.deleted_at IS NULL
+     WHERE si.status <> 'cancelled' AND si.deleted_at IS NULL AND (p_company IS NULL OR si.company_id = p_company)
        AND (si.purchase_order_id IS NOT NULL
             OR EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id IS NOT NULL))
   ), line_po AS (
@@ -208,13 +216,19 @@ BEGIN
   ), amounts AS (
     SELECT s.company_id, s.po, s.bill, CASE WHEN s.positive THEN s.cents ELSE s.sub_c - s.pos_total - s.held_c END AS cents
       FROM sized s WHERE s.positive OR (s.po::TEXT COLLATE "C") = s.first_fallback
-  ), done AS (
-    INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source)
-    SELECT a.company_id, a.po, a.bill, a.cents / 100.0, 'backfill' FROM amounts a WHERE a.cents > 0
-    ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING
-    RETURNING 1
   )
-  SELECT count(*) INTO inserted FROM done;
+  SELECT a.company_id, a.po, a.bill, a.cents FROM amounts a WHERE a.cents > 0 ORDER BY a.bill, a.po
+  LOOP
+    BEGIN
+      INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source)
+      VALUES (r.company_id, r.po, r.bill, r.cents / 100.0, 'backfill')
+      ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING;
+      GET DIAGNOSTICS n = ROW_COUNT;
+      inserted := inserted + n;
+    EXCEPTION WHEN check_violation OR foreign_key_violation THEN
+      RAISE WARNING 'purchase_order_bill_links_backfill: skipped purchase order % / bill % (it changed while the backfill ran): %', r.po, r.bill, SQLERRM;
+    END;
+  END LOOP;
   RETURN inserted;
 END;
 $$;
@@ -319,7 +333,7 @@ GRANT UPDATE (external_system, external_ref, closed_po_from_status) ON purchase_
 
 REVOKE ALL ON FUNCTION public.purchase_order_bill_links_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.purchase_order_bill_links_supplier_guard() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.purchase_order_bill_links_backfill() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.purchase_order_bill_links_backfill(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.po_bill_posted_cents(UUID) FROM PUBLIC;
 
 -- The definer registry (930): the supplier guard reads purchase_order_bill_links whatever the caller's row security shows.

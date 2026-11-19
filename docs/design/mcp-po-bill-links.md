@@ -87,12 +87,12 @@ backfill's population, the unlink's budget reading and PO cancel (decisions 10, 
     `write:invoices` holder (Hein, 19 Nov): it restores a commitment, the conservative direction (closing is the owner's / admin's
     call; undoing it is not). A legacy header that names a PO this bill has no link to stays after an unlink (decision 3).
     **PO cancel** (`cancelApprovedPurchaseOrder`) is refused while any bill is linked to the PO ("unlink first"; brief section 4).
-11. **Backfill + app writer:** the migration (`purchase_order_bill_links_backfill()`) inserts a `backfill` link for every
+11. **Backfill + app writer:** the migration (`purchase_order_bill_links_backfill([company])`, all companies when none is given) inserts a `backfill` link for every
     non-cancelled, not-deleted bill of any other status (round 3: approving a bill writes no link, so a bill that was a draft at the
     release, or that the old colour created, would otherwise never get one; the app sync owns ref-less `app` / `backfill` links of
     an unposted bill and remakes them on its next edit, so a draft's link cannot stay stale), per PO that the header names OR the lines name (line-only bills too), of the same company and supplier, PO in a
     linkable status, amount per decision 4 (a header-only / zero-posting PO gets the subtotal less the bill's links this writer does
-    not own, as the sync does, so a re-run never pushes a bill's links past its subtotal). **Run `SELECT purchase_order_bill_links_backfill();` once more as the deploy role
+    not own, as the sync does, so a re-run never pushes a bill's links past its subtotal). The backfill never aborts on a row that changes while it runs (round 4: the table's guard reads with a fresh statement snapshot, so a PO deleted after the backfill chose its row used to raise the guard's error and abort the whole call; each row is now inserted in its own sub-transaction and a refused one is skipped with a WARNING). **Run `SELECT purchase_order_bill_links_backfill();` once more as the deploy role
     (`postgres`, which bypasses row security) after the release is live:** a bill the old colour approved between the migration and
     the switch has no link until then; the function is idempotent. The REST / MCP bill create inserts `source = 'app'` links by the
     same rule INSIDE the create's transaction (`recordBillLinks`), and every draft edit (REST PUT, MCP `update_supplier_invoice`)
