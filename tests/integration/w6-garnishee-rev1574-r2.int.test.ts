@@ -5,6 +5,8 @@
  *  - (b1) an order ended back past an approved run refuses re-approval without a recalculation; recalculated, the run
  *    takes nothing and the order's balance is whole;
  *  - (b2) a new order entered while a run is reopened refuses re-approval without a recalculation;
+ *  - (b3) an order entered (backdated) or ended after a run was approved does not stop that approved run being
+ *    re-approved to post its journal (Codex review of 707afa70e): the stale-order refusal is for runs not yet approved;
  *  - (c) the race: an order written (by any writer, here raw SQL) while a calculation runs. The 999z trigger takes the
  *    company's payroll approval lock, which calculate holds, so the calculation waits for the uncommitted order and
  *    then takes it: the order is never missed. (The breaker's original (c) had the calculation run past it.)
@@ -117,6 +119,27 @@ describe('rev-1574 round 2', () => {
     const re = await a.api.approve(run6);
     expect(re.statusCode, a.msg(re)).toBe(400);
     expect(a.msg(re)).toMatch(/was entered after this run was calculated/);
+  });
+
+  it('(b3) an approved run is re-approved (to post its journal), though orders were entered and ended after it was calculated', async () => {
+    const emp = (await a.employee(20000)).employee;
+    const old = await post(emp, body({ reference: 'OLD-B3' }));
+    expect(old.statusCode).toBe(201);
+    const run8 = await a.calculatedRun(8);
+    const ap = await a.api.approve(run8);
+    expect(ap.statusCode, a.msg(ap)).toBe(200);
+    // Captured after the approval, both in force for (or ended back past) August: a backdated order, and an end.
+    expect((await post(emp, body({ reference: 'NEW-B3', instalment: 400, startDate: '2026-08-01' }))).statusCode).toBe(201);
+    expect((await end(emp, String(old.body.data!.id), { endDate: '2026-07-31', reason: 'Court set aside from August' })).statusCode).toBe(200);
+    // Stranded: approved with no journal linked (as p4fu-r2-exact-gate strands one), the state approval re-approves to post.
+    await a.pool.query('UPDATE payroll_run_headers SET journal_entry_id = NULL WHERE id = $1', [run8]);
+    const re = await a.api.approve(run8);
+    expect(re.statusCode, a.msg(re)).toBe(200);
+    const after = (await a.pool.query('SELECT status, journal_entry_id FROM payroll_run_headers WHERE id = $1', [run8])).rows[0];
+    expect(after.status).toBe('approved');
+    expect(after.journal_entry_id).not.toBeNull();
+    // The month already paid keeps exactly what it deducted.
+    expect(await mine(run8, emp)).toEqual([{ amount: 900 }]);
   });
 
   it('(c) RACE: an order written while the run is calculated is waited for and taken, never missed', async () => {

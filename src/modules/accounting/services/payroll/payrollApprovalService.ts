@@ -115,8 +115,8 @@ export async function approvePayrollRun(
   // No request to read (enforcement off) leaves the executor as the only approver there is.
   const decision = await readPayRunDecision(companyId, runId, gate.planHash);
   const approvedBy = decision?.decidedBy ?? userId;
-  // GA: still a read (with the orders locked): a deduction above what its order now owes refuses before any write.
-  await judgeGarnisheeBalances(companyId, runId);
+  // GA: still a read (orders locked): a deduction above what its order now owes refuses before any write (a run already approved skips the stale-order check).
+  await judgeGarnisheeBalances(companyId, runId, String(locked.status) === 'approved');
 
   // The two writes a refusal may still follow, in ONE savepoint, so a refusal
   // from either leaves neither behind, whoever catches it (the MCP tool catches
