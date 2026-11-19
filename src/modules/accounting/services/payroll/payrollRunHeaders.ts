@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import type { PayrollPeriod } from './payrollTypes';
 import type { OffCycleReason, PayFrequency, RunKind, UnsupportedValue } from './payrollTypesRun';
 import { dateColumnOf, offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
+import { formatMonth } from './payrollPayWeek';
 import { runOrderKeySql } from './payrollRunOrder';
 
 type Row = DbRow;
@@ -105,7 +106,15 @@ export async function createPayrollRun(
   log.info('Creating payroll run', { companyId, period }, 'payrollRunService');
   const rows = await insertMonthlyRun(companyId, period, createdBy);
   if (rows.length === 0) {
-    throw new PayrollRunDuplicateError(period.month, period.year);
+    // The month in plain words and the run to open instead (review #1622 UI r2 L2), as the weekly create says it.
+    const held = (await sql`
+      SELECT id FROM payroll_run_headers
+       WHERE company_id = ${companyId}::uuid AND run_kind = 'regular' AND pay_frequency = 'monthly'
+         AND period_year = ${period.year} AND period_month = ${period.month}
+       LIMIT 1
+    `) as Row[];
+    throw new PayrollRunDuplicateError(period.month, period.year, `The run for ${formatMonth(period.year, period.month)} already exists.`,
+      held[0] ? String(held[0].id) : null);
   }
   if (!rows[0]) throw new Error('INSERT returned no row');
   return mapRunRow(rows[0]);

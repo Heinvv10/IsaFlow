@@ -65,6 +65,17 @@ describe('M1: Login-as and agent sessions are refused by the FQd write routes, w
   });
 });
 
+describe('UI r2 L2: a monthly period that already has a run says so in plain words, with the run to open', () => {
+  it('409 "The run for Mar 2026 already exists." carrying that run\'s id', async () => {
+    const first = await a.call(runs as Route, 'POST', '/api/payroll/runs', undefined, { body: { month: 3, year: 2026 } });
+    expect(first.statusCode).toBe(201);
+    const again = await a.call(runs as Route, 'POST', '/api/payroll/runs', undefined, { body: { month: 3, year: 2026 } });
+    expect([again.statusCode, again.body.error?.message, again.body.error?.details?.reason, again.body.error?.details?.runId])
+      .toEqual([409, 'The run for Mar 2026 already exists.', 'PAY_PERIOD_EXISTS', String(first.body.data!.id)]);
+    expect((await del(String(first.body.data!.id))).statusCode).toBe(200);
+  });
+});
+
 describe('L1: a create is judged on the pay week as it is once a change in flight commits', () => {
   it('a Monday start waits for the change to a Tuesday week, then is refused (400), writing no run', async () => {
     // The pay-week PUT in flight, by hand: its lock taken and its write made, not yet committed.

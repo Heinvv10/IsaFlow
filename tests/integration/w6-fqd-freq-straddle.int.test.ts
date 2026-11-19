@@ -96,6 +96,7 @@ describe('A. weekly -> monthly across the week that straddles 1 March 2026', () 
     expect(await audits(a, 'payroll_run_frequency_change')).toBe(before + 1);
     const again = await ack(a, march, employee);
     expect([again.statusCode, again.body.error?.details?.reason]).toEqual([409, 'FREQUENCY_STRADDLE_ACK_REFUSED']);
+    const who = (await a.pool.query("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [employee])).rows[0]!.n;
     // Exactly the acknowledged day passes (breaker #1622 M-C): a weekly run not yet final paying 9-15 Mar still refuses.
     const stray = String((await a.pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, pay_frequency, run_kind, period_start, period_end, run_date)
@@ -103,7 +104,9 @@ describe('A. weekly -> monthly across the week that straddles 1 March 2026', () 
     await a.pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [stray, employee]);
     const outside = await a.api.calculate(march);
     expect([outside.statusCode, outside.body.error?.details?.code]).toEqual([409, 'PAY_PERIOD_OVERLAP']);
-    expect(a.msg(outside)).toContain('is already paid for 9–15 Mar 2026 on a weekly run');
+    // The exact copy (review #1622 UI r2 M1): the name, plain dates, no "undefined", no ISO date.
+    expect(a.msg(outside)).toBe(`${who} is already paid for 9–15 Mar 2026 on the weekly run, and this monthly run pays 1–31 Mar 2026: `
+      + 'the days in both would be paid twice.');
     await a.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [stray]);
     await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [stray]);
     await paid(a, march);

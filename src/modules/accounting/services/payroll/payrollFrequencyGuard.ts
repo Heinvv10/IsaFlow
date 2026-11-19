@@ -169,8 +169,8 @@ async function refuseOtherFrequencyOverlap(companyId: string, run: FrequencyRun,
   });
   if (rows.length === 0) return;
   throw new PayFrequencyRefusedError(409, rows.map((r) => ({ clause: 'pay_period_overlap' as const,
-    detail: `${employeeName(r)} is already paid for ${formatDayRange(String(r.start), String(r.stop))} on a ${String(r.pay_frequency)} run, `
-      + `and this ${run.frequency} run's dates ${formatDayRange(start, end)} overlap them: those days would be paid twice` })), 'PAY_PERIOD_OVERLAP');
+    detail: `${employeeName(r)} is already paid for ${formatDayRange(String(r.start), String(r.stop))} on the ${String(r.pay_frequency)} run, `
+      + `and this ${run.frequency} run pays ${formatDayRange(start, end)}: the days in both would be paid twice.` })), 'PAY_PERIOD_OVERLAP', true);
 }
 
 /** At calculate, before any write. `employeeIds`: the run's population. */

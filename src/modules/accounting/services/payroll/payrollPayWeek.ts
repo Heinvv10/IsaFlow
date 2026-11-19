@@ -139,6 +139,9 @@ export function formatPeriodRange(start: string, end: string): string {
   return sy === ey ? `${short(start)} - ${short(end)} ${ey}` : `${short(start)} ${sy} - ${short(end)} ${ey}`;
 }
 
+/** 'Mar 2026'. */
+export const formatMonth = (year: number, month: number): string => `${MONTH_ABBR[month - 1] ?? '?'} ${year}`;
+
 /** '1 Mar 2026'. */
 export const formatDay = (iso: string): string => `${short(iso)} ${iso.slice(0, 4)}`;
 

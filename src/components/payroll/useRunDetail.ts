@@ -56,6 +56,9 @@ export interface RunDetail {
   lines: RunDetailLine[];
 }
 
+/** The banner when calculate is refused for a pay-frequency change: the card below says which days and what to do. */
+export const STRADDLE_POINTER = 'This run cannot be calculated yet: settle the pay-frequency changes listed below, then calculate again.';
+
 const LOAD_FAILED = 'Could not load the payroll run - try again';
 
 export function useRunDetail(runId: string) {
@@ -111,6 +114,15 @@ export function useRunDetail(runId: string) {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/calculate`, { method: 'POST' });
+      // A pay-frequency change to settle (wave 6 FQd): the run page's card names the days; the banner only points to it,
+      // so the sentence shows once (review #1622 UI r2 L1).
+      if (res.status === 409) {
+        const body = await res.clone().json().catch(() => null) as { error?: { details?: { code?: unknown } } } | null;
+        if (body?.error?.details?.code === 'FREQUENCY_CHANGE_STRADDLE') {
+          setError(STRADDLE_POINTER);
+          return;
+        }
+      }
       await assertOk(res, 'Could not calculate the payroll run - try again');
       await load();
     } catch (err) {

@@ -47,6 +47,29 @@ describe('DeleteDraftRunButton', () => {
   });
 });
 
+describe('the Delete draft dialog is the accessible Modal (review #1622 UI L3)', () => {
+  it('takes focus on open, traps Tab, closes on Escape and gives focus back to the button', () => {
+    render(<DeleteDraftRunButton runId="r1" />);
+    const opener = screen.getByRole('button', { name: 'Delete draft' });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog');
+    const keep = screen.getByRole('button', { name: 'Keep it' });
+    expect(document.activeElement).toBe(keep);
+    // Tab from the last control wraps to the first, Shift+Tab from the first to the last: focus never leaves the dialog.
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled])'));
+    focusable[focusable.length - 1]!.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(focusable[0]);
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('Delete draft sits with the run\'s actions (review #1622 UI L5)', () => {
   const props = {
     runId: 'r1', period: 'Week 21–27 Sep 2026', companyRole: 'owner', locked: false, canCalculate: true, canReopen: false,

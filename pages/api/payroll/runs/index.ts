@@ -62,7 +62,7 @@ async function handler(
       return apiResponse.created(res, run);
     } catch (err) {
       if (err instanceof PayrollRunDuplicateError) {
-        return apiResponse.conflict(res, err.message, { month: err.month, year: err.year });
+        return apiResponse.conflict(res, err.message, { month: err.month, year: err.year, reason: 'PAY_PERIOD_EXISTS', runId: err.runId });
       }
       throw err;
     }
