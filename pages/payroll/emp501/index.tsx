@@ -83,6 +83,7 @@ export default function Emp501Page() {
       setSummary((json.data ?? null) as Emp501Summary | null);
     } catch (err) {
       setSummary(null);
+      setBlocked('');
       setError(apiErrorMessage(err, 'Could not load the EMP501 reconciliation - try again'));
     } finally {
       setIsLoading(false);
