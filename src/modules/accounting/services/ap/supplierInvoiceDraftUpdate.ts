@@ -74,6 +74,15 @@ export interface SupplierInvoiceDraftUpdatePlan {
 
 const EPS = 0.005;
 
+/**
+ * Whether a caller named the bill's VAT rate: in this edit, or when the bill was written. A bill written with no rate
+ * stores the default, so a stored rate that differs from it was named (0 for a supplier that is not a VAT vendor). A named
+ * rate turns off taking an item's VAT on the lines, as it does on create: a line with no rate takes the bill's.
+ */
+export function billRateWasNamed(patchTaxRate: number | undefined, storedTaxRate: number): boolean {
+  return patchTaxRate !== undefined || storedTaxRate !== DEFAULT_SUPPLIER_TAX_RATE;
+}
+
 export async function lockAndPlanSupplierInvoiceDraftUpdate(
   companyId: string,
   invoiceId: string,
@@ -137,8 +146,9 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
 
   let lines: SupplierInvoiceDraftUpdatePlan['lines'] = null;
   if (patch.items) {
+    const storedTaxRate = Number(row.tax_rate ?? DEFAULT_SUPPLIER_TAX_RATE);
     lines = await planLines(companyId, invoiceId, number, patch.items,
-      patch.taxRate ?? Number(row.tax_rate ?? DEFAULT_SUPPLIER_TAX_RATE));
+      patch.taxRate ?? storedTaxRate, billRateWasNamed(patch.taxRate, storedTaxRate));
   }
 
   const totalBefore = Number(row.total_amount);
@@ -240,12 +250,12 @@ export async function applySupplierInvoiceDraftUpdate(
       await tx`
         INSERT INTO supplier_invoice_items (
           id, supplier_invoice_id, description, quantity, unit_price, tax_rate,
-          tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
+          tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id, item_id
         ) VALUES (
           COALESCE(${item.id ?? null}::UUID, gen_random_uuid()), ${plan.invoiceId}::UUID, ${item.description}, ${item.quantity}, ${item.unitPrice},
           ${item.taxRate}, ${item.taxAmount}, ${item.lineTotal}, ${item.glAccountId ?? null}::UUID,
           ${defaultVatClassification(item.taxRate)},
-          ${item.cc1Id ?? null}::UUID, ${item.cc2Id ?? null}::UUID, ${item.buId ?? null}::UUID
+          ${item.cc1Id ?? null}::UUID, ${item.cc2Id ?? null}::UUID, ${item.buId ?? null}::UUID, ${item.itemId ?? null}::UUID
         )`;
     }
     }

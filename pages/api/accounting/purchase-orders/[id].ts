@@ -24,6 +24,9 @@ import {
   readStoredPoLineDimensions, resolvePoLineDimensions, sentFromSnake,
 } from '@/modules/accounting/services/ap/purchaseOrderLineDimensions';
 import { readPoItemsLabelled } from '@/modules/accounting/services/ap/purchaseOrderItemsRead';
+import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
+import { resolveEditedPoLines } from '@/modules/accounting/services/ap/purchaseOrderItemLines';
+import { poSupplierChangeBlocked } from '@/modules/accounting/services/ap/billPurchaseOrderLinks';
 
 type Row = Record<string, unknown>;
 
@@ -98,7 +101,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       reference,
       notes,
       status,
-      items,
+      items: sentItems,
     } = req.body as {
       supplier_id?: string;
       order_date?: string;
@@ -113,6 +116,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         unit_price: number;
         tax_rate?: number;
         gl_account_id?: string | null;
+        item_id?: string | null;
         product_id?: string | null;
         sort_order?: number;
         cc1_id?: string | null;
@@ -139,17 +143,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    // Migration 1006: a PO that has bills linked to it keeps its supplier (the link joins one supplier's PO and bill).
-    if (supplier_id) {
-      const linked = (await sql`
-        SELECT 1 FROM purchase_order_bill_links l JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
-         WHERE po.id = ${id}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplier_id}::UUID LIMIT 1
-      `) as Row[];
-      if (linked.length > 0) {
-        return apiResponse.badRequest(res, 'Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.');
-      }
+    if (supplier_id && await poSupplierChangeBlocked(companyId, id, supplier_id)) return apiResponse.badRequest(res, 'Bills are linked to this purchase order, so its supplier cannot change. Unlink them first.'); // migration 1006
+    let items = sentItems; // migration 1005: item links (new item checked, default account and rate; none keeps the stored one)
+    try { if (sentItems?.length) items = await resolveEditedPoLines(companyId, id, sentItems); } catch (err) {
+      if (err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+      throw err;
     }
-
     // Before the first write: an inactive or foreign account on a replacement
     // line would otherwise land in po_items with nothing to catch it — the
     // same window a GL account merge opens on every other document-line
@@ -244,7 +243,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await sql`
           INSERT INTO po_items
             (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, sort_order,
-             cc1_id, cc2_id, bu_id)
+             cc1_id, cc2_id, bu_id, item_id)
           VALUES
             (${id}::UUID,
              ${item.product_id ?? null},
@@ -256,7 +255,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
              ${lineTax},
              ${item.gl_account_id ?? null},
              ${i},
-             ${dims[i]?.cc1Id ?? null}::UUID, ${dims[i]?.cc2Id ?? null}::UUID, ${dims[i]?.buId ?? null}::UUID)
+             ${dims[i]?.cc1Id ?? null}::UUID, ${dims[i]?.cc2Id ?? null}::UUID, ${dims[i]?.buId ?? null}::UUID, ${item.item_id ?? null}::UUID)
         `;
       }
     }

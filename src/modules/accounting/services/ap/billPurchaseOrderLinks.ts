@@ -110,3 +110,12 @@ export async function refreshAppBillLinks(companyId: string, billId: string, use
   await db`DELETE FROM purchase_order_bill_links WHERE company_id = ${companyId}::UUID AND supplier_invoice_id = ${billId}::UUID AND source = 'app'`;
   await recordBillLinks(companyId, billId, userId, db);
 }
+
+/** Migration 1006: a PO with bills linked keeps its supplier (a link joins one supplier's PO and bill). True when changing it to `supplierId` must be refused. */
+export async function poSupplierChangeBlocked(companyId: string, poId: string, supplierId: string): Promise<boolean> {
+  const linked = (await sql`
+    SELECT 1 FROM purchase_order_bill_links l JOIN purchase_orders po ON po.id = l.purchase_order_id AND po.company_id = l.company_id
+     WHERE po.id = ${poId}::UUID AND po.company_id = ${companyId}::UUID AND po.supplier_id IS DISTINCT FROM ${supplierId}::UUID LIMIT 1
+  `) as DbRow[];
+  return linked.length > 0;
+}

@@ -77,6 +77,7 @@ export const updateSupplierInvoiceTool: McpTool = {
             unit_price: { type: 'number', minimum: 0, description: 'NET of VAT' },
             tax_rate: { type: 'number', minimum: 0, maximum: 100 },
             gl_account_id: { type: 'string', description: 'Expense GL account UUID; defaults to the company default expense account' },
+            item_id: { type: 'string', description: 'Catalogue item (list_items). With no gl_account_id the line posts to the item\'s purchases account; an inactive or foreign item is refused. A line sent without item_id keeps the item of an identical stored line; null clears it.' },
             ...DIMENSION_LINE_PROPERTIES,
           },
           required: ['description', 'quantity', 'unit_price'],
@@ -144,6 +145,7 @@ export const updateSupplierInvoiceTool: McpTool = {
         tax_amount: l.taxAmount,
         line_total: l.lineTotal,
         gl_account_id: l.glAccountId ?? null,
+        ...(l.itemId ? { item_id: l.itemId } : {}),
         ...(l.cc1Id || l.cc2Id || l.buId
           ? { cc1_id: l.cc1Id ?? null, cc2_id: l.cc2Id ?? null, bu_id: l.buId ?? null } : {}),
       })),

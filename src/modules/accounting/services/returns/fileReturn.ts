@@ -17,7 +17,8 @@ import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modul
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
-import { driftOf } from './returnDrift';
+import { driftOf, UNCODED_REVENUE_NOTE } from './returnDrift';
+import { assertFilingReferenceIsTheCompanys, parseFilingReference, type FilingWarning } from './filingReference';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
@@ -25,6 +26,8 @@ import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm,
 export interface FiledReturn {
   version: ReturnVersion;
   submission: SARSSubmission;
+  /** Named warnings the filing went ahead with (PRN_NOT_CROSS_CHECKED). */
+  warnings: FilingWarning[];
 }
 
 export interface FileOptions {
@@ -33,6 +36,17 @@ export interface FileOptions {
   /** EVERY legacy submission of the period this filing corrects (see LEGACY_SUBMISSION_EXISTS), with the reason. */
   correctsLegacySubmissionIds?: string[];
   reason?: string;
+}
+
+/**
+ * Whether 999v's trigger requires this version's filing file before it is filed (finalised at or after the cut-off),
+ * judged in SQL from the row itself: a JS Date round trip truncates finalised_at's microseconds, and a version finalised
+ * in the cut-off's own millisecond would then pass here and be refused by the trigger (a 500, not this 409).
+ */
+async function finalisedAfterFilingFileCutoff(companyId: string, v: ReturnVersion): Promise<boolean> {
+  const rows = (await sql`SELECT finalised_at >= public.tax_return_versions_filing_file_cutoff() AS after
+    FROM tax_return_versions WHERE id = ${v.id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  return rows[0]?.after === true;
 }
 
 interface LegacySubmission { id: string; status: string; reference: string | null }
@@ -56,7 +70,7 @@ export async function markReturnFiled(
   const { overrideReason } = opts;
   await assertNotImpersonating(); // R-032: a filing is refused to a Login-as session
   assertMayActOnReturns(actor.role, 'file');
-  const ref = visibleText(reference, 'A filing reference');
+  const ref = parseFilingReference(form, reference); // wave 6 EFa: SARS's PRN, nothing else
   const v = await getVersionForUpdate(companyId, versionId);
   if (!v || v.formType !== form) throw new ReturnRefusal(404, 'Return version not found.');
   if (v.status !== 'finalised') {
@@ -65,6 +79,13 @@ export async function markReturnFiled(
       : `Version ${v.versionNo} was superseded by an amend. File the current version.`,
     v.status === 'filed' ? STALE_RETURN_REFUSAL.ALREADY_FILED : STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
+  // Wave 6 EFa: filed from the file IsaFlow generated for this version, for a version finalised at or after 999v's
+  // cut-off, exactly as the trigger holds. One finalised before it (mid-cycle at the release) files without one, as before.
+  if (!v.filingFileSha256 && await finalisedAfterFilingFileCutoff(companyId, v)) {
+    throw new ReturnRefusal(409, `Download version ${v.versionNo}'s filing file and capture it on eFiling before marking it filed.`,
+      'FILING_FILE_REQUIRED');
+  }
+  const prnWarning = await assertFilingReferenceIsTheCompanys(companyId, v, ref);
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,
       'The VAT period lock of this version was removed outside the return lifecycle. Amend the return, then finalise again.');
@@ -79,6 +100,10 @@ export async function markReturnFiled(
       + `${doubt.correlationId ? ` (correlation id ${doubt.correlationId})` : ''}: poll or reconcile it before filing.`, 'SEND_UNCERTAIN');
   }
   const drift = await driftOf(companyId, v);
+  if (drift.drifted && drift.notes?.includes(UNCODED_REVENUE_NOTE)) {
+    throw new ReturnRefusal(409, `Version ${v.versionNo} no longer matches the ledger: a revenue line without a VAT code was `
+      + 'posted after finalise; amend it and finalise again before filing.');
+  }
   if (drift.drifted) {
     const what = [...drift.fields.map((f) => f.name), ...drift.changed, ...(drift.unfinalRuns > 0 ? ['unfinalRuns'] : [])];
     throw new ReturnRefusal(409,
@@ -96,10 +121,12 @@ export async function markReturnFiled(
     }
     correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
   }
+  // form_data keeps what it held before wave 6: the recorded SARS form (sarsForm) stays on the version only.
+  const { sarsForm: _form, ...submitted } = v.figures;
   return withSavepoint('file_return', async () => {
     const draft = await saveDraftSubmission(
       companyId, v.formType, v.periodStart, v.periodEnd,
-      { ...v.figures, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
+      { ...submitted, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
     );
     if (v.formType === 'VAT201') {
       await assertVatGateClear(
@@ -126,10 +153,11 @@ export async function markReturnFiled(
         fields: [{ field: 'status', old: 'finalised', new: 'filed', label: 'Status' }],
         metadata: {
           reference: ref, submissionId: submission.id, ...(overrideReason ? { vatGateOverridden: 'yes' } : {}),
+          ...(prnWarning ? { prnNotCrossChecked: prnWarning.message } : {}),
           ...(correction ? { supersededLegacySubmissions: legacy.map((l) => l.id).join(','), correctionReason: correction } : {}),
         },
       },
     });
-    return { version, submission };
+    return { version, submission, warnings: prnWarning ? [prnWarning] : [] };
   });
 }

@@ -115,6 +115,7 @@ export const KIND_SCOPE: Record<ExternalRefKind, string> = {
   bank_transaction: 'read:bank-tx',
   supplier: 'read:contacts',
   customer: 'read:contacts',
+  item: 'read:items',
   purchase_order: 'read:invoices',
   po_bill_link: 'read:invoices',
 };
@@ -128,7 +129,7 @@ export const findByExternalRefTool: McpTool = {
     + 'po_bill_link finds a purchase order <-> bill link by the external_ref it was made with (link_bills_to_purchase_order): number reads "PO <- bill", status is the PO\'s, total_amount the linked ex-VAT amount. '
     + 'A cancelled purchase order is listed as superseded (bulk_create_purchase_orders still will not create it again). '
     + 'Only records created or imported with external_ref are found; older loads that put the Sage id in a description are not. '
-    + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts).',
+    + 'Needs the read permission of that kind\'s own list tool (read:invoices, read:reports for journals, read:bank-tx, read:contacts, read:items for item). For an item, number is its code and status is active or inactive.',
   // Per kind, the scope of that kind's own list tool (KIND_SCOPE); the registry checks none.
   scope: null,
   write: false,
