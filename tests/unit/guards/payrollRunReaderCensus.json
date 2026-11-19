@@ -238,6 +238,9 @@
    {"line":110,"text":"SELECT * FROM payroll_external_imports","class":"S","owner":"FQb1","why":"external import by id"},
    {"line":156,"text":"DELETE FROM payroll_external_imports","class":"S","owner":"FQb1","why":"external import delete by id"}
   ],
+  "src/modules/accounting/services/payroll/payrollCertificateFrequency.ts": [
+   {"line":17,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M-D): EXISTS-style list of the tax year's final weekly/fortnightly runs (by EMP201 month): certificates refuse the year"}
+  ],
   "src/modules/accounting/services/payroll/payrollFrequencyChange.ts": [
    {"line":28,"text":"SELECT max(h.period_end) + 1 FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): the day after the employee's last final day at another frequency: the new frequency's first day"},
    {"line":35,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): the employee's not-final runs of another frequency from the new frequency's first day, any number"}
@@ -249,9 +252,9 @@
    {"line":180,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQc","why":"EXISTS over the tax year's final lines at another frequency (any number of runs a month)"}
   ],
   "src/modules/accounting/services/payroll/payrollFrequencyStraddle.ts": [
-   {"line":55,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): each employee's last final regular run at another frequency (DISTINCT ON, by period_end): where the old frequency stopped paying"},
-   {"line":65,"text":"SELECT 1 FROM payroll_run_lines l2 JOIN payroll_run_headers h2 ON h2.id = l2.run_id","class":"S","owner":"FQb1","why":"FQd: EXISTS a final run at this frequency after that day (the change happened on an earlier run)"},
-   {"line":117,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd: by run id (the approval gate's straddle check)"}
+   {"line":71,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): each employee's last final regular run at another frequency (DISTINCT ON, by period_end): where the old frequency stopped paying"},
+   {"line":83,"text":"SELECT h2.id, h2.period_start, h2.period_end FROM payroll_run_headers h2","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M-C): the earliest non-cancelled regular run at the new frequency paying after that day (LATERAL, LIMIT 1): where the change is judged"},
+   {"line":161,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"FQd: by run id (the approval gate's straddle check)"}
   ],
   "src/modules/accounting/services/payroll/payrollJournalBuilder.ts": [
    {"line":84,"text":"FROM payroll_run_headers h","class":"S","owner":"FQc","why":"FQc converted (R): by run id; description runJournalDescriptionOf the run; entry date and reference stay the EMP201 month's (the period the liability is declared in)"}

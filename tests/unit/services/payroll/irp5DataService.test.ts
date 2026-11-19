@@ -21,6 +21,8 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 type Unsafe = { unsafe: string };
 const isUnsafe = (v: unknown): v is Unsafe => typeof v === 'object' && v !== null && 'unsafe' in v;
 // The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+// The tax year's monthly-only check (wave 6 FQd #1622 M-D) has its own integration test (w6-fqd-irp5-monthly-only).
+vi.mock('@/modules/accounting/services/payroll/payrollCertificateFrequency', () => ({ assertCertificateYearMonthlyOnly: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined), isRunKindUnsupported: () => false }));
 vi.mock('@/lib/neon', () => ({
   // A spliced fragment (sql.unsafe) is inlined in the recorded text, as the real builder splices it.
