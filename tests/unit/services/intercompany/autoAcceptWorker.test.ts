@@ -36,8 +36,8 @@ describe('runAutoAccept', () => {
   it('claims through the queue (the second argument is true) and accepts as the receiver\'s write-role user', async () => {
     m.sql.mockResolvedValueOnce([queueRow(1)]);
     const run = await runAutoAccept(7);
-    expect(run).toEqual({ considered: 1, accepted: 1, failed: 0, deferred: 0, stuck: 0 });
-    expect(m.sql).toHaveBeenCalledTimes(1);
+    expect(run).toEqual({ considered: 1, accepted: 1, failed: 0, deferred: 0, stuck: 0, exhausted: 0 });
+    expect(m.sql).toHaveBeenCalledTimes(2); // the queue, then the count of messages that used every attempt
     expect(m.tx).toHaveBeenCalledWith({ userId: 'u1', companyId: 'co-b' }, expect.any(Function));
     expect(m.accept).toHaveBeenCalledWith('u1', 'co-b', 'm1', {}, { auto: true });
   });
@@ -57,6 +57,19 @@ describe('runAutoAccept', () => {
     const run = await runAutoAccept();
     expect(run).toMatchObject({ deferred: 1, stuck: 1 });
     expect(m.log.error).toHaveBeenCalledWith(expect.stringMatching(/keeps deferring/), expect.objectContaining({ attempt: STUCK_AT }), 'intercompany');
+  });
+
+  it('a pending message that used every attempt (the queue no longer takes it) is counted as stuck, every run, and logged at error', async () => {
+    m.sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 2 }]);
+    const run = await runAutoAccept();
+    expect(run).toMatchObject({ considered: 0, stuck: 2, exhausted: 2 });
+    expect(m.log.error).toHaveBeenCalledWith(expect.stringMatching(/cannot run/), expect.objectContaining({ exhausted: 2, stuck: 2 }), 'intercompany');
+  });
+
+  it('exhausted messages add to the messages that keep deferring in the one stuck figure', async () => {
+    m.sql.mockResolvedValueOnce([queueRow(STUCK_AT)]).mockResolvedValueOnce([{ n: 1 }]);
+    m.accept.mockRejectedValueOnce(lockTimeout());
+    expect(await runAutoAccept()).toMatchObject({ deferred: 1, stuck: 2, exhausted: 1 });
   });
 
   it('a refusal of ours (safeForSender) is stored as its own fixed sentence', async () => {

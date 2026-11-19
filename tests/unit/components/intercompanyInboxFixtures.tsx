@@ -7,7 +7,7 @@ import type { InboxDetail, InboxItem } from '@/modules/accounting/services/inter
 export const item = (over: Partial<InboxItem> = {}): InboxItem => ({
   id: 'm-1', kind: 'invoice', status: 'pending', connectionId: 'c-1', senderName: 'Blitz Fibre', number: 'INV-100', date: '2026-11-18', dueDate: '2026-12-18',
   currency: 'ZAR', subtotal: 1000, taxAmount: 150, total: 1150, notes: null, creditsInvoiceNumber: null, lineCount: 2, hasPdf: true, blocker: null,
-  reason: null, error: null, sourceCancelled: false, handledAt: null, handledVia: null, targetDocType: null, targetDocId: null, createdAt: '2026-11-18T10:00:00.000Z', ...over,
+  reason: null, error: null, sourceCancelled: false, sourceChanged: false, autoExhausted: false, handledAt: null, handledVia: null, targetDocType: null, targetDocId: null, createdAt: '2026-11-18T10:00:00.000Z', ...over,
 });
 export const detail = (over: Partial<InboxDetail> = {}): InboxDetail => ({
   item: item(),

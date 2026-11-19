@@ -29,6 +29,10 @@ export interface InboxItem {
   error: string | null;
   /** The sender cancelled the document this message carries: a pending message is `withdrawn`, an accepted one only flagged. */
   sourceCancelled: boolean;
+  /** The sender's document is no longer what the message carries (edited after it was sent). Known on the detail and on accept, not in the list. */
+  sourceChanged: boolean;
+  /** The auto-accept worker gave up on this message (it used every attempt): a person has to review it. */
+  autoExhausted: boolean;
   handledAt: string | null;
   handledVia: 'user' | 'auto' | null;
   targetDocType: string | null;
@@ -65,7 +69,7 @@ export interface InboxDetail {
   supplier: { id: string; name: string } | null;
   /** An existing bill / note that would make the draft a duplicate (supplier + number); null when there is none. */
   duplicateOf: { id: string; number: string } | null;
-  /** Everything that stops Accept, in plain sentences; empty = Accept is possible. */
+  /** Everything that stops Accept, in plain sentences; empty = Accept is possible. (A changed source is a warning on the item, not a blocker.) */
   blockers: string[];
   accounts: Array<{ id: string; label: string }>;
 }

@@ -32,6 +32,8 @@ export default function IntercompanyInboxPage() {
   const [filter, setFilter] = useState<InboxFilter>('open');
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<InboxPage | null>(null);
+  // The badge and "Needs you (N)": their own state, so switching the list (which clears the page) does not zero them.
+  const [openCount, setOpenCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [review, setReview] = useState<InboxItem | null>(null);
@@ -54,6 +56,7 @@ export default function IntercompanyInboxPage() {
       // A page past the last one (the last row of a page was just handled): start again from the first, never strand on an empty page.
       if (result.items.length === 0 && offset > 0) { setOffset(0); return; }
       setPage(result);
+      setOpenCount(result.openCount);
       setError('');
     } catch (err) {
       if (mine !== latest.current) return;
@@ -103,13 +106,17 @@ export default function IntercompanyInboxPage() {
           subtitle="Invoices and credit notes other companies in your group sent you. Accepting one creates a draft; nothing is posted until you approve it."
           actions={<Link href="/accounting/settings/intercompany" className="px-3 py-2 text-sm rounded-lg border border-line text-ink hover:bg-surface-sunken">Connections</Link>} />
         <div className="p-6 space-y-4">
-          <StatusTabs active={null} counts={{}} onChange={tab} intercompany={{ count: page?.openCount ?? 0, active: true }} />
+          <StatusTabs active={null} counts={{}} onChange={tab} intercompany={{ count: openCount, active: true }} />
 
           <div className="flex gap-2" role="group" aria-label="Show">
             {(['open', 'handled'] as const).map((f) => (
-              <button key={f} type="button" aria-pressed={filter === f} onClick={() => { setFilter(f); setOffset(0); setPage(null); setLoading(true); }}
+              <button key={f} type="button" aria-pressed={filter === f} onClick={() => {
+                // The active filter again is a return to its first page: nothing is cleared (no state would change, so nothing would reload).
+                if (f === filter) { setOffset(0); return; }
+                setFilter(f); setOffset(0); setPage(null); setLoading(true);
+              }}
                 className={`px-3 py-1.5 text-sm rounded-lg border ${filter === f ? 'bg-brand-600 text-white border-brand-600' : 'border-line text-ink hover:bg-surface-sunken'}`}>
-                {f === 'open' ? `Needs you${page && page.openCount > 0 ? ` (${page.openCount})` : ''}` : 'Handled'}
+                {f === 'open' ? `Needs you${openCount > 0 ? ` (${openCount})` : ''}` : 'Handled'}
               </button>
             ))}
           </div>

@@ -12,7 +12,7 @@ import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { acceptMessage } from '../../../src/modules/accounting/services/intercompany/acceptService';
 import { GENERIC, runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
 import { asAppUser, outcome, plantDocument, plantExternal, withoutTrigger } from './intercompany.helpers';
-import { acc, asService, clearMirrorRows, co, connect, inbox, mirrorCleanup, mirrorSetup, party, plantArInvoice, sentInvoice, U } from './mirror.helpers';
+import { acc, asService, clearMirrorRows, co, connect, dataOf, inbox, mirrorCleanup, mirrorSetup, party, plantArInvoice, sentInvoice, U } from './mirror.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -114,6 +114,27 @@ describe('fairness and back-off', () => {
     await claim(50, true);
     const after = await row(m.id);
     for (const k of ['status', 'payload', 'handled_by', 'target_doc_id', 'reason', 'error', 'manual_only', 'source_cancelled_at']) expect(after[k]).toEqual(before[k]);
+  });
+
+  it('a message the queue let go of is NOT silent: the inbox flags it, the worker counts it as stuck every run, and a restored one is not counted', async () => {
+    await connect(pool, { autoAccept: true });
+    const m = await sentInvoice(pool);
+    const other = await sentInvoice(pool);
+    const flagged = async (id: string) => (dataOf<{ items: Array<{ id: string; autoExhausted: boolean }> }>(await inbox.list(U.b, co.B))).items.find((i) => i.id === id)!.autoExhausted;
+    expect(await flagged(m.id)).toBe(false);
+    await adjust(m.id, 'auto_attempts = 8, auto_next_attempt_at = NULL');
+    await adjust(other.id, 'auto_attempts = 7, auto_next_attempt_at = NULL');
+    expect(await flagged(m.id)).toBe(true);
+    expect(await flagged(other.id)).toBe(false);          // the eighth attempt is still to come
+    const first = await runAutoAccept();                  // `other` is attempted (and accepted) now; `m` is out of attempts
+    expect(first).toMatchObject({ accepted: 1, exhausted: 1, stuck: 1 });
+    expect((await row(m.id)).status).toBe('pending');
+    expect(await runAutoAccept()).toMatchObject({ considered: 0, exhausted: 1, stuck: 1 });   // and again on the next run, until a person handles it
+    expect((await inbox.dismiss(U.b, co.B, m.id)).state.statusCode).toBe(200);
+    expect(await runAutoAccept()).toMatchObject({ exhausted: 0, stuck: 0 });
+    expect((await inbox.restore(U.b, co.B, m.id)).state.statusCode).toBe(200);              // restored = a person's (manual_only)
+    expect(await runAutoAccept()).toMatchObject({ exhausted: 0, stuck: 0 });
+    expect(await flagged(m.id)).toBe(false);
   });
 
   it('a session cannot forge the claim: the system update is refused for any role but the definer', async () => {

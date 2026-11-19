@@ -72,6 +72,11 @@ export function InboxReviewModal({ item, canWrite, onClose, onReject, onAccepted
             </dl>
             {detail.item.creditsInvoiceNumber && <p className="text-sm text-ink-muted">Credits invoice {detail.item.creditsInvoiceNumber}.</p>}
             {detail.item.notes && <p className="text-sm text-ink-muted">Note from the sender: {detail.item.notes}</p>}
+            {detail.item.sourceChanged && (
+              <p role="status" className="p-3 rounded-lg bg-amber-500/10 text-amber-800 dark:text-amber-300 text-sm flex gap-2" data-testid="source-changed">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden />The sender changed this document after sending it. Check the figures with them before you accept.
+              </p>
+            )}
             {detail.blockers.length > 0 && (
               <ul role="alert" className="space-y-1 p-3 rounded-lg bg-amber-500/10 text-amber-800 dark:text-amber-300 text-sm" data-testid="inbox-blockers">
                 {detail.blockers.map((b) => <li key={b} className="flex gap-2"><AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden />{b}</li>)}

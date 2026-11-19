@@ -29,8 +29,10 @@ import { withReceiverTx } from './receiverTx';
 
 export interface AutoAcceptRun {
   considered: number; accepted: number; failed: number; deferred: number;
-  /** Deferred on an attempt at or past STUCK_AT: the same message keeps failing to run (a persistent fault, not a busy moment). */
+  /** Deferred on an attempt at or past STUCK_AT (the same message keeps failing to run), plus every pending message that used all its attempts. */
   stuck: number;
+  /** The part of `stuck` that is past its last attempt: the queue no longer takes them, a person has to (the inbox says so). */
+  exhausted: number;
 }
 
 const TRANSIENT = new Set(['55P03', '40001', '40P01', '57014']);
@@ -49,7 +51,7 @@ export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
   const queue = (await sql`
     SELECT message_id, to_company_id, actor_user_id, attempt FROM public.intercompany_auto_accept_queue(${limit}::INT, true)
   `) as Row[];
-  const run: AutoAcceptRun = { considered: queue.length, accepted: 0, failed: 0, deferred: 0, stuck: 0 };
+  const run: AutoAcceptRun = { considered: queue.length, accepted: 0, failed: 0, deferred: 0, stuck: 0, exhausted: 0 };
   for (const q of queue) {
     const principal = { userId: String(q.actor_user_id), companyId: String(q.to_company_id) };
     const messageId = String(q.message_id);
@@ -91,6 +93,10 @@ export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
       }
     }
   }
+  // A message that used all its attempts is no longer in the queue and would sit pending in silence: it is counted every run until a person handles it.
+  const exhausted = (await sql`SELECT public.intercompany_auto_accept_exhausted() AS n`) as Row[];
+  run.exhausted = Number(exhausted[0]?.n ?? 0);
+  run.stuck += run.exhausted;
   if (run.stuck > 0) log.error('Intercompany auto-accept has messages it cannot run', { ...run }, 'intercompany');
   log.info('Intercompany auto-accept run', { ...run }, 'intercompany');
   return run;

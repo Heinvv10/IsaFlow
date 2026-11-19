@@ -63,6 +63,9 @@ export function InboxTable({ items, canWrite, busyId, onReview, onReject, onDism
                 )}
                 {i.status === 'failed' && i.error && <p className="text-xs text-red-600 dark:text-red-400 max-w-xs">{i.error}</p>}
                 {i.status === 'rejected' && i.reason && <p className="text-xs text-ink-muted max-w-xs">Reason: {i.reason}</p>}
+                {open && i.autoExhausted && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 max-w-xs" data-testid="auto-exhausted">Couldn&apos;t be auto-accepted; review it.</p>
+                )}
                 {open && i.blocker && <p className="text-xs text-amber-700 dark:text-amber-400 max-w-xs">{i.blocker}</p>}
               </td>
               <td className="px-5 py-3.5 text-right">

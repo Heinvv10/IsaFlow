@@ -14,6 +14,8 @@ const OPEN: InboxStatus[] = ['pending', 'failed'];
 const HANDLED: InboxStatus[] = ['accepted', 'rejected', 'dismissed', 'withdrawn'];
 
 export const INBOX_PAGE_MAX = 100;
+/** The attempts the auto-accept queue gives a message (migration 1013 `intercompany_auto_accept_queue`); a pending message that used them all needs a person. */
+export const AUTO_ACCEPT_MAX_ATTEMPTS = 8;
 
 const asText = (v: unknown, max = 200): string | null => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : null);
 const asNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -35,6 +37,8 @@ export function toInboxItem(r: Row): InboxItem {
     blocker: parsed.ok ? payloadBlocker(parsed.payload) : parsed.error,
     reason: asText(r.reason, 2000), error: asText(r.error, 4000),
     sourceCancelled: r.source_cancelled_at != null,
+    sourceChanged: false,
+    autoExhausted: String(r.status) === 'pending' && r.manual_only !== true && Number(r.auto_attempts ?? 0) >= AUTO_ACCEPT_MAX_ATTEMPTS,
     handledAt: r.handled_at ? toIsoTimestamp(r.handled_at as Date | string) : null,
     handledVia: r.handled_via === 'auto' ? 'auto' : r.handled_via === 'user' ? 'user' : null,
     targetDocType: asText(r.target_doc_type, 50), targetDocId: r.target_doc_id ? String(r.target_doc_id) : null,
@@ -43,7 +47,7 @@ export function toInboxItem(r: Row): InboxItem {
 }
 
 const COLUMNS = `m.id, m.kind, m.status, m.connection_id, m.from_company_id, m.payload, m.reason, m.error, m.handled_at,
-                 m.handled_via, m.source_cancelled_at, m.target_doc_type, m.target_doc_id, m.source_doc_type, m.source_doc_id, m.created_at`;
+                 m.handled_via, m.source_cancelled_at, m.auto_attempts, m.manual_only, m.target_doc_type, m.target_doc_id, m.source_doc_type, m.source_doc_id, m.created_at`;
 
 /** Messages that need a person: the Bills tab badge. */
 export async function openInboxCount(companyId: string): Promise<number> {
@@ -85,4 +89,10 @@ export async function loadInboxRow(companyId: string, messageId: string, lock = 
     : await sql`SELECT ${sql.unsafe(COLUMNS)} FROM intercompany_messages m
                 WHERE m.id = ${messageId}::UUID AND m.to_company_id = ${companyId}::UUID AND m.kind IN ('invoice', 'credit_note')`) as Row[];
   return rows[0] ?? null;
+}
+
+/** Whether the sender's document changed after it was sent (the database rebuilds the payload from the sender's books and compares it). Null: not this company's message. */
+export async function messageSourceChanged(messageId: string): Promise<boolean | null> {
+  const rows = (await sql`SELECT public.intercompany_message_source_changed(${messageId}::UUID) AS changed`) as Row[];
+  return rows[0]?.changed == null ? null : rows[0].changed === true;
 }

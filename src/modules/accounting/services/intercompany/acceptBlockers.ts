@@ -4,6 +4,7 @@ import type { InboxItem } from './inboxTypes';
 import type { MirrorPayload } from './mirrorPayload';
 
 export const WITHDRAWN_SENTENCE = 'The sender cancelled this document, so it cannot be accepted.';
+export const CHANGED_SENTENCE = 'The sender changed this document after sending it. It is not accepted automatically; review it.';
 
 const STATUS_BLOCKER: Partial<Record<InboxItem['status'], string>> = {
   withdrawn: WITHDRAWN_SENTENCE,
@@ -13,7 +14,7 @@ const STATUS_BLOCKER: Partial<Record<InboxItem['status'], string>> = {
 };
 
 export function acceptBlockers(
-  item: Pick<InboxItem, 'status' | 'blocker' | 'kind' | 'sourceCancelled'>,
+  item: Pick<InboxItem, 'status' | 'blocker' | 'kind' | 'sourceCancelled' | 'sourceChanged'>,
   payload: MirrorPayload | null,
   side: AcceptSide | null,
   duplicate: { number: string } | null,
@@ -32,6 +33,7 @@ export function acceptBlockers(
   if (!side.supplierId) out.push('Link the supplier for this connection first (Settings › Intercompany), so the draft goes on the right supplier.');
   if (auto && !side.autoAccept) out.push('Automatic acceptance is off for this connection.');
   if (auto && side.kind !== 'group') out.push('Automatic acceptance is only for a group connection.');
+  if (auto && item.sourceChanged) out.push(CHANGED_SENTENCE);
   if (duplicate && payload) {
     out.push(`${payload.kind === 'invoice' ? 'A bill' : 'A credit note'} numbered ${duplicate.number} already exists for this supplier.`);
   }

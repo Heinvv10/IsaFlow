@@ -35,10 +35,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Cron triggered: intercompany auto-accept', {}, 'cron-intercompany-auto-accept');
   const result = await runAutoAccept();
-  // A message that failed, or that keeps deferring (a persistent fault: the queue gives up on it after 8 attempts), is a 500, so the timer's curl --fail reports it.
+  // A message that failed, that keeps deferring (a persistent fault), or that used all 8 attempts (the queue gave up on it; a person must review it), is a 500, so the timer's curl --fail reports it.
   if (result.failed > 0 || result.stuck > 0) {
     return apiResponse.error(res, ErrorCode.INTERNAL_ERROR,
-      `Intercompany auto-accept: ${result.failed} of ${result.considered} messages failed, ${result.stuck} keep deferring`, result);
+      `Intercompany auto-accept: ${result.failed} of ${result.considered} messages failed, ${result.stuck} stuck (${result.exhausted} out of attempts)`, result);
   }
   return apiResponse.success(res, result);
 }
