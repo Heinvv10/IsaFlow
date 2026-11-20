@@ -30,9 +30,10 @@
 --          to 6 dp (1001's effective ex-VAT unit price: the discount the legacy line_total applied is in it), so
 --          round(quantity x unit_price, 2) = line_total. item_id only when it is the company's item, gl_account_id only when
 --          it is the company's account (else NULL; the description is kept). quantity_received / quantity_invoiced from
---          qty_received / qty_invoiced. sort_order by the legacy created_at. The legacy line_total is NET: the SPO writer
---          (purchaseOrderService, deleted here) stored round(quantity x unit_price, 2) with tax_amount beside it and the
---          header subtotal = the sum of those, total = subtotal + tax.
+--          qty_received / qty_invoiced. sort_order by the legacy created_at. The legacy line_total is NET: master's SPO writer
+--          stored line_total = round(quantity x unit_price, 2) with the VAT in tax_amount (purchaseOrderService.ts:55/74,
+--          procurementService.ts:110), subtotal = their sum, total = subtotal + tax; so the copy keeps figures as stored
+--          (dev's VAT-inclusive line totals are seed junk, written outside the app on 2026-04-19).
 --      SKIPPED, with a WARNING naming the legacy id, and left in the legacy table: a header whose supplier is another
 --      company's, or with a line po_items' CHECKs refuse (quantity <= 0 at 2 dp, a negative line_total), or a line id
 --      po_items already holds. A header whose id is already in purchase_orders was copied by an earlier run: skipped
