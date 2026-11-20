@@ -96,6 +96,17 @@ describe('races (10)', () => {
     }
   });
 
+  it('creates on two POs at once take consecutive numbers (number lock 620), never the same one', async () => {
+    for (let round = 0; round < 5; round++) {
+      const p1 = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 1 }] });
+      const p2 = await seedQtyPo(pool, f, { lines: [{ qty: 1, price: 1 }] });
+      const out = await Promise.all([callTool(pool, f, create, grnArgs(p1, [[0, 1]])), callTool(pool, f, create, grnArgs(p2, [[0, 1]]))]);
+      for (const r of out) expect(r.isError, r.text).toBe(false);
+      const numbers = out.map((r) => Number(String(r.body.grn_number).slice(4))).sort((a, b) => a - b);
+      expect(numbers[1], `round ${round}`).toBe(numbers[0]! + 1);
+    }
+  });
+
   it('creates and cancels racing on one PO: no deadlock, no lock timeout, received = the live notes\' sum', async () => {
     const unexpected: string[] = [];
     for (let round = 0; round < 6; round++) {
