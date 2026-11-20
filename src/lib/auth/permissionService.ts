@@ -8,7 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { isFullAccessRole, mayHoldApprove, normalizeCompanyRole, roleDefaultPermission, type PermissionAction } from './companyRoles';
+import { isFullAccessRole, isWriteRole, mayHoldApprove, normalizeCompanyRole, roleDefaultPermission, type PermissionAction } from './companyRoles';
 
 export interface ModulePermission {
   moduleKey: string; moduleName: string;
@@ -179,7 +179,7 @@ export function memberMay(r: Row, action: Action, moduleKey: string): boolean {
 }
 
 /**
- * May the user do `action` on `moduleKey` through a CURRENT member company of the group, in ONE company: a write role there
+ * May the user do `action` on `moduleKey` through a CURRENT member company of the group, in ONE company: (for write, delete, approve) a write role there
  * AND the permission there (round 3, M2: two checks, each satisfiable in a different company, let a viewer's stale
  * approve row combine with a writer elsewhere). One query; the rule is memberMay's.
  */
@@ -194,7 +194,9 @@ export async function checkGroupPermission(
       ON p.company_id = cu.company_id AND p.user_id = cu.user_id AND p.module_key = ${moduleKey}
     WHERE cgm.group_id = ${groupId}::UUID AND cgm.left_date IS NULL AND cu.user_id = ${userId}
   `;
-  return (rows as Row[]).some((r) => mayHoldApprove(String(r.role)) && memberMay(r, action, moduleKey));
+  // A write role is needed to write, delete or approve; a read or export of the group follows the permission alone.
+  const needsWriteRole = action === 'write' || action === 'delete' || action === 'approve';
+  return (rows as Row[]).some((r) => (!needsWriteRole || isWriteRole(String(r.role))) && memberMay(r, action, moduleKey));
 }
 
 export async function getCompanyUsersWithPermissions(companyId: string): Promise<UserWithPermissions[]> {

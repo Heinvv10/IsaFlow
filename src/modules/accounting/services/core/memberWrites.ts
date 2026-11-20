@@ -124,7 +124,15 @@ export async function setMemberApproveWithheld(
 ): Promise<void> {
   await migrationAdminTx('set approve withheld', async (client) => {
     await authorize(client, companyId, userId, actorUserId, false);
+    const before = await client.query<{ approve_withheld: boolean }>(
+      'SELECT approve_withheld FROM company_users WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
     await client.query('UPDATE company_users SET approve_withheld = $3 WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId, withheld]);
+    // The audit row commits with the change (one transaction on this pool): who withheld or restored whose Approve.
+    await client.query(
+      `INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes)
+       VALUES ($1::UUID, $2, 'update', 'company_user', $3::UUID, $4::JSONB)`,
+      [companyId, actorUserId, userId, JSON.stringify({ fields: [{ field: 'approve_withheld', old: before.rows[0]?.approve_withheld ?? false, new: withheld }],
+        metadata: { change: 'approve_withheld', target_user_id: userId } })]);
   });
   log.info('Company user approve_withheld set', { companyId, userId, withheld }, 'accounting');
 }

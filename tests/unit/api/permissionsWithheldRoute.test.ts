@@ -17,6 +17,7 @@ vi.mock('@/lib/auth/permissionService', async (orig) => ({
 
 import { getEffectivePermissions } from '@/lib/auth/permissionService';
 import { MemberRoleForbiddenError, setMemberApproveWithheld } from '@/modules/accounting/services/core/memberWrites';
+import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
 import handler from '../../../pages/api/accounting/permissions';
 
 const C = '11111111-1111-4111-8111-111111111111';
@@ -52,5 +53,10 @@ describe('approve_withheld on /api/accounting/permissions', () => {
   it('the pool refusing the actor (RC001) is 403', async () => {
     vi.mocked(setMemberApproveWithheld).mockRejectedValueOnce(new MemberRoleForbiddenError());
     expect((await call('PUT', { userId: T, approveWithheld: true })).statusCode).toBe(403);
+  });
+
+  it('round 4: the pool refusing a change to an owner (OwnerProtectedError) is 403, not a 500', async () => {
+    vi.mocked(setMemberApproveWithheld).mockRejectedValueOnce(new OwnerProtectedError());
+    expect((await call('PUT', { userId: T, approveWithheld: true }, 'admin')).statusCode).toBe(403);
   });
 });

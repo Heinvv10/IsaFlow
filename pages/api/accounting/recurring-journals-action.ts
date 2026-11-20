@@ -13,6 +13,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   updateRecurringJournalStatus,
+  getRecurringJournalById,
+  recurringJournalAutoPosts,
   runRecurringJournal,
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
@@ -54,6 +56,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // completed or cancelled template stays so — a cancelled one paused and then resumed used to come back to
         // life and generate. A refused move wrote nothing and answers 400.
         const move = STATUS_ACTIONS[action as keyof typeof STATUS_ACTIONS];
+        // #1656 (round 4): resuming an AUTO-POSTING template lets it post journals again, as creating one does (and the MCP resume):
+        // Chart of Accounts & GL Approve. The flag cannot be edited after creation, so this read cannot be outrun.
+        if (action === 'resume') {
+          const template = await getRecurringJournalById(companyId, id);
+          if (template && recurringJournalAutoPosts(template.autoPost)
+            && await refuseWithoutApprove(res, companyId, userId, 'accounts', 'auto-posting recurring journals')) return;
+        }
         const change = await updateRecurringJournalStatus(companyId, id, move.status);
         if (!change.changed) {
           return apiResponse.badRequest(res, `This recurring journal is ${change.current}: it cannot be ${move.refused}.`);

@@ -17,7 +17,7 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({
   ...(await orig<object>()),
-  updateRecurringJournalStatus: vi.fn(), runRecurringJournal: vi.fn(),
+  updateRecurringJournalStatus: vi.fn(), runRecurringJournal: vi.fn(), getRecurringJournalById: vi.fn(async () => ({ autoPost: false })), // resume reads the template's flag (round 4)
   createRecurringJournal: vi.fn(), getRecurringJournals: vi.fn(), updateRecurringJournalTemplate: vi.fn(),
 }));
 

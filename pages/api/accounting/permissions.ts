@@ -15,6 +15,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
 import { MemberRoleForbiddenError, setMemberApproveWithheld } from '@/modules/accounting/services/core/memberWrites';
+import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
 import {
   getPermissionModules,
   getEffectivePermissions,
@@ -117,7 +118,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       await setMemberApproveWithheld(companyId, userId, approveWithheld, (req as CompanyAuthedRequest).user.id);
     } catch (err) {
-      if (err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof MemberRoleForbiddenError || err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       throw err;
     }
     return apiResponse.success(res, { ok: true, approveWithheld });

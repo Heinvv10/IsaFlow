@@ -82,6 +82,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       case 'update': {
+        // #1656 (round 4): switching a rule to auto-create entries is the same approval as creating one that does.
+        if (body.autoCreateEntry === true && await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-posting bank rules')) return;
         const updateInput = Object.fromEntries(
           Object.entries(body).filter(([k, v]) =>
             k !== 'action' && k !== 'id' && v !== null && v !== undefined,

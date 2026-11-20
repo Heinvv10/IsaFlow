@@ -116,3 +116,41 @@ describe('checkGroupPermission: a write role AND the permission in the SAME memb
     expect(await checkGroupPermission(U, G, 'group', 'approve')).toBe(false);
   });
 });
+
+describe('round 4 (B-M3): accountant / bookkeeper stay stored; the app reads them as managers without approve', () => {
+  it('a stored legacy role is a write role in SQL membership checks and reads as manager everywhere else', async () => {
+    const { STORED_WRITE_ROLE_VALUES, normalizeCompanyRole, companyRoleLabel } = await import('@/lib/auth/companyRoles');
+    expect([...STORED_WRITE_ROLE_VALUES].sort()).toEqual(['accountant', 'admin', 'bookkeeper', 'manager', 'owner']);
+    expect(normalizeCompanyRole('accountant')).toBe('manager');
+    expect(normalizeCompanyRole('bookkeeper')).toBe('manager');
+    expect(companyRoleLabel('bookkeeper')).toBe('Manager (no approve)');
+    expect(companyRoleLabel('accountant', false)).toBe('Manager (no approve)');
+    expect(companyRoleLabel('manager', true)).toBe('Manager (no approve)');
+    expect(companyRoleLabel('manager')).toBe('Manager');
+    expect(companyRoleLabel('viewer')).toBe('Viewer');
+  });
+
+  it('checkPermission on a STORED bookkeeper (no flag, no rows) refuses Approve and Payroll but not the manager default otherwise', async () => {
+    db.members.set(key(), 'bookkeeper');
+    expect(await checkPermission(C, U, 'suppliers', 'approve')).toBe(false);
+    expect(await checkPermission(C, U, 'payroll', 'read')).toBe(false);
+    expect(await checkPermission(C, U, 'suppliers', 'write')).toBe(true);
+  });
+
+  it('a stored bookkeeper still counts as a write role in a group (same company as the permission)', async () => {
+    db.groups.set(G, [C]);
+    db.members.set(key(), 'bookkeeper');
+    db.rows.set(`${key()}:group`, { can_read: true, can_write: true, can_approve: true }); // an owner ticked it
+    expect(await checkGroupPermission(U, G, 'group', 'approve')).toBe(true);
+  });
+});
+
+describe('checkGroupPermission needs a write role only for write, delete and approve', () => {
+  it('a viewer in a member company reads the group (row-less default read) but cannot write or approve it', async () => {
+    db.groups.set(G, [C]);
+    db.members.set(key(), 'viewer');
+    expect(await checkGroupPermission(U, G, 'group', 'read')).toBe(true);
+    expect(await checkGroupPermission(U, G, 'group', 'write')).toBe(false);
+    expect(await checkGroupPermission(U, G, 'group', 'approve')).toBe(false);
+  });
+});

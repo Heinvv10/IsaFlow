@@ -14,6 +14,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { mayApprove } from '@/modules/accounting/services/core/approvePermission';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -61,6 +62,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
     const input = parsed.data;
+    // #1656 (round 4): an auto-create rule posts entries for the lines it matches, like an auto-posting template: Banking Approve, before any write.
+    if (input.autoCreateEntry === true && await refuseWithoutApprove(res, companyId, userId, 'banking', 'auto-posting bank rules')) return;
     let rule;
     try {
       rule = await createRule(companyId, {
