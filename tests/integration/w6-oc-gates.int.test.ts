@@ -43,9 +43,22 @@ async function approvedBonus(r: Rig, who: string, runDate: string): Promise<stri
   return id;
 }
 /** The SQLSTATE of a direct INSERT into payroll_off_cycle_employees (null: it was accepted). */
-async function forged(r: Rig, row: { company: string; run: string; employee: string; component: string | null; amount: number | null }) {
-  return r.pool.query(`INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount)
-    VALUES ($1, $2, $3, $4, $5)`, [row.company, row.run, row.employee, row.component, row.amount]).then(() => null, (e: { code?: string }) => e.code ?? 'error');
+async function forged(r: Rig, row: { company: string; run: string; employee: string; component: string | null; amount: number | null }, role?: 'app_user') {
+  const c = await r.pool.connect();
+  try {
+    await c.query('BEGIN');
+    if (role) {
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: r.admin, role: 'authenticated', aal: 'aal2' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [r.company]);
+    }
+    const code = await c.query(`INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount)
+      VALUES ($1, $2, $3, $4, $5)`, [row.company, row.run, row.employee, row.component, row.amount]).then(() => null, (e: { code?: string }) => e.code ?? 'error');
+    await c.query(code === null ? 'COMMIT' : 'ROLLBACK');
+    return code;
+  } finally {
+    c.release();
+  }
 }
 
 beforeAll(async () => {
@@ -199,7 +212,8 @@ describe('M2: the payroll_off_cycle_employees_guard trigger refuses forged rows'
     expect(await forged(a, { company: a.company, run: draftBonus, employee: p.late!, component: bonusA, amount: 5 })).toBe('23503');
     expect(await forged(a, { company: a.company, run: draftBonus, employee: p.stayer!, component: basicOf[a.company]!, amount: 5 })).toBe('23514');
     expect(await forged(a, { company: a.company, run: draftTermination, employee: p.stayer!, component: bonusA, amount: 5 })).toBe('23514');
-    expect(await forged(a, { company: a.company, run: approved, employee: p.stayer!, component: bonusA, amount: 5 })).toBe('23514');
+    // A run past draft is refused to the app (as app_user); a trusted ops role restores onto it (#1679 codex 5, w6-oc-forge).
+    expect(await forged(a, { company: a.company, run: approved, employee: p.stayer!, component: bonusA, amount: 5 }, 'app_user')).toBe('23514');
     expect(await n(a, 'SELECT count(*) AS n FROM payroll_off_cycle_employees', [])).toBe(before);
     // The same row on this company's own draft bonus run is accepted: the refusals above are the guard's, not the shape's.
     expect(await forged(a, { company: a.company, run: draftBonus, employee: p.stayer!, component: bonusA, amount: 5 })).toBeNull();

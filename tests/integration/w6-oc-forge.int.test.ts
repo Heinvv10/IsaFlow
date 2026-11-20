@@ -8,6 +8,7 @@
  *    when app_user flips the run through 'approved' over raised lines. R80 000 is refused at approval after the pay date.
  *  - A legitimate reopen of the paid run, with its lines, always takes a snapshot.
  */
+import { execFileSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
 import offCycle from '../../pages/api/payroll/runs/off-cycle';
@@ -167,5 +168,34 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     const ap = await a.api.approve(id);
     expect(ap.statusCode).not.toBe(200);
     expect(JSON.stringify(ap.body)).toMatch(/before today/);
+  });
+  it('a data-only restore (pg_dump, then psql as an ops role) brings back the inputs of an approved off-cycle run, created_at kept (#1679 codex 5)', async () => {
+    const emp = (await a.employee(12_000)).employee;
+    const december = await a.calculatedRun(12);
+    expect((await a.api.approve(december)).statusCode).toBe(200);
+    const made = await a.call(offCycle as Route, 'POST', '/api/payroll/runs/off-cycle', undefined, {
+      body: { month: 12, year: 2026, reason: 'bonus', runDate: '2026-12-20', employees: [{ employeeId: emp, componentId: bonusComponent, amount: 3_000 }] },
+    });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const id = String(made.body.data!.id);
+    expect((await a.api.calculate(id)).statusCode).toBe(200);
+    const ok = await a.api.approve(id);
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    const rows = () => a.pool.query(`SELECT id, run_id, employee_id, component_id, amount::text, created_by, created_at::text AS at
+      FROM payroll_off_cycle_employees WHERE company_id = $1 ORDER BY id`, [a.company]).then((r) => r.rows);
+    const before = await rows();
+    expect(before.map((r) => r.run_id)).toContain(id);
+    // The table's data as pg_dump writes it, this company's rows only (the shard's database holds other suites' too).
+    const url = String(process.env.DATABASE_URL);
+    const dump = execFileSync('pg_dump', ['--data-only', '--table=public.payroll_off_cycle_employees', `--dbname=${url}`], { encoding: 'utf8' })
+      .split('\n').filter((l) => !/^[0-9a-f]{8}-[0-9a-f-]{27}\t/.test(l) || l.includes(a.company)).join('\n');
+    expect(dump).toContain('COPY public.payroll_off_cycle_employees');
+    await a.pool.query('DELETE FROM payroll_off_cycle_employees WHERE company_id = $1', [a.company]);
+    // Restored by a NOSUPERUSER ops role (as postgres is on Supabase): COPY fires the ALWAYS row trigger.
+    execFileSync('psql', ['--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q', `--dbname=${url}`], { input: `SET ROLE migration_admin;\n${dump}`, encoding: 'utf8' });
+    expect(await rows()).toEqual(before);
+    // The app still cannot write an input onto that run.
+    await expect(asApp('INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount) VALUES ($1, $2, $3, $4, 1)',
+      [a.company, id, mid, bonusComponent])).rejects.toThrow(/not a draft off-cycle run/);
   });
 });

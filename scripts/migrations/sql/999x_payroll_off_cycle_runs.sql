@@ -12,7 +12,9 @@
 --     the month's regular run when that run is reopened and recalculated.
 --     payroll_off_cycle_employees_guard  a BEFORE INSERT trigger (INVOKER, under the caller's RLS): the run is this
 --     company's, an off-cycle run, still a draft; the employee is this company's; a bonus row names one of this
---     company's 3605 earnings and a termination row names none. On UPDATE (app_user may update the amount column
+--     company's 3605 earnings and a termination row names none. A trusted ops role (not payroll_run_app_role) inserts
+--     onto a run past draft and keeps the row's created_at, so a data-only restore works (review #1679 codex 5); the
+--     app's roles get created_at from the clock. On UPDATE (app_user may update the amount column
 --     only): the run is this company's DRAFT bonus run (the service sends a calculated run back to draft and clears its
 --     lines first); company, run, employee and earning stay as they were; the amount is more than R0 in whole cents.
 --     app_user may INSERT, SELECT and UPDATE (amount).
@@ -88,6 +90,13 @@ COMMENT ON TABLE public.payroll_off_cycle_employees IS
 
 CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.payroll_off_cycle_employees (company_id, run_id);
 
+-- The application's roles (review #1679 ops M): the request role app_user, the service role app_service and their
+-- login roles. Exact names, not membership: postgres may be a member of app_user (to SET ROLE), and is not bound.
+CREATE OR REPLACE FUNCTION public.payroll_run_app_role() RETURNS boolean
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT current_user IN ('app_user', 'app_service', 'isaflow_app', 'isaflow_service')
+$$;
+
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_employees_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
@@ -113,7 +122,10 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  IF NOT FOUND OR h.run_kind <> 'off_cycle' OR h.status <> 'draft' THEN
+  -- A trusted ops role (review #1679 codex 5; payroll_run_app_role, above) restores an input as written: a data-only
+  -- restore (COPY fires this ALWAYS trigger, even in replica mode) brings back a run's inputs after its header has left
+  -- draft, with their created_at. The run must still be this company's off-cycle run; the app's roles need a draft.
+  IF NOT FOUND OR h.run_kind <> 'off_cycle' OR (h.status <> 'draft' AND public.payroll_run_app_role()) THEN
     RAISE EXCEPTION 'payroll_off_cycle_employees: the run is not a draft off-cycle run of this company'
       USING ERRCODE = 'check_violation';
   END IF;
@@ -132,7 +144,9 @@ BEGIN
   ELSIF NEW.component_id IS NOT NULL THEN
     RAISE EXCEPTION 'payroll_off_cycle_employees: a termination row names no component' USING ERRCODE = 'check_violation';
   END IF;
-  NEW.created_at := pg_catalog.clock_timestamp();
+  IF public.payroll_run_app_role() THEN
+    NEW.created_at := pg_catalog.clock_timestamp();
+  END IF;
   RETURN NEW;
 END
 $$;
@@ -146,13 +160,6 @@ ALTER TABLE public.payroll_off_cycle_employees ENABLE ALWAYS TRIGGER payroll_off
 ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS off_cycle_paid_gross JSONB NULL;
 COMMENT ON COLUMN public.payroll_run_headers.off_cycle_paid_gross IS
   'Off-cycle runs (999x): each employee''s gross as last approved, {employee_id: gross}, taken by payroll_off_cycle_paid_snapshot when the run leaves approved (a reopen). Written by that trigger only.';
-
--- The application's roles (review #1679 ops M): the request role app_user, the service role app_service and their
--- login roles. Exact names, not membership: postgres may be a member of app_user (to SET ROLE), and is not bound.
-CREATE OR REPLACE FUNCTION public.payroll_run_app_role() RETURNS boolean
-LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
-  SELECT current_user IN ('app_user', 'app_service', 'isaflow_app', 'isaflow_service')
-$$;
 
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_paid_snapshot() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
