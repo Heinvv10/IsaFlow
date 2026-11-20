@@ -56,6 +56,31 @@ linked IsaFlow bills; `billed` is kept for the status a linked bill sets), Cance
 Nothing posts to the GL. Committed = open PO lines less billed (`budgets/remainingCommitted.ts` already does this; it
 gains no statuses, so billed, closed and cancelled POs commit nothing). Attachments: `entity_type = purchase_order`.
 
+### Phase B: SPO retirement (migration 1022, 2026-11-20)
+
+`supplier_purchase_orders` (247) is retired into `purchase_orders` + `po_items`. The migration:
+
+- copies every legacy header and line **under its own id**, so a bill header naming a legacy id names its canonical copy;
+  figures as stored (subtotal / tax / total, each line's `line_total` and `tax_amount`), quantity to 2 dp, `unit_price` =
+  `line_total / quantity` at 6 dp (1001's effective price: a line's discount is in it), so `round(quantity x unit_price)` =
+  `line_total`; `item_id` / `gl_account_id` only when they are the company's; quantities received / invoiced carried;
+- maps statuses: draft -> draft, sent -> approved, partially_received / received / cancelled as they are, invoiced -> closed
+  (from received), partially_invoiced -> closed (from received when every line is fully received, else partially_received);
+- puts `internal_notes` and `project_id` (no canonical column) into `notes`, and a CC1 / CC2 `cost_center_id` on every line;
+- never fails on a number the canonical table holds: the copy takes `-SPO`, `-SPO2`, ... with the original in
+  `external_system = 'supplier_purchase_orders'` / `external_ref` / `external_document_number` (which also makes it an
+  "imported" PO for `set_purchase_order_status`), and a NOTICE names it;
+- skips with a WARNING, leaving the row in the legacy table, an order whose supplier is another company's or with a line
+  `po_items` refuses (quantity <= 0 at 2 dp, a negative total);
+- raises the `purchase_order` counter past a copied number of its own form and runs `purchase_order_bill_links_backfill`
+  for each company copied;
+- makes both legacy tables refuse INSERT, UPDATE and the DELETE of a row with no canonical copy (a state rule, so the Demo
+  wipe, which deletes the legacy rows before the canonical ones, still runs). The tables are not dropped.
+
+The legacy pages redirect to `/accounting/purchase-orders` (same id), the legacy route and `purchaseOrderService` are
+deleted, and every reader (the supplier POs report, both PDFs, supplier merge, the cost-centre guard, the NL-query
+allowlist) reads the canonical tables. Tests: `tests/integration/spo-retire-1022*.int.test.ts`.
+
 ## Phase C — inventory (company setting `inventory_mode`, default `expense`)
 
 `expense`: quantity only, no stock journal (today's behaviour). `perpetual`: a receipt posts DR Inventory and CR the
