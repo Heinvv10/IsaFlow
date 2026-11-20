@@ -6,7 +6,7 @@
  */
 
 import { toIsoTimestamp } from '@/lib/dateUtils';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
 import { getMirroredEliminations } from './mirrorEliminations';
@@ -22,6 +22,7 @@ import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEn
 export { getConsolidatedTrialBalance } from './consolidatedTrialBalanceService';
 export type { ConsolidatedTrialBalance } from './consolidatedTrialBalanceService';
 export { getConsolidatedIncomeStatement, getConsolidatedBalanceSheet } from './consolidatedStatementsService';
+export { autoGenerateEliminations } from './eliminationGenerator';
 export type { ConsolidatedIncomeStatement, ConsolidatedBalanceSheet } from './consolidatedStatementsService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ export interface GroupDashboardStats {
   combinedAPTotal: number; combinedRevenue: number; combinedExpenses: number;
   entitySummaries: EntitySummary[];
 }
-interface EliminationLine { groupAccountId: string; debit: number; credit: number; description: string; }
+export interface EliminationLine { groupAccountId: string; debit: number; credit: number; description: string; }
 export interface ConsolidationAdjustment {
   id: string; groupId: string; adjustmentNumber: string; adjustmentType: string;
   description: string; periodStart: string; periodEnd: string; status: string;
@@ -44,7 +45,7 @@ export interface ConsolidationAdjustment {
   /** A derived line (mirrored intercompany documents): computed from the ledgers at read time, never stored; it cannot be posted or reversed. */
   automatic?: boolean;
 }
-interface CreateEliminationInput {
+export interface CreateEliminationInput {
   adjustmentType: string; description: string; periodStart: string; periodEnd: string;
   lines: EliminationLine[]; sourceIntercompanyId?: string;
 }
@@ -63,28 +64,6 @@ function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
     postedBy: r.posted_by ? String(r.posted_by) : null,
     postedAt: r.posted_at ? toIsoTimestamp(r.posted_at as Date | string) : null, createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
   };
-}
-
-async function findGroupAccountByType(groupId: string, companyId: string, accountType: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT gcm.group_account_id FROM group_coa_mappings gcm
-    JOIN gl_accounts ga ON ga.id = gcm.company_account_id
-    WHERE gcm.group_id = ${groupId}::UUID AND gcm.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID AND ga.account_type = ${accountType}
-    LIMIT 1
-  `) as DbRow[];
-  return rows.length > 0 ? String(rows[0]!.group_account_id) : null;
-}
-
-async function findGroupAccountBySubtype(groupId: string, companyId: string, subtype: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT gcm.group_account_id FROM group_coa_mappings gcm
-    JOIN gl_accounts ga ON ga.id = gcm.company_account_id
-    WHERE gcm.group_id = ${groupId}::UUID AND gcm.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID AND ga.account_subtype = ${subtype}
-    LIMIT 1
-  `) as DbRow[];
-  return rows.length > 0 ? String(rows[0]!.group_account_id) : null;
 }
 
 // ── Group Dashboard Stats ─────────────────────────────────────────────────────
@@ -187,21 +166,29 @@ export async function createEliminationAdjustment(
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       throw new EliminationUnbalancedError(totalDebit, totalCredit);
     }
-    const rows = (await sql`
-      INSERT INTO consolidation_adjustments (
-        group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id
-      ) VALUES (
-        ${groupId}::UUID, ${input.adjustmentType}, ${input.description},
-        ${input.periodStart}, ${input.periodEnd}, ${JSON.stringify(input.lines)}::JSONB,
-        ${input.sourceIntercompanyId ?? null}::UUID
-      ) ON CONFLICT (source_intercompany_id) WHERE status IN ('draft', 'posted') DO NOTHING
-      RETURNING *
-    `) as DbRow[];
-    if (rows.length === 0) throw new EliminationAlreadyStandsError(input.sourceIntercompanyId ?? '');
+    // No ON CONFLICT: 1013 builds the partial unique index only where no legacy duplicates exist, and an ON CONFLICT naming an index that is
+    // absent fails every insert. Where the index exists a second standing elimination of a row is a unique violation, mapped to the skip.
+    let rows: DbRow[];
+    try {
+      rows = await withSavepoint('consolidation_adjustment_insert', async () => (await sql`
+        INSERT INTO consolidation_adjustments (
+          group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id
+        ) VALUES (
+          ${groupId}::UUID, ${input.adjustmentType}, ${input.description},
+          ${input.periodStart}, ${input.periodEnd}, ${JSON.stringify(input.lines)}::JSONB,
+          ${input.sourceIntercompanyId ?? null}::UUID
+        ) RETURNING *
+      `) as DbRow[]);
+    } catch (err) {
+      const e = err as { code?: string; constraint?: string };
+      if (e.code === '23505' && e.constraint === 'uq_consolidation_adjustments_standing_source') throw new EliminationAlreadyStandsError(input.sourceIntercompanyId ?? '');
+      throw err;
+    }
     log.info('Created elimination adjustment', { groupId, id: rows[0]!.id }, 'accounting');
     return mapAdjustmentRow(rows[0]!);
   } catch (err) {
-    log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
+    if (err instanceof EliminationAlreadyStandsError) log.info('Elimination already stands for this row', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
+    else log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
     throw err;
   }
 }
@@ -242,6 +229,8 @@ export async function getEliminationAdjustments(
     const rows = (await sql`
       SELECT * FROM consolidation_adjustments
       WHERE group_id=${groupId}::UUID
+        -- a stored adjustment of a MIRRORED row (written by an older generator, e.g. after a code rollback) is never shown: its figure is derived
+        AND (source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(source_intercompany_id))
         AND (${pStart}::DATE IS NULL OR period_start >= ${pStart}::DATE)
         AND (${pEnd}::DATE IS NULL OR period_end <= ${pEnd}::DATE)
       ORDER BY created_at DESC
@@ -251,82 +240,12 @@ export async function getEliminationAdjustments(
     const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd) : [];
     return [...derived.map((m): ConsolidationAdjustment => ({
       id: `mirror:${m.transactionId}`, groupId, adjustmentNumber: 'AUTO', adjustmentType: 'interco_revenue', description: m.description,
-      periodStart: m.transactionDate, periodEnd: m.transactionDate, status: 'posted', automatic: true,
+      periodStart: m.keyDate, periodEnd: m.keyDate, status: 'posted', automatic: true,
       lines: m.lines.map(l => ({ groupAccountId: l.groupAccountId, debit: l.debit, credit: l.credit, description: l.description })),
-      sourceIntercompanyId: m.transactionId, postedBy: null, postedAt: null, createdAt: m.transactionDate,
+      sourceIntercompanyId: m.transactionId, postedBy: null, postedAt: null, createdAt: m.keyDate,
     })), ...stored];
   } catch (err) {
     log.error('Failed to fetch elimination adjustments', { groupId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-// ── Auto-generation ───────────────────────────────────────────────────────────
-
-/** Creates the elimination of a row unless one already stands (a concurrent run won): that is a skip, not an error. */
-async function createUnlessStanding(created: ConsolidationAdjustment[], groupId: string, input: CreateEliminationInput): Promise<void> {
-  try {
-    created.push(await createEliminationAdjustment(groupId, input));
-  } catch (err) {
-    if (!(err instanceof EliminationAlreadyStandsError)) throw err;
-  }
-}
-
-export async function autoGenerateEliminations(
-  groupId: string, periodStart: string, periodEnd: string
-): Promise<ConsolidationAdjustment[]> {
-  try {
-    const icTxRows = (await sql`
-      SELECT ict.id, ict.source_company_id, ict.target_company_id,
-             ict.transaction_type, ict.amount, ict.description
-      FROM intercompany_transactions ict
-      WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
-        AND NOT public.intercompany_is_mirrored_row(ict.id) -- a mirrored document's elimination is derived from the ledgers (mirrorEliminations.ts), never stored
-        AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
-    `) as DbRow[];
-
-    const created: ConsolidationAdjustment[] = [];
-
-    for (const tx of icTxRows) {
-      // One elimination per row: a second run skips a row whose elimination already stands (draft or posted). Two runs at once are stopped by the
-      // partial unique index on consolidation_adjustments(source_intercompany_id) (1013): the loser's insert does nothing (ON CONFLICT) and is skipped.
-      const standing = (await sql`
-        SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
-      `) as DbRow[];
-      if (standing.length > 0) continue;
-      const txType = String(tx.transaction_type);
-      const amount = Number(tx.amount);
-      const srcId = String(tx.source_company_id);
-      const tgtId = String(tx.target_company_id);
-      const desc = tx.description ?? '';
-
-      if (txType === 'sale' || txType === 'purchase' || txType === 'mgmt_fee') {
-        const revGaId = await findGroupAccountByType(groupId, srcId, 'revenue');
-        const expGaId = await findGroupAccountByType(groupId, tgtId, 'expense');
-        if (revGaId && expGaId) {
-          const lines: EliminationLine[] = [
-            { groupAccountId: revGaId, debit: amount, credit: 0, description: `Eliminate intercompany ${txType} revenue` },
-            { groupAccountId: expGaId, debit: 0, credit: amount, description: `Eliminate intercompany ${txType} expense` },
-          ];
-          await createUnlessStanding(created, groupId, { adjustmentType: 'interco_revenue', description: `Auto-elimination: intercompany ${txType} - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) });
-        }
-      } else if (txType === 'loan' || txType === 'transfer') {
-        const recGaId = await findGroupAccountBySubtype(groupId, srcId, 'receivable');
-        const payGaId = await findGroupAccountBySubtype(groupId, tgtId, 'payable');
-        if (recGaId && payGaId) {
-          const lines: EliminationLine[] = [
-            { groupAccountId: payGaId, debit: amount, credit: 0, description: `Eliminate intercompany payable` },
-            { groupAccountId: recGaId, debit: 0, credit: amount, description: `Eliminate intercompany receivable` },
-          ];
-          await createUnlessStanding(created, groupId, { adjustmentType: 'interco_balance', description: `Auto-elimination: intercompany ${txType} balance - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) });
-        }
-      }
-    }
-
-    log.info('Auto-generated elimination adjustments', { groupId, count: created.length }, 'accounting');
-    return created;
-  } catch (err) {
-    log.error('Failed to auto-generate eliminations', { groupId, error: err }, 'accounting');
     throw err;
   }
 }

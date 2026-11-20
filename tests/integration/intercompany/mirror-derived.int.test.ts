@@ -179,15 +179,17 @@ describe('the period and the value checks are the function\'s own', () => {
     expect(await derived()).toHaveLength(0);
   });
 
-  it('a row bound (by a forgery of the display columns) to a receiver journal that does not carry the figures is not eliminated', async () => {
+  it('a row bound (by a forgery of the display columns) to a receiver journal that does not carry the figures: the bill\'s own journal is used, never the forged one', async () => {
     const m = await accepted();
     await approveBill(m.bill);
-    expect(await derived()).toHaveLength(1);
+    const before = await derived();
+    expect(before).toHaveLength(1);
     // standing chain, same year, but no input VAT leg: the receiver's expense is 1000, its payable 1150, its VAT 0
     const bad = await posted(co.B, [[await acct(co.B, "account_type = 'expense'"), 1000, 0], [await acct(co.B, "account_subtype = 'payable'"), 0, 1000]]);
     await withoutTrigger(pool, 'intercompany_transactions', 'trg_intercompany_transaction_parties_immutable', (q) => q.query(
       'UPDATE intercompany_transactions SET first_target_journal_entry_id = $2 WHERE group_id = $1', [co.G, bad]));
-    expect(await derived()).toHaveLength(0);
+    // the forged first journal fails the value check, so the receiver's journal is found from the accepted message's bill: the same figure as before
+    expect(await derived()).toEqual(before);
   });
 
   it('a row whose sender journal does not carry the invoice\'s figures is not eliminated', async () => {

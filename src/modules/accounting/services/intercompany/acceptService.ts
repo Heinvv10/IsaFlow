@@ -17,7 +17,7 @@ import {
 } from './acceptContext';
 import { copySenderPdf, createDraftBill, createDraftSupplierCreditNote, discardUploaded } from './acceptDocuments';
 import { ConnectionRefusal } from './connectionTypes';
-import { loadInboxRow, messageSourceChanged, toInboxItem } from './inboxRead';
+import { loadInboxRow, messageSourceChanged, messageSourceOut, toInboxItem } from './inboxRead';
 import { orderLinkDocs } from './linkOrder';
 import type { AcceptInput, AcceptResult, InboxDetail, InboxLine } from './inboxTypes';
 import { parseMirrorPayload, type MirrorPayload } from './mirrorPayload';
@@ -29,7 +29,9 @@ type Row = Record<string, unknown>;
 export async function previewAccept(companyId: string, messageId: string): Promise<InboxDetail> {
   const row = await loadInboxRow(companyId, messageId);
   if (!row) throw new ConnectionRefusal(404, 'Message not found');
-  const item = { ...toInboxItem(row), sourceChanged: (await messageSourceChanged(messageId)) === true && row.source_cancelled_at == null };
+  const base = toInboxItem(row);
+  const sourceCancelled = base.sourceCancelled || (await messageSourceOut(messageId)) === true;
+  const item = { ...base, sourceCancelled, sourceChanged: (await messageSourceChanged(messageId)) === true && !sourceCancelled };
   const parsed = parseMirrorPayload(row.payload, item.kind, String(row.from_company_id));
   const side = await loadAcceptSide(companyId, String(row.connection_id));
   const accounts = await accountOptions(companyId);
@@ -125,7 +127,10 @@ export async function acceptMessage(
       const duplicate = parsed.ok && side ? await findDuplicate(companyId, side, parsed.payload, fromCompanyId) : null;
       // An automatic accept also needs the sender's document to be what the message carried (a person sees the warning and decides).
       const sourceChanged = opts.auto === true && (await messageSourceChanged(messageId)) === true;
-      const blockers = acceptBlockers({ ...toInboxItem(row), sourceChanged }, parsed.ok ? parsed.payload : null, side, duplicate, opts.auto === true);
+      // Anyone's accept: the sender's document must still be in its books (the ledger's word, not only the withdraw hook's stamp).
+      const base = toInboxItem(row);
+      const sourceCancelled = base.sourceCancelled || (await messageSourceOut(messageId)) === true;
+      const blockers = acceptBlockers({ ...base, sourceCancelled, sourceChanged }, parsed.ok ? parsed.payload : null, side, duplicate, opts.auto === true);
       if (blockers.length > 0 || !parsed.ok || !side) throw new ConnectionRefusal(409, blockers[0] ?? 'This message cannot be accepted.', true);
       const payload = parsed.payload;
       if (side.kind === 'group') {

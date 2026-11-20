@@ -194,6 +194,12 @@ These supersede the Data model above wherever they differ (migrations 1000 and 1
 
 DAG: P1 → {P2, P3} → P4 → {P5, P7}; P2 → P6.
 
+**REVISED 2026-11-20 (P2 build, after six review rounds):** the sender never writes a document message (the database builds it from the approved
+document, `intercompany_send_for_source`); auto-accept creates DRAFTS only (Hein); and the consolidation eliminations of mirrored documents are
+DERIVED from the two ledgers at read time (`intercompany_mirror_eliminations`, as at the period end, keyed on the later of the two dates, cut-off by
+the receiver's financial year, on the journals' own accounts), never stored, so no hook or lock stands between a ledger and a figure. P2 eliminates
+revenue / expense only; the intercompany receivable / payable balances stay with P4 / P5.
+
 ## Validation gates (per PR, evidence required before queueing)
 
 - `bun run ci` green; GitHub both required checks green on the PR head.

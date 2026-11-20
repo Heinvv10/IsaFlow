@@ -81,7 +81,8 @@ ALTER TABLE intercompany_connection_sides ADD COLUMN IF NOT EXISTS auto_accept_s
 
 -- One standing (draft or posted) elimination per intercompany row, enforced by a partial unique index. THIS MIGRATION DOES NOT CHANGE EXISTING
 -- CONSOLIDATION DATA: if duplicates already exist the index is skipped (a NOTICE with their number), and the generator's per-row skip still
--- stops new ones in all but a race. Clean the duplicates by hand and re-run the CREATE INDEX below to enforce it.
+-- stops new ones (two runs for one group are serialised by an advisory lock, eliminationGenerator.ts). Clean the duplicates by hand and
+-- re-run the CREATE INDEX below to enforce it.
 DO $$
 DECLARE
   v_dups integer;

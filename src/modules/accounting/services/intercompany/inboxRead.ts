@@ -99,3 +99,10 @@ export async function messageSourceChanged(messageId: string): Promise<boolean |
   const rows = (await sql`SELECT public.intercompany_message_source_changed(${messageId}::UUID) AS changed`) as Row[];
   return rows[0]?.changed == null ? null : rows[0].changed === true;
 }
+
+/** Whether the sender's document of a message is out of its books (no longer approved, or its journal reversed), by the ledger: a withdraw hook
+ *  that timed out leaves the message pending, so accept asks the ledger itself. Null: not this company's message. */
+export async function messageSourceOut(messageId: string): Promise<boolean | null> {
+  const rows = (await sql`SELECT public.intercompany_message_source_out(${messageId}::UUID) AS out`) as Row[];
+  return rows[0]?.out == null ? null : rows[0].out === true;
+}
