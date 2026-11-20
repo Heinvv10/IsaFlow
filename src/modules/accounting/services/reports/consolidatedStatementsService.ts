@@ -113,7 +113,14 @@ export async function getConsolidatedIncomeStatement(
     }
 
     for (const elim of await getPostedEliminations(groupId, periodStart, periodEnd)) {
-      const entry = lineMap.get(elim.groupAccountId);
+      let entry = lineMap.get(elim.groupAccountId);
+      // An elimination on a group account no member booked anything to in this period (a sale and its purchase fall in different months) still
+      // counts: it gets its own line, or the other side would be eliminated alone and group profit would move. A non-P&L account has no line here.
+      if (!entry && (elim.groupAccountType === 'revenue' || elim.groupAccountType === 'expense')) {
+        const category = elim.groupAccountType === 'revenue' ? 'revenue' : canonicalSubtype(elim.groupAccountSubtype ?? '') === 'cost_of_sales' ? 'costOfSales' : 'operatingExpenses';
+        entry = { groupAccountId: elim.groupAccountId, accountCode: elim.groupAccountCode, accountName: elim.groupAccountName, entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category };
+        lineMap.set(elim.groupAccountId, entry);
+      }
       // The elimination must land in the SAME direction the member amounts
       // were accumulated in, a few lines above:
       //     amount = type === 'revenue' ? credit - debit : debit - credit

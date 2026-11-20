@@ -41,7 +41,7 @@ import {
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
-  getPostedEliminations,
+  getPostedEliminationsSplit,
   type EntityBalance,
   type MappingEntry,
 } from './consolidatedTrialBalanceService';
@@ -139,10 +139,7 @@ async function applyEliminations(
   accountMap: Map<string, ConsolidatedTrialBalanceRow>,
   groupId: string, periodStart: string, periodEnd: string,
 ): Promise<void> {
-  const [cumulative, inRange] = await Promise.all([
-    getPostedEliminations(groupId, INCEPTION, periodEnd),
-    getPostedEliminations(groupId, periodStart, periodEnd),
-  ]);
+  const { cumulative, inRange } = await getPostedEliminationsSplit(groupId, periodStart, periodEnd, INCEPTION);
   const applicable = [
     ...cumulative.filter(e => BALANCE_SHEET_TYPES.has(e.groupAccountType)),
     ...inRange.filter(e => !BALANCE_SHEET_TYPES.has(e.groupAccountType)),

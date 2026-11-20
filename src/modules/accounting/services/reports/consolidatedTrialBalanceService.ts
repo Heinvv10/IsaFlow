@@ -117,43 +117,67 @@ export interface EliminationLineWithAccount {
   groupAccountId: string; groupAccountCode: string; groupAccountName: string;
   /** Group account type — decides whether an elimination accumulates or resets each year. */
   groupAccountType: string;
+  /** Group account subtype ('cost_of_sales' ...): where an elimination on an account with no member activity lands in the income statement. */
+  groupAccountSubtype?: string;
   debit: number; credit: number;
 }
 
-export async function getPostedEliminations(
-  groupId: string, periodStart: string, periodEnd: string
-): Promise<EliminationLineWithAccount[]> {
+/** The stored adjustments, but never one of a MIRRORED row: those eliminations are derived from the ledgers (mirrorEliminations.ts), so a stored one (an older release's generator) would count twice. */
+async function storedEliminations(groupId: string, periodStart: string, periodEnd: string): Promise<EliminationLineWithAccount[]> {
   const adjRows = (await sql`
     SELECT ca.lines FROM consolidation_adjustments ca
     WHERE ca.group_id = ${groupId}::UUID AND ca.status = 'posted'
       AND ca.period_start >= ${periodStart} AND ca.period_end <= ${periodEnd}
+      AND (ca.source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))
   `) as Row[];
-
+  if (adjRows.length === 0) return [];
+  const accounts = new Map((await sql`
+    SELECT id, account_code, account_name, account_type, account_subtype FROM group_accounts WHERE group_id = ${groupId}::UUID
+  ` as Row[]).map((a) => [String(a.id), a]));
   const allLines: EliminationLineWithAccount[] = [];
   for (const adj of adjRows) {
     const lines = typeof adj.lines === 'string' ? JSON.parse(adj.lines) : adj.lines;
     for (const line of lines) {
-      const gaRows = (await sql`
-        SELECT id, account_code, account_name, account_type FROM group_accounts WHERE id = ${line.groupAccountId}::UUID
-      `) as Row[];
-      if (gaRows.length > 0) {
+      const ga = accounts.get(String(line.groupAccountId));
+      if (ga) {
         allLines.push({
-          groupAccountId: String(gaRows[0]!.id), groupAccountCode: String(gaRows[0]!.account_code),
-          groupAccountName: String(gaRows[0]!.account_name),
-          groupAccountType: String(gaRows[0]!.account_type ?? ''),
+          groupAccountId: String(ga.id), groupAccountCode: String(ga.account_code), groupAccountName: String(ga.account_name),
+          groupAccountType: String(ga.account_type ?? ''), groupAccountSubtype: String(ga.account_subtype ?? ''),
           debit: Number(line.debit || 0), credit: Number(line.credit || 0),
         });
       }
     }
   }
-  // The mirrored documents' eliminations are not stored: derived from the two ledgers as at periodEnd (mirrorEliminations.ts).
-  for (const m of await getMirroredEliminations(groupId, periodStart, periodEnd)) {
-    for (const l of m.lines) {
-      allLines.push({ groupAccountId: l.groupAccountId, groupAccountCode: l.groupAccountCode, groupAccountName: l.groupAccountName,
-                      groupAccountType: l.groupAccountType, debit: l.debit, credit: l.credit });
-    }
-  }
   return allLines;
+}
+
+const asLines = (m: Awaited<ReturnType<typeof getMirroredEliminations>>): EliminationLineWithAccount[] => m.flatMap((e) => e.lines.map((l) => ({
+  groupAccountId: l.groupAccountId, groupAccountCode: l.groupAccountCode, groupAccountName: l.groupAccountName,
+  groupAccountType: l.groupAccountType, groupAccountSubtype: l.groupAccountSubtype, debit: l.debit, credit: l.credit,
+})));
+
+/** Posted manual adjustments plus the derived (mirrored) eliminations, both for the period. */
+export async function getPostedEliminations(
+  groupId: string, periodStart: string, periodEnd: string
+): Promise<EliminationLineWithAccount[]> {
+  return [...await storedEliminations(groupId, periodStart, periodEnd), ...asLines(await getMirroredEliminations(groupId, periodStart, periodEnd))];
+}
+
+/**
+ * The cumulative (inception to the end) and the in-period eliminations a statement needs, the derived function called ONCE: the in-period
+ * derived ones are those whose period key is on or after the start (the function judges everything as at the end either way).
+ */
+export async function getPostedEliminationsSplit(
+  groupId: string, periodStart: string, periodEnd: string, inception: string,
+): Promise<{ cumulative: EliminationLineWithAccount[]; inRange: EliminationLineWithAccount[] }> {
+  const [storedAll, storedRange, mirrored] = await Promise.all([
+    storedEliminations(groupId, inception, periodEnd), storedEliminations(groupId, periodStart, periodEnd),
+    getMirroredEliminations(groupId, inception, periodEnd),
+  ]);
+  return {
+    cumulative: [...storedAll, ...asLines(mirrored)],
+    inRange: [...storedRange, ...asLines(mirrored.filter((e) => e.keyDate >= periodStart))],
+  };
 }
 
 // ── Consolidated Trial Balance ─────────────────────────────────────────────────
