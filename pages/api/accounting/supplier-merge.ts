@@ -132,11 +132,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):
       // the Sage import follows a merged-away supplier to it, so a re-sync's bills land on the
-      // survivor, not back on the source (#1655).
+      // survivor, not back on the source (#1655). is_active is left as it was, as in duplicates-merge and a
+      // plain soft delete: deleted_at hides the row, and restoreRow undoes only what this changed (the
+      // suffix, deleted_at, merged_into_id), so a supplier that was inactive stays inactive on restore.
       await tx`
         UPDATE suppliers
-        SET is_active = false,
-            name = name || ' [MERGED]',
+        SET name = name || ' [MERGED]',
             deleted_at = NOW(),
             merged_into_id = ${target_id}
         WHERE id = ${source_id}

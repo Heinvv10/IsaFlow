@@ -151,9 +151,12 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     const survivor = await ins('Elm Supplies Pty Ltd');
     const gone = await ins('Elm Supplies');
     await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId));
-    await syncSuppliers([party(undefined, 'Elm Supplies')]);
+    expect((await syncSuppliers([party(undefined, 'Elm Supplies')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
     const { rows } = await pool.query('SELECT external_ref FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0].external_ref).toBeNull();
+    // Nothing was stamped and no live alias of the name was created.
+    expect(await liveNamed('Elm Supplies')).toEqual([]);
+    expect(await liveNamed('Elm Supplies Pty Ltd')).toEqual([{ id: survivor, external_ref: null }]);
   });
 
   it('restoring a merged-away supplier clears its survivor link', async () => {
@@ -168,14 +171,24 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(rows[0]).toEqual({ deleted_at: null, merged_into_id: null });
   });
 
-  it('restoring a supplier merged by the route brings it back active and without the [MERGED] suffix (#1699 review)', async () => {
-    const survivor = await insPlain('Rush Co Survivor');
-    const gone = await insPlain('Rush Co');
-    // As the supplier-merge route leaves it.
-    await pool.query("UPDATE suppliers SET is_active = false, name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1",
-      [gone, survivor]);
+  it.each([[true], [false]])('restoring a supplier merged by duplicates-merge (active: %s) leaves is_active as it was', async (active) => {
+    const survivor = await insPlain(`Dup Restore Survivor ${active}`);
+    const gone = await insPlain(`Dup Restore ${active}`);
+    await pool.query('UPDATE suppliers SET is_active = $2 WHERE id = $1', [gone, active]);
+    await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, gone, userId));
     expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
     const { rows } = await pool.query('SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
-    expect(rows[0]).toEqual({ name: 'Rush Co', is_active: true, deleted_at: null, merged_into_id: null });
+    expect(rows[0]).toEqual({ name: `Dup Restore ${active}`, is_active: active, deleted_at: null, merged_into_id: null });
+  });
+
+  it.each([[true], [false]])('restoring a supplier merged by the route (active: %s) strips the suffix and leaves is_active as it was', async (active) => {
+    const survivor = await insPlain(`Rush Co Survivor ${active}`);
+    const gone = await insPlain(`Rush Co ${active}`);
+    await pool.query('UPDATE suppliers SET is_active = $2 WHERE id = $1', [gone, active]);
+    // As the supplier-merge route leaves it (the route's own SQL is exercised in supplier-merge-route-drc-flag).
+    await pool.query("UPDATE suppliers SET name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1", [gone, survivor]);
+    expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
+    const { rows } = await pool.query('SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
+    expect(rows[0]).toEqual({ name: `Rush Co ${active}`, is_active: active, deleted_at: null, merged_into_id: null });
   });
 });

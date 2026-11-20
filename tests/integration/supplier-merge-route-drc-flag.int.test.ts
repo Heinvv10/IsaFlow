@@ -22,6 +22,7 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { plantExternal } from './intercompany/intercompany.plant';
 import { asOwner } from './intercompany/intercompany.session';
 import { SIDE_GUARD_REFUSAL } from '@/modules/accounting/services/core/supplierMergeOpenWork';
+import { restoreRow } from '@/modules/accounting/services/core/softDeleteRowOps';
 import { dropFixture, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -212,5 +213,18 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
       await sql`DELETE FROM company_users WHERE company_id = ${fx.companyId}::UUID AND user_id = ${fx.userId}::TEXT`;
       await sql`DELETE FROM companies WHERE id = ${partner}::UUID`;
     }
+  });
+
+  it.each([[true], [false]])('restoring a supplier the route merged (active: %s) leaves is_active as it was and strips the suffix (#1699 review)', async (active) => {
+    const source = await seedSupplier(fx, `R Restore ${active}`);
+    const target = await seedSupplier(fx, `R Restore Target ${active}`);
+    const name = ((await sql`SELECT name FROM suppliers WHERE id = ${source}::UUID`) as { name: string }[])[0]!.name;
+    await sql`UPDATE suppliers SET is_active = ${active} WHERE id = ${source}::UUID`;
+    expect((await merge(source, target)).status).toBe(200);
+    const merged = (await sql`SELECT name, is_active, deleted_at IS NOT NULL AS deleted FROM suppliers WHERE id = ${source}::UUID`) as Record<string, unknown>[];
+    expect(merged[0]).toEqual({ name: `${name} [MERGED]`, is_active: active, deleted: true });
+    expect(await restoreRow('supplier', source, fx.companyId)).toBe(true);
+    const back = (await sql`SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = ${source}::UUID`) as Record<string, unknown>[];
+    expect(back[0]).toEqual({ name, is_active: active, deleted_at: null, merged_into_id: null });
   });
 });

@@ -100,7 +100,11 @@ describe('merged-away suppliers of one name (#1655)', () => {
       expect((await second).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
       // Without an observed block the claim never raced, and the rest of this test would prove nothing.
       expect(blocked).toBe(true);
-    } finally { holder.release(); }
+    } finally {
+      // On the error path the holder may still be inside its transaction: roll it back before it returns to the pool.
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+    }
     expect((await byRef('991')).map((r) => r.id)).toEqual([live]);
     const own = await byRef('992');
     expect(own).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
