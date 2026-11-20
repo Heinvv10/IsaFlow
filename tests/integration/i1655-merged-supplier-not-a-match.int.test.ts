@@ -74,7 +74,10 @@ const data = (s: { body?: Record<string, unknown> }) => (s.body?.data ?? s.body)
 
 describe('doc-auto-invoice', () => {
   it('matches a live supplier by the vendor name', async () => {
-    expect(data(await call(docAutoInvoice, await seedDoc('Zeta Holdings'))).matched).not.toBe(false);
+    const res = await call(docAutoInvoice, await seedDoc('Zeta Holdings'));
+    expect(res.status).toBe(200);
+    expect(data(res).matched).toBe(true);
+    expect(data(res).supplierMatch).toMatchObject({ supplierId: live });
   });
   it('does not match a merged-away supplier', async () => {
     expect(data(await call(docAutoInvoice, await seedDoc('Qux Traders'))).matched).toBe(false);

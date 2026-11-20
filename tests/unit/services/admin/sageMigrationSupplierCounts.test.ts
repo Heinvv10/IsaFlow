@@ -11,8 +11,9 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 const upsertSupplier = vi.fn();
+const upsertCustomer = vi.fn();
 vi.mock('@/modules/admin/services/sageMigrationCommitService', () => ({
-  commitARInvoice: vi.fn(), commitAPInvoice: vi.fn(), upsertCustomer: vi.fn(),
+  commitARInvoice: vi.fn(), commitAPInvoice: vi.fn(), upsertCustomer: (...a: unknown[]) => upsertCustomer(...a),
   upsertSupplier: (...a: unknown[]) => upsertSupplier(...a),
 }));
 const findSageSupplier = vi.fn();
@@ -36,6 +37,16 @@ describe('commitSageMigration supplier counts', () => {
     });
     expect(out.suppliers).toEqual({ created: 1, skipped: 1, failed: [] });
     expect(findSageSupplier).not.toHaveBeenCalled();
+  });
+
+  it('customers are counted from what upsertCustomer reports, not from a separate lookup', async () => {
+    upsertCustomer
+      .mockResolvedValueOnce({ id: 'c1', created: false })
+      .mockResolvedValueOnce({ id: 'c2', created: true });
+    const out = await commitSageMigration({
+      companyId: 'co', userId: 'u', pulled: { customers: { records: [{ name: 'A' }, { name: 'B' }] as never } },
+    });
+    expect(out.customers).toEqual({ created: 1, skipped: 1, failed: [] });
   });
 
   it('a failed upsert is recorded as failed, not counted', async () => {

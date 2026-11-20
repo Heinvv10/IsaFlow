@@ -64,10 +64,8 @@ describe('merged-away suppliers of one name (#1655)', () => {
   it('a merged-away supplier stored with a trailing space still matches by its name', async () => {
     const survivor = await insPlain('Fir Co Survivor');
     const gone = await insPlain('Fir Co ');
-    // As the supplier-merge route does it: 'Fir Co ' becomes 'Fir Co  [MERGED]'.
-    await pool.query(
-      "UPDATE suppliers SET is_active = false, name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1",
-      [gone, survivor]);
+    // As a merge leaves it: the name is untouched, the row is told by merged_into_id.
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [gone, survivor]);
     expect((await syncSuppliers([party(949, 'Fir Co')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
     expect(await byRef('949')).toEqual([{ id: gone, deleted: true, merged_into_id: survivor }]);
   });
@@ -211,5 +209,21 @@ describe('merged-away suppliers of one name (#1655)', () => {
     await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [gone, survivor]);
     expect((await syncSuppliers([party(331, 'Hazel Co')])).suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
     expect(await byRef('331')).toEqual([{ id: gone, deleted: true, merged_into_id: survivor }]);
+  });
+
+  it('a Sage party cannot claim a live survivor of the same name that another Sage party was merged into', async () => {
+    // Sage 1101 'Hex Co' was imported, then merged into a hand-keyed, unstamped survivor of the same name.
+    const survivor = await insPlain('Hex Co');
+    const merged101 = await insPlain('Hex Co', 'sage', '1101');
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [merged101, survivor]);
+    // Sage 1102, another supplier of that name, must not take the survivor (both parties' bills would land on one row).
+    expect((await syncSuppliers([party(1102, 'Hex Co')])).suppliers).toEqual({ created: 1, skipped: 0, failed: [] });
+    const own = await byRef('1102');
+    expect(own).toEqual([{ id: expect.any(String), deleted: false, merged_into_id: null }]);
+    expect(own[0].id).not.toBe(survivor);
+    expect((await pool.query('SELECT external_ref FROM suppliers WHERE id = $1', [survivor])).rows[0].external_ref).toBeNull();
+    // 1101 still follows its merge to the survivor by its own id, and re-syncing both creates nothing.
+    expect((await syncSuppliers([party(1101, 'Hex Co'), party(1102, 'Hex Co')])).suppliers).toEqual({ created: 0, skipped: 2, failed: [] });
+    expect((await byRef('1101'))[0].merged_into_id).toBe(survivor);
   });
 });

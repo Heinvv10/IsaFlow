@@ -128,7 +128,7 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     const nameOf = async () => ((await sql`SELECT name FROM suppliers WHERE id = ${source}::UUID`) as { name: string }[])[0]!.name;
     const name = await nameOf();
     expect((await merge(source, target)).status).toBe(200);
-    expect(await nameOf()).toBe(`${name} [MERGED]`);
+    expect(await nameOf()).toBe(name);
     const match = await matchSageSupplier(fx.companyId, { name, sageId: 'SMR-K1' });
     expect(match).toMatchObject({ id: target, viaMerge: true, byRef: false, mergedAwayId: source });
   });
@@ -215,16 +215,27 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     }
   });
 
-  it.each([[true], [false]])('restoring a supplier the route merged (active: %s) leaves is_active as it was and strips the suffix (#1699 review)', async (active) => {
+  it.each([[true], [false]])('restoring a supplier the route merged (active: %s) leaves is_active and the name as they were (#1699 review)', async (active) => {
     const source = await seedSupplier(fx, `R Restore ${active}`);
     const target = await seedSupplier(fx, `R Restore Target ${active}`);
     const name = ((await sql`SELECT name FROM suppliers WHERE id = ${source}::UUID`) as { name: string }[])[0]!.name;
     await sql`UPDATE suppliers SET is_active = ${active} WHERE id = ${source}::UUID`;
     expect((await merge(source, target)).status).toBe(200);
     const merged = (await sql`SELECT name, is_active, deleted_at IS NOT NULL AS deleted FROM suppliers WHERE id = ${source}::UUID`) as Record<string, unknown>[];
-    expect(merged[0]).toEqual({ name: `${name} [MERGED]`, is_active: active, deleted: true });
+    expect(merged[0]).toEqual({ name, is_active: active, deleted: true });
     expect(await restoreRow('supplier', source, fx.companyId)).toBe(true);
     const back = (await sql`SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = ${source}::UUID`) as Record<string, unknown>[];
     expect(back[0]).toEqual({ name, is_active: active, deleted_at: null, merged_into_id: null });
+  });
+
+  it('a 255-character supplier name merges through the route and restores unchanged (no rename can overflow the column)', async () => {
+    const long = 'M'.repeat(255);
+    const source = await seedSupplier(fx, 'R Long Source');
+    const target = await seedSupplier(fx, 'R Long Target');
+    await sql`UPDATE suppliers SET name = ${long} WHERE id = ${source}::UUID`;
+    expect((await merge(source, target)).status).toBe(200);
+    expect(await restoreRow('supplier', source, fx.companyId)).toBe(true);
+    const back = (await sql`SELECT name, deleted_at FROM suppliers WHERE id = ${source}::UUID`) as Record<string, unknown>[];
+    expect(back[0]).toEqual({ name: long, deleted_at: null });
   });
 });

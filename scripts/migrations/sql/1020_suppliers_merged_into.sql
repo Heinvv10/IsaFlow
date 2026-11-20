@@ -12,13 +12,19 @@
 -- FOREIGN KEY (merged_into_id, company_id) -> suppliers (id, company_id): the survivor is a supplier of
 -- the SAME company (suppliers_id_company_uq). ON DELETE SET NULL (merged_into_id): a survivor that is
 -- hard-deleted (softDeleteService purge) clears the link and leaves company_id alone; PG15+ (production
--- is 15). Added NOT VALID, then validated: the column is new and NULL on every row, so the validation
--- scan finds nothing to refuse.
+-- is 15). Added NOT VALID here; 1020b validates it and builds the index (see below).
 --
--- LOCKS. ADD COLUMN (nullable, no default) is a catalog change: ACCESS EXCLUSIVE on suppliers for a
--- moment, no rewrite. ADD CONSTRAINT ... NOT VALID takes SHARE ROW EXCLUSIVE; VALIDATE takes SHARE
--- UPDATE EXCLUSIVE and scans. apply-migrations.ts runs the file in one transaction; if lock_timeout trips
--- the file rolls back and nothing is recorded: rerun it. Every step is skipped when already done.
+-- TWO FILES (#1699 review). The runner applies each file in its own transaction (scripts/lib/migrationFiles.applyOne:
+-- BEGIN, the file, its schema_migrations row, COMMIT), so the locks of one end at its COMMIT. This file holds ACCESS
+-- EXCLUSIVE on suppliers only for the catalog change (ADD COLUMN, nullable, no default, no rewrite) and SHARE ROW EXCLUSIVE
+-- for ADD CONSTRAINT ... NOT VALID (no scan: it checks new writes only). 1020b takes the scans: VALIDATE CONSTRAINT
+-- (SHARE UPDATE EXCLUSIVE, writes continue) and CREATE INDEX (SHARE: blocks writes to suppliers for the build; the
+-- column is NULL on every row and the index is partial, so it holds nothing; CONCURRENTLY cannot run inside the
+-- runner's transaction). Code deployed between the two files is safe: nothing reads merged_into_id before the
+-- constraint is validated, and an unvalidated FK is enforced for new rows already.
+--
+-- lock_timeout: a held lock on suppliers fails the file after 5 s and nothing is recorded: rerun it. Every step is
+-- skipped when already done.
 --
 -- Rollback: ALTER TABLE suppliers DROP CONSTRAINT IF EXISTS suppliers_merged_into_fkey;
 --           DROP INDEX IF EXISTS idx_suppliers_merged_into; ALTER TABLE suppliers DROP COLUMN IF EXISTS merged_into_id;
@@ -40,9 +46,3 @@ BEGIN
       ON DELETE SET NULL (merged_into_id) NOT VALID;
   END IF;
 END $$;
-
-ALTER TABLE public.suppliers VALIDATE CONSTRAINT suppliers_merged_into_fkey;
-
--- The ON DELETE SET NULL lookup a survivor's delete makes.
-CREATE INDEX IF NOT EXISTS idx_suppliers_merged_into ON public.suppliers (merged_into_id)
-  WHERE merged_into_id IS NOT NULL;

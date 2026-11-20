@@ -134,4 +134,19 @@ describe('expectations and expected-invoice alerts (#1699 review)', () => {
     expect(await alertRow(history)).toEqual({ supplier_id: gone, expectation_id: null });
     expect(await alertRow(open)).toEqual({ supplier_id: survivor, expectation_id: own });
   });
+
+  it('a resolved source alert never erases the chase a chased survivor alert really sent; the resolution is carried', async () => {
+    const survivor = await insPlain('Keep Chase Survivor');
+    const gone = await insPlain('Keep Chase Gone', 'sage', '985');
+    const kept = await alert(survivor, '2026-06-05', 'chased');
+    await pool.query("UPDATE expected_invoice_alerts SET chased_at = '2026-06-10T08:00:00Z', chase_to_address = 'ap@survivor.test', chase_method = 'email' WHERE id = $1", [kept]);
+    const history = await alert(gone, '2026-06-05', 'resolved');   // never chased
+    await bill('AP-ALERT-2', 'Keep Chase Gone', 985);
+    const billId = String((await pool.query('SELECT id FROM supplier_invoices WHERE company_id = $1 AND invoice_number = $2', [companyId, `AP-ALERT-2-${w.tag}`])).rows[0].id);
+    await pool.query("UPDATE expected_invoice_alerts SET resolved_invoice_id = $2, resolved_at = '2026-06-11T08:00:00Z' WHERE id = $1", [history, billId]);
+    await merge(survivor, gone);
+    const row = await alertFull(kept);
+    expect(row).toMatchObject({ supplier_id: survivor, status: 'resolved', resolved_invoice_id: billId, chase_to_address: 'ap@survivor.test' });
+    expect(new Date(row.chased_at).toISOString()).toBe('2026-06-10T08:00:00.000Z');
+  });
 });

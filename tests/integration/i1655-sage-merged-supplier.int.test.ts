@@ -181,28 +181,29 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     expect(rows[0]).toEqual({ name: `Dup Restore ${active}`, is_active: active, deleted_at: null, merged_into_id: null });
   });
 
-  it.each([[true], [false]])('restoring a supplier merged by the route (active: %s) strips the suffix and leaves is_active as it was', async (active) => {
+  it.each([[true], [false]])('restoring a supplier merged by a route-style merge (active: %s) leaves is_active as it was', async (active) => {
     const survivor = await insPlain(`Rush Co Survivor ${active}`);
     const gone = await insPlain(`Rush Co ${active}`);
     await pool.query('UPDATE suppliers SET is_active = $2 WHERE id = $1', [gone, active]);
-    // As the supplier-merge route leaves it (the route's own SQL is exercised in supplier-merge-route-drc-flag).
-    await pool.query("UPDATE suppliers SET name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1", [gone, survivor]);
+    // As the supplier-merge route leaves it (its own SQL is exercised in supplier-merge-route-drc-flag): no rename.
+    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [gone, survivor]);
     expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
     const { rows } = await pool.query('SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0]).toEqual({ name: `Rush Co ${active}`, is_active: active, deleted_at: null, merged_into_id: null });
   });
 
-  it('restore strips only the one exact suffix the merge added: a supplier really named "Foo [MERGED]" keeps it, and a lowercase marker is never stripped', async () => {
+  it('no merge renames the supplier, so a supplier named "Foo [MERGED]" is untouched by a merge and its restore, and a 255-character name merges', async () => {
     const survivor = await insPlain('Suffix Survivor');
     const named = await insPlain('Foo [MERGED]');
+    const long = await insPlain('L'.repeat(255));
     await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, named, userId));
-    expect((await pool.query('SELECT name FROM suppliers WHERE id = $1', [named])).rows[0].name).toBe('Foo [MERGED] [MERGED]');
+    await inRequestTx(() => mergeEntities(companyId, 'supplier', survivor, long, userId));
+    const names = async () => (await pool.query('SELECT name FROM suppliers WHERE id = ANY($1) ORDER BY name', [[named, long]])).rows.map((r) => r.name);
+    expect(await names()).toEqual(['Foo [MERGED]', 'L'.repeat(255)]);
     expect(await inRequestTx(() => restoreRow('supplier', named, companyId))).toBe(true);
-    expect((await pool.query('SELECT name FROM suppliers WHERE id = $1', [named])).rows[0].name).toBe('Foo [MERGED]');
-    // A merged-away row whose name ends in a different-case marker (not what a merge writes) is left as it is.
-    const lower = await insPlain('Bar [merged]');
-    await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [lower, survivor]);
-    await inRequestTx(() => restoreRow('supplier', lower, companyId));
-    expect((await pool.query('SELECT name FROM suppliers WHERE id = $1', [lower])).rows[0].name).toBe('Bar [merged]');
+    expect(await inRequestTx(() => restoreRow('supplier', long, companyId))).toBe(true);
+    expect(await names()).toEqual(['Foo [MERGED]', 'L'.repeat(255)]);
+    const { rows } = await pool.query('SELECT deleted_at, merged_into_id FROM suppliers WHERE id = ANY($1)', [[named, long]]);
+    expect(rows).toEqual([{ deleted_at: null, merged_into_id: null }, { deleted_at: null, merged_into_id: null }]);
   });
 });

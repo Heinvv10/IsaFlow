@@ -14,14 +14,14 @@
  *    live (customers: Hein's K-061 decision 4).
  *
  * Merged-away rows, by name only (a Sage-id hit always follows its merge):
- * - A merged-away row also matches by its name without the `[MERGED]` suffix the supplier-merge route adds.
  * - The Sage id is stamped on the merged-away row, never on the survivor (claimMatchedSupplier), so the
  *   survivor still matches its own Sage party and a later party of that name finds the row taken.
  * - When the pull carries a Sage id, a merged-away row holding any other external ref is not matched: it
  *   could never be stamped, so it would match every later party of that name.
  * - Unstamped same-name rows must lead to ONE survivor, else the party matches none and gets its own live row.
  *   Several rows to the same survivor are no ambiguity; each distinct Sage party takes the next unstamped one.
- * - The hit is dropped when another alias of that name reaching the same survivor carries a different Sage id.
+ * - The hit is dropped when another same-name merged-away row reaching the same supplier (a survivor matched by name,
+ *   live or through an unstamped alias) carries a different Sage id: that supplier already holds another party's bills.
  * - The hit is dropped when its chain passes a row (the survivor included) carrying a Sage id other than the
  *   pull's: that row belongs to another Sage party. A conflict row is kept whatever its chain passes, so the
  *   same-survivor check above still sees it.
@@ -60,14 +60,10 @@ export async function matchSageSupplier(
   companyId: string, party: { name: string; sageId?: number | string | null },
 ): Promise<SageSupplierMatch | null> {
   const ref = sageRef(party.sageId);
-  // The merge route appends ' [MERGED]' to the stored (untrimmed) name: strip it before trimming, so a
-  // row stored as 'Acme ' (now 'Acme  [MERGED]') still matches 'Acme'.
   const rows = (await sql`
     WITH RECURSIVE named AS (
       SELECT id, deleted_at, merged_into_id, created_at, external_system, external_ref,
-             LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name}))
-             OR (deleted_at IS NOT NULL AND UPPER(name) LIKE '% [MERGED]'
-                 AND LOWER(BTRIM(LEFT(name, LENGTH(name) - 9))) = LOWER(BTRIM(${party.name}))) AS name_hit
+             LOWER(BTRIM(name)) = LOWER(BTRIM(${party.name})) AS name_hit
       FROM suppliers
       WHERE company_id = ${companyId}::UUID
         AND (deleted_at IS NULL OR merged_into_id IS NOT NULL)
@@ -108,9 +104,10 @@ export async function matchSageSupplier(
   // Ranked first, a name-only merged hit means no Sage-id hit and no live hit exist: every row is a
   // name-only merged hit. They must all lead to one survivor, or the party matches none of them.
   if (viaMerge && !byRef && new Set(matches.map((r) => String(r.id))).size > 1) return null;
-  // Another Sage party already claimed a same-name alias of this survivor: the remaining unstamped alias
-  // could be either party, so it is not this one's (two Sage parties never share one survivor by name).
-  if (viaMerge && !byRef && conflicts.some((r) => String(r.id) === String(first.id))) return null;
+  // Another Sage party already has a same-name row that was merged into this supplier: the remaining name
+  // match (an unstamped alias, or the live survivor itself) could be either party's, so it is not this one's
+  // (two Sage parties never share one supplier by name). A Sage-id hit is never refused.
+  if (!byRef && conflicts.some((r) => String(r.id) === String(first.id))) return null;
   return { id: String(first.id), viaMerge, byRef, mergedAwayId: viaMerge ? String(first.hit_id) : null };
 }
 

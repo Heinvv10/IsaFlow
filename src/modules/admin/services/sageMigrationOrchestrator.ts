@@ -12,7 +12,6 @@ import { log } from '@/lib/logger';
 import { commitARInvoice, commitAPInvoice, upsertCustomer, upsertSupplier } from './sageMigrationCommitService';
 import type { Row, CommitPayload, CommitSummary } from './sageMigrationTypes';
 import { sageAccountSubtype } from './sageAccountSubtype';
-import { findSageCustomer } from './sagePartyMatch';
 import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -77,10 +76,8 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
   for (const c of pulled.customers?.records ?? []) {
     await sp(`cust_${i++}`, async () => {
       try {
-        // The same match upsertCustomer makes (sagePartyMatch), so "skipped" means "matched a live customer".
-        const existed = await findSageCustomer(companyId, c);
-        await upsertCustomer(companyId, c);
-        if (existed) summary.customers.skipped += 1; else summary.customers.created += 1;
+        const { created } = await upsertCustomer(companyId, c);
+        if (created) summary.customers.created += 1; else summary.customers.skipped += 1;
       } catch (err) {
         summary.customers.failed.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
         throw err;

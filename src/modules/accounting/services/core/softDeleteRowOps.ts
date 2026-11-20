@@ -89,14 +89,11 @@ export async function restoreRow(
       break;
     case 'supplier':
       rows = await sql`
-        -- Undoes only what a merge changed: deleted_at, merged_into_id and the exact ' [MERGED]' suffix that BOTH merge
-        -- paths (the supplier-merge route and duplicates-merge) append, so a merged-away row always carries it once,
-        -- and only a merged-away row (merged_into_id set) is stripped. The strip is case-sensitive and exact: a supplier
-        -- the user named 'Foo [MERGED]' comes back as that (it carries the suffix twice after a merge). is_active is
-        -- never touched: neither path changes it, so a supplier inactive before the merge stays inactive.
-        UPDATE suppliers SET deleted_at = NULL, merged_into_id = NULL,
-          name = CASE WHEN merged_into_id IS NOT NULL AND RIGHT(name, 9) = ' [MERGED]'
-                      THEN LEFT(name, LENGTH(name) - 9) ELSE name END
+        -- Undoes only what a merge changed: deleted_at and merged_into_id. No merge path renames the supplier or
+        -- touches is_active (a merged-away row is told by merged_into_id), so the name and is_active come back as
+        -- they were, and a supplier the user named 'Foo [MERGED]' is never touched. Rows from the old route, which
+        -- appended ' [MERGED]', were never deleted and carry no merged_into_id: they are not restored here.
+        UPDATE suppliers SET deleted_at = NULL, merged_into_id = NULL
         WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NOT NULL
         RETURNING id
       ` as { id: string }[];

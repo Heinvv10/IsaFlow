@@ -43,9 +43,10 @@ import { resolveSageCustomer, resolveSageSupplier, sageRef } from './sagePartyMa
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<string> {
+/** The customer row a Sage party is, and whether this call created it (false: it matched a live one). */
+export async function upsertCustomer(companyId: string, c: MappedCustomer): Promise<{ id: string; created: boolean }> {
   const existing = await resolveSageCustomer(companyId, c);
-  if (existing) return existing;
+  if (existing) return { id: existing, created: false };
   const ref = sageRef(c.sageId);
   const inserted = (await sql`
     INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, payment_terms, payment_terms_type, external_system, external_ref)
@@ -56,7 +57,7 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
       ${c.creditLimit ?? 0}, TRUE, NULL, NULL, ${ref ? 'sage' : null}, ${ref}
     ) RETURNING id
   `) as Row[];
-  return String(inserted[0]!.id);
+  return { id: String(inserted[0]!.id), created: true };
 }
 
 /** The supplier row a Sage party is, and whether this call created it (false: it matched an existing one). */

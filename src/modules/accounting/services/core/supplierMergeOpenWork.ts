@@ -107,7 +107,8 @@ export interface MergeActor { userId: string; via: string }
  * - suppliers.chase_opted_out: if the source is muted the survivor becomes muted (the safe default for outbound messages),
  *   with an audit row; a muted survivor stays muted. Never refused.
  * - Where the survivor already has an alert for the same date, the survivor's row stays and takes the MORE ADVANCED state of
- *   the two (resolved / dismissed > chased > pending), with its chase fields and resolving bill: a chased source alert must not
+ *   the two (resolved / dismissed > chased > pending) and the resolving bill, keeping its OWN chase facts and taking the
+ *   source's only where its own are empty: a chased source alert must not
  *   lose to a pending survivor one (the cron would chase again), and a resolved one (its bill now on the survivor) must not
  *   leave a pending survivor alert to be chased for an invoice that arrived. The source's open duplicate is then dropped; its
  *   resolved / dismissed one stays as history.
@@ -163,23 +164,28 @@ export async function moveExpectationsAndAlerts(
   }
 
   // Same-date clash: the survivor's alert takes the more advanced state, then (equal chased) the chase facts it lacks.
+  // The resolution (status, resolving bill) comes from the more advanced alert; the chase facts stay the survivor's where it
+  // has them, so a message the survivor really sent is never erased by a source that was never chased, and are filled from
+  // the source only where the survivor's are empty. (Equal rank needs no status change: only the chase facts are filled.)
   await sql`
-    UPDATE expected_invoice_alerts t SET status = a.status, chased_at = a.chased_at, chase_method = a.chase_method,
-           chase_to_address = a.chase_to_address, resolved_invoice_id = a.resolved_invoice_id, resolved_at = a.resolved_at,
-           dismissed_reason = a.dismissed_reason, updated_at = NOW()
+    UPDATE expected_invoice_alerts t SET
+           status = CASE WHEN (CASE a.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 WHEN 'chased' THEN 1 ELSE 0 END)
+                               > (CASE t.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 WHEN 'chased' THEN 1 ELSE 0 END)
+                              THEN a.status ELSE t.status END,
+           resolved_invoice_id = CASE WHEN (CASE a.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 ELSE 0 END)
+                                         > (CASE t.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 ELSE 0 END)
+                                      THEN a.resolved_invoice_id ELSE t.resolved_invoice_id END,
+           resolved_at = CASE WHEN (CASE a.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 ELSE 0 END)
+                                   > (CASE t.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 ELSE 0 END)
+                                THEN a.resolved_at ELSE t.resolved_at END,
+           dismissed_reason = CASE WHEN (CASE a.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 ELSE 0 END)
+                                        > (CASE t.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 ELSE 0 END)
+                                     THEN a.dismissed_reason ELSE t.dismissed_reason END,
+           chased_at = COALESCE(t.chased_at, a.chased_at), chase_method = COALESCE(t.chase_method, a.chase_method),
+           chase_to_address = COALESCE(t.chase_to_address, a.chase_to_address), updated_at = NOW()
       FROM expected_invoice_alerts a
      WHERE t.company_id = ${companyId}::UUID AND t.supplier_id = ${targetId}::UUID
        AND a.company_id = t.company_id AND a.supplier_id = ${sourceId}::UUID AND a.expected_by = t.expected_by
-       AND (CASE a.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 WHEN 'chased' THEN 1 ELSE 0 END)
-         > (CASE t.status WHEN 'resolved' THEN 2 WHEN 'dismissed' THEN 2 WHEN 'chased' THEN 1 ELSE 0 END)
-  `;
-  await sql`
-    UPDATE expected_invoice_alerts t SET chased_at = COALESCE(t.chased_at, a.chased_at),
-           chase_to_address = COALESCE(t.chase_to_address, a.chase_to_address), chase_method = COALESCE(t.chase_method, a.chase_method),
-           updated_at = NOW()
-      FROM expected_invoice_alerts a
-     WHERE t.company_id = ${companyId}::UUID AND t.supplier_id = ${targetId}::UUID AND t.status = 'chased'
-       AND a.company_id = t.company_id AND a.supplier_id = ${sourceId}::UUID AND a.expected_by = t.expected_by AND a.status = 'chased'
   `;
   const dropped = (await sql`
     DELETE FROM expected_invoice_alerts a
