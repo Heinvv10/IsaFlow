@@ -27,15 +27,13 @@ vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({
   requestApproval: vi.fn(async () => ({ id: 'req1' })),
   decideRequest: vi.fn(async () => ({ id: 'req1', documentDigest: null })),
   checkApproval: vi.fn(async () => ({ required: false })),
-  listRequests: vi.fn(async () => [
-    { id: 'a', documentType: 'pay_run', amount: 250000 },
-    { id: 'b', documentType: 'supplier_invoice', amount: 900 },
-  ]),
+  listRequests: vi.fn(async () => []),
+  getPendingCount: vi.fn(async () => 0),
 }));
 
 import { checkPermission } from '@/lib/auth/permissionService';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
-import { decideRequest, listRequests, requestApproval } from '@/modules/accounting/services/gl/approvalService';
+import { decideRequest, getPendingCount, listRequests, requestApproval } from '@/modules/accounting/services/gl/approvalService';
 import handler from '../../../pages/api/accounting/approval-requests';
 
 const C = '11111111-1111-4111-8111-111111111111';
@@ -49,7 +47,6 @@ function call(method: string, query: Record<string, unknown>, body?: Record<stri
   const res = { statusCode: 0, sent: undefined as unknown, setHeader() { return this; }, status(c: number) { this.statusCode = c; return this; }, json(p: unknown) { this.sent = p; return this; }, end() { return this; } };
   return Promise.resolve((handler as (a: NextApiRequest, b: NextApiResponse) => unknown)(req, res as unknown as NextApiResponse)).then(() => res);
 }
-const items = (res: { sent: unknown }) => ((res.sent as { data: { items: Array<{ id: string }> } }).data.items).map((i) => i.id);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -96,11 +93,16 @@ describe('rejecting a pay_run request', () => {
 });
 
 describe('listing and checking', () => {
-  it('without Payroll read the list leaves the pay_run requests (and their amounts) out; with it they are listed', async () => {
-    expect(items(await call('GET', {}))).toEqual(['b']);
-    expect(listRequests).toHaveBeenCalledTimes(1);
+  it('the list and the count are asked with includePayRun = Payroll read, so the query itself leaves the pay_run requests out', async () => {
+    await call('GET', {});
+    expect(vi.mocked(listRequests).mock.calls[0]).toEqual([C, undefined, false]);
+    await call('GET', { action: 'count' });
+    expect(vi.mocked(getPendingCount).mock.calls[0]).toEqual([C, false]);
     allowed.read = true;
-    expect(items(await call('GET', {}))).toEqual(['a', 'b']);
+    await call('GET', {});
+    await call('GET', { action: 'count' });
+    expect(vi.mocked(listRequests).mock.calls[1]).toEqual([C, undefined, true]);
+    expect(vi.mocked(getPendingCount).mock.calls[1]).toEqual([C, true]);
   });
   it('the advisory check of a pay_run needs Payroll read; of any other document it does not', async () => {
     const res = await call('GET', { action: 'check', documentType: 'pay_run', documentId: RUN });

@@ -80,6 +80,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback, permissionsUrl, 
       setApproveWithheld(res.data?.approveWithheld === true);
     } catch (err) {
       setPerms([]);
+      setApproveWithheld(false); // no stale flag under the new error
       setLoadError(apiErrorMessage(err, 'Could not load the permissions - try again'));
     } finally {
       setLoading(false);

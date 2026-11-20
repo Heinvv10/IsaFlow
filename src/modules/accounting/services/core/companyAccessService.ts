@@ -22,14 +22,17 @@ import { DEFAULT_WRITE_ROLES } from '@/lib/auth/writeRoles';
  * True when the user is a member of the given company.
  *
  * Multi-tenant: this IS the tenant check — callers rely on it to reject
- * body-supplied companyIds.
+ * body-supplied companyIds. A suspended or deleted company has no members for this purpose (#1656 round 8, as checkGroupPermission and the
+ * group guards below): the group routes name a company in the body, and a suspended one must not be reached through them.
  */
 export async function userBelongsToCompany(userId: string, companyId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1
-    FROM   company_users
-    WHERE  company_id = ${companyId}::UUID
-      AND  user_id    = ${userId}
+    FROM   company_users cu
+    JOIN   companies c ON c.id = cu.company_id
+    WHERE  cu.company_id = ${companyId}::UUID
+      AND  cu.user_id    = ${userId}
+      AND  c.status IS DISTINCT FROM 'suspended' AND c.status IS DISTINCT FROM 'deleted' AND c.suspended_at IS NULL
     LIMIT  1
   `) as Record<string, unknown>[];
 

@@ -77,15 +77,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    // Payroll read decides whether the pay_run requests are counted and listed: asked once, applied in the queries (#1656 round 8).
+    const payrollRead = await mayReadPayroll(companyId, userId);
     if (req.query.action === 'count') {
-      const count = await getPendingCount(companyId);
+      const count = await getPendingCount(companyId, payrollRead);
       return apiResponse.success(res, { count });
     }
 
-    // The pay_run requests carry a run's amount: left out for a person without Payroll read (#1656, round 7).
-    const requests = await listRequests(companyId, status);
-    const items = (await mayReadPayroll(companyId, userId)) ? requests : requests.filter((r) => r.documentType !== 'pay_run');
-    return apiResponse.success(res, { items });
+    // The pay_run requests carry a run's amount: left out, in the query, for a person without Payroll read (#1656, rounds 7 and 8).
+    return apiResponse.success(res, { items: await listRequests(companyId, status, payrollRead) });
   }
 
   if (req.method === 'POST') {

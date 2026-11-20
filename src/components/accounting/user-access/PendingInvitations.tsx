@@ -16,15 +16,15 @@ export function PendingInvitations({ invitations, onCancel }: { invitations: Pen
   if (invitations.length === 0) return null;
   return (
           <div className="border-t border-gray-200 dark:border-gray-800 px-6 py-4">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">Pending Invitations</p>
+            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-muted">Pending Invitations</p>
             <ul className="space-y-2">
               {invitations.map((inv) => (
                 <li key={inv.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700/50 bg-slate-50 dark:bg-gray-800/40 px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-gray-500" />
+                    <Mail className="h-4 w-4 text-ink-muted" />
                     <div>
                       <p className="text-sm text-slate-900 dark:text-white">{inv.email}</p>
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-2 text-xs text-ink-muted">
                         <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${ROLE_BADGE[inv.role] ?? 'bg-gray-700 text-gray-300'}`}>{inv.role}</span>
                         <Clock className="h-3 w-3" />
                         <span>Expires {formatDisplayDate(inv.expiresAt)}</span>
@@ -43,7 +43,7 @@ export function PendingInvitations({ invitations, onCancel }: { invitations: Pen
                         retrievable after creation (only the SHA-256 hash
                         lives in the DB). A Resend flow that re-generates
                         a fresh token is the correct replacement. */}
-                    <button onClick={() => onCancel(inv.id)} className="text-xs text-gray-500 hover:text-red-400">Cancel</button>
+                    <button onClick={() => onCancel(inv.id)} className="text-xs text-ink-muted hover:text-red-400">Cancel</button>
                   </div>
                 </li>
               ))}

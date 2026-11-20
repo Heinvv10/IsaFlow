@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { checkGroupPermission } from '@/lib/auth/permissionService';
-import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToCompany, userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { listGroupCandidates } from '@/modules/accounting/services/intercompany/connectionRead';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -115,6 +115,10 @@ describe('checkGroupPermission (real SQL)', () => {
     expect(await userBelongsToGroup(U.writer, GROUP)).toBe(true);
     expect(await userCanWriteGroup(U.writer, GROUP)).toBe(true);
     expect(await userCanWriteCompany(U.writer, A)).toBe(true);
+    expect(await userBelongsToCompany(U.inSuspended, SUSPENDED)).toBe(false); // round 8
+    expect(await userBelongsToCompany(U.inDeleted, DELETED)).toBe(false);
+    expect(await userBelongsToCompany(U.writer, A)).toBe(true);
+    expect(await userBelongsToCompany(U.both, SUSPENDED)).toBe(false);
     // a person in a live AND an ended company is carried by the live one only
     expect(await userBelongsToGroup(U.both, GROUP)).toBe(true);
     expect(await userCanWriteCompany(U.both, SUSPENDED)).toBe(false);
