@@ -20,18 +20,10 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
 import { analyse } from '../helpers/approveCensusGraph';
-import { GATES, ROUTE_WRAPPERS, SINK_MODULES, SITE_EXEMPTIONS, SQL_PRIMITIVES } from '../helpers/approveCensusConfig';
+import {
+  GATES, PAYROLL_DETAIL_SQL, PAYROLL_READ_GATES, PAYROLL_READ_WRAPPERS, ROUTE_WRAPPERS, SINK_MODULES, SQL_PRIMITIVES,
+} from '../helpers/approveCensusConfig';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
-
-/** Routes that call a posting service without a route-level gate, and why that is right. */
-const EXEMPT_ROUTES: Readonly<Record<string, string>> = {
-  'pages/api/admin/migration/sage-commit.ts':
-    'the admin portal (withAdmin, a platform super_admin acting on a company they are not a member of): no company User Access applies; audited by logAdminAction',
-  'pages/api/portal/payments/paystack/verify.ts':
-    'the customer portal: a payer settling an invoice through Paystack, no company member acts; the receipt is idempotent on the gateway reference',
-  'pages/api/accounting/recurring-transactions-execute.ts':
-    'executeRecurring asks the runner\'s Approve per template type in the service (journal: Accounts, invoice: Customers, bill: Suppliers) and leaves the document a draft without it',
-};
 
 /** MCP tools that require write:post or are named like a posting tool, yet post nothing. */
 const EXEMPT_TOOLS: Readonly<Record<string, string>> = {
@@ -60,11 +52,19 @@ const apiFiles = execFileSync('git', ['ls-files', 'pages/api'], { encoding: 'utf
   .split('\n')
   .filter((f) => /\.ts$/.test(f) && !f.startsWith('pages/api/cron/') && !f.startsWith('pages/api/webhooks/'));
 
+const programFiles = execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n')
+  .filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.d.ts'));
 let memo: ReturnType<typeof analyse> | undefined;
 const census = () => (memo ??= analyse({
-  routeFiles: apiFiles, programFiles: execFileSync('git', ['ls-files', 'pages', 'src'], { encoding: 'utf8' }).split('\n')
-    .filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.d.ts')),
-  sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES, siteExemptions: SITE_EXEMPTIONS,
+  routeFiles: apiFiles, programFiles, sinks: SINK_MODULES, gates: GATES, routeWrappers: ROUTE_WRAPPERS, sqlPrimitives: SQL_PRIMITIVES,
+}));
+
+/** Routes outside pages/api/payroll that could return one person's pay (the employee portal authenticates the employee herself). */
+const payrollReadRoutes = apiFiles.filter((f) => !f.startsWith('pages/api/payroll/') && !f.startsWith('pages/api/employee-portal/'));
+let payrollMemo: ReturnType<typeof analyse> | undefined;
+const payrollCensus = () => (payrollMemo ??= analyse({
+  routeFiles: payrollReadRoutes, programFiles, sinks: {}, gates: PAYROLL_READ_GATES, routeWrappers: PAYROLL_READ_WRAPPERS,
+  sqlPrimitives: PAYROLL_DETAIL_SQL, flagPrimitiveRoots: true, directPrimitivesOnly: true,
 }));
 
 describe('approve / post entry-point census (#1656)', () => {
@@ -73,20 +73,21 @@ describe('approve / post entry-point census (#1656)', () => {
   }, 180_000);
 
   it('every route that reaches a posting primitive asks the module Approve before it, on every action', () => {
-    const ungated = census().bad.filter((b) => !EXEMPT_ROUTES[b.file]);
-    expect(ungated.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
-      'Gate these with refuseWithoutApprove before the call (on every action branch), or exempt them with a reason').toEqual([]);
+    expect(census().bad.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
+      'Gate these with refuseWithoutApprove before the call (on every action branch), or mark the one call census-exempt(<callee>): reason').toEqual([]);
   }, 180_000);
 
-  it('every site exemption is still used (no stale pin)', () => {
-    const used = new Set(census().exemptionsUsed);
-    const stale = Object.entries(SITE_EXEMPTIONS).flatMap(([file, callees]) => Object.keys(callees).map((c) => `${file}::${c}`)).filter((k) => !used.has(k));
+  it('a route outside pages/api/payroll that reads per-employee pay asks Payroll READ (withPayrollDetailAccess / withPayrollModule / refuseWithoutPayrollRead)', () => {
+    expect(payrollCensus().bad.map((b) => `${b.file} [${b.unit}] -> ${b.sites.join(', ')}`),
+      'Gate these with refuseWithoutPayrollRead, or mark the aggregate read census-exempt(sql|<callee>): reason').toEqual([]);
+    expect(payrollCensus().dangerousRoutes.length).toBeGreaterThan(3);
+  }, 180_000);
+
+  it('every census-exempt marker is still needed by one of the two censuses: its call would otherwise be uncovered (no stale pin)', () => {
+    const payrollFiles = new Set(payrollReadRoutes);
+    const stale = census().staleMarkers.filter((m) => !payrollFiles.has(m.split(':')[0]!) || payrollCensus().staleMarkers.includes(m));
     expect(stale).toEqual([]);
-  }, 180_000);
-
-  it('every exempt route is still flagged without its exemption (no stale pin)', () => {
-    const flagged = new Set(census().bad.map((b) => b.file));
-    expect(Object.keys(EXEMPT_ROUTES).filter((f) => !flagged.has(f))).toEqual([]);
+    expect(census().markersUsed.length + payrollCensus().markersUsed.length).toBeGreaterThanOrEqual(17);
   }, 180_000);
 
   it('every MCP tool that posts declares its approve module', () => {

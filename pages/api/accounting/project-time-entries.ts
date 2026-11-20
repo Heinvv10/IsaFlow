@@ -17,6 +17,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = (req as CompanyAuthedRequest).companyId;
   if (req.method === 'GET') {
     const { projectId, employeeId } = req.query;
+    // census-exempt(sql): joins payroll_employees for first / last NAME only, no pay figure
     let rows: Row[];
     if (projectId) {
       rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN payroll_employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id WHERE t.project_id = ${String(projectId)} AND t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];

@@ -16,6 +16,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  // census-exempt(probeSetupFacts): whether setup facts exist (counts), never one person's pay
   const completedTasks = completedGuideTasks(await probeSetupFacts(companyId));
 
   log.info('Setup guide status fetched', { companyId, completed: completedTasks.length }, 'setup-guide');

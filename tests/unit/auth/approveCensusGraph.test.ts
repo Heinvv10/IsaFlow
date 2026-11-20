@@ -28,14 +28,15 @@ const GATES: Record<string, GateSpec> = {
   assertMayApprove: { kind: 'assert', moduleArg: 2 },
 };
 
-function run(route: string, extra: Record<string, string> = {}) {
+function runFull(route: string, extra: Record<string, string> = {}) {
   const files = { '/v/svc.ts': SERVICE, '/v/barrel.ts': "export { postVia as renamedPost } from './svc';", '/v/route.ts': route, ...extra };
   return analyse({
     virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/v/route.ts'],
     sinks: { postJournalEntry: 'accounts', reverseJournalEntry: 'accounts', postPayrollRun: 'payroll' }, gates: GATES,
     routeWrappers: { withPayrollModule: 'payroll' }, sqlPrimitives: [/UPDATE\s+gl_journal_entries[^;]*status\s*=\s*'posted'/i],
-  }).bad;
+  });
 }
+const run = (route: string, extra: Record<string, string> = {}) => runFull(route, extra).bad;
 const HEAD = "import { postJournalEntry, reverseJournalEntry, postPayrollRun, refuseWithoutApprove, mayApprove, assertMayApprove, postVia, postViaGated, postsSql } from './svc';\nimport { renamedPost } from './barrel';\ndeclare function withPayrollModule<T>(h: T): T;\ndeclare const res: unknown;\n";
 const GATE = "if (await refuseWithoutApprove(res, 'c', 'u', 'accounts', 'x')) return;";
 const h = (body: string, exp = 'export default handler;') => `${HEAD}async function handler(x: boolean, action: string) { ${body} }\n${exp}`;
@@ -117,5 +118,68 @@ describe('approve census analyser: round 4 (B-M2 / F-M1)', () => {
     expect(run(h(body(true, false)))).toHaveLength(1);
     expect(run(h(body(false, true)))).toHaveLength(1);
     expect(run(h(body(true, true)))).toEqual([]);
+  });
+});
+
+describe('approve census analyser: round 6', () => {
+  it('allowReversal counts only when its value is a GATE RESULT (a gate call, or a variable set from one, shorthand included)', () => {
+    expect(run(h("const allowReversal = await mayApprove('c', 'u', 'accounts'); await reverseJournalEntry('c', 'i', { allowReversal });"))).toEqual([]);
+    expect(run(h("await reverseJournalEntry('c', 'i', { allowReversal: await mayApprove('c', 'u', 'accounts') });"))).toEqual([]);
+    expect(run(h("const allowReversal = x; await reverseJournalEntry('c', 'i', { allowReversal });"))).toHaveLength(1);
+    expect(run(h("await reverseJournalEntry('c', 'i', { allowReversal: x });"))).toHaveLength(1);
+    expect(run(h("await reverseJournalEntry('c', 'i', { allowReversal: false });"))).toHaveLength(1);
+  });
+
+  it('a census-exempt marker exempts ONE call site, not every call of the callee; a second ungated call fails', () => {
+    const marked = "\n    // census-exempt(postJournalEntry): approve asks first elsewhere\n    await postJournalEntry('c', 'i');";
+    expect(run(h(marked))).toEqual([]);
+    const bad = run(h(`${marked}\n    if (x) { await postJournalEntry('c', 'j'); }`));
+    expect(bad).toHaveLength(1);
+    expect(bad[0]!.sites).toHaveLength(1);
+  });
+
+  it('a marker on the wrong callee exempts nothing', () => {
+    expect(run(h("\n    // census-exempt(reverseJournalEntry): wrong one\n    await postJournalEntry('c', 'i');"))).toHaveLength(1);
+  });
+
+  it('a marker is USED only while its call would otherwise be uncovered: once the call is gated, the marker is stale', () => {
+    const used = runFull(h("\n    // census-exempt(postJournalEntry): why\n    await postJournalEntry('c', 'i');"));
+    expect(used.markersUsed).toHaveLength(1);
+    expect(used.staleMarkers).toEqual([]);
+    const stale = runFull(h(`\n    // census-exempt(postJournalEntry): why\n    ${GATE} await postJournalEntry('c', 'i');`));
+    expect(stale.markersUsed).toEqual([]);
+    expect(stale.staleMarkers).toHaveLength(1);
+  });
+});
+
+describe('approve census analyser: the payroll-read mode', () => {
+  const SVC = `declare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;
+export async function readPay(c: string) { return sql\`SELECT gross FROM payslips WHERE company_id = \${c}\`; }
+export async function viaReadPay(c: string) { return readPay(c); }
+export async function refuseWithoutPayrollRead(res: unknown, c: string, u: string) { return false; }
+`;
+  const payroll = (route: string) => {
+    const files = { '/v/svc.ts': SVC, '/v/route.ts': route };
+    return analyse({
+      virtualFiles: files, programFiles: Object.keys(files), routeFiles: ['/v/route.ts'], sinks: {},
+      gates: { refuseWithoutPayrollRead: { kind: 'refuse', module: 'payroll' } }, routeWrappers: { withPayrollDetailAccess: 'payroll' },
+      sqlPrimitives: [/FROM\s+payslips/i], flagPrimitiveRoots: true, directPrimitivesOnly: true,
+    }).bad;
+  };
+  const H = "import { readPay, viaReadPay, refuseWithoutPayrollRead } from './svc';\ndeclare function sql(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown>;\ndeclare function withPayrollDetailAccess<T>(h: T): T;\ndeclare const res: unknown;\n";
+
+  it('a call to a function that reads the payroll table needs Payroll read; one hop only (a caller of that caller is not flagged)', () => {
+    expect(payroll(`${H}async function handler() { await readPay('c'); }\nexport default handler;`)).toHaveLength(1);
+    expect(payroll(`${H}async function handler() { if (await refuseWithoutPayrollRead(res, 'c', 'u')) return; await readPay('c'); }\nexport default handler;`)).toEqual([]);
+    expect(payroll(`${H}async function handler() { await viaReadPay('c'); }\nexport default handler;`)).toEqual([]);
+    expect(payroll(`${H}async function handler() { await readPay('c'); }\nexport default withPayrollDetailAccess(handler);`)).toEqual([]);
+  });
+
+  it('a handler that runs the SQL itself is flagged unless wrapped, gated, or marked census-exempt(sql)', () => {
+    const sqlRoute = (extra: string, exp = 'export default handler;') => `${H}async function handler() { ${extra} await sql\`SELECT gross FROM payslips\`; }\n${exp}`;
+    expect(payroll(sqlRoute(''))).toHaveLength(1);
+    expect(payroll(sqlRoute("if (await refuseWithoutPayrollRead(res, 'c', 'u')) return;"))).toEqual([]);
+    expect(payroll(sqlRoute('', 'export default withPayrollDetailAccess(handler);'))).toEqual([]);
+    expect(payroll(`// census-exempt(sql): a monthly total, no one person's pay\n${sqlRoute('')}`)).toEqual([]);
   });
 });

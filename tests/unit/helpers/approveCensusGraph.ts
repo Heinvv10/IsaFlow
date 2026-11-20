@@ -4,8 +4,8 @@
  *
  *  - A unit is a named function (declaration, method, or a variable holding an arrow/function expression). Calls are resolved with
  *    the type checker (aliases and barrel re-exports followed). Anonymous callbacks belong to the unit around them.
- *  - Dangerous callee: a SINK (named; its module is enforced where a route calls it directly, '*' inside services), a unit that itself runs posting SQL (SQL_PRIMITIVES, module '*'), or a unit
- *    already in D. A unit is in D when one of its dangerous calls is not covered; it needs the modules of those calls.
+ *  - Dangerous callee: a SINK (named; its module is enforced where a route calls it directly, '*' inside services), a unit running
+ *    posting SQL (module '*'), or a unit already in D. A unit is in D when one of its dangerous calls is not covered; it needs the modules of those calls.
  *  - Covered: the gates that DOMINATE the call give modules that include each module the call needs ('*' on either side matches).
  *    A gate dominates only where its refusal is unconditional on the path to the call:
  *      refuse gate  `if (await refuse(...)) return|throw ...;`          covers the statements after it in the block
@@ -15,19 +15,23 @@
  *      or right of `&&` after it.
  *    NOT a gate: `if (cond && await refuse(...)) return;` (the refusal is conditional), a bare `await mayApprove(...)` whose result
  *    is dropped, a gate in a sibling `case` or an `if` body, one after the call.
- *  - A route wrapped by a ROUTE_WRAPPERS name (withPayrollModule) is gated for that wrapper's module for the whole file.
- *  - A call passing `{ dryRun: true }`, or an `allowReversal` option that is not the literal `true` (the service refuses under
- *    its own row lock), is not dangerous.
+ *  - A route wrapped by a ROUTE_WRAPPERS name is gated for that wrapper's module for the whole file.
+ *  - A call passing `{ dryRun: true }`, or an `allowReversal` option whose value is a GATE RESULT (a gate call, or a variable set
+ *    from one: the service refuses under its own row lock from what the person may do), is not dangerous. A literal, or any other
+ *    value, is not a decision.
+ *  - A PARAMETERISED sink whose gate depends on an argument is exempted per CALL SITE by a marker comment above its statement,
+ *    `census-exempt(<callee>): reason`; the exemption counts as used only while the call would otherwise be uncovered, and a marker
+ *    nothing uses is reported stale (CENSUS.staleMarkers). A second, ungated call of the same callee elsewhere still fails.
  *  - A route file is BAD when a root unit (not called by another unit of the file; the handler) is in D.
- * Limits: dynamic dispatch, `await import()`, and calls through interface-typed objects are not followed.
  */
 import ts from 'typescript';
 import { resolve } from 'path';
+import { calleeName, markersAbove, markersIn, objectProp, programFor, ROOT, unwrap } from './approveCensusProgram';
 
 export interface GateSpec { kind: 'refuse' | 'allow' | 'assert'; moduleArg?: number; module?: string }
 
 export interface CensusConfig {
-  /** Absolute path -> text of a virtual project (the analyser's own tests); omit to read the real files. */
+  /** Absolute path -> text of a virtual project (the analyser's own tests). */
   virtualFiles?: Record<string, string>;
   routeFiles: string[];
   programFiles: string[];
@@ -37,82 +41,26 @@ export interface CensusConfig {
   routeWrappers: Readonly<Record<string, string>>;
   /** Static SQL text that makes the unit holding it a primitive (module '*'). */
   sqlPrimitives?: readonly RegExp[];
-  /** file -> callee -> why: a PARAMETERISED sink whose gate depends on an argument (a decision, a post flag), pinned by a per-path test. Every call of that callee in the file is skipped. */
-  siteExemptions?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** A route unit that itself runs primitive SQL is dangerous unless wrapped, or it calls a gate somewhere (the payroll-read census). */
+  flagPrimitiveRoots?: boolean;
+  /** Only a function that ITSELF runs primitive SQL is dangerous (no propagation through the units that call it): one hop from a route. */
+  directPrimitivesOnly?: boolean;
 }
 
 export interface BadRoute { file: string; unit: string; sites: string[] }
-export interface Census { bad: BadRoute[]; dangerousRoutes: string[]; why: Record<string, string[]>; exemptionsUsed: string[] }
+export interface Census { bad: BadRoute[]; dangerousRoutes: string[]; why: Record<string, string[]>; markersUsed: string[]; staleMarkers: string[] }
 
-interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primitive: boolean; needs: Set<string> }
-interface Call { node: ts.CallExpression; callee: string; target: Unit | null; sinkModule: string | null; gates: Set<string> }
-
-const ROOT = process.cwd();
-
-function host(opts: ts.CompilerOptions, virtualFiles?: Record<string, string>): ts.CompilerHost {
-  const base = ts.createCompilerHost(opts, true);
-  if (!virtualFiles) return base;
-  const v = (f: string) => virtualFiles[f] ?? virtualFiles[resolve(f)];
-  return {
-    ...base,
-    fileExists: (f) => v(f) !== undefined || base.fileExists(f),
-    directoryExists: (d) => Object.keys(virtualFiles).some((f) => f.startsWith(`${d}/`)) || (base.directoryExists?.(d) ?? false),
-    readFile: (f) => v(f) ?? base.readFile(f),
-    getSourceFile: (f, lang) => (v(f) !== undefined ? ts.createSourceFile(f, v(f)!, lang, true) : base.getSourceFile(f, lang)),
-  };
-}
-
-function options(virtual: boolean): ts.CompilerOptions {
-  if (virtual) {
-    return { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, noEmit: true, skipLibCheck: true, types: [], noLib: true };
-  }
-  const cfg = ts.readConfigFile(resolve(ROOT, 'tsconfig.json'), ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(cfg.config, ts.sys, ROOT);
-  return { ...parsed.options, incremental: false, tsBuildInfoFile: undefined, noEmit: true, plugins: undefined, types: [], skipLibCheck: true };
-}
-
-const calleeName = (c: ts.CallExpression): string | null => {
-  const e = c.expression;
-  if (ts.isIdentifier(e)) return e.text;
-  if (ts.isPropertyAccessExpression(e)) return e.name.text;
-  return null;
-};
-
-const unwrap = (e: ts.Expression): ts.Expression => {
-  let x = e;
-  while (ts.isParenthesizedExpression(x) || ts.isAwaitExpression(x) || ts.isNonNullExpression(x) || ts.isAsExpression(x)) x = x.expression;
-  return x;
-};
-
-/** The initializer of `name` in an object literal (`name: x`, or the shorthand `name`, which is its own identifier). */
-const objectProp = (o: ts.ObjectLiteralExpression, name: string): { initializer: ts.Expression } | undefined => {
-  for (const p of o.properties) {
-    if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === name) return p;
-    if (ts.isShorthandPropertyAssignment(p) && p.name.text === name) return { initializer: p.name };
-  }
-  return undefined;
-};
-
-/** `{ dryRun: true }`, or `{ allowReversal: <anything but the literal true> }`: the call is not a write the caller must gate. */
-function selfGuarded(c: ts.CallExpression): boolean {
-  return c.arguments.some((a) => {
-    if (!ts.isObjectLiteralExpression(a)) return false;
-    const dry = objectProp(a, 'dryRun');
-    if (dry && dry.initializer.kind === ts.SyntaxKind.TrueKeyword) return true;
-    const rev = objectProp(a, 'allowReversal');
-    return rev !== undefined && rev.initializer.kind !== ts.SyntaxKind.TrueKeyword;
-  });
-}
+interface Unit { key: string; file: string; name: string; node: ts.Node; calls: Call[]; primitive: boolean; needs: Set<string>; hasGateCall: boolean }
+interface Call { node: ts.CallExpression; callee: string; target: Unit | null; sinkModule: string | null; gates: Set<string>; exempt: { line: number } | null }
 
 export function analyse(cfg: CensusConfig): Census {
   const virtual = Boolean(cfg.virtualFiles);
-  const opts = options(virtual);
   const files = cfg.programFiles.map((f) => (virtual ? f : resolve(ROOT, f)));
-  const program = ts.createProgram({ rootNames: files, options: opts, host: host(opts, cfg.virtualFiles) });
+  const program = programFor(files, cfg.virtualFiles);
   const checker = program.getTypeChecker();
   const rel = (f: string) => (virtual ? f : f.replace(`${ROOT}/`, ''));
   const wrapperNames = Object.keys(cfg.routeWrappers);
-  const routeSet = new Set(cfg.routeFiles);
+  const routeSet = new Set(cfg.routeFiles); // sink modules bind where a route calls them
 
   // ── gate recognition ──────────────────────────────────────────────────────────────────────────
   const gateModule = (c: ts.CallExpression, spec: GateSpec): string => {
@@ -132,10 +80,23 @@ export function analyse(cfg: CensusConfig): Census {
     const decl = checker.getSymbolAtLocation(id)?.declarations?.[0];
     return decl && ts.isVariableDeclaration(decl) && decl.initializer ? asGate(decl.initializer) : null;
   };
-  const gateOf = (e: ts.Expression): { spec: GateSpec; module: string } | null => {
+  const gateOf = (e: ts.Expression, shorthand?: ts.ShorthandPropertyAssignment): { spec: GateSpec; module: string } | null => {
     const x = unwrap(e);
+    if (shorthand) { // `{ allowReversal }`: the symbol of the VARIABLE, not of the property
+      const decl = checker.getShorthandAssignmentValueSymbol(shorthand)?.declarations?.[0];
+      return decl && ts.isVariableDeclaration(decl) && decl.initializer ? asGate(decl.initializer) : null;
+    }
     return ts.isIdentifier(x) ? identGate(x) : asGate(x);
   };
+
+  /** `{ dryRun: true }`, or `{ allowReversal: <a gate result> }`: the call is not a write the caller must gate. */
+  const selfGuarded = (c: ts.CallExpression): boolean => c.arguments.some((a) => {
+    if (!ts.isObjectLiteralExpression(a)) return false;
+    const dry = objectProp(a, 'dryRun');
+    if (dry && dry.initializer.kind === ts.SyntaxKind.TrueKeyword) return true;
+    const rev = objectProp(a, 'allowReversal');
+    return rev !== undefined && gateOf(rev.initializer, rev.shorthand) !== null;
+  });
 
   /** Modules whose gate is certainly PASSED when `e` is true (an allow gate, or a negated refuse gate, joined by &&). */
   const trueMeans = (e: ts.Expression | undefined, depth = 0): string[] => {
@@ -212,11 +173,11 @@ export function analyse(cfg: CensusConfig): Census {
   const moduleUnits = new Map<string, Unit>();
   const unitOfFile = (sf: ts.SourceFile): Unit => {
     let u = moduleUnits.get(sf.fileName);
-    if (!u) { u = { key: `${rel(sf.fileName)}::<module>`, file: rel(sf.fileName), name: '<module>', node: sf, calls: [], primitive: false, needs: new Set() }; moduleUnits.set(sf.fileName, u); }
+    if (!u) { u = { key: `${rel(sf.fileName)}::<module>`, file: rel(sf.fileName), name: '<module>', node: sf, calls: [], primitive: false, needs: new Set(), hasGateCall: false }; moduleUnits.set(sf.fileName, u); }
     return u;
   };
   const add = (decl: ts.Node, name: string, sf: ts.SourceFile) => {
-    units.set(decl, { key: `${rel(sf.fileName)}::${name}`, file: rel(sf.fileName), name, node: decl, calls: [], primitive: false, needs: new Set() });
+    units.set(decl, { key: `${rel(sf.fileName)}::${name}`, file: rel(sf.fileName), name, node: decl, calls: [], primitive: false, needs: new Set(), hasGateCall: false });
   };
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile || sf.fileName.includes('node_modules')) continue;
@@ -240,7 +201,6 @@ export function analyse(cfg: CensusConfig): Census {
   };
 
   // ── calls, and the units that run posting SQL ─────────────────────────────────────────────────
-  const exemptionsUsed = new Set<string>();
   const wrapped = new Map<string, string>(); // file -> the module its route wrapper gates
   const templateText = (t: ts.TaggedTemplateExpression): string =>
     ts.isNoSubstitutionTemplateLiteral(t.template) ? t.template.text
@@ -259,15 +219,14 @@ export function analyse(cfg: CensusConfig): Census {
         const name = calleeName(n);
         const decl = declOf(n);
         const target = decl ? (units.get(decl) ?? null) : null;
-        // A sink's module is enforced where a ROUTE calls it directly; inside the service layer a chain mixes modules (a bill import
-        // posts through the GL primitive), so what such a helper needs is 'any gate'.
+        // A sink's module binds where a route calls it; in the service layer a chain mixes modules, so a helper needs 'any gate'.
         const sinkModule = name !== null && Object.hasOwn(cfg.sinks, name) ? (routeSet.has(rel(sf.fileName)) ? cfg.sinks[name]! : '*') : null;
-        const exempt = name !== null && cfg.siteExemptions?.[rel(sf.fileName)]?.[name] !== undefined;
-        if (exempt) exemptionsUsed.add(`${rel(sf.fileName)}::${name}`);
-        if ((target || sinkModule !== null) && !selfGuarded(n) && !exempt) {
+        const exempt = name !== null ? (markersAbove(n).find((m) => m.callee === name) ?? null) : null;
+        if ((target || sinkModule !== null) && !selfGuarded(n)) {
           const u = enclosing(n) ?? unitOfFile(sf);
-          u.calls.push({ node: n, callee: name ?? '?', target, sinkModule, gates: dominating(n, u.node) });
+          u.calls.push({ node: n, callee: name ?? '?', target, sinkModule, gates: dominating(n, u.node), exempt });
         }
+        if (name && cfg.gates[name]) (enclosing(n) ?? unitOfFile(sf)).hasGateCall = true;
       }
       ts.forEachChild(n, visit);
     };
@@ -279,10 +238,10 @@ export function analyse(cfg: CensusConfig): Census {
   const D = new Set<Unit>();
   const needsOfCall = (c: Call): Set<string> | null => {
     if (c.sinkModule !== null) return new Set([c.sinkModule]);
-    if (c.target && (D.has(c.target) || c.target.primitive)) return c.target.primitive && !D.has(c.target) ? new Set(['*']) : c.target.needs;
+    if (c.target && ((!cfg.directPrimitivesOnly && D.has(c.target)) || c.target.primitive)) return c.target.primitive && !D.has(c.target) ? new Set(['*']) : c.target.needs;
     return null;
   };
-  const covered = (c: Call, file: string, needs: Set<string>): boolean => {
+  const rawCovered = (c: Call, file: string, needs: Set<string>): boolean => {
     const g = new Set(c.gates);
     const w = wrapped.get(file);
     if (w) g.add(w);
@@ -290,6 +249,7 @@ export function analyse(cfg: CensusConfig): Census {
     if (g.has('*')) return true;
     return [...needs].filter((m) => m !== '*').every((m) => g.has(m));
   };
+  const covered = (c: Call, file: string, needs: Set<string>): boolean => c.exempt !== null || rawCovered(c, file, needs);
   for (let changed = true; changed;) {
     changed = false;
     for (const u of all) {
@@ -320,7 +280,27 @@ export function analyse(cfg: CensusConfig): Census {
     });
     bad.push({ file: u.file, unit: u.name, sites });
   }
+  // Markers: used while the exempted call would otherwise be uncovered; any other marker in a route file is stale.
+  const used = new Set<string>();
+  for (const u of all) for (const c of u.calls) {
+    const needs = needsOfCall(c);
+    if (c.exempt && needs && !rawCovered(c, u.file, needs)) used.add(`${u.file}:${c.exempt.line}`);
+  }
+  if (cfg.flagPrimitiveRoots) {
+    for (const u of all) {
+      if (!routes.has(u.file) || !u.primitive || calledInFile.has(u) || wrapped.has(u.file) || u.hasGateCall) continue;
+      const marker = markersIn(program.getSourceFile(virtual ? u.file : resolve(ROOT, u.file))!).find((m) => m.callee === 'sql');
+      if (marker) { used.add(`${u.file}:${marker.line}`); continue; }
+      bad.push({ file: u.file, unit: u.name, sites: ['sql(payroll detail table)'] });
+    }
+  }
+  const staleMarkers: string[] = [];
+  for (const f of cfg.routeFiles) {
+    const sf = program.getSourceFile(virtual ? f : resolve(ROOT, f));
+    if (!sf) continue;
+    for (const m of markersIn(sf)) if (!used.has(`${f}:${m.line}`)) staleMarkers.push(`${f}:${m.line} census-exempt(${m.callee})`);
+  }
   const why: Record<string, string[]> = {};
   for (const u of D) why[u.key] = uncovered(u).map((c) => `${c.callee}${c.target ? ` -> ${c.target.key}` : ' (primitive)'} needs ${[...(needsOfCall(c) ?? [])].join('+')}`);
-  return { bad, dangerousRoutes: [...dangerousRoutes].sort(), why, exemptionsUsed: [...exemptionsUsed].sort() };
+  return { bad, dangerousRoutes: [...dangerousRoutes].sort(), why, markersUsed: [...used].sort(), staleMarkers: staleMarkers.sort() };
 }

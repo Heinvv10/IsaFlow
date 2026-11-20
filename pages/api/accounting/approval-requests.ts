@@ -164,6 +164,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (requestRow?.document_type === 'pay_run') {
           await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
         }
+        // census-exempt(decideRequest): approving asks the document type's Approve first (refuseApprovalRequestWithoutApprove, above); a rejection posts nothing. approveGateEverything / approvePermissionPaths
         const result = await decideRequest(companyId, requestId, decision, userId, notes, expectedDigest);
         if (requestRow?.document_type === 'pay_run' && result.documentDigest) {
           await recordPayRunApprovalAudit({

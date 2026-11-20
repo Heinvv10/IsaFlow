@@ -32,7 +32,9 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
   confirmCustomerInvoiceMatch: 'banking', confirmSupplierInvoiceMatch: 'banking', confirmPurchaseOrderMatch: 'banking',
   postBankTransfer: 'banking', postProvisional: 'banking', reopenReconciliation: 'banking',
   // VAT, items, practice, budgets, approvals
-  approveVATAdjustment: 'vat', finaliseReturn: '*', // VAT201 (vat) or EMP501 (payroll): the return's own module approveAdjustment: 'items', approveEntries: 'accountant',
+  // finaliseReturn: VAT201 (vat) or EMP501 (payroll), the return's own module
+  approveVATAdjustment: 'vat', finaliseReturn: '*',
+  approveAdjustment: 'items', approveEntries: 'accountant',
   approvePracticeEntries: 'accountant', transitionVersion: 'budgets', decideRequest: '*', approvePurchaseOrder: 'suppliers',
   // payroll
   approvePayrollRun: 'payroll', reopenPayrollRun: 'payroll', postBatch: 'payroll', bookEtiForMonthLocked: 'payroll',
@@ -67,36 +69,24 @@ export const GATES: Readonly<Record<string, GateSpec>> = {
   mayApproveSupplierInvoices: { kind: 'allow', module: 'suppliers' },
   assertMayApprove: { kind: 'assert', moduleArg: 2 },
   assertMayApproveCreditNote: { kind: 'assert', module: '*' },
+  // an invoice delete / undo asks the invoice's own module (customers or suppliers) from its entity type
+  mayApproveInvoiceDelete: { kind: 'allow', module: '*' },
 };
 
 /** Wrappers on the default export that gate the whole route for one module (Payroll: read for GET, write otherwise). */
 export const ROUTE_WRAPPERS: Readonly<Record<string, string>> = { withPayrollModule: 'payroll' };
 
 /**
- * A PARAMETERISED sink whose gate depends on an argument: the route asks the Approve on the branch that posts, and the same service
- * call also serves the branch that does not (reject, lock, draft). Every call of the callee in the file is skipped, so each entry
- * is pinned by a per-path test (routeApproveGates.test.ts, approveGateEverything.test.ts) and checked for staleness.
+ * The payroll-READ census (round 6): a route outside pages/api/payroll that returns one person's pay must ask Payroll read. SQL on these
+ * per-employee tables makes the function holding it a primitive; the gates are Payroll read (refuseWithoutPayrollRead, mayReadPayroll)
+ * and the wrappers that ask it. Aggregate totals (a count, a monthly PAYE sum) are exempted per site with `census-exempt(sql)` or
+ * `census-exempt(<callee>)` and a reason.
  */
-export const SITE_EXEMPTIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  'pages/api/accounting/approval-requests.ts': {
-    decideRequest: 'approving asks the document type\'s Approve first (refuseApprovalRequestWithoutApprove); a rejection posts nothing. approveGateEverything / approvePermissionPaths',
-  },
-  'pages/api/accounting/close-run/decide.ts': {
-    decideProposal: 'approve asks Chart of Accounts & GL Approve first; reject and dismiss post nothing. routeApproveGates (close-run/decide)',
-  },
-  'pages/api/accounting/budget-versions/[id]/status.ts': {
-    transitionVersion: 'approve asks Budgets Approve first; lock and unlock have no ledger effect. approveGateEverything',
-  },
-  'pages/api/accounting/gl-import.ts': {
-    importJournalEntries: 'postImmediately asks Chart of Accounts & GL Approve first; an import without posting leaves drafts. routeApproveGates (gl-import)',
-  },
-  'pages/api/accounting/bank-transactions-bulk-commit.ts': {
-    importParsedTransactions: 'the import itself lands for anyone who may write; its auto-post sweep is skipped (skipAutoPost) without Banking Approve. routeApproveGates',
-  },
-  'pages/api/accounting/ai-invoice-pipeline.ts': {
-    attachEvidenceAndSettleApproved: 'a bill the person may not approve is left manual_review / draft (approveWithheld), so nothing is settled. breaker1670AiPipeline',
-  },
-  'pages/api/accounting/capture/[id]/post.ts': {
-    runCapturePostFollowUps: 'a bill the person may not approve is stored draft (approveWithheld), so the follow-ups settle nothing. captureApprovePermission',
-  },
+export const PAYROLL_DETAIL_SQL: readonly RegExp[] = [
+  /\b(?:FROM|JOIN)\s+(?:public\.)?(?:payslips|payroll_payslips|payroll_run_lines|payroll_employees|payroll_employee_components|payroll_irp5\w*|employees)\b/i,
+];
+export const PAYROLL_READ_GATES: Readonly<Record<string, GateSpec>> = {
+  refuseWithoutPayrollRead: { kind: 'refuse', module: 'payroll' },
+  mayReadPayroll: { kind: 'allow', module: 'payroll' },
 };
+export const PAYROLL_READ_WRAPPERS: Readonly<Record<string, string>> = { withPayrollModule: 'payroll', withPayrollDetailAccess: 'payroll' };

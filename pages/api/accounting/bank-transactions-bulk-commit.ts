@@ -229,6 +229,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // #1656 (round 3): the import's outflow auto-post and the optional rule pass post journals: they run only for a person with
     // Banking Approve; the import itself (the lines, the transfer links) lands either way.
     const mayPost = await mayApprove(companyId, authReq.user.id, 'banking');
+    // census-exempt(importParsedTransactions): the import lands for anyone who may write; its auto-post sweep is skipped (skipAutoPost: !mayPost) without Banking Approve. bankBulkCommitAutoPost.test
     const result = await importParsedTransactions(
       companyId,
       filteredResult,

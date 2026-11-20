@@ -44,6 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // connection, through the same read the scorecard and ratio list use.
   // Each month's head count is its own, as at its month end, read for every
   // month in one query rather than one per month.
+  // census-exempt(readHeadCounts): headcounts per month (counts), never one person's pay
   const headCounts = await readHeadCounts(companyId, monthSlots.map((m) => m.to));
   const results: FinancialData[] = [];
   for (const [i, { from, to }] of monthSlots.entries()) {

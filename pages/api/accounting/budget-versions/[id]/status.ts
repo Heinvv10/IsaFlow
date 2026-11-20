@@ -33,6 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // #1656 (Hein: gate everything): approving a budget version takes Budgets Approve, before the version is read.
   if (action === 'approve' && await refuseWithoutApprove(res, companyId, userId, 'budgets', 'budget versions')) return;
   try {
+    // census-exempt(transitionVersion): approve asks Budgets Approve first (above); lock and unlock have no ledger effect. approveGateEverything
     const version = await transitionVersion(companyId, id, { action, reason, expectedUpdatedAt, force }, { userId, role: companyRole });
     return apiResponse.success(res, version);
   } catch (err) {

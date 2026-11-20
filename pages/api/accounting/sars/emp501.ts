@@ -17,6 +17,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const parsedTaxYear = Number(req.query.taxYear);
   const taxYear = parsedTaxYear >= 2000 && parsedTaxYear <= 2100 ? parsedTaxYear : new Date().getFullYear();
 
+  // census-exempt(sql): monthly PAYE / UIF / SDL totals and a head count, never one person's pay
   // Get monthly totals from payroll runs
   const rows = await sql`
     SELECT
