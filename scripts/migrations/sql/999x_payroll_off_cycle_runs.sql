@@ -12,16 +12,16 @@
 --     the month's regular run when that run is reopened and recalculated.
 --     payroll_off_cycle_employees_guard  a BEFORE INSERT trigger (INVOKER, under the caller's RLS): the run is this
 --     company's, an off-cycle run, still a draft; the employee is this company's; a bonus row names one of this
---     company's 3605 earnings and a termination row names none. A trusted ops role (not payroll_run_app_role) inserts
---     onto a run past draft and keeps the row's created_at, so a data-only restore works (review #1679 codex 5); the
---     app's roles get created_at from the clock. On UPDATE (app_user may update the amount column
+--     company's 3605 earnings and a termination row names none. A trusted ops identity (payroll_run_trusted_restore) inserts
+--     onto a run past draft and keeps the row's created_at, so a data-only restore works (review #1679 codex 5); every
+--     other role gets created_at from the clock. On UPDATE (app_user may update the amount column
 --     only): the run is this company's DRAFT bonus run (the service sends a calculated run back to draft and clears its
 --     lines first); company, run, employee and earning stay as they were; the amount is more than R0 in whole cents.
 --     app_user may INSERT, SELECT and UPDATE (amount).
 --   payroll_run_headers.off_cycle_paid_gross  each employee's gross on an off-cycle run as last approved, as JSONB
 --     {employee_id: gross}: taken by payroll_off_cycle_paid_snapshot (BEFORE INSERT OR UPDATE, ENABLE ALWAYS, INVOKER)
 --     from the run's lines at the status transition out of 'approved' (a reopen), on the row that transition writes.
---     For the app's roles (payroll_run_app_role; a trusted ops role writes it as given, so a restore keeps it, #1679
+--     For every role but a trusted ops identity (payroll_run_trusted_restore, fail closed; that one writes it as given, so a restore keeps it, #1679
 --     ops M), every other INSERT or UPDATE keeps it as it was (NULL on insert), whatever the statement says, so no app_user
 --     write can set or move it (review #1679 L1: approved_amount, stamped from a reopened_at app_user may UPDATE, could
 --     be forged). A re-snapshot never rises (review #1679b: a status flip by app_user over raised lines): each
@@ -61,7 +61,7 @@
 --   DROP TRIGGER IF EXISTS payroll_off_cycle_paid_snapshot ON public.payroll_run_headers;
 --   DROP TRIGGER IF EXISTS payroll_run_headers_history_guard ON public.payroll_run_headers;
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_history_guard();
---   DROP FUNCTION IF EXISTS public.payroll_run_app_role();
+--   DROP FUNCTION IF EXISTS public.payroll_run_trusted_restore(regclass);
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_paid_snapshot();
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_paid_gross;
 --   and re-run 951's approval_request_document_facts definition.
@@ -90,11 +90,21 @@ COMMENT ON TABLE public.payroll_off_cycle_employees IS
 
 CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.payroll_off_cycle_employees (company_id, run_id);
 
--- The application's roles (review #1679 ops M): the request role app_user, the service role app_service and their
--- login roles. Exact names, not membership: postgres may be a member of app_user (to SET ROLE), and is not bound.
-CREATE OR REPLACE FUNCTION public.payroll_run_app_role() RETURNS boolean
+-- The trusted ops identities a restore, a restore drill or a dev clone runs as (review #1679 ops M; fail closed, security
+-- review of #1679 codex 5): a superuser; migration_admin; or the owner of the table the trigger fires on (`rel`,
+-- TG_RELID). Production's deploy and restore connect as postgres, NOSUPERUSER on Supabase and the tables' owner (the
+-- migration runner creates them as it), and CI's postgres migrates the same way before it is made a superuser. Exact
+-- identities, not membership: postgres is a member of app_user (to SET ROLE), and inside SET ROLE app_user current_user
+-- is app_user. EVERY other role is bound: the app's (app_user, app_service, isaflow_app, isaflow_service),
+-- platform_admin, supabase_read_only_user and any role added later.
+CREATE OR REPLACE FUNCTION public.payroll_run_trusted_restore(rel regclass) RETURNS boolean
 LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
-  SELECT current_user IN ('app_user', 'app_service', 'isaflow_app', 'isaflow_service')
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles r
+     WHERE r.rolname = current_user
+       AND (r.rolsuper OR r.rolname = 'migration_admin'
+            OR r.oid = (SELECT c.relowner FROM pg_catalog.pg_class c WHERE c.oid = rel))
+  )
 $$;
 
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_employees_guard() RETURNS trigger
@@ -122,10 +132,10 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  -- A trusted ops role (review #1679 codex 5; payroll_run_app_role, above) restores an input as written: a data-only
-  -- restore (COPY fires this ALWAYS trigger, even in replica mode) brings back a run's inputs after its header has left
-  -- draft, with their created_at. The run must still be this company's off-cycle run; the app's roles need a draft.
-  IF NOT FOUND OR h.run_kind <> 'off_cycle' OR (h.status <> 'draft' AND public.payroll_run_app_role()) THEN
+  -- A trusted ops identity (review #1679 codex 5; payroll_run_trusted_restore, above) restores an input as written: a
+  -- data-only restore (COPY fires this ALWAYS trigger, even in replica mode) brings back a run's inputs after its header
+  -- has left draft, with their created_at. The run must still be this company's off-cycle run; every other role needs a draft.
+  IF NOT FOUND OR h.run_kind <> 'off_cycle' OR (h.status <> 'draft' AND NOT public.payroll_run_trusted_restore(TG_RELID)) THEN
     RAISE EXCEPTION 'payroll_off_cycle_employees: the run is not a draft off-cycle run of this company'
       USING ERRCODE = 'check_violation';
   END IF;
@@ -144,7 +154,7 @@ BEGIN
   ELSIF NEW.component_id IS NOT NULL THEN
     RAISE EXCEPTION 'payroll_off_cycle_employees: a termination row names no component' USING ERRCODE = 'check_violation';
   END IF;
-  IF public.payroll_run_app_role() THEN
+  IF NOT public.payroll_run_trusted_restore(TG_RELID) THEN
     NEW.created_at := pg_catalog.clock_timestamp();
   END IF;
   RETURN NEW;
@@ -164,9 +174,9 @@ COMMENT ON COLUMN public.payroll_run_headers.off_cycle_paid_gross IS
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_paid_snapshot() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
-  -- The app's roles only (review #1679 ops M): a trusted ops role (postgres, the migration and deploy roles) restores
-  -- or edits the column as written; only a reopen (approved -> not approved) still snapshots for it.
-  IF NOT public.payroll_run_app_role()
+  -- Every role but a trusted ops identity (payroll_run_trusted_restore, review #1679 ops M, fail closed): that one
+  -- restores or edits the column as written; only a reopen (approved -> not approved) still snapshots for it.
+  IF public.payroll_run_trusted_restore(TG_RELID)
      AND NOT (TG_OP = 'UPDATE' AND OLD.run_kind = 'off_cycle' AND OLD.status = 'approved' AND NEW.status IS DISTINCT FROM 'approved'
               AND NEW.off_cycle_paid_gross IS NOT DISTINCT FROM OLD.off_cycle_paid_gross) THEN
     RETURN NEW;
@@ -202,10 +212,10 @@ CREATE TRIGGER payroll_off_cycle_paid_snapshot BEFORE INSERT OR UPDATE ON public
   FOR EACH ROW EXECUTE FUNCTION public.payroll_off_cycle_paid_snapshot();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_paid_snapshot;
 
--- A run's approval history is never removed, invented or grown outside a reopen (reviews #1679d-f). For the APP's
--- roles only (payroll_run_app_role: app_user, app_service and their login roles isaflow_app and isaflow_service), the
--- threat model being the application; trusted ops roles (postgres, which is NOSUPERUSER on Supabase, the migration and
--- deploy roles, supabase_admin) are not bound, so a restore (COPY fires ALWAYS row triggers, and pg_restore
+-- A run's approval history is never removed, invented or grown outside a reopen (reviews #1679d-f). For EVERY role but
+-- the trusted ops identities (payroll_run_trusted_restore: a superuser such as supabase_admin, migration_admin, or the
+-- table's owner, which is postgres, NOSUPERUSER on Supabase, the role the deploy migrates and restores as); fail closed,
+-- so platform_admin and any role added later are bound (security review of #1679). Those identities are not bound, so a restore (COPY fires ALWAYS row triggers, and pg_restore
 -- --disable-triggers needs a superuser), a restore drill, a dev clone or a QA company delete still works (#1679 ops M).
 --   DELETE  a header approved once (non-empty approval_history) is not deleted: cancel or reverse it instead.
 --   INSERT  a new header carries no approval history and is not final (approved, paid).
@@ -221,16 +231,17 @@ ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_p
 --     Tightened here: null-safe status comparisons, and the appended range must start at OLD.approved_at (or be
 --     unbounded below for a grandfathered run).
 --   * Binding on current_user: inside SET LOCAL ROLE app_user, set_config('role', 'none', true) mid-statement shows
---     the trigger the pool's login role. With the pool on isaflow_app or isaflow_service that role is bound too (and
---     holds no header grant); with the pool still on postgres (the table owner) it is not, but the owner can switch
---     any trigger off anyway, so this is no weaker than 999n's freeze today.
+--     the trigger the pool's login role. With the pool on isaflow_app or isaflow_service that role is bound too (it is
+--     not a trusted identity, and holds no header grant); with the pool still on postgres (the table owner) it is not,
+--     but the owner can switch any trigger off anyway, so this is no weaker than 999n's freeze today. The same holds for
+--     any code that connects as the owner without SET ROLE: the owner is trusted by design, as the restore identity.
 CREATE OR REPLACE FUNCTION public.payroll_run_headers_history_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
   co uuid := CASE WHEN TG_OP = 'INSERT' THEN NEW.company_id ELSE OLD.company_id END;
   added tstzmultirange;
 BEGIN
-  IF NOT public.payroll_run_app_role() OR co = '00000000-0000-0000-0000-000000000001'::uuid THEN
+  IF public.payroll_run_trusted_restore(TG_RELID) OR co = '00000000-0000-0000-0000-000000000001'::uuid THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
   END IF;
   IF TG_OP = 'UPDATE' THEN

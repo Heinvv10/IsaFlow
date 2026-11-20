@@ -198,4 +198,56 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
     await expect(asApp('INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount) VALUES ($1, $2, $3, $4, 1)',
       [a.company, id, mid, bonusComponent])).rejects.toThrow(/not a draft off-cycle run/);
   });
+  it('fail closed (security review of #1679): a role that is not a trusted ops identity is bound; the tables\' owner restores', async () => {
+    const draft = String((await a.pool.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind,
+      off_cycle_reason, period_start, period_end, run_date, status) VALUES ($1, 12, 2026, 'monthly', 'off_cycle', 'bonus', '2026-12-01',
+      '2026-12-31', '2026-12-30', 'draft') RETURNING id`, [a.company])).rows[0].id);
+    const approved = String((await a.pool.query(`SELECT id FROM payroll_run_headers WHERE company_id = $1 AND run_kind = 'off_cycle'
+      AND status = 'approved' LIMIT 1`, [a.company])).rows[0].id);
+    const emp = (await a.employee(7_000)).employee;
+    const tag = crypto.randomUUID().slice(0, 8);
+    const c = await a.pool.connect();
+    const attempt = async (sqlText: string, params: unknown[]) => {
+      await c.query('SAVEPOINT t');
+      try {
+        const r = await c.query(sqlText, params);
+        await c.query('RELEASE SAVEPOINT t');
+        return r.rows;
+      } catch (err) {
+        await c.query('ROLLBACK TO SAVEPOINT t');
+        return (err as Error).message;
+      }
+    };
+    const input = `INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_at)
+      VALUES ($1, $2, $3, $4, 100, '2000-01-01T00:00:00Z') RETURNING created_at`;
+    try {
+      // Roles are cluster-wide but transactional: everything below is rolled back.
+      await c.query('BEGIN');
+      for (const role of [`zzoc_any_${tag}`, `zzoc_owner_${tag}`]) {
+        await c.query(`CREATE ROLE ${role} NOLOGIN BYPASSRLS`);
+        await c.query(`GRANT SELECT, INSERT ON payroll_off_cycle_employees, payroll_run_headers TO ${role}`);
+        await c.query(`GRANT SELECT ON payroll_employees, payroll_components, payroll_run_lines TO ${role}`);
+      }
+      // Any other role (platform_admin's shape: NOSUPERUSER, BYPASSRLS, not the owner): the draft rule and the clock apply.
+      await c.query(`SET ROLE zzoc_any_${tag}`);
+      expect(await attempt(input, [a.company, approved, emp, bonusComponent])).toMatch(/not a draft off-cycle run/);
+      const stamped = await attempt(input, [a.company, draft, emp, bonusComponent]) as Array<{ created_at: Date }>;
+      expect(new Date(stamped[0]!.created_at).getUTCFullYear()).toBeGreaterThan(2000);
+      expect(await attempt(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind, off_cycle_reason,
+        period_start, period_end, run_date, status) VALUES ($1, 12, 2026, 'monthly', 'off_cycle', 'bonus', '2026-12-01', '2026-12-31',
+        '2026-12-31', 'approved')`, [a.company])).toMatch(/a new pay run starts without an approval history and is not final/);
+      expect(await attempt(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind, off_cycle_reason,
+        period_start, period_end, run_date, status, off_cycle_paid_gross) VALUES ($1, 12, 2026, 'monthly', 'off_cycle', 'bonus', '2026-12-01',
+        '2026-12-31', '2026-12-31', 'draft', '{"x": 1}') RETURNING off_cycle_paid_gross AS g`, [a.company])).toEqual([{ g: null }]);
+      await c.query('RESET ROLE');
+      // The owner of the inputs table (a fresh role here; postgres on production) restores onto a run past draft, as written.
+      await c.query(`ALTER TABLE payroll_off_cycle_employees OWNER TO zzoc_owner_${tag}`);
+      await c.query(`SET ROLE zzoc_owner_${tag}`);
+      const kept = await attempt(input, [a.company, approved, emp, bonusComponent]) as Array<{ created_at: Date }>;
+      expect(new Date(kept[0]!.created_at).toISOString()).toBe('2000-01-01T00:00:00.000Z');
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
 });
