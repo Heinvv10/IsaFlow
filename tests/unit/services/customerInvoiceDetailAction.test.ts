@@ -240,7 +240,6 @@ describe('customer-invoices-detail POST action guards', () => {
   });
 
   it('maps a closed-period reversal error on cancel to a 400, not a 500', async () => {
-    sqlMock.mockResolvedValueOnce([{ status: 'approved' }]); // #1656: cancel first reads the status to know whether it reverses a journal (then asks Approve, granted above)
     cancelMock.mockRejectedValueOnce(new ClosedFiscalPeriodError('closed'));
 
     const result = await call({ id: INV_ID, action: 'cancel' });

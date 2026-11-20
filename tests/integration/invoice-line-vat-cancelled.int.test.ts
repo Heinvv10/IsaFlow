@@ -45,7 +45,7 @@ const MIXED_ITEMS = [
 ];
 const MIXED_TYPES: Record<string, [string, number]> = { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] };
 
-const cancel = (id: string) => inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId));
+const cancel = (id: string) => inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId, { allowReversal: true }));
 const fields = async (from: string, to: string) => {
   const v = await inTx(f.fx, () => getVat201Return(f.fx.companyId, from, to));
   return [v.field1_standardRatedSupplies, v.field2_zeroRatedSupplies, v.field3_exemptSupplies, v.field5_outputVAT];

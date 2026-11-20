@@ -134,7 +134,7 @@ describeIfDb('D8 round 2: a re-reversed journal is taken out of the ledger at it
     const head = await reverseTwice(await journalOf('customer_invoices', invoice));
     const before = await net(acct.ar!);
 
-    const out = await inTx(fx, () => cancelCustomerInvoice(fx.companyId, invoice, fx.userId));
+    const out = await inTx(fx, () => cancelCustomerInvoice(fx.companyId, invoice, fx.userId, { allowReversal: true }));
 
     expect(await net(acct.ar!)).toBeCloseTo(before - 1150, 2);
     expect(await reversalOf(head)).toEqual([out.reversedJournalEntryId]);
@@ -194,7 +194,7 @@ describeIfDb('D8 round 2: a re-reversed journal is taken out of the ledger at it
       FROM gl_journal_entries je WHERE je.id = ${x}::UUID AND je.company_id = ${fx.companyId}::UUID`)) as Row[];
     expect(typeof read!.now).toBe('boolean');
     expect(typeof read!.asat).toBe('boolean');
-    await expect(bounded(() => cancelCustomerInvoice(fx.companyId, invoice, fx.userId))).rejects.toThrow(JournalChainBrokenError);
+    await expect(bounded(() => cancelCustomerInvoice(fx.companyId, invoice, fx.userId, { allowReversal: true }))).rejects.toThrow(JournalChainBrokenError);
     expect(await net(acct.ar!)).toBeCloseTo(before, 2);
   });
 

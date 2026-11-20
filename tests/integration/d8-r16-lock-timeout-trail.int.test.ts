@@ -94,7 +94,7 @@ const flows: [string, () => Promise<() => Promise<unknown>>][] = [
     return () => reverseReconciledTransaction(co(), tx, u());
   }],
   ['AP bill cancel', async () => { const b = await postedBill(c); return () => cancelSupplierInvoice(co(), b.id, u()); }],
-  ['AR invoice cancel', async () => { const i = await postedInvoice(c); return () => cancelCustomerInvoice(co(), i.id, u()); }],
+  ['AR invoice cancel', async () => { const i = await postedInvoice(c); return () => cancelCustomerInvoice(co(), i.id, u(), { allowReversal: true }); }],
   ['credit-note cancel', async () => {
     const inv = await postedInvoice(c);
     const id = await inTx(c.fx, async () => {

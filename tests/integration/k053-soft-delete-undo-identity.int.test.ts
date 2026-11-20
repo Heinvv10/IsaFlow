@@ -358,7 +358,7 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
     await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
 
-    await expect(inTx(() => cancelCustomerInvoice(COMPANY, arInvoice, USER)))
+    await expect(inTx(() => cancelCustomerInvoice(COMPANY, arInvoice, USER, { allowReversal: true })))
       .rejects.toThrow(/not found/i);
     await expect(inTx(() => cancelSupplierInvoice(COMPANY, apInvoice, USER)))
       .rejects.toThrow(/not found/i);

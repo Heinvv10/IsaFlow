@@ -113,9 +113,9 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 9: every row lock of the re
 
   it('AR invoice cancel: the invoice held, then the journal held — each refuses within the budget', async () => {
     const inv = await postedInvoice(c);
-    expectBounded(await againstHolder('customer_invoices', inv.id, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)),
+    expectBounded(await againstHolder('customer_invoices', inv.id, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })),
       RowLockTimeoutError);
-    expectBounded(await againstHolder('gl_journal_entries', inv.je, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId)),
+    expectBounded(await againstHolder('gl_journal_entries', inv.je, () => cancelCustomerInvoice(c.fx.companyId, inv.id, c.fx.userId, { allowReversal: true })),
       JournalReversalLockTimeoutError);
     expect((await one(sql`SELECT status FROM customer_invoices WHERE id = ${inv.id}::UUID`)).status).not.toBe('cancelled');
   }, 40000);

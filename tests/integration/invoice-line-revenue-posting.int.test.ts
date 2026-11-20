@@ -148,7 +148,7 @@ describeIfDisposable('invoice line revenue posting (migration 874)', () => {
     const { id, je } = await approved([
       { description: 'Rental', unitPrice: 500, glAccountId: f.acct.commercials, projectId: f.project.p2, cc2Id: f.dim.cc2 },
     ]);
-    await inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId));
+    await inTx(f.fx, () => cancelCustomerInvoice(f.fx.companyId, id, f.fx.userId, { allowReversal: true }));
     const net = (await sql`
       SELECT SUM(jl.credit - jl.debit) AS net FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
