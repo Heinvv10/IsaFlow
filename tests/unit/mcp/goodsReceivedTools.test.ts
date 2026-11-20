@@ -65,6 +65,8 @@ describe('create_goods_received', () => {
     [{ lines: [{ po_item_id: LINE, quantity_received: -1 }] }, 'lines[0].quantity_received must be a number of at least 0'],
     [{ lines: [{ po_item_id: LINE, quantity_received: 1, colour: 'red' }] }, 'lines[0].colour is not a field'],
     [{ external_system: 'fibreflow' }, 'external_system and external_ref go together'],
+    // Measured lower case, as stored: 'İ' lowercases to two UTF-16 units, so 20 of them are 40 (the CHECK would answer a raw 500).
+    [{ external_system: 'İ'.repeat(20), external_ref: 'x' }, 'external_system is longer than 32 characters'],
     [{ dry_run: 'yes' }, 'dry_run must be true or false'],
     [{ grn_number: 'GRN-1' }, 'arguments.grn_number is not a field'],
   ])('%o is refused before the service: %s', async (over, message) => {

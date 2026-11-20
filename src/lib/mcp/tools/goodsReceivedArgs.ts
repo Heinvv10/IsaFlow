@@ -55,7 +55,8 @@ export function parseCreateGrnArgs(args: Record<string, unknown>): CreateGrnArgs
     if (isErr(lineNotes)) return lineNotes.error;
     items.push({ poItemId: line.po_item_id, quantityReceived: line.quantity_received ?? 0, quantityRejected: line.quantity_rejected ?? 0, notes: lineNotes });
   }
-  const system = optionalText(args.external_system, 'external_system', 32);
+  // Lower case BEFORE the length check: that is what is stored, and lowercasing can lengthen a string ('İ' is two units lower case).
+  const system = optionalText(typeof args.external_system === 'string' ? args.external_system.toLowerCase() : args.external_system, 'external_system', 32);
   if (isErr(system)) return system.error;
   const rawRef = args.external_ref;
   const ref = typeof rawRef === 'number' && Number.isSafeInteger(rawRef) ? String(rawRef) : optionalText(rawRef, 'external_ref', 128);
@@ -64,7 +65,7 @@ export function parseCreateGrnArgs(args: Record<string, unknown>): CreateGrnArgs
   if (args.dry_run !== undefined && typeof args.dry_run !== 'boolean') return 'dry_run must be true or false';
   return {
     input: { purchaseOrderId: args.po_id, receivedDate: args.received_date, receivedBy: receivedBy, notes, items },
-    external: system && ref ? { system: system.toLowerCase(), ref } : null,
+    external: system && ref ? { system, ref } : null,
     dryRun: args.dry_run === true,
   };
 }
