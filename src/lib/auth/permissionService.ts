@@ -31,9 +31,9 @@ type Row = DbRow;
 function defaultPerm(role: string, moduleKey: string, moduleName: string): ModulePermission {
   return {
     moduleKey, moduleName,
-    canRead: roleDefaultPermission(role, 'read'), canWrite: roleDefaultPermission(role, 'write'),
-    canDelete: roleDefaultPermission(role, 'delete'), canExport: roleDefaultPermission(role, 'export'),
-    canApprove: roleDefaultPermission(role, 'approve'),
+    canRead: roleDefaultPermission(role, 'read', moduleKey), canWrite: roleDefaultPermission(role, 'write', moduleKey),
+    canDelete: roleDefaultPermission(role, 'delete', moduleKey), canExport: roleDefaultPermission(role, 'export', moduleKey),
+    canApprove: roleDefaultPermission(role, 'approve', moduleKey),
     accountRangeFrom: null, accountRangeTo: null, restrictions: {},
   };
 }
@@ -156,7 +156,7 @@ export async function checkPermission(
   const storedRole = String(r.role);
   if (isFullAccessRole(normalizeCompanyRole(storedRole))) return true;
   if (r.has_row) return Boolean(r[`can_${action}`]);
-  return roleDefaultPermission(storedRole, action);
+  return roleDefaultPermission(storedRole, action, moduleKey);
 }
 
 export async function getCompanyUsersWithPermissions(companyId: string): Promise<UserWithPermissions[]> {

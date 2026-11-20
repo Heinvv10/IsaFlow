@@ -43,6 +43,7 @@ import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoi
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { respondIfJournalHasLiveBankLine } from '@/lib/apiJournalLiveBankLine';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 type Row = Record<string, unknown>;
 
 /**
@@ -174,6 +175,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if ((expectedTotal !== undefined || expectedCurrency !== undefined || expectedExchangeRate !== undefined) && expectedContentDigest === undefined) {
         return apiResponse.conflict(res, 'This page is out of date: reload it, then approve again.', { code: 'INVOICE_APPROVE_VIEW_INCOMPLETE' });
       }
+      // #1656 (Hein: gate everything): Customers & AR Approve, before the invoice is read or locked.
+      if (await refuseWithoutApprove(res, companyId, userId, 'customers', 'customer invoices')) return;
       try {
         const result = await withJournalDateRefusal(res, () =>
           approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest }));

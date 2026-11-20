@@ -14,7 +14,7 @@ import { sql } from '@/lib/neon';
 import { checkPermission } from '@/lib/auth/permissionService';
 import { logAuditOrThrow } from './auditTrailService';
 
-export type ApproveModule = 'suppliers' | 'customers' | 'accounts' | 'payroll';
+export type ApproveModule = 'suppliers' | 'customers' | 'accounts' | 'payroll' | 'budgets';
 
 /** The module whose Approve governs each approvable document type (R-035 document types and purchase orders). */
 export const APPROVE_MODULE_BY_DOCUMENT: Readonly<Record<string, ApproveModule>> = Object.freeze({
@@ -23,24 +23,20 @@ export const APPROVE_MODULE_BY_DOCUMENT: Readonly<Record<string, ApproveModule>>
   supplier_payment: 'suppliers',
   payment_batch: 'suppliers',
   purchase_order: 'suppliers',
+  // Legacy R-035 type (governs no document since PR5); a payment, so Suppliers & AP (Hein, 2026-11-19: gate everything).
+  payment: 'suppliers',
   customer_invoice: 'customers',
   customer_credit_note: 'customers',
   manual_journal: 'accounts',
+  // Legacy R-035 type (governs no journal since PR6); a journal, so Chart of Accounts & GL.
+  journal_entry: 'accounts',
   pay_run: 'payroll',
-});
-
-/**
- * Approval-request types decided with no module Approve, each with its reason. Every other type is
- * either in APPROVE_MODULE_BY_DOCUMENT, resolved from its document (`credit_note`), or refused:
- * an unknown type fails closed (review of #1670).
- */
-export const UNGATED_APPROVAL_TYPES: Readonly<Record<string, string>> = Object.freeze({
-  payment: 'legacy type: governs no supplier payment or batch since R-035 PR5 (approvalDocumentTypes LEGACY_TYPES); deciding it posts nothing',
-  journal_entry: 'legacy type: governs no journal since R-035 PR6 (manual journals are manual_journal); deciding it posts nothing',
+  budget_version: 'budgets',
 });
 
 const MODULE_LABEL: Record<ApproveModule, string> = {
   suppliers: 'Suppliers & AP', customers: 'Customers & AR', accounts: 'Chart of Accounts & GL', payroll: 'Payroll',
+  budgets: 'Budgets',
 };
 
 export function approveRefusedMessage(module: ApproveModule, what: string): string {
@@ -79,15 +75,14 @@ export async function assertMayApproveCreditNote(companyId: string, userId: stri
 
 /**
  * The Approve an approval request's decision takes: the document type's module, a legacy
- * `credit_note` resolved by the note's own type, 'ungated' for UNGATED_APPROVAL_TYPES, and null
- * (refuse) for any other type. A legacy credit note this company no longer has is 'missing': there
- * is nothing to approve, and the decide path answers it 404 before any write (R-035 contract L2).
+ * `credit_note` resolved by the note's own type, and null (refuse) for any other type: no type is
+ * decided ungated (Hein, 2026-11-19). A legacy credit note this company no longer has is 'missing':
+ * there is nothing to approve, and the decide path answers it 404 before any write (R-035 L2).
  */
 export async function approveModuleForRequest(
   companyId: string, documentType: string, documentId: string,
-): Promise<ApproveModule | 'ungated' | 'missing' | null> {
+): Promise<ApproveModule | 'missing' | null> {
   if (Object.hasOwn(APPROVE_MODULE_BY_DOCUMENT, documentType)) return APPROVE_MODULE_BY_DOCUMENT[documentType]!;
-  if (Object.hasOwn(UNGATED_APPROVAL_TYPES, documentType)) return 'ungated';
   if (documentType !== 'credit_note') return null;
   const rows = await sql`
     SELECT type FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID

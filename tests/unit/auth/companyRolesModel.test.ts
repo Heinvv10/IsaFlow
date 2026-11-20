@@ -39,9 +39,14 @@ describe('roleDefaultPermission', () => {
     expect(allowed('viewer')).toEqual(['read', 'export']);
   });
 
-  it('a former accountant / bookkeeper writes like a manager but does not approve; storeman/technician/user read', () => {
+  it('a former accountant / bookkeeper writes like a manager but does not approve, and has nothing on Payroll; storeman/technician/user read', () => {
     expect(allowed('accountant')).toEqual(['read', 'write', 'export']);
     expect(allowed('bookkeeper')).toEqual(['read', 'write', 'export']);
+    for (const r of ['accountant', 'bookkeeper']) {
+      expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission(r, a, 'payroll'))).toEqual([]);
+      expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission(r, a, 'suppliers'))).toEqual(['read', 'write', 'export']);
+    }
+    expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission('manager', a, 'payroll'))).toEqual(['read', 'write', 'export', 'approve']);
     for (const r of ['storeman', 'technician', 'user']) expect(allowed(r)).toEqual(['read', 'export']);
     expect(allowed('nonsense')).toEqual([]);
   });

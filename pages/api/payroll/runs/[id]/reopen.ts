@@ -32,6 +32,7 @@ import {
 // whose route maps the refusal. reversePayrollRunJournal, the only payroll caller of reverseJournalEntry, has no caller.
 import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import { log } from '@/lib/logger';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const Body = z.object({ reason: z.string().min(5).max(500) }).strict();
@@ -51,6 +52,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (!['owner', 'admin', 'manager'].includes(companyRole)) {
     return apiResponse.forbidden(res, 'Only owners, admins, and managers can reopen a payroll run');
   }
+  // #1656: reopening undoes an approval, so it takes Payroll Approve too, before the run is read.
+  if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'pay runs (reopen)')) return;
 
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {

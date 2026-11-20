@@ -62,6 +62,7 @@ import {
   parseDocumentIds,
 } from './bulkApproveArgs';
 import { ok, toolError } from './toolHelpers';
+import { approveRefusedMessage, mayApprove } from '@/modules/accounting/services/core/approvePermission';
 
 const TOOL = 'bulk_finalize_invoices';
 
@@ -176,6 +177,8 @@ export const bulkFinalizeInvoicesTool: McpTool = {
   handler: async (args, ctx) => {
     const ids = parseDocumentIds(args.invoice_ids, 'invoice_ids');
     if (typeof ids === 'string') return toolError(ids);
+    // #1656: the token owner's Customers & AR Approve, before any invoice is read.
+    if (!(await mayApprove(ctx.companyId, ctx.userId, 'customers'))) return toolError(approveRefusedMessage('customers', 'customer invoices'));
 
     // A chart missing one of these roles fails EVERY element, so it is refused
     // once about the request's preconditions rather than reported as 100

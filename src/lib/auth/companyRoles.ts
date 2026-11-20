@@ -60,8 +60,14 @@ export const LEGACY_ROLE_MAP: Readonly<Record<string, CompanyRole>> = Object.fre
   user: 'viewer',
 });
 
-/** Legacy values promoted to manager that do not gain approve (no company_user_permissions row needed). */
+/**
+ * Legacy values promoted to manager that gain neither approve on any module nor anything on Payroll
+ * (Hein, 2026-11-19), with no company_user_permissions row needed.
+ */
 export const LEGACY_ROLES_WITHOUT_APPROVE: ReadonlySet<string> = new Set(['accountant', 'bookkeeper']);
+
+/** The module a promoted former accountant / bookkeeper cannot even read (per-employee pay). */
+export const LEGACY_DENIED_MODULE = 'payroll';
 
 /** A stored role as the app reads it: a legacy value maps (LEGACY_ROLE_MAP); anything else is returned unchanged. */
 export function normalizeCompanyRole(role: string): string {
@@ -90,10 +96,10 @@ export const MANAGER_APPROVES_BY_DEFAULT = true;
  * What a role may do on a module when the user has no company_user_permissions row for it:
  * owner/admin everything; manager read, write, export, and approve per MANAGER_APPROVES_BY_DEFAULT
  * (never delete); viewer read, export. Pass the STORED role: a legacy accountant/bookkeeper reads
- * as a manager without approve.
+ * as a manager without approve, and with nothing on Payroll (`moduleKey`).
  */
-export function roleDefaultPermission(role: string, action: PermissionAction): boolean {
-  if (action === 'approve' && LEGACY_ROLES_WITHOUT_APPROVE.has(role)) return false;
+export function roleDefaultPermission(role: string, action: PermissionAction, moduleKey?: string): boolean {
+  if (LEGACY_ROLES_WITHOUT_APPROVE.has(role) && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
   const effective = normalizeCompanyRole(role);
   if (isFullAccessRole(effective)) return true;
   if (effective === 'manager') {

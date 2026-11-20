@@ -165,7 +165,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           if (approveModule === null) {
             return apiResponse.forbidden(res, `An approval request for a ${requestRow.document_type} cannot be approved here.`);
           }
-          if (approveModule !== 'ungated' && approveModule !== 'missing' && !(await mayApprove(companyId, userId, approveModule))) {
+          if (approveModule !== 'missing' && !(await mayApprove(companyId, userId, approveModule))) {
             return apiResponse.forbidden(res, approveRefusedMessage(approveModule, `${requestRow.document_type.replace(/_/g, ' ')}s`));
           }
         }

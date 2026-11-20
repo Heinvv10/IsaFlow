@@ -25,6 +25,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollBatchService';
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -35,6 +36,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (!['owner', 'admin', 'manager'].includes(companyRole)) {
     return apiResponse.forbidden(res, 'Only owners, admins, and managers can post payroll batches');
   }
+  // #1656: posting a payroll batch approves it into the ledger: Payroll Approve, before the batch is read.
+  if (await refuseWithoutApprove(res, companyId, user.id, 'payroll', 'payroll batches')) return;
 
   const id = String(req.query.id ?? '');
   if (!id) return apiResponse.badRequest(res, 'Missing batch id');

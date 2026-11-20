@@ -183,12 +183,12 @@ describe('purchase order, payment batch and approval request (Suppliers & AP)', 
     expect(db.reads).toEqual([]);
   });
 
-  it('the listed ungated legacy types (payment, journal_entry) are decided without a module Approve', async () => {
-    member('viewer');
-    for (const type of ['payment', 'journal_entry']) {
+  it.each([['payment', 'suppliers'], ['journal_entry', 'accounts'], ['budget_version', 'budgets']])(
+    'no type is ungated (Hein: gate everything): a legacy %s request takes %s Approve', async (type, module) => {
+      member('manager', module, false);
       requestDocType = type;
-      expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(200);
-    }
-    expect(db.reads).toEqual([]);
-  });
+      expect((await call(approvalRequests, { action: 'approve', requestId: ID })).statusCode).toBe(403);
+      expect(db.reads.map((r) => r.moduleKey)).toEqual([module]);
+      expect(decideRequest).not.toHaveBeenCalled();
+    });
 });

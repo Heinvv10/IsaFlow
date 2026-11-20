@@ -28,6 +28,7 @@ import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/s
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { refuseWithoutApprove } from '@/lib/approvePermissionResponse';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -72,6 +73,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // R-032 L5: postJournalEntry is the posting primitive every workflow shares,
         // so the explicit "post this journal" act is guarded here, not inside it.
         await assertNotImpersonating();
+        // #1656 (Hein: gate everything): posting a draft journal approves it: Chart of Accounts & GL Approve, pre-read.
+        if (await refuseWithoutApprove(res, companyId, userId, 'accounts', 'journal entries')) return;
         // R-035 PR6, for the same reason: a person posting a draft — ANY draft,
         // whatever created it — is the act manual-journal approval governs.
         // Under enforcement the draft is locked and gated first (409 before
