@@ -270,40 +270,6 @@ AS $$ SELECT fp.fiscal_year FROM public.fiscal_periods fp WHERE fp.company_id = 
 REVOKE ALL ON FUNCTION public.intercompany_fiscal_year(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_fiscal_year(uuid, date) TO migration_admin;
 
--- THE ELIMINATIONS OF THE MIRRORED DOCUMENTS, DERIVED AT READ TIME and never stored: for a group the caller is a member of, the sender's group
--- rows (dated within p_start..p_end) that the two ledgers support AS AT p_end. A row is eliminated when the receiver's
--- journal is the one the definer bound it to, both journals stand at p_end (odd reversal chains counting only value-negating links DATED on or
--- before p_end), the receiver booked it in the same financial year of its calendar as the sender's date, and both journals carry the document's
--- figures by value. A pure function of ledger state: a hook that never ran, a lock that timed out or a reversal booked in a later period cannot
--- leave a wrong figure, because there is no stored figure. (Returns the row, signed as the sender wrote it: a credit note is negative.)
-CREATE OR REPLACE FUNCTION public.intercompany_mirror_eliminations(p_group uuid, p_start date, p_end date)
-RETURNS TABLE (transaction_id uuid, source_company_id uuid, target_company_id uuid, amount numeric, transaction_date date, description text)
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = pg_catalog, public, pg_temp
-AS $$
-  SELECT it.id, it.source_company_id, it.target_company_id, it.amount, it.transaction_date, it.description
-    FROM public.intercompany_transactions it
-    JOIN public.intercompany_messages m ON m.group_transaction_id = it.id
-   WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
-     AND it.transaction_date BETWEEN p_start AND p_end
-     AND it.first_target_journal_entry_id IS NOT NULL AND m.source_journal_entry_id IS NOT NULL
-     AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
-     AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 1
-     AND public.intercompany_journal_chain_length(it.first_target_journal_entry_id, m.to_company_id, p_end) % 2 = 1
-     AND public.intercompany_fiscal_year(m.to_company_id, it.transaction_date) IS NOT NULL
-     AND public.intercompany_fiscal_year(m.to_company_id, it.transaction_date) IS NOT DISTINCT FROM
-         public.intercompany_fiscal_year(m.to_company_id, (SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = it.first_target_journal_entry_id))
-     AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
-           (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
-     AND public.intercompany_receiver_journal_value_problem(m.kind, it.first_target_journal_entry_id, it.amount,
-           (m.payload->>'taxAmount')::numeric, (m.payload->>'total')::numeric) IS NULL
-$$;
-ALTER FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) OWNER TO migration_admin;
-REVOKE ALL ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) TO app_user, app_service, migration_admin;
-
 -- Why p_je is NOT the approval posting of p_doc (a customer invoice / customer credit note of p_company), or NULL when it is: the company's own,
 -- an ORIGINAL posted entry (not a reversal), the one the approval writes (source and description name this document), referenced by no other
 -- customer invoice / credit note of the company, and recorded on no other document's message. Whether it still STANDS is the caller's question
@@ -518,6 +484,40 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.intercompany_sender_journal_value_problem(text, uuid, uuid, numeric, numeric) TO migration_admin;
+
+-- THE ELIMINATIONS OF THE MIRRORED DOCUMENTS, DERIVED AT READ TIME and never stored: for a group the caller is a member of, the sender's group
+-- rows (dated within p_start..p_end) that the two ledgers support AS AT p_end. A row is eliminated when the receiver's
+-- journal is the one the definer bound it to, both journals stand at p_end (odd reversal chains counting only value-negating links DATED on or
+-- before p_end), the receiver booked it in the same financial year of its calendar as the sender's date, and both journals carry the document's
+-- figures by value. A pure function of ledger state: a hook that never ran, a lock that timed out or a reversal booked in a later period cannot
+-- leave a wrong figure, because there is no stored figure. (Returns the row, signed as the sender wrote it: a credit note is negative.)
+CREATE OR REPLACE FUNCTION public.intercompany_mirror_eliminations(p_group uuid, p_start date, p_end date)
+RETURNS TABLE (transaction_id uuid, source_company_id uuid, target_company_id uuid, amount numeric, transaction_date date, description text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT it.id, it.source_company_id, it.target_company_id, it.amount, it.transaction_date, it.description
+    FROM public.intercompany_transactions it
+    JOIN public.intercompany_messages m ON m.group_transaction_id = it.id
+   WHERE it.group_id = p_group AND p_group IN (SELECT public.rls_user_group_ids())
+     AND it.transaction_date BETWEEN p_start AND p_end
+     AND it.first_target_journal_entry_id IS NOT NULL AND m.source_journal_entry_id IS NOT NULL
+     AND public.intercompany_group_row_ok(it.id, m.from_company_id, m.to_company_id, m.source_journal_entry_id)
+     AND public.intercompany_journal_chain_length(m.source_journal_entry_id, m.from_company_id, p_end) % 2 = 1
+     AND public.intercompany_journal_chain_length(it.first_target_journal_entry_id, m.to_company_id, p_end) % 2 = 1
+     AND public.intercompany_fiscal_year(m.to_company_id, it.transaction_date) IS NOT NULL
+     AND public.intercompany_fiscal_year(m.to_company_id, it.transaction_date) IS NOT DISTINCT FROM
+         public.intercompany_fiscal_year(m.to_company_id, (SELECT je.entry_date FROM public.gl_journal_entries je WHERE je.id = it.first_target_journal_entry_id))
+     AND public.intercompany_sender_journal_value_problem(m.kind, m.source_journal_entry_id, m.from_company_id,
+           (m.payload->>'subtotal')::numeric, (m.payload->>'total')::numeric) IS NULL
+     AND public.intercompany_receiver_journal_value_problem(m.kind, it.first_target_journal_entry_id, it.amount,
+           (m.payload->>'taxAmount')::numeric, (m.payload->>'total')::numeric) IS NULL
+$$;
+ALTER FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.intercompany_mirror_eliminations(uuid, date, date) TO app_user, app_service, migration_admin;
 
 -- The ONE way a document message is written (the messages guard refuses the sender's own INSERT of one). For the session company, a signed-in
 -- user with a write role, and an APPROVED customer invoice / customer credit note of that company whose customer is the partner on an ACTIVE
