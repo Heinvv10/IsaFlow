@@ -29,6 +29,7 @@ export async function dropFreeze(z: Freeze): Promise<void> {
   await z.pool.end();
   for (const fx of [z.f.fx, z.f.other]) {
     const c = fx.companyId;
+    await sql`DELETE FROM recurring_journals WHERE company_id = ${c}::UUID`;
     await sql`UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
     await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
     await sql`UPDATE credit_notes SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;

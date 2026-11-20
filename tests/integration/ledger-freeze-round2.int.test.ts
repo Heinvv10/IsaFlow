@@ -9,7 +9,7 @@ import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import {
-  asApp, document, dropFreeze, journal, negate, openApp, refused, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row,
+  asApp, asRole, document, dropFreeze, journal, negate, openApp, refused, reverseAsSuperuser, seedFreeze, type Freeze, type Leg, type Row,
 } from './helpers/ledgerFreezeFixture';
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
@@ -65,7 +65,10 @@ describeIfDisposable('ledger column immutability, round 2 (migration 1018)', () 
     await refused(asApp(z, (c) => c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1', [contra])), /are closed/);
     await refused(asApp(z, (c) => c.query('UPDATE gl_journal_lines SET gl_account_id = $2 WHERE journal_entry_id = $1 AND credit > 0', [original, z.ap]), { commit: true }), /stay the exact negation/);
     expect((await accountsOf(original)).sort()).toEqual([z.ar, z.revenue].sort());
-    await asApp(z, (c) => c.query('UPDATE gl_journal_lines SET gl_account_id = $2 WHERE journal_entry_id = ANY($1::uuid[]) AND gl_account_id = $3', [[original, contra], z.expense, z.revenue]), { commit: true });
+    // An account merge: one statement per journal, in one transaction; the pair is a negation again at COMMIT.
+    await asApp(z, async (c) => {
+      for (const je of [original, contra]) await c.query('UPDATE gl_journal_lines SET gl_account_id = $2 WHERE journal_entry_id = $1 AND gl_account_id = $3', [je, z.expense, z.revenue]);
+    }, { commit: true });
     expect((await accountsOf(contra)).sort()).toEqual([z.ar, z.expense].sort());
   });
 
@@ -81,6 +84,31 @@ describeIfDisposable('ledger column immutability, round 2 (migration 1018)', () 
       await c.query('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [je, original]);
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 0, 0)', [je, z.f.fx.companyId, z.ap]);
     }), /are closed/);
+  });
+
+  it('the Demo company\'s wipe may still delete the lines of its linked journals (as the reseed does)', async () => {
+    const demo = '00000000-0000-0000-0000-000000000001';
+    await sql`INSERT INTO companies (id, name) VALUES (${demo}::UUID, 'LCF demo stand-in') ON CONFLICT (id) DO NOTHING`;
+    try {
+      const acct = async (code: string) => String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, is_active)
+        VALUES (${demo}::UUID, ${code}, ${`LCF demo ${code}`}, 'asset', 'debit', true) RETURNING id`) as Row[])[0]!.id);
+      const [a, b] = [await acct('LCF1'), await acct('LCF2')];
+      const dl: Leg[] = [[a, 10, 0], [b, 0, 10]];
+      const original = await journal(z, dl, { company: demo });
+      const contra = await journal(z, negate(dl), { company: demo });
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${original}::UUID WHERE id = ${contra}::UUID`;
+      await asRole(z, 'migration_admin', (c) => c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1', [contra]));
+      const other = await journal(z, negate(legs));
+      const og = await journal(z, legs);
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${og}::UUID WHERE id = ${other}::UUID`;
+      await refused(asRole(z, 'migration_admin', (c) => c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1', [other])), /are closed/);
+    } finally {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${demo}::UUID`;
+      await sql`DELETE FROM gl_journal_lines WHERE company_id = ${demo}::UUID`;
+      await sql`DELETE FROM gl_journal_entries WHERE company_id = ${demo}::UUID`;
+      await sql`DELETE FROM gl_accounts WHERE company_id = ${demo}::UUID`;
+      await sql`DELETE FROM companies WHERE id = ${demo}::UUID`;
+    }
   });
 
   it('L1 a document linking X waits for a contra being linked to X, and is then refused; the other order is the cancel', async () => {

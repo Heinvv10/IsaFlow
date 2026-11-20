@@ -29,8 +29,12 @@ non-superuser session, never a rule on `current_user` (a role check is beaten by
 SQL functions that write these tables: none on a request path (only historical migrations 206, 220, 252, 479, 523,
 524, 908, which run before any guard exists on a fresh build).
 
-Demo reseed (`scripts/lib/demoReseed`): bulk INSERTs journals already posted, with no `reversal_of_id`, and documents
-with no `gl_journal_entry_id`. Unaffected.
+Demo reseed (`scripts/lib/demoReseed`): bulk INSERTs journals already posted, with no `reversal_of_id`. **Correction
+(review round 2):** the first census wrongly said it inserts documents unlinked; `generateSales.ts:84` and
+`generatePurchases.ts:76` set `gl_journal_entry_id` on the INSERT, which 1018 refuses to a non-superuser (production's
+reseed runs as a NOSUPERUSER `postgres`). The reseed now inserts the documents unlinked and links them after the
+journals exist (`run.ts` + `write.ts linkDocumentJournals`). Its wipe deletes the lines of Demo journals, which stay
+exempt (rule 6, the Demo company's literal id, as in 999n).
 
 ## 2. `gl_journal_lines` on posted journals
 
