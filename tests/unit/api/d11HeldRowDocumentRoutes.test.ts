@@ -14,6 +14,7 @@ vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (awai
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', () => ({
   withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h, withVatVendor: (h: unknown) => h,
   withRole: () => (h: unknown) => h, withCsrf: (h: unknown) => h,
