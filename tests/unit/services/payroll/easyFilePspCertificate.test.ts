@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPspCertificateRecord, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
+import { buildIrp5File } from '@/modules/accounting/services/payroll/easyFileExportService';
 
 const base: PspCertificateInput = {
   employeeId: 'e1', certificateNumber: '712345678920270200000000000003', yearOfAssessment: 2027, entityType: 'company',
@@ -63,5 +64,20 @@ describe('pspFilingWarning (PSP-H wording)', () => {
 describe('buildPspCertificateRecord: 3100 judged again when the file is built', () => {
   it('a stored tax reference that fails modulus 10 refuses the file by name', () => {
     expect(() => buildPspCertificateRecord({ ...base, taxReference: '9012345678' })).toThrow(/Acme Consulting.*modulus 10/);
+  });
+});
+
+describe('the filing-date rule (BRS p. 32, 3180 at most 30 days after today) counts the H certificates too', () => {
+  const employer = {
+    tradingName: 'Holdco', payeReferenceNumber: '7123456789', sdlReferenceNumber: null, uifReferenceNumber: null,
+    contactFirstName: 'Jane', contactSurname: 'Horn', contactBusinessPhone: '0118765432', contactCellPhone: null, contactEmail: null,
+    transactionYear: 2027, reconciliationPeriod: 202702, sic7Code: '69201', physicalStreet: '12 Main Road', physicalSuburb: null,
+    physicalCity: 'Johannesburg', physicalPostalCode: '2196',
+  };
+  const psp = { ...base, periodStart: '20260301', periodEnd: '20270228' };
+  it('a file of only H certificates ending too far ahead is refused when filed; built with a warning ad hoc', () => {
+    expect(() => buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2026, 10, 20) })).toThrow(/can be filed from 2027-01-29/);
+    expect(buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2027, 2, 15) })).toContain('3020,"H"');
+    expect(buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2026, 10, 20), filingDate: 'warn' })).toContain('3180,20270228');
   });
 });
