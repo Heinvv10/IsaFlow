@@ -37,10 +37,11 @@ describe('expectations and expected-invoice alerts (#1699 review)', () => {
     const dismissed = await alert(gone, '2026-04-05', 'dismissed', e);
     await merge(survivor, gone);
     expect(String((await pool.query('SELECT supplier_id FROM supplier_expectations WHERE id = $1', [e])).rows[0].supplier_id)).toBe(survivor);
-    expect((await alertRow(open)).supplier_id).toBe(survivor);
-    expect((await alertRow(chased)).supplier_id).toBe(survivor);
-    expect((await alertRow(resolved)).supplier_id).toBe(gone);
-    expect((await alertRow(dismissed)).supplier_id).toBe(gone);
+    expect(await alertRow(open)).toEqual({ supplier_id: survivor, expectation_id: e });
+    expect(await alertRow(chased)).toEqual({ supplier_id: survivor, expectation_id: e });
+    // History stays on the source and no longer names an expectation that is now the survivor's.
+    expect(await alertRow(resolved)).toEqual({ supplier_id: gone, expectation_id: null });
+    expect(await alertRow(dismissed)).toEqual({ supplier_id: gone, expectation_id: null });
   });
 
   it('where the survivor has its own expectation and an alert for the same date, the survivor\'s rows stay and the source\'s duplicates go', async () => {
@@ -112,6 +113,9 @@ describe('expectations and expected-invoice alerts (#1699 review)', () => {
     await pool.query('UPDATE suppliers SET chase_opted_out = TRUE WHERE id = $1', [mutedGone]);
     await merge(survivor, mutedGone);
     expect((await pool.query('SELECT chase_opted_out FROM suppliers WHERE id = $1', [survivor])).rows[0].chase_opted_out).toBe(true);
+    const audit = (await pool.query("SELECT changes FROM audit_log WHERE company_id = $1 AND entity_type = 'supplier' AND entity_id = $2", [companyId, survivor])).rows;
+    expect(audit).toHaveLength(1);
+    expect(audit[0].changes.fields).toEqual([{ field: 'chase_opted_out', old: 'false', new: 'true', label: 'Chase opt-out' }]);
     const mutedSurvivor = await insPlain('Muted Survivor');
     const openGone = await insPlain('Open Gone');
     await pool.query('UPDATE suppliers SET chase_opted_out = TRUE WHERE id = $1', [mutedSurvivor]);

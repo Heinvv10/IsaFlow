@@ -22,6 +22,8 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { logAuditOrThrow } from './auditTrailService';
 
 export const BOTH_SIDES_REFUSAL =
   'Both suppliers are the partner of an intercompany connection. Disconnect one of them from its connection before merging, so the connection keeps exactly one supplier.';
@@ -43,8 +45,20 @@ export async function sideRefusal(companyId: string, sourceId: string, targetId:
 export const SIDE_GUARD_REFUSAL =
   'The intercompany connection of this supplier cannot be changed right now: it needs a user with a write role in this company, on a connection that is not revoked. Fix that first, then merge.';
 
-/** SQLSTATEs the intercompany sides guard raises (23514 state / 42501 role / 23503 foreign company). */
-const SIDE_GUARD_CODES = ['23514', '42501', '23503'];
+/**
+ * The intercompany sides guard's own refusals (migration 1002, intercompany_sides_guard): its SQLSTATE AND its message. Anything
+ * else (a unique violation, a deadlock, a driver fault) is not the guard and is rethrown.
+ */
+const SIDE_GUARD_ERRORS: ReadonlyArray<{ code: string; message: RegExp }> = [
+  { code: '23514', message: /^(a revoked connection's sides cannot change|a side keeps its connection|a side belongs to one of the connection's two companies|auto-accept|a default dimension is not)/ },
+  { code: '42501', message: /^a side is changed by a user with a write role in its company/ },
+  { code: '23503', message: /^(no such connection|the supplier is not this company's|the customer is not this company's)/ },
+];
+
+const isSideGuardError = (err: unknown): boolean => {
+  const { code, message } = err as { code?: unknown; message?: unknown };
+  return typeof code === 'string' && typeof message === 'string' && SIDE_GUARD_ERRORS.some((g) => g.code === code && g.message.test(message));
+};
 
 /**
  * Points the source's intercompany side at the survivor (after `sideRefusal` found none to refuse). The sides guard may
@@ -63,34 +77,59 @@ export async function moveIntercompanySide(
     `) as DbRow[]);
     return { moved: moved.length, refusal: null };
   } catch (err) {
-    const code = (err as { code?: unknown }).code;
-    if (typeof code === 'string' && SIDE_GUARD_CODES.includes(code)) return { moved: 0, refusal: SIDE_GUARD_REFUSAL };
-    throw err;
+    if (!isSideGuardError(err)) throw err;
+    log.warn('Supplier merge: the intercompany sides guard refused the move', {
+      companyId, sourceId, targetId, code: (err as { code?: string }).code, error: (err as Error).message,
+    }, 'duplicate-merge');
+    return { moved: 0, refusal: SIDE_GUARD_REFUSAL };
   }
 }
 
+export interface MergeActor { userId: string; via: string }
+
 /**
- * Moves the expectation and the open alerts to the survivor, and the chase opt-out with them. Returns the rows actually changed.
+ * Moves the expectation and the open alerts to the survivor, and the chase opt-out with them. Returns the rows changed (not
+ * transactions: the caller keeps them out of its moved-transactions count).
  *
- * - suppliers.chase_opted_out: if the source is muted the survivor becomes muted (the safe default for outbound messages);
- *   a muted survivor stays muted. Never refused.
+ * - The open alerts of both suppliers are locked FOR UPDATE first (id order), so a cron stamp that arrives meanwhile waits and
+ *   then lands on the merged row. The cron itself does not lock: it reads a pending alert, sends, then stamps by id
+ *   (missingInvoiceChaseService), so a chase already on its way when the merge commits can still go out; stated in the PR.
+ * - suppliers.chase_opted_out: if the source is muted the survivor becomes muted (the safe default for outbound messages),
+ *   with an audit row; a muted survivor stays muted. Never refused.
  * - Where the survivor already has an alert for the same date, the survivor's row stays and takes the MORE ADVANCED state of
  *   the two (resolved / dismissed > chased > pending), with its chase fields and resolving bill: a chased source alert must not
  *   lose to a pending survivor one (the cron would chase again), and a resolved one (its bill now on the survivor) must not
  *   leave a pending survivor alert to be chased for an invoice that arrived. The source's open duplicate is then dropped; its
  *   resolved / dismissed one stays as history.
- * - The survivor's expectation wins over the source's; the moved open alerts follow it. History alerts are not re-pointed
- *   (their expectation link is cleared when the source's expectation goes), so supplier_id and expectation_id never disagree.
+ * - The survivor's expectation wins over the source's, and the moved open alerts follow it. History alerts stay on the source
+ *   and are never pointed at an expectation of the survivor: their expectation link is cleared when the expectation moves or
+ *   goes, so an alert's supplier_id and its expectation's supplier_id never disagree.
  */
-export async function moveExpectationsAndAlerts(companyId: string, sourceId: string, targetId: string): Promise<number> {
+export async function moveExpectationsAndAlerts(
+  companyId: string, sourceId: string, targetId: string, actor: MergeActor,
+): Promise<number> {
   let moved = 0;
+  await sql`
+    SELECT id FROM expected_invoice_alerts
+     WHERE company_id = ${companyId}::UUID AND supplier_id = ANY(${[sourceId, targetId]}::UUID[]) AND status IN ('pending', 'chased')
+     ORDER BY id FOR UPDATE
+  `;
   const muted = (await sql`
     UPDATE suppliers SET chase_opted_out = TRUE
      WHERE id = ${targetId}::UUID AND company_id = ${companyId}::UUID AND chase_opted_out = FALSE
        AND EXISTS (SELECT 1 FROM suppliers s WHERE s.id = ${sourceId}::UUID AND s.company_id = ${companyId}::UUID AND s.chase_opted_out)
      RETURNING id
   `) as DbRow[];
-  moved += muted.length;
+  if (muted[0]) {
+    moved += 1;
+    await logAuditOrThrow({
+      companyId, userId: actor.userId, action: 'update', entityType: 'supplier', entityId: targetId,
+      changes: {
+        fields: [{ field: 'chase_opted_out', old: 'false', new: 'true', label: 'Chase opt-out' }],
+        metadata: { source: actor.via, mergedFrom: sourceId },
+      },
+    });
+  }
 
   const own = (await sql`
     SELECT id FROM supplier_expectations WHERE company_id = ${companyId}::UUID AND supplier_id = ${targetId}::UUID
@@ -105,6 +144,12 @@ export async function moveExpectationsAndAlerts(companyId: string, sourceId: str
        WHERE id = ${String(src[0].id)}::UUID AND company_id = ${companyId}::UUID RETURNING id
     `) as DbRow[];
     moved += e.length;
+    // The history alerts stay on the source, so they must not name an expectation that is now the survivor's.
+    await sql`
+      UPDATE expected_invoice_alerts SET expectation_id = NULL
+       WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID AND expectation_id = ${String(src[0].id)}::UUID
+         AND status IN ('resolved', 'dismissed')
+    `;
   }
 
   // Same-date clash: the survivor's alert takes the more advanced state, then (equal chased) the chase facts it lacks.

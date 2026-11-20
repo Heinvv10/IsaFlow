@@ -128,7 +128,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
       `;
-      await moveExpectationsAndAlerts(companyId, source_id, target_id);
+      await moveExpectationsAndAlerts(companyId, source_id, target_id, { userId: user.id, via: 'supplier-merge' });
 
       // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):
       // the Sage import follows a merged-away supplier to it, so a re-sync's bills land on the

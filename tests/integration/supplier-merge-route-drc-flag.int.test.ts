@@ -19,6 +19,9 @@ import { sql } from '@/lib/neon';
 import supplierMerge from '../../pages/api/accounting/supplier-merge';
 import { matchSageSupplier } from '@/modules/admin/services/sagePartyMatch';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { plantExternal } from './intercompany/intercompany.plant';
+import { asOwner } from './intercompany/intercompany.session';
+import { SIDE_GUARD_REFUSAL } from '@/modules/accounting/services/core/supplierMergeOpenWork';
 import { dropFixture, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -181,5 +184,33 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
     expect(await poSupplier(po)).toBe(source);
     expect(await billSupplier(bill)).toBe(source);
     await sql`DELETE FROM purchase_orders WHERE id = ${po}::UUID`;
+  });
+
+  it('a session the intercompany sides guard refuses gets a 400 with the reason, not a 500, and nothing moves (#1699 review)', async () => {
+    const source = await seedSupplier(fx, 'R Side Source');
+    const target = await seedSupplier(fx, 'R Side Target');
+    const partner = crypto.randomUUID();
+    await sql`INSERT INTO companies (id, name) VALUES (${partner}::UUID, ${`SMR partner ${partner.slice(0, 6)}`})`;
+    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}::TEXT, 'owner') ON CONFLICT DO NOTHING`;
+    const po = await seedPo(source, 'SMR-PO-SIDE', 'draft');
+    const connection = await plantExternal(fx.pool, fx.companyId, partner, 'active', fx.userId);
+    // The side is planted as a member (claims set); the merge request below carries none, as a session the guard refuses.
+    await asOwner(fx.pool, fx.userId, fx.companyId, (q) => q.query(
+      'INSERT INTO intercompany_connection_sides (connection_id, company_id, partner_company_id, supplier_id) VALUES ($1, $2, $3, $4)',
+      [connection, fx.companyId, partner, source]), true);
+    try {
+      const r = await merge(source, target);
+      expect(r.status).toBe(400);
+      expect(r.body?.error?.message).toBe(SIDE_GUARD_REFUSAL);
+      expect(await poSupplier(po)).toBe(source);
+      const side = (await sql`SELECT supplier_id FROM intercompany_connection_sides WHERE connection_id = ${connection}::UUID`) as { supplier_id: string }[];
+      expect(String(side[0]!.supplier_id)).toBe(source);
+    } finally {
+      await sql`DELETE FROM intercompany_connection_sides WHERE connection_id = ${connection}::UUID`;
+      await sql`DELETE FROM intercompany_connections WHERE id = ${connection}::UUID`;
+      await sql`DELETE FROM purchase_orders WHERE id = ${po}::UUID`;
+      await sql`DELETE FROM company_users WHERE company_id = ${fx.companyId}::UUID AND user_id = ${fx.userId}::TEXT`;
+      await sql`DELETE FROM companies WHERE id = ${partner}::UUID`;
+    }
   });
 });

@@ -5,13 +5,16 @@
  * (the previous approver is kept in the audit row), and an `update` audit row records the supplier_id change. A merge must not
  * be a way round those, so it shares them:
  *
- * - LOCK ORDER (ap/.claude.md, the PO <-> bill census): the source's PO rows are locked FOR NO KEY UPDATE, id order, first of
- *   all, then the payments and bills. That is the link / unlink order (PO NO KEY UPDATE -> bills, purchaseOrderBillLinkRead),
- *   and NO KEY UPDATE does not conflict with the KEY SHARE a bill write takes on its PO (the app sync: bill -> PO FOR KEY
- *   SHARE), so a bill writer and a merge never wait on each other in a cycle. FOR UPDATE would conflict with that KEY SHARE
- *   (the inversion). The lock comes BEFORE the bill-link check, so a link made meanwhile (its maker holds the PO) is waited
- *   for and seen; the lock is held to the end of the transaction, so no link or approval can appear on a PO being moved.
- *   Waited at most 5 s (`withRowLockBudget`, `PurchaseOrderLockTimeoutError`, a 503 retry).
+ * - LOCK, FOR UPDATE (not NO KEY UPDATE): the source's PO rows are locked FOR UPDATE, id order, first of all, then the
+ *   payments and bills. A bill create (`recordBillLinks`, ap/billPurchaseOrderLinks) takes FOR KEY SHARE on the PO it links, and
+ *   a FOR NO KEY UPDATE lock does not conflict with that: a bill still uncommitted on the source could link to a PO the merge
+ *   moves, leaving a link across two suppliers, which migration 1006 says must never exist (the guard cannot see the uncommitted
+ *   link). FOR UPDATE does conflict with it, so the merge waits for that bill, then sees its link and refuses; and a bill create
+ *   that arrives later waits for the merge, then finds the PO on the other supplier and links nothing. The lock comes BEFORE the
+ *   bill-link check for the same reason. Cost: a contention window against bill creates, answered, never faulted: waited at most
+ *   5 s (`withRowLockBudget`, `PurchaseOrderLockTimeoutError`) and a deadlock victim (40P01) is the same retryable 503 on both
+ *   routes (`respondIfLockTimeout`). Both sides take POs in id order, so two POs cannot cycle; the bill row a creator holds is
+ *   uncommitted, which the merge never waits on. The order is PO, then bills, as in link / unlink.
  * - a PO past draft / submitted (approved, partially received, received, closed) moves only for a role that passes
  *   `canCancelApprovedPo`; otherwise the merge is refused (`purchaseOrderMoveRefusal`, thrown by the caller as a
  *   SupplierMergeRefusal) before anything moves. A cancelled PO commits nothing and moves for anyone. Unlike
@@ -36,13 +39,13 @@ export interface PoMoveActor { userId: string; role: string | null | undefined; 
 /** Statuses a PO's supplier may change in without the approved-edit permission (a cancelled PO commits nothing). */
 const OPEN_PO_STATUSES: readonly string[] = ['draft', 'submitted', 'cancelled'];
 
-/** The supplier's purchase orders, locked FOR NO KEY UPDATE (company-scoped, in id order so two merges lock alike). */
+/** The supplier's purchase orders, locked FOR UPDATE (company-scoped, in id order so two merges lock alike). */
 export async function lockSupplierPurchaseOrders(companyId: string, supplierId: string): Promise<SourcePo[]> {
   const rows = await withRowLockBudget(async () => (await sql`
     SELECT id::TEXT AS id, po_number, status, approved_by, approved_at::TEXT AS approved_at
       FROM purchase_orders WHERE supplier_id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
      ORDER BY id
-       FOR NO KEY UPDATE
+       FOR UPDATE
   `) as DbRow[], () => new PurchaseOrderLockTimeoutError());
   return rows.map((r) => ({
     id: String(r.id), poNumber: String(r.po_number), status: String(r.status),

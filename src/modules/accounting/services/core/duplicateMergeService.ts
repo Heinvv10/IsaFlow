@@ -172,8 +172,8 @@ async function mergeSuppliers(
   `;
   count += r5.length;
 
-  count += side.moved;
-  count += await moveExpectationsAndAlerts(companyId, duplicateId, primaryId);
+  // Not moved transactions, so not counted: the side and the expectation / alert / opt-out work.
+  await moveExpectationsAndAlerts(companyId, duplicateId, primaryId, { userId, via: 'supplier-merge' });
 
   // merged_into_id (migration 1020): the Sage import follows a merged-away supplier to its survivor, so a
   // re-sync does not re-create it as a live supplier and split its new bills from the survivor (#1655).
