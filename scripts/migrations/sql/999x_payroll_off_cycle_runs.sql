@@ -62,6 +62,7 @@
 --   DROP TRIGGER IF EXISTS payroll_run_headers_history_guard ON public.payroll_run_headers;
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_history_guard();
 --   DROP FUNCTION IF EXISTS public.payroll_run_trusted_restore(regclass);
+--   DROP FUNCTION IF EXISTS public.payroll_run_app_role();  (an earlier draft's; a no-op where it never existed)
 --   DROP FUNCTION IF EXISTS public.payroll_off_cycle_paid_snapshot();
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS off_cycle_paid_gross;
 --   and re-run 951's approval_request_document_facts definition.
@@ -95,8 +96,10 @@ CREATE INDEX IF NOT EXISTS payroll_off_cycle_employees_company_run ON public.pay
 -- TG_RELID). Production's deploy and restore connect as postgres, NOSUPERUSER on Supabase and the tables' owner (the
 -- migration runner creates them as it), and CI's postgres migrates the same way before it is made a superuser. Exact
 -- identities, not membership: postgres is a member of app_user (to SET ROLE), and inside SET ROLE app_user current_user
--- is app_user. EVERY other role is bound: the app's (app_user, app_service, isaflow_app, isaflow_service),
--- platform_admin, supabase_read_only_user and any role added later.
+-- is app_user, and a member of the owner is not the owner. EVERY other role is bound on its own statements: the app's
+-- (app_user, app_service, isaflow_app, isaflow_service), platform_admin, supabase_read_only_user and any role added
+-- later. A foreign-key cascade is not the caller's statement: it runs as the referencing table's owner (see the
+-- cascade limit at the history guard below).
 CREATE OR REPLACE FUNCTION public.payroll_run_trusted_restore(rel regclass) RETURNS boolean
 LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
   SELECT EXISTS (
@@ -106,6 +109,9 @@ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_te
             OR r.oid = (SELECT c.relowner FROM pg_catalog.pg_class c WHERE c.oid = rel))
   )
 $$;
+
+-- The deny-list it replaces (an earlier draft of this file; never on production or dev): gone, so nothing calls it.
+DROP FUNCTION IF EXISTS public.payroll_run_app_role();
 
 CREATE OR REPLACE FUNCTION public.payroll_off_cycle_employees_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
@@ -215,8 +221,14 @@ ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_off_cycle_p
 -- A run's approval history is never removed, invented or grown outside a reopen (reviews #1679d-f). For EVERY role but
 -- the trusted ops identities (payroll_run_trusted_restore: a superuser such as supabase_admin, migration_admin, or the
 -- table's owner, which is postgres, NOSUPERUSER on Supabase, the role the deploy migrates and restores as); fail closed,
--- so platform_admin and any role added later are bound (security review of #1679). Those identities are not bound, so a restore (COPY fires ALWAYS row triggers, and pg_restore
--- --disable-triggers needs a superuser), a restore drill, a dev clone or a QA company delete still works (#1679 ops M).
+-- so platform_admin's and any later role's own statements on payroll_run_headers are bound (security review of #1679).
+-- Those identities are not bound, so a restore (COPY fires ALWAYS row triggers, and pg_restore --disable-triggers needs
+-- a superuser), a restore drill or a dev clone still works (#1679 ops M).
+-- CASCADE LIMIT (accepted, coordinator ruling on the 999x breaker of 5600db089c): payroll_run_headers.company_id is ON
+-- DELETE CASCADE, and a cascade runs as the table's owner, a trusted identity. So deleting a COMPANY (platform_admin
+-- holds DELETE on companies: a tenant or QA company delete) removes its approved headers with their history. That is
+-- by design: deleting a tenant removes its whole history, as 999n's freeze exempts the same cascade (p_cascade_delete).
+-- A direct DELETE of such a header by platform_admin is still refused (w6-oc-forge pins both).
 --   DELETE  a header approved once (non-empty approval_history) is not deleted: cancel or reverse it instead.
 --   INSERT  a new header carries no approval history and is not final (approved, paid).
 --   UPDATE OF approval_history  append-only (the new value contains the old, #1679e), and it changes only in the

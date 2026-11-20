@@ -250,4 +250,67 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       c.release();
     }
   });
+  it('the cascade limit, and identity not membership (999x breaker of 5600db089c): platform_admin, an untrusted role, the headers\' owner and its member', async () => {
+    const hist = String((await a.pool.query(`SELECT id FROM payroll_run_headers WHERE company_id = $1 AND approval_history IS NOT NULL
+      AND NOT isempty(approval_history) LIMIT 1`, [a.company])).rows[0]?.id ?? '');
+    expect(hist).not.toBe('');
+    const tag = crypto.randomUUID().slice(0, 8);
+    const [any, own, member] = [`zzoc_h_any_${tag}`, `zzoc_h_own_${tag}`, `zzoc_h_mem_${tag}`];
+    const c = await a.pool.connect();
+    const attempt = async (sqlText: string, params: unknown[] = []) => {
+      await c.query('SAVEPOINT t');
+      try {
+        const r = await c.query(sqlText, params);
+        await c.query('RELEASE SAVEPOINT t');
+        return r.rows;
+      } catch (err) {
+        await c.query('ROLLBACK TO SAVEPOINT t');
+        return (err as Error).message;
+      }
+    };
+    const finalHeader = `INSERT INTO payroll_run_headers (company_id, period_month, period_year, pay_frequency, run_kind, off_cycle_reason,
+      period_start, period_end, run_date, status, approved_at, approval_history, off_cycle_paid_gross)
+      VALUES ($1, 10, 2026, 'monthly', 'off_cycle', 'bonus', '2026-10-01', '2026-10-31', '2026-10-21', 'approved', now(),
+        tstzmultirange(tstzrange(now() - interval '3 days', now() - interval '2 days')), '{"e": 7}') RETURNING off_cycle_paid_gross AS g`;
+    try {
+      await c.query('BEGIN'); // roles, the owner change and the cascade are all rolled back
+      // A tenant with one approved header carrying its history (written by a trusted identity, as a restore would).
+      const tenant = String((await c.query(`INSERT INTO companies (name) VALUES ('ZZ OC cascade ${tag}') RETURNING id`)).rows[0].id);
+      const gone = String((await c.query(finalHeader.replace('RETURNING off_cycle_paid_gross AS g', 'RETURNING id'), [tenant])).rows[0].id);
+      // platform_admin: its own DELETE of a header approved before is refused ...
+      await c.query('SET ROLE platform_admin');
+      expect(await attempt('DELETE FROM payroll_run_headers WHERE id = $1', [gone])).toMatch(/cancel it instead/);
+      // ... but deleting the company cascades as the table's owner and removes it (accepted: a tenant delete).
+      expect(await attempt('DELETE FROM companies WHERE id = $1 RETURNING id', [tenant])).toEqual([{ id: tenant }]);
+      await c.query('RESET ROLE');
+      expect((await c.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE id = $1', [gone])).rows[0].n).toBe(0);
+      await c.query('ROLLBACK');
+      await c.query('BEGIN');
+      for (const role of [any, own]) {
+        await c.query(`CREATE ROLE ${role} NOLOGIN BYPASSRLS`);
+        await c.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON payroll_run_headers TO ${role}`);
+        await c.query(`GRANT SELECT ON payroll_run_lines, payroll_employees, companies TO ${role}`);
+      }
+      // An untrusted role: DELETE and an approval_history rewrite are refused.
+      await c.query(`SET ROLE ${any}`);
+      expect(await attempt('DELETE FROM payroll_run_headers WHERE id = $1', [hist])).toMatch(/cancel it instead/);
+      expect(await attempt(`UPDATE payroll_run_headers SET approval_history = '{}'::tstzmultirange WHERE id = $1`, [hist]))
+        .toMatch(/only added to, never rewritten or cleared/);
+      await c.query('RESET ROLE');
+      // The headers' owner restores a final header with its history and snapshot, as written.
+      await c.query(`ALTER TABLE payroll_run_headers OWNER TO ${own}`);
+      await c.query(`CREATE ROLE ${member} NOLOGIN BYPASSRLS INHERIT`);
+      await c.query(`GRANT ${own} TO ${member} WITH INHERIT TRUE, SET FALSE`);
+      await c.query(`SET ROLE ${own}`);
+      expect(await attempt(finalHeader, [a.company])).toEqual([{ g: { e: 7 } }]);
+      await c.query('RESET ROLE');
+      // A MEMBER of the owner (inherits its rights, cannot SET ROLE to it) is not the owner: bound.
+      await c.query(`SET ROLE ${member}`);
+      expect(await attempt(finalHeader, [a.company])).toMatch(/a new pay run starts without an approval history and is not final/);
+      expect(await attempt('DELETE FROM payroll_run_headers WHERE id = $1', [hist])).toMatch(/cancel it instead/);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
 });
