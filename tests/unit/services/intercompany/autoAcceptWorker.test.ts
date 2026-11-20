@@ -60,16 +60,22 @@ describe('runAutoAccept', () => {
   });
 
   it('a pending message that used every attempt (the queue no longer takes it) is counted as stuck, every run, and logged at error', async () => {
-    m.sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 2 }]);
+    m.sql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ message_id: 'x1' }, { message_id: 'x2' }]);
     const run = await runAutoAccept();
     expect(run).toMatchObject({ considered: 0, stuck: 2, exhausted: 2 });
     expect(m.log.error).toHaveBeenCalledWith(expect.stringMatching(/cannot run/), expect.objectContaining({ exhausted: 2, stuck: 2 }), 'intercompany');
   });
 
   it('exhausted messages add to the messages that keep deferring in the one stuck figure', async () => {
-    m.sql.mockResolvedValueOnce([queueRow(STUCK_AT)]).mockResolvedValueOnce([{ n: 1 }]);
+    m.sql.mockResolvedValueOnce([queueRow(STUCK_AT)]).mockResolvedValueOnce([{ message_id: 'm-other' }]);
     m.accept.mockRejectedValueOnce(lockTimeout());
     expect(await runAutoAccept()).toMatchObject({ deferred: 1, stuck: 2, exhausted: 1 });
+  });
+
+  it('one message that is both deferring this run and out of attempts is ONE stuck message, not two', async () => {
+    m.sql.mockResolvedValueOnce([queueRow(STUCK_AT, 'm1')]).mockResolvedValueOnce([{ message_id: 'm1' }, { message_id: 'm2' }]);
+    m.accept.mockRejectedValueOnce(lockTimeout());
+    expect(await runAutoAccept()).toMatchObject({ deferred: 1, exhausted: 2, stuck: 2 });
   });
 
   it('a refusal of ours (safeForSender) is stored as its own fixed sentence', async () => {

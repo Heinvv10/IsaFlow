@@ -9,7 +9,6 @@ import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { approveSupplierInvoice } from '../../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { cancelCustomerInvoice } from '../../../src/modules/accounting/services/ar/customerInvoiceCancelService';
-import { reverseJournalEntry } from '../../../src/modules/accounting/services/gl/journalEntryService';
 import { cancelCreditNote } from '../../../src/modules/accounting/services/ar/creditNoteCancelService';
 import { mirrorApprovedCreditNote } from '../../../src/modules/accounting/services/intercompany/outboxService';
 import { runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
@@ -26,12 +25,18 @@ beforeEach(async () => { await clearMirrorRows(pool); await connect(pool); });
 
 const row = async (id: string) => (await pool.query('SELECT * FROM intercompany_messages WHERE id = $1', [id])).rows[0];
 const cancelInvoice = (id: string) => asService(pool, U.a, co.A, () => cancelCustomerInvoice(co.A, id, U.a));
-/** What cancelling does to the books WITHOUT telling the mirror (no hook): the approval journal reversed, the status cancelled, the link cleared. */
-const reverseOnly = (inv: string) => asService(pool, U.a, co.A, async (q) => {
-  const je = (await q.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;
-  await reverseJournalEntry(co.A, je, U.a);
-  await q.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = NULL WHERE id = $1", [inv]);
-});
+/**
+ * A posted reversal of the invoice's journal written straight into the ledger (a statement, no service: the reversal service itself re-evaluates the
+ * mirror, see mirror-crosstenant), then the status cancelled and the link cleared as a cancel does. The mirror has not been told.
+ */
+const rawReversal = async (inv: string, clearLink: boolean) => {
+  const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [inv])).rows[0].je as string;
+  await pool.query(
+    `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id, reversal_of_id)
+     SELECT entry_date, 'raw reversal', source, 'posted', created_by, company_id, id FROM gl_journal_entries WHERE id = $1`, [je]);
+  await pool.query("UPDATE customer_invoices SET status = 'cancelled', gl_journal_entry_id = CASE WHEN $2 THEN NULL ELSE gl_journal_entry_id END WHERE id = $1", [inv, clearLink]);
+};
+const reverseOnly = (inv: string) => rawReversal(inv, true);
 const bills = async () => (await pool.query('SELECT * FROM supplier_invoices WHERE company_id = $1', [co.B])).rows;
 
 describe('a message the receiver has not handled', () => {
@@ -157,11 +162,9 @@ describe('the group row a withdrawal releases is the one the DATABASE recorded (
     expect(await row(m.id)).toMatchObject({ status: 'pending', source_cancelled_at: null });
   });
 
-  it('an invoice\'s link to its journal is cleared by the real cancel: a reversed journal with the link still set (and the status flipped by hand) withdraws nothing, until the link is cleared', async () => {
+  it('an invoice\'s link to its journal is cleared by the real cancel: a reversed journal with the link still set withdraws nothing, until the link is cleared', async () => {
     const m = await sentInvoice(pool);
-    const je = (await pool.query('SELECT gl_journal_entry_id AS je FROM customer_invoices WHERE id = $1', [m.inv.id])).rows[0].je as string;
-    await asService(pool, U.a, co.A, () => reverseJournalEntry(co.A, je, U.a));
-    await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [m.inv.id]);   // link NOT cleared
+    await rawReversal(m.inv.id, false);   // status cancelled, link NOT cleared
     const call = () => asAppUser(pool, U.a, co.A, async (q) => Number((await q.query("SELECT public.intercompany_withdraw_for_source('customer_invoice', $1) AS n", [m.inv.id])).rows[0].n), true);
     expect(await call()).toBe(0);
     await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE id = $1', [m.inv.id]);

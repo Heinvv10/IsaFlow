@@ -30,7 +30,7 @@ const SEND = `INSERT INTO intercompany_messages(connection_id, from_company_id, 
 // 1013: the DATABASE writes an invoice / credit-note message (app_user's own INSERT of one is refused: mirror-forged), so these send as the table
 // owner with the sender's claims; every other rule of the guard (the source, the connection, the group, the write role) runs as it does for anyone.
 const send = async (user: string, from: string, to: string, kind: string, type: string, doc: string) =>
-  (kind === 'invoice' || kind === 'credit_note' ? asOwner : asAppUser)(pool, user, from, async (q) => outcome(q, SEND, [id, from, to, kind, type, doc, await payloadFor(pool, kind, doc, from)]));
+  asOwner(pool, user, from, async (q) => outcome(q, SEND, [id, from, to, kind, type, doc, await payloadFor(pool, kind, doc, from)]));
 const handle = (user: string, company: string, m: string, set: string) =>
   asAppUser(pool, user, company, (q) => outcome(q, `UPDATE intercompany_messages SET ${set} WHERE id = $1`, [m]), true);
 const accepting = (type: string | null, doc: string | null) =>

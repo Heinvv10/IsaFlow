@@ -126,6 +126,14 @@ export class IntercompanyMatchRefusedError extends Error {
   }
 }
 
+/** A row the mirror recorded (a message points at it) is matched by the database from the receiver's ledger, never by a person: the manual match refuses it. */
+export class IntercompanyMirroredRowError extends Error {
+  constructor(readonly ids: string[]) {
+    super('A transaction recorded by the intercompany mirror is matched by the system, from the receiving company\'s ledger; it cannot be matched by hand.');
+    this.name = 'IntercompanyMirroredRowError';
+  }
+}
+
 export async function createIntercompanyTransaction(input: {
   groupId: string;
   sourceCompanyId: string;
@@ -196,6 +204,10 @@ export async function matchIntercompanyTransactions(
 
   const source = sources[0]!;
   const target = targets[0]!;
+  const mirrored = (await sql`
+    SELECT x.id FROM unnest(ARRAY[${sourceId}, ${targetId}]::UUID[]) AS x(id) WHERE public.intercompany_is_mirrored_row(x.id)
+  `) as Row[];
+  if (mirrored.length > 0) throw new IntercompanyMirroredRowError(mirrored.map((r) => String(r.id)));
   const variance = Math.abs(Number(source.amount) - Number(target.amount));
   const status = variance === 0 ? 'matched' : 'variance';
 

@@ -50,12 +50,20 @@ describe('buildInvoicePayload', () => {
     expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: true });
   });
 
-  it('a header VAT that is not the invoice rate on the subtotal (a forged or legacy header) cannot be carried: the parser refuses the line', () => {
+  it('a header VAT that is not the invoice rate on the subtotal, on SEVERAL lines (a forged or legacy header): the parser refuses the line', () => {
     const p = buildInvoicePayload(invoice({
-      subtotal: 100, taxAmount: 40, total: 140,
-      lines: [{ description: 'A', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }],
+      subtotal: 200, taxAmount: 40, total: 240,
+      lines: [{ description: 'A', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }, { description: 'B', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }],
     }));
     expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: false, error: expect.stringMatching(/VAT is not its amount at its rate/) });
+  });
+
+  it('a SINGLE-line invoice carries its header VAT whatever its rate says (an import with a mixed or rounded rate): the line is the document', () => {
+    const p = buildInvoicePayload(invoice({
+      subtotal: 10000, taxAmount: 333.33, total: 10333.33,
+      lines: [{ description: 'Imported', quantity: 1, unitPrice: 10000, amount: 10000, taxRate: 15 }],
+    }));
+    expect(parseMirrorPayload(p, 'invoice', SENDER)).toMatchObject({ ok: true });
   });
 
   it('a line whose amount is not quantity x price (rounded) becomes one unit at the line amount', () => {

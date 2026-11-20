@@ -87,10 +87,9 @@ export async function plantMessage(pool: Pool, connection: string, from: string,
   const sourceType = kind === 'credit_note' ? 'credit_note' : DOCUMENT_KINDS.includes(kind) ? 'customer_invoice' : 'payment';
   const doc = over.doc ?? (DOCUMENT_KINDS.includes(kind) ? await plantDocument(pool, sourceType as 'credit_note' | 'customer_invoice', from) : crypto.randomUUID());
   const payload = DOCUMENT_KINDS.includes(kind) ? await payloadFor(pool, kind, doc, from) : '{"number":"INV-1"}';
-  // A document message is written by the database (1013): app_user cannot INSERT one, so a fixture plants it as the table owner with the
+  // A message is written by the database (1013): app_user cannot INSERT one of any kind, so a fixture plants it as the table owner with the
   // sender's claims (the guard's other rules - connection, group, write role, source document - all run).
-  const as = kind === 'invoice' || kind === 'credit_note' ? asOwner : asAppUser;
-  return as(pool, over.user ?? U.ab, from, async (q) => (await q.query(
+  return asOwner(pool, over.user ?? U.ab, from, async (q) => (await q.query(
     `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
     [connection, from, to, kind, sourceType, doc, payload])).rows[0].id as string, true);

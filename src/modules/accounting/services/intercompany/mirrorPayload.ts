@@ -115,7 +115,8 @@ export function parseMirrorPayload(raw: unknown, kind: MirrorKind, senderCompany
   if (!Array.isArray(raw.lines) || raw.lines.length === 0 || raw.lines.length > 500) return bad('The document needs between 1 and 500 lines');
   const lines: MirrorLine[] = [];
   for (const [i, l] of raw.lines.entries()) {
-    const line = parseLine(l, i, kind === 'invoice');
+    // A single-line invoice carries its header VAT whatever its line's rate says (an import's mixed or rounded rate); several lines are bounded to their rates.
+    const line = parseLine(l, i, kind === 'invoice' && raw.lines.length > 1);
     if (typeof line === 'string') return bad(line);
     lines.push(line);
   }

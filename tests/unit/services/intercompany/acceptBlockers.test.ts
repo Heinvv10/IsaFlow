@@ -1,6 +1,6 @@
 /** Intercompany P2: everything that stops an inbox message being accepted, as sentences (pure). */
 import { describe, expect, it } from 'vitest';
-import { acceptBlockers } from '@/modules/accounting/services/intercompany/acceptBlockers';
+import { CHANGED_SENTENCE, acceptBlockers } from '@/modules/accounting/services/intercompany/acceptBlockers';
 import type { AcceptSide } from '@/modules/accounting/services/intercompany/acceptContext';
 import type { MirrorPayload } from '@/modules/accounting/services/intercompany/mirrorPayload';
 
@@ -8,8 +8,8 @@ const side = (over: Partial<AcceptSide> = {}): AcceptSide => ({
   connectionId: 'c', kind: 'group', status: 'active', companyLowId: 'l', companyHighId: 'h', supplierId: 's', supplierName: 'Supplier',
   defaultExpenseAccountId: null, defaultCc1Id: null, defaultCc2Id: null, defaultBuId: null, autoAccept: false, ...over,
 });
-const item = (over: Partial<{ status: 'pending' | 'accepted' | 'rejected' | 'dismissed' | 'failed' | 'withdrawn'; blocker: string | null; sourceCancelled: boolean }> = {}) =>
-  ({ status: 'pending' as const, blocker: null, kind: 'invoice' as const, sourceCancelled: false, ...over });
+const item = (over: Partial<{ status: 'pending' | 'accepted' | 'rejected' | 'dismissed' | 'failed' | 'withdrawn'; blocker: string | null; sourceCancelled: boolean; sourceChanged: boolean }> = {}) =>
+  ({ status: 'pending' as const, blocker: null, kind: 'invoice' as const, sourceCancelled: false, sourceChanged: false, ...over });
 const payload = { kind: 'invoice' } as MirrorPayload;
 
 describe('acceptBlockers', () => {
@@ -35,6 +35,11 @@ describe('acceptBlockers', () => {
   it('a withdrawn message (the sender cancelled the document) is refused, and so is any message flagged as cancelled', () => {
     expect(acceptBlockers(item({ status: 'withdrawn' }), payload, side(), null).join(' ')).toMatch(/sender cancelled/);
     expect(acceptBlockers(item({ sourceCancelled: true }), payload, side(), null).join(' ')).toMatch(/sender cancelled/);
+  });
+  it('a source the sender changed after sending it stops AUTOMATIC acceptance only: a person sees the warning and decides', () => {
+    expect(acceptBlockers(item({ sourceChanged: true }), payload, side({ autoAccept: true }), null, true)).toContain(CHANGED_SENTENCE);
+    expect(acceptBlockers(item({ sourceChanged: true }), payload, side({ autoAccept: true }), null, false)).toEqual([]);
+    expect(CHANGED_SENTENCE).toMatch(/changed this document after sending it/);
   });
   it('automatic acceptance is only for a group connection, even if the side says it is on', () => {
     expect(acceptBlockers(item(), payload, side({ kind: 'external', autoAccept: true }), null, true).join(' ')).toMatch(/only for a group connection/);

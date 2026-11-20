@@ -38,3 +38,11 @@ export function syncGroupRowFor(companyId: string, docType: 'supplier_invoice' |
     return rows[0]?.s == null ? null : String(rows[0].s);
   }, null);
 }
+
+/** After ANY reversal of a journal of this company (the journal-entry reversal, MCP, a cancel): what records that journal is re-evaluated by the ledger's parity. */
+export function journalChainChanged(companyId: string, journalId: string): Promise<number> {
+  return run('journal reversal re-evaluation', companyId, journalId, async () => {
+    const rows = (await sql`SELECT public.intercompany_journal_chain_changed(${journalId}::UUID) AS n`) as Row[];
+    return Number(rows[0]?.n ?? 0);
+  }, 0);
+}

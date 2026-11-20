@@ -36,6 +36,8 @@ export function toInboxItem(r: Row): InboxItem {
     lineCount: p?.lines.length ?? 0, hasPdf: p?.pdf != null,
     blocker: parsed.ok ? payloadBlocker(parsed.payload) : parsed.error,
     reason: asText(r.reason, 2000), error: asText(r.error, 4000),
+    groupMatch: r.group_match === 'matched' || r.group_match === 'variance' || r.group_match === 'unmatched' ? r.group_match : null,
+    varianceReason: asText(r.group_variance, 500),
     sourceCancelled: r.source_cancelled_at != null,
     sourceChanged: false,
     autoExhausted: String(r.status) === 'pending' && r.manual_only !== true && Number(r.auto_attempts ?? 0) >= AUTO_ACCEPT_MAX_ATTEMPTS,
@@ -47,7 +49,8 @@ export function toInboxItem(r: Row): InboxItem {
 }
 
 const COLUMNS = `m.id, m.kind, m.status, m.connection_id, m.from_company_id, m.payload, m.reason, m.error, m.handled_at,
-                 m.handled_via, m.source_cancelled_at, m.auto_attempts, m.manual_only, m.target_doc_type, m.target_doc_id, m.source_doc_type, m.source_doc_id, m.created_at`;
+                 m.handled_via, m.source_cancelled_at, m.auto_attempts, m.manual_only, m.target_doc_type, m.target_doc_id, m.source_doc_type, m.source_doc_id, m.created_at,
+                 it.match_status AS group_match, it.variance_reason AS group_variance`;
 
 /** Messages that need a person: the Bills tab badge. */
 export async function openInboxCount(companyId: string): Promise<number> {
@@ -73,7 +76,7 @@ export async function listInbox(companyId: string, filter: InboxFilter, limit: n
   const skip = Math.max(Math.trunc(offset) || 0, 0);
   const rows = (await sql`
     SELECT ${sql.unsafe(COLUMNS)}, count(*) OVER ()::int AS total
-      FROM intercompany_messages m
+      FROM intercompany_messages m LEFT JOIN intercompany_transactions it ON it.id = m.group_transaction_id
      WHERE m.to_company_id = ${companyId}::UUID AND m.kind IN ('invoice', 'credit_note') AND m.status = ANY(${statuses}::TEXT[])
      ORDER BY m.created_at DESC, m.id
      LIMIT ${capped} OFFSET ${skip}
@@ -84,9 +87,9 @@ export async function listInbox(companyId: string, filter: InboxFilter, limit: n
 /** One message of this company, raw (the service reads the payload itself), or null. `lock` takes the row FOR UPDATE. */
 export async function loadInboxRow(companyId: string, messageId: string, lock = false): Promise<Row | null> {
   const rows = (lock
-    ? await sql`SELECT ${sql.unsafe(COLUMNS)} FROM intercompany_messages m
-                WHERE m.id = ${messageId}::UUID AND m.to_company_id = ${companyId}::UUID AND m.kind IN ('invoice', 'credit_note') FOR UPDATE`
-    : await sql`SELECT ${sql.unsafe(COLUMNS)} FROM intercompany_messages m
+    ? await sql`SELECT ${sql.unsafe(COLUMNS)} FROM intercompany_messages m LEFT JOIN intercompany_transactions it ON it.id = m.group_transaction_id
+                WHERE m.id = ${messageId}::UUID AND m.to_company_id = ${companyId}::UUID AND m.kind IN ('invoice', 'credit_note') FOR UPDATE OF m`
+    : await sql`SELECT ${sql.unsafe(COLUMNS)} FROM intercompany_messages m LEFT JOIN intercompany_transactions it ON it.id = m.group_transaction_id
                 WHERE m.id = ${messageId}::UUID AND m.to_company_id = ${companyId}::UUID AND m.kind IN ('invoice', 'credit_note')`) as Row[];
   return rows[0] ?? null;
 }

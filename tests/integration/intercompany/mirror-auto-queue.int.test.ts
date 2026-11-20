@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
+import { AUTO_ACCEPT_MAX_ATTEMPTS } from '../../../src/modules/accounting/services/intercompany/inboxRead';
 import { acceptMessage } from '../../../src/modules/accounting/services/intercompany/acceptService';
 import { GENERIC, runAutoAccept } from '../../../src/modules/accounting/services/intercompany/autoAcceptWorker';
 import { asAppUser, outcome, plantDocument, plantExternal, withoutTrigger } from './intercompany.helpers';
@@ -107,8 +108,11 @@ describe('fairness and back-off', () => {
   it('after 8 attempts the queue lets go (a person has it); a claim changes nothing else on the message', async () => {
     await connect(pool, { autoAccept: true });
     const m = await sentInvoice(pool);
-    await adjust(m.id, 'auto_attempts = 8, auto_next_attempt_at = NULL');
+    await adjust(m.id, `auto_attempts = ${AUTO_ACCEPT_MAX_ATTEMPTS}, auto_next_attempt_at = NULL`);
     expect(await claim(50, false)).toHaveLength(0);
+    await adjust(m.id, `auto_attempts = ${AUTO_ACCEPT_MAX_ATTEMPTS - 1}, auto_next_attempt_at = NULL`);
+    expect((await claim(50, false)).map((r) => r.message_id)).toEqual([m.id]);   // the last attempt is still taken: the TS constant and the SQL limit are one number
+    await adjust(m.id, `auto_attempts = ${AUTO_ACCEPT_MAX_ATTEMPTS}, auto_next_attempt_at = NULL`);
     await adjust(m.id, 'auto_attempts = 0');
     const before = await row(m.id);
     await claim(50, true);
@@ -122,8 +126,8 @@ describe('fairness and back-off', () => {
     const other = await sentInvoice(pool);
     const flagged = async (id: string) => (dataOf<{ items: Array<{ id: string; autoExhausted: boolean }> }>(await inbox.list(U.b, co.B))).items.find((i) => i.id === id)!.autoExhausted;
     expect(await flagged(m.id)).toBe(false);
-    await adjust(m.id, 'auto_attempts = 8, auto_next_attempt_at = NULL');
-    await adjust(other.id, 'auto_attempts = 7, auto_next_attempt_at = NULL');
+    await adjust(m.id, `auto_attempts = ${AUTO_ACCEPT_MAX_ATTEMPTS}, auto_next_attempt_at = NULL`);
+    await adjust(other.id, `auto_attempts = ${AUTO_ACCEPT_MAX_ATTEMPTS - 1}, auto_next_attempt_at = NULL`);
     expect(await flagged(m.id)).toBe(true);
     expect(await flagged(other.id)).toBe(false);          // the eighth attempt is still to come
     const first = await runAutoAccept();                  // `other` is attempted (and accepted) now; `m` is out of attempts
@@ -135,6 +139,15 @@ describe('fairness and back-off', () => {
     expect((await inbox.restore(U.b, co.B, m.id)).state.statusCode).toBe(200);              // restored = a person's (manual_only)
     expect(await runAutoAccept()).toMatchObject({ exhausted: 0, stuck: 0 });
     expect(await flagged(m.id)).toBe(false);
+  });
+
+  it('a message on a REVOKED connection that used every attempt is no alert (it can never be accepted): the stuck figure leaves it out', async () => {
+    const conn = await connect(pool, { autoAccept: true });
+    const m = await sentInvoice(pool);
+    await adjust(m.id, `auto_attempts = ${AUTO_ACCEPT_MAX_ATTEMPTS}, auto_next_attempt_at = NULL`);
+    expect(await runAutoAccept()).toMatchObject({ exhausted: 1, stuck: 1 });
+    await asAppUser(pool, U.a, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [conn]), true);
+    expect(await runAutoAccept()).toMatchObject({ exhausted: 0, stuck: 0 });
   });
 
   it('a session cannot forge the claim: the system update is refused for any role but the definer', async () => {

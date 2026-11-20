@@ -56,6 +56,18 @@ describe('a message the worker gave up on, and a source the sender changed', () 
     expect(within(rows[1]!).queryByTestId('auto-exhausted')).not.toBeInTheDocument();
   });
 
+  it('an accepted message whose elimination row is a variance says why it is not eliminated, and a matched one says nothing', async () => {
+    serve({ items: [
+      item({ id: 'v', status: 'accepted', number: 'INV-V', groupMatch: 'variance', varianceReason: 'cut-off: different financial years' }),
+      item({ id: 'm', status: 'accepted', number: 'INV-M', groupMatch: 'matched' }),
+    ] });
+    render(<IntercompanyInboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Handled' }));
+    const rows = await screen.findAllByTestId('inbox-row');
+    expect(within(rows[0]!).getByTestId('group-variance')).toHaveTextContent('Not eliminated in the group: cut-off: different financial years.');
+    expect(within(rows[1]!).queryByTestId('group-variance')).not.toBeInTheDocument();
+  });
+
   it('the review dialog warns when the sender changed the document after sending it, and not otherwise', async () => {
     serve({ detail: detail({ item: item({ sourceChanged: true }) }) });
     render(<IntercompanyInboxPage />);

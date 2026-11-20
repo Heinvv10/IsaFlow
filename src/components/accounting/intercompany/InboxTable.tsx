@@ -58,6 +58,9 @@ export function InboxTable({ items, canWrite, busyId, onReview, onReject, onDism
               <td data-label="Status" className="px-5 py-3.5 space-y-1">
                 <StatusPill status={i.status === 'failed' ? 'overdue' : i.status === 'withdrawn' ? 'cancelled' : i.status === 'pending' ? 'pending' : i.status}>{STATUS_LABEL[i.status]}</StatusPill>
                 {i.status === 'accepted' && i.handledVia === 'auto' && <p className="text-xs text-ink-muted">Accepted automatically</p>}
+                {i.status === 'accepted' && i.groupMatch === 'variance' && i.varianceReason && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 max-w-xs" data-testid="group-variance">Not eliminated in the group: {i.varianceReason}.</p>
+                )}
                 {i.status === 'accepted' && i.sourceCancelled && (
                   <p className="text-xs text-amber-700 dark:text-amber-400 max-w-xs" data-testid="sender-cancelled">Sender cancelled this document. Your draft is untouched; review it.</p>
                 )}

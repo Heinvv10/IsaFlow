@@ -254,13 +254,15 @@ export async function autoGenerateEliminations(
   groupId: string, periodStart: string, periodEnd: string
 ): Promise<ConsolidationAdjustment[]> {
   try {
+    // One generator per group at a time (the second waits for the first's commit, then finds its eliminations). An advisory lock, not row locks:
+    // FOR UPDATE through the UPDATE policy silently drops the rows a group writer of only a THIRD company may not update.
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`intercompany-eliminations:${groupId}`}, 0))`;
     const icTxRows = (await sql`
       SELECT ict.id, ict.source_company_id, ict.target_company_id,
              ict.transaction_type, ict.amount, ict.description
       FROM intercompany_transactions ict
       WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
         AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
-      FOR UPDATE OF ict
     `) as DbRow[];
 
     const created: ConsolidationAdjustment[] = [];
@@ -272,8 +274,17 @@ export async function autoGenerateEliminations(
         SELECT 1 FROM consolidation_adjustments WHERE source_intercompany_id=${String(tx.id)}::UUID AND status IN ('draft','posted') LIMIT 1
       `) as DbRow[];
       if (standing.length > 0) continue;
+      // A row the mirror recorded is eliminated only while the ledgers still carry it (both journals stand, its target is named): re-checked
+      // NOW, whatever its match_status says (a direct reversal of a journal, or a status written by hand, is not a hook).
+      const eligible = (await sql`SELECT public.intercompany_row_eliminable(${String(tx.id)}::UUID) AS ok`) as DbRow[];
+      if (eligible[0]?.ok !== true) {
+        log.warn('Elimination skipped: the intercompany row is not carried by both ledgers', { groupId, transactionId: String(tx.id) }, 'accounting');
+        continue;
+      }
       const txType = String(tx.transaction_type);
-      const amount = Number(tx.amount);
+      // A negative amount (a credit note) is the invoice's entry with its sides swapped, in positive amounts (never a negative debit or credit).
+      const amount = Math.abs(Number(tx.amount));
+      const reversed = Number(tx.amount) < 0;
       const srcId = String(tx.source_company_id);
       const tgtId = String(tx.target_company_id);
       const desc = tx.description ?? '';
@@ -283,8 +294,8 @@ export async function autoGenerateEliminations(
         const expGaId = await findGroupAccountByType(groupId, tgtId, 'expense');
         if (revGaId && expGaId) {
           const lines: EliminationLine[] = [
-            { groupAccountId: revGaId, debit: amount, credit: 0, description: `Eliminate intercompany ${txType} revenue` },
-            { groupAccountId: expGaId, debit: 0, credit: amount, description: `Eliminate intercompany ${txType} expense` },
+            { groupAccountId: revGaId, debit: reversed ? 0 : amount, credit: reversed ? amount : 0, description: `Eliminate intercompany ${txType} revenue` },
+            { groupAccountId: expGaId, debit: reversed ? amount : 0, credit: reversed ? 0 : amount, description: `Eliminate intercompany ${txType} expense` },
           ];
           created.push(await createEliminationAdjustment(groupId, { adjustmentType: 'interco_revenue', description: `Auto-elimination: intercompany ${txType} - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) }));
         }
@@ -293,8 +304,8 @@ export async function autoGenerateEliminations(
         const payGaId = await findGroupAccountBySubtype(groupId, tgtId, 'payable');
         if (recGaId && payGaId) {
           const lines: EliminationLine[] = [
-            { groupAccountId: payGaId, debit: amount, credit: 0, description: `Eliminate intercompany payable` },
-            { groupAccountId: recGaId, debit: 0, credit: amount, description: `Eliminate intercompany receivable` },
+            { groupAccountId: payGaId, debit: reversed ? 0 : amount, credit: reversed ? amount : 0, description: `Eliminate intercompany payable` },
+            { groupAccountId: recGaId, debit: reversed ? amount : 0, credit: reversed ? 0 : amount, description: `Eliminate intercompany receivable` },
           ];
           created.push(await createEliminationAdjustment(groupId, { adjustmentType: 'interco_balance', description: `Auto-elimination: intercompany ${txType} balance - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) }));
         }

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import { parseMirrorPayload } from '../../../src/modules/accounting/services/intercompany/mirrorPayload';
-import { buildInvoicePayload, type InvoiceSource } from '../../helpers/mirrorReference';
+import { buildCreditNotePayload, buildInvoicePayload, type InvoiceSource } from '../../helpers/mirrorReference';
 import { co, mirrorCleanup, mirrorSetup, party, U } from './mirror.helpers';
 
 assertDisposable();
@@ -77,6 +77,10 @@ async function plant(lines: Line[], taxCents: number): Promise<{ id: string; sou
   };
 }
 
+async function plantInvoiceRow(): Promise<{ id: string; number: string }> {
+  const { id, source } = await plant([{ description: 'Credited', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }], 1500);
+  return { id, number: source.number };
+}
 const build = async (id: string) =>
   (await pool.query("SELECT payload, problem FROM public.intercompany_build_payload('invoice', $1, $2)", [id, co.A])).rows[0] as { payload: unknown; problem: string | null };
 const json = (v: unknown) => JSON.parse(JSON.stringify(v));
@@ -106,6 +110,34 @@ describe('the database builds the reference\'s payload, and the receiver reads i
     expect(refused).toBeGreaterThan(0);
   }, 180000);
 
+  it('60 random customer CREDIT NOTES: equal to the reference (reason trimmed and cut, a NULL or lower-case currency, the credited invoice\'s number), and the receiver reads each', async () => {
+    const credited = await plantInvoiceRow();
+    const reasons: Array<string | null> = [null, '', '   ', '  Returned router  ', 'x'.repeat(1500), 'Ünïcödé ✓ '.repeat(30), 'a\n\tb'];
+    const name = String((await pool.query('SELECT name FROM companies WHERE id = $1', [co.A])).rows[0].name).trim();
+    for (let t = 0; t < 60; t++) {
+      const subtotal = (1 + Math.floor(rnd() * 5_000_000)) / 100;
+      const tax = Math.round(subtotal * pick([0, 15, 15, 14]) ) / 100;
+      const reason = pick(reasons);
+      const currency = pick<string | null>([null, 'ZAR', 'zar']);
+      const withInvoice = rnd() < 0.5;
+      const id = crypto.randomUUID();
+      const number = `ICBCN-${id.slice(0, 8)}`;
+      await pool.query(
+        `INSERT INTO credit_notes(id, company_id, credit_note_number, type, client_id, customer_invoice_id, credit_date, reason, subtotal, tax_rate, tax_amount, total_amount, currency, status, created_by)
+         VALUES ($1, $2, $3, 'customer', $4, $5, '2026-09-05', $6, $7, 15, $8, $9, $10, 'draft', $11)`,
+        [id, co.A, number, party.aCustomer, withInvoice ? credited.id : null, reason, subtotal, tax, subtotal + tax, currency, U.ab]);
+      await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [id]);
+      const reference = json(buildCreditNotePayload({
+        number, date: '2026-09-05', currency: (currency ?? 'ZAR').trim().toUpperCase(), subtotal, taxAmount: tax, total: subtotal + tax, taxRate: 15, reason,
+        creditsInvoiceNumber: withInvoice ? credited.number : null, sender: { name, vatNumber: null },
+      }));
+      const got = (await pool.query("SELECT payload, problem FROM public.intercompany_build_payload('credit_note', $1, $2)", [id, co.A])).rows[0] as { payload: unknown; problem: string | null };
+      expect(got.problem, JSON.stringify({ subtotal, tax, reason, currency })).toBeNull();
+      expect(json(got.payload)).toEqual(reference);
+      expect(parseMirrorPayload(json(got.payload), 'credit_note', co.A).ok).toBe(true);
+    }
+  }, 120000);
+
   it('the 12 x R10.10 invoice at 15% (header R18.18, lines R1.51 / R1.52 by largest remainder) builds and parses', async () => {
     const { id } = await plant(Array.from({ length: 12 }, (_, i) => ({ description: `L${i}`, quantity: 1, unitPrice: 10.1, amount: 10.1, taxRate: 15 })), 1818);
     const got = await build(id);
@@ -118,13 +150,25 @@ describe('the database builds the reference\'s payload, and the receiver reads i
   it.each([
     ['a negative line at a zero rate', [{ description: 'x', quantity: 1, unitPrice: -1, amount: -1, taxRate: 0 }, { description: 'y', quantity: 1, unitPrice: 5, amount: 5, taxRate: 0 }], 0, /negative/],
     ['a negative line', [{ description: 'x', quantity: 1, unitPrice: -1, amount: -1, taxRate: 15 }, { description: 'y', quantity: 1, unitPrice: 5, amount: 5, taxRate: 15 }], 60, /negative/],
-    ['a VAT the rate does not give', [{ description: 'x', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }], 1, /not its amount at its rate|do not add up/],
+    ['a VAT the rate does not give, on two lines', [{ description: 'x', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }, { description: 'y', quantity: 1, unitPrice: 100, amount: 100, taxRate: 15 }], 1, /not its amount at its rate|do not add up/],
   ])('%s is not built (unmirrorable), so the receiver is never sent what it cannot read', async (_name, lines, taxCents, why) => {
     const { id } = await plant(lines, taxCents);
     const got = await build(id);
     expect(got.payload).toBeNull();
     expect(got.problem).toMatch(/^unmirrorable/);
     expect(got.problem).toMatch(why);
+  });
+
+  it('a SINGLE-line invoice carries its header VAT whatever the line\'s rate says (a Sage import: R10 000 at a stored 15% with VAT R333.33), and the receiver reads it', async () => {
+    const { id } = await plant([{ description: 'Imported line', quantity: 1, unitPrice: 10000, amount: 10000, taxRate: 15 }], 33333);
+    const got = await build(id);
+    expect(got.problem).toBeNull();
+    const p = json(got.payload) as { taxAmount: number; lines: Array<{ taxAmount: number }> };
+    expect([p.taxAmount, p.lines[0]!.taxAmount]).toEqual([333.33, 333.33]);
+    expect(parseMirrorPayload(p, 'invoice', co.A).ok).toBe(true);
+    // ... but not with TWO lines: each is held within a cent of its rate
+    const two = await plant([{ description: 'a', quantity: 1, unitPrice: 5000, amount: 5000, taxRate: 15 }, { description: 'b', quantity: 1, unitPrice: 5000, amount: 5000, taxRate: 15 }], 33333);
+    expect((await build(two.id)).problem).toMatch(/^unmirrorable/);
   });
 
   it('a header that is not its lines (a subtotal edited after the lines) is not built', async () => {

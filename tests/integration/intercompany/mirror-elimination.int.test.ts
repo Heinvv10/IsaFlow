@@ -108,8 +108,16 @@ describe('the target journal is the definer\'s to set', () => {
     const journal = (await pool.query('SELECT gl_journal_entry_id FROM supplier_invoices WHERE id = $1', [bill])).rows[0].gl_journal_entry_id as string;
     const other = (await pool.query('SELECT id FROM gl_journal_entries WHERE company_id = $1 AND id <> $2 LIMIT 1', [co.A, journal])).rows[0]?.id as string | undefined;
     const tx = (await groupRow()).id as string;
+    // a row that is NOT matched (a second sent invoice), and a journal of the target company: a target is the definer's to name, not a writer's
+    const idle = await sentInvoice(pool);
+    const idleRow = idle.message.payload.groupTransactionId as string;
+    const bJournal = (await pool.query(
+      `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', 'planted', 'manual', 'posted', $1, $2) RETURNING id`, [U.ab, co.B])).rows[0].id as string;
     await asAppUser(pool, U.b, co.B, async (q) => {
-      expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = NULL, match_status = \'unmatched\' WHERE id = $1', [tx])).toMatch(/^23514: intercompany_transactions: a recorded transaction keeps/);
+      expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = $2 WHERE id = $1', [idleRow, bJournal])).toMatch(/^23514: intercompany_transactions: a recorded transaction keeps/);
+    });
+    await asAppUser(pool, U.b, co.B, async (q) => {
+      expect(await outcome(q, 'UPDATE intercompany_transactions SET target_journal_entry_id = NULL, match_status = \'unmatched\' WHERE id = $1', [tx])).toMatch(/^23514: intercompany_transactions: (a recorded transaction keeps|a row the mirror recorded)/);
     });
     expect(other, 'the sender\'s own approval journal, a journal of another company to point the row at').toBeDefined();
     await asAppUser(pool, U.ab, co.A, async (q) => {

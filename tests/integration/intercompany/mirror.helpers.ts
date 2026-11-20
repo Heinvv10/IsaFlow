@@ -100,23 +100,33 @@ export async function connect(pool: Pool, over: { cutover?: string | null; autoA
 }
 
 /** A posted journal of `company` with no lines (the approval journal of a planted APPROVED document: the database sends only documents that are in the ledger). */
-export async function plantPostedJournal(pool: Pool, company: string, description: string, source = 'auto_invoice'): Promise<string> {
+export async function plantPostedJournal(
+  pool: Pool, company: string, description: string, source = 'auto_invoice',
+  fig: { total: number; subtotal: number; tax: number; credit?: boolean } = { total: 1, subtotal: 1, tax: 0 },
+): Promise<string> {
   const id = (await pool.query(
     `INSERT INTO gl_journal_entries(entry_date, description, source, status, created_by, company_id) VALUES ('2026-09-01', $1, $2, 'draft', $3, $4) RETURNING id`,
     [description, source, U.ab, company])).rows[0].id as string;
-  // two balanced lines (a receivable against revenue), so the journal can be REVERSED like any posted one (a cancel reverses it)
+  // The lines the real approval writes (receivable = gross, revenue = net, output VAT), a credit note's with the sides swapped: the database
+  // sends a document only when its journal carries its figures, and the journal can be REVERSED like any posted one.
   const acct = async (subtype: string) => (await pool.query('SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = $2 LIMIT 1', [company, subtype])).rows[0].id as string;
-  await pool.query(
-    `INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description) VALUES ($1, $2, 1, 0, $4, 'planted'), ($1, $3, 0, 1, $4, 'planted')`,
-    [id, await acct('receivable'), await acct('default_revenue'), company]);
+  const [ar, rv, vat] = [await acct('receivable'), await acct('default_revenue'), await acct('vat_output')];
+  const line = (account: string, debit: number, credit: number) => pool.query(
+    'INSERT INTO gl_journal_lines(journal_entry_id, gl_account_id, debit, credit, company_id, description) VALUES ($1, $2, $3, $4, $5, $6)', [id, account, debit, credit, company, 'planted']);
+  const d = (n: number) => (fig.credit ? 0 : n);
+  const c = (n: number) => (fig.credit ? n : 0);
+  await line(ar, d(fig.total), c(fig.total));
+  await line(rv, c(fig.subtotal), d(fig.subtotal));
+  if (fig.tax > 0) await line(vat, c(fig.tax), d(fig.tax));
   await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [id]);
   return id;
 }
 
 /** A customer credit note of A set to approved the way a fixture does, with its approval journal (posted, standing). */
 export async function approveCreditNoteRow(pool: Pool, id: string): Promise<void> {
-  const number = (await pool.query('SELECT credit_note_number AS n FROM credit_notes WHERE id = $1', [id])).rows[0].n as string;
-  const je = await plantPostedJournal(pool, co.A, `Credit note ${number}`, 'auto_credit_note');
+  const cn = (await pool.query('SELECT credit_note_number AS n, subtotal, tax_amount, total_amount FROM credit_notes WHERE id = $1', [id])).rows[0];
+  const je = await plantPostedJournal(pool, co.A, `Credit note ${cn.n}`, 'auto_credit_note',
+    { total: Number(cn.total_amount), subtotal: Number(cn.subtotal), tax: Number(cn.tax_amount ?? 0), credit: true });
   await pool.query("UPDATE credit_notes SET status = 'approved', gl_journal_entry_id = $2 WHERE id = $1", [id, je]);
 }
 
@@ -130,7 +140,7 @@ export async function plantArInvoice(pool: Pool, over: { date?: string; customer
   const subtotal = lines.reduce((s, [, q, p]) => s + q * p, 0);
   const tax = Math.round(subtotal * 15) / 100;
   const customer = over.customer ?? party.aCustomer;
-  const journal = over.status && over.status !== 'draft' ? await plantPostedJournal(pool, co.A, `Customer invoice ${number}`) : null;
+  const journal = over.status && over.status !== 'draft' ? await plantPostedJournal(pool, co.A, `Customer invoice ${number}`, 'auto_invoice', { total: subtotal + tax, subtotal, tax }) : null;
   await pool.query(
     `INSERT INTO customer_invoices(id, company_id, invoice_number, customer_id, client_id, invoice_date, due_date, subtotal, tax_rate, tax_amount,
        total_amount, currency_code, exchange_rate, status, created_by, gl_journal_entry_id)

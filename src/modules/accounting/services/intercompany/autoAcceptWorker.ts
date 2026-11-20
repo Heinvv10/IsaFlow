@@ -52,6 +52,7 @@ export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
     SELECT message_id, to_company_id, actor_user_id, attempt FROM public.intercompany_auto_accept_queue(${limit}::INT, true)
   `) as Row[];
   const run: AutoAcceptRun = { considered: queue.length, accepted: 0, failed: 0, deferred: 0, stuck: 0, exhausted: 0 };
+  const stuckIds = new Set<string>();
   for (const q of queue) {
     const principal = { userId: String(q.actor_user_id), companyId: String(q.to_company_id) };
     const messageId = String(q.message_id);
@@ -64,7 +65,7 @@ export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
         run.deferred += 1;
         const attempt = Number(q.attempt);
         if (attempt >= STUCK_AT) {
-          run.stuck += 1;
+          stuckIds.add(messageId);
           log.error('Intercompany auto-accept keeps deferring', { companyId: principal.companyId, messageId, code, attempt }, 'intercompany');
         } else {
           log.warn('Intercompany auto-accept deferred', { companyId: principal.companyId, messageId, code, attempt }, 'intercompany');
@@ -94,9 +95,11 @@ export async function runAutoAccept(limit = 50): Promise<AutoAcceptRun> {
     }
   }
   // A message that used all its attempts is no longer in the queue and would sit pending in silence: it is counted every run until a person handles it.
-  const exhausted = (await sql`SELECT public.intercompany_auto_accept_exhausted() AS n`) as Row[];
-  run.exhausted = Number(exhausted[0]?.n ?? 0);
-  run.stuck += run.exhausted;
+  // Counted by message: one that is both deferring (this run) and out of attempts is one stuck message, not two.
+  const exhausted = (await sql`SELECT message_id FROM public.intercompany_auto_accept_exhausted()`) as Row[];
+  for (const e of exhausted) stuckIds.add(String(e.message_id));
+  run.exhausted = exhausted.length;
+  run.stuck = stuckIds.size;
   if (run.stuck > 0) log.error('Intercompany auto-accept has messages it cannot run', { ...run }, 'intercompany');
   log.info('Intercompany auto-accept run', { ...run }, 'intercompany');
   return run;

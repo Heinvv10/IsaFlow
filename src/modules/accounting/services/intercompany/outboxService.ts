@@ -23,10 +23,10 @@ import type { MirrorKind } from './mirrorPayload';
 
 export type MirrorOutcome =
   | { sent: true; messageId: string }
-  | { sent: false; reason: 'no_connection' | 'before_cutover' | 'no_cutover' | 'already_sent' | 'not_found' | 'not_approved' | 'forbidden' | 'unmirrorable' | 'failed' };
+  | { sent: false; reason: 'no_connection' | 'before_cutover' | 'no_cutover' | 'already_sent' | 'not_found' | 'not_approved' | 'no_journal' | 'forbidden' | 'unmirrorable' | 'failed' };
 
 const SOURCE_TYPE: Record<MirrorKind, string> = { invoice: 'customer_invoice', credit_note: 'credit_note' };
-const REASONS = new Set(['no_connection', 'before_cutover', 'no_cutover', 'already_sent', 'not_found', 'not_approved', 'forbidden', 'unmirrorable']);
+const REASONS = new Set(['no_connection', 'before_cutover', 'no_cutover', 'already_sent', 'not_found', 'not_approved', 'no_journal', 'forbidden', 'unmirrorable']);
 
 type Row = Record<string, unknown>;
 
@@ -44,6 +44,9 @@ async function send(companyId: string, kind: MirrorKind, sourceId: string): Prom
     // A document the receiver's parser would refuse (an imported one with a negative line, a header VAT that is not the rate on its lines)
     // is not sent: the sender's operator finds it in this log (and, in P5, in the reconciliation's list of unsent documents).
     log.error('Intercompany document cannot be mirrored: the receiver could not read it', { companyId, kind, sourceId, reason: String(r?.detail ?? '') }, 'intercompany');
+  } else if (reason === 'no_journal') {
+    // Approved in status only, or on a journal that is not the document's own posting or does not carry its figures: nothing re-sends it, so it is found here.
+    log.error('Intercompany document cannot be mirrored: its approval journal is not the document\'s own posting', { companyId, kind, sourceId, reason: String(r?.detail ?? '') }, 'intercompany');
   } else if (reason === 'forbidden' || reason === 'not_approved') {
     log.warn('Intercompany message not sent', { companyId, kind, sourceId, reason }, 'intercompany');
   }

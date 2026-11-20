@@ -27,6 +27,9 @@ export interface InboxItem {
   blocker: string | null;
   reason: string | null;
   error: string | null;
+  /** What the sender's elimination row says of this message (accepted ones): matched, variance (with its reason: why it is NOT eliminated), unmatched. */
+  groupMatch: 'matched' | 'variance' | 'unmatched' | null;
+  varianceReason: string | null;
   /** The sender cancelled the document this message carries: a pending message is `withdrawn`, an accepted one only flagged. */
   sourceCancelled: boolean;
   /** The sender's document is no longer what the message carries (edited after it was sent). Known on the detail and on accept, not in the list. */
