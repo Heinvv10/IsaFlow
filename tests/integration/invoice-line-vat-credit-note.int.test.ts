@@ -124,7 +124,9 @@ describeIfDisposable('a credit note against a typed invoice (migration 1008)', (
     const id = await approvedInvoice('2026-11-10', [
       { description: 'Standard', unitPrice: 1000 }, { description: 'Export', unitPrice: 300 }, { description: 'Exempt', unitPrice: 200 },
     ], { Standard: ['standard', 150], Export: ['zero_rated', 0], Exempt: ['exempt', 0] }, 150);
-    const cn = await draftNote(id, '2026-11-20', subtotal, rate);
+    // The VAT given as a figure: create now refuses a taxRate that misses the required VAT (creditNoteTypedVat), and this
+    // case is approve's refusal of a draft carrying the wrong figure (one made before the writer PR, or by a dispute).
+    const cn = await draftNote(id, '2026-11-20', subtotal, rate, Math.round(subtotal * rate) / 100);
     const before = await footprint(cn.id, id, cn.creditNoteNumber);
     const err = await approveCommittingRefusal(cn.id);
     expect((err as { code?: string }).code).toBe('CREDIT_NOTE_VAT_SPLIT_REFUSED');

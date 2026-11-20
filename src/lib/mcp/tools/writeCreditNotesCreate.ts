@@ -10,6 +10,7 @@
  */
 import type { McpTool } from '../types';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { typedCreditNoteVat } from '@/modules/accounting/services/ar/creditNoteTypedVat';
 import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
 import {
   validateCreditNoteLinks,
@@ -31,7 +32,7 @@ export const createCreditNoteTool: McpTool = {
     'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
     'An identical open draft (same counterparty, linked invoice, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one. ' +
     'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named. ' +
-    'A customer note linked to an invoice with a VAT type per line must carry that invoice\'s remaining VAT in proportion to the net it credits (not the rate on its subtotal); approve_credit_note refuses any other figure and states the one required. ' +
+    'A customer note linked to an invoice with a VAT type per line must carry that invoice\'s remaining VAT in proportion to the net it credits (not the rate on its subtotal): leave tax_rate and tax_amount out and it defaults to that figure; a tax_rate that misses it is refused, naming it, and approve_credit_note refuses any other tax_amount. ' +
     'A supplier note linked to a bill credits that bill\'s own expense accounts and CC1/CC2/BU pro rata at approve; mirror_bill also takes its VAT from the bill as it stands now (see document_vat_history). ' +
     'Pass external_system + external_ref (e.g. the Sage RTN id) to make the create idempotent: a live note already carrying them is returned instead (already_existed: true).',
   scope: 'write:invoices',
@@ -52,7 +53,8 @@ export const createCreditNoteTool: McpTool = {
       },
       credit_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
       subtotal: { type: 'number', exclusiveMinimum: 0, description: 'NET of VAT' },
-      tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %, default 15' },
+      tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %, default 15 (against an invoice with a VAT type per line: accepted only when it gives the required VAT)' },
+      tax_amount: { type: 'number', minimum: 0, description: 'The VAT as a figure, instead of tax_rate. Omitted on a note linked to an invoice with a VAT type per line: that invoice\'s remaining VAT in proportion.' },
       reason: { type: 'string' },
       duplicate_of: {
         type: 'string',
@@ -98,6 +100,13 @@ export const createCreditNoteTool: McpTool = {
       }
     }
 
+    let taxAmountArg: number | undefined;
+    if (args.tax_amount !== undefined && args.tax_amount !== null) {
+      taxAmountArg = Number(args.tax_amount);
+      if (!Number.isFinite(taxAmountArg) || taxAmountArg < 0) return toolError('tax_amount must be a number of zero or more');
+      if (Math.round(taxAmountArg * 100) / 100 !== taxAmountArg) return toolError('tax_amount must be in whole cents');
+    }
+
     const clientId = strArg(args, 'client_id');
     const supplierId = strArg(args, 'supplier_id');
     const customerInvoiceId = strArg(args, 'customer_invoice_id');
@@ -133,6 +142,7 @@ export const createCreditNoteTool: McpTool = {
     // acknowledged — when the bill's VAT was already reversed out of proportion. Reads only; before any write.
     const mirrorArgs = readMirrorArgs(args, type, supplierInvoiceId);
     if ('error' in mirrorArgs) return toolError(mirrorArgs.error);
+    if (mirrorArgs.mirror && taxAmountArg !== undefined) return toolError('tax_amount cannot be given with mirror_bill: the bill gives the VAT');
     const mirror = mirrorArgs.mirror
       ? await planMirroredSupplierNote(ctx.companyId, supplierInvoiceId!, subtotal, mirrorArgs.ack)
       : null;
@@ -167,16 +177,24 @@ export const createCreditNoteTool: McpTool = {
     // about the second.
     const duplicateOf = strArg(args, 'duplicate_of');
     const taxRateForTotal = taxRate ?? 15;
+    // Against a typed invoice with no figure given: the required VAT, read now (reads only), so the replay check and the
+    // duplicate check compare what will be stored. A tax_rate missing it is refused here (a registered refusal), pre-write.
+    const typed = type === 'customer' && !mirrored
+      ? await typedCreditNoteVat(ctx.companyId, { type: 'customer', customerInvoiceId, subtotal, taxRate, taxAmount: taxAmountArg })
+      : null;
+    const figure = typed?.taxAmount ?? taxAmountArg;
     const total = mirrored
       ? Math.round((subtotal + mirrored.taxAmount) * 100) / 100
-      : Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
+      : figure !== undefined
+        ? Math.round((subtotal + figure) * 100) / 100
+        : Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
     // Before the duplicate-draft check: re-sending the same source note returns it, rather than a refusal.
     const replay = await createReplayOrLock(ctx, 'credit_note', xref, {
       creditNoteType: type as (typeof TYPES)[number],
       // Rounded as createCreditNote stores it (tax first, then total), so a cent-edge note is not reported as differing.
       expect: {
         date: creditDate,
-        totalAmount: mirrored
+        totalAmount: mirrored || figure !== undefined
           ? total
           : Math.round((subtotal + Math.round(subtotal * taxRateForTotal / 100 * 100) / 100) * 100) / 100,
       },
@@ -221,8 +239,8 @@ export const createCreditNoteTool: McpTool = {
         creditDate,
         reason: strArg(args, 'reason'),
         subtotal,
-        taxRate: mirrored ? mirrored.taxRate : taxRate,
-        ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: mirrored.basis } : {}),
+        taxRate: mirrored ? mirrored.taxRate : typed?.taxRate ?? taxRate,
+        ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: mirrored.basis } : figure !== undefined ? { taxAmount: figure } : {}),
         ...(mirrored?.basis === 'mirror_bill_ack' ? { vatAckMatches: mirrored.ackMatches } : {}),
         glAccountId,
       },
