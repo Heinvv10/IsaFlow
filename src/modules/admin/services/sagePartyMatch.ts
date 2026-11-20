@@ -23,7 +23,9 @@
  *   Several rows to the same survivor are no ambiguity; each distinct Sage party takes the next unstamped one.
  * - The hit is dropped when another alias of that name reaching the same survivor carries a different Sage id.
  * - The hit is dropped when its chain passes a row (the survivor included) carrying a Sage id other than the
- *   pull's: that row belongs to another Sage party.
+ *   pull's: that row belongs to another Sage party. A conflict row is kept whatever its chain passes, so the
+ *   same-survivor check above still sees it.
+ * - A 'sage' row with no external_ref is unstamped, never a conflict.
  * - A pull without a Sage id still reaches the survivor by name and stamps nothing.
  *
  * Known: a bill imported before its supplier sync throws "Supplier not found" where the name is ambiguous.
@@ -73,27 +75,27 @@ export async function matchSageSupplier(
       SELECT id, deleted_at, merged_into_id, created_at,
              (external_system = 'sage' AND external_ref = ${ref}::TEXT) IS TRUE AS by_ref,
              (deleted_at IS NOT NULL AND name_hit AND ${ref}::TEXT IS NOT NULL
-              AND external_system = 'sage' AND external_ref IS DISTINCT FROM ${ref}::TEXT) IS TRUE AS conflict
+              AND external_system = 'sage' AND external_ref IS NOT NULL AND external_ref <> ${ref}::TEXT) IS TRUE AS conflict
       FROM named
       WHERE (external_system = 'sage' AND external_ref = ${ref}::TEXT)
          OR (name_hit
              AND (${ref}::TEXT IS NULL OR external_system IS DISTINCT FROM 'sage' OR external_ref IS NULL)
              AND (${ref}::TEXT IS NULL OR deleted_at IS NULL OR external_ref IS NULL))
          OR (deleted_at IS NOT NULL AND name_hit AND ${ref}::TEXT IS NOT NULL
-             AND external_system = 'sage' AND external_ref IS DISTINCT FROM ${ref}::TEXT)
+             AND external_system = 'sage' AND external_ref IS NOT NULL AND external_ref <> ${ref}::TEXT)
     ), chain AS (
       SELECT h.id AS start_id, h.id, h.deleted_at, h.merged_into_id, 0 AS hops, ARRAY[h.id] AS seen, FALSE AS blocked FROM hit h
       UNION ALL
       SELECT c.start_id, s.id, s.deleted_at, s.merged_into_id, c.hops + 1, c.seen || s.id,
              c.blocked OR (${ref}::TEXT IS NOT NULL AND s.external_system = 'sage'
-                           AND s.external_ref IS NOT NULL AND s.external_ref <> ${ref}::TEXT)
+                           AND s.external_ref IS NOT NULL AND s.external_ref <> ${ref}::TEXT) IS TRUE
       FROM chain c
       JOIN suppliers s ON s.id = c.merged_into_id AND s.company_id = ${companyId}::UUID
       WHERE c.deleted_at IS NOT NULL AND c.hops < ${MAX_MERGE_HOPS} AND NOT (s.id = ANY (c.seen))
     )
     SELECT c.id, h.id AS hit_id, h.by_ref, h.deleted_at IS NOT NULL AS via_merge, h.conflict
     FROM chain c JOIN hit h ON h.id = c.start_id
-    WHERE c.deleted_at IS NULL AND (h.by_ref OR NOT c.blocked)
+    WHERE c.deleted_at IS NULL AND (h.by_ref OR h.conflict OR NOT c.blocked)
     ORDER BY h.conflict, h.by_ref DESC, (h.deleted_at IS NULL) DESC, h.created_at, h.id
   `) as Row[];
   // Merged-away rows of this name already stamped with ANOTHER Sage id: matched only to spot a conflict.

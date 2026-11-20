@@ -167,4 +167,15 @@ describe('a merged-away supplier resolves to its survivor on a Sage re-sync (#16
     const { rows } = await pool.query('SELECT deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
     expect(rows[0]).toEqual({ deleted_at: null, merged_into_id: null });
   });
+
+  it('restoring a supplier merged by the route brings it back active and without the [MERGED] suffix (#1699 review)', async () => {
+    const survivor = await insPlain('Rush Co Survivor');
+    const gone = await insPlain('Rush Co');
+    // As the supplier-merge route leaves it.
+    await pool.query("UPDATE suppliers SET is_active = false, name = name || ' [MERGED]', deleted_at = now(), merged_into_id = $2 WHERE id = $1",
+      [gone, survivor]);
+    expect(await inRequestTx(() => restoreRow('supplier', gone, companyId))).toBe(true);
+    const { rows } = await pool.query('SELECT name, is_active, deleted_at, merged_into_id FROM suppliers WHERE id = $1', [gone]);
+    expect(rows[0]).toEqual({ name: 'Rush Co', is_active: true, deleted_at: null, merged_into_id: null });
+  });
 });
