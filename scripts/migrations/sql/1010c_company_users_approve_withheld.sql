@@ -33,3 +33,30 @@ WHERE b.source_table = 'company_users'
   AND b.old_role IN ('accountant', 'bookkeeper')
   AND cu.role = 'manager'
   AND cu.approve_withheld IS DISTINCT FROM true;
+
+-- A legacy value that shows up AFTER this migration (old code writing during a deploy window, the old admin link form, a direct
+-- INSERT, a pending legacy invitation accepted) is normalised on its way in, fail closed: accountant / bookkeeper become a manager
+-- WITH approve_withheld, storeman / technician / user a viewer. BEFORE INSERT OR UPDATE OF role; named so it fires ahead of
+-- company_users_role_guard, which then judges the normalised value. The app also withholds approval from a stored legacy name
+-- (roleDefaultPermission, LEGACY_ROLES_WITHOUT_APPROVE) in case one is ever read.
+CREATE OR REPLACE FUNCTION public.company_users_legacy_role_normalise() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.role IN ('accountant', 'bookkeeper') THEN
+    NEW.role := 'manager';
+    NEW.approve_withheld := true;
+  ELSIF NEW.role IN ('storeman', 'technician', 'user') THEN
+    NEW.role := 'viewer';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.company_users_legacy_role_normalise() FROM PUBLIC;
+ALTER FUNCTION public.company_users_legacy_role_normalise() OWNER TO migration_admin;
+
+CREATE OR REPLACE TRIGGER company_users_legacy_role_normalise
+  BEFORE INSERT OR UPDATE OF role ON public.company_users
+  FOR EACH ROW EXECUTE FUNCTION public.company_users_legacy_role_normalise();

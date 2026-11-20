@@ -64,7 +64,9 @@ beforeAll(async () => {
     await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, $3, true)`,
       [id, `${id}@test.local`, k === 'acct' ? 'accountant' : 'viewer']);
   }
-  // Legacy values, written as the table owner (as before #1656, when the guards allowed them).
+  // Legacy values, written as the table owner (as before #1656, when the guards allowed them). 1010c's normalising trigger would
+  // rewrite them on the way in (that is its job, tested below), so it is off while the pre-migration state is seeded.
+  await pool.query('ALTER TABLE company_users DISABLE TRIGGER company_users_legacy_role_normalise');
   await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES
     ($1, $2, 'owner'), ($1, $3, 'bookkeeper'), ($1, $4, 'storeman'), ($1, $5, 'manager')`,
     [company, ids.owner, ids.book, ids.store, ids.mgr]);
@@ -78,6 +80,7 @@ beforeAll(async () => {
   await pool.query("DELETE FROM role_values_1656_backup WHERE source_table = 'marker' AND row_id = 'manager_approve_backfill'");
   await pool.query(MIGRATION);
   await pool.query(MIGRATION_C);
+  await pool.query('ALTER TABLE company_users ENABLE TRIGGER company_users_legacy_role_normalise');
 }, 120000);
 
 afterAll(async () => {
@@ -190,5 +193,25 @@ describe('migration 1010c: approve_withheld on the membership', () => {
     await pool.query(MIGRATION_C);
     expect(await withheld(ids.book)).toBe(true);
     expect(await withheld(ids.mgr)).toBe(false);
+  });
+
+  it('a legacy value written AFTER the migration is normalised on the way in: accountant / bookkeeper become a manager with approve_withheld, the read-only ones a viewer', async () => {
+    const fresh = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    for (const u of fresh) await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [u, `${u}@test.local`]);
+    try {
+      await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'bookkeeper'), ($1, $3, 'accountant'), ($1, $4, 'storeman')`, [company, ...fresh]);
+      const rows = (await pool.query(`SELECT user_id, role, approve_withheld FROM company_users WHERE company_id = $1 AND user_id = ANY($2)`, [company, fresh])).rows;
+      const by = Object.fromEntries(rows.map((r) => [r.user_id, r]));
+      expect(by[fresh[0]!]).toMatchObject({ role: 'manager', approve_withheld: true });
+      expect(by[fresh[1]!]).toMatchObject({ role: 'manager', approve_withheld: true });
+      expect(by[fresh[2]!]).toMatchObject({ role: 'viewer', approve_withheld: false });
+      // an UPDATE of the role is normalised too (a viewer promoted by the old admin form to 'bookkeeper')
+      await pool.query(`UPDATE company_users SET role = 'bookkeeper' WHERE company_id = $1 AND user_id = $2`, [company, fresh[2]]);
+      expect((await pool.query(`SELECT role, approve_withheld FROM company_users WHERE company_id = $1 AND user_id = $2`, [company, fresh[2]])).rows[0])
+        .toEqual({ role: 'manager', approve_withheld: true });
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = ANY($2)', [company, fresh]);
+      await pool.query('DELETE FROM users WHERE id = ANY($1)', [fresh]);
+    }
   });
 });

@@ -43,8 +43,11 @@ describe('roleDefaultPermission', () => {
     const withheld = (a: (typeof PERMISSION_ACTIONS)[number], m: string) => roleDefaultPermission('manager', a, m, true);
     expect(PERMISSION_ACTIONS.filter((a) => withheld(a, 'payroll'))).toEqual([]);
     expect(PERMISSION_ACTIONS.filter((a) => withheld(a, 'suppliers'))).toEqual(['read', 'write', 'export']);
-    // a legacy NAME arriving after the migration reads as manager with the manager defaults: only the flag withholds
-    for (const r of ['accountant', 'bookkeeper']) expect(allowed(r)).toEqual(['read', 'write', 'export', 'approve']);
+    // a legacy NAME arriving after the migration writes like a manager but is withheld whatever the flag says (fail closed)
+    for (const r of ['accountant', 'bookkeeper']) {
+      expect(allowed(r)).toEqual(['read', 'write', 'export']);
+      expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission(r, a, 'payroll'))).toEqual([]);
+    }
     expect(PERMISSION_ACTIONS.filter((a) => roleDefaultPermission('manager', a, 'payroll'))).toEqual(['read', 'write', 'export', 'approve']);
     for (const r of ['storeman', 'technician', 'user']) expect(allowed(r)).toEqual(['read', 'export']);
     expect(allowed('nonsense')).toEqual([]);

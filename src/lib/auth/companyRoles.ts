@@ -52,8 +52,10 @@ export type BureauRole = (typeof BUREAU_ROLES)[number];
  * sets company_users.approve_withheld on those rows so they hold no Approve and no Payroll (Hein, 2026-11-19:
  * no approval power they never had); unticking the flag restores the manager defaults. storeman / technician
  * (the legacy invitation route) and `user` (the old company_users.role column default) were read-only and
- * become viewer. normalizeCompanyRole only covers a legacy value that arrives AFTER the migration (old code
- * writing during a deploy window): it reads as the mapped role, with the manager defaults.
+ * become viewer. A legacy value that arrives AFTER the migration (old code writing during a deploy window, direct SQL)
+ * is normalised by the company_users trigger from 1010c (manager + approve_withheld, viewer), and, should one still be
+ * read, normalizeCompanyRole maps it and roleDefaultPermission withholds approval from it (LEGACY_ROLES_WITHOUT_APPROVE),
+ * fail closed.
  */
 export const LEGACY_ROLE_MAP: Readonly<Record<string, CompanyRole>> = Object.freeze({
   accountant: 'manager',
@@ -62,6 +64,13 @@ export const LEGACY_ROLE_MAP: Readonly<Record<string, CompanyRole>> = Object.fre
   technician: 'viewer',
   user: 'viewer',
 });
+
+/**
+ * accountant / bookkeeper never gain approve on any module or anything on Payroll through the role default, whatever
+ * company_users.approve_withheld says: a fail-closed backstop for a legacy value read after the migration. A migrated
+ * member is stored as manager with the flag, so clearing the flag restores the manager defaults for them.
+ */
+export const LEGACY_ROLES_WITHOUT_APPROVE: ReadonlySet<string> = new Set(['accountant', 'bookkeeper']);
 
 /** The module a manager whose Approve is withheld (company_users.approve_withheld) cannot even read (per-employee pay). */
 export const LEGACY_DENIED_MODULE = 'payroll';
@@ -94,7 +103,8 @@ export const MANAGER_APPROVES_BY_DEFAULT = true;
  * owner/admin everything; manager read, write, export, and approve per MANAGER_APPROVES_BY_DEFAULT
  * (never delete); viewer read, export. A manager whose membership carries `approveWithheld`
  * (company_users.approve_withheld, backfilled by 1010c for the former accountants / bookkeepers) has no
- * Approve and nothing on Payroll (`moduleKey`); clearing the flag restores the manager defaults.
+ * Approve and nothing on Payroll (`moduleKey`); clearing the flag restores the manager defaults. A STORED legacy
+ * accountant / bookkeeper is denied both too (the backstop above).
  */
 export function roleDefaultPermission(
   role: string, action: PermissionAction, moduleKey?: string, approveWithheld = false,
@@ -104,7 +114,8 @@ export function roleDefaultPermission(
   // Withheld approval (round 3, H1): the membership carries company_users.approve_withheld (migration 1010c) for a former
   // accountant / bookkeeper, so "Reset to defaults", or a permission module added later, cannot bring the manager default back.
   // An owner or admin has set explicit rows to grant it; a row overrides this default (checkPermission).
-  if (approveWithheld && effective === 'manager' && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
+  const withheld = approveWithheld || LEGACY_ROLES_WITHOUT_APPROVE.has(role);
+  if (withheld && effective === 'manager' && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
   if (effective === 'manager') {
     if (action === 'approve') return MANAGER_APPROVES_BY_DEFAULT;
     return action === 'read' || action === 'write' || action === 'export';

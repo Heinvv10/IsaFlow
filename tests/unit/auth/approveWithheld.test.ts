@@ -118,13 +118,17 @@ describe('checkGroupPermission: a write role AND the permission in the SAME memb
 });
 
 describe('round 6 (B-M3 reversed): the stored role is rewritten to manager; the flag alone withholds, and clearing it restores the defaults', () => {
-  it('a legacy value that arrives AFTER the migration reads as manager with the manager defaults (no flag, no withholding of its own)', async () => {
+  it('a STORED legacy value (arriving after the migration) with approve_withheld = false is still denied Approve and Payroll: a fail-closed backstop', async () => {
     const { normalizeCompanyRole } = await import('@/lib/auth/companyRoles');
     expect(normalizeCompanyRole('accountant')).toBe('manager');
-    expect(normalizeCompanyRole('bookkeeper')).toBe('manager');
-    db.members.set(key(), 'bookkeeper');
-    expect(await checkPermission(C, U, 'suppliers', 'approve')).toBe(true);
-    expect(await checkPermission(C, U, 'payroll', 'read')).toBe(true);
+    for (const stored of ['accountant', 'bookkeeper']) {
+      db.members.set(key(), stored);
+      db.withheld.clear();
+      for (const m of ['suppliers', 'accounts', 'budgets']) expect(await checkPermission(C, U, m, 'approve'), `${stored} ${m}`).toBe(false);
+      expect(await checkPermission(C, U, 'payroll', 'read')).toBe(false);
+      expect(await checkPermission(C, U, 'payroll', 'write')).toBe(false);
+      expect(await checkPermission(C, U, 'suppliers', 'write')).toBe(true); // still a manager otherwise
+    }
   });
 
   it('unticking the withhold flag on a migrated manager restores the manager defaults on every module and Payroll', async () => {
@@ -137,9 +141,10 @@ describe('round 6 (B-M3 reversed): the stored role is rewritten to manager; the 
     expect(await checkPermission(C, U, 'payroll', 'write')).toBe(true);
   });
 
-  it('roleDefaultPermission ignores the role NAME for withholding: only the flag decides', () => {
-    expect(roleDefaultPermission('bookkeeper', 'approve', 'suppliers', false)).toBe(true);
+  it('a migrated manager (the stored role is manager): the flag alone decides, in both directions', () => {
+    expect(roleDefaultPermission('manager', 'approve', 'suppliers', false)).toBe(true);
     expect(roleDefaultPermission('manager', 'approve', 'suppliers', true)).toBe(false);
+    expect(roleDefaultPermission('bookkeeper', 'approve', 'suppliers', false)).toBe(false); // the legacy NAME is withheld regardless
   });
 
   it('a manager in a group is a write role there, with the permission in the same company', async () => {
