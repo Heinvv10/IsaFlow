@@ -50,4 +50,15 @@ describe('withPayrollDetailAccess', () => {
     expect((await run('manager', 'GET')).status).toBe(403);
     expect((await run('owner', 'GET')).handler).toHaveBeenCalledOnce();
   });
+  it('round 8: a write (POST, PATCH, DELETE) needs Payroll WRITE as well; read alone is refused, and GET never asks for write', async () => {
+    db.rows.set(`${C}:${U}:payroll`, { can_read: true, can_write: false });
+    for (const method of ['POST', 'PATCH', 'DELETE']) {
+      const r = await run('manager', method);
+      expect(r.status, method).toBe(403);
+      expect(r.handler).not.toHaveBeenCalled();
+    }
+    expect((await run('manager', 'GET')).handler).toHaveBeenCalledOnce();
+    db.rows.set(`${C}:${U}:payroll`, { can_read: true, can_write: true });
+    expect((await run('manager', 'POST')).handler).toHaveBeenCalledOnce();
+  });
 });

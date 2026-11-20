@@ -21,6 +21,10 @@ const READS = new Set(['GET', 'HEAD']);
 const readGranted = new WeakSet<object>();
 export const payrollReadAlreadyGranted = (req: object): boolean => readGranted.has(req);
 
+/** Requests withPayrollModule has already granted Payroll WRITE for (a non-read method), so withPayrollDetailAccess does not ask again (round 8). */
+const writeGranted = new WeakSet<object>();
+export const payrollWriteAlreadyGranted = (req: object): boolean => writeGranted.has(req);
+
 export function withPayrollModule(handler: Handler): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
     // A pre-flight is answered here, as withErrorHandler answers it (200, no body): it never reaches a handler, whatever branch that
@@ -32,6 +36,7 @@ export function withPayrollModule(handler: Handler): NextApiHandler {
       return apiResponse.forbidden(res, `Your permissions do not include Payroll ${action}. An owner or admin can grant it in User Access.`);
     }
     if (action === 'read') readGranted.add(req);
+    else writeGranted.add(req);
     return handler(req, res);
   };
 }

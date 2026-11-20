@@ -5,7 +5,7 @@
  * (the runs list) but never one person's gross or net pay. And (#1656) it needs Payroll read in
  * the user's module permissions (checkPermission, from the database): a former accountant /
  * bookkeeper, now a manager, has none (Hein, 2026-11-19), nor has a manager whose Payroll read an
- * owner or admin unticked.
+ * owner or admin unticked. A write (a method other than GET / HEAD) needs Payroll WRITE too, not read alone.
  *
  * Wrap a handler that has already been through withAuth:
  *   export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
@@ -15,7 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import type { CompanyAuthedRequest } from './withAuth';
 import { canWrite } from './writeRoles';
 import { checkPermission } from './permissionService';
-import { payrollReadAlreadyGranted } from './withPayrollModule';
+import { payrollReadAlreadyGranted, payrollWriteAlreadyGranted } from './withPayrollModule';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (req: any, res: NextApiResponse<any>) => unknown | Promise<unknown>;
@@ -32,6 +32,11 @@ export function withPayrollDetailAccess(handler: Handler): NextApiHandler {
     // withPayrollModule (outside this wrapper) has already asked Payroll read on a GET: not asked twice.
     if (!payrollReadAlreadyGranted(req) && !(await checkPermission(companyId, user.id, 'payroll', 'read'))) {
       return apiResponse.forbidden(res, 'Your permissions do not include Payroll. An owner or admin can grant it in User Access.');
+    }
+    // A write (any method but GET / HEAD) needs Payroll WRITE as well, not read alone (#1656 round 8: POST /api/accounting/tax-directives).
+    const isRead = req.method === 'GET' || req.method === 'HEAD';
+    if (!isRead && !payrollWriteAlreadyGranted(req) && !(await checkPermission(companyId, user.id, 'payroll', 'write'))) {
+      return apiResponse.forbidden(res, 'Your permissions do not include Payroll write. An owner or admin can grant it in User Access.');
     }
     return handler(req, res);
   };
