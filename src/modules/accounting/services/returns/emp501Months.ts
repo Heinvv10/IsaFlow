@@ -21,6 +21,7 @@ import type { DbRow } from '@/lib/neon';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import { listPspFilingTotals } from '@/modules/accounting/services/payroll/pspFiling';
 import type { Emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { conflictsOutsideReturn, monthName, monthsName, rowName } from './emp501LegacyConflicts';
 import { mapVersion } from './returnVersionStore';
@@ -91,15 +92,10 @@ const add = (a: MonthTotals, b: MonthTotals): MonthTotals => ({ paye: cents(a.pa
  * apart (`psp`) and never in `certs` (wave 6 PSP).
  */
 async function monthTotals(companyId: string, p: { start: string; end: string }): Promise<{ certs: Map<string, MonthTotals>; psp: Map<string, MonthTotals> }> {
-  // Certified = the H certificate easyFilePspCertificate files for the same period: particulars held AND PAYE on its PSP lines.
+  // Certified = what easyFilePspCertificate files for the same period: listPspFilingTotals' certifiedAs (particulars held and
+  // fileable, PAYE above nil), the one decision the file, the warnings and readiness share (review of #1689 L3).
+  const certified = (await listPspFilingTotals(companyId, p)).filter((t) => t.certifiedAs !== null).map((t) => t.employeeId);
   const rows = (await sql`
-    WITH paying_psp AS (
-      SELECT l.employee_id FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
-       WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
-         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
-         AND l.validation_results @> ${pspLineFlag}::jsonb
-       GROUP BY l.employee_id HAVING SUM(l.paye) > 0
-    )
     SELECT to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM') AS month,
            COALESCE(SUM(l.paye) FILTER (WHERE NOT x.psp), 0) AS paye, COALESCE(SUM(l.uif_employee + l.uif_employer) FILTER (WHERE NOT x.psp), 0) AS uif,
            COALESCE(SUM(l.sdl) FILTER (WHERE NOT x.psp), 0) AS sdl,
@@ -110,7 +106,7 @@ async function monthTotals(companyId: string, p: { start: string; end: string })
     LEFT JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     CROSS JOIN LATERAL (SELECT COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false)
                                AND NOT (e.psp_entity_name IS NOT NULL AND e.psp_tax_reference IS NOT NULL
-                                        AND e.id IN (SELECT employee_id FROM paying_psp)) AS psp) x
+                                        AND e.id = ANY(${certified}::uuid[])) AS psp) x
     WHERE h.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('h'))}
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${p.start}::DATE AND ${p.end}::DATE
     GROUP BY 1

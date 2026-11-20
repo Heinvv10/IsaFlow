@@ -41,8 +41,8 @@ describe('buildPspCertificateRecord', () => {
   });
 });
 
+const t = { employeeId: 'e1', employeeNumber: 'P1', name: 'Pat Doe', gross: 40_000, paye: 10_800, sdl: 400, alsoEmployee: false, hasParticulars: false, particularsProblem: null };
 describe('pspFilingWarning (PSP-H wording)', () => {
-  const t = { employeeId: 'e1', employeeNumber: 'P1', name: 'Pat Doe', gross: 40_000, paye: 10_800, sdl: 400, alsoEmployee: false, hasParticulars: false };
   it('certified: names the entity\'s own H certificate in the e@syFile file', () => {
     const w = pspFilingWarning({ ...t, certifiedAs: 'Acme (Pty) Ltd', hasParticulars: true }, 'IRP5 dataset');
     expect(w).toContain('It is on Acme (Pty) Ltd\'s own certificate in the e@syFile file: nature of person H');
@@ -79,5 +79,23 @@ describe('the filing-date rule (BRS p. 32, 3180 at most 30 days after today) cou
     expect(() => buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2026, 10, 20) })).toThrow(/can be filed from 2027-01-29/);
     expect(buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2027, 2, 15) })).toContain('3020,"H"');
     expect(buildIrp5File({ employer, employees: [], pspCertificates: [psp], asOf: new Date(2026, 10, 20), filingDate: 'warn' })).toContain('3180,20270228');
+  });
+});
+
+describe('review of #1689: M1, L1, L2, L3 in the builder and the warning', () => {
+  it('M1: a trust registration number under a company (3065 = 1) is refused by name (BRS p. 24)', () => {
+    expect(() => buildPspCertificateRecord({ ...base, registrationNumber: 'IT1234/2010' })).toThrow(/Acme Consulting.*registration number \(code 3066\).*CCYY\/NNNNNN\/NN/);
+    expect(buildPspCertificateRecord({ ...base, entityType: 'trust', registrationNumber: 'IT1234/2010' })).toContain('3065,2');
+  });
+  it('L1: 3230 goes through the regular-directive rules: not all zeros, at most 5', () => {
+    expect(() => buildPspCertificateRecord({ ...base, directiveNumbers: ['0000000'] })).toThrow(/3230/);
+    expect(() => buildPspCertificateRecord({ ...base, directiveNumbers: ['1', '2', '3', '4', '5', '6'] })).toThrow(/at most 5/);
+  });
+  it('L2: PAYE with no payment (3601 below R1) is refused by name', () => {
+    expect(() => buildPspCertificateRecord({ ...base, gross3601: 0.5 })).toThrow(/Acme Consulting.*no payment/);
+  });
+  it('L3: stored particulars that cannot be filed are named, never called certified', () => {
+    const w = pspFilingWarning({ ...t, hasParticulars: true, certifiedAs: null, particularsProblem: 'its income tax reference (code 3100) is bad' }, 'IRP5 dataset');
+    expect(w).toContain('cannot be filed (its income tax reference (code 3100) is bad)');
   });
 });

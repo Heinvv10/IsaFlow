@@ -1,5 +1,7 @@
 import { pspEntityChangeWarning, pspSwitchWarning } from './pspFiling';
-import { pspParticularsFromRow, pspParticularsOfPatch, type PspParticulars } from './payrollEmployeePspEntity';
+import {
+  PspRegistrationNotForEntity, pspParticularsFromRow, pspParticularsOfPatch, pspRegistrationProblem, type PspParticulars,
+} from './payrollEmployeePspEntity';
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
@@ -183,9 +185,17 @@ export async function updatePayrollEmployee(
     || dobIso !== null || data.idNumber !== undefined
     || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument', 'pspEntityType'] as const).some(has);
   // PSP-H (1015): the entity particulars, judged against the row as locked (its status and entity after this patch).
-  const particularsOf = (now: Row) => pspParticularsOfPatch(data as Record<string, unknown>,
-    has('taxStatus') ? data.taxStatus : termsFromRow(now).taxStatus,
-    has('pspEntityType') ? data.pspEntityType : termsFromRow(now).pspEntityType, (m) => new EmployeeTermsRefused(m));
+  const particularsOf = (now: Row) => {
+    const status = has('taxStatus') ? data.taxStatus : termsFromRow(now).taxStatus;
+    const entity = has('pspEntityType') ? data.pspEntityType : termsFromRow(now).pspEntityType;
+    const pp = pspParticularsOfPatch(data as Record<string, unknown>, status, entity, (m) => new EmployeeTermsRefused(m));
+    // M1 (review of #1689): the entity moved, the registration number did not: the stored one is judged against the new entity.
+    const reg = pp.pspRegistrationNumber === undefined ? now.psp_registration_number : null;
+    const bad = status === 'personal_service_provider' && entity && entity !== now.psp_entity_type && reg != null
+      ? pspRegistrationProblem(entity, String(reg), new Date().getFullYear()) : null;
+    if (bad && entity) throw new PspRegistrationNotForEntity(entity, bad);
+    return pp;
+  };
   const write = (db: typeof sql, now: Row, pp: Partial<PspParticulars> = particularsOf(now)) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),

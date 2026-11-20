@@ -185,6 +185,21 @@ describeIfDb('wave 6 PSP: the EMP501 return', () => {
     expect(body).toContain('6010,2');
   });
 
+  it('L3 (review of #1689): a stored tax reference failing modulus 10 (direct SQL) is uncertified, a named readiness error, and finalise agrees', async () => {
+    const rf = await company('PSP-H-MOD10');
+    const psp = await employee(rf, 'Pspco', true, true);
+    await sql`UPDATE payroll_employees SET psp_tax_reference = '9012345678' WHERE id = ${psp}::UUID AND company_id = ${rf.fx.companyId}::UUID`;
+    await marchRun(rf, await employee(rf, 'Alice'), psp);
+    await fileEmp201(rf, 3);
+    const g = await readiness(rf);
+    expect(g.pspParticularsErrors).toEqual(['Test Pspco (Pspco): the PSP certificate cannot be filed, as its income tax reference (code 3100) is not 10 digits starting with 9 that pass the SARS modulus 10 test; correct it on the Work card']);
+    expect(g.emp201ExplainedByPsp).toHaveLength(1); // counted apart, as uncertified
+    expect([g.emp201Mismatches, g.ready]).toEqual([[], false]);
+    const r = await finaliseEmp501(rf);
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(r.body)).toContain('modulus 10');
+  });
+
   it('C (review L4): a legacy EMP201 that left the PSP out refuses, and the message says the figure is certificates plus PSP', async () => {
     const rf = await company('PSP-C');
     await marchRun(rf, await employee(rf, 'Alice'), await employee(rf, 'Pspco', true));

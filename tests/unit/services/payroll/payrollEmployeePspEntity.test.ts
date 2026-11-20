@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { passesIncomeTaxModulus10 } from '@/modules/accounting/services/payroll/easyFileFields';
 import {
-  PSP_PARTICULAR_KEYS, pspParticularsFromRow, pspParticularsOfPatch, pspRegistrationProblem,
+  pspParticularsProblem, PSP_PARTICULAR_KEYS, pspParticularsFromRow, pspParticularsOfPatch, pspRegistrationProblem,
 } from '@/modules/accounting/services/payroll/payrollEmployeePspEntity';
 
 const refuse = (m: string) => new Error(m);
@@ -78,5 +78,14 @@ describe('passesIncomeTaxModulus10 (BRS V25.3.0 Appendix B §8.1, pp. 117-118)',
     expect(passesIncomeTaxModulus10('0001339051')).toBe(false);
     expect(passesIncomeTaxModulus10('9012345675')).toBe(true);
     expect(passesIncomeTaxModulus10('901234567')).toBe(false);
+  });
+});
+
+describe('pspParticularsProblem (the one judgement the file, the EMP501 and readiness share)', () => {
+  it('3100 must pass modulus 10; 3066 must suit the entity; else null', () => {
+    expect(pspParticularsProblem({ entityType: 'company', registrationNumber: '2015/123456/07', taxReference: '9012345675' }, 2026)).toBeNull();
+    expect(pspParticularsProblem({ entityType: 'company', registrationNumber: null, taxReference: '9012345678' }, 2026)).toMatch(/modulus 10/);
+    expect(pspParticularsProblem({ entityType: 'company', registrationNumber: 'IT1234/2010', taxReference: '9012345675' }, 2026)).toMatch(/3066/);
+    expect(pspParticularsProblem({ entityType: 'trust', registrationNumber: 'IT1234/2010', taxReference: null }, 2026)).toBeNull();
   });
 });

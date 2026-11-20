@@ -21,7 +21,9 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { formatField, passesIncomeTaxModulus10, UsageError } from './easyFileFields';
+import { formatField, UsageError } from './easyFileFields';
+import { pspParticularsProblem } from './payrollEmployeePspEntity';
+import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { certificateField } from './easyFileCertificateCodes';
 import { buildCertificateNumber } from './easyFileCertificateNumber';
 import { payRunFinalSql } from './payRunFinalSql';
@@ -52,10 +54,12 @@ export interface PspCertificateInput {
 
 /** The H record, in BRS code order, validated as the natural-person record is (irp5ValidationEngine). */
 export function buildPspCertificateRecord(c: PspCertificateInput): string[] {
-  if (!/^9\d{9}$/.test(c.taxReference) || !passesIncomeTaxModulus10(c.taxReference)) {
-    throw new UsageError(`${c.tradingName} (certificate ${c.certificateNumber}): the income tax reference (code 3100) must be 10 digits `
-      + 'starting with 9 that pass the SARS modulus 10 test (BRS V25.3.0 pp. 26-27, 117-118). Correct it on the employee\'s Work card.');
-  }
+  const who = `${c.tradingName} (certificate ${c.certificateNumber})`;
+  // 3100 and 3066 judged as the loader, the EMP501 and readiness judge them (pspParticularsProblem; review of #1689 M1, L3).
+  const bad = pspParticularsProblem({ entityType: c.entityType, registrationNumber: c.registrationNumber, taxReference: c.taxReference });
+  if (bad) throw new UsageError(`${who}: ${bad} (BRS V25.3.0 pp. 24, 26-27, 117-118). Correct it on the employee's Work card.`);
+  // L2: PAYE with no income code is an IRP5 SARS cannot reconcile; 3601 is written only from R1.
+  if (c.paye4102 > 0 && c.gross3601 < 1) throw new UsageError(`${who}: PAYE ${c.paye4102.toFixed(2)} was deducted on no payment (3601 below R1).`);
   if (c.paye4102 <= 0) {
     throw new UsageError(`${c.tradingName} (certificate ${c.certificateNumber}): a personal service provider with no PAYE this period cannot be `
       + 'certified (an IRP5 needs PAYE above nil; SARS lists no IT3(a) reason for a PSP). Clear its tax reference to leave it off the file.');
@@ -73,7 +77,7 @@ export function buildPspCertificateRecord(c: PspCertificateInput): string[] {
     certificateField('taxPeriodEnd', c.periodEnd),
     certificateField('payPeriodsInYear', c.payPeriods),
     certificateField('payPeriodsWorked', c.periodsWorked),
-    ...c.directiveNumbers.map((n) => formatField(3230, n, 'AN')), // the directive number (p. 41)
+    ...regularDirectiveFieldLines(c.directiveNumbers, 0, who), // 3230: AN15, not zeros, at most 5 (pp. 41-42; review L1)
     formatField(3601, c.gross3601 >= 1 ? c.gross3601 : null, 'N'),
     formatField(4102, c.paye4102, 'N_CENTS'),
     formatField(4141, c.uif4141, 'N_CENTS'),
@@ -122,7 +126,10 @@ export async function loadPspCertificates(
   `) as DbRow[];
   // 3200: the pay intervals in a year by the payroll's frequency; 3210: those the PSP was paid in (FQc's weekly runs count by run).
   const PERIODS: Record<string, number> = { monthly: 12, fortnightly: 26, weekly: 52 };
-  return rows.map((r, i) => {
+  // Stored particulars that cannot be filed (only by direct SQL, or a later rule) leave the PSP off, named (pspFiling, readiness).
+  const fileable = (r: DbRow) => !pspParticularsProblem({ entityType: r.psp_entity_type === 'trust' ? 'trust' : 'company',
+    registrationNumber: r.psp_registration_number == null ? null : String(r.psp_registration_number), taxReference: String(r.psp_tax_reference) });
+  return rows.filter(fileable).map((r, i) => {
     const first = Number(r.first_month), last = Number(r.last_month);
     const [fy, fm, ly, lm] = [Math.floor(first / 100), first % 100, Math.floor(last / 100), last % 100];
     return {

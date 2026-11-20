@@ -82,6 +82,23 @@ describe('the PATCH route', () => {
     expect(notPsp.statusCode).toBe(400);
   });
 
+  it('M1: moving trust -> company with a stored trust number is refused (422, named), nothing written; with a company number it saves', async () => {
+    const f = await seedEmployee(pool, fixtures, 'psph m1', 20_000);
+    const psp = await addEmployee(pool, f, 'psph-m1', 40_000);
+    await updatePayrollEmployee(psp, f.company, { taxStatus: 'personal_service_provider', pspEntityType: 'trust', pspRegistrationNumber: 'IT1234/2010' } as never);
+    const url = `/api/payroll/employees/${psp}`;
+    const out = await f.call(employeeRoute as Route, 'PATCH', url, psp, { body: { pspEntityType: 'company' } });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(422);
+    expect(JSON.stringify(out.body)).toContain('PSP_REGISTRATION_NOT_FOR_ENTITY');
+    expect(JSON.stringify(out.body)).toContain('not a company registration number');
+    expect((await pool.query('SELECT psp_entity_type, psp_registration_number FROM payroll_employees WHERE id = $1', [psp])).rows[0])
+      .toEqual({ psp_entity_type: 'trust', psp_registration_number: 'IT1234/2010' });
+    const ok = await f.call(employeeRoute as Route, 'PATCH', url, psp, { body: { pspEntityType: 'company', pspRegistrationNumber: '2015/123456/07' } });
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    expect((await pool.query('SELECT psp_entity_type, psp_registration_number FROM payroll_employees WHERE id = $1', [psp])).rows[0])
+      .toEqual({ psp_entity_type: 'company', psp_registration_number: '2015/123456/07' });
+  });
+
   it('a field-injection value and a check digit that fails modulus 10 are refused (400, nothing written)', async () => {
     const f = await seedEmployee(pool, fixtures, 'psph inject', 20_000);
     const psp = await addEmployee(pool, f, 'psph-inj', 40_000);

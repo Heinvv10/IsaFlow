@@ -549,7 +549,6 @@
    {"line":62,"text":"SELECT h.id, h.approved_plan_hash, h.approved_at FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"every final run of the EMP501 period, listed by id and share-locked at finalise"}
   ],
   "src/modules/accounting/services/returns/emp501Months.ts": [
-   {"line":97,"text":"SELECT l.employee_id FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb2","why":"PSP-H: PSPs with PAYE on their final runs' PSP lines in the period (certified, as easyFilePspCertificate decides)"},
    {"line":41,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"final runs' lines summed per month (GROUP BY month), every run of the month counted"},
    {"line":61,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb2","why":"DISTINCT months that have any non-final live run (a warning)"}
   ],

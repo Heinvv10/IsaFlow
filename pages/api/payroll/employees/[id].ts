@@ -26,7 +26,8 @@ import {
   EMPLOYEE_TERM_LOG_KEYS, EmployeeTermsRefused, movesPricedTerm,
 } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { PSP_PARTICULAR_KEYS } from '@/modules/accounting/services/payroll/payrollEmployeePspEntity';
+import { PSP_PARTICULAR_KEYS, PspRegistrationNotForEntity } from '@/modules/accounting/services/payroll/payrollEmployeePspEntity';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import { EmployeeEndDateDirectiveError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import {
   getPayrollEmployee,
@@ -69,6 +70,7 @@ async function handler(
     } catch (err) {
       if (respondIfImpersonationForbidden(res, err)) return;
       if (err instanceof EmployeeTermsForbidden) return apiResponse.forbidden(res, err.message);
+      if (err instanceof PspRegistrationNotForEntity) return apiResponse.error(res, ErrorCode.VALIDATION_ERROR, err.message, { code: err.code });
       if (err instanceof EmployeeOnboardingRefused || err instanceof EmployeeTermsRefused) return apiResponse.badRequest(res, err.message);
       // An end date that would un-explain a directive ended at the leave date before a run it taxed (DR): before the write.
       if (err instanceof EmployeeEndDateDirectiveError) return apiResponse.conflict(res, err.message, { code: err.code });

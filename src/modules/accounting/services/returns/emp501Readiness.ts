@@ -15,6 +15,7 @@ import {
 } from './emp501Months';
 import { driftOf } from './returnDrift';
 import { pspExplainedMonths } from './emp501Psp';
+import { listPspFilingTotals } from '@/modules/accounting/services/payroll/pspFiling';
 import { ReturnRefusal } from './returnVersionTypes';
 
 export const EMP501_NOT_READY = 'EMP501_NOT_READY';
@@ -38,6 +39,11 @@ export interface Emp501Readiness {
    * month's PSP lines that are on no certificate (a PSP without its entity particulars; PSP-H). Never blocks; also in `warnings`.
    */
   emp201ExplainedByPsp: string[];
+  /**
+   * Blocks (review of #1689 L3): a PSP whose held particulars cannot be filed (3100 fails modulus 10, a 3066 not for its
+   * entity: reachable only by direct SQL or a later rule). The file leaves it off; finalising waits until it is corrected.
+   */
+  pspParticularsErrors: string[];
   /** Never blocks: 'June 2025 has a run that is not final' (it is not in the EMP501); an EMP201 filed without figures. */
   warnings: string[];
   ready: boolean;
@@ -71,6 +77,8 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     if (drifted) driftedEmp201Months.push(m.month);
   }
   const emp201ExplainedByPsp = pspExplainedMonths(filings);
+  const pspParticularsErrors = (await listPspFilingTotals(companyId, p)).filter((t) => t.particularsProblem)
+    .map((t) => `${t.name} (${t.employeeNumber}): the PSP certificate cannot be filed, as ${t.particularsProblem}; correct it on the Work card`);
   const warnings = [
     ...(await notFinalRunMonths(companyId, p)).map((m) => `${monthName(m)} has a run that is not final`),
     ...legacyWarnings(filings),
@@ -86,8 +94,9 @@ export async function emp501Readiness(companyId: string, p: Emp501Period): Promi
     emp201Conflicts: filings.conflicts,
     driftedEmp201Months,
     emp201ExplainedByPsp,
+    pspParticularsErrors,
     warnings,
-    ready: validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && filings.conflicts.length === 0
+    ready: pspParticularsErrors.length === 0 && validationErrors === 0 && unfiled.length === 0 && emp201Mismatches.length === 0 && filings.conflicts.length === 0
       && driftedEmp201Months.length === 0,
   };
 }
@@ -107,12 +116,13 @@ export async function assertEmp501Ready(companyId: string, p: Emp501Period): Pro
   if (r.emp201Conflicts.length > 0) {
     parts.push(`${r.emp201Conflicts.join('; ')}: file those months through the return lifecycle (its filing supersedes the legacy EMP201s)`);
   }
+  if (r.pspParticularsErrors.length > 0) parts.push(`a PSP's certificate particulars cannot be filed (${r.pspParticularsErrors.join('; ')})`);
   if (r.driftedEmp201Months.length > 0) {
     parts.push(`the payroll changed after the EMP201 for ${r.driftedEmp201Months.join(', ')} was filed: amend and file it again`);
   }
   throw new ReturnRefusal(409, `This EMP501 cannot be finalised: ${parts.join('; and ')}. Fix these first.`, EMP501_NOT_READY,
     { validationErrors: r.validationErrors, unfiledEmp201Months: r.unfiledEmp201Months, emp201Mismatches: r.emp201Mismatches,
-      emp201Conflicts: r.emp201Conflicts, driftedEmp201Months: r.driftedEmp201Months });
+      emp201Conflicts: r.emp201Conflicts, driftedEmp201Months: r.driftedEmp201Months, pspParticularsErrors: r.pspParticularsErrors });
 }
 
 /**

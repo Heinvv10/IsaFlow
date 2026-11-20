@@ -17,6 +17,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { pspLineFlag } from './payrollOutsideTables';
+import { pspParticularsProblem } from './payrollEmployeePspEntity';
 import { payeTaxYearBounds, payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
 
 export interface PspFilingTotal {
@@ -32,6 +33,8 @@ export interface PspFilingTotal {
   certifiedAs: string | null;
   /** Its trading name and tax reference are held (whether or not it is certified). */
   hasParticulars: boolean;
+  /** Why held particulars cannot be filed (pspParticularsProblem: 3100 modulus 10, 3066 for the entity), else null: a readiness error. */
+  particularsProblem: string | null;
 }
 
 /** The PSP lines on the final runs whose period is within [start, end], by employee (this company only). */
@@ -41,6 +44,7 @@ export async function listPspFilingTotals(
   const rows = (await sql`
     SELECT e.id::text AS employee_id, e.employee_number, e.first_name, e.last_name,
            CASE WHEN e.psp_tax_reference IS NOT NULL THEN e.psp_entity_name END AS particulars_name,
+           e.psp_entity_type, e.psp_registration_number, e.psp_tax_reference,
            SUM(l.gross_pay) FILTER (WHERE l.validation_results @> ${pspLineFlag}::jsonb)::numeric AS gross,
            SUM(l.paye) FILTER (WHERE l.validation_results @> ${pspLineFlag}::jsonb)::numeric AS paye,
            SUM(l.sdl) FILTER (WHERE l.validation_results @> ${pspLineFlag}::jsonb)::numeric AS sdl,
@@ -52,18 +56,24 @@ export async function listPspFilingTotals(
        AND ${sql.unsafe(payRunFinalSql('h'))}
        AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
        AND (${employeeId}::uuid IS NULL OR e.id = ${employeeId}::uuid)
-     GROUP BY e.id, e.employee_number, e.first_name, e.last_name, e.psp_entity_name, e.psp_tax_reference
+     GROUP BY e.id, e.employee_number, e.first_name, e.last_name, e.psp_entity_name, e.psp_tax_reference, e.psp_entity_type,
+              e.psp_registration_number
     HAVING bool_or(COALESCE(l.validation_results @> ${pspLineFlag}::jsonb, false))
      ORDER BY e.last_name, e.first_name, e.id
   `) as DbRow[];
   const r2 = (v: unknown) => Math.round(Number(v ?? 0) * 100) / 100;
+  const problemOf = (r: DbRow) => (r.particulars_name == null ? null : pspParticularsProblem({
+    entityType: r.psp_entity_type === 'trust' ? 'trust' : 'company',
+    registrationNumber: r.psp_registration_number == null ? null : String(r.psp_registration_number), taxReference: String(r.psp_tax_reference),
+  }));
   return rows.map((r) => ({
     employeeId: String(r.employee_id), employeeNumber: String(r.employee_number ?? ''),
     name: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(),
     gross: r2(r.gross), paye: r2(r.paye), sdl: r2(r.sdl), alsoEmployee: r.also_employee === true,
     // As loadPspCertificates decides it: particulars held AND PAYE above nil on the period's PSP lines.
-    certifiedAs: r.particulars_name != null && r2(r.paye) > 0 ? String(r.particulars_name) : null,
+    certifiedAs: r.particulars_name != null && r2(r.paye) > 0 && problemOf(r) === null ? String(r.particulars_name) : null,
     hasParticulars: r.particulars_name != null,
+    particularsProblem: problemOf(r),
   }));
 }
 
@@ -74,6 +84,10 @@ export function pspFilingWarning(t: PspFilingTotal, filing: string): string {
   if (t.certifiedAs) {
     return `${what}It is on ${t.certifiedAs}'s own certificate in the e@syFile file: nature of person H, payments under 3601 `
       + '(SARS PAYE Employer Reconciliation BRS V25.3.0 p. 17; PAYE-GEN-01-G21 p. 31).';
+  }
+  if (t.particularsProblem) {
+    return `${what}It is on no certificate: the entity's stored particulars cannot be filed (${t.particularsProblem}). Correct them on `
+      + 'the employee\'s Work card.';
   }
   if (t.hasParticulars) {
     return `${what}It is on no certificate: no PAYE was deducted on it, and the entity's certificate (nature of person H) is an IRP5, `

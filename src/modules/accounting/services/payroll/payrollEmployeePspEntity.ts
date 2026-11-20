@@ -39,6 +39,31 @@ export function pspRegistrationProblem(entity: PspEntityType | null, v: string, 
 }
 
 /**
+ * Why stored particulars cannot be filed on an H certificate, or null: the ONE judgement the builder, the loader, the EMP501
+ * month totals, readiness and the filing warnings share (review of #1689 L3), so none of them disagrees with another.
+ */
+export function pspParticularsProblem(
+  p: { entityType: PspEntityType | null; registrationNumber: string | null; taxReference: string | null }, currentYear = new Date().getFullYear(),
+): string | null {
+  const t = p.taxReference;
+  if (t != null && (!/^9\d{9}$/.test(t) || !passesIncomeTaxModulus10(t))) {
+    return 'its income tax reference (code 3100) is not 10 digits starting with 9 that pass the SARS modulus 10 test';
+  }
+  const bad = p.registrationNumber == null ? null : pspRegistrationProblem(p.entityType, p.registrationNumber, currentYear);
+  return bad ? `its registration number (code 3066) ${bad}` : null;
+}
+
+/** M1 (review of #1689): the entity moved and the stored registration number is not one for the new entity. A 422. */
+export class PspRegistrationNotForEntity extends Error {
+  readonly code = 'PSP_REGISTRATION_NOT_FOR_ENTITY';
+  constructor(entity: PspEntityType, problem: string) {
+    super(`The stored registration number is not a ${entity === 'company' ? 'company' : 'trust'} registration number (${problem}, BRS V25.3.0 `
+      + 'p. 24): send the registration number for the new entity (pspRegistrationNumber) with the change.');
+    this.name = 'PspRegistrationNotForEntity';
+  }
+}
+
+/**
  * A PATCH body's particulars: the keys present, trimmed and judged (blank clears one). For a status after the patch that is
  * not PSP, any particular given is refused and all three are cleared.
  */
