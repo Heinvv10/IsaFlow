@@ -23,3 +23,15 @@ export function amountValidity(draft: string, o: { min?: number; max?: number; r
   if (o.max !== undefined && n > o.max) return `The amount cannot be more than ${o.max}.`;
   return '';
 }
+
+/**
+ * For a submit handler that the browser's own form check does not guard (a `noValidate` form, or a button that is not a
+ * submit): true when an AmountInput under `root` is invalid (a refused paste, a lone ".", a value outside min/max), after
+ * showing its message. The caller aborts, so the old value is never sent silently.
+ */
+export function blockOnInvalidAmount(root: ParentNode = document): boolean {
+  const bad = Array.from(root.querySelectorAll<HTMLInputElement>('input[data-amount-input]')).find(i => !i.validity.valid);
+  if (!bad) return false;
+  bad.reportValidity();
+  return true;
+}

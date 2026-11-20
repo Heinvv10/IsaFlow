@@ -15,6 +15,12 @@ import { normaliseAmountText, amountValidity } from './amountInputText';
 
 const asText = (v: string | number): string => (typeof v === 'number' ? (v === 0 ? '' : String(v)) : v);
 const isZeroText = (t: string): boolean => t.trim() !== '' && /^0*\.?0*$/.test(t.trim());
+const patterns = new Map<number, RegExp>();
+const amountPattern = (decimals: number): RegExp => {
+  let re = patterns.get(decimals);
+  if (!re) { re = new RegExp(`^\\d*(\\.\\d{0,${decimals}})?$`); patterns.set(decimals, re); }
+  return re;
+};
 const REFUSED = 'Enter an amount like 100 or 100.50.';
 
 export interface AmountInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'min' | 'max'> {
@@ -39,15 +45,17 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
     if (typeof ref === 'function') ref(el); else if (ref) ref.current = el;
   };
   const emitted = React.useRef(Number(asText(value)) || 0);
-  // The parent changed the value to something the draft does not already say (a reset, a "fill remaining"): follow it,
-  // and drop a refusal that belonged to the old text. A string parent echoing the draft, or a number parent echoing the
-  // number last emitted, keeps the draft, so "2325." survives the parent handing back 2325.
+  // Set when onChange hands the parent a value; the next value change is then its echo. Only an echo may keep a draft
+  // the parent states differently ("0.75" -> 0.75, a typed 0 -> '' under `n || ''`); any other change (a reset after a
+  // save, "fill remaining") finds no pending echo and is adopted, '' included.
+  const pendingEcho = React.useRef(false);
   React.useEffect(() => {
+    const echo = pendingEcho.current;
+    pendingEcho.current = false;
     setRefused(false);
     if (typeof value === 'string') {
-      // A `x || ''` parent hands back '' for 0: remember that, so the same number coming back later is shown again.
-      emitted.current = Number(value) || 0;
-      setDraft(prev => (prev === value ? prev : value));
+      emitted.current = Number(value) || 0; // so the same number coming back from the parent later is shown again
+      setDraft(prev => (prev === value || (echo && (Number(prev) || 0) === (Number(value) || 0)) ? prev : value));
       return;
     }
     if (value === emitted.current) return;
@@ -64,13 +72,15 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
       inputMode="decimal"
       autoComplete="off"
       required={required}
+      data-amount-input=""
       aria-invalid={message ? true : undefined}
       value={draft}
       onFocus={e => {
         if (isZeroText(e.currentTarget.value)) { justFocused.current = true; e.currentTarget.select(); }
         onFocus?.(e);
       }}
-      onBlur={e => { justFocused.current = false; setRefused(false); onBlur?.(e); }}
+      // A refusal outlives blur: clicking Submit blurs first, and the refused text must still block that submit.
+      onBlur={e => { justFocused.current = false; onBlur?.(e); }}
       onMouseUp={e => {
         // The mouseup of the click that focused the field would drop the selection and park the caret after the 0.
         if (justFocused.current) { e.preventDefault(); justFocused.current = false; }
@@ -78,10 +88,11 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
       }}
       onChange={e => {
         const text = normaliseAmountText(e.target.value, decimals);
-        if (!new RegExp(`^\\d*(\\.\\d{0,${decimals}})?$`).test(text)) { setRefused(true); return; }
+        if (!amountPattern(decimals).test(text)) { setRefused(true); return; }
         setRefused(false);
         setDraft(text);
         emitted.current = Number(text) || 0;
+        pendingEcho.current = true;
         onValueChange(emitted.current, text);
       }}
     />
