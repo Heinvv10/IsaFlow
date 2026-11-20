@@ -161,6 +161,19 @@ describe('UIF booked across the month (review #1679)', () => {
     expect(line.uif).toMatchObject({ employeeContribution: 0, employerContribution: 0 });
     expectRecomputes(line);
   });
+  it('an imported R5 000 regular line with no breakdown that withheld R50: a R5 000 bonus owes R50 each side', () => {
+    const line = bonusLine(5_000, { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 50, uifEmployer: 50 });
+    expect(line.uif).toMatchObject({ employeeContribution: 50, employerContribution: 50, isCapped: false });
+    expectRecomputes(line);
+  });
+  it('each side on its own booked figure: R50 employee, R40 employer booked, then a R5 000 bonus', () => {
+    const line = bonusLine(5_000, { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 50, uifEmployer: 40 });
+    expect(line.uif).toMatchObject({ employeeContribution: 50, employerContribution: 50 });
+    const big = bonusLine(15_000, { uifRemuneration: 0, eti: 0, etiComponents: [], uifEmployee: 50, uifEmployer: 40 });
+    // Employee: 1% of min(5 000 + 15 000, 17 712) = 177.12 − 50; employer: 1% of min(4 000 + 15 000, 17 712) − 40.
+    expect(big.uif).toMatchObject({ employeeContribution: 127.12, employerContribution: 137.12, isCapped: true });
+    expectRecomputes(big);
+  });
   it('R10 001.50 then a R7 710.50 bonus: the month levies exactly R177.12 each side (R100.02 + R77.10, not R77.11)', () => {
     const regular = regularLine(10_001.5);
     expect(regular.uif.employeeContribution).toBe(100.02);

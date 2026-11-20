@@ -247,8 +247,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         regular: directed.regular, annual: directed.annualPayment, capRoom: capped.capRoom }, taxYear) } : {}),
     },
     uif: {
-      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts, monthToDate: uifMonthToDate,
-      ...(uifMonth ? { month: { liability: uifMonth.liability, booked: uifMonth.booked } } : {}),
+      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts, monthToDate: uifMonth?.monthToDate ?? uifMonthToDate,
+      ...(uifMonth ? { month: { rebuilt: uifMonth.rebuilt, earlierPay: uifMonth.earlierPay, liability: uifMonth.liability, booked: uifMonth.booked } } : {}),
       outsideReason: !treatment.uif ? (psp ? PSP_NO_UIF : 'Independent contractor: no UIF') : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {

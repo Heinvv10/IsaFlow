@@ -25,7 +25,7 @@ export interface LineExplainParts {
   psp: (PspFacts & { base: number }) | null;
   paye: Omit<PayeExplainInput, 'taxYear'>;
   uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null; monthToDate?: number;
-    month?: { liability: number; booked: { employee: number; employer: number } } };
+    month?: { rebuilt: number; earlierPay: { employee: number; employer: number }; liability: { employee: number; employer: number }; booked: { employee: number; employer: number } } };
   sdl: {
     outsideReason: string | null; sdlApplicable: number; parts: EarningPart[]; deduction: number; retirementDeduction: number; donationDeduction: number;
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';

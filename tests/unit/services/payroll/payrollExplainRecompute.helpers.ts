@@ -152,13 +152,19 @@ function recomputeUif(fig: FigureExplanation): number {
   const room = Math.max(0, r.amt('uif.ceiling') - (r.has('uif.monthToDate') ? r.amt('uif.monthToDate') : 0));
   const leviable = Math.max(0, Math.min(r.amt('uif.remuneration'), room));
   expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
-  if (r.has('uif.monthLiability')) {
-    // An off-cycle line (review #1679): the month's liability rounded once, less what the earlier lines booked, each side.
-    const toDate = (r.has('uif.monthToDate') ? r.amt('uif.monthToDate') : 0) + r.amt('uif.remuneration');
-    const liability = round2(Math.min(toDate, r.amt('uif.ceiling')) * r.amt('uif.rate'));
-    expect(cents(r.amt('uif.monthLiability'))).toBe(cents(liability));
-    expect(cents(r.amt('uif.employer'))).toBe(cents(Math.max(0, round2(liability - r.amt('uif.bookedEmployer')))));
-    return Math.max(0, round2(liability - r.amt('uif.bookedEmployee')));
+  if (r.has('uif.monthLiabilityEmployee')) {
+    // An off-cycle line (review #1679): each side's earlier pay is the larger of the rebuilt pay and booked ÷ rate; the
+    // month's liability on it plus this run's pay is rounded once, less what that side booked.
+    const side = (s: 'Employee' | 'Employer'): number => {
+      const earlier = Math.max(r.amt('uif.earlierRebuilt'), round2(r.amt(`uif.booked${s}`) / r.amt('uif.rate')));
+      expect(cents(r.amt(`uif.earlier${s}`))).toBe(cents(earlier));
+      const liability = round2(Math.min(earlier + r.amt('uif.remuneration'), r.amt('uif.ceiling')) * r.amt('uif.rate'));
+      expect(cents(r.amt(`uif.monthLiability${s}`))).toBe(cents(liability));
+      return Math.max(0, round2(liability - r.amt(`uif.booked${s}`)));
+    };
+    expect(cents(r.amt('uif.monthToDate'))).toBe(cents(Math.max(r.amt('uif.earlierEmployee'), r.amt('uif.earlierEmployer'))));
+    expect(cents(r.amt('uif.employer'))).toBe(cents(side('Employer')));
+    return side('Employee');
   }
   const each = round2(leviable * r.amt('uif.rate'));
   expect(cents(r.amt('uif.employer'))).toBe(cents(each));
