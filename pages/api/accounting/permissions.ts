@@ -14,10 +14,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
+import { MemberRoleForbiddenError, setMemberApproveWithheld } from '@/modules/accounting/services/core/memberWrites';
 import {
   getPermissionModules,
   getEffectivePermissions,
-  getMemberRole,
+  getMemberAccess,
   setUserModulePermission,
   resetUserPermissions,
 } from '@/lib/auth/permissionService';
@@ -49,14 +50,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // #1656: a module the user has no row for shows the role default, the permission
     // checkPermission enforces (it showed all-off, so one toggle saved a row that also
     // took away the default read/write/export).
-    const role = await getMemberRole(companyId, userId);
-    if (role === null) return apiResponse.notFound(res, 'User');
+    const member = await getMemberAccess(companyId, userId);
+    if (member === null) return apiResponse.notFound(res, 'User');
     const [modules, permissions] = await Promise.all([
       getPermissionModules(),
-      getEffectivePermissions(companyId, userId, role),
+      getEffectivePermissions(companyId, userId, member.role, member.approveWithheld),
     ]);
 
-    return apiResponse.success(res, { modules, permissions });
+    return apiResponse.success(res, { modules, permissions, approveWithheld: member.approveWithheld });
   }
 
   // ── POST ──────────────────────────────────────────────────────────────────
@@ -106,6 +107,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { ok: true });
   }
 
+  // ── PUT: withhold (or restore) the manager default of Approve and Payroll for one member (#1656 round 3) ──
+  if (req.method === 'PUT') {
+    const { userId, approveWithheld } = (req.body ?? {}) as { userId?: unknown; approveWithheld?: unknown };
+    if (typeof userId !== 'string' || typeof approveWithheld !== 'boolean') {
+      return apiResponse.badRequest(res, 'userId and approveWithheld (true or false) are required.');
+    }
+    if (!isUuidParam(userId) || !(await userBelongsToCompany(userId, companyId))) return apiResponse.notFound(res, 'User');
+    try {
+      await setMemberApproveWithheld(companyId, userId, approveWithheld, (req as CompanyAuthedRequest).user.id);
+    } catch (err) {
+      if (err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
+      throw err;
+    }
+    return apiResponse.success(res, { ok: true, approveWithheld });
+  }
+
   // ── DELETE ────────────────────────────────────────────────────────────────
   if (req.method === 'DELETE') {
     const { userId } = req.query as { userId?: string };
@@ -118,7 +135,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { ok: true });
   }
 
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
+  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT', 'DELETE']);
 }
 
  

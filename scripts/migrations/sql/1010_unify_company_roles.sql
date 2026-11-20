@@ -25,12 +25,14 @@
 --
 -- A 'budgets' permission module is added (budget-version approve asks it).
 --
--- Managers' saved rows (review of #1670, M1): before #1656 the User Access grid
+-- Managers' saved rows (review of #1670, M1; round 3, 17): before #1656 the User Access grid
 -- showed a manager every module all-off and approve was enforced nowhere, so a
 -- manager's row with can_approve = false cannot be told from one the grid saved
 -- by accident. Approve is enforced from this release with the manager default
--- ON (Hein, B), so every manager row existing at the first run gets can_approve =
--- true once (marker row 'marker' / 'manager_approve_backfill'), each recorded.
+-- ON (Hein, B), so every manager row that can WRITE the module gets can_approve =
+-- true once (marker row 'marker' / 'manager_approve_backfill'), each recorded. A row
+-- that cannot write (an all-off row the grid saved) keeps can_approve as it is:
+-- approve follows write, not a blanket true.
 --
 -- company_users.role's column default becomes 'viewer' (it was 'user').
 --
@@ -85,6 +87,9 @@
 --   approve as managers until new code is back; the 1010b trigger keeps refusing permission writes by anyone but
 --   an owner or admin (old code's route already required that).
 
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
 CREATE TABLE IF NOT EXISTS public.role_values_1656_backup (
   source_table text NOT NULL,
   row_id       text NOT NULL,
@@ -134,12 +139,12 @@ BEGIN
     SELECT 'company_user_permissions', p.id::text, 'can_approve=' || COALESCE(p.can_approve::text, 'null'), 'can_approve=true'
     FROM public.company_user_permissions p
     JOIN public.company_users cu ON cu.company_id = p.company_id AND cu.user_id = p.user_id
-    WHERE cu.role = 'manager' AND p.can_approve IS NOT TRUE
+    WHERE cu.role = 'manager' AND p.can_approve IS NOT TRUE AND p.can_write IS TRUE
     ON CONFLICT (source_table, row_id) DO NOTHING;
     UPDATE public.company_user_permissions p SET can_approve = true, updated_at = now()
     FROM public.company_users cu
     WHERE cu.company_id = p.company_id AND cu.user_id = p.user_id
-      AND cu.role = 'manager' AND p.can_approve IS NOT TRUE;
+      AND cu.role = 'manager' AND p.can_approve IS NOT TRUE AND p.can_write IS TRUE;
     INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
     VALUES ('marker', 'manager_approve_backfill', '-', 'done');
   END IF;

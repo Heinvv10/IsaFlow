@@ -11,7 +11,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { checkPermission } from '@/lib/auth/permissionService';
+import { checkGroupPermission, checkPermission } from '@/lib/auth/permissionService';
 import { logAuditOrThrow } from './auditTrailService';
 
 export type ApproveModule = 'suppliers' | 'customers' | 'accounts' | 'payroll' | 'budgets' | 'banking' | 'vat' | 'group' | 'accountant' | 'items';
@@ -58,25 +58,13 @@ export function mayApprove(companyId: string, userId: string, module: ApproveMod
 }
 
 /**
- * Approve on a GROUP-wide action (consolidated eliminations): asked in the companies of the requested group, never in
- * the request's session company, which can be any company the user is in. True when the user holds `module` Approve in
- * at least one company that is a CURRENT member of the group and that they belong to (left_date IS NULL: a company
- * that left the group no longer carries the user's access; the same any-member rule as userBelongsToGroup and
- * userCanWriteGroup). A user in no member company has no Approve here.
+ * Approve on a GROUP-wide action (consolidated eliminations): asked in the companies of the requested group, never in the
+ * request's session company, which can be any company the user is in. True when, in ONE current member company of the group
+ * (left_date IS NULL), the user holds a write role AND `module` Approve (checkGroupPermission: one query; a viewer's stale
+ * approve row, or a write role in another company, does not combine with it). A user in no member company has no Approve here.
  */
-export async function mayApproveInGroup(userId: string, groupId: string, module: ApproveModule): Promise<boolean> {
-  const rows = await sql`
-    SELECT DISTINCT cgm.company_id
-    FROM   company_group_members cgm
-    JOIN   company_users cu ON cu.company_id = cgm.company_id
-    WHERE  cgm.group_id  = ${groupId}::UUID
-      AND  cgm.left_date IS NULL
-      AND  cu.user_id    = ${userId}
-  ` as Array<{ company_id: string }>;
-  for (const r of rows) {
-    if (await mayApprove(r.company_id, userId, module)) return true;
-  }
-  return false;
+export function mayApproveInGroup(userId: string, groupId: string, module: ApproveModule): Promise<boolean> {
+  return checkGroupPermission(userId, groupId, module, 'approve');
 }
 
 export async function assertMayApprove(companyId: string, userId: string, module: ApproveModule, what: string): Promise<void> {

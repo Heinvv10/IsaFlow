@@ -14,6 +14,9 @@
 -- request's claims). Not bound: platform_admin (the admin portal's permissions
 -- route), migration_admin and the deploy role. Refusal: 42501.
 
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
 CREATE OR REPLACE FUNCTION public.company_user_permissions_write_guard() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp

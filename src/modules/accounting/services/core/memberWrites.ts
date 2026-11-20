@@ -110,3 +110,21 @@ export async function removeCompanyUser(companyId: string, userId: string, actor
   });
   log.info('Company user removed', { companyId, userId }, 'accounting');
 }
+
+/**
+ * Withhold (or restore) the manager default of Approve and Payroll for one member (company_users.approve_withheld, migration
+ * 1010c; #1656 round 3). A flag on the membership, not a role: the actor must be an owner or admin now (RC001), as for a role
+ * change, and the column is the only one written. No app role may UPDATE company_users (937), hence this pool.
+ */
+export async function setMemberApproveWithheld(
+  companyId: string,
+  userId: string,
+  withheld: boolean,
+  actorUserId: string,
+): Promise<void> {
+  await migrationAdminTx('set approve withheld', async (client) => {
+    await authorize(client, companyId, userId, actorUserId, false);
+    await client.query('UPDATE company_users SET approve_withheld = $3 WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId, withheld]);
+  });
+  log.info('Company user approve_withheld set', { companyId, userId, withheld }, 'accounting');
+}

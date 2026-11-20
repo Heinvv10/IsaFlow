@@ -2,7 +2,9 @@
  * PermissionsGrid — module-level toggle grid for a single user.
  * Shown in an expandable panel inside the User Access page, and (#1656) in the admin portal's
  * linked-companies table: both edit the same company_user_permissions rows, each through its
- * own route (`permissionsUrl` is read with GET, saved to with POST, reset with DELETE).
+ * own route (`permissionsUrl` is read with GET, saved to with POST, reset with DELETE). The membership's
+ * `approveWithheld` flag (a former accountant / bookkeeper: no Approve or Payroll by default, even after a reset)
+ * is shown and saved with PUT.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -60,6 +62,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback, permissionsUrl, 
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [approveWithheld, setApproveWithheld] = useState(false);
   const isFullAccess = isFullAccessRole(userRole);
   const url = permissionsUrl ?? `/api/accounting/permissions?userId=${encodeURIComponent(userId)}`;
   const fields = saveFields ?? { userId };
@@ -74,6 +77,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback, permissionsUrl, 
       await assertOk(r, 'Could not load the permissions - try again');
       const res = await r.json();
       setPerms((res.data?.permissions as ModulePermission[]) ?? []);
+      setApproveWithheld(res.data?.approveWithheld === true);
     } catch (err) {
       setPerms([]);
       setLoadError(apiErrorMessage(err, 'Could not load the permissions - try again'));
@@ -139,6 +143,21 @@ export function PermissionsGrid({ userId, userRole, onFeedback, permissionsUrl, 
     debounceRef.current.set(`${moduleKey}_range`, id);
   }
 
+  async function handleWithheld(next: boolean) {
+    setApproveWithheld(next);
+    try {
+      const res = await fetcher(url, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...fields, approveWithheld: next }),
+      });
+      await assertOk(res, 'Could not save the approval setting - try again');
+      onFeedback(next ? 'Approve and Payroll are withheld by default for this member.' : 'This member now has the manager defaults.');
+      void loadPerms();
+    } catch (err) {
+      setApproveWithheld(!next);
+      onFeedback(apiErrorMessage(err, 'Could not save the approval setting - try again'));
+    }
+  }
+
   async function handleReset() {
     setResetting(true);
     try {
@@ -184,6 +203,11 @@ export function PermissionsGrid({ userId, userRole, onFeedback, permissionsUrl, 
           {resetting ? 'Resetting...' : 'Reset to Defaults'}
         </button>
       </div>
+
+      <label className="mb-3 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+        <input type="checkbox" checked={approveWithheld} onChange={(e) => void handleWithheld(e.target.checked)} />
+        Withhold Approve and Payroll by default (a former accountant or bookkeeper). Reset to Defaults keeps this; ticking a module below grants it.
+      </label>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
         <table className="w-full text-sm">

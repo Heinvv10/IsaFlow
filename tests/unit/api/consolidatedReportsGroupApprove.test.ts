@@ -1,7 +1,7 @@
 /**
  * #1656 security fix: the consolidated-reports elimination Approve (post / reverse) is asked in the companies of the
  * REQUESTED GROUP (the user's current member companies of gId), not in the session company. The session company can be
- * any company the user is in, unrelated to the group. checkPermission, userBelongsToGroup and userCanWriteGroup run
+ * any company the user is in, unrelated to the group. checkGroupPermission, userBelongsToGroup and userCanWriteGroup run
  * for real over an in-memory company_users / company_group_members / company_user_permissions fake.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -61,6 +61,7 @@ beforeEach(() => {
   for (const fn of Object.values(svc)) fn.mockReset().mockResolvedValue([]);
   db = permissionDb();
   groupCompanies = [MEMBER];
+  db.groups.set(GROUP, [MEMBER]);
   vi.mocked(sql).mockImplementation(fakeSql() as never);
 });
 
@@ -99,9 +100,23 @@ describe.each(['post-elimination', 'reverse-elimination'] as const)('%s asks App
     expect(service()).not.toHaveBeenCalled();
   });
 
+  it('the write role and the Approve must be in the SAME company: a viewer\'s stale approve row in one, a writer without Approve in another -> 403', async () => {
+    const OTHER_MEMBER = '44444444-4444-4444-8444-444444444444';
+    groupCompanies = [MEMBER, OTHER_MEMBER];
+    db.groups.set(GROUP, groupCompanies);
+    db.members.set(`${MEMBER}:${USER}`, 'viewer');
+    db.rows.set(`${MEMBER}:${USER}:group`, { can_read: true, can_write: true, can_approve: true });
+    db.members.set(`${OTHER_MEMBER}:${USER}`, 'manager');
+    db.rows.set(`${OTHER_MEMBER}:${USER}:group`, { can_read: true, can_write: true, can_approve: false });
+    const res = await post(action);
+    expect(status(res)).toBe(403);
+    expect(service()).not.toHaveBeenCalled();
+  });
+
   it('a company that LEFT the group no longer carries the user\'s Approve -> 403', async () => {
     db.members.set(`${MEMBER}:${USER}`, 'owner');
     groupCompanies = []; // left_date set: not a current member
+    db.groups.set(GROUP, []);
     const res = await post(action);
     expect(status(res)).toBe(403);
     expect(service()).not.toHaveBeenCalled();

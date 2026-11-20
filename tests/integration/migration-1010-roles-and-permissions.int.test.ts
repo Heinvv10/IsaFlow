@@ -19,6 +19,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const MIGRATION = readFileSync('scripts/migrations/sql/1010_unify_company_roles.sql', 'utf8');
+const MIGRATION_C = readFileSync('scripts/migrations/sql/1010c_company_users_approve_withheld.sql', 'utf8');
 const company = crypto.randomUUID();
 const ids = { owner: crypto.randomUUID(), book: crypto.randomUUID(), store: crypto.randomUUID(), mgr: crypto.randomUUID(), acct: crypto.randomUUID() };
 const MODULES = [['suppliers', 'Suppliers & AP', 30], ['customers', 'Customers & AR', 20], ['payroll', 'Payroll', 130]] as const;
@@ -69,13 +70,14 @@ beforeAll(async () => {
     [company, ids.owner, ids.book, ids.store, ids.mgr]);
   // A manager row saved from the old all-off grid (M1), and a legacy member's own earlier row.
   await pool.query(`INSERT INTO company_user_permissions (company_id, user_id, module_key, can_read, can_write, can_approve)
-    VALUES ($1, $2, 'suppliers', true, true, false), ($1, $3, 'customers', true, false, true)`, [company, ids.mgr, ids.book]);
+    VALUES ($1, $2, 'suppliers', true, true, false), ($1, $2, 'customers', false, false, false), ($1, $3, 'customers', true, false, true)`, [company, ids.mgr, ids.book]);
   inviteId = (await pool.query(`INSERT INTO company_invitations (company_id, email, role, token, invited_by, expires_at)
     VALUES ($1, $2, 'technician', $3, $4, NOW() + interval '7 days') RETURNING id`,
     [company, `${company}@invitee.test`, `tok-${company}`, ids.owner])).rows[0].id as string;
   // M1 runs once per database (its marker); let this run see the seeded manager row.
   await pool.query("DELETE FROM role_values_1656_backup WHERE source_table = 'marker' AND row_id = 'manager_approve_backfill'");
   await pool.query(MIGRATION);
+  await pool.query(MIGRATION_C);
 }, 120000);
 
 afterAll(async () => {
@@ -112,8 +114,9 @@ describe('migration 1010: the legacy mapping', () => {
     expect((await pool.query('SELECT role FROM users WHERE id = $1', [ids.acct])).rows[0].role).toBe('manager');
   });
 
-  it("M1: a manager's existing row with can_approve false gets approve, recorded", async () => {
+  it("M1: a manager's existing row that can write gets approve, recorded; an all-off row (cannot write) keeps can_approve false", async () => {
     expect(await permsOf(ids.mgr)).toEqual([
+      { module_key: 'customers', can_read: false, can_write: false, can_delete: false, can_export: false, can_approve: false },
       { module_key: 'suppliers', can_read: true, can_write: true, can_delete: false, can_export: false, can_approve: true }]);
     const recorded = await backup();
     expect(recorded).toContainEqual({ source_table: 'company_user_permissions', old_role: 'can_approve=false', new_role: 'can_approve=true' });
@@ -165,5 +168,27 @@ describe('migration 1010b: only an owner or admin writes module permissions (as 
 
   it('the owner can', async () => {
     expect(await outcome(asApp(ids.owner, tick))).toBe('ok');
+  });
+});
+
+describe('migration 1010c: approve_withheld on the membership', () => {
+  const withheld = async (u: string) =>
+    (await pool.query('SELECT approve_withheld FROM company_users WHERE company_id = $1 AND user_id = $2', [company, u])).rows[0]?.approve_withheld as boolean;
+
+  it('is true for the bookkeeper 1010 promoted, false for everyone else; a column NOT NULL DEFAULT false', async () => {
+    expect(await withheld(ids.book)).toBe(true);
+    expect(await withheld(ids.owner)).toBe(false);
+    expect(await withheld(ids.store)).toBe(false);
+    expect(await withheld(ids.mgr)).toBe(false);
+    const col = (await pool.query(`SELECT is_nullable, column_default FROM information_schema.columns
+      WHERE table_name = 'company_users' AND column_name = 'approve_withheld'`)).rows[0];
+    expect(col).toMatchObject({ is_nullable: 'NO', column_default: 'false' });
+  });
+
+  it('survives deleting every permission row (Reset to defaults), and a second run changes nothing', async () => {
+    await pool.query('DELETE FROM company_user_permissions WHERE company_id = $1 AND user_id = $2', [company, ids.book]);
+    await pool.query(MIGRATION_C);
+    expect(await withheld(ids.book)).toBe(true);
+    expect(await withheld(ids.mgr)).toBe(false);
   });
 });

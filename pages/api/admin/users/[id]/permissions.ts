@@ -23,10 +23,11 @@ import { AdminUuid, adminUuid } from '@/modules/admin/middleware/adminRequestErr
 import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  getEffectivePermissions, getMemberRole, getPermissionModules, resetUserPermissions, setUserModulePermission,
+  getEffectivePermissions, getMemberAccess, getPermissionModules, resetUserPermissions, setUserModulePermission,
 } from '@/lib/auth/permissionService';
 import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 import { logAdminAction } from '@/modules/admin/services/auditService';
+import { setApproveWithheldByAdmin } from '@/modules/admin/services/companyMembershipService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
@@ -44,20 +45,31 @@ const PostBody = z.object({
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
   const companyId = adminUuid(req.query.company_id, 'company id');
-  if (!['GET', 'POST', 'DELETE'].includes(req.method ?? '')) {
-    return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'DELETE']);
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method ?? '')) {
+    return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'PUT', 'DELETE']);
   }
 
-  const storedRole = await getMemberRole(companyId, userId);
-  if (storedRole === null) return apiResponse.notFound(res, 'Company membership');
+  const member = await getMemberAccess(companyId, userId);
+  if (member === null) return apiResponse.notFound(res, 'Company membership');
+  const storedRole = member.role;
   const role = normalizeCompanyRole(storedRole);
 
   if (req.method === 'GET') {
     const [modules, permissions] = await Promise.all([
       getPermissionModules(),
-      getEffectivePermissions(companyId, userId, storedRole), // the stored role: a former accountant has no approve
+      getEffectivePermissions(companyId, userId, storedRole, member.approveWithheld), // the stored role: a former accountant has no approve
     ]);
-    return apiResponse.success(res, { role, modules, permissions });
+    return apiResponse.success(res, { role, modules, permissions, approveWithheld: member.approveWithheld });
+  }
+
+  if (req.method === 'PUT') {
+    const parsed = z.object({ company_id: AdminUuid, approveWithheld: z.boolean() }).strict().safeParse(req.body);
+    if (!parsed.success) return apiResponse.badRequest(res, 'company_id and approveWithheld (true or false) are required');
+    if (parsed.data.company_id !== companyId) return apiResponse.badRequest(res, 'company_id must match the query');
+    await setApproveWithheldByAdmin(userId, companyId, parsed.data.approveWithheld);
+    await logAdminAction(req.user.id, 'user.set_approve_withheld', 'user', userId,
+      { company_id: companyId, approve_withheld: parsed.data.approveWithheld }, getIp(req));
+    return apiResponse.success(res, { ok: true, approveWithheld: parsed.data.approveWithheld });
   }
 
   if (req.method === 'DELETE') {

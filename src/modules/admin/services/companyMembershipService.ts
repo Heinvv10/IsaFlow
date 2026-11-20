@@ -204,3 +204,13 @@ export async function setUserCompanyRole(
   log.info('setUserCompanyRole', { userId, companyId, previousRole, role }, 'AdminCompanyMembership');
   return { previousRole, changed: true };
 }
+
+/** The admin portal's edit of company_users.approve_withheld (migration 1010c): the manager default of Approve and Payroll withheld for one member. platform_admin. */
+export async function setApproveWithheldByAdmin(userId: string, companyId: string, withheld: boolean): Promise<void> {
+  await lockMembership(userId, companyId);
+  await sql`
+    UPDATE company_users SET approve_withheld = ${withheld}
+    WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
+  `;
+  log.info('setApproveWithheldByAdmin', { userId, companyId, withheld }, 'AdminCompanyMembership');
+}

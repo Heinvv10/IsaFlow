@@ -1,5 +1,7 @@
 /**
- * The ONE place the role vocabulary is defined (#1656, Hein 2026-11-19: the app model wins).
+ * The place the role vocabulary is defined (#1656, Hein 2026-11-19: the app model wins). Known remaining role maps that
+ * still live elsewhere: ROLE_HIERARCHY (src/lib/auth/types.ts, withRole's ladder) and APPROVER_RANK (gl/approvalRank.ts, the
+ * R-035 approver ladder); both are checked against these lists by tests, not derived from them.
  *
  * A company member (company_users.role, company_invitations.role) holds exactly one of
  * COMPANY_ROLES; what each role may do per module is roleDefaultPermission, overridden per
@@ -96,16 +98,32 @@ export const MANAGER_APPROVES_BY_DEFAULT = true;
  * What a role may do on a module when the user has no company_user_permissions row for it:
  * owner/admin everything; manager read, write, export, and approve per MANAGER_APPROVES_BY_DEFAULT
  * (never delete); viewer read, export. Pass the STORED role: a legacy accountant/bookkeeper reads
- * as a manager without approve, and with nothing on Payroll (`moduleKey`).
+ * as a manager without approve, and with nothing on Payroll (`moduleKey`); so does a manager whose membership
+ * carries `approveWithheld` (company_users.approve_withheld, what migration 1010c backfills for them).
  */
-export function roleDefaultPermission(role: string, action: PermissionAction, moduleKey?: string): boolean {
-  if (LEGACY_ROLES_WITHOUT_APPROVE.has(role) && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
+export function roleDefaultPermission(
+  role: string, action: PermissionAction, moduleKey?: string, approveWithheld = false,
+): boolean {
   const effective = normalizeCompanyRole(role);
   if (isFullAccessRole(effective)) return true;
+  // Withheld approval (round 3, H1): the membership carries company_users.approve_withheld (migration 1010c) for a former
+  // accountant / bookkeeper, so "Reset to defaults", or a permission module added later, cannot bring the manager default back.
+  // An owner or admin has set explicit rows to grant it; a row overrides this default (checkPermission).
+  const withheld = approveWithheld || LEGACY_ROLES_WITHOUT_APPROVE.has(role);
+  if (withheld && effective === 'manager' && (action === 'approve' || moduleKey === LEGACY_DENIED_MODULE)) return false;
   if (effective === 'manager') {
     if (action === 'approve') return MANAGER_APPROVES_BY_DEFAULT;
     return action === 'read' || action === 'write' || action === 'export';
   }
   if (effective === 'viewer') return action === 'read' || action === 'export';
   return false;
+}
+
+/**
+ * May this role hold Approve at all? Owner, admin and manager (a write role); a viewer never does, whatever
+ * company_user_permissions rows survived a demotion (round 3, M2): permission rows are not removed when a role changes.
+ */
+export function mayHoldApprove(role: string): boolean {
+  const effective = normalizeCompanyRole(role);
+  return isFullAccessRole(effective) || effective === 'manager';
 }
