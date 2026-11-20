@@ -28,6 +28,9 @@
  * behind it; holding 620 while blocked on a PO row stalled every create of the company. A bill naming the note (create, restore)
  * holds it FOR SHARE (`goods_received_note_hold`) until it commits, after any PO lock it takes: the note lock waits for that bill and
  * the bill check after it sees the bill, or the bill waits and reads `cancelled`.
+ *
+ * Who: owner, admin and manager (the tool's write fence). The function decides it again for a direct caller and answers
+ * `role_not_allowed` (typed, nothing written) to any other member.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -162,6 +165,9 @@ export async function cancelGoodsReceived(
       async () => (await sql`SELECT outcome, po_status, receipt_status FROM public.goods_received_note_cancel(${grnId}::uuid, ${why})`) as DbRow[],
       () => new RowLockTimeoutError(`Goods received note ${grnNumber}`), { deadline }))[0];
     const outcome = String(done?.outcome ?? 'not_found');
+    if (outcome === 'role_not_allowed') {
+      throw new GoodsReceivedError('Only the owner, admin and manager roles may cancel a goods received note; ask one of them to cancel it', 'role_not_allowed');
+    }
     if (outcome === 'grn_on_bill') throw await onBillRefusal(companyId, grnId, grnNumber);
     if (outcome === 'already_cancelled') throw new GoodsReceivedError(`${grnNumber} is already cancelled`, 'already_cancelled');
     if (outcome === 'po_not_receivable') throw notReceivable(String(done!.po_status));

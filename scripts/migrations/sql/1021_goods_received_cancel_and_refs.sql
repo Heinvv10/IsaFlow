@@ -50,8 +50,8 @@
 -- Nothing here posts: a goods received note records quantities only (no GRNI accrual, no stock journal).
 --
 -- The two guards are SECURITY INVOKER. goods_received_note_cancel and goods_received_note_hold are SECURITY DEFINER, owned by
--- migration_admin (BYPASSRLS), pinned search_path with pg_temp last, a member-of-the-session-company check inside, EXECUTE for
--- app_user and app_service only, and registered in app_definer_reviews (930). Grants: app_user keeps SELECT and INSERT on both
+-- migration_admin (BYPASSRLS), pinned search_path with pg_temp last, a member-of-the-session-company check inside (the cancel also
+-- requires owner, admin or manager), EXECUTE for app_user and app_service only, and registered in app_definer_reviews (930). Grants: app_user keeps SELECT and INSERT on both
 -- tables (348's default privileges, which cover the new columns) and loses UPDATE and DELETE.
 --
 -- LOCKS. The ALTERs take ACCESS EXCLUSIVE on goods_received_notes (a CHECK scan, small table) and on grn_items (row
@@ -257,7 +257,8 @@ CREATE POLICY tenant_isolation_via_parent ON public.grn_items FOR ALL TO app_use
 -- goods_received_note_cancel(note, reason): the one way a note is cancelled. app_user may no longer UPDATE or DELETE either table
 -- (below), so the state change, the quantities back off the PO lines and the PO status recompute happen together or not at all.
 -- The caller: a member (company_users, auth.uid()) of the session company (app.current_company_id()), the same pair row security
--- reads; any other caller, or another company's note, gets 'not_found'. Locks: the PO row FOR UPDATE -> its po_items FOR UPDATE ->
+-- reads; any other caller, or another company's note, gets 'not_found'. A member whose role there is not owner, admin or manager
+-- (cancel_goods_received's write fence) gets 'role_not_allowed', before any lock. Locks: the PO row FOR UPDATE -> its po_items FOR UPDATE ->
 -- the note FOR UPDATE (the app's cancel holds the first two already, so taking them again is a no-op, and bounds every wait). NO number
 -- lock 620: the cancel assigns no number, and a create's external reference check reads a note it can only free (live -> cancelled),
 -- with goods_received_notes_external_ref_uq behind it; holding 620 while waiting on a PO row stalled every create of the company.
@@ -299,6 +300,13 @@ BEGIN
     SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = v_user
   ) THEN
     RETURN QUERY SELECT 'not_found'::text, NULL::text, NULL::text; RETURN;
+  END IF;
+  -- The role rule of the cancel_goods_received tool (the MCP write fence, canWrite: owner, admin, manager), for a direct caller too:
+  -- a member below manager reverses no receipt. Decided before any lock or write.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.company_users cu WHERE cu.company_id = v_company AND cu.user_id = v_user AND cu.role IN ('owner', 'admin', 'manager')
+  ) THEN
+    RETURN QUERY SELECT 'role_not_allowed'::text, NULL::text, NULL::text; RETURN;
   END IF;
   SELECT g.purchase_order_id INTO v_po FROM public.goods_received_notes g WHERE g.id = p_grn AND g.company_id = v_company;
   IF NOT FOUND THEN RETURN QUERY SELECT 'not_found'::text, NULL::text, NULL::text; RETURN; END IF;
@@ -427,7 +435,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('goods_received_note_cancel(uuid,text)', 'public.goods_received_note_cancel(uuid, text)',
-     'goods_received_notes (status cancelled, cancelled_at / cancelled_by = auth.uid() / cancel_reason of one note of the session company), po_items.quantity_received of that note''s PO (less the note''s items), purchase_orders.status / updated_at of that PO (recomputed; a closed PO keeps its status and has closed_from_status recomputed), purchase_order_bill_links.closed_po_from_status of that PO''s links (a closed PO''s closing record, recomputed); only for a member of the session company, and only when the note is not cancelled, its PO is approved / partially_received / received / closed, every item names a line of that PO, no live bill carries it and its PO lines keep at least what the PO''s other live notes account for; reads company_users, grn_items, supplier_invoices'),
+     'goods_received_notes (status cancelled, cancelled_at / cancelled_by = auth.uid() / cancel_reason of one note of the session company), po_items.quantity_received of that note''s PO (less the note''s items), purchase_orders.status / updated_at of that PO (recomputed; a closed PO keeps its status and has closed_from_status recomputed), purchase_order_bill_links.closed_po_from_status of that PO''s links (a closed PO''s closing record, recomputed); only for an owner, admin or manager of the session company, and only when the note is not cancelled, its PO is approved / partially_received / received / closed, every item names a line of that PO, no live bill carries it and its PO lines keep at least what the PO''s other live notes account for; reads company_users, grn_items, supplier_invoices'),
     ('goods_received_note_hold(uuid)', 'public.goods_received_note_hold(uuid)',
      'nothing (a FOR SHARE row lock on one goods_received_notes row of the session company, for a member of it; returns its status)')
   ) AS v(signature, fn, writes)

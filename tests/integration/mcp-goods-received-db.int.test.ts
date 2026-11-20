@@ -2,7 +2,8 @@
  * Goods received notes in the database (migration 1021; docs/design/mcp-goods-received.md, review M3 / L1 / L5), real PostgreSQL:
  *   - as app_user only the cancel function changes a note: a forged cancel UPDATE, an edit of an item, a DELETE of a note or of its
  *     items are refused by privilege (42501), and the note, its items and the PO are left as they were;
- *   - goods_received_note_cancel answers not_found to a caller outside the session company and for another company's note, re-decides
+ *   - goods_received_note_cancel answers not_found to a caller outside the session company and for another company's note,
+ *     role_not_allowed to a member below manager (the tool's write fence), re-decides
  *     every refusal itself (a direct call cannot cancel a note on a live bill), and a direct call keeps the quantities whole;
  *   - the 1021 triggers still hold for a role that may UPDATE (migration_admin): a cancelled note and its items never change;
  *   - grn_items row security: no item onto another company's note, none of its items read; the cancel's lookup never resolves another
@@ -121,6 +122,29 @@ describe('as app_user, only the cancel changes a note (M3)', () => {
     expect(await asAdmin("UPDATE goods_received_notes SET notes = 'edited' WHERE id = $1", [grn])).toBe('23514');
     expect(await asAdmin('UPDATE grn_items SET quantity_received = 2 WHERE grn_id = $1', [grn])).toBe('23514');
     expect((await asApp(f, 'INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, po.items[0]])).code).toBe('23514');
+  });
+});
+
+describe('the cancel function enforces the tool\'s role rule (gate finding 1)', () => {
+  it('a viewer of the company is refused role_not_allowed, directly and through the service, with nothing written; a manager cancels', async () => {
+    const viewer = crypto.randomUUID();
+    await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)", [viewer, `${viewer}@test.local`]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')", [f.co, viewer]);
+    try {
+      const { po, grn } = await received(f, 4, 3);
+      const before = { notes: await grnRows(pool, f), items: await grnItemCount(pool, f), po: await poState(pool, po) };
+      const call = 'SELECT outcome, po_status, receipt_status FROM public.goods_received_note_cancel($1, $2)';
+      expect((await asApp(f, call, [grn, 'x'], viewer)).rows).toEqual([{ outcome: 'role_not_allowed', po_status: null, receipt_status: null }]);
+      // The tool's handler without its registry fence: the service answers the function's refusal, typed.
+      const r = await callTool(pool, f, cancel, { grn_id: grn, reason: 'x' }, { user: viewer, companyRole: 'viewer' });
+      expect(r.isError).toBe(true);
+      expect(JSON.parse(r.text)).toMatchObject({ refused: true, code: 'role_not_allowed', written: false });
+      expect({ notes: await grnRows(pool, f), items: await grnItemCount(pool, f), po: await poState(pool, po) }).toEqual(before);
+      expect((await asApp(f, call, [grn, 'by a manager'], f.manager)).rows).toEqual([{ outcome: 'cancelled', po_status: 'approved', receipt_status: 'approved' }]);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [f.co, viewer]);
+      await pool.query('DELETE FROM users WHERE id = $1', [viewer]);
+    }
   });
 });
 

@@ -3,7 +3,7 @@ import type { GRNInput } from './procurementService';
 /** What a goods receipt (create or cancel) was refused for. The MCP tools answer with it; the app route with the message. */
 export type GoodsReceivedRefusalCode =
   | 'invalid' | 'not_found' | 'po_not_receivable' | 'over_receipt' | 'line_not_on_po' | 'duplicate_line'
-  | 'duplicate_external_ref' | 'already_cancelled' | 'grn_on_bill' | 'receipts_disagree' | 'items_not_on_po';
+  | 'duplicate_external_ref' | 'already_cancelled' | 'grn_on_bill' | 'receipts_disagree' | 'items_not_on_po' | 'role_not_allowed';
 
 /** One refused receipt line: its position in the request, its PO line, and (over_receipt) the quantities. */
 export interface GoodsReceivedLineRefusal {
