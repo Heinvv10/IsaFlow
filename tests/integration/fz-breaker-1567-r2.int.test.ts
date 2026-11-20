@@ -279,8 +279,12 @@ describe('999n breaker round 2: refused', () => {
         await d.query('UPDATE payroll_run_headers SET updated_at = now() WHERE id = ANY($1)', [[finalA, openA]]);
         await d.query('ROLLBACK');
       } finally { d.release(); }
+      // Since 1011 row security hides A's lines from B, so the UPDATE reaches no row; the INSERT, which USING does not
+      // filter, meets the freeze trigger, whose lookup answered "final" above.
+      expect((await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [openA])).rowCount).toBe(0);
       await c.query('SAVEPOINT w');
-      await expect(c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [openA])).rejects.toThrow(/figures are frozen/);
+      await expect(c.query('INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [openA, EMP[0]]))
+        .rejects.toThrow(/takes no new line/);
     } finally { await c.query('ROLLBACK'); c.release(); }
     // EXECUTE is only for the line writers: a role without the grant cannot ask at all.
     await expect((async () => {

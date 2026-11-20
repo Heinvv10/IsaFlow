@@ -69,7 +69,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         periodStart,
         periodEnd,
         emp201 as unknown as Record<string, unknown>,
-        userId
+        userId,
+        // A month with a pay run not final (a reopened run) is not saved for filing (breaker #1622), as the lifecycle.
+        { refuseNotFinalEmp201: true },
       );
       return apiResponse.created(res, submission, 'EMP201 draft saved');
     } catch (err) {

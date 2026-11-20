@@ -115,6 +115,9 @@ const READ_BY_HAND = new Set([
   // read-only definer rls_intercompany_parties_ok's check that a journal entry id belongs to its company. No DDL on
   // gl_journal_entries / gl_journal_lines, no dynamic SQL.
   '999r_company_groups_rls.sql',
+  // 1012 (2026-11-19, intercompany pairing): EXECUTE only as GRANT EXECUTE ON FUNCTION; "journal" is the read-only definer
+  // intercompany_pairing_partner_loan_balance's SUM over gl_journal_entries / gl_journal_lines. No DDL on either table, no dynamic SQL.
+  '1012_intercompany_pairing.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */

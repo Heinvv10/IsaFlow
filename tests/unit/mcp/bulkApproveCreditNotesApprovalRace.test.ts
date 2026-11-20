@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { racedReason } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
+import { CreditNoteVatSplitRefusal } from '@/modules/accounting/services/ar/creditNoteTypedSplit';
 
 describe('bulk_approve_credit_notes racedReason', () => {
   it('maps an approval-gate refusal to an approval_required skip carrying the reason', () => {
@@ -24,6 +25,11 @@ describe('bulk_approve_credit_notes racedReason', () => {
   it('maps a mirror_bill VAT refusal (988, raised pre-write under the bill key) to a vat_already_reversed skip', () => {
     expect(racedReason(new MirroredNoteVatRefusal('VAT_ALREADY_REVERSED: credit note CN-2 …')))
       .toBe('vat_already_reversed: VAT_ALREADY_REVERSED: credit note CN-2 …');
+  });
+
+  it('maps a typed-invoice VAT split refusal (raised pre-write, about that note alone) to a vat_split_refused skip', () => {
+    expect(racedReason(new CreditNoteVatSplitRefusal('Credit note CN-3: 600.00 of it carries no VAT …')))
+      .toBe('vat_split_refused: Credit note CN-3: 600.00 of it carries no VAT …');
   });
 
   it('still treats an unrecognised failure as a fault (null)', () => {

@@ -12,7 +12,6 @@ import { als } from '@/lib/als';
 import { assertRunKindSupported, RunKindUnsupportedError, type RunKindAction } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
-import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import runDetail from '../../pages/api/payroll/runs/[id]';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
@@ -156,22 +155,17 @@ describe('run population and the guard (grill F3)', () => {
     expect(await snapshot(runId)).toBe(before);
   });
 
-  it('a weekly run is refused by calculate, approve and reopen, 409, with no row changed', async () => {
-    const before = await snapshot(runId);
+  it('a weekly run meets no frequency clause since FQd but IRP5 (monthly-only this wave): its monthly line employee is what approve refuses', async () => {
     await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
-    const weekly = await snapshot(runId);
     try {
-      for (const [route, action, body] of [[calculate, 'calculate', undefined], [approve, 'approve', { expectedPlanHash: 'x' }],
-        [reopen, 'reopen', { reason: 'testing the guard' }]] as const) {
-        const r = await call(route as Route, 'POST', `/api/payroll/runs/${runId}/${action}`, runId, { body });
-        expect(r.statusCode, action).toBe(409);
-        expect(JSON.stringify(r.body), action).toContain('weekly run');
-        expect(await snapshot(runId), action).toBe(weekly);
+      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'bank_file'] as const) {
+        expect(clauses(await refusal(action)), action).not.toContain('frequency');
       }
+      expect(clauses(await refusal('irp5'))).toContain('frequency');
+      expect(clauses(await refusal('approve'))).toEqual(['employee_frequency']);
     } finally {
       await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'monthly' WHERE id = $1", [runId]);
     }
-    expect(await snapshot(runId)).toBe(before);
   });
 
   it('an off-cycle run is refused by calculate, 409, with no row changed', async () => {
@@ -204,12 +198,12 @@ describe('run population and the guard (grill F3)', () => {
   it("company B cannot read or be refused about company A's run: the route answers 404 and the guard finds nothing", async () => {
     const r = await call(runDetail as Route, 'GET', `/api/payroll/runs/${runId}`, runId, { user: adminB, company: B });
     expect(r.statusCode).toBe(404);
-    await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+    await pool.query("UPDATE payroll_run_headers SET run_kind = 'off_cycle', off_cycle_reason = 'bonus' WHERE id = $1", [runId]);
     try {
       expect(await refusal('calculate', B)).toBeNull();
-      expect(clauses(await refusal('calculate', A))).toEqual(['frequency']);
+      expect(clauses(await refusal('calculate', A))).toEqual(['run_kind']);
     } finally {
-      await pool.query("UPDATE payroll_run_headers SET pay_frequency = 'monthly' WHERE id = $1", [runId]);
+      await pool.query("UPDATE payroll_run_headers SET run_kind = 'regular', off_cycle_reason = NULL WHERE id = $1", [runId]);
     }
   });
 });
@@ -221,56 +215,77 @@ describe('clauses on columns and tables later releases add (rolled back)', () =>
     }
   });
 
-  it('an unknown tax status (a PSP) is refused for approve, not for reopen', async () => {
+  // Wave 6 PSP made personal_service_provider known (1013): a status no release writes stands in for an unknown one.
+  it('an unknown tax status is refused for approve, not for reopen', async () => {
     await inRolledBackTx(async (c) => {
       await c.query('ALTER TABLE payroll_employees DROP CONSTRAINT payroll_employees_tax_status_check');
-      await c.query("UPDATE payroll_employees SET tax_status = 'personal_service_provider' WHERE id = $1", [monthlyEmp]);
+      await c.query("UPDATE payroll_employees SET tax_status = 'labour_broker' WHERE id = $1", [monthlyEmp]);
     }, async () => {
       expect(clauses(await refusal('approve'))).toEqual(['tax_status']);
       expect(await refusal('reopen')).toBeNull();
     });
   });
 
-  it('a km assignment, a rate multiplier and a defined-benefit factor are refused for costing, not for payslips', async () => {
+  it('RI lifted the km and rate-multiplier clause (migration 1017): a km row or an overtime multiplier is refused nothing', async () => {
     const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     for (const prepare of [
+      async (c: PoolClient) => { await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`); },
       async (c: PoolClient) => {
-        for (const r of (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'payroll_employee_components'::regclass
-          AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity_unit%'`)).rows) {
-          await c.query(`ALTER TABLE payroll_employee_components DROP CONSTRAINT ${String(r.conname)}`);
-        }
-        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'km' WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN rate_multiplier numeric');
-        await c.query(`UPDATE payroll_employee_components SET rate_multiplier = 1.5 WHERE id IN (${assignment})`);
-      },
-      async (c: PoolClient) => {
-        await c.query('ALTER TABLE payroll_employee_components ADD COLUMN db_member_category_factor numeric');
-        await c.query(`UPDATE payroll_employee_components SET db_member_category_factor = 1.2 WHERE id IN (${assignment})`);
+        await c.query(`UPDATE payroll_employee_components SET quantity = 10, quantity_unit = 'hour', rate_multiplier = 1.5 WHERE id IN (${assignment})`);
       },
     ]) {
       await inRolledBackTx(prepare, async () => {
-        expect(clauses(await refusal('calculate'))).toEqual(['assignment']);
-        expect(clauses(await refusal('approve'))).toEqual(['assignment']);
-        expect(await refusal('payslip')).toBeNull();
+        for (const action of ['calculate', 'approve', 'post', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
       });
     }
   });
 
-  it('an active garnishee order is refused for costing; a cancelled one is not; a deduction on the run refuses reopen', async () => {
+  it('a defined-benefit factor is no longer refused: DBF (migration 1014) lifted that clause and values the row', async () => {
+    const assignment = `SELECT id FROM payroll_employee_components WHERE employee_id = '${monthlyEmp}'`;
     await inRolledBackTx(async (c) => {
-      await c.query('CREATE TABLE payroll_garnishee_orders (id uuid DEFAULT gen_random_uuid(), company_id uuid, employee_id uuid, status text)');
-      await c.query('CREATE TABLE payroll_garnishee_deductions (id uuid DEFAULT gen_random_uuid(), run_id uuid, order_id uuid)');
-      await c.query("INSERT INTO payroll_garnishee_orders (company_id, employee_id, status) VALUES ($1, $2, 'cancelled')", [A, monthlyEmp]);
+      await c.query(`UPDATE payroll_employee_components SET amount = 0, db_member_category_factor = 0.12 WHERE id IN (${assignment})`);
     }, async () => {
+      expect(await refusal('calculate')).toBeNull();
       expect(await refusal('approve')).toBeNull();
-      const client = als.getStore()!.client as PoolClient;
-      await client.query("INSERT INTO payroll_garnishee_orders (company_id, employee_id, status) VALUES ($1, $2, 'active')", [A, monthlyEmp]);
-      expect(clauses(await refusal('approve'))).toEqual(['garnishee_order']);
-      expect(await refusal('reopen')).toBeNull();
-      await client.query('INSERT INTO payroll_garnishee_deductions (run_id) VALUES ($1)', [runId]);
-      expect(clauses(await refusal('reopen'))).toEqual(['garnishee_deduction']);
     });
+  });
+
+  it('GA lifted the garnishee clauses: a run whose employee has an active order, carrying a deduction, is refused nothing', async () => {
+    // 999z's real tables (GA). The order's own guard trigger needs a session user and a payable: seeded as the owner.
+    await inRolledBackTx(async (c) => {
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2189', 'GA lift', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      const order = (await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC1', 'Cred', 100, '2020-01-01', $3, 'x') RETURNING id`,
+      [A, monthlyEmp, acct])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_deductions (company_id, run_id, order_id, employee_id, requested, amount)
+        VALUES ($1, $2, $3, $4, 100, 100)`, [A, runId, order, monthlyEmp]);
+    }, async () => {
+      for (const action of ['calculate', 'approve', 'post', 'reopen', 'payslip'] as const) expect(await refusal(action), action).toBeNull();
+    });
+  });
+
+  it('garnishee_frequency (rev #1574): a weekly run with an employee whose order is in force is refused costing, until pro-rating', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query("SELECT set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)", [adminA]);
+      const acct = (await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+        VALUES ($1, '2188', 'GA freq', 'liability', 'credit', 1) RETURNING id`, [A])).rows[0]!.id;
+      await c.query(`INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment,
+        start_date, payable_account_id, created_by) VALUES ($1, $2, 'maintenance', 'MC2', 'Cred', 100, '2020-01-01', $3, 'x')`,
+      [A, monthlyEmp, acct]);
+      await c.query("UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1", [runId]);
+      // The run's employee paid weekly too: FQd costs weekly runs, so the order is the ONLY reason left (rev #1622).
+      await c.query("UPDATE payroll_employees SET pay_frequency = 'weekly' WHERE company_id = $1", [A]);
+    }, async () => {
+      for (const action of ['calculate', 'approve', 'post'] as const) {
+        expect(clauses(await refusal(action)), action).toEqual(['garnishee_frequency']);
+      }
+      for (const action of ['reopen', 'payslip'] as const) {
+        expect(clauses(await refusal(action)), action).not.toContain('garnishee_frequency');
+      }
+    });
+    // The same order on the monthly run: no garnishee clause (the run is the monthly one again outside the rolled-back tx).
+    expect(clauses(await refusal('calculate'))).not.toContain('garnishee_frequency');
   });
 });

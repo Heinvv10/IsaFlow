@@ -23,7 +23,7 @@ const employer: EmployerInput = {
 const employee: EmployeeInput = {
   certificateNumber: '71234567892026020000000000000001'.slice(0, 30), yearOfAssessment: 2026, surname: 'Molefe',
   firstNames: 'Thandi Mbali', initials: 'TM', idNumber: '9001015009087', taxNumber: '0123456789',
-  employmentStartDate: '20250301', employmentEndDate: null, periodsInYoA: 12, grossSalary3601: 360000, paye4102: 54000,
+  taxPeriodStart: '20250301', taxPeriodEnd: '20260228', payPeriodsInYear: 12, payPeriodsWorked: 12, grossSalary3601: 360000, paye4102: 54000,
   uifEmployee: 177.12, uifEmployer: 177.12, sdl4142: 3600,
 };
 
@@ -53,7 +53,7 @@ describe('emp501FileOf', () => {
   it('an interim version carries period 08 in 2031 and in the file name', () => {
     const f = emp501FileOf(version({
       taxYear: 2026, kind: 'interim', employer: { ...employer, reconciliationPeriod: 202608 },
-      employees: [{ ...employee, certificateNumber: '712345678920260800000000000001', periodsInYoA: 6 }],
+      employees: [{ ...employee, certificateNumber: '712345678920260800000000000001', taxPeriodEnd: '20250831', payPeriodsWorked: 6 }],
     }));
     expect(f.body.split('\r\n')).toContain('2031,202608');
     expect(f.body.split('\r\n')).toContain('3010,"712345678920260800000000000001"');

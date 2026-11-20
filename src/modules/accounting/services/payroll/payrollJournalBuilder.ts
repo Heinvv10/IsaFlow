@@ -23,8 +23,10 @@
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL + employer medical (non-cash 3810) and fund (3817/3825/3828) − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
- *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
+ *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL (DR when the run's SDL is negative, M-E)
  *   CR 2175 deductions + employer medical (scheme payable), or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
+ *   CR garnishee payable (GA): the run's garnishee deductions, on their own line per payable account the orders name, out of
+ *     what would otherwise be 2175's (gross − PAYE − employee UIF − net already includes them)
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
@@ -54,6 +56,7 @@ import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
 import { etiAdvisories, etiForRun, etiRefundLines } from './payrollJournalEti';
+import { runGarnisheeCredits } from './payrollGarnisheeRun';
 
 type Row = DbRow;
 
@@ -98,7 +101,12 @@ export async function buildPayrollJournalPlan(
   const net = Number(hdr.total_net) || 0;
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
-  const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
+  const split = splitRunTotals({ gross, paye, uif, net });
+  const { employerUif } = split;
+  // GA: the garnishee deductions are part of gross − PAYE − UIF − net; they are credited to their payable, not 2175.
+  const garnishees = await runGarnisheeCredits(companyId, runId);
+  const garnishee = round2(garnishees.reduce((s, g) => s + g.amount, 0));
+  const otherDeductions = round2(split.otherDeductions - garnishee);
   const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti }, runId);
   const etiUsed = round2(runEti.etiUsed);
   // The employer's medical (non-cash 3810) and fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid over.
@@ -179,21 +187,26 @@ export async function buildPayrollJournalPlan(
         glAccountId: l.glAccountId,
         accountCode: acc?.code ?? '',
         accountName: acc?.name ?? '',
-        debit: round2(l.debit),
-        credit: 0,
+        // A negative share (an SDL refund larger than the run's cost, breaker #1622 L-H) reduces the expense: a credit.
+        debit: l.debit >= 0 ? round2(l.debit) : 0,
+        credit: l.debit < 0 ? round2(-l.debit) : 0,
         description: l.description,
         inactiveAccount: acc ? !acc.isActive : false,
         cc1Id: l.cc1Id,
       });
     }
   } else {
-    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI'));
+    built.push(labourDebit >= 0
+      ? line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI')
+      : line('5200', 0, -labourDebit, 'Labour costs reduced — an SDL refund larger than the run\'s cost (the month\'s earlier runs carried more than 1%)'));
   }
 
   const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
   built.push(payeNet >= 0 || paye < 0 ? line('2140', 0, payeNet, 'PAYE payable, net of ETI') : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
-  built.push(line('2160', 0, sdl, 'SDL payable'));
+  // A negative run SDL (FQd, breaker #1622 M-E) refunds the month's over-catch-up: it debits 2160 and, inside the labour
+  // line, reduces the SDL cost, so the month's SDL payable is 1% of its leviable pay.
+  built.push(sdl >= 0 ? line('2160', 0, sdl, 'SDL payable') : line('2160', -sdl, 0, "SDL payable reduced: the month's earlier runs carried more than 1%"));
   built.push(netPayLine(netPayTarget, round2(net)));
   // The employee's own deductions and the employer's medical contribution are separate lines: a reversal of the one must never
   // hide the other under a "reversal" label.
@@ -204,6 +217,10 @@ export async function buildPayrollJournalPlan(
   }
   if (medical > 0.005) built.push(line('2175', 0, medical, "Employer medical scheme contributions (non-cash 3810), payable to the scheme"));
   else if (medical < -0.005) built.push(line('2175', -medical, 0, 'Employer medical scheme contributions reversal — claw-back of a non-cash 3810'));
+  for (const g of garnishees) {
+    built.push({ glAccountId: g.accountId, accountCode: g.code, accountName: g.name, debit: 0, credit: round2(g.amount),
+      description: 'Garnishee orders: deducted from pay, owed to the creditors', inactiveAccount: !g.isActive, cc1Id: null });
+  }
   if (Math.abs(retirement) > 0.005) built.push(retirement > 0 ? line('2175', 0, retirement, 'Employer retirement fund contributions (non-cash 3817/3825/3828), payable to the fund') : line('2175', -retirement, 0, 'Employer retirement fund contributions reversal (non-cash 3817/3825/3828)'));
   const refund = etiRefundLines(runEti, accounts.get('5200')); // R-C: the Aug/Feb refund (payrollJournalEti)
   built.push(...refund.lines);
@@ -236,7 +253,7 @@ export async function buildPayrollJournalPlan(
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, employerMedical: medical, employerRetirement: retirement },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, garnishee, employerMedical: medical, employerRetirement: retirement },
     blockers,
     advisories,
     labourBySourceCentre,

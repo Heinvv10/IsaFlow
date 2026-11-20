@@ -136,6 +136,8 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await cell.click();
     await page.keyboard.type('1 234.50');
     await page.keyboard.press('Enter'); // commits and moves down the column
+    // The status sits under the name; a taller row can put it below the fold after the cell's own scroll (#1580 z6).
+    await row(page).getByText(/^Saved/).scrollIntoViewIfNeeded({ timeout: 15_000 });
     await expect(row(page).getByText(/^Saved/)).toBeInViewport({ timeout: 15_000 });
     // The recalculation replaces every line row in the database; the cursor must not notice.
     await expect(page.getByLabel('Once-off earning, Pieter Grid')).toBeFocused();
@@ -171,12 +173,19 @@ test('hours: an hourly employee has an Hours cell, the server prices it, a month
   try {
     await open(page, runId);
     await expect(page.getByLabel('Hours, Zanele Grid')).toHaveCount(0);
+    // Layout guard (#1580 / #1692): a salaried row with no hourly rate stays as tall as master's (57 px at 1280x720). RI's disabled
+    // overtime field and wrapped helper made it 89 px and pushed the hourly row's Saved status below the fold.
+    const zanele = page.getByRole('row').filter({ hasText: 'Z6-1' });
+    await expect(zanele).toBeVisible();
+    expect((await zanele.boundingBox())!.height).toBeLessThanOrEqual(60);
+    await expect(zanele.getByRole('link', { name: /No hourly rate: set it on the employee page, Zanele Grid/ })).toBeVisible();
     const hours = page.getByLabel('Hours, Hanna Grid');
     await expect(hours).toHaveValue(String(HOURLY.baseline));
     await hours.click();
     await hours.fill('173,5');
     await hours.press('Enter');
     const hanna = page.getByRole('row').filter({ hasText: 'Z6-3' });
+    await hanna.getByText(/^Saved/).scrollIntoViewIfNeeded({ timeout: 15_000 });
     await expect(hanna.getByText(/^Saved/)).toBeInViewport({ timeout: 15_000 });
     await expect(hours).toHaveValue('173.5');
     expect(await grossOf()).toBeCloseTo(173.5 * HOURLY.rate, 2); // 14 834.25

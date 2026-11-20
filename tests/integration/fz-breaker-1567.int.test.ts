@@ -188,12 +188,21 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
   });
   it('B8 [app_user, no claims]: the lines of a final run the caller cannot see are still frozen', async () => {
     const { run } = await finalRun();
-    await expect(as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 99999 WHERE run_id = $1', [run])))
-      .rejects.toThrow(/figures are frozen/);
+    // Since 1011 row security hides the lines from a caller without claims: the UPDATE reaches no row. An INSERT is not
+    // filtered by USING, so the freeze trigger still judges it first, and its finality lookup fails closed.
+    await as('app_user_no_claims', async (c) => {
+      expect((await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 99999 WHERE run_id = $1', [run])).rowCount).toBe(0);
+    });
+    expect((await one('SELECT sum(net_pay)::text AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe('800.00');
+    await expect(as('app_user_no_claims', (c) => c.query(
+      'INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [run, EMP[0]]))).rejects.toThrow(/takes no new line/);
   });
   it('B9 [app_user, tenant B]: tenant B cannot delete tenant A\'s final run lines', async () => {
     const { run } = await finalRun();
-    await expect(as('app_user_tenant_b', (c) => c.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [run]))).rejects.toThrow(/cannot be deleted/);
+    // Since 1011 row security hides A's lines from B: the DELETE reaches no row.
+    await as('app_user_tenant_b', async (c) => {
+      expect((await c.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [run])).rowCount).toBe(0);
+    });
     expect((await one('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe(2);
   });
   it('H4: a line whose run_id names no header counts as final (fails closed); a header delete still cascades its lines', async () => {
@@ -207,8 +216,12 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
   it('D1: a caller who cannot see a run\'s header gets "final" (fail closed): its line write is refused even on a calculated run', async () => {
     const { run } = await finalRun();
     await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [run]);
-    await expect(as('app_user_no_claims', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run])))
-      .rejects.toThrow(/figures are frozen/);
+    // Since 1011 the UPDATE reaches no row (row security); the INSERT, which USING does not filter, meets the trigger.
+    await as('app_user_no_claims', async (c) => {
+      expect((await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run])).rowCount).toBe(0);
+    });
+    await expect(as('app_user_no_claims', (c) => c.query(
+      'INSERT INTO payroll_run_lines (run_id, employee_id, net_pay) VALUES ($1, $2, 1)', [run, EMP[0]]))).rejects.toThrow(/takes no new line/);
     // A's own user, who can see it, edits the calculated run's line.
     await as('app_user', (c) => c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 1 WHERE run_id = $1', [run]));
     expect((await one('SELECT sum(net_pay)::text AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe('802.00');

@@ -63,6 +63,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}core/migrationRollbackService.ts`, `${S}gl/accountMergeService.ts`, `${S}gl/accountReclassifyService.ts`,
     `${S}gl/chartOfAccountsService.ts`, `${S}gl/chartOfAccountsTemplateSeed.ts`, `${S}gl/defaultAccountsService.ts`,
     `${S}gl/dimensions/dimensionDefaultsService.ts`, `${S}gl/openingBalanceEquityService.ts`,
+    `${S}payroll/payrollGarnisheeAccount.ts`, // GA: the lazy garnishee payable on a company's first order (F13)
     'src/modules/admin/services/sageMigrationOrchestrator.ts',
   ],
   payroll_employees: [
@@ -70,6 +71,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}payroll/equityReportService.ts`, `${S}payroll/payScaleService.ts`, `${S}payroll/payrollBulkEmployeeService.ts`,
     `${S}payroll/payrollEmployeeService.ts`, `${S}payroll/payrollTerminationService.ts`,
     `${S}payroll/payrollEmployeeEmail.ts`, // PE: the payslip address only (999o); captured like any employee write
+    `${S}payroll/payrollEmployeePayFrequency.ts`, // FQd: pay_frequency only; captured like any employee write
   ],
   company_users: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',

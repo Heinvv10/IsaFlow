@@ -1,10 +1,11 @@
 /**
- * GET /api/payroll/emp501/reconciliation?taxYear=2025
+ * GET /api/payroll/emp501/reconciliation?taxYear=2025[&period=interim]
  *
- * Returns month-by-month EMP201 vs IRP5 PAYE reconciliation for the tax year.
+ * Returns month-by-month EMP201 vs IRP5 PAYE reconciliation for the tax year (period=interim: March to August only).
  * EMP201 PAYE = sum of paye from payroll_run_headers (declared).
  * IRP5 PAYE  = sum of paye from payroll_run_lines (calculated per employee).
  */
+import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/payroll/payrollCertificateFrequency';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -14,8 +15,14 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { notFinalRunWarnings } from '@/modules/accounting/services/payroll/payRunNotFinal';
-import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
+import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
+import { pspLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
+import {
+  listPspFilingTotals, pspFilingWarning,
+} from '@/modules/accounting/services/payroll/pspFiling';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 type Row = DbRow;
 
@@ -28,7 +35,15 @@ export interface ReconciliationRow {
   emp201Paye: number;
   irp5Paye: number;
   variance: number;
-  status: 'balanced' | 'variance' | 'no_data';
+  /**
+   * PAYE on personal service provider lines (wave 6 PSP): declared on the EMP201, on no natural-person certificate; part of
+   * the variance. Payroll-detail roles only (withPayrollDetailAccess's set): absent for a viewer.
+   */
+  pspPaye?: number;
+  /** variance - pspPaye: what no PSP explains (payroll-detail roles only, as pspPaye). */
+  unexplainedVariance?: number;
+  /** explained_psp: the month's whole variance is PSP PAYE (payroll-detail roles only; a viewer sees 'variance'). */
+  status: 'balanced' | 'explained_psp' | 'variance' | 'no_data';
 }
 
 export interface Emp501Summary {
@@ -37,6 +52,10 @@ export interface Emp501Summary {
   totalEmp201: number;
   totalIrp5: number;
   totalVariance: number;
+  /** The PSP PAYE in the reconciled months (the interim: March to August), and the variance it does not explain:
+   *  payroll-detail roles only (security ruling 2026-11-19), absent for a viewer. */
+  totalPspPaye?: number;
+  totalUnexplainedVariance?: number;
   /** Approved/paid runs left out because they are not final (wave 6 EF), by name. */
   runWarnings: string[];
 }
@@ -53,13 +72,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const detail = canWrite(companyRole); // payroll-detail access (withPayrollDetailAccess's set): names PSPs and their PAYE
   // Pentest M17: bound numeric query params — reject year 9999 / -1 / NaN.
   const taxYearRaw = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
   if (!Number.isInteger(taxYearRaw) || taxYearRaw < 2000 || taxYearRaw > 2100) {
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
+  const kind = req.query.period ?? 'annual';
+  if (kind !== 'annual' && kind !== 'interim') return apiResponse.badRequest(res, 'period must be annual or interim');
+  // The interim (March to August, ?period=interim) reconciles and judges its own months only (breaker #1622), as the
+  // e@syFile input does; the annual the whole year. Monthly-only certificates this wave (409 RUN_KIND_UNSUPPORTED).
+  const period = emp501Period(taxYear, kind);
+  const through = period.endYear * 100 + period.endMonth;
+  await assertCertificateYearMonthlyOnly(companyId, taxYear, kind === 'interim' ? through : undefined);
   // The same runs as the EMP201 report and the IRP5/EMP501 exports this reconciles: FINAL runs only
   // (payRunFinalSql: approved or paid with an approval time; wave 6 EF). One left out is named in runWarnings.
 
@@ -71,7 +98,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     SELECT
       prh.period_month,
       prh.period_year,
-      SUM(prl.paye) AS irp5_paye
+      -- A personal service provider's line is on no natural-person certificate (pspFiling, wave 6 PSP): its PAYE is apart.
+      SUM(prl.paye) FILTER (WHERE NOT COALESCE(prl.validation_results @> ${pspLineFlag}::jsonb, false)) AS irp5_paye,
+      COALESCE(SUM(prl.paye) FILTER (WHERE prl.validation_results @> ${pspLineFlag}::jsonb), 0) AS psp_paye
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     WHERE prh.company_id = ${companyId}::uuid
@@ -85,16 +114,25 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   `) as Row[];
 
 
+  // Roles without payroll-detail access NEVER see a PSP split, month or year (security ruling 2026-11-19, superseding the
+  // 2+ payee rule): their IRP5 PAYE is on the old basis, PSP lines in, so no figure they get differs from it.
+  // The return's own months (FQd: the interim is March to August).
+  const psp = detail ? await listPspFilingTotals(companyId, { start: period.start, end: period.end }) : [];
   const lineMap = new Map<string, number>();
-  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye)));
+  lineRows.forEach(r => lineMap.set(`${r.period_year}-${r.period_month}`, Number(r.irp5_paye ?? 0) + (detail ? 0 : Number(r.psp_paye))));
+  const pspMap = new Map(lineRows.filter(r => Number(r.period_year) * 100 + Number(r.period_month) <= through)
+    .map(r => [`${r.period_year}-${r.period_month}`, Number(r.psp_paye)]));
 
-  const months = taxYearMonths(taxYear);
+  const months = taxYearMonths(taxYear).filter(({ month, year }) => year * 100 + month <= through);
   const rows: ReconciliationRow[] = months.map(({ month, year }) => {
     const key = `${year}-${month}`;
     const emp201 = headerMap.get(key) ?? 0;
     const irp5 = lineMap.get(key) ?? 0;
     const variance = emp201 - irp5;
     const hasData = headerMap.has(key) || lineMap.has(key);
+    const pspPaye = pspMap.get(key) ?? 0;
+    const unexplained = Math.round((variance - pspPaye) * 100) / 100;
+    const explained = Math.abs(variance) >= 0.01 && Math.abs(unexplained) < 0.01;
     return {
       month,
       monthLabel: `${MONTH_LABELS[month]} ${year}`,
@@ -102,7 +140,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       emp201Paye: emp201,
       irp5Paye: irp5,
       variance,
-      status: hasData ? (Math.abs(variance) < 0.01 ? 'balanced' : 'variance') : 'no_data',
+      ...(detail ? { pspPaye, unexplainedVariance: unexplained } : {}),
+      status: !hasData ? 'no_data' : Math.abs(variance) < 0.01 ? 'balanced' : detail && explained ? 'explained_psp' : 'variance',
     };
   });
 
@@ -112,7 +151,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     totalEmp201: rows.reduce((s, r) => s + r.emp201Paye, 0),
     totalIrp5: rows.reduce((s, r) => s + r.irp5Paye, 0),
     totalVariance: rows.reduce((s, r) => s + r.variance, 0),
-    runWarnings: await notFinalRunWarnings(companyId, payeTaxYearBounds(taxYear), 'EMP501 reconciliation'),
+    // The PSP split: payroll-detail roles only.
+    ...(detail ? (() => {
+      const totalPsp = Math.round([...pspMap.values()].reduce((s, v) => s + v, 0) * 100) / 100;
+      return { totalPspPaye: totalPsp, totalUnexplainedVariance: Math.round((rows.reduce((s, r) => s + r.variance, 0) - totalPsp) * 100) / 100 };
+    })() : {}),
+    runWarnings: [
+      ...await notFinalRunWarnings(companyId, { start: period.start, end: period.end }, 'EMP501 reconciliation'),
+      // The PAYE difference a PSP's months leave, explained by name (pspFiling; UNVERIFIED until the PSP certificate is produced).
+      // Payroll-detail roles only: a viewer gets no PSP line at all.
+      ...psp.map((t) => pspFilingWarning(t, 'IRP5 side of this reconciliation')),
+    ],
   };
 
   return apiResponse.success(res, summary);

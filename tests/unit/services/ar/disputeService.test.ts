@@ -35,6 +35,10 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   createCreditNote: vi.fn(),
 }));
+// Every invoice here is legacy (uncoded legs); the typed-invoice split is disputeTypedInvoiceCredit.test.ts.
+vi.mock('@/modules/accounting/services/ar/invoiceRevenuePosting', () => ({
+  typedInvoiceCreditState: vi.fn(async () => null),
+}));
 
 import { sql } from '@/lib/neon';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';

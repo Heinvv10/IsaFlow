@@ -19,6 +19,12 @@ export const LINE_BUILDERS: Record<string, string> = {
   // splitAllocateTransaction's lines, split out of bankAllocationService (PR #711): its view restored 2026-11-15.
   'src/modules/accounting/services/bank/bankSplitJournal.ts':
     'src/modules/accounting/services/bank/bankSplitAllocate.ts',
+  // A typed customer invoice's revenue and VAT Output legs (migration 1008), built apart for the 300-line cap.
+  'src/modules/accounting/services/ar/invoiceVatLegs.ts':
+    'src/modules/accounting/services/ar/customerInvoiceGlPosting.ts',
+  // A customer credit note's revenue debits, each carrying the reversed invoice leg's VAT type (migration 1008).
+  'src/modules/accounting/services/ar/invoiceRevenueLines.ts':
+    'src/modules/accounting/services/ar/creditNoteApproveService.ts',
 };
 
 /**
@@ -65,13 +71,31 @@ export const ALLOWED: Record<string, AllowedEntry> = {
   },
   'src/modules/accounting/services/ar/customerInvoiceGlPosting.ts': {
     kinds: ['vat_field_on_a_posting_path'],
-    reason: 'No claim decided: the file holds postCustomerInvoiceToGL alone, and its only vat_type '
-    + 'write is `standard` on the invoice\'s own VAT Output leg (2026-10-05), a LABEL on the '
-    + 'tax_amount the invoice already carries. The account is the fixed vat_output system account, '
-    + 'nobody picks one, and the code is box-neutral — the VAT201 read the uncoded leg as standard '
-    + 'before it (tests/integration/customer-invoice-vat-code-backfill.int.test.ts). It was moved '
-    + 'out of customerPaymentAllocationService so this entry does not excuse payment-allocation code. '
-    + 'The entry still excuses any vat_type write in THIS file, so keep the file to this one poster.',
+    reason: 'No claim decided, output side only: the file holds postCustomerInvoiceToGL alone. A legacy '
+    + 'invoice\'s one vat_type write is `standard` on its own VAT Output leg (2026-10-05), a LABEL on the '
+    + 'tax_amount the invoice already carries, box-neutral (the VAT201 read the uncoded leg as standard '
+    + 'before it, tests/integration/customer-invoice-vat-code-backfill.int.test.ts). A typed invoice\'s '
+    + 'legs (migration 1008, built by its declared builder invoiceVatLegs) carry the type STORED on each '
+    + 'approved line — approval content (the digest covers it), never chosen here; the accounts are the '
+    + 'line\'s own revenue account (invoiceLineCodingGuard) and the fixed vat_output system account. It '
+    + 'raises or labels OUTPUT tax and never turns an input claim on. It was moved out of '
+    + 'customerPaymentAllocationService so this entry does not excuse payment-allocation code; it still '
+    + 'excuses any vat_type write in THIS file, so keep the file to this one poster.',
+  },
+  'src/modules/accounting/services/ar/invoiceVatLegs.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'No claim decided, output side only: the declared line builder of postCustomerInvoiceToGL '
+    + 'for a typed customer invoice (migration 1008). Each revenue and VAT Output leg is coded with the '
+    + 'vat_type STORED on the approved line it sums, approval content under the digest; it picks no type '
+    + 'and no account (the line\'s revenue account, else default_revenue; the fixed vat_output account), '
+    + 'and refuses lines that do not foot to the header to the cent. Output tax only: no input claim.',
+  },
+  'src/modules/accounting/services/ar/invoiceRevenueLines.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'No claim decided: its only vat_type write puts on a customer credit note\'s revenue debit '
+    + 'the type the reversed INVOICE journal leg already carries (migration 1008), so the note reduces '
+    + 'the same VAT201 field the invoice raised; an uncoded leg stays uncoded. It picks no type and no '
+    + 'account. A credit note REDUCES output on the customer side; it never turns a claim on.',
   },
   'src/modules/accounting/services/ar/creditNoteApproveService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
