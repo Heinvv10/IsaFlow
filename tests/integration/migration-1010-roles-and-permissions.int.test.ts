@@ -7,7 +7,8 @@
  * recorded in role_values_1656_backup); storeman / technician / user → viewer; pending legacy
  * invitations → viewer; a manager's existing row with can_approve false gets approve once (M1,
  * the marker row), recorded; company_users.role defaults to viewer; a second run changes nothing.
- * 1010b: as app_user, only an owner or admin of the company writes company_user_permissions.
+ * 1010b: as app_user (with the write privileges granted back), only an owner or admin of the company writes company_user_permissions.
+ * 1010d: app_user and app_service hold SELECT only on company_user_permissions; migration_admin still writes.
  *
  * Disposable schema fixture only (assertDisposable).
  */
@@ -157,20 +158,65 @@ describe('migration 1010: the legacy mapping', () => {
   });
 });
 
-describe('migration 1010b: only an owner or admin writes module permissions (as app_user)', () => {
+describe('migration 1010b: only an owner or admin writes module permissions (the trigger, as a second layer)', () => {
   const tick = (c: PoolClient) => c.query(`UPDATE company_user_permissions SET can_approve = true
     WHERE company_id = $1 AND user_id = $2 AND module_key = 'suppliers'`, [company, ids.book]);
+  /** 1010d took the app roles' write privileges, so the trigger is reached only with them granted back (rolled back with the transaction). */
+  const regranted = (sub: string, fn: (c: PoolClient) => Promise<unknown>) => asApp(sub, async (c) => {
+    await c.query('RESET ROLE');
+    await c.query('GRANT INSERT, UPDATE, DELETE ON public.company_user_permissions TO app_user');
+    await c.query('SET LOCAL ROLE app_user');
+    return fn(c);
+  });
 
-  it('the manager whose approve was taken cannot tick it back, insert a row or delete one (42501)', async () => {
-    expect(await outcome(asApp(ids.book, tick))).toBe('42501');
-    expect(await outcome(asApp(ids.book, (c) => c.query(`INSERT INTO company_user_permissions (company_id, user_id, module_key, can_approve)
+  it('with the privileges granted back, the manager whose approve was taken cannot tick it back, insert a row or delete one (42501)', async () => {
+    expect(await outcome(regranted(ids.book, tick))).toBe('42501');
+    expect(await outcome(regranted(ids.book, (c) => c.query(`INSERT INTO company_user_permissions (company_id, user_id, module_key, can_approve)
       VALUES ($1, $2, 'banking', true)`, [company, ids.book])))).toBe('42501');
-    expect(await outcome(asApp(ids.book, (c) => c.query(
+    expect(await outcome(regranted(ids.book, (c) => c.query(
       'DELETE FROM company_user_permissions WHERE company_id = $1 AND user_id = $2', [company, ids.book])))).toBe('42501');
   });
 
-  it('the owner can', async () => {
-    expect(await outcome(asApp(ids.owner, tick))).toBe('ok');
+  it('with the privileges granted back, the owner can', async () => {
+    expect(await outcome(regranted(ids.owner, tick))).toBe('ok');
+  });
+});
+
+describe('migration 1010d: no app role writes company_user_permissions (M4)', () => {
+  const tick = (c: PoolClient) => c.query(`UPDATE company_user_permissions SET can_approve = true
+    WHERE company_id = $1 AND user_id = $2 AND module_key = 'suppliers'`, [company, ids.book]);
+
+  it('app_user holds SELECT only: even the OWNER, with genuine claims, is refused every write (42501, a privilege, not the forgeable guard)', async () => {
+    expect(await outcome(asApp(ids.owner, tick))).toBe('42501');
+    expect(await outcome(asApp(ids.owner, (c) => c.query(`INSERT INTO company_user_permissions (company_id, user_id, module_key, can_approve)
+      VALUES ($1, $2, 'banking', true)`, [company, ids.book])))).toBe('42501');
+    expect(await outcome(asApp(ids.owner, (c) => c.query(
+      'DELETE FROM company_user_permissions WHERE company_id = $1 AND user_id = $2', [company, ids.book])))).toBe('42501');
+    expect(await outcome(asApp(ids.owner, (c) => c.query('SELECT count(*) FROM company_user_permissions WHERE company_id = $1', [company])))).toBe('ok');
+    const priv = (await pool.query(`SELECT r, p, has_table_privilege(r, 'public.company_user_permissions', p) AS held
+      FROM unnest(ARRAY['app_user', 'app_service']) r, unnest(ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) p`)).rows;
+    expect(priv.filter((x) => x.held)).toEqual([]);
+  });
+
+  it('a FORGED claim cannot do what the owner cannot: the manager claiming to be the owner is refused the same way', async () => {
+    expect(await outcome(asApp(ids.owner, (c) => c.query(
+      `SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ role: 'authenticated', sub: ids.owner })])
+      .then(() => tick(c))))).toBe('42501');
+  });
+
+  it('app_pool_reach_violations() is empty, and the migration_admin pool still writes (what memberWrites relies on)', async () => {
+    expect((await pool.query('SELECT * FROM public.app_pool_reach_violations()')).rows).toEqual([]);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE migration_admin');
+      await c.query(`INSERT INTO company_user_permissions (company_id, user_id, module_key, can_approve) VALUES ($1, $2, 'banking', true)
+        ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET can_approve = true`, [company, ids.book]);
+      await c.query('DELETE FROM company_user_permissions WHERE company_id = $1 AND user_id = $2 AND module_key = $3', [company, ids.book, 'banking']);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
   });
 });
 

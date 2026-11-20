@@ -14,19 +14,26 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
-import { MemberRoleForbiddenError, setMemberApproveWithheld } from '@/modules/accounting/services/core/memberWrites';
+import {
+  isMemberWriteBusy, MemberRoleForbiddenError, resetMemberPermissions, setMemberApproveWithheld, setMemberModulePermission,
+} from '@/modules/accounting/services/core/memberWrites';
 import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
 import {
   getPermissionModules,
   getEffectivePermissions,
   getMemberAccess,
-  setUserModulePermission,
-  resetUserPermissions,
 } from '@/lib/auth/permissionService';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 
 const ADMIN_ROLES = ['owner', 'admin'];
+
+/** A permission write the owner / admin check (memberWrites) refused, or that waited past the lock bound: 403 / 409; false for anything else. */
+function respondIfPermissionWriteRefused(res: NextApiResponse, err: unknown): boolean {
+  if (err instanceof MemberRoleForbiddenError || err instanceof OwnerProtectedError) { apiResponse.forbidden(res, err.message); return true; }
+  if (isMemberWriteBusy(err)) { apiResponse.conflict(res, 'Another change to this member is in progress. Nothing was changed; retry in a moment.'); return true; }
+  return false;
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole } = req as CompanyAuthedRequest;
@@ -94,15 +101,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.notFound(res, 'User');
     }
 
-    await setUserModulePermission(companyId, userId, moduleKey, {
-      canRead: Boolean(body.canRead),
-      canWrite: Boolean(body.canWrite),
-      canDelete: Boolean(body.canDelete),
-      canExport: Boolean(body.canExport),
-      canApprove: Boolean(body.canApprove),
-      accountRangeFrom: body.accountRangeFrom ?? null,
-      accountRangeTo: body.accountRangeTo ?? null,
-    });
+    try {
+      await setMemberModulePermission(companyId, userId, moduleKey, {
+        canRead: Boolean(body.canRead),
+        canWrite: Boolean(body.canWrite),
+        canDelete: Boolean(body.canDelete),
+        canExport: Boolean(body.canExport),
+        canApprove: Boolean(body.canApprove),
+        accountRangeFrom: body.accountRangeFrom ?? null,
+        accountRangeTo: body.accountRangeTo ?? null,
+      }, (req as CompanyAuthedRequest).user.id);
+    } catch (err) {
+      if (respondIfPermissionWriteRefused(res, err)) return;
+      throw err;
+    }
 
     log.info('Permission set via API', { companyId, userId, moduleKey }, 'PermissionsAPI');
     return apiResponse.success(res, { ok: true });
@@ -132,7 +144,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (!isUuidParam(userId)) return apiResponse.notFound(res, 'User');
 
-    await resetUserPermissions(companyId, userId);
+    try {
+      await resetMemberPermissions(companyId, userId, (req as CompanyAuthedRequest).user.id);
+    } catch (err) {
+      if (respondIfPermissionWriteRefused(res, err)) return;
+      throw err;
+    }
     return apiResponse.success(res, { ok: true });
   }
 

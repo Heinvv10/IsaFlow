@@ -23,11 +23,11 @@ import { AdminUuid, adminUuid } from '@/modules/admin/middleware/adminRequestErr
 import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  getEffectivePermissions, getMemberAccess, getPermissionModules, resetUserPermissions, setUserModulePermission,
+  getEffectivePermissions, getMemberAccess, getPermissionModules,
 } from '@/lib/auth/permissionService';
 import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { setApproveWithheldByAdmin } from '@/modules/admin/services/companyMembershipService';
+import { resetPermissionsByAdmin, setApproveWithheldByAdmin, setModulePermissionByAdmin } from '@/modules/admin/services/companyMembershipService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
@@ -73,7 +73,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    await resetUserPermissions(companyId, userId);
+    await resetPermissionsByAdmin(companyId, userId);
     await logAdminAction(req.user.id, 'user.reset_module_permissions', 'user', userId, { company_id: companyId }, getIp(req));
     return apiResponse.success(res, { ok: true });
   }
@@ -94,7 +94,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     canExport: body.canExport, canApprove: body.canApprove,
     accountRangeFrom: body.accountRangeFrom ?? null, accountRangeTo: body.accountRangeTo ?? null,
   };
-  await setUserModulePermission(companyId, userId, body.moduleKey, perms);
+  await setModulePermissionByAdmin(companyId, userId, body.moduleKey, perms);
   await logAdminAction(req.user.id, 'user.set_module_permission', 'user', userId,
     { company_id: companyId, module_key: body.moduleKey, ...perms }, getIp(req));
   return apiResponse.success(res, { ok: true });

@@ -78,40 +78,9 @@ export async function getUserPermissions(
   return map;
 }
 
-export async function setUserModulePermission(
-  companyId: string, userId: string, moduleKey: string, perms: Partial<ModulePermission>
-): Promise<void> {
-  await sql`
-    INSERT INTO company_user_permissions (
-      company_id, user_id, module_key,
-      can_read, can_write, can_delete, can_export, can_approve,
-      account_range_from, account_range_to, restrictions, updated_at
-    ) VALUES (
-      ${companyId}::UUID, ${userId}, ${moduleKey},
-      ${perms.canRead ?? false}, ${perms.canWrite ?? false}, ${perms.canDelete ?? false},
-      ${perms.canExport ?? false}, ${perms.canApprove ?? false},
-      ${perms.accountRangeFrom ?? null}, ${perms.accountRangeTo ?? null},
-      ${JSON.stringify(perms.restrictions ?? {})}::JSONB, NOW()
-    )
-    ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET
-      can_read = EXCLUDED.can_read, can_write = EXCLUDED.can_write,
-      can_delete = EXCLUDED.can_delete, can_export = EXCLUDED.can_export,
-      can_approve = EXCLUDED.can_approve,
-      account_range_from = EXCLUDED.account_range_from,
-      account_range_to   = EXCLUDED.account_range_to,
-      restrictions       = EXCLUDED.restrictions,
-      updated_at         = NOW()
-  `;
-  log.info('Module permission updated', { companyId, userId, moduleKey }, 'PermissionService');
-}
-
-export async function resetUserPermissions(companyId: string, userId: string): Promise<void> {
-  await sql`
-    DELETE FROM company_user_permissions
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-  `;
-  log.info('User permissions reset to defaults', { companyId, userId }, 'PermissionService');
-}
+// The writers of company_user_permissions are not here: no app role may write it (migration 1010d). The app's routes use
+// setMemberModulePermission / resetMemberPermissions (accounting/services/core/memberWrites.ts, migration_admin pool, owner / admin
+// checked); the admin portal's route uses setModulePermissionByAdmin / resetPermissionsByAdmin (admin/services/companyMembershipService.ts).
 
 /** The member's stored role in the company, or null when they are not a member. */
 export async function getMemberRole(companyId: string, userId: string): Promise<string | null> {
