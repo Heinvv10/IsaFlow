@@ -196,6 +196,14 @@ describe('getCustomerPayments', () => {
     expect(result.payments).toHaveLength(1);
   });
 
+  it.each([['unfiltered', undefined], ['by client', { clientId: CLIENT_ID }], ['by status', { status: 'confirmed' as const }]])(
+    'the page query (%s) is totally ordered: payment_date DESC, id DESC, so OFFSET paging never repeats or skips a row', async (_n, filters) => {
+      mockSql.mockResolvedValueOnce([samplePaymentRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+      await getCustomerPayments(COMPANY_ID, filters);
+      const [strings] = mockSql.mock.calls[0] as unknown as [readonly string[]];
+      expect(strings.join('').replace(/\s+/g, ' ')).toContain('ORDER BY cp.payment_date DESC, cp.id DESC LIMIT');
+    });
+
   it('propagates sql errors to the caller', async () => {
     mockSql.mockRejectedValueOnce(new Error('DB connection failed'));
     await expect(getCustomerPayments(COMPANY_ID)).rejects.toThrow('DB connection failed');

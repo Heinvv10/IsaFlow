@@ -228,10 +228,15 @@ describe('createWriteOff — refuses an invoice with no posted AR up front (C2)'
     expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
-  it('an invoice with no client_id falls back to customer_id (COALESCE) and an exact match is accepted past the ownership check', async () => {
-    mockSql.mockResolvedValueOnce([lockedInvoice({ owner_id: CLIENT.toUpperCase() })]).mockResolvedValueOnce([{ id: 'wo-1' }]);
-    await create().catch(() => undefined);
-    expect(mockSql.mock.calls.length).toBeGreaterThanOrEqual(2); // got past the read to the INSERT
+  it('reads the owner as COALESCE(client_id, customer_id) and an exact (case-insensitive) match reaches the INSERT', async () => {
+    mockSql.mockResolvedValueOnce([lockedInvoice({ owner_id: CLIENT.toUpperCase() })]).mockResolvedValueOnce([writeOffRow({ id: 'wo-1' })]);
+    const out = await create();
+    expect(out.id).toBe('wo-1');
+    expect(mockSql).toHaveBeenCalledTimes(2); // the owner read, then the INSERT
+    // The mock hands back owner_id whatever the SQL says, so the fallback itself is guarded by the statement's text:
+    // dropping COALESCE would make a customer_id-only invoice read as owned by nobody.
+    const [strings] = mockSql.mock.calls[0] as unknown as [readonly string[]];
+    expect(strings.join('').replace(/\s+/g, ' ')).toMatch(/COALESCE\(\s*(?:ci\.)?client_id,\s*(?:ci\.)?customer_id\s*\) AS owner_id FROM customer_invoices/);
   });
 
   it.each([['a draft invoice', 'draft', null], ['a soft-deleted invoice', 'approved', '2026-07-01']])('refuses %s without inserting', async (_name, status, deleted_at) => {

@@ -173,10 +173,10 @@ describe('customer-allocations: paging', () => {
 });
 
 describe('fetchAllPages', () => {
-  it('stops at total, at an empty page, and flags a cut-off at the cap', async () => {
+  it('stops at total, flags an empty page short of total, and flags a cut-off at the cap', async () => {
     const mk = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: String(from + i) }));
     expect(await fetchAllPages(async i => ({ rows: i === 0 ? mk(0, 2) : mk(2, 1), total: 3 }))).toMatchObject({ total: 3, truncated: false });
-    expect((await fetchAllPages(async i => ({ rows: i === 0 ? mk(0, 2) : [], total: 9 }))).truncated).toBe(false);
+    expect((await fetchAllPages(async i => ({ rows: i === 0 ? mk(0, 2) : [], total: 9 }))).truncated).toBe(true); // short of its own total: flagged, never passed off as whole
     expect((await fetchAllPages(async i => ({ rows: mk(i * 2, 2), total: 99 }), 3))).toMatchObject({ truncated: true });
   });
 });
