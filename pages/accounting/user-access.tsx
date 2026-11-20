@@ -9,9 +9,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
-import { COMPANY_ROLES } from '@/lib/auth/companyRoles';
+import { COMPANY_ROLES, companyRoleLabel } from '@/lib/auth/companyRoles';
 
-interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
+interface CompanyUser { userId: string; name: string; email: string; role: string; approveWithheld?: boolean; joinedAt: string; }
 // Note: no `token` field — the API never returns the raw token for
 // pending invitations (only the SHA-256 hash is stored in the DB).
 interface PendingInvitation {
@@ -184,11 +184,11 @@ export default function UserAccessPage() {
                               onChange={(e) => handleRoleChange(u.userId, e.target.value)}
                               className="rounded border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-2 py-1 text-xs text-slate-900 dark:text-white focus:border-teal-500 focus:outline-none"
                             >
-                              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                              {ROLES.map((r) => <option key={r} value={r}>{r === 'manager' ? companyRoleLabel(r, u.approveWithheld) : r}</option>)}
                             </select>
                           ) : (
                             <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_BADGE[u.role] ?? 'bg-gray-700 text-gray-300'}`}>
-                              {u.role}
+                              {companyRoleLabel(u.role, u.approveWithheld)}
                             </span>
                           )}
                         </div>

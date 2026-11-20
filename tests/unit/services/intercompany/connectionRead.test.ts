@@ -73,7 +73,7 @@ describe('listGroupCandidates', () => {
     expect(text).toContain('other.left_date IS NULL');
     expect(text).toContain('cu.company_id = other.company_id AND cu.user_id = ?');
     expect(text).toContain('cu.role = ANY(?::TEXT[])');
-    expect(values).toEqual(expect.arrayContaining([A, 'user-1', ['owner', 'admin', 'manager']]));
+    expect(values).toEqual(expect.arrayContaining([A, 'user-1', ['owner', 'admin', 'manager', 'accountant', 'bookkeeper']]));
     expect(text).toContain("CASE WHEN ic.status IS NULL THEN 2 WHEN ic.status = 'revoked' THEN 1 ELSE 0 END");
   });
 

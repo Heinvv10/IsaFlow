@@ -13,7 +13,7 @@
 
 import { Fragment, useState } from 'react';
 import { Plus, Check, X, Trash2, Loader2, Shield } from 'lucide-react';
-import { COMPANY_ROLES as ALL_COMPANY_ROLES, NON_OWNER_COMPANY_ROLES } from '@/lib/auth/companyRoles';
+import { COMPANY_ROLES as ALL_COMPANY_ROLES, NON_OWNER_COMPANY_ROLES, companyRoleLabel } from '@/lib/auth/companyRoles';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 import { adminFetch } from '@/lib/admin/adminFetch';
 
@@ -137,7 +137,7 @@ export function UserCompaniesTable({
                     <select aria-label={`Role in ${c.company_name}`} value={draft} disabled={actionLoading}
                       onChange={e => setRoleDraft(d => ({ ...d, [c.company_id]: e.target.value }))}
                       className="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white capitalize disabled:opacity-50">
-                      {!(ALL_COMPANY_ROLES as readonly string[]).includes(c.role) && <option value={c.role} disabled>{c.role}</option>}
+                      {!(ALL_COMPANY_ROLES as readonly string[]).includes(c.role) && <option value={c.role} disabled>{companyRoleLabel(c.role)}</option>}
                       {/* The app's four roles; owner only as the current value (an owner grants owner in the app). */}
                       {ALL_COMPANY_ROLES.map(r => <option key={r} value={r} disabled={!COMPANY_ROLES.includes(r)}>{r}</option>)}
                     </select>

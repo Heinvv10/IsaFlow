@@ -124,6 +124,25 @@ export function roleDefaultPermission(
  * company_user_permissions rows survived a demotion (round 3, M2): permission rows are not removed when a role changes.
  */
 export function mayHoldApprove(role: string): boolean {
+  return isWriteRole(role);
+}
+
+/** Owner, admin and manager (a stored legacy accountant / bookkeeper reads as manager): the roles that may write. */
+export function isWriteRole(role: string): boolean {
   const effective = normalizeCompanyRole(role);
   return isFullAccessRole(effective) || effective === 'manager';
+}
+
+/**
+ * Every STORED company_users.role value that reads as a write role (owner, admin, manager, and the legacy accountant / bookkeeper that
+ * 1010 leaves stored, round 4 B-M3): what a SQL membership check filters on, since a query sees the stored value, not the normalised one.
+ */
+export const STORED_WRITE_ROLE_VALUES: readonly string[] = [...COMPANY_ROLES, ...Object.keys(LEGACY_ROLE_MAP)].filter(mayHoldApprove);
+
+/** "Manager (no approve)" for a manager the manager default is withheld from (a former accountant / bookkeeper), else the role's name. */
+export function companyRoleLabel(storedRole: string, approveWithheld = false): string {
+  const effective = normalizeCompanyRole(storedRole);
+  const name = effective.charAt(0).toUpperCase() + effective.slice(1);
+  const withheld = approveWithheld || LEGACY_ROLES_WITHOUT_APPROVE.has(storedRole);
+  return effective === 'manager' && withheld ? 'Manager (no approve)' : name;
 }

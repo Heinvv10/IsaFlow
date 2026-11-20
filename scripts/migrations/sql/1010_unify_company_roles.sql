@@ -9,13 +9,20 @@
 -- user the portal linked as a bookkeeper got a 403 on every write.
 --
 --   old value                          new value
---   company_users.role accountant      manager WITHOUT approve (Hein, 2026-11-19)
---   company_users.role bookkeeper      manager WITHOUT approve (it was the link form's default)
+--   company_users.role accountant      STAYS 'accountant' in the table; the app reads it as manager WITHOUT approve (Hein, 2026-11-19)
+--   company_users.role bookkeeper      STAYS 'bookkeeper'; read as manager WITHOUT approve (it was the link form's default)
 --   company_users.role storeman        viewer   (read-only in the app before and after)
 --   company_users.role technician      viewer
 --   company_users.role user            viewer
 --   company_invitations.role (pending, any of the five)   viewer (nothing is granted on accept)
 --   users.role accountant / bookkeeper (platform role, grants nothing)   manager
+--
+-- ROLLBACK SAFETY (round 4, B-M3): the stored accountant / bookkeeper role is NOT rewritten here. Old code (a code rollback, or a
+-- blue/green verification that fails after migrations apply) reads 'manager' as a full approver, so rewriting would hand every
+-- former accountant / bookkeeper approval the moment old code serves again. Left as stored, old code keeps its old restriction
+-- (it never let them write). New code normalises the value at read time (normalizeCompanyRole: manager) and withholds approval
+-- through company_users.approve_withheld (1010c) and the rows below. The physical rewrite to 'manager' is a follow-up migration
+-- once this has shipped and old code can no longer serve.
 --
 -- "Without approve": for each promoted membership, one company_user_permissions
 -- row per module with the manager defaults (read, write, export) and
@@ -57,7 +64,8 @@
 -- No DROP, no DELETE; users_role_check is left as it is.
 --
 -- ROLLBACK (review of #1670, N2). Code first: scripts/rollback-deploy.sh. Then,
--- only if the old values must come back, from role_values_1656_backup (b):
+-- only if the old values must come back, from role_values_1656_backup (b); accountant / bookkeeper were never rewritten, so only
+-- storeman / technician / user have anything to restore:
 --   memberships   UPDATE company_users cu SET role = b.old_role FROM role_values_1656_backup b
 --                 WHERE b.source_table = 'company_users' AND cu.id::text = b.row_id AND b.old_role <> b.new_role;
 --   invitations   UPDATE company_invitations ci SET role = b.old_role FROM role_values_1656_backup b
@@ -83,8 +91,8 @@
 -- WARNING, old code on the new schema (rollback-deploy.sh alone, the usual case):
 --   the old admin link form defaults to 'bookkeeper', which the patched guard refuses (RC007): pick admin or
 --   viewer; the old legacy invite route still accepts storeman / technician (it writes as migration_admin, which
---   the guards do not bind); old code enforces no permission row, so former accountants / bookkeepers write AND
---   approve as managers until new code is back; the 1010b trigger keeps refusing permission writes by anyone but
+--   the guards do not bind); old code enforces no permission row, but former accountants / bookkeepers still STORE
+--   their legacy role, which old code never let write (B-M3), so they stay restricted until new code is back; the 1010b trigger keeps refusing permission writes by anyone but
 --   an owner or admin (old code's route already required that).
 
 SET LOCAL lock_timeout = '5s';
@@ -111,7 +119,7 @@ REVOKE ALL ON public.role_values_1656_backup FROM PUBLIC;
 -- The map (the same CASE in every statement below; no helper function, so nothing
 -- needs TEMP or leaves an object behind).
 INSERT INTO public.role_values_1656_backup (source_table, row_id, old_role, new_role)
-SELECT 'company_users', cu.id::text, cu.role, CASE WHEN cu.role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN cu.role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE cu.role END
+SELECT 'company_users', cu.id::text, cu.role, CASE WHEN cu.role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE cu.role END
 FROM public.company_users cu
 ON CONFLICT (source_table, row_id) DO NOTHING;
 
@@ -180,8 +188,9 @@ ON CONFLICT (company_id, user_id, module_key) DO UPDATE SET
   can_export = CASE WHEN EXCLUDED.module_key = 'payroll' THEN false ELSE company_user_permissions.can_export END,
   updated_at = now();
 
-UPDATE public.company_users SET role = CASE WHEN role IN ('accountant', 'bookkeeper') THEN 'manager' WHEN role IN ('storeman', 'technician', 'user') THEN 'viewer' ELSE role END
-WHERE role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
+-- accountant / bookkeeper stay as stored (see ROLLBACK SAFETY above); read-only legacy values become viewer.
+UPDATE public.company_users SET role = 'viewer'
+WHERE role IN ('storeman', 'technician', 'user');
 
 UPDATE public.company_invitations SET role = 'viewer'
 WHERE accepted_at IS NULL AND role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user');
@@ -236,7 +245,7 @@ BEGIN
     RAISE EXCEPTION '1010: a member guard still names a legacy role';
   END IF;
   IF EXISTS (SELECT 1 FROM public.company_users
-             WHERE role IN ('accountant', 'bookkeeper', 'storeman', 'technician', 'user')) THEN
-    RAISE EXCEPTION '1010: company_users still holds a legacy role';
+             WHERE role IN ('storeman', 'technician', 'user')) THEN
+    RAISE EXCEPTION '1010: company_users still holds a read-only legacy role';
   END IF;
 END $$;

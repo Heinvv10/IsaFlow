@@ -21,6 +21,8 @@ export interface CompanyUserRecord {
   name: string;
   email: string;
   role: string;
+  /** The manager default of Approve and Payroll is withheld (a former accountant / bookkeeper): shown as "Manager (no approve)". */
+  approveWithheld: boolean;
   joinedAt: string;
 }
 
@@ -75,7 +77,14 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
     ORDER BY m.created_at ASC
   `) as DbRow[];
 
+  // company_users.approve_withheld (1010c): the manager default withheld, shown as "Manager (no approve)". Owner / admin read every row (cu_select).
+  const withheldRows = (await sql`
+    SELECT user_id FROM company_users WHERE company_id = ${companyId}::UUID AND approve_withheld = true
+  `) as DbRow[];
+  const withheld = new Set(withheldRows.map((w) => String(w.user_id)));
+
   return rows.map((r: DbRow) => ({
+    approveWithheld: withheld.has(String(r.user_id)) || r.role === 'accountant' || r.role === 'bookkeeper',
     userId: r.user_id as string,
     name: `${(r.first_name as string) ?? ''} ${(r.last_name as string) ?? ''}`.trim() || (r.email as string),
     email: r.email as string,
